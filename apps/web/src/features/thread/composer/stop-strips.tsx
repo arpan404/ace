@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { Icon } from "@/components/icon.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useBackgroundShells } from "@/features/panels/index.ts";
 
 const noShells: readonly BackgroundTask[] = [];
@@ -55,13 +56,18 @@ export function ConfirmStopStrip(props: { subagents: number }) {
   );
 }
 
-/** Stop every one of `commands` that can be stopped, in one press; `sending` until all answer. */
-export function useStopCommands(commands: readonly BackgroundTask[]) {
+/**
+ * Stop every one of `commands` that can be stopped, in one press; `sending` until all answer.
+ * None while the thread's copy isn't confirmed: the commands it lists may have ended.
+ */
+export function useStopCommands(threadId: string, commands: readonly BackgroundTask[]) {
   const client = useClient();
   const toast = useToast();
+  const live = useThreadFreshness(threadId);
   const [sending, setSending] = useState(false);
-  const stoppable = commands.filter((task) => task.stoppable);
+  const stoppable = live.fresh ? commands.filter((task) => task.stoppable) : [];
   const stopAll = () => {
+    if (!live.isFresh()) return;
     setSending(true);
     void Promise.all(
       stoppable.map((task) =>

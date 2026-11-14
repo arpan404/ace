@@ -83,9 +83,10 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
             label={stopping ? "Stopping" : "Stop background task"}
             className="ml-auto shrink-0 opacity-0 group-hover/setting:opacity-100 group-focus-within/setting:opacity-100 pointer-coarse:opacity-100"
             disabled={stopping}
-            onClick={() =>
-              void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
-            }
+            onClick={() => {
+              if (live.isFresh())
+                void send({ type: "background_task.stop", taskId: task.id }).catch(() => {});
+            }}
           />
         )}
       </div>

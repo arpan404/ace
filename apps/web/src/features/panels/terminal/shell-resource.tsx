@@ -38,6 +38,7 @@ import { shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
 import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { ToolbarButton } from "./toolbar.tsx";
 
 /*
@@ -192,6 +193,8 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
   const running = task.status === "running";
   const now = useSeconds(running);
   const { send, intent, error } = useIntentSender();
+  // A task that was running when last seen may have ended: Stop waits for a confirmed copy.
+  const live = useThreadFreshness(props.scope);
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
@@ -233,10 +236,11 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
             <Button
               size="sm"
               variant="ghost"
-              disabled={!task.stoppable || stopping}
-              onClick={() =>
-                void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
-              }
+              disabled={!task.stoppable || stopping || !live.fresh}
+              onClick={() => {
+                if (!live.isFresh()) return;
+                void send({ type: "background_task.stop", taskId: task.id }).catch(() => {});
+              }}
             >
               {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
               {stopping ? "Stopping" : "Stop"}

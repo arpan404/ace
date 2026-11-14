@@ -162,7 +162,7 @@ function CommandsStop(props: { threadId: string; taskIds: readonly string[] }) {
     [taskIds],
   );
   const commands = useThread(props.threadId, keys, read, sameTasks) ?? noTasks;
-  const { stoppable, sending, stopAll } = useStopCommands(commands);
+  const { stoppable, sending, stopAll } = useStopCommands(props.threadId, commands);
   if (!stoppable.length) return null;
   return (
     <Button

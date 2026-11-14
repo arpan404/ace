@@ -18,7 +18,7 @@ import { CaretDownIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useLiveConnection, useThreadFreshness } from "@/lib/live-connection.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -216,7 +216,7 @@ export function AgentLine(
               ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
               : agentStep({ status, item: tool })
             : (agentOutcome(identity.spawn) ?? "finished");
-  const fresh = useLiveConnection().fresh;
+  const fresh = useThreadFreshness(node.threadId).fresh;
   // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
   // when last seen, and never "finished" for a branch that may be working again.
   const stale = !fresh || node.stale;
@@ -256,7 +256,7 @@ export function AgentLine(
         // A child on another machine stops through the work its parent holds for it.
         agent.machine ? (
           node.hold && holdStoppable(node.hold) ? (
-            <TaskStop task={node.hold} />
+            <TaskStop task={node.hold} threadId={node.threadId} stale={stale} />
           ) : undefined
         ) : own && !root ? (
           <StopAgent
@@ -306,9 +306,15 @@ export function AgentLine(
   );
 }
 
-/** Stop for a running task, shown on hover, with a line under the row when it was refused. */
-function TaskStop(props: { task: BackgroundTask }) {
+/**
+ * Stop for a running task, shown on hover, with a line under the row when it was refused. It
+ * waits while the owning thread's copy isn't confirmed (`stale`, or not fresh): the task the row
+ * says was last seen running may have ended.
+ */
+function TaskStop(props: { task: BackgroundTask; threadId: string; stale: boolean }) {
   const stop = useStopIntent();
+  const live = useThreadFreshness(props.threadId);
+  const held = props.stale || !live.fresh;
   return (
     <>
       {stop.failed && (
@@ -326,9 +332,12 @@ function TaskStop(props: { task: BackgroundTask }) {
         type="button"
         tabIndex={-1}
         data-stop=""
-        disabled={stop.busy}
+        disabled={stop.busy || held}
         onKeyDown={backToRow}
-        onClick={() => void stop.send({ type: "background_task.stop", taskId: props.task.id })}
+        onClick={() => {
+          if (props.stale || !live.isFresh()) return;
+          void stop.send({ type: "background_task.stop", taskId: props.task.id });
+        }}
         className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
       >
         {stop.busy ? "Stopping…" : "Stop"}
@@ -344,7 +353,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
   const workspace = useWorkspaceActions(props.viewed);
   const now = useNow();
   const command = backgroundCommand(task, item);
-  const fresh = useLiveConnection().fresh && !props.node.unconfirmed;
+  const fresh = useThreadFreshness(props.node.threadId).fresh && !props.node.unconfirmed;
   const end = Math.max(now, task.startedAt);
   // Its output opens in this thread's terminal; a delegated thread's opens there.
   const show =
@@ -358,7 +367,11 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       label={`$ ${command}: ${fresh ? "running" : "last seen running"}`}
       title={command}
       onOpen={show}
-      actions={task.stoppable ? <TaskStop task={task} /> : undefined}
+      actions={
+        task.stoppable ? (
+          <TaskStop task={task} threadId={props.node.threadId} stale={!fresh} />
+        ) : undefined
+      }
     >
       <span
         aria-hidden
