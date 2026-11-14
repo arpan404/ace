@@ -836,7 +836,10 @@ test("a transfer client holding a pairing removed since reaches nothing when it 
 });
 
 test("a status read arrives at once while thirty-two slow describes and session starts are in flight", async () => {
-  const target = await busyMachine(3000, (asked) => asked.op === "describe" || asked.op === "browser.session");
+  const target = await busyMachine(
+    3000,
+    (asked) => asked.op === "describe" || asked.op === "browser.session",
+  );
   const connections = pool();
   const slow = Array.from({ length: 32 }, (_, index) =>
     machineRequest(
@@ -888,14 +891,18 @@ test("a call queued while its pairing is removed outside the daemon is never sen
   const [profile] = saved.list();
   if (!profile) throw new Error("No pairing saved");
   const long = Array.from({ length: 32 }, () =>
-    machineRequest(profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }).catch(
-      (error: unknown) => error,
-    ),
+    machineRequest(
+      profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ).catch((error: unknown) => error),
   );
   await expect.poll(() => target.arrived.length).toBe(32);
-  const queued = machineRequest(profile, { origin, call: followUp }, { timeoutMs: 10_000, connections }).catch(
-    (error: unknown) => error,
-  );
+  const queued = machineRequest(
+    profile,
+    { origin, call: followUp },
+    { timeoutMs: 10_000, connections },
+  ).catch((error: unknown) => error);
   // `ace remote remove` in another process: nothing in this daemon is told.
   const table = new Profiles(saved.home);
   table.remove("studio");
