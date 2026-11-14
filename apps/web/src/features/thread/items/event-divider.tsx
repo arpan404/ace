@@ -1,5 +1,11 @@
 import type { ThreadReader } from "@ace/client";
-import { useItem, useThreadMeta, useThread } from "@ace/client-react";
+import {
+  shallowEqual,
+  useItem,
+  useThread,
+  useThreadField,
+  type ThreadRecord,
+} from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import {
   eventCounts,
@@ -100,9 +106,17 @@ function useEventCounts(threadId: string, itemId: string): EventCounts | undefin
  * rows and cards, errors as one readable row, notices as one quiet line. A message another
  * thread's agent sent is the one input drawn as a sent bubble, under a line naming its sender.
  */
+/** What an event row reads of its thread: who sent a message, and the provider. */
+const senderFacts = (thread: ThreadRecord) => ({
+  provider: thread.provider,
+  delegatedBy: thread.delegatedBy,
+  startedBy: thread.startedBy,
+  delegatedFrom: thread.delegatedFrom,
+});
+
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const stored = useItem(props.threadId, props.itemId);
-  const thread = useThreadMeta(props.threadId);
+  const thread = useThreadField(props.threadId, senderFacts, shallowEqual);
   const counts = useEventCounts(props.threadId, props.itemId);
   if (!stored || !counts) return null;
   const view = eventView(stored, counts, thread?.provider, thread);

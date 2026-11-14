@@ -1,4 +1,5 @@
-import { useOptionalClient, useThreadMeta, useThreadStore } from "@ace/client-react";
+import { useOptionalClient, useThreadField, useThreadStore } from "@ace/client-react";
+import { threadCheckoutRoot, threadWorkspaceId } from "@/lib/thread-fields.ts";
 import type { ClientApi } from "@ace/client";
 import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";
 import { isMarkitWebImage, markitLinkTarget, shouldResolveMarkitImage } from "@ace/markit-web";
@@ -194,7 +195,8 @@ function MarkitThreadProse(
 ) {
   const { client } = props;
   const { threadId, cwd, itemId } = props.thread;
-  const meta = useThreadMeta(threadId);
+  const root = useThreadField(threadId, threadCheckoutRoot);
+  const workspaceId = useThreadField(threadId, threadWorkspaceId);
   const stream = useStreamName(props);
   const workspace = useOptionalWorkspace(threadId);
   const openWeb = useOpenWebAddress();
@@ -202,8 +204,6 @@ function MarkitThreadProse(
   const openIssue = useContext(IssueOpener);
   const downloadLinked = useContext(LinkedFileOpener);
   const openThread = useThreadNavigation();
-  const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
-  const workspaceId = meta?.workspaceId;
   const fileLinks = useFileLinks({ client, threadId, itemId, root, workspace });
   // Only an answer that shows an image follows the thread for captures.
   const captures = useThreadStore(props.text.includes("![") ? threadId : undefined);

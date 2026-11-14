@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react";
+import { threadWorkspaceId } from "@/lib/thread-fields.ts";
 import type { ForgePrRef } from "@ace/protocol";
 import { useContext, type MouseEvent, type ReactNode } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -45,7 +46,7 @@ function OpeningLink(props: LinkProps & { open: OpenPullRequest | undefined }) {
 }
 
 function ThreadLink(props: LinkProps & { threadId: string }) {
-  const workspaceId = useThreadMeta(props.threadId)?.workspaceId;
+  const workspaceId = useThreadField(props.threadId, threadWorkspaceId);
   const actions = useWorkspaceActions(props.threadId);
   const open = workspaceId
     ? (pr: ForgePrRef) =>

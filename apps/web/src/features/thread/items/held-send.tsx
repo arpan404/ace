@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import { useThread, useThreadMeta } from "@ace/client-react";
+import { useThread, useThreadField } from "@ace/client-react";
+import { threadStatus } from "@/lib/thread-fields.ts";
 import { ArrowClockwiseIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -40,7 +41,7 @@ const fencedOf = (reader: ThreadReader) => reader.queue?.lastFailure?.code === "
  * from, so nothing is removed to edit it. Remove asks first, then drops it.
  */
 export function HeldSend(props: { threadId: string }) {
-  const status = useThreadMeta(props.threadId)?.status;
+  const status = useThreadField(props.threadId, threadStatus);
   const queue = useQueue(props.threadId);
   const { storage } = useLayout();
   const session = useQueueEdit(props.threadId);

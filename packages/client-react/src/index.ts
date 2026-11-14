@@ -9,6 +9,7 @@ export type { ThreadWindow } from "./window-source.ts";
 export {
   useThread,
   useStoreSelect,
+  useThreadField,
   useThreadMeta,
   useThreadError,
   useThreadSyncing,
@@ -19,7 +20,7 @@ export {
   useTask,
   useTaskIds,
 } from "./thread.ts";
-export type { HistoryPager } from "./thread.ts";
+export type { HistoryPager, ThreadRecord } from "./thread.ts";
 export { useAgentTree, agentTree, treeEqual } from "./tree.ts";
 export type { AgentTreeNode } from "./tree.ts";
 export { useInteractions, useInteraction, useItemInteraction } from "./interactions.ts";

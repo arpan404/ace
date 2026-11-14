@@ -1,5 +1,12 @@
 import { startedByWords } from "@ace/ui-core/outside-clients";
-import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
+import {
+  shallowEqual,
+  useInteractions,
+  useThreadError,
+  useThreadField,
+  useThreadMeta,
+  type ThreadRecord,
+} from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import {
   lazy,
@@ -11,6 +18,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   loadThreadBrowser,
@@ -132,13 +140,28 @@ export function ThreadView(props: {
   );
 }
 
+/**
+ * What the thread screen itself shows of its thread. The thread changes identity on every
+ * metadata update (a tool step sends one); reading only these keeps the screen, its header and
+ * the composer's thread from re-rendering on each.
+ */
+const screenFacts = (thread: ThreadRecord) => ({
+  workspaceId: thread.workspaceId,
+  provider: thread.provider,
+  title: thread.title,
+  delegatedBy: thread.delegatedBy,
+  lineage: thread.lineage,
+  startedByClient: thread.startedByClient,
+  queuedLaunch: thread.queuedLaunch,
+});
+
 function ThreadScreen(props: {
   threadId: string;
   target: ThreadTarget | undefined;
   crumb: ReactNode;
 }) {
   const nav = useThreadNav();
-  const meta = useThreadMeta(props.threadId);
+  const meta = useThreadField(props.threadId, screenFacts, shallowEqual);
   const parentThreadId = useVisibleParent(meta?.delegatedBy);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
@@ -206,7 +229,7 @@ function ThreadScreen(props: {
       <WorkCardContext value={workCard}>
         <Screen
           crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}
-          mark={meta && !props.crumb && !parented && <ProjectGlyph thread={meta} />}
+          mark={meta && !props.crumb && !parented && <ThreadGlyph threadId={id} />}
           title={
             renaming && thread ? (
               <Suspense fallback={null}>
@@ -280,16 +303,12 @@ function ThreadScreen(props: {
                   </div>
                 </div>
                 {thread && (
-                  <DelegateBottom thread={meta} onFork={forkPoint && (() => openFork(forkPoint))}>
-                    <GuestBottom thread={meta} requestTarget={props.target?.itemId}>
-                      <ThreadComposer
-                        thread={thread}
-                        status={meta?.status}
-                        composer={composer}
-                        requestTarget={props.target?.itemId}
-                      />
-                    </GuestBottom>
-                  </DelegateBottom>
+                  <ThreadBottom
+                    thread={thread}
+                    onFork={forkPoint && (() => openFork(forkPoint))}
+                    composer={composer}
+                    requestTarget={props.target?.itemId}
+                  />
                 )}
               </div>
             </ForkOpener>
@@ -309,6 +328,35 @@ function ThreadScreen(props: {
         </Screen>
       </WorkCardContext>
     </ThreadPartsProvider>
+  );
+}
+
+/** The project mark beside the title, which reads the whole thread. */
+function ThreadGlyph(props: { threadId: string }) {
+  const meta = useThreadMeta(props.threadId);
+  return meta ? <ProjectGlyph thread={meta} /> : null;
+}
+
+/** Under the transcript: the composer, inside a delegated or guest thread's bars. */
+function ThreadBottom(props: {
+  thread: ThreadRef;
+  onFork: (() => void) | undefined;
+  composer: RefObject<ComposerHandle | null>;
+  requestTarget: string | undefined;
+}) {
+  const meta = useThreadMeta(props.thread.id);
+  if (!meta) return null;
+  return (
+    <DelegateBottom thread={meta} onFork={props.onFork}>
+      <GuestBottom thread={meta} requestTarget={props.requestTarget}>
+        <ThreadComposer
+          thread={props.thread}
+          status={meta.status}
+          composer={props.composer}
+          requestTarget={props.requestTarget}
+        />
+      </GuestBottom>
+    </DelegateBottom>
   );
 }
 

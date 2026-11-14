@@ -44,6 +44,28 @@ const readUnconfirmed = (reader: ThreadReader) => reader.unconfirmed ?? false;
 export function useThreadMeta(threadId: string | undefined): ThreadReader["thread"] | undefined {
   return useThread(threadId, ["thread"], readMeta);
 }
+/** A thread's own record, as `useThreadMeta` returns it. */
+export type ThreadRecord = NonNullable<ThreadReader["thread"]>;
+
+/**
+ * One field of a thread, or a value computed from it. The thread gets a new identity on every
+ * `thread.updated` and `thread.client.updated` (a tool step sends one), so a view that reads only
+ * `workspaceId` or `status` through `useThreadMeta` re-renders on each; through this it
+ * re-renders only when its value changes under `equal` (default `Object.is`). Pass a stable
+ * `pick` (module scope or useCallback); a new one re-subscribes.
+ */
+export function useThreadField<T>(
+  threadId: string | undefined,
+  pick: (thread: ThreadRecord) => T,
+  equal?: (a: T | undefined, b: T | undefined) => boolean,
+): T | undefined {
+  const selector = useCallback(
+    (reader: ThreadReader) => (reader.thread ? pick(reader.thread) : undefined),
+    [pick],
+  );
+  return useThread(threadId, ["thread"], selector, equal);
+}
+
 export function useThreadError(threadId: string | undefined) {
   return useThread(threadId, ["error"], readError);
 }

@@ -1,4 +1,5 @@
-import { useClient, useItem, useThreadMeta } from "@ace/client-react";
+import { useClient, useItem, useThreadField } from "@ace/client-react";
+import { threadModel, threadProvider } from "@/lib/thread-fields.ts";
 import { failedTurnView, resendPayload } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -23,14 +24,14 @@ export function FailedTurn(props: {
   limitInStrip?: boolean | undefined;
 }) {
   const { error, latest } = props;
-  const thread = useThreadMeta(props.threadId);
-  const provider = thread?.provider;
+  const provider = useThreadField(props.threadId, threadProvider);
+  const threadModelNow = useThreadField(props.threadId, threadModel);
   const ask = useItem(props.threadId, props.askId ?? "");
   const notice = useItem(props.threadId, props.errorId ?? "");
   const model =
     notice?.executionSource?.selection.model ??
     ask?.executionSource?.selection.model ??
-    (latest ? thread?.execution?.model : undefined);
+    (latest ? threadModelNow : undefined);
   const client = useClient();
   const toast = useToast();
   const [sending, setSending] = useState(false);

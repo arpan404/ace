@@ -1,6 +1,7 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { mergeReceipts } from "@ace/ui-core";
-import { useThreadMeta } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react";
+import { threadRootAgentId } from "@/lib/thread-fields.ts";
 import { useMemo, useState } from "react";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { blocksEqual, withoutQueued, type Block } from "./blocks.ts";
@@ -11,7 +12,7 @@ const none: readonly Block[] = [];
 
 /** What blocks are built from: items, background tasks, interactions and how turns end. */
 function useBlockKeys(threadId: string, agentId?: string): readonly ThreadKey[] {
-  const owner = useThreadMeta(threadId)?.rootAgentId;
+  const owner = useThreadField(threadId, threadRootAgentId);
   const agent = agentId ?? owner ?? "";
   return useMemo(
     () => ["order", "tasks", "interactions", "agents", "thread", "queue", `agent:${agent}`],

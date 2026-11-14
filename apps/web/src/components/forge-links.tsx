@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react";
+import { threadWorkspaceId } from "@/lib/thread-fields.ts";
 import type { ForgeIssueRef, ForgePrRef } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -46,7 +47,7 @@ export function PullRequestPages(props: { project: string; children: ReactNode }
  * thread (ADR 0102) issue links stay on GitHub; the side panel runs on the thread's machine.
  */
 export function ThreadForgeLinks(props: { threadId: string; children: ReactNode }) {
-  const workspaceId = useThreadMeta(props.threadId)?.workspaceId;
+  const workspaceId = useThreadField(props.threadId, threadWorkspaceId);
   const elsewhere = useScopedMachine() !== undefined;
   const actions = useWorkspaceActions(props.threadId);
   const open = workspaceId
