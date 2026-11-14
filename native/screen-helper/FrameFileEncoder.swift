@@ -60,45 +60,6 @@ final class FrameFileState {
     }
 }
 
-/// Where `--encode-frames` sends each unit: stdout, or ace-media's ingest. The route is read and
-/// the unit written under one lock, so a switch has an exact boundary.
-final class FrameRoute {
-    private let lock = NSLock()
-    private let stdout: (Data) -> Void
-    private var ingest: IngestWriter?
-    private var lastStdout: UInt64?
-    private var lastIngest: UInt64?
-    init(stdout: @escaping (Data) -> Void) { self.stdout = stdout }
-    var ingesting: Bool { lock.lock(); defer { lock.unlock() }; return ingest != nil }
-    func publish(_ unit: EncodedVideo) {
-        lock.lock(); defer { lock.unlock() }
-        if let ingest {
-            guard let frame = ingestFrame(unit, now: DispatchTime.now().uptimeNanoseconds), ingest.write(frame, keyframe: unit.keyframe) else { return }
-            lastIngest = unit.sequence
-        } else if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) {
-            stdout(packet); lastStdout = unit.sequence
-        }
-    }
-    /// Sends to `next` (nil: stdout) from now on; the last sequence the previous path took.
-    func switchTo(_ next: IngestWriter?) -> UInt64? {
-        lock.lock()
-        let previous = ingest
-        let boundary = previous == nil ? lastStdout : lastIngest
-        ingest = next
-        if next != nil { lastIngest = nil }
-        lock.unlock()
-        previous?.finish()
-        return boundary
-    }
-    /// The ingest connection `failed` failed: back to stdout. Nil when it was no longer in use.
-    func closed(_ failed: IngestWriter) -> UInt64?? {
-        lock.lock(); defer { lock.unlock() }
-        guard ingest === failed else { return nil }
-        ingest = nil
-        return .some(lastIngest)
-    }
-}
-
 /// One `--encode-frames` event on stderr.
 private func report(_ state: String, _ boundary: UInt64?) {
     let event: [String: Any] = ["event": "ingest", "state": state, "boundary": boundary.map { $0 as Any } ?? NSNull()]
@@ -115,7 +76,11 @@ enum FrameFileEncoder {
         var mapped: (pointer: UnsafeMutableRawPointer, length: Int)?
         var pool: (pool: CVPixelBufferPool, width: Int, height: Int)?
         var state: FrameFileState!
-        let route = FrameRoute(stdout: { packet in output.write(packet) })
+        // The route owns its ingest writers: a replaced one drains before it closes, and only
+        // the current one's failure moves units back to stdout.
+        let route = IngestRoute(legacy: { unit in
+            if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) { output.write(packet) }
+        }, now: { DispatchTime.now().uptimeNanoseconds })
         let encoder = VideoEncoder(units: { unit in route.publish(unit) },
             completed: { queue.async { state.completed() } }, keyframeInterval: 20)
         encoder.configure(bitrate: 6_000_000, fps: 60)
@@ -157,6 +122,8 @@ enum FrameFileEncoder {
             guard vImagePermuteChannels_ARGB8888(&input, &result, order, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil }
             return buffer
         }
+        route.onKeyframe = { queue.async { state.keyframe() } }
+        route.onClosed = { boundary in queue.async { report("closed", boundary); state.keyframe() } }
         state = FrameFileState(encoder: encoder, picture: picture, now: { DispatchTime.now().uptimeNanoseconds })
         while let line = readLine(strippingNewline: true) {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -178,22 +145,13 @@ enum FrameFileEncoder {
                 case "ingest":
                     let socket = object["socket"] as? String
                     let token = (object["token"] as? String).flatMap { Data(base64Encoded: $0) }
-                    final class Held { weak var writer: IngestWriter? }
-                    let held = Held()
-                    let writer = socket.flatMap { socket in token.flatMap { token in
-                        try? IngestWriter(path: socket, token: token, onClosed: {
-                            queue.async {
-                                guard let failed = held.writer, let boundary = route.closed(failed) else { return }
-                                report("closed", boundary); state.keyframe()
-                            }
-                        }, onKeyframe: { queue.async { state.keyframe() } })
-                    } }
-                    held.writer = writer
-                    // A refused address leaves video where it was, and says so.
-                    if socket != nil && writer == nil { report(route.ingesting ? "on" : "off", nil); return }
-                    let boundary = route.switchTo(writer)
-                    report(writer == nil ? "off" : "on", boundary)
-                    state.keyframe()
+                    let target = socket.flatMap { socket in token.map { (socket: socket, token: $0) } }
+                    // A refused address leaves units where they were, and says so.
+                    guard socket == nil || target != nil, let moved = try? route.route(to: target) else {
+                        report(route.ingesting ? "on" : "off", nil); return
+                    }
+                    report(route.ingesting ? "on" : "off", moved.switched ? moved.boundary : nil)
+                    if moved.switched { state.keyframe() }
                 default: break
                 }
             }

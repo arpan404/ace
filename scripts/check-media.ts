@@ -36,6 +36,17 @@ if (process.platform !== "win32") {
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
+  // E3b: an Android emulator's host-encoded picture through the binary and back.
+  if (process.platform === "darwin")
+    execFileSync(
+      "bun",
+      ["--bun", "x", "vitest", "run", "src/frame-encoder-media.process.test.ts"],
+      {
+        cwd: new URL("../packages/devices/", import.meta.url),
+        env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+        stdio: "inherit",
+      },
+    );
   // E3: the Mac screen helper keeps its signing identity, and (with ACE_SCREEN_INTEGRATION=1,
   // which shows a fixture window) streams through this binary and back on egress.
   if (process.platform === "darwin")

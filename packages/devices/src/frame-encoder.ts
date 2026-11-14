@@ -54,15 +54,24 @@ export function startFrameEncoder(options: {
   });
   /** `ingest` commands waiting for the encoder's answer, in order. */
   const switching: ((switched: Switched) => void)[] = [];
-  encoder.stderr.on("line", (line: string) => {
+  const line = (text: string) => {
     let event: z.infer<typeof IngestEvent>;
     try {
-      event = IngestEvent.parse(JSON.parse(line));
+      event = IngestEvent.parse(JSON.parse(text));
     } catch {
       return;
     }
     if (event.state === "closed") options.ingestClosed?.();
     else switching.shift()?.({ ingest: event.state, boundary: event.boundary });
+  };
+  // stdout carries binary packets, so the process is spawned raw: stderr is split here, and a
+  // line longer than any event is dropped rather than buffered.
+  let partial = "";
+  encoder.stderr.on("data", (chunk: Buffer) => {
+    const lines = (partial + chunk.toString("utf8")).split("\n");
+    partial = lines.pop() ?? "";
+    if (partial.length > 4096) partial = "";
+    for (const text of lines) line(text);
   });
   const command = (value: object) => {
     if (!stopped && encoder.stdin.writable) encoder.stdin.write(`${JSON.stringify(value)}\n`);
