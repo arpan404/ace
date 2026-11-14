@@ -12,6 +12,8 @@ use tokio::task::JoinHandle;
 /// Queued bytes past which a lane is considered stuck.
 pub const NORMAL_LIMIT: usize = 32 * 1024 * 1024;
 pub const PRIORITY_LIMIT: usize = 1024 * 1024;
+/// Egress in flight; past it units are dropped by the gate, never fatal.
+pub const EGRESS_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Overflow;
@@ -50,9 +52,12 @@ impl Writer {
         }
     }
 
+    /// Queues `bytes`. An empty lane always takes one frame, so a frame larger than the bound
+    /// (an 8 MiB keyframe on the 4 MiB egress lane) can still pass once the lane drains.
     pub fn send(&self, bytes: Vec<u8>) -> Result<(), Overflow> {
         let n = bytes.len();
-        if self.queued.fetch_add(n, Ordering::Relaxed) + n > self.limit {
+        let before = self.queued.fetch_add(n, Ordering::Relaxed);
+        if before > 0 && before + n > self.limit {
             self.queued.fetch_sub(n, Ordering::Relaxed);
             return Err(Overflow);
         }

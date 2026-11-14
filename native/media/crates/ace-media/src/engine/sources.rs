@@ -2,6 +2,7 @@
 //! Sources, their ingest connections, epochs and recordings (docs/media/plan.md, "Ingest
 //! framing" and "Recording privacy barrier"). Pure: `now` is ace-media's monotonic
 //! milliseconds, which only bound how long the barrier holds frames.
+use super::egress::{EgressSink, SourceEgress};
 use super::recorder::{RecordSpec, Recorder, Recorders};
 use super::{Effect, log, normal, priority};
 use crate::secret::{SecretId, Vault};
@@ -33,6 +34,9 @@ struct Recording {
 
 struct Source {
     id: Id,
+    /// The daemon's handle for this source: what egress frames carry.
+    handle: u32,
+    egress: SourceEgress,
     /// The ingest token, until a producer presents it.
     token: Option<SecretId>,
     /// ace-media is this source's producer (pictures, simulators, scrcpy, emulator frames), so
@@ -128,6 +132,8 @@ impl Sources {
             id.get().to_owned(),
             Source {
                 id: id.clone(),
+                handle,
+                egress: SourceEgress::default(),
                 token: Some(secret),
                 stamper,
                 epoch,
@@ -168,6 +174,14 @@ impl Sources {
         }
     }
 
+    /// `source.egress`: whether this source's units also go back to the daemon.
+    pub fn egress(&mut self, id: &Id, on: bool, out: &mut Vec<Effect>) {
+        match self.by_id.get_mut(id.get()) {
+            Some(source) => source.egress.set(on),
+            None => log(out, Level::Debug, "source.egress for an unknown source", id),
+        }
+    }
+
     /// `source.picture`: a screencast frame the daemon passes on, read by ace-media as producer.
     pub fn picture(
         &mut self,
@@ -175,6 +189,7 @@ impl Sources {
         epoch: u32,
         payload: Vec<u8>,
         now: u64,
+        egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
         let Some(source) = self.by_id.get(id) else {
@@ -203,7 +218,7 @@ impl Sources {
             extension: Vec::new(),
             payload,
         };
-        self.unit(id, frame, now, out);
+        self.unit(id, frame, now, egress, out);
     }
 
     /// `source.epoch`, for sources ace-media produces: stamp `epoch` from now on, then
@@ -261,12 +276,19 @@ impl Sources {
 
     /// A frame from an ingest connection. The first must be a hello with an unused token of an
     /// open source; anything else closes the connection.
-    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: u64, out: &mut Vec<Effect>) {
+    pub fn ingest(
+        &mut self,
+        conn: IngestId,
+        frame: MediaFrame,
+        now: u64,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(id) = self.bindings.get(&conn).cloned() else {
             return out.push(Effect::CloseIngest(conn));
         };
         match frame.kind {
-            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => self.unit(&id, frame, now, out),
+            KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => self.unit(&id, frame, now, egress, out),
             KIND_END => {
                 self.bindings.remove(&conn);
                 out.push(Effect::CloseIngest(conn));
@@ -336,7 +358,14 @@ impl Sources {
         self.ingest_closed(conn, now, out);
     }
 
-    fn unit(&mut self, id: &str, frame: MediaFrame, now: u64, out: &mut Vec<Effect>) {
+    fn unit(
+        &mut self,
+        id: &str,
+        frame: MediaFrame,
+        now: u64,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(source) = self.by_id.get_mut(id) else {
             return;
         };
@@ -347,6 +376,9 @@ impl Sources {
         if frame.kind != KIND_AUDIO {
             source.encode = frame.encode;
         }
+        source
+            .egress
+            .unit(&source.id, source.handle, &frame, egress, out);
         let Some(recording) = &mut source.recording else {
             return;
         };
