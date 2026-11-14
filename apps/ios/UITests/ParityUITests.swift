@@ -77,9 +77,20 @@ import XCTest
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
         let full = app.buttons["Open Interactive counter full screen"]
         XCTAssertTrue(full.waitForExistence(timeout: 20)); full.tap()
-        sleep(2)
-        XCTAssertFalse(app.staticTexts["Couldn't open media"].exists)
+        // Full screen over the thread, with the page's title, a live page and Copy source.
+        let screen = app.descendants(matching: .any)["visualization.screen"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Interactive counter"].exists)
+        XCTAssertTrue(app.webViews["canvas.content"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Couldn't load this visualization"].exists)
+        let composer = app.textViews["composer.input"]
+        XCTAssertFalse(composer.exists && composer.isHittable, "it covers the thread")
+        let copy = app.buttons["visualization.copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 10)); copy.tap()
+        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
         capture("canvas")
+        app.buttons["Close"].tap()
+        XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
     }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()

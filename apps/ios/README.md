@@ -495,6 +495,15 @@ file, an agent's transcript) stay in the panel, and the thread's bar keeps only 
 panel button. The tab strip's own menu is a caret, so no two ⋯ sit together. As sheets on
 iPhone the screens are unchanged.
 
+A published visualization opens at full size, as the web's visualization tab does
+(`Sources/Views/Tools/VisualizationScreen.swift`, routed by `Models/MediaOpening.swift`): the
+page's full-screen button opens it as its own tab here, one tab per page, titled with the page
+(kind `visualization`, a page the shared rules open only with its item id, never from +), and
+full screen over the thread on iPhone or wherever the panel has no room. Either way it is a second
+live copy of the page, drawn from the thread's kept copy, re-read for the other appearance when
+the app switches between light and dark, with Copy source (the page as the agent wrote it,
+`native.media`'s `source`).
+
 Run and preview joins the panel when `ProjectScriptsView` (the projects branch) and this panel
 are on one branch. The shared rules already offer it as "Run and preview" (kind `preview`). Add:
 
