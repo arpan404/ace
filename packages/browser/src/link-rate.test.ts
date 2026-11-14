@@ -148,13 +148,31 @@ describe("a viewer's link rate", () => {
     expect(simulate(rate, { link: link(100, 150), seconds: 20 }).at(-1)).toBe(limits.max);
   });
 
-  it("bounds the bytes in flight to the rate over a round trip plus 300 ms", () => {
+  it("bounds the bytes in flight to the rate over the path's round trip plus 300 ms", () => {
     const rate = new LinkRate(phone);
     expect(rate.backlogBytes).toBeUndefined();
     simulate(rate, { link: link(0.4, 200), seconds: 20, fps: 5 });
     const rtt = rate.rtt ?? 0;
     expect(rtt).toBeGreaterThan(300);
-    expect(rate.backlogBytes).toBe(Math.round((rate.rate / 8) * ((rtt + 300) / 1000)));
+    const bound = rate.backlogBytes ?? 0;
+    expect(bound).toBeLessThanOrEqual(Math.round((rate.rate / 8) * ((rtt + 300) / 1000)));
+    expect(bound).toBeGreaterThan(Math.round((rate.rate / 8) * 0.3));
+  });
+
+  it("a queue doesn't widen its own bound: it is the path's round trip, not the queued one", () => {
+    const rate = new LinkRate({ ...phone, initial: 1_000_000 });
+    for (let index = 0; index < 10; index++) {
+      rate.sent(index, 1_000, index * 100);
+      rate.acknowledged(index, index * 100 + 300);
+    }
+    const calm = rate.backlogBytes ?? 0;
+    // Acks come back later and later, but not yet long enough to cut.
+    for (let index = 10; index < 13; index++) {
+      rate.sent(index, 1_000, index * 100);
+      rate.acknowledged(index, index * 100 + 300 + (index - 9) * 60);
+    }
+    expect(rate.rtt).toBeGreaterThan(300);
+    expect((rate.backlogBytes ?? 0) / rate.rate).toBeLessThanOrEqual(calm / 1_000_000 + 1e-9);
   });
 });
 

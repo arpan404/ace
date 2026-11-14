@@ -57,7 +57,7 @@ const stallMs = 200;
 /** A second stall this soon after one is a queue after all. */
 const stallGapMs = 2_000;
 const rise = 1.08;
-/** A drain holds the rate to this share of what is delivered, for twice the round trip... */
+/** A drain holds the rate to this share of what is delivered, for twice the queueing... */
 const drainShare = 0.5;
 /** ...and a link calm this many round trips is probed upward faster again, at `probeRise`. */
 const calmRtts = 3;
@@ -67,7 +67,7 @@ const startRise = 1.25;
 /** A queue lowers the rate to this share of what was delivered, but never below `deepest`. */
 const deliveredShare = 0.9;
 const deepest = 0.6;
-/** A drop (a queue past the time bound) cuts to this share: CUBIC's beta. */
+/** A drop with nothing delivered to judge by cuts to this share: CUBIC's beta. */
 const dropFall = 0.7;
 /** How far above the best rate it has delivered lately the rate may aim. */
 const headroom = 1.3;
@@ -331,14 +331,16 @@ export class LinkRate {
       const carried = delivered || before;
       const resume = Math.min(before, carried * deliveredShare);
       const hold = Math.min(resume, carried * drainShare);
-      // Half the rate for twice the measured round trip (which includes the queue) empties a
-      // queue up to a round trip long.
-      this.#drain = { until: at + Math.max(stepMs, 2 * (this.#smoothed ?? 0)), hold, resume };
+      // Half the rate for twice the queueing (smoothed round trip less the floor) empties it;
+      // at least a path round trip, so a fresh sample can show.
+      const queued = Math.max(0, (this.#smoothed ?? floor) - floor);
+      this.#drain = { until: at + Math.max(stepMs, floor, 2 * queued), hold, resume };
       rate = hold;
     };
-    // A drop cuts deep only when the link delivered less than the rate (the queue is ours); with
-    // another flow's queue on the path, the rate eases off.
-    if (this.#dropped) cut(Math.min(rate * deliveredShare, (delivered || rate) * dropFall));
+    // A drop (the time bound held a chunk back) brings the rate to what the link delivered,
+    // as a lasting queue does: the bound itself keeps the lag down, and the first cut's drain
+    // empties a queue of our own. The 2 s window covers a stall's gap.
+    if (this.#dropped) cut(Math.max(delivered, rates.longer) * deliveredShare || rate * dropFall);
     else if (this.#queuedSince !== undefined) {
       if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs)
         // A queue that lasts cuts to what the link delivered: if that is more than the rate, the

@@ -364,8 +364,10 @@ impl LinkRate {
         }
         let mut rate = self.rate;
         let cut = if self.dropped {
-            // A drop cuts deep (CUBIC's beta) only when the queue is ours.
-            Some((rate * 0.9).min((if delivered == 0.0 { rate } else { delivered }) * 0.7))
+            // A drop brings the rate to what the link delivered; with nothing delivered, CUBIC's
+            // beta.
+            let carried = delivered.max(longer) * 0.9;
+            Some(if carried == 0.0 { rate * 0.7 } else { carried })
         } else if let Some(since) = self.queued_since {
             (at >= self.hold_until && at - since >= PERSIST_MS).then(|| delivered.max(longer) * 0.9)
         } else {
@@ -387,8 +389,9 @@ impl LinkRate {
                 };
                 let resume = self.rate.min(carried * 0.9);
                 let hold = resume.min(carried * DRAIN_SHARE);
-                // Twice the measured round trip (queue included) empties a queue up to an RTT long.
-                let until = at + STEP_MS.max(2.0 * self.smoothed.unwrap_or(0.0));
+                // Half the rate for twice the queueing empties it; at least a path round trip.
+                let queued = (self.smoothed.unwrap_or(floor) - floor).max(0.0);
+                let until = at + STEP_MS.max(floor).max(2.0 * queued);
                 self.drain = Some((until, hold, resume));
                 rate = hold;
             }
