@@ -119,7 +119,11 @@ test("a checkout written in batches has exactly the files a plain worktree add w
         );
       }),
     );
+    // Paths reach checkout-index NUL-separated on stdin, so any name survives.
+    await writeFile(join(f.repo, "雪 with spaces.txt"), "unicode\n");
+    await writeFile(join(f.repo, "-starts-with-dash"), "dash\n");
     if (process.platform !== "win32") {
+      await writeFile(join(f.repo, "line\nbreak\ttab.txt"), "control characters\n");
       await writeFile(join(f.repo, "run.sh"), "echo run\n");
       await chmod(join(f.repo, "run.sh"), 0o755);
       await symlink("run.sh", join(f.repo, "link"));

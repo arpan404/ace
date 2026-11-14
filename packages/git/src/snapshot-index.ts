@@ -1,3 +1,4 @@
+import type { BigIntStats } from "node:fs";
 import { copyFile, readdir, stat, utimes } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
@@ -6,6 +7,7 @@ import { decode, hash, malformed, nul, pathAncestors } from "./decode.ts";
 import { parseIndex, type IndexEntry } from "./parse-index.ts";
 import type { Repository } from "./repository.ts";
 import { withIndex } from "./temporary-index.ts";
+import { recentlyChanged, snapshotConfig, statCacheTrusted } from "./snapshot-trust.ts";
 import { GitError } from "./types.ts";
 
 // Snapshot capture and restore discovery must see the same HEAD/index union,
@@ -27,7 +29,14 @@ export async function withSnapshotIndex<T>(
       "unsupported_repository",
       "Full working-tree snapshots do not support sparse checkout",
     );
-  return withIndex(repository.tempDirectory, async (env) => {
+  return withIndex(repository.tempDirectory, async (indexEnv) => {
+    // Windows: a snapshot only records the checkout. A person's core.safecrlf=true must not
+    // refuse a file whose line endings Git would not round-trip.
+    const settings = [
+      ...snapshotConfig,
+      ...(cli.platform === "win32" ? ["'core.safecrlf'='false'"] : []),
+    ];
+    const env = { ...indexEnv, GIT_CONFIG_PARAMETERS: settings.join(" ") };
     const [head, copied] = await Promise.all([
       cli.call(root, ["rev-parse", "--verify", "HEAD^{tree}"], { allowFailure: true }),
       copyIndex(repository, root, index, env),
@@ -36,10 +45,6 @@ export async function withSnapshotIndex<T>(
     const seeded = copied
       ? await addHeadPaths(repository, root, env, copied, tree)
       : await seedFromScratch(repository, root, env, tree);
-    // Windows: a snapshot only records the checkout. A person's core.safecrlf=true must not
-    // refuse a file whose line endings Git would not round-trip.
-    if (cli.platform === "win32")
-      return operation({ ...env, GIT_CONFIG_PARAMETERS: "'core.safecrlf'='false'" }, seeded);
     return operation(env, seeded);
   });
 }
@@ -61,8 +66,9 @@ async function sparseCheckout(repository: Repository, root: string): Promise<boo
 /**
  * Seed the temporary index with a byte copy of the checkout's own index, so `git add` reuses
  * its stat data instead of hashing every file again. The checkout's index is only read.
- * Returns undefined when the copy cannot stand in for the real index; the caller then builds
- * the temporary index from scratch.
+ * Returns undefined when the copy cannot stand in for the real index, including whenever
+ * `statCacheTrusted` says the stat cache could miss a change (see snapshot-trust.ts); the caller
+ * then builds the temporary index from scratch, which hashes every file.
  */
 async function copyIndex(
   repository: Repository,
@@ -73,15 +79,16 @@ async function copyIndex(
   const target = env.GIT_INDEX_FILE;
   if (!target) return undefined;
   // A split index refers to shared files beside it; writing the copy could add new ones there.
+  let source: BigIntStats;
   try {
     if ((await readdir(dirname(index))).some((name) => name.startsWith("sharedindex.")))
       return undefined;
-    const source = await stat(index);
+    source = await stat(index, { bigint: true });
     // Git renames a finished index into place, so this reads one complete version of it.
     await copyFile(index, target);
     // Git rechecks entries changed at or after the index's own timestamp ("racily clean").
     // The copy keeps a timestamp no later than the original's, so that window only widens.
-    const seconds = Math.floor(source.mtimeMs / 1000) - 1;
+    const seconds = Number(source.mtimeMs / 1000n) - 1;
     await utimes(target, seconds, seconds);
   } catch {
     return undefined;
@@ -106,6 +113,16 @@ async function copyIndex(
   }
   // A conflicted index keeps several stages per path; the from-scratch seed flattens those.
   if (entries.some((entry) => entry.stage !== "0")) return undefined;
+  if (!(await statCacheTrusted(repository, root, entries, env))) return undefined;
+  // Changed since shortly before the index was written: stat data alone can't vouch for it.
+  // Re-adding the entry with its blob but no stat data makes `git add` hash the file.
+  const recent = await recentlyChanged(root, entries, source.mtimeNs);
+  if (recent.length)
+    await repository.cli.call(root, ["update-index", "-z", "--index-info"], {
+      write: true,
+      env,
+      input: recent.map((entry) => `${entry.mode} ${entry.sha} 0\t${entry.path}\0`).join(""),
+    });
   // Hidden-change flags would let `git add` skip a path's real content, so clear them.
   // update-index applies only the first flag option given to each path: one call per flag.
   for (const [flag, paths] of [
