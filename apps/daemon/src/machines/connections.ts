@@ -37,8 +37,12 @@ const IDLE_MARGIN_MS = 2000;
 const IDLE_CAP_MS = 45_000;
 /** Kept this long when the other machine says nothing, as an older daemon's 5 s allows. */
 const IDLE_DEFAULT_MS = 3000;
-/** Connections per machine per lane: tool calls and reads share six, urgent calls have two. */
-const laneSockets: Record<ConnectionLane, number> = { shared: 6, urgent: 2 };
+/**
+ * Connections per machine per lane: tool calls and reads share six. Urgent calls open one more
+ * connection rather than wait behind another urgent call, up to eight at once; two are kept
+ * open when idle.
+ */
+const laneSockets: Record<ConnectionLane, number> = { shared: 6, urgent: 8 };
 
 interface Lane {
   agent: Agent | undefined;

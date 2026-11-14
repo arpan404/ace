@@ -42,6 +42,12 @@ export class MachineFailure extends Error {
  */
 export class MachineTimeout extends MachineFailure {}
 
+/**
+ * The call's deadline passed while it waited for a connection: nothing was sent, so a caller may
+ * send it again without any risk of it running twice.
+ */
+export class MachineNotSent extends MachineFailure {}
+
 /** True when `error`, or what it wraps, is the machine saying it has no such record. */
 export function refusedNotFound(error: unknown): boolean {
   for (let at: unknown = error, depth = 0; at instanceof Error && depth < 4; depth++) {
@@ -212,20 +218,26 @@ function pinnedOnce(
       request.destroy();
       finish(lost());
     };
-    // Timed from when the request has a connection to go out on, never while it waits for one.
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    const startDeadline = () => {
-      if (deadline !== undefined || settled) return;
-      deadline = setTimeout(() => {
-        request.destroy();
-        const kind = connected ? "disconnected" : "offline";
-        finish(new MachineTimeout(kind, undefined, "Machine answer timed out"));
-      }, options.timeoutMs);
-      deadline.unref();
-    };
+    // One deadline for the whole call, from when it is made: the wait for a connection counts.
+    // Passing it before any connection was given means nothing left this machine.
+    let assigned = false;
+    const deadline = setTimeout(() => {
+      request.destroy();
+      if (!assigned)
+        finish(new MachineNotSent("offline", undefined, "Machine call never sent: no connection"));
+      else
+        finish(
+          new MachineTimeout(
+            connected ? "disconnected" : "offline",
+            undefined,
+            "Machine answer timed out",
+          ),
+        );
+    }, options.timeoutMs);
+    deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
     request.on("socket", (socket) => {
-      startDeadline();
+      assigned = true;
       // A kept-open connection is already up: what is written to it may reach the machine.
       if (request.reusedSocket) connected = true;
       else
