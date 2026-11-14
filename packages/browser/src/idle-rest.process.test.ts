@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { connectBrowser } from "./index.ts";
+import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
+import type { BrowserVideoChunk } from "./stream-video.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { BrowserTabRecord } from "./tab-store.ts";
 import { executablePath, fixture } from "./test-support.ts";
@@ -43,6 +45,55 @@ const watchDrawing = `window.seen = []; window.drawn = 0;
   document.addEventListener("visibilitychange", () => seen.push(document.visibilityState));
   (function draw() { drawn++; requestAnimationFrame(draw); })();`;
 
+/** Red now; once the page is hidden it turns green, so only a picture taken since is green. */
+const paintOnceHidden = `document.body.style.background = "rgb(255, 0, 0)";
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setTimeout(() => { document.body.style.background = "rgb(0, 160, 0)"; }, 50);
+  });`;
+/** Real time for a hidden page's own timers to run, without touching the page. */
+const letPageRun = () => new Promise((resolve) => setTimeout(resolve, 500));
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+/** A picture's size and its middle pixel, decoded by the page itself. */
+async function look(f: Fixture, bytes: Uint8Array): Promise<number[]> {
+  const data = JSON.stringify(Buffer.from(bytes).toString("base64"));
+  return (await f.evaluate(`(async () => {
+    const bytes = Uint8Array.from(atob(${data}), (c) => c.charCodeAt(0));
+    const image = await createImageBitmap(new Blob([bytes]));
+    const canvas = new OffscreenCanvas(image.width, image.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const [r, g, b] = context.getImageData(image.width >> 1, image.height >> 1, 1, 1).data;
+    return [image.width, image.height, r, g, b];
+  })()`)) as number[];
+}
+/** A keyframe's middle pixel, decoded with WebCodecs in the page itself. */
+async function decodedMiddle(f: Fixture, chunk: BrowserVideoChunk): Promise<number[]> {
+  const config = {
+    codec: chunk.codec,
+    codedWidth: chunk.codedWidth,
+    codedHeight: chunk.codedHeight,
+    ...(chunk.description
+      ? { description: Buffer.from(chunk.description).toString("base64") }
+      : {}),
+  };
+  const data = JSON.stringify(Buffer.from(chunk.bytes).toString("base64"));
+  return (await f.evaluate(`(async () => {
+    const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const config = ${JSON.stringify(config)};
+    const frames = [];
+    const decoder = new VideoDecoder({ output: (frame) => frames.push(frame), error: () => {} });
+    decoder.configure({ ...config, ...(config.description ? { description: bytes(config.description) } : {}) });
+    decoder.decode(new EncodedVideoChunk({ type: "key", timestamp: 0, data: bytes(${data}) }));
+    await decoder.flush();
+    const frame = frames[0];
+    const canvas = new OffscreenCanvas(frame.displayWidth, frame.displayHeight);
+    const context = canvas.getContext("2d");
+    context.drawImage(frame, 0, 0);
+    frame.close();
+    return [...context.getImageData(canvas.width >> 1, canvas.height >> 1, 1, 1).data.slice(0, 3)];
+  })()`)) as number[];
+}
+
 describe.skipIf(!executablePath)("an unwatched browser in ace's Chrome", () => {
   it("the shown tab nobody watches stops drawing once idle, and draws again before an agent's next command", async () => {
     const { f, idleFor } = await idleBrowser();
@@ -67,32 +118,62 @@ describe.skipIf(!executablePath)("an unwatched browser in ace's Chrome", () => {
     expect(await f.evaluate("document.hasFocus()")).toBe(true);
   }, 60_000);
 
-  it("a screenshot taken as the first command after a rest is the full page, drawn", async () => {
+  it("a screenshot taken as the first command after a rest shows the page as it is now, at full size", async () => {
     const { f, idleFor } = await idleBrowser();
     await f.navigate();
-    await f.evaluate("document.body.style.background = 'rgb(255, 0, 0)'");
-    /** The picture's size and its middle pixel, decoded by the page itself. */
-    const look = async (bytes: Uint8Array) =>
-      f.evaluate(`(async () => {
-        const bytes = Uint8Array.from(atob(${JSON.stringify(Buffer.from(bytes).toString("base64"))}), (c) => c.charCodeAt(0));
-        const image = await createImageBitmap(new Blob([bytes]));
-        const canvas = new OffscreenCanvas(image.width, image.height);
-        const context = canvas.getContext("2d");
-        context.drawImage(image, 0, 0);
-        const [r, g, b] = context.getImageData(image.width >> 1, image.height >> 1, 1, 1).data;
-        return [image.width, image.height, r, g, b];
-      })()`);
-    const before = await look(await f.service.screenshot("thread"));
+    await f.evaluate(paintOnceHidden);
+    const [width, height] = await look(f, await f.service.screenshot("thread"));
     await idleFor(defaultTabLifecycle.restAfterMs);
+    // The page turns green while hidden and draws nothing since; then it freezes.
+    await letPageRun();
     await idleFor(defaultTabLifecycle.freezeAfterMs);
-    // Rested and frozen; the screenshot is the first thing to touch the page again.
-    const after = await look(await f.service.screenshot("thread"));
-    expect(after).toEqual(before);
-    // The page's red (give or take the picture's compression), not a blank or empty frame.
-    const [width, height, r, g, b] = after as number[];
-    expect(width).toBeGreaterThan(1000);
-    expect(height).toBeGreaterThan(500);
-    expect([(r ?? 0) > 240, (g ?? 255) < 16, (b ?? 255) < 16]).toEqual([true, true, true]);
+    // The screenshot is the first thing to touch the page again.
+    const [afterWidth, afterHeight, r, g, b] = await look(f, await f.service.screenshot("thread"));
+    expect([afterWidth, afterHeight]).toEqual([width, height]);
+    expect([r, g, b].map((value) => Math.round((value ?? 0) / 32))).toEqual([0, 5, 0]);
+  }, 60_000);
+
+  it("a viewer who starts watching a rested tab first sees the page as it is now, at full size", async () => {
+    const { f, idleFor } = await idleBrowser();
+    await f.navigate();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+    await f.evaluate(paintOnceHidden);
+    await idleFor(defaultTabLifecycle.restAfterMs);
+    await letPageRun();
+
+    const chunks: BrowserVideoChunk[] = [];
+    const assembler = new StreamAssembler();
+    const bridge = connectBrowser(f.service, {
+      connectionId: "viewer",
+      authorize: () => true,
+      send: () => true,
+      sendStream: (pieces) => {
+        for (const piece of pieces) {
+          const envelope = assembler.push(piece);
+          const message = envelope && decodeStreamMessage(envelope);
+          if (message?.kind === "browser.video") chunks.push(message.chunk);
+        }
+        return true;
+      },
+    });
+    onTestFinished(() => bridge.close());
+    await bridge.handle({
+      type: "browser.subscribe",
+      threadId: "thread",
+      requestId: "subscribe",
+      binaryFrames: true,
+      viewport: { width: 640, height: 400, devicePixelRatio: 2 },
+      video: { codecs: ["avc1.42E033", "vp8"] },
+    });
+    await expect.poll(() => chunks.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    const first = chunks[0];
+    if (!first) throw new Error("No video");
+    // A keyframe at the pane's full size, not a minimized window's.
+    expect(first).toMatchObject({ key: true, width: 640, height: 400 });
+    expect([first.codedWidth, first.codedHeight]).toEqual([1280, 800]);
+    // Its picture is the page now (green), not the red it showed before it rested.
+    const [r, g, b] = await decodedMiddle(f, first);
+    expect([r, g, b].map((value) => Math.round((value ?? 0) / 32))).toEqual([0, 5, 0]);
   }, 60_000);
 
   it("the shown tab nobody watches freezes when idle, and runs again for the agent", async () => {
