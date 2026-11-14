@@ -121,30 +121,61 @@ it("a short resume still replays its events", () => {
   expect(reconnect(store, a.id, cursor, 5000).map((sent) => sent.type)).toEqual(["events"]);
 });
 
-it("a resume whose small snapshot would not reach the cursor replays instead", () => {
+it("a resume never answers with a snapshot cut to a tail: it gets the full one", () => {
   const { store, a } = setup();
   for (let index = 0; index < 20; index++)
     store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
   const cursor = store.headSeq();
   for (let index = 0; index < 8; index++) streamTurn(store, a.id, `new${index}`, 200);
-  const tail = { items: 3, bytes: 64 * 1024 };
-  // Answered by snapshot, the held items before the cursor would be dropped and read again.
-  expect(reconnect(store, a.id, cursor, 5000, tail).map((sent) => sent.type)).toContain("events");
-  // A snapshot that holds everything after the cursor is still preferred.
-  expect(reconnect(store, a.id, cursor, 5000).map((sent) => sent.type)).toEqual(["snapshot"]);
+  const wire = reconnect(store, a.id, cursor, 5000, { items: 3, bytes: 64 * 1024 });
+  const [snapshot] = wire;
+  if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") throw new Error("No view");
+  const [full] = reconnect(store, a.id, store.headSeq() + 1, 5000);
+  expect(snapshot).toEqual({ ...full, subscriptionId: snapshot.subscriptionId });
+  expect(snapshot.view.fill).toBeUndefined();
 });
+
+it("a resume past the replay limit gets the full snapshot, as a cursor with no replay does", () => {
+  const { store, a } = setup();
+  for (let index = 0; index < 40; index++)
+    store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+  const cursor = store.headSeq();
+  store.appendEvents(a.id, [{ type: "item.deleted", itemId: message("old0").id }]);
+  // Over 5,000 events into one reply: the replay overflows before any event is read.
+  streamTurn(store, a.id, "long", 5200);
+  const wire = reconnect(store, a.id, cursor, 5000, { items: 30, bytes: 48 * 1024 });
+  const [snapshot] = wire;
+  if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") throw new Error("No view");
+  const [full] = reconnect(store, a.id, store.headSeq() + 1, 5000);
+  expect(snapshot).toEqual({ ...full, subscriptionId: snapshot.subscriptionId });
+  expect(snapshot.view.itemOrder).not.toContain("old0");
+  // The full snapshot reaches back past the deleted item, so the client's copy of it goes.
+  expect(snapshot.view.itemOrder[0]).toBe("old1");
+});
+
+/** Past a full snapshot's 200 items: `old0` is outside any snapshot. */
+function longThread(store: Store, threadId: ThreadId) {
+  for (let index = 0; index < 250; index += 50)
+    store.appendEvents(
+      threadId,
+      Array.from({ length: 50 }, (_, n) => ({
+        type: "item.created" as const,
+        item: message(`old${index + n}`),
+      })),
+    );
+}
 
 it.each([
   ["deleted", (id: string) => ({ type: "item.deleted" as const, itemId: message(id).id })],
   ["edited", (id: string) => ({ type: "item.updated" as const, item: message(id, "edited") })],
+  ["created again", (id: string) => ({ type: "item.created" as const, item: message(id, "new") })],
 ])(
   "a resume where an item older than the snapshot was %s replays, so the change arrives",
   (_change, change) => {
     const { store, a } = setup();
-    for (let index = 0; index < 40; index++)
-      store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+    longThread(store, a.id);
     const cursor = store.headSeq();
-    // While the client is away, an item older than any small snapshot holds changes.
+    // While the client is away, an item older than any snapshot holds changes.
     store.appendEvents(a.id, [change("old0")]);
     streamTurn(store, a.id, "long", 4000);
     const wire = reconnect(store, a.id, cursor, 5000, { items: 30, bytes: 64 * 1024 });
@@ -153,7 +184,8 @@ it.each([
       delivered.some(
         (event) =>
           (event.payload.type === "item.deleted" && event.payload.itemId === "old0") ||
-          (event.payload.type === "item.updated" && event.payload.item.id === "old0"),
+          ((event.payload.type === "item.updated" || event.payload.type === "item.created") &&
+            event.payload.item.id === "old0"),
       ),
     ).toBe(true);
   },

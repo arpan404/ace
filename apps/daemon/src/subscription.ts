@@ -101,11 +101,31 @@ function replayFrames(events: Event[], encoder: WireEncoder): Event[][] {
 /** A thread replay at or under this many bytes is sent without weighing a snapshot against it. */
 const replayCompareBytes = 16 * 1024;
 /**
- * `message` when it costs fewer bytes than a replay of `replayBytes` (the `missed` events) and
- * the client ends where the replay would leave it. The snapshot must hold every item created
- * after `afterSeq`, so the client keeps the history it holds (ADR 0062) instead of reading it
- * again. And no missed event may change an item the snapshot does not carry: the client keeps
- * its own copy of such an older item, so an edit or deletion of it would never arrive.
+ * The transcript item `payload` changes, if any. A repeated `item.created` upserts an item
+ * that may already exist, so it is a change like an update; `input.admitted` sets the native id
+ * of the `input:<command>` item it names. Every other event changes only what a snapshot
+ * carries whole (thread, agents, runs, interactions, tasks, queue, usage, context meters).
+ */
+function changedItem(payload: Event["payload"]): string | undefined {
+  switch (payload.type) {
+    case "item.created":
+    case "item.updated":
+      return payload.item.id;
+    case "item.delta":
+    case "item.deleted":
+      return payload.itemId;
+    case "input.admitted":
+      return payload.commandId ? `input:${payload.commandId}` : undefined;
+    default:
+      return undefined;
+  }
+}
+/**
+ * `message`, a full snapshot, when it costs fewer bytes than a replay of `replayBytes` (the
+ * `missed` events) and the client ends where the replay would leave it. It must hold every item
+ * created after `afterSeq`, so the client keeps the history it holds (ADR 0062) instead of
+ * reading it again. And every item a missed event changed must be in it: the client keeps its
+ * own copy of an item the snapshot does not carry, so that change would never arrive.
  */
 function smallerSnapshot(
   message: ServerMessage,
@@ -117,18 +137,9 @@ function smallerSnapshot(
   if (message.type !== "snapshot" || message.view.kind !== "thread") return undefined;
   const view = message.view;
   if (view.itemsBefore !== null && view.itemsBefore > afterSeq + 1) return undefined;
-  const created = new Set<string>();
   for (const event of missed) {
-    const payload = event.payload;
-    if (payload.type === "item.created") created.add(payload.item.id);
-    const changed =
-      payload.type === "item.updated"
-        ? payload.item.id
-        : payload.type === "item.delta" || payload.type === "item.deleted"
-          ? payload.itemId
-          : undefined;
-    if (changed !== undefined && !created.has(changed) && !Object.hasOwn(view.items, changed))
-      return undefined;
+    const changed = changedItem(event.payload);
+    if (changed !== undefined && !Object.hasOwn(view.items, changed)) return undefined;
   }
   return Buffer.byteLength(encoder.encode(message)) < replayBytes ? message : undefined;
 }
@@ -260,7 +271,13 @@ export function subscribe(
       // A thread's snapshot is shared and frozen: send a copy of its top level with the head.
       const snapshotView =
         scope.kind === "thread"
-          ? store.snapshotThread(scope.threadId, tail)
+          ? store.snapshotThread(
+              scope.threadId,
+              // Only a first open is cut to a tail. A client resuming from a cursor holds a copy:
+              // it gets the full snapshot, so what it keeps of that copy is what a full one
+              // answers (ADR 0062), never items a tail and its fill would leave stale.
+              afterSeq === undefined ? tail : undefined,
+            )
           : structuredClone(view);
       const head = store.headSeq();
       cursor = head;
@@ -297,7 +314,7 @@ export function subscribe(
         const snapshot = (): ServerMessage => {
           const view =
             scope.kind === "thread"
-              ? store.snapshotThread(scope.threadId, tail)
+              ? store.snapshotThread(scope.threadId)
               : createThreadListView(store.listThreads());
           return { type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } };
         };
