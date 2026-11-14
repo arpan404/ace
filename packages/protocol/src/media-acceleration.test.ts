@@ -44,13 +44,14 @@ test.each([
   },
 );
 
-test.each([
-  ["browser", BrowserState, browser],
-  ["device", DeviceState, device],
-  ["screen", ScreenState, screen],
-] as const)("older %s clients ignore acceleration", (_, schema, state) => {
-  const older = schema.omit({ acceleration: true });
-  expect(older.parse({ ...state, acceleration })).not.toHaveProperty("acceleration");
+test("older clients ignore acceleration on browser, device and screen state", () => {
+  const omit = { acceleration: true } as const;
+  for (const parsed of [
+    BrowserState.omit(omit).parse({ ...browser, acceleration }),
+    DeviceState.omit(omit).parse({ ...device, acceleration }),
+    ScreenState.omit(omit).parse({ ...screen, acceleration }),
+  ])
+    expect(parsed).not.toHaveProperty("acceleration");
 });
 
 test("a helper hello reports capture → encode, and older hellos without it still parse", () => {
