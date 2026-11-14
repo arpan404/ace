@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import Synchronization
 import Testing
@@ -53,6 +54,37 @@ import Testing
         // Nothing is marked past the thread's ends.
         #expect(TurnRail.Selection().current(scrub: nil, place: .turn(12), count: 9) == 9)
         #expect(TurnRail.Selection().current(scrub: nil, place: nil, count: 0) == 1)
+    }
+    @Test func aTapOnTheBandJumpsWhereItTouched() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        var touch = TurnRail.BandTouch(start: start, y: 2)
+        touch.moved(to: 4, at: start.addingTimeInterval(0.05))
+        #expect(!touch.scrubbing)
+        #expect(touch.lifted(at: 4) == 2)
+    }
+    @Test func holdingThenDraggingScrubsAndLiftingJumpsWhereTheFingerIs() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        var touch = TurnRail.BandTouch(start: start, y: 300)
+        touch.moved(to: 302, at: start.addingTimeInterval(0.25))
+        #expect(touch.scrubbing)
+        touch.moved(to: 10, at: start.addingTimeInterval(0.6))
+        #expect(touch.scrubbing)
+        #expect(touch.lifted(at: 10) == 10)
+    }
+    @Test func aQuickSwipeOnTheBandNeitherScrubsNorJumps() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        var touch = TurnRail.BandTouch(start: start, y: 300)
+        touch.moved(to: 200, at: start.addingTimeInterval(0.08))
+        // Once it was a swipe, holding still afterwards changes nothing.
+        touch.moved(to: 200, at: start.addingTimeInterval(0.5))
+        #expect(!touch.scrubbing)
+        #expect(touch.lifted(at: 200) == nil)
+    }
+    @Test func aHeldTouchLiftedWithoutMovingJumpsWhereItRested() {
+        let start = Date(timeIntervalSinceReferenceDate: 0)
+        var touch = TurnRail.BandTouch(start: start, y: 120)
+        touch.moved(to: 121, at: start.addingTimeInterval(0.4))
+        #expect(touch.lifted(at: 121) == 121)
     }
     @Test func theReadersTurnIsTheOneTheTopRowBelongsTo() {
         let rows: [TurnRail.Mark] = [.ask, .head(7), .answer, .ask, .head(8), .answer, .ask, .answer]

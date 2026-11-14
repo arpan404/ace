@@ -29,6 +29,33 @@ enum TurnRail {
         }
     }
 
+    /// One touch on the rail's edge band, decided by where and when it moves: a tap jumps where it
+    /// touched; resting `hold` seconds and then dragging scrubs, and lifting jumps where the finger
+    /// is; moving more than `slop` points first is a swipe, which does nothing.
+    struct BandTouch: Equatable {
+        static let hold: TimeInterval = 0.2
+        static let slop: Double = 10
+        private enum Phase: Equatable { case waiting, scrubbing, swiped }
+        private let start: Date
+        private let startY: Double
+        private var phase = Phase.waiting
+        init(start: Date, y: Double) { self.start = start; startY = y }
+        var scrubbing: Bool { phase == .scrubbing }
+        mutating func moved(to y: Double, at time: Date) {
+            guard phase == .waiting else { return }
+            if time.timeIntervalSince(start) >= Self.hold { phase = .scrubbing }
+            else if abs(y - startY) > Self.slop { phase = .swiped }
+        }
+        /// Where on the rail to jump as the finger lifts at `y`; nil for a swipe.
+        func lifted(at y: Double) -> Double? {
+            switch phase {
+            case .scrubbing: return y
+            case .swiped: return nil
+            case .waiting: return abs(y - startY) <= Self.slop ? startY : nil
+            }
+        }
+    }
+
     /// How many ticks fit `height` at the closest spacing.
     static func limit(height: Double) -> Int { max(2, Int(height / minSpacing) + 1) }
 

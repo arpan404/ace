@@ -19,6 +19,8 @@ struct TranscriptTurnRail: View {
     let jump: (Int) -> Void
     @State private var page: TurnsPage?
     @State private var scrub: Int?
+    /// The finger on the edge band, while it is there.
+    @State private var touch: TurnRail.BandTouch?
     @State private var selection = TurnRail.Selection()
     private var count: Int { page?.turns.first?.ordinal ?? 0 }
     private var current: Int { selection.current(scrub: scrub, place: reading.place, count: count) }
@@ -47,8 +49,6 @@ struct TranscriptTurnRail: View {
     /// The touch band at the screen's edge: no wider than the transcript's side margin, so it never
     /// covers a row, and swipes anywhere else along the rail still scroll the transcript.
     static let band = AceDesign.Space.feedSide
-    /// How long a finger rests on the band before it scrubs: a quick swipe there never does.
-    static let hold = 0.2
 
     private func rail(ticks: [Int], height: CGFloat) -> some View {
         // A full tap wide for VoiceOver and to draw in, but it takes no touches: only the band at
@@ -86,26 +86,27 @@ struct TranscriptTurnRail: View {
         .accessibilityIdentifier("transcript.turnRail")
     }
 
-    /// Touch and hold, then drag, scrubs and lifting jumps; a tap jumps to the tick under it.
+    /// One drag gesture that decides what the touch is (`TurnRail.BandTouch`): a tap jumps to the
+    /// tick under it, a held touch then drag scrubs and lifting jumps, a quick swipe does nothing.
     private func touchBand(ticks: [Int], height: CGFloat) -> some View {
-        let turn = { (y: CGFloat) in TurnRail.tick(at: Double(y), height: Double(height), ticks: ticks) }
-        let scrubbing = LongPressGesture(minimumDuration: Self.hold).sequenced(before: DragGesture(minimumDistance: 0))
+        let turn = { (y: Double) in TurnRail.tick(at: y, height: Double(height), ticks: ticks) }
         return Color.clear
             .frame(width: Self.band, height: height)
             .contentShape(Rectangle())
             .gesture(
-                scrubbing.exclusively(before: SpatialTapGesture())
-                    .onChanged { value in
-                        if case .first(.second(true, let drag?)) = value { scrub = turn(drag.location.y) }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        var now = touch ?? TurnRail.BandTouch(start: drag.time, y: Double(drag.startLocation.y))
+                        now.moved(to: Double(drag.location.y), at: drag.time)
+                        if now != touch { touch = now }
+                        let under = now.scrubbing ? turn(Double(drag.location.y)) : nil
+                        if under != scrub { scrub = under }
                     }
-                    .onEnded { value in
-                        let picked: Int?
-                        switch value {
-                        case .first: picked = scrub
-                        case .second(let tap): picked = turn(tap.location.y)
-                        }
+                    .onEnded { drag in
+                        let lifted = touch?.lifted(at: Double(drag.location.y))
+                        touch = nil
                         scrub = nil
-                        guard let picked else { return }
+                        guard let lifted, let picked = turn(lifted) else { return }
                         selection.pick(picked)
                         jump(picked)
                     }
