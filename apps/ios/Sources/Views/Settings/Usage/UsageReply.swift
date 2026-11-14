@@ -115,6 +115,13 @@ struct UsageLimitsReply: Decodable, Sendable {
         let stale: Bool
         let old: Bool
         let pace: Pace?
+        /// What the row says at its right (`limitWhen`): "Out around Sun 9:00 PM" in red when
+        /// this pace runs out before the reset. Nil from an older bridge.
+        var when: When? = nil
+        /// What is left at the reset at this pace, 0 to 100: the bar's marker. Nil when it runs
+        /// out first or can't say.
+        var leftAtReset: Double? = nil
+        struct When: Codable, Sendable, Hashable { let text: String; let spoken: String; let runsOut: Bool }
     }
     struct Account: Codable, Sendable, Hashable {
         let key: String
