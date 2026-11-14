@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
 import {
+  assembleRelease,
   bundleDaemon,
   linuxScreenHelperName,
   RustToolchainError,
@@ -100,14 +101,20 @@ await writeFile(
 log("daemon bundle");
 const daemon = join(dist, "daemon");
 await mkdir(daemon, { recursive: true });
-await bundleDaemon(repo, daemon, releasePublicKey(process.env));
-await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
-await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
-// The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
-await writeFile(
-  join(daemon, desktopAppMarker),
-  JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
-);
+// Every file of the daemon folder is staged here; the build id is written over all of them
+// last. Packaging copies the folder as it is; macOS signing later rewrites its natives'
+// signatures, which the id (naming the unsigned build) leaves out.
+await assembleRelease(daemon, [
+  () => bundleDaemon(repo, daemon, releasePublicKey(process.env)),
+  () => cp(join(app, "renderer"), join(daemon, "web"), { recursive: true }),
+  () => copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE")),
+  // The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
+  () =>
+    writeFile(
+      join(daemon, desktopAppMarker),
+      JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
+    ),
+]);
 
 // Spade's server, copied out to <ACE_HOME>/releases/spade on install (ADR 0123).
 log("spade-server");

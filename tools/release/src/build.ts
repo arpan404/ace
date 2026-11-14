@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { collectLicenses } from "./licenses.ts";
 import { bundleDaemon } from "./bundle.ts";
+import { assembleRelease } from "./build-id.ts";
 import { releaseFiles, createReleaseArchive } from "./archive.ts";
 import { mkdir, readFile, writeFile, cp, chmod, stat, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -29,35 +30,50 @@ async function main() {
   await rm(join(output, `${target}.json`), { force: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
-  await stageBunRuntime({
-    target,
-    cacheDir: output,
-    executable: releaseRuntimePath(root, target),
-    licensePath: join(root, "LICENSE"),
-  });
-  execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
-  // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
-  await cp(join(repo, "apps/web/dist"), join(root, "web"), {
-    recursive: true,
-    filter: (path) => !path.endsWith(".map"),
-  });
-  const inputs = await bundleDaemon(repo, root, publicKey, target);
-  await collectLicenses(inputs, root);
-  // Spade ships in the same archive, under the same manifest and checksums (ADR 0123).
-  const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
-  process.stdout.write(`[release] spade-server: ${spade}\n`);
-  await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
-  if (target === "linux-x64" || target === "linux-arm64") {
-    if (target !== `${process.platform}-${process.arch}`)
-      throw new Error(`Build the ${target} release on a ${target} host`);
-    await stageLinuxScreenHelper(repo, join(root, linuxScreenHelperPath));
-  }
-  await assertTargetNatives(root, target);
-  await writeFile(
-    join(root, "release.json"),
-    JSON.stringify({ version, target, channel: version.includes("-") ? "preview" : "stable" }) +
-      "\n",
-  );
+  // Every file of the release is staged here; the build id is written over all of them last.
+  await assembleRelease(root, [
+    () =>
+      stageBunRuntime({
+        target,
+        cacheDir: output,
+        executable: releaseRuntimePath(root, target),
+        licensePath: join(root, "LICENSE"),
+      }),
+    async () => {
+      execFileSync("bun", ["x", "vite", "build"], {
+        cwd: join(repo, "apps/web"),
+        stdio: "inherit",
+      });
+      // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
+      await cp(join(repo, "apps/web/dist"), join(root, "web"), {
+        recursive: true,
+        filter: (path) => !path.endsWith(".map"),
+      });
+    },
+    async () => collectLicenses(await bundleDaemon(repo, root, publicKey, target), root),
+    async () => {
+      // Spade ships in the same archive, under the same manifest and checksums (ADR 0123).
+      const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
+      process.stdout.write(`[release] spade-server: ${spade}\n`);
+    },
+    () => cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE")),
+    async () => {
+      if (target !== "linux-x64" && target !== "linux-arm64") return;
+      if (target !== `${process.platform}-${process.arch}`)
+        throw new Error(`Build the ${target} release on a ${target} host`);
+      await stageLinuxScreenHelper(repo, join(root, linuxScreenHelperPath));
+    },
+    () => assertTargetNatives(root, target),
+    () =>
+      writeFile(
+        join(root, "release.json"),
+        JSON.stringify({
+          version,
+          target,
+          channel: version.includes("-") ? "preview" : "stable",
+        }) + "\n",
+      ),
+  ]);
   const paths = await releaseFiles(root);
   // files.json and release.json are added too; the updater's budget counts every entry.
   process.stdout.write(

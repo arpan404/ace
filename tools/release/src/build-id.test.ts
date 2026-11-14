@@ -2,7 +2,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { buildIdFile, releaseDigest, writeBuildId } from "./build-id.ts";
+import { assembleRelease, buildIdFile, releaseDigest, writeBuildId } from "./build-id.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -61,4 +61,25 @@ it("moving a file to another name changes the build id", async () => {
   rmSync(join(renamed, "chunk-AAAA.mjs"));
   writeFileSync(join(renamed, "chunk-BBBB.mjs"), "export const decode = 1;");
   expect(await releaseDigest(renamed)).not.toBe(await releaseDigest(root));
+});
+
+it("a file staged after the bundle still changes the assembled release's build id", async () => {
+  /** An assembly like the release build's: the bundle first, then a server staged after it. */
+  const assemble = (server: string) => {
+    const root = mkdtempSync(join(tmpdir(), "ace-build-id-"));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    return assembleRelease(root, [
+      async () => writeFileSync(join(root, "ace.mjs"), 'import "./chunk-AAAA.mjs";'),
+      async () => {
+        mkdirSync(join(root, "spade"));
+        writeFileSync(join(root, "spade/spade-server"), server);
+      },
+    ]).then((id) => ({ root, id }));
+  };
+  const first = await assemble("server 1");
+  const rebuilt = await assemble("server 1");
+  const patched = await assemble("server 2");
+  expect(rebuilt.id).toBe(first.id);
+  expect(patched.id).not.toBe(first.id);
+  expect(readFileSync(join(patched.root, buildIdFile), "utf8")).toBe(`${patched.id}\n`);
 });

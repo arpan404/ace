@@ -12,7 +12,7 @@ import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
-import { writeBuildId } from "./build-id.ts";
+export { assembleRelease, buildIdFile } from "./build-id.ts";
 export {
   linuxScreenHelperName,
   linuxScreenHelperPath,
@@ -288,7 +288,5 @@ export async function bundleDaemon(
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
   await assertNoKoffi(scripts.map((path) => resolve(path)));
-  // Last, over every daemon file now in place: the identity stored-row trust is kept under.
-  await writeBuildId(root);
   return [...inputs];
 }
