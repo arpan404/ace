@@ -322,14 +322,18 @@ final class IngestRoute {
     /// until `drainLimit`, when it is closed and ace-media sees that path cut. At most
     /// `maxRetired` writers or `maxRetiredBytes` queued are kept: past that the oldest is cut.
     private func retire(_ previous: IngestWriter) {
+        // Registered before its timer is armed, so a timer that fires at once finds it; a drain
+        // that ends meanwhile leaves the timer to be cancelled here.
         lock.lock()
         retirements += 1
         let generation = retirements
+        replaced[generation] = (previous, {})
         lock.unlock()
         let release: () -> Void = { [weak self] in self?.release(generation) }
         let cancel = schedule(drainLimit, release)
         lock.lock()
-        replaced[generation] = (previous, cancel)
+        guard replaced[generation] != nil else { lock.unlock(); cancel(); return }
+        replaced[generation]?.cancel = cancel
         var evicted: [IngestWriter] = []
         while replaced.count > Self.maxRetired || replaced.values.reduce(0, { $0 + $1.writer.queued }) > Self.maxRetiredBytes,
               let oldest = replaced.keys.min(), let entry = replaced.removeValue(forKey: oldest) {
