@@ -26,6 +26,8 @@ type LifecyclePorts = {
   authorize(target: ScreenTarget): void;
   emit(session: Session): void;
   nextGeneration(): number;
+  /** The session went live: attach its ace-media source when it can stream into ace-media. */
+  live(session: Session): void;
 };
 /** Capture lifetime and app reservations; no approvals or action policy is owned here. */
 export class TargetSessions {
@@ -35,6 +37,7 @@ export class TargetSessions {
   private readonly policy: ScreenPolicy;
   private readonly authorize: LifecyclePorts["authorize"];
   private readonly emit: LifecyclePorts["emit"];
+  private readonly wentLive: LifecyclePorts["live"];
   private readonly nextGeneration: () => number;
   private starting = 0;
   private readonly pendingTargets = new Map<string, string>();
@@ -46,6 +49,7 @@ export class TargetSessions {
     this.sessions = ports.sessions;
     this.policy = ports.policy;
     this.authorize = ports.authorize;
+    this.wentLive = ports.live;
     this.emit = ports.emit;
     this.nextGeneration = ports.nextGeneration;
   }
@@ -222,6 +226,7 @@ export class TargetSessions {
         ...session.state,
         lifecycle: "live",
       };
+      this.wentLive(session);
       this.emit(session);
       return this.state(id);
     } catch (error) {
@@ -304,6 +309,7 @@ export class TargetSessions {
     if (errors.length) throw new ScreenStopError(errors, true);
   }
   private async retire(session: Session): Promise<void> {
+    session.media?.close();
     session.captureStopped.resolve();
     session.state = terminated(session.state);
     this.emit(session);
@@ -335,6 +341,7 @@ export class TargetSessions {
       session.state = { ...session.state, error: error.message.slice(0, 1024) };
     }
     session.pixels.stop(error);
+    session.media?.close();
     this.emit(session);
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;

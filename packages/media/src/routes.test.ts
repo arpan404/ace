@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   builtRouteCapabilities,
+  platformRouteCapabilities,
   changedRoutes,
   mediaRoutes,
   sourceKinds,
@@ -200,6 +201,31 @@ describe("named routes", () => {
       expect(routes[kind]).toMatchObject({ producer: "daemon", tee: false, egress: false });
     for (const health of ["restarting", "unavailable"] as const)
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
+  });
+
+  it("on a Mac the screen streams into ace-media too, with egress feeding its legacy consumers; elsewhere it stays on the daemon", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "auto",
+      recordings: "auto",
+      stills: "auto",
+    };
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin")).screen).toEqual({
+      producer: "ace-media",
+      tee: false,
+      egress: true,
+      deliverer: "legacy",
+      recorder: "legacy",
+      stills: "legacy",
+    });
+    for (const platform of ["linux", "win32"])
+      expect(
+        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).screen,
+      ).toMatchObject({ producer: "daemon", tee: false, egress: false });
+    for (const kind of ["simulator", "scrcpy", "emulator-frames"] as const)
+      expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin"))[kind]).toMatchObject(
+        { producer: "daemon" },
+      );
   });
 });
 

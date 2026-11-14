@@ -6,9 +6,47 @@ private final class VideoFrame {
     let timestamp: Double
     let scale: Double
     let quality: StreamQuality
-    init(_ sequence: UInt64, _ timestamp: Double, _ scale: Double, _ quality: StreamQuality) {
+    let epoch: UInt32
+    let capturedAt: UInt64
+    init(_ sequence: UInt64, _ timestamp: Double, _ scale: Double, _ quality: StreamQuality, epoch: UInt32, capturedAt: UInt64) {
         self.sequence = sequence; self.timestamp = timestamp; self.scale = scale; self.quality = quality
+        self.epoch = epoch; self.capturedAt = capturedAt
     }
+}
+
+/// One encoded picture, before it is framed for the daemon's socket or ace-media's ingest.
+/// `packet` appends the Annex B payload (parameter sets first on keyframes) to a header in one
+/// allocation, so either framing copies the sample once.
+struct EncodedVideo {
+    let keyframe: Bool
+    /// The WebCodecs codec string, from the SPS; keyframes only.
+    let codec: String?
+    let width: Int
+    let height: Int
+    let scale: Double
+    let sequence: UInt64
+    let timestamp: Double
+    /// The privacy epoch stamped when the picture was captured.
+    let epoch: UInt32
+    /// Capture time in uptime nanoseconds.
+    let capturedAt: UInt64
+    let payloadBytes: Int
+    let packet: (Data) -> Data?
+}
+
+/// The daemon socket's framing: length, JSON header, then Annex B.
+func legacyFramePacket(_ unit: EncodedVideo, sessionId: String, version: Int) -> Data? {
+    var header: [String: Any] = ["version": version, "sessionId": sessionId, "width": unit.width, "height": unit.height,
+        "codec": "h264", "keyframe": unit.keyframe, "bytes": unit.payloadBytes, "scale": unit.scale]
+    if let codec = unit.codec { header["videoCodec"] = codec }
+    header[version == 1 ? "sequence" : "seq"] = unit.sequence
+    header[version == 1 ? "timestamp" : "ts"] = unit.timestamp
+    guard let json = try? JSONSerialization.data(withJSONObject: header), json.count <= 4096 else { return nil }
+    var length = UInt32(json.count).bigEndian
+    var prefix = Data(capacity: 4 + json.count + unit.payloadBytes)
+    withUnsafeBytes(of: &length) { prefix.append(contentsOf: $0) }
+    prefix.append(json)
+    return unit.packet(prefix)
 }
 
 /// Hardware encoder with one outstanding sample. No B frames, lookahead or raw-pixel queue.
@@ -23,9 +61,7 @@ final class VideoEncoder {
     private var fps = 60
     /// The QP cap the session runs with now; nil is uncapped (rate control alone).
     private var appliedQP: Int?
-    private let sessionId: String
-    private let version: Int
-    private let publish: (Data) -> Void
+    private let units: (EncodedVideo) -> Void
     private let completed: () -> Void
     /// Rate control dropped a frame of this quality (no sample, no error).
     private let dropped: (StreamQuality) -> Void
@@ -33,8 +69,14 @@ final class VideoEncoder {
     /// pass-through stream (an emulator's, a transcoded Simulator's) leaves keyframes to viewers
     /// that ask, as a keyframe is many deltas big on the thin links these run on.
     private let keyframeInterval: Double
-    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
-        self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed; self.dropped = dropped
+    /// Units framed for the daemon socket.
+    convenience init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
+        self.init(units: { unit in if let packet = legacyFramePacket(unit, sessionId: sessionId, version: version) { publish(packet) } },
+            completed: completed, dropped: dropped, keyframeInterval: keyframeInterval)
+    }
+    /// Units as they leave the encoder, for a caller that frames them itself.
+    init(units: @escaping (EncodedVideo) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
+        self.units = units; self.completed = completed; self.dropped = dropped
         self.keyframeInterval = keyframeInterval
     }
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
@@ -101,13 +143,17 @@ final class VideoEncoder {
     /// `at` is the capture time in uptime nanoseconds. Presentation times follow it, so rate
     /// control sees the idle time before a refine and does not drop it as over budget.
     func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, at: UInt64, quality: StreamQuality = .motion) -> VideoEncodeResult {
+        encode(image, sequence: sequence, timestamp: timestamp, scale: scale, at: at, quality: quality, epoch: 0, capturedAt: at)
+    }
+    /// `epoch` and `capturedAt` (uptime nanoseconds) are the picture's, from its capture callback.
+    func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, at: UInt64, quality: StreamQuality, epoch: UInt32, capturedAt: UInt64) -> VideoEncodeResult {
         lock.lock(); let occupied = busy; lock.unlock()
         if occupied { return .busy }
         guard prepare(image), let session else { return .unavailable }
         let settings = videoEncoderSettings(quality, bitrate: bitrate, width: Int(size.width), height: Int(size.height))
         apply(settings, to: session)
         lock.lock(); let force = keyframe || settings.keyframe; keyframe = false; busy = true; lock.unlock()
-        let entry = Unmanaged.passRetained(VideoFrame(sequence, timestamp, scale, quality)).toOpaque()
+        let entry = Unmanaged.passRetained(VideoFrame(sequence, timestamp, scale, quality, epoch: epoch, capturedAt: capturedAt)).toOpaque()
         let status = VTCompressionSessionEncodeFrame(session, imageBuffer: image,
             presentationTimeStamp: CMTime(value: Int64(at / 1_000), timescale: 1_000_000), duration: .invalid,
             frameProperties: force ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
@@ -119,8 +165,8 @@ final class VideoEncoder {
         }
         return .submitted
     }
-    /// One packet: length, JSON header, then Annex B (parameter sets on keyframes). The sample's
-    /// 4-byte NAL lengths are rewritten to start codes in place, so the payload is copied once.
+    /// One unit: Annex B with parameter sets on keyframes. The sample's 4-byte NAL lengths are
+    /// rewritten to start codes in place, so the payload is copied once, after its header.
     private func output(_ sample: CMSampleBuffer, _ entry: VideoFrame) {
         guard let format = sample.formatDescription, let block = sample.dataBuffer else { return }
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
@@ -142,24 +188,22 @@ final class VideoEncoder {
         let sampleBytes = CMBlockBufferGetDataLength(block)
         let payloadBytes = sampleBytes + parameterSets.reduce(0) { $0 + prefix.count + $1.1 }
         guard sampleBytes > 0, payloadBytes <= 8 * 1024 * 1024 else { return }
-        var header: [String: Any] = ["version": version, "sessionId": sessionId, "width": Int(size.width), "height": Int(size.height),
-            "codec": "h264", "keyframe": key, "bytes": payloadBytes, "scale": entry.scale]
-        if key { header["videoCodec"] = codec }
-        header[version == 1 ? "sequence" : "seq"] = entry.sequence
-        header[version == 1 ? "timestamp" : "ts"] = entry.timestamp
-        guard let json = try? JSONSerialization.data(withJSONObject: header), json.count <= 4096 else { return }
-        var length = UInt32(json.count).bigEndian
-        var packet = Data(capacity: 4 + json.count + payloadBytes)
-        withUnsafeBytes(of: &length) { packet.append(contentsOf: $0) }
-        packet.append(json)
-        for (pointer, count) in parameterSets { packet.append(contentsOf: prefix); packet.append(pointer, count: count) }
-        let start = packet.count
-        packet.count += sampleBytes
-        let copied = packet.withUnsafeMutableBytes { bytes in
-            CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: sampleBytes, destination: bytes.baseAddress! + start) == noErr
+        // The parameter set pointers belong to `format`, which `sample` keeps alive for this call.
+        let packet: (Data) -> Data? = { header in
+            var packet = header
+            packet.reserveCapacity(header.count + payloadBytes)
+            for (pointer, count) in parameterSets { packet.append(contentsOf: prefix); packet.append(pointer, count: count) }
+            let start = packet.count
+            packet.count += sampleBytes
+            let copied = packet.withUnsafeMutableBytes { bytes in
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: sampleBytes, destination: bytes.baseAddress! + start) == noErr
+            }
+            guard copied, Self.startCodes(&packet, from: start) else { return nil }
+            return packet
         }
-        guard copied, Self.startCodes(&packet, from: start) else { return }
-        publish(packet)
+        units(EncodedVideo(keyframe: key, codec: key ? codec : nil, width: Int(size.width), height: Int(size.height), scale: entry.scale,
+            sequence: entry.sequence, timestamp: entry.timestamp, epoch: entry.epoch, capturedAt: entry.capturedAt,
+            payloadBytes: payloadBytes, packet: packet))
     }
     /// Rewrites each 4-byte big-endian NAL length from `start` on as a start code; false when the
     /// lengths do not tile the sample exactly.

@@ -4,6 +4,7 @@ import type { Helper } from "./helper.ts";
 import { helperSession, type HelperPort } from "./helper-session.ts";
 import { Pixels } from "./pixels.ts";
 import type { Recording } from "./recording.ts";
+import type { ScreenMediaSource } from "./media-source.ts";
 export interface ControllerBinding {
   /** The external controller authority must still be live at input dispatch. */
   authorize(): void;
@@ -41,6 +42,8 @@ export type Session = {
   captureStopped: { promise: Promise<void>; resolve(): void };
   pixels: Pixels;
   recordingLease: { release(): void } | undefined;
+  /** Present while the session can stream into ace-media (a Mac helper and `options.media`). */
+  media?: ScreenMediaSource;
 };
 export function createSession(
   helper: Helper,

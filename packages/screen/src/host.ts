@@ -6,6 +6,7 @@ import { writeFile } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import { installScreenHelper } from "./install.ts";
 import { dirname } from "node:path";
+import type { ScreenMedia } from "./media-source.ts";
 import { ScreenManager } from "./manager.ts";
 /** Local daemon boundary. Each artifact has a small adjacent manifest for later indexing. */
 export function localScreenManager(
@@ -22,6 +23,8 @@ export function localScreenManager(
     session?: (() => Promise<NodeJS.ProcessEnv>) | undefined;
     /** Cowork with the person (ADR 0143), shared with the computer-use tools. */
     cowork?: ScreenCowork | undefined;
+    /** ace-media's producers (ADR 0147, phase 2): where Mac screens stream while routed. */
+    media?: ScreenMedia | undefined;
   } = {},
 ): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
@@ -49,6 +52,7 @@ export function localScreenManager(
       : {}),
     nextId: randomUUID,
     ...(options.cowork ? { cowork: options.cowork } : {}),
+    ...(options.media ? { media: options.media } : {}),
     recordingDirectory: artifactDirectory,
     publishArtifact: async (artifact) => {
       await writeFile(join(artifactDirectory, `${artifact.id}.json`), JSON.stringify(artifact), {
