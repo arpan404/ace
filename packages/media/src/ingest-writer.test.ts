@@ -199,8 +199,11 @@ function roomyWriter(path: string, extra: Partial<ConstructorParameters<typeof I
     onClosed: () => {},
     onKeyframe: () => {},
     limit: 64 * 1024,
-    connect: (socket) =>
-      createConnection({ path: socket, writableHighWaterMark: 64 * 1024 * 1024 }),
+    connect: (socket) => {
+      // Node's sockets take a stream's high-water mark, though the net types don't list it.
+      const options = { path: socket, writableHighWaterMark: 64 * 1024 * 1024 };
+      return createConnection(options);
+    },
     ...extra,
   });
 }
