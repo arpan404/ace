@@ -207,6 +207,38 @@ test("with fork on switch, another provider continues in a new thread with the n
   await until(() => controls()?.provider === "codex" && controls()?.note === "", "codex again");
 });
 
+/** The quotes over the composer, as Swift holds them. */
+const quotes = () => (latest("thread.quotes")?.items ?? []) as unknown[];
+
+test("a continuation carries the composer's quotes, and they leave this thread", async () => {
+  const { thread, ready } = await openSheet(connect(codexThread()), { fork: true });
+  expect(ready.asks.length).toBeGreaterThan(0);
+  const answer = "Run the finder first. It can double as the guard.";
+  const start = answer.indexOf("double as the guard");
+  thread.handle({ type: "quote.add", message: answer, start, end: start + 19 });
+  await until(() => quotes().length === 1, "the quote over the composer");
+  thread.handle({
+    type: "switchModel",
+    key: opus,
+    account: "claude-personal",
+    confirmed: true,
+    requestId: "pick",
+  });
+  await until(() => controls()?.continues, "the composer continuing in a new thread");
+  thread.handle({
+    type: "send",
+    text: "Carry on there.",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
+  await until(() => latest("thread.continued"), "the new thread");
+  const input = String(commands("thread.fork")[0]?.input);
+  expect(input).toContain('Passage: "double as the guard"');
+  expect(input.endsWith("Carry on there.")).toBe(true);
+  await until(() => quotes().length === 0, "the quote gone from this thread");
+});
+
 test("picking the running model again drops a waiting continuation", async () => {
   const { thread } = await openSheet(connect(codexThread()), { fork: true });
   const pick = (key: string, account: string, requestId: string) =>

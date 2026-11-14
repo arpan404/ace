@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputerResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "computer": {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputer.json"
+    },
+    "error": {
+      "enum": [
+        "forbidden",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.computer.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

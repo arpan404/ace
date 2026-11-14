@@ -78,6 +78,20 @@ export function storedItem(createdSeq: number, json: string, trust: StoredTrust)
   return isTrusted(trust, createdSeq) ? (value as Item) : decodeStoredItem(value);
 }
 /**
+ * An `item_text_chunks` row at a trusted sequence (`isTrusted`): `ItemStore.append` wrote its
+ * field and its JSON-encoded append from a validated `item.delta`.
+ */
+export function storedTextChunk(
+  field: unknown,
+  append: unknown,
+): { field: Extract<EventPayload, { type: "item.delta" }>["field"]; append: string } {
+  // Trusted: written from an `item.delta` the event writer validated.
+  return {
+    field: field as Extract<EventPayload, { type: "item.delta" }>["field"],
+    append: JSON.parse(String(append)) as string,
+  };
+}
+/**
  * An item row the current write transaction stored moments ago from a validated Item, such as
  * the text preview the item store seeds for the event being written. Never for a row that may
  * predate this transaction.

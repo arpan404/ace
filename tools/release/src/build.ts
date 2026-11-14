@@ -12,6 +12,7 @@ import { bunVersion, nodeVersion, releaseRuntimePath, stageBunRuntime } from "./
 import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
+import { stageAceMedia } from "./ace-media.ts";
 import { stageSpadeServer } from "./spade-server.ts";
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
@@ -45,9 +46,11 @@ async function main() {
         stdio: "inherit",
       });
       // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
+      // Its `.br` and `.gz` copies stay out too: they would add two entries per large asset to an
+      // archive the oldest updater caps at 2,048, and the daemon compresses those files itself.
       await cp(join(repo, "apps/web/dist"), join(root, "web"), {
         recursive: true,
-        filter: (path) => !path.endsWith(".map"),
+        filter: (path) => !path.endsWith(".map") && !path.endsWith(".br") && !path.endsWith(".gz"),
       });
     },
     async () => collectLicenses(await bundleDaemon(repo, root, publicKey, target), root),
@@ -56,6 +59,7 @@ async function main() {
       const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
       process.stdout.write(`[release] spade-server: ${spade}\n`);
     },
+    () => stageAceMedia({ repo, root, target, version, env: process.env }),
     () => cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE")),
     async () => {
       if (target !== "linux-x64" && target !== "linux-arm64") return;

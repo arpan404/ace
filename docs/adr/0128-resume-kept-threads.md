@@ -1,6 +1,6 @@
 # 0128: A kept thread resumes from its own cursor; the phone reads likely opens ahead
 
-Date: 2026-11-11. Status: accepted. Decided by: the owner. Amends [ADR 0030](0030-client-sdk.md)
+Date: 2026-11-11. Status: accepted; decision 4 amended by [ADR 0146](0146-left-threads-linger.md). Decided by: the owner. Amends [ADR 0030](0030-client-sdk.md)
 (amendment 2026-10-18, "restored store subscribes without `afterSeq`") and
 [ADR 0105](0105-phone-chat-cache.md) ("threads the phone never opened are not fetched ahead").
 

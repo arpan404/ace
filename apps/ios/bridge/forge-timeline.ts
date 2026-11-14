@@ -273,6 +273,7 @@ export async function readTimeline(
     capabilities: detail,
     state: can(detail, "reviews.comments.write") ? state : undefined,
     url: detail.status.url,
+    number: detail.status.ref.number,
     repository: detail.status.ref.repository,
     locked,
     preview,

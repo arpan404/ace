@@ -1,0 +1,722 @@
+[
+  {
+    "input": {
+      "at": 0,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1000000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 250,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1000000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 500,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1000000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 750,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1250000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 1000,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1562500,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 1250,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 1500,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 1750,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 2000,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 2250,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 2500,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 2750,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 3000,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 3250,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 3500,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 3750,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 4000,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 4250,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 4500,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 4750,
+      "rtt": 20,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 20
+    }
+  },
+  {
+    "input": {
+      "at": 5000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 55
+    }
+  },
+  {
+    "input": {
+      "at": 5250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 1664000,
+      "rtt": 85.625
+    }
+  },
+  {
+    "input": {
+      "at": 5500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 112.421875
+    }
+  },
+  {
+    "input": {
+      "at": 5750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 135.869140625
+    }
+  },
+  {
+    "input": {
+      "at": 6000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 156.385498046875
+    }
+  },
+  {
+    "input": {
+      "at": 6250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 174.33731079101562
+    }
+  },
+  {
+    "input": {
+      "at": 6500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 190.04514694213867
+    }
+  },
+  {
+    "input": {
+      "at": 6750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 203.78950357437134
+    }
+  },
+  {
+    "input": {
+      "at": 7000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 215.81581562757492
+    }
+  },
+  {
+    "input": {
+      "at": 7250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 226.33883867412806
+    }
+  },
+  {
+    "input": {
+      "at": 7500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 235.54648383986205
+    }
+  },
+  {
+    "input": {
+      "at": 7750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 243.6031733598793
+    }
+  },
+  {
+    "input": {
+      "at": 8000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 250.65277668989438
+    }
+  },
+  {
+    "input": {
+      "at": 8250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 256.8211796036576
+    }
+  },
+  {
+    "input": {
+      "at": 8500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 262.2185321532004
+    }
+  },
+  {
+    "input": {
+      "at": 8750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 266.9412156340503
+    }
+  },
+  {
+    "input": {
+      "at": 9000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 271.073563679794
+    }
+  },
+  {
+    "input": {
+      "at": 9250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 274.68936821981976
+    }
+  },
+  {
+    "input": {
+      "at": 9500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 277.8531971923423
+    }
+  },
+  {
+    "input": {
+      "at": 9750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 998400,
+      "rtt": 280.62154754329947
+    }
+  },
+  {
+    "input": {
+      "at": 10000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": true,
+    "output": {
+      "rate": 599040,
+      "rtt": 283.043854100387
+    }
+  },
+  {
+    "input": {
+      "at": 10250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 285.1633723378386
+    }
+  },
+  {
+    "input": {
+      "at": 10500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 287.0179507956088
+    }
+  },
+  {
+    "input": {
+      "at": 10750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 288.6407069461577
+    }
+  },
+  {
+    "input": {
+      "at": 11000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 290.060618577888
+    }
+  },
+  {
+    "input": {
+      "at": 11250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 291.30304125565203
+    }
+  },
+  {
+    "input": {
+      "at": 11500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 292.39016109869556
+    }
+  },
+  {
+    "input": {
+      "at": 11750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 293.3413909613586
+    }
+  },
+  {
+    "input": {
+      "at": 12000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 294.1737170911888
+    }
+  },
+  {
+    "input": {
+      "at": 12250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 294.9020024547902
+    }
+  },
+  {
+    "input": {
+      "at": 12500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 295.5392521479414
+    }
+  },
+  {
+    "input": {
+      "at": 12750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 296.0968456294487
+    }
+  },
+  {
+    "input": {
+      "at": 13000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 296.5847399257676
+    }
+  },
+  {
+    "input": {
+      "at": 13250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 297.01164743504665
+    }
+  },
+  {
+    "input": {
+      "at": 13500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 297.38519150566583
+    }
+  },
+  {
+    "input": {
+      "at": 13750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 297.7120425674576
+    }
+  },
+  {
+    "input": {
+      "at": 14000,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 297.9980372465254
+    }
+  },
+  {
+    "input": {
+      "at": 14250,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 298.2482825907098
+    }
+  },
+  {
+    "input": {
+      "at": 14500,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 298.467247266871
+    }
+  },
+  {
+    "input": {
+      "at": 14750,
+      "rtt": 300,
+      "bytes": 32000
+    },
+    "drop": false,
+    "output": {
+      "rate": 599040,
+      "rtt": 298.6588413585122
+    }
+  }
+]

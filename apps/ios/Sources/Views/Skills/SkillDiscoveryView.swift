@@ -16,7 +16,7 @@ struct SkillDiscoveryView: View {
     private var problem: String? { projectsProblem ?? catalogProblem }
     @State private var loading = false
     @State private var loaded = false
-    @State private var stale = false
+    @State private var notice: String?
     private var scope: [String] { [project, provider, model.connection] }
     private var shown: [CatalogReply.Entry] {
         entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }
@@ -44,11 +44,9 @@ struct SkillDiscoveryView: View {
                     QuietProblem(message: problem, id: "skills.discovery.problem") { Task { if project.isEmpty { await readProjects() }; await read() } }
                 }
                 if loading { SkeletonRows(count: 3, label: "Reading CLI catalog") }
-                if stale {
+                if let notice {
                     QuietSection {
-                        QuietSectionRow {
-                            QuietRowText(title: "Showing cached entries. Refresh when the machine is ready.", tone: AceDesign.Ink.muted)
-                        }
+                        QuietSectionRow { QuietRowText(title: notice, tone: AceDesign.Ink.muted) }
                     }
                 }
                 QuietSection {
@@ -101,12 +99,13 @@ struct SkillDiscoveryView: View {
     }
     private func read() async {
         guard !project.isEmpty, model.connection == "ready" else { return }
-        loading = true; loaded = false; catalogProblem = nil; entries = []
+        loading = true; loaded = false; catalogProblem = nil; entries = []; notice = nil
         defer { loading = false }
         do {
-            let reply = try await model.service(["type": "catalog.list", "workspace": ["workspaceId": project, "provider": provider], "limit": 512], as: CatalogReply.self)
-            guard !Task.isCancelled else { return }
-            entries = reply.entries; stale = reply.stale; loaded = true
-        } catch { if !Task.isCancelled { catalogProblem = error.localizedDescription } }
+            try await model.catalogPage(["workspace": ["workspaceId": project, "provider": provider]]) { reply in
+                guard !Task.isCancelled else { return }
+                entries = reply.entries; notice = reply.notice; loaded = true; loading = false
+            }
+        } catch { if !Task.isCancelled { notice = nil; catalogProblem = error.localizedDescription } }
     }
 }

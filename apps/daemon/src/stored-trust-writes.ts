@@ -6,8 +6,8 @@ import { confirmThreadRows } from "./thread-row-trust.ts";
  * The writes the idle trust pass makes (`stored-trust-pass.ts`, ADR 0125). Each is a named
  * operation whose SQL is fixed in `stored-shape.ts` or `thread-row-trust.ts` and writes only the
  * trust tables: which stored rows are read as stored, never what any read returns. So each
- * commits outside the store's transaction hooks and the thread read cache keeps its entries
- * across it. No caller gets a connection under that carry-over; a new trust write is a new
+ * commits outside the store's transaction hooks, and its rows are counted as accounted for and
+ * belonging to no thread, so the thread read cache keeps its entries and views across it. No caller gets a connection under that carry-over; a new trust write is a new
  * method here.
  */
 export interface TrustTableWrites {
@@ -31,30 +31,37 @@ export interface TrustTableWrites {
 
 export interface TrustTableWritesOptions {
   db: DatabaseSync;
-  /** The generation the thread read cache is keyed by: other connections' and own commits. */
-  generation(): string;
-  /** Keep entries cached at `before` usable at `after`. */
-  carryOver(before: string, after: string): void;
+  /**
+   * Count `rows` changes on the connection as accounted for and attributed to no thread: the
+   * thread read cache neither drops entries nor marks views stale for them (`store.ts`).
+   */
+  accounted(rows: number): void;
 }
 
 export function trustTableWrites(options: TrustTableWritesOptions): TrustTableWrites {
   const { db } = options;
-  /** One fixed trust write in its own transaction, outside any other. */
+  const changes = () => Number(db.prepare("SELECT total_changes() AS n").get()?.n);
+  /**
+   * One fixed trust write in its own transaction, never inside or across another. Every change
+   * it makes is accounted for, including those of a write that then rolls back: the connection's
+   * change count still moved, and the cache must not take that for a write it can't see.
+   */
   const neutral = <T>(write: () => T): T => {
-    const before = options.generation();
-    db.exec("BEGIN IMMEDIATE");
-    let result: T;
+    if (db.isTransaction) throw new Error("A trust write runs outside any transaction");
+    const before = changes();
     try {
-      result = write();
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const result = write();
+        db.exec("COMMIT");
+        return result;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    } finally {
+      options.accounted(changes() - before);
     }
-    const after = options.generation();
-    // Another connection committed meanwhile: its change may matter, so the cache drops as usual.
-    if (before.split(":")[0] === after.split(":")[0]) options.carryOver(before, after);
-    return result;
   };
   return {
     saveProgress: (shape, opened, from, rejected) =>

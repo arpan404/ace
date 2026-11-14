@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
 import { useEffect, useRef } from "react";
 import type { ScopeWorkspace, WorkspaceStore } from "@/lib/workspace/index.ts";
 import { useLocal } from "../store.ts";
@@ -23,7 +24,7 @@ export function useWatchMode(
   workspace: ScopeWorkspace,
 ): boolean {
   const active = useLocal(watching, (all) => all.has(threadId));
-  const state = useThreadMeta(threadId)?.status?.state;
+  const state = useThread(threadId, ["thread"], readState);
   const previous = useRef(state);
   const target = agentTab(view);
   useEffect(() => {
@@ -39,3 +40,6 @@ export function useWatchMode(
   }, [active, workspace.open, store, threadId]);
   return active;
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readState = (reader: ThreadReader) => reader.thread?.status?.state;

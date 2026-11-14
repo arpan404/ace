@@ -1,0 +1,13 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "listen",
+    "loopback": true,
+    "remote": {
+      "addresses": ["value"],
+      "port": 1,
+      "certificateBytes": 2,
+      "keyBytes": 3
+    }
+  }
+}

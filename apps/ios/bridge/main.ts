@@ -39,6 +39,7 @@ import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import { CatalogPage } from "./catalog-page.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
@@ -66,6 +67,7 @@ import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 import { ReadAhead } from "./read-ahead.ts";
+import { ThreadLinger } from "./thread-linger.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -162,6 +164,7 @@ const sheets = new Sheets(pump, preview, {
   kept: new ChangesKept(keptValue("review"), scheduler),
   now: () => host.now(),
   id: () => host.uuid(),
+  scheduler,
 });
 /** Subagent retries asked from this phone, kept across visits to their threads. */
 const retries = new SubagentRetries();
@@ -178,7 +181,7 @@ const visit = new ThreadVisit(
       transfers?.follow(undefined);
     },
     opened(threadId, epoch, store) {
-      if (client) sheets.follow({ owner: client, store, threadId, epoch });
+      if (client) sheets.follow({ owner: client, store, threadId, epoch, reads: client });
       browser?.probe(threadId, epoch);
       transfers?.follow({ threadId, epoch, store });
     },
@@ -188,6 +191,7 @@ const visit = new ThreadVisit(
   (id) => suggest?.entries(id),
   undefined,
   retries,
+  new ThreadLinger(scheduler.set),
 );
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
@@ -292,6 +296,10 @@ async function start(json: string): Promise<void> {
       const now = new Date(host.now());
       return now.getHours() * 60 + now.getMinutes();
     },
+    undefined,
+    undefined,
+    () => host.now(),
+    keptValue("runAlerts"),
   );
   const owner = client;
   const activityGeneration = makeActivityGeneration();
@@ -456,6 +464,7 @@ async function start(json: string): Promise<void> {
     automations,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
   workspace = new NativeWorkspace(pump, {
@@ -557,6 +566,8 @@ function action(json: string): void {
     }
     const cache = CacheAction.safeParse(raw);
     if (cache.success) {
+      // Cleared chats aren't followed any longer either.
+      if (cache.data.type === "cache.clear") visit.forgetLingering();
       if (client && snapshots)
         void handleCacheAction(cache.data, {
           client,
@@ -651,7 +662,9 @@ function action(json: string): void {
         const store = visit.store;
         const threadId = visit.threadId;
         const thread =
-          store && threadId ? { owner: client, store, threadId, epoch: visit.epoch } : undefined;
+          store && threadId
+            ? { owner: client, store, threadId, epoch: visit.epoch, reads: client }
+            : undefined;
         if (!sheets.action(thread, value.action)) error();
         break;
       }

@@ -1,5 +1,6 @@
 import type { ThreadCatchUpResponse } from "@ace/protocol";
 import { formatCount, pluralCount } from "./counts.ts";
+import { changedFilesCount } from "./summary-results.ts";
 
 /*
  * "Since you last looked": what a thread did while the person was away, from the catch-up
@@ -24,13 +25,7 @@ export function catchUpFacts(
   const facts: CatchUpFact[] = [];
   if (catchUp.turnsCompleted)
     facts.push({ text: `${pluralCount(catchUp.turnsCompleted, "turn")} finished` });
-  if (digest.files.length) {
-    const files =
-      digest.truncated && digest.files.length >= 64
-        ? "64+ files"
-        : pluralCount(digest.files.length, "file");
-    facts.push({ text: `${files} changed` });
-  }
+  if (digest.files.length) facts.push({ text: `${changedFilesCount(digest)} changed` });
   if (digest.commandsFailed)
     facts.push({
       text: `${pluralCount(digest.commandsFailed, "command")} failed`,
@@ -44,4 +39,20 @@ export function catchUpFacts(
       tone: "needs-you",
     });
   return facts;
+}
+
+/**
+ * What happened since the person last looked, two to four lines: the counts, then the agent's
+ * latest words on one line. Empty when there's nothing to catch up on.
+ */
+export function catchUpLines(
+  catchUp: Pick<
+    ThreadCatchUpResponse,
+    "ready" | "turnsCompleted" | "digest" | "latestAgentMessagePreview"
+  >,
+): CatchUpFact[] {
+  const facts = catchUpFacts(catchUp);
+  if (!facts.length) return [];
+  const said = catchUp.latestAgentMessagePreview.replace(/\s+/g, " ").trim();
+  return [...facts.slice(0, said ? 3 : 4), ...(said ? [{ text: said }] : [])];
 }

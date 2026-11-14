@@ -1,0 +1,11 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "log",
+    "level": "debug",
+    "message": "value",
+    "fields": {
+      "x": 1
+    }
+  }
+}

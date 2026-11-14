@@ -1,0 +1,16 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "pong",
+    "id": "source-1",
+    "stats": {
+      "sources": 1,
+      "viewers": 1,
+      "connections": 1,
+      "cpuMs": 1,
+      "rssBytes": 1,
+      "bytesOut": 1,
+      "priorityLagMs": 1
+    }
+  }
+}

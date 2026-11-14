@@ -19,6 +19,8 @@ export type ReadFamily =
   | "prompts"
   | "catalog"
   | "forge"
+  /** A project's Verify runs (`forge.merge-run`), out of date with each `verify.changed`. */
+  | "verify"
   | "host"
   | "providers"
   | "skills";
@@ -48,8 +50,18 @@ const pluginLookups = new Set([
 /** The phone's skill-library requests that only read (`skill-library.ts`). */
 /** The phone's plugin requests that change a plugin (`skill-plugins.ts`); the rest only read. */
 const pluginChanges = new Set(["switch", "agent"]);
-/** Open on computer (`openers`, `open`) changes nothing the phone keeps. */
-const skillLookups = new Set(["library", "skill", "draft", "check", "openers", "open"]);
+/** Open on computer (`openers`, `open`) and an update's check or review change nothing kept. */
+const skillLookups = new Set([
+  "library",
+  "skill",
+  "draft",
+  "check",
+  "openers",
+  "open",
+  "checkUpdate",
+  "prepareUpdate",
+  "cancelUpdate",
+]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -84,7 +96,11 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "usage.accounts":
     case "usage.part":
     case "usage.summary":
+    case "profile.part":
       return "usage";
+    // The Fleet map's part: remote settings, networks, links and devices (`fleet-map-part.ts`).
+    case "fleetMap.part":
+      return "settings";
     case "pluginRequest":
       return pluginReads.has(pluginType(value) ?? "") ? "plugins" : undefined;
     case "prompts.request":
@@ -93,6 +109,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "catalog";
     case "host.storage":
     case "host.diagnostics":
+    case "machineUpdate.status":
       return "host";
     // A provider's Settings page and the off and missing providers (`provider-page.ts`).
     case "provider.page":
@@ -121,6 +138,11 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.conflicts":
     case "forge.pull.stack":
     case "forge.pull.work":
+      return "forge";
+    case "forge.merge-run":
+      return "verify";
+    // New thread's open work; picking one reads its pull request or issue afresh, never kept.
+    case "forge.start-from":
       return "forge";
     default:
       return undefined;
@@ -172,6 +194,9 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return ["providers", "settings", "catalog"];
     case "provider.logout":
       return ["providers", "catalog"];
+    // Looking for installed CLIs and their sign-ins again (Providers › Check again).
+    case "providers.request":
+      return ["providers", "catalog", "settings", "settings-page"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
@@ -187,6 +212,8 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.stack":
     case "forge.worktree":
       return ["forge"];
+    case "forge.merge-run.write":
+      return ["verify", "forge"];
     default:
       return [];
   }
@@ -213,6 +240,10 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
       return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
+    case "verify.changed":
+      return ["verify"];
+    case "machineUpdate.changed":
+      return ["host"];
     default:
       return [];
   }

@@ -1,0 +1,16 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "connection.open",
+    "connection": "source-1",
+    "kind": "direct",
+    "owner": {
+      "session": "source-1",
+      "device": "source-1",
+      "admission": {
+        "kind": "pairing",
+        "generation": 1
+      }
+    }
+  }
+}

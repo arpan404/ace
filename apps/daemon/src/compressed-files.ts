@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
@@ -13,8 +14,8 @@ interface Entry {
   bytes?: number;
 }
 
-async function build(file: string, encoding: ContentEncoding, size: number) {
-  const raw = await readFile(file);
+async function build(file: string, encoding: ContentEncoding, size: number, bytes?: Buffer) {
+  const raw = bytes ?? (await readFile(file));
   const body =
     encoding === "br"
       ? await brotli(raw, {
@@ -29,8 +30,10 @@ async function build(file: string, encoding: ContentEncoding, size: number) {
 }
 
 /**
- * Compressed file bodies, built once per file version (size and mtime) and kept in memory up
- * to `maxBytes`, least recently used first out. Concurrent first requests share one build.
+ * Compressed file bodies, built once per file version and kept in memory up to `maxBytes`,
+ * least recently used first out. Concurrent first requests share one build. A version is the
+ * file's size and mtime, or, when the caller has read the file (`bytes`), its content: a
+ * rewrite that keeps size and mtime is then never served from the old body.
  */
 export function compressedFiles(maxBytes: number) {
   const entries = new Map<string, Entry>();
@@ -40,9 +43,17 @@ export function compressedFiles(maxBytes: number) {
     entries.delete(key);
     total -= entry.bytes ?? 0;
   };
-  return (file: string, encoding: ContentEncoding, size: number, mtimeMs: number) => {
+  return (
+    file: string,
+    encoding: ContentEncoding,
+    size: number,
+    mtimeMs: number,
+    bytes?: Buffer,
+  ) => {
     const key = `${encoding}:${file}`;
-    const version = `${size}:${mtimeMs}`;
+    const version = bytes
+      ? `content:${createHash("sha256").update(bytes).digest("base64")}`
+      : `${size}:${mtimeMs}`;
     const hit = entries.get(key);
     if (hit?.version === version) {
       entries.delete(key);
@@ -50,7 +61,7 @@ export function compressedFiles(maxBytes: number) {
       return hit.body;
     }
     if (hit) drop(key, hit);
-    const built = build(file, encoding, size);
+    const built = build(file, encoding, bytes?.length ?? size, bytes);
     const entry: Entry = { version, body: built.then(({ body }) => body) };
     entries.set(key, entry);
     built.then(

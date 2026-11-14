@@ -1,10 +1,4 @@
-import { rm } from "node:fs/promises";
-import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
-import {
-  builtinSkillProcessLease,
-  builtinSkillRootUnused,
-  type BuiltinSkillProcessLease,
-} from "../builtin-skill-processes.ts";
+import type { BuiltinSkillProcessLease } from "../builtin-skill-processes.ts";
 import { builtinSkillsDirectory, prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
@@ -24,9 +18,10 @@ export function withDaemonMcp(
   // Daemon shutdown waits for those removals instead of leaving them running.
   const cleanups = new Set<Promise<void>>();
   // Codex sessions share an app-server, so they share the one projection it was started with.
+  // Claude sessions each launch a process, but read the same skills: one copy serves them all.
   const shared =
-    adapter.provider === "codex" && context.config
-      ? sharedBuiltinSkills("codex", context.config.dataDir)
+    (adapter.provider === "codex" || adapter.provider === "claude") && context.config
+      ? sharedBuiltinSkills(adapter.provider, context.config.dataDir)
       : undefined;
   context.resources?.own(async () => {
     await Promise.allSettled(cleanups);
@@ -44,33 +39,20 @@ export function withDaemonMcp(
       let skills:
         | Pick<Awaited<ReturnType<typeof prepareBuiltinSkills>>, "args" | "directories" | "close">
         | undefined;
-      let root: string | undefined;
-      let lease: Pick<BuiltinSkillProcessLease, "preparing" | "spawned" | "close"> | undefined;
+      let lease: Pick<BuiltinSkillProcessLease, "preparing" | "spawned"> | undefined;
       if (shared) {
         const projection = await shared.acquire();
         skills = { ...projection, close: projection.release };
-        lease = { ...projection.lease, close: () => {} };
+        lease = projection.lease;
       } else if (readsSkillsDirectory.has(adapter.provider)) {
         // Read in place from the shipped bundle: nothing to project, lease or remove.
         skills = { args: [], directories: [builtinSkillsDirectory()], close: async () => {} };
-      } else if (context.config && adapter.provider === "claude") {
-        root = await createBuiltinSkillRoot(context.config.dataDir);
-        try {
-          skills = await prepareBuiltinSkills(adapter.provider, root);
-          lease = builtinSkillProcessLease(root);
-        } catch (error) {
-          await rm(root, { recursive: true, force: true });
-          throw error;
-        }
       }
       let cleanup: Promise<void> | undefined;
       const closeSkills = () => {
         if (cleanup) return cleanup;
         const started = (async () => {
-          lease?.close();
-          if (root && !builtinSkillRootUnused(root)) return;
           await skills?.close();
-          if (root) await rm(root, { recursive: true, force: true });
         })();
         cleanup = started;
         cleanups.add(started);

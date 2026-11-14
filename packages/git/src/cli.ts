@@ -846,6 +846,8 @@ export class GitCli {
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
         fail(new GitError("git_timeout", `Git exceeded ${deadline}ms`, { args }));
       }, deadline);
+      let inputError: Error | undefined;
+      let inputDelivered = false;
       const streamFailure = (error: Error) => fail(error);
       child.stdout.on("error", streamFailure);
       child.stderr.on("error", streamFailure);
@@ -946,6 +948,14 @@ export class GitCli {
               }),
             );
         }
+        if (code === 0 && (inputError || !inputDelivered))
+          return reject(
+            new GitError("git_failed", "Git stopped reading its input before the end", {
+              code,
+              stderr: tail.text(),
+              ...(inputError ? { cause: inputError.message } : {}),
+            }),
+          );
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       };
       child.once("close", closed);
@@ -954,7 +964,15 @@ export class GitCli {
         child.once("close", () => {
           if (!stopped) contained.release();
         });
-      child.stdin.on("error", () => {});
+      // A Git that exits 0 without reading all of its input did not do all of its work: every
+      // byte must reach the pipe. (Bytes left unread in the pipe buffer when Git exits can't be
+      // seen from here; callers that depend on them check the result.)
+      child.stdin.on("error", (error) => {
+        inputError ??= error;
+      });
+      child.stdin.once("finish", () => {
+        inputDelivered = true;
+      });
       if (options.input instanceof Readable) {
         options.input.on("error", streamFailure);
         options.input.pipe(child.stdin);

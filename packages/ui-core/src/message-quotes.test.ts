@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   formatMessageQuotes,
   passageText,
+  quoteIn,
   quoteContextChars,
   returnedQuotes,
   splitQuoteParts,
@@ -86,4 +87,45 @@ test.each([
   ["blank space alone is no passage", " \n\t", undefined],
 ])("a selection becomes a passage: %s", (_, selected, passage) => {
   expect(passageText(selected)).toBe(passage);
+});
+
+test("a selection in a message's text quotes its words with the message on either side", () => {
+  const message = "Run the finder first. It can double as the guard. Then the scripts.";
+  const start = message.indexOf("double");
+  const end = start + "double as the guard".length;
+  expect(quoteIn(message, start, end)).toEqual({
+    text: "double as the guard",
+    before: "Run the finder first. It can ",
+    after: ". Then the scripts.",
+  });
+});
+
+test("spaces at a selection's ends stay with the words around it", () => {
+  const message = "one two three";
+  expect(quoteIn(message, 3, 8)).toEqual({ text: "two", before: "one ", after: " three" });
+});
+
+test("a selection of only spaces, or of nothing, is no quote", () => {
+  expect(quoteIn("one  \n two", 3, 7)).toBeUndefined();
+  expect(quoteIn("one two", 4, 4)).toBeUndefined();
+  expect(quoteIn("one two", 6, 2)).toBeUndefined();
+});
+
+test("each side keeps the context limit's worth of the message", () => {
+  const message = `${"a".repeat(200)}PICK${"b".repeat(200)}`;
+  const picked = quoteIn(message, 200, 204);
+  expect(picked?.before).toBe("a".repeat(quoteContextChars));
+  expect(picked?.after).toBe("b".repeat(quoteContextChars));
+});
+
+test("offsets past the message's ends are held to it", () => {
+  expect(quoteIn("one two", -5, 99)).toEqual({ text: "one two", before: "", after: "" });
+});
+
+test("context never ends halfway through an emoji", () => {
+  const message = `😀${"x".repeat(quoteContextChars - 1)}PICK${"y".repeat(quoteContextChars - 1)}😀`;
+  const start = message.indexOf("PICK");
+  const picked = quoteIn(message, start, start + 4);
+  expect(picked?.before).toBe("x".repeat(quoteContextChars - 1));
+  expect(picked?.after).toBe("y".repeat(quoteContextChars - 1));
 });

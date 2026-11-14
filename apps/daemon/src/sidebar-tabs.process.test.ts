@@ -112,6 +112,57 @@ test("a settled thread held at a usage limit or with only a command left running
   expect(tabs.inbox).toEqual(["asks", "works"]);
 });
 
+test("a thread settled by hand comes back when it fails later or its message isn't sent, past the first settled window", async () => {
+  const f = await world();
+  // Newer settled threads fill the first settled window, so a thread still counted as settled
+  // by the daemon's own query would sit beyond it, unseen.
+  for (let i = 0; i < 25; i++) f.add(`filler-${i}`, { ...settled, activityAt: now - 2 * day + i });
+  const settledAt = now - 5 * day;
+  const byHand = { settledAt, settledReason: "manual" };
+  f.add("fails-later", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 3 * day,
+    readAt: settledAt,
+  });
+  f.add("fails-before", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 6 * day,
+    readAt: settledAt,
+  });
+  f.add("failure-read", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 3 * day,
+    readAt: now - day,
+  });
+  const unsent = { revision: 1, paused: true, reason: "not_sent", resumeAt: null, pendingCount: 1 };
+  f.add("unsent", {
+    ...settled,
+    status: { state: "waiting", on: "queue" },
+    activityAt: now - 3 * day,
+    queue: unsent,
+  });
+  const restart = { ...unsent, reason: "restart" };
+  f.add("restarted", {
+    ...settled,
+    status: { state: "waiting", on: "queue" },
+    activityAt: now - 3 * day,
+    queue: restart,
+  });
+  const tabs = follow(f).tabs([
+    "fails-later",
+    "fails-before",
+    "failure-read",
+    "unsent",
+    "restarted",
+  ]);
+  expect(tabs.inbox.toSorted()).toEqual(["fails-later", "unsent"]);
+  // The rest are still settled, so they sit past the first window behind the newer fillers.
+  expect(tabs.settled).toEqual([]);
+});
+
 test("the Inbox goes pinned, needs you, running, unseen, idle; Snoozed soonest first; Settled newest first", async () => {
   const f = await world();
   f.add("idle", { status: { state: "done" }, readAt: now, activityAt: now - 1 });
@@ -164,6 +215,12 @@ test("settle, unsettle, snooze, wake and status changes move one thread with a o
     step([{ type: "thread.client.updated", changes: { settledAt: null, settledReason: null } }]),
   ).toBe("inbox");
   expect(step([{ type: "thread.client.updated", changes: settle }])).toBe("settled");
+  // It asks the person something: back in the Inbox, whatever settled it.
+  expect(step([{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }])).toBe(
+    "inbox",
+  );
+  expect(step([{ type: "thread.updated", status: { state: "done" } }])).toBe("inbox");
+  expect(step([{ type: "thread.client.updated", changes: settle }])).toBe("settled");
   // Its agents work again: back in the Inbox (the daemon unsettles working threads).
   expect(step([{ type: "thread.updated", status: { state: "working", agents: 1 } }])).toBe("inbox");
   expect(step([{ type: "thread.updated", status: { state: "done" } }])).toBe("inbox");
@@ -176,6 +233,20 @@ test("settle, unsettle, snooze, wake and status changes move one thread with a o
   );
   expect(step([{ type: "thread.updated", status: { state: "done" } }])).toBe("snoozed");
   expect(step([{ type: "thread.client.updated", changes: { snoozedUntil: null } }])).toBe("inbox");
+});
+
+test("a settled thread older than the first window comes to the Inbox when it asks the person", async () => {
+  const f = await world();
+  for (let i = 0; i < 30; i++) f.add(`s-${i}`, { ...settled, activityAt: now - day - i });
+  f.add("old", { ...settled, activityAt: now - 9 * day });
+  const list = follow(f);
+  expect(list.held.has("old")).toBe(false);
+  f.store.appendEvents(
+    ThreadId.parse("old"),
+    [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
+    now,
+  );
+  expect(list.tabs(["old"]).inbox).toEqual(["old"]);
 });
 
 test("a reconnect from revision N gets only the threads that moved since, and the same tabs as a fresh list", async () => {

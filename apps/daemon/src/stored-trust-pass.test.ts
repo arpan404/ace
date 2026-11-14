@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Event, ItemId, ThreadId } from "@ace/protocol";
+import { AgentId, AgentItem, ItemId, type Event, type ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message, shell } from "./payload-test-support.ts";
@@ -520,4 +520,75 @@ it("a cached thread read stays cached while the pass stamps thread rows", async 
   expect(after.hits).toBe(before.hits + 1);
   expect(after.invalidations).toBe(before.invalidations);
   expect(stamped()).toBe(true);
+});
+
+/** What a read gives, or the error it throws. */
+function outcome(read: () => unknown): unknown {
+  try {
+    return { value: read() };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+it("a streamed text chunk the pass rejected is read through validation", async () => {
+  const { open, openReader, finish } = setup();
+  const writer = await open(release("build A"));
+  const workspace = writer.createWorkspace("/repo", "Repo", 1);
+  const thread = createDevThread(writer, workspace).id;
+  const live = AgentItem.parse({
+    id: "live",
+    agentId: "root",
+    type: "message",
+    role: "assistant",
+    complete: false,
+    createdAt: 1,
+    parts: [],
+  });
+  writer.appendEvents(thread, [{ type: "item.created", item: live }]);
+  const deltas = ["Hel", "lo"].map((append) =>
+    at(
+      writer.appendEvents(thread, [
+        {
+          type: "item.delta",
+          itemId: ItemId.parse("live"),
+          agentId: AgentId.parse("root"),
+          field: "text",
+          append,
+        },
+      ]),
+      0,
+    ),
+  );
+  // An append stored as a number: as stored it would join the text, validation refuses it.
+  sql(
+    writer,
+    "UPDATE item_text_chunks SET append = '5' WHERE item_id = 'live' AND seq = ?",
+    at(deltas, 1).seq,
+  );
+
+  const reader = await open(release("build B"));
+  finish();
+  const items = (store: Store) => outcome(() => store.snapshotThread(thread).items);
+  expect(items(reader)).toEqual(items(openReader(release("build C", "9.9.9"))));
+});
+
+it("a cached thread read survives a progress save while other writes still clear it", async () => {
+  const { open, idle } = setup({ batchesPerSave: 1 });
+  const writer = await open(release("build A"));
+  const { thread } = history(writer);
+  const reader = await open(release("build B"));
+  const read = () => reader.readItems(thread, Number.MAX_SAFE_INTEGER, 50);
+  read();
+  const before = reader.streamingMetrics().reads;
+  idle();
+  read();
+  const saved = reader.streamingMetrics().reads;
+  expect(saved.hits).toBe(before.hits + 1);
+  expect(saved.invalidations).toBe(before.invalidations);
+
+  // A write outside the event writer and the trust writes is unaccounted: it clears the cache.
+  sql(reader, "UPDATE workspaces SET name = 'Renamed'");
+  read();
+  expect(reader.streamingMetrics().reads.hits).toBe(saved.hits);
 });

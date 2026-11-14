@@ -79,3 +79,19 @@ export function warmThread(client: ClientApi, threadId: string): void {
   }
   warmer.warm(threadId);
 }
+
+/**
+ * A route opening `threadId` (a link followed, an address loaded, or pointed at ahead): follow
+ * it from the route's loader, so its saved copy and the daemon's snapshot are read while the
+ * thread view's code is still downloading, not after it has run. A thread being started has
+ * no daemon id yet (`pending:<command>`); another machine's thread is followed by its own
+ * client once the view mounts.
+ */
+export function warmRouteThread(
+  client: ClientApi,
+  threadId: string,
+  machine: string | undefined,
+): void {
+  if (machine || threadId.startsWith("pending:")) return;
+  warmThread(client, threadId);
+}

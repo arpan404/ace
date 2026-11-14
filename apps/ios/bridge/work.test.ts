@@ -3,7 +3,7 @@ import { facts } from "@ace/fake-daemon";
 import type { CommandPayload, ThreadDetails } from "@ace/protocol";
 import type { ChangesOwner } from "./changes.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
-import { WorkSession } from "./work.ts";
+import { pickBranches, WorkSession } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
 import { followWorkLine } from "./work-line.ts";
 import { Sheets } from "./sheets.ts";
@@ -201,6 +201,83 @@ describe("Work sheet", () => {
     await workAction(unanswered, { kind: "move", mode: "worktree" }, "m1", sink, plainPreview);
     expect(sink.read("work:result:m1")).toMatchObject({ ok: false, uncertain: true });
     unanswered.close();
+  });
+});
+
+const linked = (number: number) => ({
+  number,
+  repo: repository,
+  url: `https://github.com/arpan404/ace/pull/${number}`,
+  state: "open" as const,
+  title: `Change ${number}`,
+  updatedAt: number,
+});
+
+describe("Work sheet paging", () => {
+  const many = Array.from({ length: 450 }, (_, index) => `feature/item-${index}`);
+
+  test.each([
+    ["", 200, 200, 250],
+    ["", 400, 400, 50],
+    ["ITEM-4", 200, 61, 0],
+    ["  item-44 ", 2, 2, 9],
+    ["nothing", 200, 0, 0],
+  ])("matching %j and showing %i lists %i branches with %i more", (query, shown, count, more) => {
+    const page = pickBranches(many, query, shown);
+    expect(page.names).toHaveLength(count);
+    expect(page.more).toBe(more);
+    expect(page.names.every((name) => name.includes(query.trim().toLowerCase()))).toBe(true);
+  });
+
+  test("pages a long branch list on request and searches all of it, not only the shown page", async () => {
+    const { owner, store } = await opened();
+    const lots: ChangesOwner = {
+      command: owner.command,
+      request: (async (payload: Parameters<ChangesOwner["request"]>[0]) =>
+        payload.type === "workspace.request" && payload.operation.op === "branches.list"
+          ? { result: { kind: "branches", branches: ["main", ...many], truncated: false } }
+          : owner.request(payload)) as ChangesOwner["request"],
+    };
+    const sink = new RecordingSink();
+    const sheets = new Sheets(sink, plainPreview);
+    const thread = { owner: lots, store, threadId: "work", epoch: 1 };
+    sheets.action(thread, { kind: "work", open: true });
+    sheets.action(thread, { kind: "work.branches" });
+    const branches = () =>
+      sink.read("work:branches") as { state: string; names: string[]; more: number };
+    await until(() => branches()?.state === "ready", "branches read");
+    expect(branches().names).toHaveLength(200);
+    expect(branches().names[0]).toBe("main");
+    expect(branches().more).toBe(251);
+
+    expect(sheets.action(thread, { kind: "work.branches.more" })).toBe(true);
+    expect(branches().names).toHaveLength(400);
+    expect(branches().more).toBe(51);
+
+    sheets.action(thread, { kind: "work.branches.find", query: "item-449" });
+    expect(branches()).toMatchObject({ names: ["feature/item-449"], more: 0 });
+    sheets.action(thread, { kind: "work.branches.find", query: "" });
+    expect(branches().names).toHaveLength(200);
+  });
+
+  test("shows twenty linked pull requests and the next twenty on request", async () => {
+    const { owner, store } = await opened({
+      linkedPrs: Array.from({ length: 45 }, (_, index) => linked(index + 1)),
+    });
+    const sink = new RecordingSink();
+    const sheets = new Sheets(sink, plainPreview);
+    const thread = { owner, store, threadId: "work", epoch: 1 };
+    sheets.action(thread, { kind: "work", open: true });
+    const summary = () => sink.read("work:summary") as { prs: unknown[]; morePrs: number };
+    await until(() => summary() !== undefined, "summary");
+    expect(summary().prs).toHaveLength(20);
+    expect(summary().morePrs).toBe(25);
+    expect(sheets.action(thread, { kind: "work.prs.more" })).toBe(true);
+    expect(summary().prs).toHaveLength(40);
+    expect(summary().morePrs).toBe(5);
+    sheets.action(thread, { kind: "work.prs.more" });
+    expect(summary()).toMatchObject({ morePrs: 0 });
+    expect(summary().prs).toHaveLength(45);
   });
 });
 

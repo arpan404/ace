@@ -25,6 +25,9 @@ import XCTest
         let name = app.textFields["pairing.name"]
         XCTAssertTrue(name.waitForExistence(timeout: 20))
         app.buttons["pairing.confirm"].tap()
+        // A computer with no agent ready yet opens its first run; this test only reads threads.
+        let skip = app.buttons["setup.skip"]
+        if skip.waitForExistence(timeout: 5) { skip.tap() }
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
             .waitForExistence(timeout: 60))
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts

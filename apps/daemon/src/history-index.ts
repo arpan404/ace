@@ -17,7 +17,6 @@ import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const Stream = z.object({ id: z.string(), size: count });
 const Version = z.object({
   stream_id: z.string(),
   thread_id: ThreadId,
@@ -168,6 +167,13 @@ export class HistoryIndex {
     ).get(streamId, through);
     return row ? Version.parse(row) : undefined;
   }
+  private hasVersion(streamId: string, through: number): boolean {
+    return (
+      this.statement(
+        "SELECT 1 FROM history_stream_versions WHERE stream_id=? AND seq<=? LIMIT 1",
+      ).get(streamId, through) !== undefined
+    );
+  }
   private itemAt(id: string, through: number): Item | undefined {
     const row = this.statement(
       "SELECT seq,item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
@@ -243,9 +249,10 @@ export class HistoryIndex {
               "SELECT s.id,s.size FROM item_text_targets t JOIN item_text_streams s ON s.id=t.stream_id WHERE t.item_id=? AND s.thread_id=?",
             ).get(p.itemId, event.threadId);
       if (!row) return;
-      const stream = Stream.parse(row);
+      // Columns of the daemon's own stream tables, read as stored (ADR 0125).
+      const stream = { id: String(row.id), size: Number(row.size) };
       // A message ending in an attachment acquires a new append target on its first delta.
-      if (p.field !== "output" && !this.latest(stream.id, event.seq)) {
+      if (p.field !== "output" && !this.hasVersion(stream.id, event.seq)) {
         const preview = this.statement("SELECT item FROM item_previews WHERE id=?").get(p.itemId);
         this.revision(event, decodeStoredItem(JSON.parse(String(preview?.item))));
       }

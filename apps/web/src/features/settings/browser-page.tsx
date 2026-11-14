@@ -1,3 +1,10 @@
+import {
+  browserDownloadsNote,
+  browserEngineChoices,
+  browserLossChoices,
+  browserProfileChoices,
+  browserProfileScopeChoices,
+} from "@ace/ui-core";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -6,24 +13,9 @@ import { Select } from "@/components/ui/select.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSetting, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
-import { browserEngineChoices } from "@/features/panels/index.ts";
 import { BrowserInThisWindow } from "./browser-window.tsx";
 import { settingRow } from "./settings-index.ts";
 import { UseMyChromeSettings } from "./use-my-chrome.tsx";
-
-const profiles = [
-  { value: "persistent", label: "Keep sign-ins" },
-  { value: "ephemeral", label: "Private" },
-] as const;
-const scopes = [
-  { value: "global", label: "Global" },
-  { value: "project", label: "Each project" },
-  { value: "thread", label: "Each thread" },
-] as const;
-const losses = [
-  { value: "pause", label: "Pause" },
-  { value: "headless", label: "Use ace's Chrome" },
-] as const;
 
 /** A folder path typed for a machine ace can't show a picker for (the daemon's). */
 function FolderField(props: {
@@ -101,7 +93,7 @@ export function BrowserSettings() {
             <SegmentedControl
               label="New browsers"
               value={profile.value}
-              options={profiles}
+              options={browserProfileChoices}
               onValueChange={profile.set}
             />
           </DaemonSlot>
@@ -114,7 +106,7 @@ export function BrowserSettings() {
             <Select
               label="Browser profile"
               value={scope.value}
-              options={scopes}
+              options={browserProfileScopeChoices}
               disabled={scope.offline}
               onValueChange={scope.set}
             />
@@ -125,18 +117,14 @@ export function BrowserSettings() {
             <SegmentedControl
               label="When the desktop app goes away"
               value={loss.value}
-              options={losses}
+              options={browserLossChoices}
               onValueChange={loss.set}
             />
           </DaemonSlot>
         </SettingRow>
         <SettingRow
           {...settingRow("browser.downloadDir")}
-          description={
-            machineDownloads
-              ? "Empty uses this machine's Downloads folder."
-              : "No usable Downloads folder here; empty keeps them with each thread."
-          }
+          description={browserDownloadsNote(machineDownloads)}
         >
           <DaemonSlot control={downloads}>
             <FolderField

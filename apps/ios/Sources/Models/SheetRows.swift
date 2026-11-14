@@ -61,6 +61,18 @@ struct AgentSheet: Codable, Sendable, Equatable {
         var icon: Icon? = nil
         /// Its own requests the person can answer from the tree, oldest first.
         var requests: [String]? = nil
+        /// A child on another machine whose pairing is gone: the sentence and Stop tracking.
+        var lost: Lost? = nil
+    }
+    /// What a lost child's row offers (`lostChildAsk`): the daemon's sentence, and the action that
+    /// answers its parent's request with `optionId`; `label` is the option's own words.
+    struct Lost: Codable, Sendable, Equatable {
+        let interactionId: String
+        let childThreadId: String
+        let sentence: String
+        let action: String
+        let label: String
+        let optionId: String
     }
     /// A tree node's status icon in the inbox row's set (`RowStatusIcon`); a nil kind draws none.
     struct Icon: Codable, Sendable, Equatable { let kind: String?; let tone: String; let count: Int? }

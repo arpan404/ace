@@ -1,0 +1,131 @@
+{
+  "input": {
+    "source": {
+      "width": 1920,
+      "height": 1080,
+      "scale": 2,
+      "codecs": ["avc1.42001f", "vp9"]
+    },
+    "viewers": [
+      {
+        "id": "v0",
+        "viewport": {
+          "width": 1800,
+          "height": 1000,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 8000000
+      },
+      {
+        "id": "v1",
+        "viewport": {
+          "width": 1600,
+          "height": 900,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 7100000
+      },
+      {
+        "id": "v2",
+        "viewport": {
+          "width": 1400,
+          "height": 800,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 6200000
+      },
+      {
+        "id": "v3",
+        "viewport": {
+          "width": 1200,
+          "height": 700,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 5300000
+      },
+      {
+        "id": "v4",
+        "viewport": {
+          "width": 1000,
+          "height": 600,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 4400000
+      },
+      {
+        "id": "v5",
+        "viewport": {
+          "width": 800,
+          "height": 500,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 3500000
+      },
+      {
+        "id": "v6",
+        "viewport": {
+          "width": 600,
+          "height": 400,
+          "devicePixelRatio": 1
+        },
+        "codecs": ["avc1.42001f"],
+        "link": 2600000
+      }
+    ]
+  },
+  "output": {
+    "encodes": [
+      {
+        "key": "avc1.42001f/1778x1000/60",
+        "codec": "avc1.42001f",
+        "width": 1778,
+        "height": 1000,
+        "fps": 60,
+        "bitrate": 6400800
+      },
+      {
+        "key": "avc1.42001f/1400x788/60",
+        "codec": "avc1.42001f",
+        "width": 1400,
+        "height": 788,
+        "fps": 60,
+        "bitrate": 3971520
+      },
+      {
+        "key": "avc1.42001f/1000x562/60",
+        "codec": "avc1.42001f",
+        "width": 1000,
+        "height": 562,
+        "fps": 60,
+        "bitrate": 2023200
+      },
+      {
+        "key": "avc1.42001f/600x338/60",
+        "codec": "avc1.42001f",
+        "width": 600,
+        "height": 338,
+        "fps": 60,
+        "bitrate": 730080
+      }
+    ],
+    "capture": {
+      "width": 1778,
+      "height": 1000
+    },
+    "viewers": [
+      ["v0", "avc1.42001f/1778x1000/60"],
+      ["v1", "avc1.42001f/1778x1000/60"],
+      ["v2", "avc1.42001f/1400x788/60"],
+      ["v3", "avc1.42001f/1400x788/60"],
+      ["v4", "avc1.42001f/1000x562/60"],
+      ["v5", "avc1.42001f/1000x562/60"],
+      ["v6", "avc1.42001f/600x338/60"]
+    ]
+  }
+}

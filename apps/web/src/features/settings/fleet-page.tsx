@@ -3,8 +3,7 @@ import { useState } from "react";
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { DaemonSettings } from "./daemon-settings.tsx";
-import { linkersOf } from "./data/fleet-links.ts";
-import { reachedThrough } from "./data/fleet-words.ts";
+import { reachDependents, reachedThrough, type Dependents } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
@@ -17,15 +16,9 @@ import { FleetFrame, useFleetAdd } from "./fleet-frame.tsx";
 import { WorkingAcrossMachines } from "./fleet-working.tsx";
 
 /** What reaches this computer now: its paired devices and the machines linked to it. */
-function dependentsOf(fleet: Fleet): string[] {
+function dependentsOf(fleet: Fleet): Dependents {
   const own = fleet.machines.find((machine) => machine.primary);
-  if (!own) return [];
-  return [
-    ...fleet.joined
-      .filter((device) => device.on.some((entry) => entry.machine === own.id))
-      .map((device) => device.name),
-    ...linkersOf(own.id, fleet.facts).map((linker) => linker.name),
-  ];
+  return own ? reachDependents(own.id, fleet.joined, fleet.facts, fleet.reads) : [];
 }
 
 /**

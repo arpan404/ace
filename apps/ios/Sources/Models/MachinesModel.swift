@@ -25,6 +25,8 @@ import Observation
     private(set) var off: Set<String>
     /// The route each machine reachable two ways is on (`MachineRoutePlan`), by host id.
     private(set) var plans: [String: MachineRoutePlan] = [:]
+    /// The machine the last pairing from this phone added, for its first run (`FirstRunView`).
+    private(set) var lastPaired: String?
     let inbox: MachineInbox
     /// The SDK directory's paired machines; `machines` is these plus unpaired account machines.
     @ObservationIgnored private var paired: [MachineEntry] = []
@@ -212,6 +214,7 @@ import Observation
         guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
         grants.set(paired.scopes, for: entry)
         saveGrants()
+        lastPaired = entry.hostId
         // Paired again while connected: the daemon closed the old credential's sockets, so the
         // runtime opens again with the new credential and grants.
         if let client = inbox.client(entry.hostId) {
@@ -221,7 +224,8 @@ import Observation
         }
         return nil
     }
-    /// A name for this phone only; the computer keeps its own.
+    /// This phone's label for a machine. The machine page saves the name on the machine first
+    /// (`MachineManageSection`) and keeps this label in step with it.
     func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -405,7 +409,7 @@ import Observation
         }
     }
     /// What a machine said about itself over its own authenticated connection: a paired
-    /// machine's paths are saved with it (they may name its account machine), and an account
+    /// machine's own name and paths are saved with it (the paths may name its account machine), and an account
     /// machine whose daemon is a paired machine becomes that machine (ADR 0115).
     private func learned(_ identity: MachineIdentityPatch, from hostId: String) async {
         guard let entry = entry(hostId), let daemon = identity.hostId else { return }
@@ -416,7 +420,16 @@ import Observation
             await follow(merged())
             return
         }
-        guard daemon == hostId, let paths = identity.paths, paths != paired.first(where: { $0.hostId == hostId })?.paths ?? [] else { return }
+        guard daemon == hostId else { return }
+        // Renamed on the machine, from this phone or any other device: this phone's label follows.
+        if let name = identity.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != entry.displayName {
+            if case .success(let outcome) = await access.perform(.rename(hostId: hostId, name: String(name.prefix(256)))), let listed = outcome.machines {
+                paired = listed
+                await follow(merged())
+            }
+            if let renamed = self.entry(hostId) { inbox.rename(hostId, to: renamed.displayName) }
+        }
+        guard let paths = identity.paths, paths != paired.first(where: { $0.hostId == hostId })?.paths ?? [] else { return }
         if case .success(let outcome) = await access.perform(.remember(hostId: hostId, paths: paths)), let listed = outcome.machines {
             paired = listed
             await follow(merged())

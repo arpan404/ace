@@ -7,13 +7,23 @@ import { z } from "zod";
  * in any order: `clean` is a finished thread in its local checkout on main with one linked pull
  * request (the fixture's branches are main and develop); `stuck` is a worktree whose setup script
  * failed and holds the first message; `locked` is a thread whose message an earlier daemon's
- * stale Git lock stopped. No provider CLI runs.
+ * stale Git lock stopped; `many` is `clean` with 45 linked pull requests in a project with 450 more
+ * branches, for paging both lists. No provider CLI runs.
  */
 
-export const WorkScenario = z.enum(["clean", "stuck", "locked"]);
+export const WorkScenario = z.enum(["clean", "stuck", "locked", "many"]);
 export type WorkScenario = z.infer<typeof WorkScenario>;
 
 const repository = { forge: "github", host: "github.com", owner: "arpan404", name: "ace" } as const;
+
+const linkedPr = (number: number, title: string) => ({
+  number,
+  repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const,
+  url: `https://github.com/acme/ace/pull/${number}`,
+  state: "open" as const,
+  title,
+  updatedAt: number,
+});
 
 export function seedWork(
   daemon: FakeDaemon,
@@ -36,7 +46,13 @@ export function seedWork(
     clean: "Tidy the queue retries",
     stuck: "Start on the release branch",
     locked: "Rename the cleanup fence",
+    many: "Sweep the release branches",
   };
+  if (scenario === "many")
+    daemon.workspace.git.addBranches(
+      "ace",
+      Array.from({ length: 450 }, (_, index) => `release/r${index + 1}`),
+    );
   daemon.createThread({
     hasSentMessage: true,
     id: threadId,
@@ -47,17 +63,15 @@ export function seedWork(
       ...base,
       ...(scenario === "clean"
         ? {
-            linkedPrs: [
-              // A pull request the fixture's GitHub knows, so its page opens in the app.
-              {
-                number: 233,
-                repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const,
-                url: "https://github.com/acme/ace/pull/233",
-                state: "open" as const,
-                title: "Keep the composer draft per project",
-                updatedAt: 1,
-              },
-            ],
+            // A pull request the fixture's GitHub knows, so its page opens in the app.
+            linkedPrs: [{ ...linkedPr(233, "Keep the composer draft per project"), updatedAt: 1 }],
+          }
+        : {}),
+      ...(scenario === "many"
+        ? {
+            linkedPrs: Array.from({ length: 45 }, (_, index) =>
+              linkedPr(300 + index, `Release sweep ${index + 1}`),
+            ),
           }
         : {}),
       ...(scenario === "stuck"

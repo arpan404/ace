@@ -1,8 +1,10 @@
 import type { DatabaseSync, SQLOutputValue, StatementSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
+import { EventPayload } from "@ace/protocol";
 import {
   storedEvent,
   storedItem,
+  storedTextChunk,
   trustedFrom,
   untrusted,
   type StoredTrust,
@@ -12,8 +14,8 @@ import {
  * One batch of the idle trust pass (`stored-trust-pass.ts`, ADR 0125): which of the stored rows
  * just below the trusted boundary read the same as stored as validated.
  *
- * A sequence's rows are its event and every item, text preview and history revision written at
- * it. Each body's size is read from SQLite's record header (`octet_length`, which loads no
+ * A sequence's rows are its event and every item, text preview, history revision and streamed
+ * text chunk (`item_text_chunks`, trusted per chunk by its own sequence) written at it. Each body's size is read from SQLite's record header (`octet_length`, which loads no
  * content) before any body is loaded or any JSON function runs on it, and every load and parse
  * is charged to the batch's byte budget. A sequence whose rows together exceed the budget is
  * rejected unchecked, as is one the budget no longer fits after the first; so a batch loads at
@@ -55,6 +57,23 @@ function sameItem(seq: number, json: SQLOutputValue | undefined): boolean {
   }
 }
 
+/**
+ * A text chunk reads the same both ways: as stored (`storedTextChunk`) and as the item store's
+ * validating path decodes it (its append a JSON string, its field one `item.delta` accepts).
+ */
+function sameChunk(itemId: string, row: Record<string, SQLOutputValue> | undefined): boolean {
+  if (!row) return false;
+  try {
+    const stored = storedTextChunk(row.field, row.append);
+    const append: unknown = JSON.parse(String(row.append));
+    if (typeof append !== "string") return false;
+    const delta = EventPayload.parse({ type: "item.delta", itemId, field: row.field, append });
+    return delta.type === "item.delta" && same({ field: delta.field, append }, stored);
+  } catch {
+    return false;
+  }
+}
+
 const statements = {
   sizes:
     "SELECT seq, octet_length(payload) AS bytes FROM events WHERE seq < ? ORDER BY seq DESC LIMIT ?",
@@ -70,6 +89,9 @@ const statements = {
   itemBody: "SELECT item FROM items WHERE id = ?",
   previewBody: "SELECT item FROM item_previews WHERE id = ?",
   revisionBody: "SELECT item FROM history_item_revisions WHERE item_id = ? AND seq = ?",
+  chunk:
+    "SELECT octet_length(field) + octet_length(append) AS bytes FROM item_text_chunks WHERE item_id = ? AND seq = ?",
+  chunkBody: "SELECT field, append FROM item_text_chunks WHERE item_id = ? AND seq = ?",
   // Items whose event is gone: nothing names their revisions, so they stay validated.
   orphans:
     "SELECT created_seq AS seq FROM items WHERE created_seq >= ? AND created_seq < ? AND NOT EXISTS (SELECT 1 FROM events WHERE seq = items.created_seq)",
@@ -91,9 +113,13 @@ function rowsAt(s: Statements, seq: number) {
   const itemId = text(item?.id);
   const preview = itemId === undefined ? undefined : s.preview.get(itemId);
   const revisions = s.revisions.all(seq, text(ids?.item) ?? null, text(ids?.delta) ?? null);
+  // A streamed chunk is written at its delta's sequence, under the item that delta names.
+  const deltaId = text(ids?.delta);
+  const chunk = deltaId === undefined ? undefined : s.chunk.get(deltaId, seq);
   const bytes =
     Number(item?.bytes ?? 0) +
     Number(preview?.bytes ?? 0) +
+    Number(chunk?.bytes ?? 0) +
     revisions.reduce((sum, row) => sum + Number(row.bytes), 0);
   return {
     bytes,
@@ -106,6 +132,8 @@ function rowsAt(s: Statements, seq: number) {
         const id = text(revision.item_id);
         if (id === undefined || !sameItem(seq, s.revisionBody.get(id, seq)?.item)) return false;
       }
+      if (deltaId !== undefined && chunk && !sameChunk(deltaId, s.chunkBody.get(deltaId, seq)))
+        return false;
       return true;
     },
   };
