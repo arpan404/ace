@@ -21,7 +21,7 @@ const hostId = "6f1c2a8e-4b7d-4e2a-9c1f-2d3b4a5c6d7e";
 const deviceToken = "d".repeat(64);
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
 /** Forward `from` to `to`, each chunk arriving no sooner than `earliest` and in order. */

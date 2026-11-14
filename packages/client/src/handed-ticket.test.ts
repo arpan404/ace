@@ -7,6 +7,11 @@ import { WireCodec } from "./wire-codec.ts";
 const exchangedTicket = "e".repeat(64);
 const handedTicket = "c".repeat(64);
 
+/** Let promise chains run. */
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
+
 /** A connection on manual time whose sockets open at once, with a counted ticket exchange. */
 function harness() {
   let now = 0;
@@ -54,9 +59,6 @@ function harness() {
     () => {},
     () => {},
   );
-  const settle = async () => {
-    for (let i = 0; i < 10; i++) await Promise.resolve();
-  };
   const advance = async (ms: number) => {
     const until = now + ms;
     for (;;) {

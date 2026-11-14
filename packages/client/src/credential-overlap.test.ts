@@ -42,7 +42,7 @@ function dialing(credential: () => Promise<{ ticket: string }>) {
 
 test("the ticket exchange starts while the socket dials, and its ticket goes in the hello", async () => {
   let asked = 0;
-  let answer: (value: { ticket: string }) => void = () => {};
+  let answer: ((value: { ticket: string }) => void) | undefined;
   const h = dialing(() => {
     asked++;
     return new Promise((resolve) => (answer = resolve));
@@ -54,7 +54,7 @@ test("the ticket exchange starts while the socket dials, and its ticket goes in 
   h.open();
   await settle();
   expect(h.sent).toEqual([]);
-  answer({ ticket: "t".repeat(64) });
+  answer?.({ ticket: "t".repeat(64) });
   await settle();
   expect(asked).toBe(1);
   expect(JSON.parse(h.sent[0] ?? "{}")).toMatchObject({ type: "hello", ticket: "t".repeat(64) });

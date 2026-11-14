@@ -1,6 +1,11 @@
-import { ClientMessage, DeviceId, ThreadView } from "@ace/protocol";
+import { ClientMessage, DeviceId, ThreadId, ThreadView } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { ClientCore, defaultLimits, type TransportEvents } from "./index.ts";
+
+/** Let promise chains run. */
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
 
 /** A client on manual time whose sockets open at once; each socket's sends are kept apart. */
 function harness() {
@@ -42,9 +47,6 @@ function harness() {
     now: () => now,
     limits: defaultLimits,
   });
-  const settle = async () => {
-    for (let i = 0; i < 10; i++) await Promise.resolve();
-  };
   const advance = async (ms: number) => {
     const until = now + ms;
     for (;;) {
@@ -139,7 +141,7 @@ test("commands queued while connecting wait for the welcome", async () => {
   const h = harness();
   await h.client.start();
   await h.settle();
-  await h.client.enqueue({ type: "thread.archive", threadId: "thread" }, "archive");
+  await h.client.enqueue({ type: "thread.archive", threadId: ThreadId.parse("thread") }, "archive");
   await h.settle();
   expect(h.socket().sent.some((message) => message.type === "command")).toBe(false);
   h.welcome("db-a");

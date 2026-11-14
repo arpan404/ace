@@ -3,6 +3,12 @@ import { expect, onTestFinished, test } from "vitest";
 import { DeviceId, SocketTicket, type ServerMessage } from "@ace/protocol";
 import { Client, fixture, token } from "./socket-test-support.ts";
 
+/** The ticket a welcome handed over. */
+function handed(message: ServerMessage) {
+  if (message.type !== "welcome" || !message.ticket) throw new Error("No ticket handed over");
+  return message.ticket;
+}
+
 // One real socket per connect, through the daemon's own ticket exchange and welcome.
 async function setup() {
   const f = await fixture();
@@ -28,10 +34,6 @@ async function setup() {
       ...(nextTicket ? { nextTicket: true as const } : {}),
     });
     return client.next();
-  };
-  const handed = (message: ServerMessage) => {
-    if (message.type !== "welcome" || !message.ticket) throw new Error("No ticket handed over");
-    return message.ticket;
   };
   return { f, phone, exchanged, hello, handed };
 }

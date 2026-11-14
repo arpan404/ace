@@ -5,6 +5,11 @@ import { connected, pass } from "./path-switch.fixture.ts";
 import { defaultLimits, type TransportEvents } from "./types.ts";
 import { WireCodec } from "./wire-codec.ts";
 
+/** Let promise chains run. */
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
+
 /** A connection on manual time whose sockets open only when told. */
 function harness() {
   let now = 0;
@@ -39,9 +44,6 @@ function harness() {
     () => {},
     () => {},
   );
-  const settle = async () => {
-    for (let i = 0; i < 10; i++) await Promise.resolve();
-  };
   const advance = async (ms: number) => {
     const until = now + ms;
     for (;;) {
