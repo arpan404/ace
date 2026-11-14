@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { Command, ThreadId, type MachineThreadView } from "@ace/protocol";
 import { setup } from "../agent-control/test-support.ts";
-import { RECHECK_WINDOW_MS } from "./child-recheck.ts";
+import { RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
 import { STOP_TRACKING } from "./child-lost.ts";
 import { MachineChildren } from "./children.ts";
 import { RequestMirror } from "./mirror.ts";
@@ -287,4 +287,47 @@ it("children that keep failing are asked at the capped pace, not every poll", as
   await h.pass(60_000, 1_000);
   // At the 30 s cap each is asked about twice a minute; every poll would be 120 calls or more.
   expect(h.studio.calls.length - before).toBeLessThanOrEqual(8);
+});
+
+/** Lets time pass with nothing but the children's own timers driving them. */
+async function onTimers(h: Awaited<ReturnType<typeof parentWith>>, ms: number, step = 60_000) {
+  const until = h.f.clock.now() + ms;
+  while (h.f.clock.now() < until) {
+    h.f.clock.advance(Math.min(h.f.clock.now() + step, until));
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+    await h.ledger.flush();
+  }
+  await h.f.engine.flush();
+}
+
+it("with only its own timers, an unpaired settled child asks the person at 24 h, and is read once paired again", async () => {
+  const h = await parentWith(["child-a"]);
+  h.studio.views.set("child-a", view("child-a", "done", "Done."));
+  await onTimers(h, 5_000, 1_000);
+  expect(h.state("child-a")).toBe("done");
+  // Unpaired an hour in; its only child is settled, so nothing else keeps polling going.
+  await onTimers(h, 60 * 60 * 1000);
+  h.studio.paired = false;
+  await onTimers(h, RECHECK_WINDOW_MS);
+  expect(h.asks()).toHaveLength(1);
+  // Paired again, with work started there meanwhile: the question closes and it is read.
+  h.studio.views.set("child-a", view("child-a", "working"));
+  h.studio.paired = true;
+  h.ledger.pairingsChanged();
+  await onTimers(h, 10_000, 1_000);
+  expect(h.asks()).toEqual([]);
+  expect(h.state("child-a")).toBe("working");
+});
+
+it("with only its own timers, a pairing back from outside this daemon is noticed within the slowest interval", async () => {
+  const h = await parentWith(["child-a"]);
+  h.studio.views.set("child-a", view("child-a", "done", "Done."));
+  await onTimers(h, 5_000, 1_000);
+  h.studio.paired = false;
+  await onTimers(h, 2 * 60 * 60 * 1000);
+  // Paired again by the `ace` CLI, which tells this daemon nothing.
+  h.studio.views.set("child-a", view("child-a", "working"));
+  h.studio.paired = true;
+  await onTimers(h, RECHECK_SLOWEST_POLLS * 1_000 + 20_000, 10_000);
+  expect(h.state("child-a")).toBe("working");
 });

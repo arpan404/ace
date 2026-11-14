@@ -14,6 +14,7 @@ import { sniListener } from "../sni-listener.ts";
 import { loadIdentity } from "../tls-identity.ts";
 import { MachineChildren } from "./children.ts";
 import { MachineConnections } from "./connections.ts";
+import { MachineDirectory } from "./directory.ts";
 import { RequestMirror } from "./mirror.ts";
 import { machineStatusThreads } from "./status-result.ts";
 import { machineRequest } from "./transport.ts";
@@ -31,7 +32,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-type Answer = "answer" | "drop" | "not_found" | "hang";
+type Answer = "answer" | "late" | "drop" | "not_found" | "hang";
 const token = "a".repeat(64);
 const origin = {
   hostId: HostId.parse("host-here"),
@@ -51,6 +52,21 @@ const view = (id: string, state: "working" | "done"): MachineThreadView => ({
   ...(state === "done" ? { result: `Done ${id}.`, truncated: false } : {}),
 });
 
+/**
+ * Attempts to read `id`: a read lost on a kept-open connection is sent once more on a fresh one
+ * by the transport, which arrives within milliseconds and counts as the same attempt.
+ */
+function attempts(calls: readonly { ids: string[]; at: number }[], id: string): number {
+  let count = 0;
+  let last = Number.NEGATIVE_INFINITY;
+  for (const call of calls)
+    if (call.ids.includes(id)) {
+      if (call.at - last > 50) count++;
+      last = call.at;
+    }
+  return count;
+}
+
 /** A machine on a real listener: its children's views, and how it answers each call. */
 async function remote(name: string, decide: (ids: readonly string[]) => Answer) {
   const views = new Map<string, MachineThreadView>();
@@ -67,6 +83,17 @@ async function remote(name: string, decide: (ids: readonly string[]) => Answer) 
         calls.push({ ids, at: Date.now() });
         const answer = decide(ids);
         if (answer === "hang") return;
+        if (answer === "late") {
+          setTimeout(() => {
+            response.setHeader("content-type", "application/json");
+            response.writeHead(200).end(
+              JSON.stringify({
+                threads: ids.flatMap((id) => (views.get(id) ? [views.get(id)] : [])),
+              }),
+            );
+          }, 50);
+          return;
+        }
         if (answer === "drop") return request.socket.destroy();
         response.setHeader("content-type", "application/json");
         if (answer === "not_found")
@@ -75,13 +102,11 @@ async function remote(name: string, decide: (ids: readonly string[]) => Answer) 
             .end(
               JSON.stringify({ error: "not_found", message: "No such thread from that machine." }),
             );
-        response
-          .writeHead(200)
-          .end(
-            JSON.stringify({
-              threads: ids.flatMap((id) => (views.get(id) ? [views.get(id)] : [])),
-            }),
-          );
+        response.writeHead(200).end(
+          JSON.stringify({
+            threads: ids.flatMap((id) => (views.get(id) ? [views.get(id)] : [])),
+          }),
+        );
       });
     },
     delay: systemDeliveryRuntime.delay,
@@ -111,24 +136,26 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
     },
   });
   cleanups.push(() => connections.close());
-  const byName = new Map(machines.map((entry) => [entry.name, entry]));
+  // Calls go through the directory, as in the daemon: its recovery callback reaches the ledger.
+  const wired: { ledger?: MachineChildren } = {};
+  const directory = new MachineDirectory({
+    profiles: () => machines.map((entry) => entry.profile),
+    transport: machineRequest,
+    connections,
+    now: f.clock.now,
+    reachable: (machine) => wired.ledger?.machineReachable(machine),
+    log: () => {},
+  });
   const ledger = new MachineChildren({
     store: f.store,
     engine: () => f.engine,
     now: f.clock.now,
     schedule: (ms, run) => f.clock.setTimer(run, ms),
     pollMs: 1_000,
-    status: async (machine, _parent, ids) => {
-      const target = byName.get(machine);
-      if (!target) throw new Error(`No machine ${machine}`);
-      return machineStatusThreads(
-        await machineRequest(
-          target.profile,
-          { origin, call: { op: "status", threadIds: [...ids] } },
-          { timeoutMs, connections },
-        ),
-      );
-    },
+    status: async (machine, _parent, ids) =>
+      machineStatusThreads(
+        await directory.call(machine, origin, { op: "status", threadIds: [...ids] }, { timeoutMs }),
+      ),
     cancel: async () => {},
     resend: async () => "taken" as const,
     mirror: new RequestMirror({
@@ -145,6 +172,7 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
     device: (machine) => `device-${machine}`,
     log: () => {},
   });
+  wired.ledger = ledger;
   cleanups.push(() => ledger.close());
   const add = (
     machine: Awaited<ReturnType<typeof remote>>,
@@ -242,10 +270,25 @@ it("a child whose reads keep failing backs off to the cap even while its neighbo
   h.add(studio, "child-a");
   h.add(studio, "child-b");
   await h.pass(3 * 60_000);
-  const before = studio.calls.filter((call) => call.ids.includes("child-a")).length;
+  const before = attempts(studio.calls, "child-a");
   await h.pass(60_000);
-  const after = studio.calls.filter((call) => call.ids.includes("child-a")).length;
+  const after = attempts(studio.calls, "child-a");
   // At the 30 s cap it is asked about twice a minute; every poll would be sixty.
   expect(after - before).toBeLessThanOrEqual(3);
   expect(h.state("child-b")).toBe("working");
+});
+
+it("a machine answering another child never cuts short the wait of one whose own read just failed", async () => {
+  // child-a's read alone loses its connection at once; child-b's answers a moment later, so
+  // every turn the machine recovers just after child-a has failed.
+  const studio = await remote("studio", (ids) => (ids.includes("child-a") ? "drop" : "late"));
+  const h = await parentWatching([studio]);
+  h.add(studio, "child-a");
+  h.add(studio, "child-b");
+  await h.pass(3 * 60_000);
+  const before = attempts(studio.calls, "child-a");
+  await h.pass(60_000);
+  const after = attempts(studio.calls, "child-a");
+  // Twice a minute at its 30 s cap, the machine's recovery notwithstanding; every poll is sixty.
+  expect(after - before).toBeLessThanOrEqual(3);
 });

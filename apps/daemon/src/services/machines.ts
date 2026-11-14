@@ -261,7 +261,13 @@ export function startMachines(context: ServiceContext): void {
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
   // Linking again or unlinking ends that machine's old connections before it reports done.
-  resources.own(fleet.onChange((profiles) => connections.retain(profiles)));
+  resources.own(
+    fleet.onChange((profiles) => {
+      connections.retain(profiles);
+      // Children on a machine paired again, or no longer, are planned again at once.
+      children.pairingsChanged();
+    }),
+  );
   services.fleet = fleet;
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;

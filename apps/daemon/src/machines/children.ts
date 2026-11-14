@@ -30,7 +30,6 @@ import {
   nextDue,
   planTurn,
   restored,
-  retryNow,
   type CallOutcome,
   type ChildRecord,
   type ScheduleChild,
@@ -117,6 +116,8 @@ export class MachineChildren implements RemoteChildren {
    * before, so children come due poll by poll even if the clock stalls.
    */
   private lastSetFor = Number.NEGATIVE_INFINITY;
+  /** The pairings changed: the next poll comes one interval away, whatever was planned. */
+  private replan = false;
   /**
    * Machines whose status calls fail, logged when that starts and when it ends. Which child is
    * asked when is the scheduler's (child-schedule.ts), not this.
@@ -396,6 +397,10 @@ export class MachineChildren implements RemoteChildren {
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
     }
+    if (this.replan) {
+      this.replan = false;
+      delay = this.deps.pollMs;
+    }
     if (delay === undefined) return;
     // A poll already due as soon stays; new work that needs an earlier one replaces it.
     if (this.cancelTimer && this.dueAt <= now + delay) return;
@@ -425,11 +430,23 @@ export class MachineChildren implements RemoteChildren {
     if (this.closed || !this.results.resumed(thread)) return;
     this.arm();
   }
-  /** Another call to the machine got through: children waiting out a failure go next poll. */
+  /**
+   * A machine was paired, paired again or unpaired here: what to read is planned again on the
+   * next poll, one interval away, rather than whenever the last plan said.
+   */
+  pairingsChanged(): void {
+    if (this.closed) return;
+    this.cancelTimer?.();
+    this.cancelTimer = undefined;
+    this.replan = true;
+    this.arm();
+  }
+  /**
+   * Another call to the machine got through. That says nothing of a child whose own read just
+   * failed, so no child's wait is cut short; only the machine's failure episode is told.
+   */
   machineReachable(machine: string): void {
     this.reach.retryNow(machine);
-    const records = this.records.get(machine);
-    if (records) this.records.set(machine, retryNow(records, this.deps.now()));
   }
   /** A status call to the machine got through: its failure episode, if any, ends. */
   private reached(machine: string) {
