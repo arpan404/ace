@@ -326,3 +326,24 @@ test("a first connect with the backend down connects on its own once it is back"
   expect(m.client.state).toBe("ready");
   await m.client.close();
 });
+
+test("an account switch leaves no record of how the old account's grants were given", async () => {
+  const b = backend();
+  await b.cache.grant("old-session", "machine-a");
+  await b.cache.grant("old-session", "machine-a");
+  // Another account signs in on this window and opens a machine.
+  await b.cache.grant("new-session", "machine-b");
+  // A late refusal of the old account's grant earns nothing: its record is gone.
+  expect(b.cache.refused("grant-1", "machine-a")).toBe(false);
+});
+
+test("a machine welcomed, closed or removed leaves no record behind", async () => {
+  const b = backend();
+  for (const machine of ["machine-a", "machine-b", "machine-c"]) {
+    await b.cache.grant("s", machine);
+    await b.cache.grant("s", machine);
+    b.cache.settled(machine);
+  }
+  for (const machine of ["machine-a", "machine-b", "machine-c"])
+    expect(b.cache.refused("grant-1", machine)).toBe(false);
+});

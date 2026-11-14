@@ -32,7 +32,12 @@ export interface GrantCache {
    * for a grant fetched fresh for that machine's attempt, which a fresh one would not change.
    */
   refused(grant: string, machine?: string): boolean;
-  /** Sign-out: forget every grant. */
+  /**
+   * `machine` no longer needs to know how it got its grant: its connection was welcomed, or the
+   * machine was closed or removed. Its record goes, so records never outlive their use.
+   */
+  settled(machine: string): void;
+  /** Sign-out: forget every grant, and every record of how one was given. */
   clear(): void;
 }
 
@@ -54,8 +59,18 @@ export function grantCache(
     | { session: string; token: string; at: number; wallAt: number; reuseMs: number }
     | undefined;
   let pending: { session: string; grant: Promise<string> } | undefined;
-  /** The last grant each machine was given, and whether it came from the cache. */
+  /**
+   * The last grant each machine was given, and whether it came from the cache: kept only from
+   * handing it out until its fate is known, and for one ace session only.
+   */
   const served = new Map<string, { token: string; cached: boolean }>();
+  let servedSession: string | undefined;
+  /** Records belong to one session: another (an account switch) starts with none. */
+  const record = (session: string, machine: string, token: string, cached: boolean) => {
+    if (servedSession !== session) served.clear();
+    servedSession = session;
+    served.set(machine, { token, cached });
+  };
   /** Whether the kept grant is young enough to offer again, by both clocks. */
   const fresh = (grant: NonNullable<typeof kept>) =>
     clocks.elapsed() - grant.at < grant.reuseMs && clocks.wall() - grant.wallAt < grant.reuseMs;
@@ -63,7 +78,7 @@ export function grantCache(
     async grant(session, machine = "") {
       if (kept && kept.session !== session) kept = undefined;
       if (kept && fresh(kept)) {
-        served.set(machine, { token: kept.token, cached: true });
+        record(session, machine, kept.token, true);
         return kept.token;
       }
       kept = undefined;
@@ -88,7 +103,7 @@ export function grantCache(
       }
       // Fetched for this attempt (or one sharing its fetch): not from the cache.
       const token = await pending.grant;
-      served.set(machine, { token, cached: false });
+      record(session, machine, token, false);
       return token;
     },
     refused(grant, machine = "") {
@@ -98,10 +113,14 @@ export function grantCache(
       served.delete(machine);
       return given.cached;
     },
+    settled(machine) {
+      served.delete(machine);
+    },
     clear() {
       kept = undefined;
       pending = undefined;
       served.clear();
+      servedSession = undefined;
     },
   };
 }

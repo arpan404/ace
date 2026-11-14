@@ -345,6 +345,7 @@ export class MachinePool {
     this.live.delete(hostId);
     this.failures.delete(hostId);
     this.gates.delete(hostId);
+    this.options.account?.grantSettled?.(hostId);
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
@@ -417,6 +418,7 @@ export class MachinePool {
       this.dispose(live);
       this.live.delete(hostId);
       this.failures.delete(hostId);
+      this.options.account?.grantSettled?.(hostId);
       gone.push(hostId);
     }
     this.gates.clear();
@@ -504,6 +506,9 @@ export class MachinePool {
   private publish(live: Live, state: MachineState): void {
     live.state = state;
     if (state.status === "online") this.failures.delete(state.entry.hostId);
+    // Welcomed: how this account machine got its grant no longer matters.
+    if (state.status === "online" && state.entry.target.kind === "account")
+      this.options.account?.grantSettled?.(state.entry.hostId);
     this.notifications.emit([`machine:${state.entry.hostId}`]);
     // An account machine that can't open (signed out, another account, its code to enter)
     // gives the paired entry it stood in for back until it proves itself again.

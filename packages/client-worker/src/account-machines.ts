@@ -45,6 +45,12 @@ export interface AccountMachineOptions {
    * without a cache.
    */
   grantRefused?(grant: string, machine?: string): boolean;
+  /**
+   * `machine` (its host id) no longer needs the record of how it got its grant: its connection
+   * was welcomed, or the machine was closed or removed. An app that keeps such records drops
+   * this one.
+   */
+  grantSettled?(machine: string): void;
   socket(url: string, protocols?: string[]): PortableSocket;
   /**
    * Hear network changes (a browser's `online`), each a cue to look for a better path (ADR

@@ -169,6 +169,7 @@ export function accountMachineOptions(options: {
       return grants.grant(session.token, machine);
     },
     grantRefused: (grant, machine) => grants.refused(grant, machine),
+    grantSettled: (machine) => grants.settled(machine),
     socket: browserDeviceSocket,
     // The network changed: a better path may be back, or the active one gone.
     watchNetwork: (changed) => {
