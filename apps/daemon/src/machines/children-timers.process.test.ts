@@ -326,19 +326,47 @@ it("a child that is asked and never answers still loses contact after the lease"
   expect(ids.slice(1).filter((id) => h.children.watched(id)?.view.contact === "lost")).toEqual([]);
 });
 
-it("a stop is confirmed, never given up on, while the child waits its turn behind 400 others", async () => {
+it("stops are confirmed, never given up on, while forty of them wait behind 400 children asked alone", async () => {
   const { h, ids } = await restartedWithBacklog(400, {
     stopPlan: [{ action: "cancel", waitMs: 2_000 }],
   });
-  const stopped = ids.at(-1);
-  if (!stopped) throw new Error("no child");
-  // Its machine takes the cancel at once; only a read of the child can say so.
+  // Its machine takes each cancel at once; only a read of the child can say so.
   h.answers.cancel = async (id) => {
     h.report(id, { state: "cancelled", status: { state: "done" }, result: "Stopped." });
   };
-  h.children.stop(stopped);
-  const contacts = new Set<string | undefined>();
-  await run(h, h.clock.now + 40_000, () => contacts.add(h.children.watched(stopped)?.view.contact));
-  expect(contacts.has("unconfirmed")).toBe(false);
-  expect(h.state(stopped)).toBe("cancelled");
+  const stopped = ids.slice(-40);
+  const from = h.clock.now;
+  for (const id of stopped) h.children.stop(id);
+  const unconfirmed = new Set<string>();
+  const confirmedAt = new Map<string, number>();
+  await run(h, from + 40_000, () => {
+    for (const id of stopped) {
+      const view = h.children.watched(id)?.view;
+      if (view?.contact === "unconfirmed") unconfirmed.add(id);
+      if (view?.state === "cancelled" && !confirmedAt.has(id)) confirmedAt.set(id, h.clock.now);
+    }
+  });
+  // More than one turn's sixteen calls: the last are read after the 2 s bound, and still wait.
+  expect([...unconfirmed]).toEqual([]);
+  // Asked ahead of the 400, sixteen a turn: all confirmed within ceil(40 / 16) polls and one more.
+  expect(confirmedAt.size).toBe(40);
+  const slowest = Math.max(...confirmedAt.values()) - from;
+  expect(slowest).toBeLessThanOrEqual((Math.ceil(40 / callsPerTurn) + 1) * POLL);
+});
+
+it("a child whose first read after a backlog fails loses contact only a lease after that read", async () => {
+  const { h, ids } = await restartedWithBacklog(400, { leaseMs: 10_000 });
+  const failedOnce = new Set<string>();
+  // Each child's first read fails, then it answers every time.
+  h.reads.decide = (asked) => {
+    const fresh = asked.filter((id) => !failedOnce.has(id));
+    for (const id of fresh) failedOnce.add(id);
+    return fresh.length > 0 ? new MachineFailure("disconnected") : undefined;
+  };
+  const lost = new Set<string>();
+  await run(h, h.clock.now + 60_000, () => {
+    for (const id of ids) if (h.children.watched(id)?.view.contact === "lost") lost.add(id);
+  });
+  expect(failedOnce.size).toBe(400);
+  expect([...lost]).toEqual([]);
 });

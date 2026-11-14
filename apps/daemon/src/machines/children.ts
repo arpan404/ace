@@ -46,7 +46,7 @@ import {
 } from "./child-views.ts";
 import { LostChildren } from "./child-lost.ts";
 import { RetryBackoff } from "./retry-backoff.ts";
-import { ChildLiveness, type ChildLivenessDeps } from "./child-liveness.ts";
+import { ChildLiveness, type ChildLivenessDeps, type Unanswered } from "./child-liveness.ts";
 import { refusedNotFound } from "./transport.ts";
 
 export interface ChildrenDeps {
@@ -134,10 +134,10 @@ export class MachineChildren implements RemoteChildren {
   /** Status calls on their way. */
   private running = new Set<Promise<void>>();
   /**
-   * Each child asked about since its machine last reported it, by when the first such ask went
-   * out: its lease runs from then (ChildLiveness.lapse).
+   * Each child asked about since its machine last reported it: when the first such read went
+   * out, and the latest unanswered one (ChildLiveness.lapse).
    */
-  private unanswered = new Map<string, number>();
+  private unanswered = new Map<string, Unanswered>();
   /** For each child being stopped, when its latest read that has come back started. */
   private readAt = new Map<string, number>();
   /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
@@ -602,7 +602,8 @@ export class MachineChildren implements RemoteChildren {
     const first = rows.get(ids[0] ?? "");
     if (!first) return;
     const startedAt = this.deps.now();
-    for (const id of ids) if (!this.unanswered.has(id)) this.unanswered.set(id, startedAt);
+    for (const id of ids)
+      if (!this.unanswered.has(id)) this.unanswered.set(id, { since: startedAt });
     let outcome: CallOutcome;
     let views: MachineThreadView[] | undefined;
     try {
@@ -632,8 +633,14 @@ export class MachineChildren implements RemoteChildren {
     for (const id of ids)
       if (typeof rows.get(id)?.stop_started_at === "number") this.readAt.set(id, startedAt);
       else this.readAt.delete(id);
-    // Each child its machine reported: its lease renews, whatever applying the view does.
-    for (const view of views ?? []) this.unanswered.delete(view.threadId);
+    // Each child its machine reported: its lease renews, whatever applying the view does. The
+    // rest went unanswered by this read.
+    const reported = new Set((views ?? []).map((view) => String(view.threadId)));
+    for (const id of ids) {
+      const reads = this.unanswered.get(id);
+      if (reported.has(id)) this.unanswered.delete(id);
+      else if (reads) reads.last = startedAt;
+    }
     if (views && !this.closed)
       try {
         for (const view of views) {

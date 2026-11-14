@@ -22,6 +22,14 @@ const CONFIRM_RETRY_MS = 60_000;
 /** How many unconfirmed stops one tick sends the cancel to again; the rest go on the next. */
 const CONFIRM_PER_TICK = 16;
 
+/** A child's reads since its machine last reported it. */
+export interface Unanswered {
+  /** When the first went out. */
+  since: number;
+  /** When the latest that came back unanswered went out. */
+  last?: number;
+}
+
 export interface ChildLivenessDeps {
   store: Store;
   ledger: ChildLedger;
@@ -42,11 +50,11 @@ export interface ChildLivenessDeps {
   emit(ids: readonly string[]): void;
   log(message: string, fields: Record<string, unknown>): void;
   /**
-   * Children asked about since their machine last reported them, by when the first of those
-   * asks went out: the lease runs from then, never from a time the child was only waiting for its
-   * turn. Kept by the poll; entries the lease check finds settled, lost or stopping are dropped.
+   * Children asked about since their machine last reported them: when the first of those asks
+   * went out, and when the latest that came back unanswered did. Kept by the poll; entries the
+   * lease check finds settled, lost or stopping are dropped.
    */
-  unanswered: Map<string, number>;
+  unanswered: Map<string, Unanswered>;
   /** Whether a read of the child that started at or after `at` has come back, answered or not. */
   readSince(id: string, at: number): boolean;
   /** Overrides for tests; the defaults are the ADR's. */
@@ -67,8 +75,6 @@ export class ChildLiveness {
   private plan: StopPlan<"cancel">;
   private leaseMs: number;
   private confirmRetryMs: number;
-  /** Leases count from here at the earliest: time this daemon wasn't running isn't silence. */
-  private bootAt: number;
   private timer: { at: number; cancel: () => void } | undefined;
   private closed = false;
   constructor(deps: ChildLivenessDeps) {
@@ -76,7 +82,6 @@ export class ChildLiveness {
     this.plan = deps.stopPlan ?? REMOTE_STOP;
     this.leaseMs = deps.leaseMs ?? REMOTE_CHILD_LEASE_MS;
     this.confirmRetryMs = deps.confirmRetryMs ?? CONFIRM_RETRY_MS;
-    this.bootAt = deps.now();
   }
   close() {
     this.closed = true;
@@ -173,18 +178,23 @@ export class ChildLiveness {
     });
   }
   /**
-   * The lease check: every unsettled child that was asked about and whose machine hasn't
-   * reported it within the lease since is lost contact, and its parent's hold on it ends. The
-   * lease runs from the later of its last report, this daemon's start and the first ask since:
-   * a child the poll has not reached yet is never lost for that.
+   * The lease check: every unsettled child asked about again and again for a whole lease without
+   * its machine reporting it is lost contact, and its parent's hold on it ends. A child the poll
+   * has not reached yet, or not reached again, is never lost for that.
    */
   lapse(): void {
     if (this.closed) return;
-    const now = this.deps.now();
     let marked = 0;
-    for (const [id, askedAt] of this.deps.unanswered) {
+    for (const [id, reads] of this.deps.unanswered) {
       if (marked >= LAPSED_PER_POLL) break;
-      if (now - askedAt < this.leaseMs) continue;
+      // Renewed by its machine's last report, the lease runs again from the first ask since (after
+      // that report, and after this daemon started). It runs out only at a read that went out a
+      // whole lease later and came back unanswered too: downtime here and time waiting for a
+      // turn never count.
+      if (reads.last === undefined) continue;
+      const lease = { renewedAt: reads.since, ttlMs: this.leaseMs };
+      const at = standing({ ended: false, lease }, reads.last);
+      if (at.kind !== "lost") continue;
       const row = this.deps.ledger.row(id);
       if (
         !row ||
@@ -196,9 +206,6 @@ export class ChildLiveness {
         this.deps.unanswered.delete(id);
         continue;
       }
-      const renewedAt = Math.max(row.seen_at ?? row.created_at, this.bootAt, askedAt);
-      const at = standing({ ended: false, lease: { renewedAt, ttlMs: this.leaseMs } }, now);
-      if (at.kind !== "lost") continue;
       marked++;
       this.deps.unanswered.delete(id);
       const name = this.deps.label(row.machine);
