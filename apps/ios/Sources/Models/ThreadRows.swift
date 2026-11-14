@@ -138,6 +138,15 @@ struct BlockRow: Codable, Sendable, Equatable {
     }
     /// Where a fork's own work starts: the thread it was forked from.
     struct Forked: Codable, Sendable, Equatable { let threadId: String }
+    /// The turn's live line while the agent compacts its context (`@ace/ui-core` turn activity).
+    struct Live: Codable, Sendable, Equatable {
+        /// "Compacting context".
+        let label: String
+        /// "Compacting context for", before the time ticking from `since`.
+        let timed: String
+        /// Ms since 1970; nil when no time is shown.
+        let since: Double?
+    }
     let index: Int?
     let kind: String
     let items: [String]
@@ -149,6 +158,8 @@ struct BlockRow: Codable, Sendable, Equatable {
     let started: Started?
     var question: Question? = nil
     var forked: Forked? = nil
+    /// A "live" block's line; nil while the pill alone says what the turn does.
+    var live: Live? = nil
     /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
     var room: Room? = nil
     struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }

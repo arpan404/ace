@@ -45,8 +45,8 @@ struct BlockView: View {
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
-        // The live state is the pill over the composer, not a line in the transcript.
-        case "live": EmptyView()
+        // The live state is the pill over the composer; only a compaction also says so here.
+        case "live": if let live = row.live { LiveCompactingRow(live: live) }
         case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
         case "files":
             if let files = row.files, !files.chips.isEmpty, let openChanges = links.openChanges {

@@ -15,6 +15,8 @@ import {
   closedMeta,
   closedQuestionWords,
   questionTitle,
+  readTurnActivity,
+  timedWords,
   subagentDetail,
   subagentElapsed,
   subagentGroupStatus,
@@ -263,6 +265,26 @@ function questionLine(store: ThreadSource, interactionId: string) {
   };
 }
 
+/**
+ * The turn's live line while the agent compacts its context: "Compacting context", ticking from
+ * when the stretch began (the shared turn activity). Any other work is the pill's to say: null.
+ */
+function compactingLine(store: ThreadSource) {
+  const thread = store.thread;
+  const rootId = thread?.rootAgentId ?? "";
+  const status = store.agent(rootId)?.status;
+  if (status?.state !== "working" || status.activity !== "compacting") return null;
+  const activity = readTurnActivity(store, rootId, { threadStatus: thread?.status }).activity;
+  if (!activity) return null;
+  const label = preview(activity.label, 256);
+  /** "Compacting context for", before the ticking time. */
+  return {
+    label,
+    timed: preview(timedWords(activity.label), 256),
+    since: activity.elapsedFrom ?? null,
+  };
+}
+
 /** What a log of this thread reads with: its turns' ends, thoughts' times, steps' contexts. */
 export function logFacts(store: ThreadSource): LogFacts {
   return {
@@ -376,7 +398,7 @@ export function blockRow(
     case "forked":
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
-      return base;
+      return { ...base, live: compactingLine(store) };
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
