@@ -13,7 +13,7 @@ mod writer;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
-use crate::probe::{CpuTrial, TRIAL_DEADLINE, probe};
+use crate::probe::{TRIAL_DEADLINE, probe, trials};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
 use egress::EgressLane;
@@ -147,8 +147,7 @@ async fn serve(
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
 
-    let probed =
-        tokio::task::spawn_blocking(|| probe(vec![Box::new(CpuTrial)], TRIAL_DEADLINE)).await;
+    let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
     let Ok((mut capabilities, late)) = probed else {
         return fail("probe");
     };
@@ -206,6 +205,19 @@ async fn serve(
         Box::new(crate::record::Mp4Recorders),
         Box::new(egress_lane.clone()),
     );
+    let (still_tx, mut still_rx) = mpsc::unbounded_channel();
+    let started = clock.0;
+    let threads = crate::stills::StillThreads::probed(
+        crate::stills::thread_count(std::thread::available_parallelism().map_or(1, |n| n.get())),
+        &capabilities.list(),
+        Arc::new(move || started.elapsed().as_micros() as u64),
+        Arc::new(move |outcome| {
+            let _ = still_tx.send(outcome);
+        }),
+    );
+    if let Ok(threads) = threads {
+        engine = engine.with_stills(Box::new(threads));
+    }
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
@@ -299,13 +311,16 @@ async fn serve(
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
-                let changed = FromMedia::CapabilitiesChanged { capabilities: capabilities.list() };
+                let list = capabilities.list();
+                engine.capabilities_changed(&list);
+                let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()
                 {
                     break fail("stdout is backed up past its bound");
                 }
             }
+            Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
             _ = tick.tick() => engine.tick(clock.now()),
         }
         let mut outputs = Outputs {

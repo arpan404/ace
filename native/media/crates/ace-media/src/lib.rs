@@ -6,8 +6,9 @@ pub mod engine;
 pub mod framing;
 pub mod os;
 pub mod probe;
-#[cfg(unix)]
 pub mod record;
 pub mod secret;
 #[cfg(unix)]
 pub mod shell;
+#[cfg(unix)]
+pub mod stills;

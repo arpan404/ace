@@ -199,7 +199,7 @@ export function FileEditor(props: {
               save();
             }
           }}
-          className="min-h-0 flex-1 resize-none bg-transparent px-4 py-2 font-mono text-xs leading-normal text-foreground outline-none"
+          className="min-h-0 flex-1 resize-none bg-transparent px-4 py-2 font-mono text-xs leading-normal text-foreground outline-none focus-ring-inset"
         />
       )}
     </div>
