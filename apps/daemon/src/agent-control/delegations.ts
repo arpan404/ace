@@ -485,8 +485,9 @@ export class DelegationService {
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
     const accountId = namedAccountId(this.deps, request);
-    // A child with no named account is placed by quota: on readings no older than the cadence.
-    if (!accountId && request.provider !== "acp" && this.deps.freshLimits)
+    // A child is placed, or its named account refused, by quota: on readings no older than the
+    // cadence, read again only when they are older.
+    if (request.provider !== "acp" && this.deps.freshLimits)
       await budget.wait(this.deps.freshLimits().catch(() => {}));
     const catalog = this.deps.models;
     const filter = {
