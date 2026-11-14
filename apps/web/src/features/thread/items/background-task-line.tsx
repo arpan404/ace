@@ -6,6 +6,7 @@ import { TerminalIcon } from "@phosphor-icons/react";
 import { Suspense, useCallback, useId, useMemo, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { StaticRow, TranscriptRow, rowClass, rowDetailIndent } from "./transcript-row.tsx";
 
 /**
@@ -76,6 +77,12 @@ export function BackgroundTaskGroup(props: {
     [taskIds],
   );
   const group = backgroundGroup(useThread(props.threadId, keys, read, sameFacts) ?? []);
+  // How many still run is the copy's fact: while it isn't current, the count says only that.
+  const { staleLabel } = useThreadLiveState(props.threadId);
+  const label =
+    staleLabel === undefined
+      ? group.label
+      : `${taskIds.length} ${taskIds.length === 1 ? "background task" : "background tasks"} · ${staleLabel}`;
   const line = (index: number) => (
     <BackgroundTaskLine
       key={taskIds[index]}
@@ -85,17 +92,17 @@ export function BackgroundTaskGroup(props: {
     />
   );
   return (
-    <div role="group" aria-label={group.label}>
+    <div role="group" aria-label={label}>
       {group.listed.length ? (
         <TranscriptRow
           expanded={open}
           controls={list}
           onToggle={() => setOpen(!open)}
           lead={<TerminalIcon aria-hidden size={16} />}
-          title={group.label}
+          title={label}
         />
       ) : (
-        <StaticRow lead={<TerminalIcon aria-hidden size={16} />} title={group.label} />
+        <StaticRow lead={<TerminalIcon aria-hidden size={16} />} title={label} />
       )}
       {open && group.listed.length > 0 && (
         <div id={list} className={cn("fx-rise-in", rowDetailIndent)}>
