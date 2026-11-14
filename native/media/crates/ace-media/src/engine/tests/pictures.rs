@@ -95,7 +95,11 @@ fn a_tab_source_takes_no_encodes_and_a_closed_source_stops_its_encoder() {
         &[],
         NOW,
     );
-    assert_eq!(encode_effects(&closed), ["Close(p)"]);
+    // It drains first; its thread ends once the encoder has handed over its last output.
+    assert_eq!(encode_effects(&closed), ["Drain(p)"]);
+    engine.encoder_drained("p");
+    let drained: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&drained), ["Close(p)"]);
 }
 
 #[test]
@@ -146,4 +150,113 @@ fn a_failed_encoder_ends_the_source_so_the_daemon_takes_it_back() {
     assert!(encode_effects(&picture(&mut engine, 2, NOW)).is_empty());
     engine.encoded("p", unit(2, true), NOW);
     assert_eq!(engine.effects().count(), 0);
+}
+
+/// An egress lane that keeps every frame it is given.
+#[derive(Clone, Default)]
+struct Kept(std::sync::Arc<std::sync::Mutex<Vec<media_wire::frame::Egress>>>);
+
+impl super::super::egress::EgressSink for Kept {
+    fn offer(&mut self, frame: Vec<u8>) -> bool {
+        self.force(frame);
+        true
+    }
+    fn force(&mut self, frame: Vec<u8>) {
+        if let (Ok(e), Ok(mut kept)) = (media_wire::frame::Egress::decode(&frame), self.0.lock()) {
+            kept.push(e);
+        }
+    }
+}
+
+impl Kept {
+    /// `"unit"` or `"end"`/`"cut"` for each frame, in order.
+    fn order(&self) -> Vec<&'static str> {
+        self.0
+            .lock()
+            .map(|k| {
+                k.iter()
+                    .map(|e| match e.frame.end() {
+                        Some(end) if end.interrupted => "cut",
+                        Some(_) => "end",
+                        None => "unit",
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// An encoding picture source with egress on, on an engine whose lane keeps everything.
+fn encoding() -> (Engine, Kept) {
+    let lane = Kept::default();
+    let mut engine = Engine::new(
+        Box::new(super::super::recorder::NoRecorders),
+        Box::new(lane.clone()),
+    );
+    open(&mut engine, "tab-pictures");
+    send(
+        &mut engine,
+        json!({ "type": "source.egress", "source": "p", "on": true }),
+        &[],
+        NOW,
+    );
+    encodes(&mut engine, spec());
+    (engine, lane)
+}
+
+fn close(engine: &mut Engine, now: Now) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "source.close", "source": "p" }),
+        &[],
+        now,
+    )
+}
+
+#[test]
+fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end() {
+    let (mut engine, lane) = encoding();
+    engine.encoded("p", unit(2, true), NOW);
+    let _ = engine.effects().count();
+    let closed = close(&mut engine, NOW);
+    assert_eq!(encode_effects(&closed), ["Drain(p)"]);
+    assert_eq!(
+        lane.order(),
+        ["unit"],
+        "no marker while output may be pending"
+    );
+    // Output the encoder still had, after the close: it is delivered, not thrown away.
+    engine.encoded("p", unit(2, false), NOW);
+    engine.encoded("p", unit(2, false), NOW);
+    engine.encoder_drained("p");
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(lane.order(), ["unit", "unit", "unit", "end"]);
+    // Nothing after the end.
+    engine.encoded("p", unit(2, false), NOW);
+    assert_eq!(lane.order().len(), 4);
+}
+
+#[test]
+fn an_encoder_that_cannot_drain_ends_its_source_interrupted() {
+    let (mut engine, lane) = encoding();
+    close(&mut engine, NOW);
+    engine.encoder_failed("p", "encoder-undrainable");
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(lane.order(), ["cut"]);
+}
+
+#[test]
+fn a_drain_that_never_finishes_ends_interrupted_at_its_deadline() {
+    let (mut engine, lane) = encoding();
+    close(&mut engine, at(1_000));
+    engine.tick(at(1_000 + super::super::sources::DRAIN_MS - 1));
+    assert!(lane.order().is_empty());
+    engine.tick(at(1_000 + super::super::sources::DRAIN_MS));
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(lane.order(), ["cut"]);
+    engine.encoder_drained("p");
+    assert_eq!(lane.order(), ["cut"]);
 }

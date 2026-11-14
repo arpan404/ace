@@ -355,6 +355,7 @@ async fn serve(
                 Output::Unit(frame) => engine.encoded(&source, frame, clock.now()),
                 Output::Report(acceleration) => engine.encoder_steps(&source, acceleration),
                 Output::Failed(reason) => engine.encoder_failed(&source, &reason),
+                Output::Drained => engine.encoder_drained(&source),
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);

@@ -33,6 +33,8 @@ pub enum Command {
     },
     /// The encode's next picture is a keyframe.
     Key(u32),
+    /// The source closed: hand over every unit still pending, then `Output::Drained`.
+    Drain,
 }
 
 #[derive(Debug, PartialEq)]
@@ -42,6 +44,8 @@ pub enum Output {
     Report(Acceleration),
     /// No encoder could run; the source ends and the daemon takes it back.
     Failed(String),
+    /// Every unit of every picture handed over before `Command::Drain` has gone out.
+    Drained,
 }
 
 /// A picture of the right size for one encode, and how its JPEG step ran.
@@ -181,11 +185,29 @@ impl<B: Backends> Worker<B> {
                     running.key_owed = true;
                 }
             }
+            Command::Drain => return self.drain(now_us, out),
         }
         self.poll(now_us, out);
         // After the units, so a source reports its steps once it plays.
         if !self.failed {
             self.report(out);
+        }
+    }
+
+    /// Flushes every encoder and takes what it still held. One that can't flush ends the
+    /// source as undrainable, so its end is never reported clean.
+    fn drain(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        for running in self.encodes.values_mut() {
+            if running.chosen.encoder.flush().is_err() {
+                self.failed = true;
+                self.encodes.clear();
+                out.push(Output::Failed("encoder-undrainable".into()));
+                return;
+            }
+        }
+        self.poll(now_us, out);
+        if !self.failed {
+            out.push(Output::Drained);
         }
     }
 

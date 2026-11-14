@@ -62,6 +62,10 @@ pub enum EncodeEffect {
         source: String,
         encode: u32,
     },
+    /// Hand over every unit still pending, then say so (`encoder_drained`).
+    Drain {
+        source: String,
+    },
     Close {
         source: String,
     },
@@ -76,6 +80,7 @@ impl std::fmt::Debug for EncodeEffect {
             }
             Self::Picture { source, epoch, .. } => write!(f, "Picture({source}, epoch {epoch})"),
             Self::Key { source, encode } => write!(f, "Key({source}, {encode})"),
+            Self::Drain { source } => write!(f, "Drain({source})"),
             Self::Close { source } => write!(f, "Close({source})"),
         }
     }
@@ -256,8 +261,13 @@ impl Engine {
                     .decide(&source, &recording, decision, now.mono_ms, out);
             }
             ToMedia::SourceClose { source } => {
-                self.sources
-                    .close_source(source.get(), vault, self.egress.as_mut(), out);
+                self.sources.close_source(
+                    source.get(),
+                    vault,
+                    now.mono_ms,
+                    self.egress.as_mut(),
+                    out,
+                );
                 self.stills.close(source.get(), out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
@@ -437,6 +447,12 @@ impl Engine {
             .encoder_steps(source, acceleration, &mut self.out);
     }
 
+    /// A closed JPEG source's encoder handed over its last output: the source ends cleanly.
+    pub fn encoder_drained(&mut self, source: &str) {
+        self.sources
+            .encoder_drained(source, self.egress.as_mut(), &mut self.out);
+    }
+
     /// A JPEG source's encoder could not run: the source ends, so the daemon takes it back.
     pub fn encoder_failed(&mut self, source: &str, reason: &str) {
         self.sources
@@ -456,7 +472,8 @@ impl Engine {
 
     /// Periodic: barrier hold bounds and ticket expiry.
     pub fn tick(&mut self, now: Now) {
-        self.sources.tick(now.mono_ms, &mut self.out);
+        self.sources
+            .tick(now.mono_ms, self.egress.as_mut(), &mut self.out);
         self.stills.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);

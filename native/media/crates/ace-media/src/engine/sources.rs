@@ -101,7 +101,13 @@ pub struct Sources {
     early: HashMap<String, Vec<Decision>>,
     /// Recordings that ended in this process, newest last: their late decisions are dropped.
     ended: EndedRecordings,
+    /// Closed JPEG sources whose encoder is still handing over its last output, with when they
+    /// give up (`DRAIN_MS` after the close).
+    draining: HashMap<String, (Source, u64)>,
 }
+
+/// Longest a closed JPEG source waits for its encoder to drain before it ends interrupted.
+pub const DRAIN_MS: u64 = 2_000;
 
 /// A bounded memory of ended recording ids.
 #[derive(Default)]
@@ -189,7 +195,8 @@ impl Sources {
             log(out, Level::Warn, "source handle reused", id);
             return status(out, id, Status::Ended, Some("handle-reused"), None);
         }
-        self.close(id.get(), vault, egress, out);
+        self.close(id.get(), vault, now, egress, out);
+        self.drained(id.get(), true, egress, out);
         if self.by_id.len() >= MAX_SOURCES || self.handles.len() >= MAX_HANDLES {
             log(out, Level::Warn, "source.open refused: source limit", id);
             return status(out, id, Status::Ended, Some("source-limit"), None);
@@ -255,17 +262,21 @@ impl Sources {
         &mut self,
         id: &str,
         vault: &mut Vault,
+        now: u64,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
-        self.close(id, vault, egress, out);
+        self.close(id, vault, now, egress, out);
     }
 
-    /// Closes a source; a producer still streaming into it, or its encoder, ends with a marker.
+    /// Closes a source. A producer still streaming into it ends with a marker; a JPEG source
+    /// that encodes keeps delivering until its encoder has drained (`encoder_drained`), and
+    /// only then ends with a clean marker.
     pub fn close(
         &mut self,
         id: &str,
         vault: &mut Vault,
+        now: u64,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
@@ -279,17 +290,46 @@ impl Sources {
             self.bindings.remove(&conn);
             out.push(Effect::CloseIngest(conn));
             source.egress.end(source.handle, false, egress);
-        } else if source.encoding {
-            source.egress.end(source.handle, false, egress);
         }
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
         }
         if source.encoding {
-            out.push(Effect::Encode(EncodeEffect::Close {
+            // Pictures already handed over may still come out: wait for the encoder's word.
+            out.push(Effect::Encode(EncodeEffect::Drain {
                 source: id.to_owned(),
             }));
+            self.draining
+                .insert(id.to_owned(), (source, now.saturating_add(DRAIN_MS)));
         }
+    }
+
+    /// A closed JPEG source is done: its encoder drained (`interrupted` false), or couldn't, or
+    /// ran out of time. Its marker goes after its last unit, and its encoder thread ends.
+    fn drained(
+        &mut self,
+        id: &str,
+        interrupted: bool,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some((mut source, _)) = self.draining.remove(id) else {
+            return;
+        };
+        source.egress.end(source.handle, interrupted, egress);
+        out.push(Effect::Encode(EncodeEffect::Close {
+            source: id.to_owned(),
+        }));
+    }
+
+    /// The encoder of a closed JPEG source handed over its last output.
+    pub fn encoder_drained(
+        &mut self,
+        id: &str,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
+        self.drained(id, false, egress, out);
     }
 
     /// `source.encodes`: the encodes ace-media runs for a JPEG source while the daemon plans
@@ -339,6 +379,10 @@ impl Sources {
     ) {
         if self.by_id.get(id).is_some_and(|s| s.encoding) {
             self.unit(id, frame, now, egress, out);
+        } else if let Some((source, _)) = self.draining.get_mut(id) {
+            source
+                .egress
+                .unit(&source.id, source.handle, &frame, egress, out);
         }
     }
 
@@ -363,6 +407,9 @@ impl Sources {
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
+        if self.draining.contains_key(id) {
+            return self.drained(id, true, egress, out);
+        }
         let Some(source) = self.by_id.get_mut(id).filter(|s| s.encoding) else {
             return;
         };
@@ -883,7 +930,16 @@ impl Sources {
         }
     }
 
-    pub fn tick(&mut self, now: u64, out: &mut Vec<Effect>) {
+    pub fn tick(&mut self, now: u64, egress: &mut dyn EgressSink, out: &mut Vec<Effect>) {
+        let late: Vec<String> = self
+            .draining
+            .iter()
+            .filter(|(_, (_, until))| *until <= now)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in late {
+            self.drained(&id, true, egress, out);
+        }
         let ids: Vec<String> = self
             .by_id
             .iter()

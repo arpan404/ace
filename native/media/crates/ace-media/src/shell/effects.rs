@@ -97,6 +97,7 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
                         age_us,
                     } => pictures.picture(&source, text, epoch, age_us),
                     EncodeEffect::Key { source, encode } => pictures.key(&source, encode),
+                    EncodeEffect::Drain { source } => pictures.drain(&source),
                     EncodeEffect::Close { source } => pictures.close(&source),
                 }
                 Ok(())

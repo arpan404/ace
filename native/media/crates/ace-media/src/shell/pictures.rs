@@ -108,6 +108,19 @@ impl Pictures {
         }
     }
 
+    /// The source closed: its thread hands over what its encoders still hold, then says so.
+    pub fn drain(&mut self, source: &str) {
+        match self.sources.get(source) {
+            Some(handle) => {
+                let _ = handle.commands.send(Command::Drain);
+            }
+            // No thread, so nothing pending.
+            None => {
+                let _ = self.outputs.try_send((source.to_owned(), Output::Drained));
+            }
+        }
+    }
+
     /// Ends a source's thread; its encoders close with it.
     pub fn close(&mut self, source: &str) {
         self.sources.remove(source);
@@ -136,7 +149,7 @@ fn run(
             Err(RecvTimeoutError::Disconnected) => return,
         }
         for output in out.drain(..) {
-            let failed = matches!(output, Output::Failed(_));
+            let failed = matches!(output, Output::Failed(_) | Output::Drained);
             if outputs.blocking_send((source.clone(), output)).is_err() || failed {
                 return;
             }

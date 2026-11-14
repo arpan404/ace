@@ -264,3 +264,136 @@ fn h264_units_name_the_profile_and_level_the_encoder_wrote() {
         "hvc1.1.6.L93.B0"
     );
 }
+
+/// An encoder that keeps its output until it is flushed (as a hardware encoder's queue does),
+/// or that can't be flushed at all.
+struct Late {
+    inner: FakeEncoder,
+    held: Vec<EncodedUnit>,
+    flushable: bool,
+}
+
+impl Encoder for Late {
+    fn configure(&mut self, spec: &Spec) -> Result<(), CodecError> {
+        self.inner.configure(spec)
+    }
+    fn encode(&mut self, picture: Picture, force_key: bool) -> Result<(), CodecError> {
+        self.inner.encode(picture, force_key)?;
+        while let Some(unit) = self.inner.poll() {
+            self.held.push(unit);
+        }
+        Ok(())
+    }
+    fn poll(&mut self) -> Option<EncodedUnit> {
+        None
+    }
+    fn caps(&self) -> media_codec::EncoderCaps {
+        self.inner.caps()
+    }
+    fn flush(&mut self) -> Result<(), CodecError> {
+        if !self.flushable {
+            return Err(CodecError::Unsupported("no flush".into()));
+        }
+        Ok(())
+    }
+}
+
+struct LateBackends {
+    flushable: bool,
+    released: std::sync::Arc<std::sync::Mutex<Vec<EncodedUnit>>>,
+}
+
+/// `Late` with its held units moved to a shared list on flush, which `poll_result` drains.
+struct Flushed {
+    late: Late,
+    out: std::sync::Arc<std::sync::Mutex<Vec<EncodedUnit>>>,
+}
+
+impl Encoder for Flushed {
+    fn configure(&mut self, spec: &Spec) -> Result<(), CodecError> {
+        self.late.configure(spec)
+    }
+    fn encode(&mut self, picture: Picture, force_key: bool) -> Result<(), CodecError> {
+        self.late.encode(picture, force_key)
+    }
+    fn poll(&mut self) -> Option<EncodedUnit> {
+        self.out
+            .lock()
+            .ok()
+            .and_then(|mut o| (!o.is_empty()).then(|| o.remove(0)))
+    }
+    fn caps(&self) -> media_codec::EncoderCaps {
+        self.late.caps()
+    }
+    fn flush(&mut self) -> Result<(), CodecError> {
+        self.late.flush()?;
+        if let Ok(mut out) = self.out.lock() {
+            out.append(&mut self.late.held);
+        }
+        Ok(())
+    }
+}
+
+impl Backends for LateBackends {
+    fn encoder(&mut self, _: Codec) -> Result<Chosen, CodecError> {
+        Ok(Chosen {
+            encoder: Box::new(Flushed {
+                late: Late {
+                    inner: FakeEncoder::new(Vec::new()),
+                    held: Vec::new(),
+                    flushable: self.flushable,
+                },
+                out: self.released.clone(),
+            }),
+            backend: Backend::Vt,
+            hardware: true,
+            takes_jpeg: None,
+        })
+    }
+    fn decode(&mut self, jpeg: &[u8], size: Size, _: Backend) -> Result<Decoded, CodecError> {
+        let picture =
+            JpegCodec::decode(&mut CpuJpegCodec::default(), jpeg, size.width, size.height)?;
+        Ok(Decoded {
+            picture,
+            backend: Backend::Cpu,
+            hardware: false,
+            uploads: 0,
+        })
+    }
+    fn jpeg_hardware_expected(&self) -> bool {
+        false
+    }
+}
+
+fn late(flushable: bool) -> Worker<LateBackends> {
+    Worker::new(LateBackends {
+        flushable,
+        released: std::sync::Arc::default(),
+    })
+}
+
+#[test]
+fn a_drain_hands_over_the_output_an_encoder_still_held_then_says_it_drained() {
+    let mut worker = late(true);
+    let mut out = Vec::new();
+    worker.command(Command::Configure(vec![spec(1, 1_000_000)]), 0, &mut out);
+    worker.command(picture(1), 1_000, &mut out);
+    worker.command(picture(2), 2_000, &mut out);
+    assert!(units(&out).is_empty(), "the encoder holds its output");
+    out.clear();
+    worker.command(Command::Drain, 3_000, &mut out);
+    let epochs: Vec<u32> = units(&out).iter().map(|u| u.epoch).collect();
+    assert_eq!(epochs, [1, 2]);
+    assert_eq!(out.last(), Some(&Output::Drained));
+}
+
+#[test]
+fn an_encoder_that_cannot_drain_says_so_rather_than_drained() {
+    let mut worker = late(false);
+    let mut out = Vec::new();
+    worker.command(Command::Configure(vec![spec(1, 1_000_000)]), 0, &mut out);
+    worker.command(picture(1), 1_000, &mut out);
+    out.clear();
+    worker.command(Command::Drain, 2_000, &mut out);
+    assert_eq!(out, [Output::Failed("encoder-undrainable".into())]);
+}
