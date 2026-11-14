@@ -604,9 +604,12 @@ change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
 version opened; a newer version is only replaced on Replace. Larger text (`LargeFileView`) reads
-a part (about 256 KB, `page`) at a time, with find over what is read (Next reads on before it
-wraps, `LargeFileText`); a thread's file up to 64 MB edits a part at a time, saved with
-`part.write` over exactly the bytes the part was read from, never over a newer version. Create, rename, move and delete
+a part (about 256 KB, `page`) at a time and holds at most eight (`LargeFileText`). Find
+(`FileSearch`) searches the file a page at a time without keeping it, holds at most 10,000
+matches with a point to go on from, and jumps to a match's part by its offset. A thread's file
+up to 64 MB edits a part at a time, saved with `part.write` over exactly the bytes the part was
+read from (BOM and CRLF kept; a part that isn't valid UTF-8 is refused), never over a newer
+version. Create, rename, move and delete
 (to Recently deleted, with Undo and a restore list) use the web's checks and the shared error
 sentences (`checkoutError`). An answer's local links route through `checkoutLinkPath`: a
 checkout file opens at its line; a file elsewhere is fetched with `link.download` for that
