@@ -64,6 +64,7 @@ function PageList(props: { pages: readonly SettingsPage[]; current: string | und
         to={page.to}
         aria-current={props.current === page.to ? "page" : undefined}
         {...panelRow()}
+        data-state={props.current === page.to ? "active" : undefined}
       >
         <PanelRowBody icon={page.icon} title={page.title} />
       </Link>
@@ -95,7 +96,7 @@ export function SettingsNav() {
         />
       }
     >
-      <nav aria-label="Settings pages">
+      <nav aria-label="Settings pages" data-part="settings-nav">
         {!text ? (
           <SettingsPageLinks />
         ) : pages.length ? (

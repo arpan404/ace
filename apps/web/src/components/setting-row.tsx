@@ -51,6 +51,7 @@ export function SettingRow(props: {
       {...slot}
       id={props.id}
       ref={row}
+      data-part="settings-row"
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
@@ -158,7 +159,12 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className={settingsGroup} aria-labelledby={id}>
+    <section
+      id={props.anchor}
+      data-part="settings-section"
+      className={settingsGroup}
+      aria-labelledby={id}
+    >
       <SettingsGroupTitle id={id} note={props.note} actions={props.actions}>
         {props.label}
       </SettingsGroupTitle>

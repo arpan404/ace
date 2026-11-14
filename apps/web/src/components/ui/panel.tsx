@@ -67,10 +67,14 @@ const panelRowClass = cn(
 
 /**
  * A panel row's props for its link or button: the line, the hover fill and the current row's
- * fill, and `data-panel-row`, which marks it as one of the panel's rows.
+ * fill, and `data-panel-row`, which marks it as one of the panel's rows (its Suit part, `nav-item`).
  */
-export function panelRow(className?: string): { "data-panel-row": ""; className: string } {
-  return { "data-panel-row": "", className: cn(panelRowClass, className) };
+export function panelRow(className?: string): {
+  "data-panel-row": "";
+  "data-part": "nav-item";
+  className: string;
+} {
+  return { "data-panel-row": "", "data-part": "nav-item", className: cn(panelRowClass, className) };
 }
 
 /** A panel row's inside: its glyph, its title (one line) and what trails it. */

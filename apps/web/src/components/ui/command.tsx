@@ -35,6 +35,8 @@ function CommandDialog({
         <DialogOverlay className={overlayClassName} style={overlayStyle} />
         <Dialog.Popup
           aria-label={title}
+          data-part="command-palette"
+          data-state="open"
           className={cn(
             layers.modal,
             overlaySurface,
@@ -130,6 +132,8 @@ function CommandInput({
     <CommandSearchRow closeLabel={closeLabel}>
       <Autocomplete.Input
         data-slot="command-input"
+        data-part="input"
+        data-variant="search"
         className={cn(commandField, className)}
         {...props}
       />
@@ -175,6 +179,8 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
   return (
     <Autocomplete.Item
       data-slot="command-item"
+      data-part="menu-item"
+      data-variant="command"
       className={cn(
         "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui text-foreground outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         className,

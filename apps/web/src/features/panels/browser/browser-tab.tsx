@@ -323,6 +323,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     <div
       ref={root}
       data-browser-tab=""
+      data-part="browser-panel"
       className="relative flex h-full min-h-0 flex-col"
       onKeyDownCapture={onKeyDown}
       {...drop.handlers}

@@ -141,6 +141,8 @@ export function FileTree(props: {
           ref={list}
           role="tree"
           aria-label="Changed files"
+          data-part="file-tree"
+          data-variant="changes"
           className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2"
         >
           <LongRows

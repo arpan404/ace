@@ -231,6 +231,7 @@ export function XtermView(props: {
       ref={box}
       role="group"
       aria-label={`${name} terminal`}
+      data-part="terminal"
       aria-describedby={hint}
       onFocus={(event) => {
         // Tabbing onto the wrapper moves on into xterm's own input.

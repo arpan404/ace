@@ -100,7 +100,7 @@ export function Screen(
 /** Scrollable page body: centred column, 44px top and 32px side padding. */
 export function Page(props: { children: ReactNode; wide?: boolean }) {
   return (
-    <div className="h-full overflow-auto">
+    <div data-part="scrollbar" className="h-full overflow-auto">
       <div
         className={
           props.wide

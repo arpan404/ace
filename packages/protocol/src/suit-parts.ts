@@ -76,6 +76,7 @@ export const suitParts = [
   "settings-nav",
   "settings-section",
   "settings-row",
+  "nav-item",
   "terminal",
   "file-tree",
   "browser-panel",

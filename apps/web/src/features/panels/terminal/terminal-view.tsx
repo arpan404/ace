@@ -134,6 +134,7 @@ export function ScreenRows(props: {
       ref={box}
       role="log"
       aria-label={props.label}
+      data-part="terminal"
       aria-live="off"
       onScroll={(event) => {
         const element = event.currentTarget;
