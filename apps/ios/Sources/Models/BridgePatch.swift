@@ -525,17 +525,22 @@ enum BridgePatch: Decodable, Sendable {
 }
 
 /// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
-/// own id, and the paths it serves (absent from older daemons and bridges).
+/// own id, the paths it serves and its own name (absent from older daemons and bridges).
 struct MachineIdentityPatch: Decodable, Equatable, Sendable {
     let glyph: String
     let hostId: String?
     let paths: [MachinePath]?
-    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil) { self.glyph = glyph; self.hostId = hostId; self.paths = paths }
+    /// The name the machine gives itself (`host.displayName`), set from any device.
+    let name: String?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil, name: String? = nil) {
+        self.glyph = glyph; self.hostId = hostId; self.paths = paths; self.name = name
+    }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         glyph = try box.decode(String.self, forKey: .glyph)
         hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
         paths = MachinePath.lenient(box, forKey: .paths)
+        name = (try? box.decodeIfPresent(String.self, forKey: .name)).flatMap { $0 }
     }
-    private enum Keys: String, CodingKey { case glyph, hostId, paths }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths, name }
 }

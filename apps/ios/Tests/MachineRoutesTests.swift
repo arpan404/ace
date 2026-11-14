@@ -196,6 +196,21 @@ private let fingerprint = DaemonCertificate.pin
         #expect(!direct.stopped)
     }
 
+    @Test func aMachineRenamedFromAnotherDeviceTakesItsNewNameOnThisPhoneWhenItConnects() async throws {
+        let fixture = try MachinesFixture(machines: [studio(paths: nil)])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.emit(#"[{"type":"connection","state":"ready"},{"type":"machine.identity","glyph":"laptop","hostId":"studio","name":"Studio Mac"}]"#)
+        await settle { fixture.model.machines.first?.displayName == "Studio Mac" }
+        #expect(fixture.access.renamed == ["Studio Mac"])
+        #expect(fixture.model.inbox.name("studio") == "Studio Mac")
+        // The same name on the next connection changes nothing.
+        direct.emit(#"[{"type":"connection","state":"ready"},{"type":"machine.identity","glyph":"laptop","hostId":"studio","name":"Studio Mac"}]"#)
+        await drain()
+        #expect(fixture.access.renamed == ["Studio Mac"])
+    }
+
     @Test func anAccountMachineWhoseDaemonIsAPairedMachineBecomesThatMachine() async throws {
         let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
         let fixture = try MachinesFixture(machines: [studio(paths: nil)], account: account)

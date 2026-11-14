@@ -409,7 +409,7 @@ import Observation
         }
     }
     /// What a machine said about itself over its own authenticated connection: a paired
-    /// machine's paths are saved with it (they may name its account machine), and an account
+    /// machine's own name and paths are saved with it (the paths may name its account machine), and an account
     /// machine whose daemon is a paired machine becomes that machine (ADR 0115).
     private func learned(_ identity: MachineIdentityPatch, from hostId: String) async {
         guard let entry = entry(hostId), let daemon = identity.hostId else { return }
@@ -420,7 +420,16 @@ import Observation
             await follow(merged())
             return
         }
-        guard daemon == hostId, let paths = identity.paths, paths != paired.first(where: { $0.hostId == hostId })?.paths ?? [] else { return }
+        guard daemon == hostId else { return }
+        // Renamed on the machine, from this phone or any other device: this phone's label follows.
+        if let name = identity.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != entry.displayName {
+            if case .success(let outcome) = await access.perform(.rename(hostId: hostId, name: String(name.prefix(256)))), let listed = outcome.machines {
+                paired = listed
+                await follow(merged())
+            }
+            if let renamed = self.entry(hostId) { inbox.rename(hostId, to: renamed.displayName) }
+        }
+        guard let paths = identity.paths, paths != paired.first(where: { $0.hostId == hostId })?.paths ?? [] else { return }
         if case .success(let outcome) = await access.perform(.remember(hostId: hostId, paths: paths)), let listed = outcome.machines {
             paired = listed
             await follow(merged())
