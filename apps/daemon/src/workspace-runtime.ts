@@ -742,13 +742,16 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);
+      // The same decision `git.commit` applies through `asReviewer`, read beside the files.
+      const reviewer = this.reviewedPullRequest(op.threadId)
+        ? this.git.reviewerHooks(root)
+        : undefined;
+      // Awaited below; a failed file read must not leave it unhandled.
+      void reviewer?.catch(() => {});
       const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
       // A commit made after this read must not reuse an older HEAD as its expected one.
       const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
-      // The same decision `git.commit` applies through `asReviewer`.
-      const hooks = this.reviewedPullRequest(op.threadId)
-        ? await this.git.reviewerHooks(root)
-        : "run";
+      const hooks = reviewer ? await reviewer : "run";
       return wrap({ kind: "gitStatus", truncated, files, head, hooks });
     }
     return wrap({
