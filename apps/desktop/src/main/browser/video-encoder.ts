@@ -2,6 +2,12 @@ import { session as sessions, WebContentsView, type WebContents } from "electron
 import { z } from "zod";
 import { videoEncoderScript } from "@ace/browser/video-encoder";
 import {
+  encoderPolicy,
+  encoderRequestAllowed,
+  ingestEndpoint,
+  needsNewPage,
+} from "./encoder-policy.ts";
+import {
   encoderOrigin,
   type EncodeSpec,
   type IngestTarget,
@@ -26,14 +32,12 @@ import {
 const partition = "ace-video-encoder";
 const channel = "ace:video.event";
 const page = `<!doctype html>\n<meta charset="utf-8">\n<title>ace video encoder</title>\n<script src="encoder.js"></script>\n`;
-// `connect-src` admits only ace-media's loopback ingest (E4), which takes this page's origin.
-const policy = "default-src 'none'; script-src 'self'; connect-src ws://127.0.0.1:*";
 /** An unused encoder page stays this long, for the next capture to start quickly. */
 const defaultIdleMs = 30_000;
 
 /** What the encoder reports; the daemon parses the full event, this reads what routing needs. */
 export const EncoderEvent = z.looseObject({
-  t: z.enum(["chunk", "audio", "failed", "ended"]),
+  t: z.enum(["chunk", "audio", "failed", "ended", "moved"]),
   capture: z.string().min(1).max(256),
   encode: z.string().max(256).optional(),
   key: z.boolean().optional(),
@@ -64,6 +68,9 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
   private listeners = new Set<(event: EncoderEvent, bytes: Uint8Array | undefined) => void>();
   private stopped = new Set<(capture: string) => void>();
   private cancelIdle: (() => void) | undefined;
+  /** ace-media's ingest the daemon named last, and the one the loaded page may reach. */
+  private endpoint: string | undefined;
+  private pageEndpoint: string | undefined;
 
   constructor(options: VideoEncoderOptions) {
     this.options = options;
@@ -122,7 +129,25 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
   }
 
   ingest(capture: string, target: IngestTarget | undefined): void {
+    if (target) {
+      this.reach(target.url);
+      // A page made for another port went, and the capture with it: the daemon reopens it.
+      if (!this.captures.has(capture)) return;
+    }
     this.post(capture, "aceVideo.ingest", [capture, target ?? null]);
+  }
+
+  /**
+   * ace-media's ingest is at `url` now. The page's policy admits only the endpoint it was
+   * loaded with, so a page made for another one goes (its captures end, and the daemon opens
+   * them again on a page made for this one).
+   */
+  reach(url: string): void {
+    const endpoint = ingestEndpoint(url);
+    if (!endpoint) return;
+    this.endpoint = endpoint;
+    const loaded = this.view ? { endpoint: this.pageEndpoint } : undefined;
+    if (needsNewPage(loaded, endpoint)) this.destroy();
   }
 
   /** Stops a capture; its listeners hear it ended (the daemon ignores an end it asked for). */
@@ -187,6 +212,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
 
   private async create(): Promise<WebContents> {
     this.configure();
+    this.pageEndpoint = this.endpoint;
     const view = new WebContentsView({
       webPreferences: {
         partition,
@@ -233,11 +259,14 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
       (contents, permission) => permission === "media" && own(contents),
     );
     encoder.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: !details.url.startsWith(`${encoderOrigin}/`) }),
+      callback({ cancel: !encoderRequestAllowed(details.url, this.pageEndpoint) }),
     );
     encoder.protocol.handle("app", (request) => {
       const url = new URL(request.url);
-      const headers = { "content-security-policy": policy, "x-content-type-options": "nosniff" };
+      const headers = {
+        "content-security-policy": encoderPolicy(this.pageEndpoint),
+        "x-content-type-options": "nosniff",
+      };
       if (`${url.protocol}//${url.host}` !== encoderOrigin)
         return new Response("Not found", { status: 404, headers });
       if (url.pathname === "/")

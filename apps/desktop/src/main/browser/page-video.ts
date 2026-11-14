@@ -29,6 +29,8 @@ export interface PageVideoHost<Source> {
   audio(capture: string, on: boolean): void;
   /** Stream into ace-media's ingest (E4), or (undefined) back over the backend socket. */
   ingest(capture: string, target: IngestTarget | undefined): void;
+  /** ace-media's ingest is at `url` now: the encoder page is made to reach it (E4). */
+  reach(url: string): void;
   stop(capture: string): void;
   /** A capture stopped, whatever the reason (asked to, its page went away, the encoder died). */
   onStopped(listener: (capture: string) => void): () => void;
@@ -66,6 +68,7 @@ const IngestTarget = z.object({
 });
 export type IngestTarget = z.infer<typeof IngestTarget>;
 const Ingest = z.object({ capture: id, target: IngestTarget.optional() });
+const Reach = z.object({ url: IngestTarget.shape.url });
 
 export class PageVideo<Source> {
   private host: PageVideoHost<Source>;
@@ -130,6 +133,10 @@ export class PageVideo<Source> {
       case "ace.video.ingest": {
         const { capture, target } = Ingest.parse(params);
         if (this.captures.has(capture)) this.host.ingest(capture, target);
+        return {};
+      }
+      case "ace.video.reach": {
+        this.host.reach(Reach.parse(params).url);
         return {};
       }
       case "ace.video.stop": {

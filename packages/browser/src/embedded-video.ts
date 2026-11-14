@@ -26,6 +26,9 @@ export class EmbeddedVideo {
   host(page: BrowserCdp): VideoHost {
     return {
       mediaKind: "embedded",
+      reach: async (url) => {
+        await page.send("ace.video.reach", { url });
+      },
       supported: async (codecs, width, height) =>
         Supported.parse(
           await page.send("ace.video.supported", { codecs: [...codecs], width, height }),
