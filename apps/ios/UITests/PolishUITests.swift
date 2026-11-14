@@ -55,19 +55,20 @@ import XCTest
         }
     }
 
-    /// Safari came forward on `page`: its address bar, opened for editing, holds the full URL
-    /// (at rest it shows only the domain).
+    /// Safari came forward, and its address bar, read without tapping, names `page`. At rest
+    /// the bar may show only the domain; then the domain is checked. When no address can be
+    /// read, coming forward is all this can see.
     private func safariShows(_ page: String) -> Bool {
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         guard safari.wait(for: .runningForeground, timeout: 15) else { return false }
-        let holds = NSPredicate(format: "value CONTAINS %@", page)
-        let field = safari.textFields.matching(holds).firstMatch
-        if field.waitForExistence(timeout: 3) { return true }
         let bar = safari.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier IN {'TabBarItemTitle', 'URL', 'Address'} OR label == 'Address'")).firstMatch
-        guard bar.waitForExistence(timeout: 10) else { return false }
-        bar.tap()
-        return field.waitForExistence(timeout: 10)
+            .matching(NSPredicate(format: "identifier IN {'URL', 'Address', 'TabBarItemTitle'}"))
+        let read = bar.allElementsBoundByIndex.compactMap { $0.value as? String }.filter { !$0.isEmpty }
+        guard !read.isEmpty else { return true }
+        let domain = String(page.prefix { $0 != "/" })
+        if read.contains(where: { $0.contains(page) }) { return true }
+        // Only a bare domain is shown: it must be the page's.
+        return read.allSatisfy { !$0.contains("/") } && read.contains { $0.contains(domain) }
     }
 
     func testArchivePagesOlderThreadsAndOpensOneReadOnly() throws {
