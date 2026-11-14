@@ -24,9 +24,13 @@ import type { VideoUnit } from "./scrcpy-video.ts";
 /** Where device sources are opened in ace-media: the daemon's shared sources. */
 export type DeviceMedia = { attach(producer: IngestProducer): IngestSource };
 
-/** The producer's answer to a switch: where it sends now, and the last sequence the previous
- * path took. */
-export type Switched = { ingest: "on" | "off"; boundary: number | null };
+/**
+ * The producer's answer to a switch: where it sends now, and the last sequence the previous
+ * path took. `cut` instead: the paths carry the same live stream (serve-sim broadcasts one to
+ * every subscription), so the previous path ends at the switch and the new one starts at a
+ * fresh keyframe; older units still coming are superseded, never repeated.
+ */
+export type Switched = { ingest: "on" | "off"; boundary: number | null; cut?: boolean };
 
 /** A unit on the daemon's path, with the producer's own sequence for the switch boundary. */
 export type DaemonUnit = VideoUnit & { sequence: number };
@@ -115,6 +119,16 @@ export class DeviceVideoPaths {
     this.#reached();
   }
 
+  /**
+   * A keyframe while the source streams from ace-media: ace-media reads it, so it is asked.
+   * False on the daemon's path, where the capture asks its own producer.
+   */
+  keyframe(): boolean {
+    if (this.#closed || this.#onPath === daemonPath) return false;
+    this.#source.key(0);
+    return true;
+  }
+
   /** The producer's ingest connection failed: it is on the daemon's path again already. */
   ingestClosed(): void {
     if (this.#closed || this.#onPath === daemonPath) return;
@@ -165,6 +179,12 @@ export class DeviceVideoPaths {
         throw new Error("The producer refused ace-media's ingest");
       }
       this.#onPath = to;
+      if (switched.cut) {
+        this.#merge.ended(from, true);
+        // ace-media's reader starts the new path at a keyframe of the picture as it is now.
+        if (to !== daemonPath) this.#source.key(0);
+        return;
+      }
       // Off the daemon's path: its end is its boundary arriving. Out of ace-media, the path ends
       // with ace-media's marker instead (`pathEnded`).
       if (from === daemonPath && to !== daemonPath) {

@@ -93,8 +93,17 @@ export const maxIngestReopens = 3;
 /** Longest a handle waits for its end marker after its producer was pointed away. */
 export const drainMs = 2_000;
 
-/** Kinds whose pictures ace-media reads itself, from the control lane. */
-const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>(["tab-pictures", "user-tab"]);
+/**
+ * Kinds ace-media reads itself: pictures from the control lane, and a Simulator's serve-sim
+ * stream or an Android device's scrcpy socket, which it opens. Only ace-media's close ends
+ * their reading, so leaving closes them there at once; the end marker follows the last unit.
+ */
+const readByMedia: ReadonlySet<SourceKind> = new Set<SourceKind>([
+  "tab-pictures",
+  "user-tab",
+  "simulator",
+  "scrcpy",
+]);
 
 type Entry = {
   producer: IngestProducer;

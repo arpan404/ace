@@ -11,6 +11,8 @@ const annexB = (keyframe: boolean, mark: number) =>
 function device() {
   const emitted: VideoUnit[] = [];
   const answers: Switched[] = [];
+  /** What the producer sends while it switches (a fresh subscription's first unit, say). */
+  const during: (() => void)[] = [];
   let producer: IngestProducer | undefined;
   const paths = new DeviceVideoPaths({
     media: {
@@ -31,7 +33,10 @@ function device() {
     origin: { kind: "emulator-frames", path: "/tmp/f.rgba", width: 4, height: 4, stride: 16 },
     deviceId: "d1",
     emit: (unit) => void emitted.push(unit),
-    switch: async () => answers.shift() ?? { ingest: "off", boundary: null },
+    switch: async () => {
+      during.shift()?.();
+      return answers.shift() ?? { ingest: "off", boundary: null };
+    },
     keyframe: () => {},
     schedule: () => () => {},
   });
@@ -74,7 +79,7 @@ function device() {
       },
     });
   const marks = () => emitted.map((unit) => unit.payload[5]);
-  return { paths, answers, producer: ready, daemon, egress, marks };
+  return { paths, answers, during, producer: ready, daemon, egress, marks };
 }
 
 const address = (path: string) => ({
@@ -137,4 +142,25 @@ it("a producer that refuses ace-media's address stays on the daemon path", async
   d.daemon(1, true);
   d.egress("p1", 2, true);
   expect(d.marks()).toEqual([1]);
+});
+
+it("paths that carry one live stream are cut at a switch: the new path starts at its keyframe and nothing older repeats", async () => {
+  const d = device();
+  d.daemon(1, true);
+  d.daemon(2);
+  d.answers.push({ ingest: "on", boundary: null, cut: true });
+  await d.producer().point(address("p1"));
+  // ace-media's reader was already running: its older deltas are superseded by its keyframe.
+  d.egress("p1", 2);
+  d.egress("p1", 3, true);
+  d.egress("p1", 4);
+  d.daemon(3);
+  expect(d.marks()).toEqual([1, 2, 3, 4]);
+  d.answers.push({ ingest: "off", boundary: null, cut: true });
+  // The daemon's fresh subscription opens with a keyframe; ace-media's last deltas are older.
+  d.during.push(() => d.daemon(6, true));
+  await d.producer().point(undefined);
+  d.egress("p1", 5);
+  d.daemon(7);
+  expect(d.marks()).toEqual([1, 2, 3, 4, 6, 7]);
 });
