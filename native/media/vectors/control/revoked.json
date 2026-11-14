@@ -1,0 +1,7 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "revoked",
+    "id": "source-1"
+  }
+}

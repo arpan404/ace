@@ -1,0 +1,221 @@
+[
+  {
+    "input": {
+      "bytes": 20000,
+      "key": true
+    },
+    "output": {
+      "next": 42,
+      "settled": 32
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 36
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 36
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 36
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 40
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 40
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 40
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 44
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": true
+    },
+    "output": {
+      "next": 50,
+      "settled": 40
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 44
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 44
+    }
+  },
+  {
+    "input": {
+      "bytes": 20000,
+      "key": false
+    },
+    "output": {
+      "next": 48
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 48
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 48
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": true
+    },
+    "output": {
+      "next": 51,
+      "settled": 18
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 51
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 50
+    }
+  },
+  {
+    "input": {
+      "bytes": 100,
+      "key": false
+    },
+    "output": {
+      "next": 50
+    }
+  }
+]

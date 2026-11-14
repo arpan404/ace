@@ -1,0 +1,16 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.open",
+    "source": "source-1",
+    "handle": 1,
+    "epoch": 1,
+    "origin": {
+      "kind": "emulator-frames",
+      "path": "value",
+      "width": 1,
+      "height": 1,
+      "stride": 1
+    }
+  }
+}

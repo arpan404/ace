@@ -1,0 +1,7 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "relay.in",
+    "stream": "source-1"
+  }
+}

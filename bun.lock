@@ -786,6 +786,12 @@
         "@modelcontextprotocol/sdk": "1.31.0",
       },
     },
+    "packages/media": {
+      "name": "@ace/media",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "packages/models": {
       "name": "@ace/models",
       "dependencies": {
@@ -1235,6 +1241,8 @@
     "@ace/markit-web": ["@ace/markit-web@workspace:packages/markit-web"],
 
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
+
+    "@ace/media": ["@ace/media@workspace:packages/media"],
 
     "@ace/models": ["@ace/models@workspace:packages/models"],
 
