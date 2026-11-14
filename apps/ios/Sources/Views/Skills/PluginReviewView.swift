@@ -1,53 +1,5 @@
 import SwiftUI
 
-/// Installing a plugin from a repository: where the code comes from, the commit to take, and the
-/// name it goes by, then its review. Fields sit on the page itself, as the design language's
-/// sheets draw them.
-struct PluginInstallView: View {
-    let model: ClientModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var repository = ""
-    @State private var ref = "HEAD"
-    @State private var name = ""
-    @State private var review: PluginReviewRequest?
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                    QuietField("Git repository") {
-                        TextField("Git repository", text: $repository)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    }
-                    QuietField("Branch or commit") {
-                        TextField("Branch or commit", text: $ref)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    }
-                    QuietField("Plugin name") {
-                        TextField("Plugin name", text: $name)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    }
-                    Button("Review installation") {
-                        review = PluginReviewRequest(operation: ["type": "plugins.prepare", "repository": repository, "ref": ref, "name": name])
-                    }
-                    .buttonStyle(.textAction(.prominent))
-                    .disabled(repository.isEmpty || ref.isEmpty || name.isEmpty || !model.canOperate)
-                    .padding(.horizontal, AceDesign.Space.margin)
-                    Text("Review what the plugin runs before installing it on your machine.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, AceDesign.Space.margin)
-                }
-                .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
-            }
-            .background(AceDesign.Surface.background)
-            .navigationTitle("Install plugin").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { dismiss() }) }
-        }
-    }
-}
-
 /// What a plugin would run, before it is installed: the commit and hash it comes from, every
 /// entry it declares, then Accept and install. Cardless, as the design language's inner pages.
 struct PluginReviewView: View {

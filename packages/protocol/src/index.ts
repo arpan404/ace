@@ -73,6 +73,7 @@ export {
 export * from "./agent-registry.ts";
 export * from "./command-library.ts";
 export * from "./screen-v2.ts";
+export * from "./media-acceleration.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./cursor-auth.ts";

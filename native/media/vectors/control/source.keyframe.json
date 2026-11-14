@@ -1,0 +1,9 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.keyframe",
+    "source": "source-1",
+    "encode": 1,
+    "reason": "viewer"
+  }
+}

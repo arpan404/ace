@@ -11,6 +11,7 @@ import { bunVersion, nodeVersion, releaseRuntimePath, stageBunRuntime } from "./
 import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
+import { stageAceMedia } from "./ace-media.ts";
 import { stageSpadeServer } from "./spade-server.ts";
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
@@ -37,15 +38,18 @@ async function main() {
   });
   execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
   // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
+  // Its `.br` and `.gz` copies stay out too: they would add two entries per large asset to an
+  // archive the oldest updater caps at 2,048, and the daemon compresses those files itself.
   await cp(join(repo, "apps/web/dist"), join(root, "web"), {
     recursive: true,
-    filter: (path) => !path.endsWith(".map"),
+    filter: (path) => !path.endsWith(".map") && !path.endsWith(".br") && !path.endsWith(".gz"),
   });
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   // Spade ships in the same archive, under the same manifest and checksums (ADR 0123).
   const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
   process.stdout.write(`[release] spade-server: ${spade}\n`);
+  await stageAceMedia({ repo, root, target, version, env: process.env });
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
   if (target === "linux-x64" || target === "linux-arm64") {
     if (target !== `${process.platform}-${process.arch}`)

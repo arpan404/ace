@@ -15,11 +15,15 @@ function streamOf(header: Frame["header"]): string {
   return `${header.sessionId.slice(0, 64 - suffix.length)}${suffix}`;
 }
 
+const pictures = new WeakMap<Frame, CapturedPicture>();
+
 /** A captured frame as the picture kinds carry it on the shared media stream. */
 export function framePicture(frame: Frame): CapturedPicture {
+  const cached = pictures.get(frame);
+  if (cached) return cached;
   const header = frame.header;
   const jpeg = header.codec === "jpeg";
-  return {
+  const picture: CapturedPicture = {
     sequence: header.sequence,
     timestamp: header.timestamp,
     width: header.width,
@@ -32,4 +36,6 @@ export function framePicture(frame: Frame): CapturedPicture {
     streamId: streamOf(header),
     bytes: frame.payload,
   };
+  pictures.set(frame, picture);
+  return picture;
 }

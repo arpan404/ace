@@ -277,7 +277,8 @@ export async function startServer(options: ServerOptions): Promise<{
   const receivers = new Map<DeviceId, Map<MainSocket, (message: ServerMessage) => void>>();
   // A suspended phone can keep its socket open, so a frame sent there is not a delivery.
   const backgrounded = new WeakSet<MainSocket>();
-  const encoder = new WireEncoder();
+  // Shares the store's encodings: a live event its buffer weighed is not serialised again.
+  const encoder = new WireEncoder(options.store.encodings);
   const ticks = new Map<MainSocket, () => void>();
   /** Main channels that came through the relay: no listener owns them, so shutdown closes them. */
   const relaySockets = new Set<MainSocket>();

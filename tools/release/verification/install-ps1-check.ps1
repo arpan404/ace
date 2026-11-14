@@ -15,8 +15,12 @@ $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 $port = 8443
 
+& node (Join-Path $repo 'tools\release\src\smoke.ts') (Join-Path $Dist $Target) --unsigned-archive
+if ($LASTEXITCODE -ne 0) { throw 'Unsigned archive smoke failed' }
 & node (Join-Path $repo 'tools\release\src\sign.ts') (Join-Path $Dist "$Target.json") $PrivateKey (Join-Path $Dist "$Target.sig")
-if ($LASTEXITCODE -ne 0) { throw 'Signing failed' }
+if ($LASTEXITCODE -ne 0) { throw 'Manifest signing failed' }
+& node (Join-Path $repo 'tools\release\src\smoke.ts') (Join-Path $Dist $Target) --signed-archive --manifest (Join-Path $Dist "$Target.json") --public-key $PublicKey
+if ($LASTEXITCODE -ne 0) { throw 'Signed archive smoke failed' }
 $manifest = Get-Content -Raw (Join-Path $Dist "$Target.json") | ConvertFrom-Json
 
 $installer = (Get-Content -Raw (Join-Path $repo 'tools\release\install.ps1')).

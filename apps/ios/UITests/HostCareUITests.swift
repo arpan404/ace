@@ -79,6 +79,61 @@ import XCTest
         screenshot("diagnostics-reset")
     }
 
+    func testRenameSavesTheNameOnTheMachine() throws {
+        let app = launchIntoMachine()
+        // The fixture takes its host's name; read it from the page and put it back at the end.
+        let original = try machineName(app)
+        rename(app, to: "Studio Mac", from: original)
+        XCTAssertTrue(app.navigationBars["Studio Mac"].waitForExistence(timeout: 15), "the page takes the machine's new name")
+        screenshot("machine-renamed")
+        rename(app, to: original, from: "Studio Mac")
+        XCTAssertTrue(app.navigationBars[original].waitForExistence(timeout: 15))
+    }
+
+    func testStartingTheUpdateShowsItsProgressAndResult() throws {
+        let app = launchIntoMachine()
+        let name = try machineName(app)
+        let software = element(app, "machine.software")
+        // Rename sits at the foot of the page; Software is above it.
+        for _ in 0..<6 where !software.isHittable { app.swipeDown() }
+        for _ in 0..<6 where !software.isHittable { app.swipeUp() }
+        XCTAssertTrue(software.waitForExistence(timeout: 20))
+        // The fixture applies its one update for good: a second run on it finds nothing to install.
+        try XCTSkipUnless(software.label.contains("0.0.19 is available"),
+                          "The fixture already updated to 0.0.19. Restart `bun run spike:daemon` to run this test again.")
+        XCTAssertTrue(app.buttons["machine.software.idle"].exists)
+        screenshot("machine-software")
+        app.buttons["machine.software.now"].tap()
+        let confirm = app.buttons["machine.software.now.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Update now asks first")
+        XCTAssertTrue(app.staticTexts["Update \(name) now?"].exists, "the question names the machine")
+        confirm.tap()
+        XCTAssertTrue(app.buttons["machine.software.cancel"].waitForExistence(timeout: 10), "a running update can be cancelled")
+        screenshot("machine-software-updating")
+        let done = expectation(for: NSPredicate(format: "label CONTAINS 'ace 0.0.19'"), evaluatedWith: software)
+        wait(for: [done], timeout: 40)
+        screenshot("machine-software-updated")
+    }
+
+    func testBrowserSettingsReadInTheWebsWordsAndSaveOnTheMachine() throws {
+        let app = launchIntoMachine()
+        open(app, "machine.settings.Browser")
+        let profile = element(app, "setting.browser.profile")
+        XCTAssertTrue(profile.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["When the desktop app goes away"].exists)
+        XCTAssertTrue(element(app, "setting.browser.downloadDir.note").exists, "the downloads folder says where empty saves")
+        screenshot("browser-settings")
+        let fresh = app.buttons["Private"]
+        XCTAssertTrue(fresh.waitForExistence(timeout: 10))
+        fresh.tap()
+        XCTAssertTrue(fresh.wait(for: \.isSelected, toEqual: true, timeout: 10))
+        // Read again from the machine: the choice was saved there.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        open(app, "machine.settings.Browser")
+        XCTAssertTrue(app.buttons["Private"].wait(for: \.isSelected, toEqual: true, timeout: 15))
+        app.buttons["Keep sign-ins"].tap()
+    }
+
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
@@ -92,6 +147,26 @@ import XCTest
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         row.tap()
         return app
+    }
+    /// The machine's name as its page has it (the fixture takes its host's), from Rename's title.
+    private func machineName(_ app: XCUIApplication) throws -> String {
+        open(app, "machine.rename")
+        let alert = app.alerts.matching(NSPredicate(format: "label BEGINSWITH 'Rename '")).firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        let name = String(alert.label.dropFirst("Rename ".count))
+        alert.buttons["Cancel"].tap()
+        return try XCTUnwrap(name.isEmpty ? nil : name, "Rename names the machine")
+    }
+    /// Rename's alert: its field doesn't carry an identifier, so it is the alert's only field.
+    private func rename(_ app: XCUIApplication, to name: String, from current: String) {
+        open(app, "machine.rename")
+        let alert = app.alerts["Rename \(current)"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.staticTexts["Every device shows this name."].exists, "the alert says where the name goes")
+        let field = alert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.clearAndType(name)
+        alert.buttons["Save"].firstMatch.tap()
     }
     private func open(_ app: XCUIApplication, _ id: String) {
         let link = app.buttons[id]

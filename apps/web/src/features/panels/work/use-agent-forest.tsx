@@ -1,10 +1,11 @@
+import type { ThreadReader } from "@ace/client";
 import {
   OptionalLeaseScope,
   useThreadError,
-  useThreadMeta,
   useThreadRoom,
   useThreadSyncing,
   useThreadUnconfirmed,
+  useThread,
 } from "@ace/client-react";
 import { agentForest, forestLayers, type AgentForest, type ThreadWork } from "@ace/ui-core";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -22,7 +23,7 @@ function useFacts(threadId: string): NonNullable<ThreadWork["facts"]> {
   const error = useThreadError(threadId);
   const syncing = useThreadSyncing(threadId);
   const unconfirmed = useThreadUnconfirmed(threadId);
-  const viewed = useThreadMeta(threadId) !== undefined;
+  const viewed = useThread(threadId, ["thread"], readViewed) === true;
   if (error) return "not_loaded";
   return !viewed || syncing || unconfirmed ? "syncing" : "live";
 }
@@ -132,3 +133,6 @@ export function useAgentForest(threadId: string): {
   );
   return { forest, works, loaders };
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readViewed = (reader: ThreadReader) => reader.thread !== undefined;

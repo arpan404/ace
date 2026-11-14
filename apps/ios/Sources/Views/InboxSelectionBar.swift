@@ -24,15 +24,13 @@ struct InboxSelectionBar: View {
         let allPinned = !rows.isEmpty && rows.allSatisfy { $0.pinned == true }
         // The shared menu says which threads can settle now (none while their tree works).
         let settles = rows.contains { $0.menu?.contains("settle") == true }
-        let machines = Set(keys.map(\.machineId))
         HStack(spacing: AceTheme.Spacing.none) {
             word(allPinned ? "Unpin" : "Pin", id: "select.pin", enabled: !keys.isEmpty) {
                 run(allPinned ? .unpin : .pin, keys)
             }
-            // A move picks one machine's project: threads on several machines can't share one.
-            word("Move", id: "select.move", enabled: machines.count == 1) {
-                guard let machine = machines.first else { return }
-                organize.moving = MoveAsk(machineId: machine, keys: keys)
+            // Across machines, each machine's threads go to a project on that machine.
+            word("Move", id: "select.move", enabled: !keys.isEmpty) {
+                organize.moving = MoveAsk(keys: keys)
                 finish()
             }
             word("Settle", id: "select.settle", enabled: settles) { run(.settle, keys) }

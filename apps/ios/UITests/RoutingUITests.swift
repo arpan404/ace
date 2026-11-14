@@ -49,6 +49,37 @@ import XCTest
         expectOpen(app, title: "Twin on studio-\(ports[1])", says: "Answer from studio-\(ports[1]).", never: "Answer from studio-\(ports[0]).")
     }
 
+    func testThreadsPickedOnTwoMachinesMoveEachToAProjectOnItsOwnMachine() {
+        let app = launch()
+        defer { app.terminate() }
+        let first = app.revealRow("thread.\(host(ports[0])).ios-routing-twin")
+        first.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["thread.action.select"].waitForExistence(timeout: 10))
+        app.buttons["thread.action.select"].tap()
+        app.revealRow("thread.\(host(ports[1])).ios-routing-twin").tap()
+        XCTAssertTrue(app.staticTexts["2 selected"].waitForExistence(timeout: 5))
+        let move = app.buttons["select.move"]
+        XCTAssertTrue(move.isEnabled, "a selection across machines can move")
+        move.tap()
+        // One row per machine; Move waits until a machine has a project.
+        let confirm = app.buttons["move.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        XCTAssertFalse(confirm.isEnabled)
+        for port in ports {
+            app.buttons["move.machine.\(host(port))"].tap()
+            let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'move.project.'")).firstMatch
+            XCTAssertTrue(project.waitForExistence(timeout: 20), "studio-\(port) lists its projects")
+            project.tap()
+            XCTAssertTrue(app.buttons["move.machine.\(host(port))"].waitForExistence(timeout: 5), "picking goes back to the machines")
+        }
+        XCTAssertTrue(confirm.isEnabled)
+        confirm.tap()
+        let toast = app.staticTexts["inbox.toast"]
+        XCTAssertTrue(toast.waitForExistence(timeout: 15))
+        XCTAssertTrue(toast.label.hasPrefix("Moved 2 threads"), toast.label)
+        XCTAssertTrue(app.buttons["inbox.undoMove"].exists, "one Undo for both machines")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.joined(separator: ",")]

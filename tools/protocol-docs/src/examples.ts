@@ -33,6 +33,11 @@ function alternatives(node: JsonSchema): JsonSchema[] {
     });
   return result;
 }
+const annotationKeys = new Set(["$schema", "$id", "$comment", "title", "description", "examples"]);
+function annotationOnly(part: JsonSchema): boolean {
+  return Object.keys(part).every((key) => annotationKeys.has(key) || key.startsWith("x-ace-"));
+}
+
 export function candidate(
   schema: JsonSchema,
   schemas: Snapshot["schemas"],
@@ -49,7 +54,9 @@ export function candidate(
   const choices = alternatives(node);
   if (choices.length) return candidate(pick(choices, random), schemas, random, depth + 1);
   if (node.allOf) {
-    const values = node.allOf.map((part) => candidate(part, schemas, random, depth + 1));
+    // A part that only annotates (a $ref's sibling constraint text, ids) shapes no value.
+    const shaping = node.allOf.filter((part) => !annotationOnly(part));
+    const values = shaping.map((part) => candidate(part, schemas, random, depth + 1));
     if (values.every((value) => typeof value === "string"))
       return values.reduce<string>(
         (longest, value) =>

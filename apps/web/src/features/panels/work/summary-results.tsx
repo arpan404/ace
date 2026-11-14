@@ -1,9 +1,11 @@
 import { useAgent, useItem } from "@ace/client-react";
 import type { LinkedPullRequest, TurnSummary } from "@ace/protocol";
 import {
-  checkLabels,
   checkOutcome,
+  checkWords,
   digestLines,
+  filesChangedWords,
+  otherCommandFailures,
   pluralCount,
   type ChangesByAgent,
   type CheckRun,
@@ -38,10 +40,6 @@ function FilesResult(props: {
   const [open, setOpen] = useState(false);
   const { digest } = props.turn;
   const lines = digestLines(digest);
-  const count =
-    digest.truncated && digest.files.length >= 64
-      ? "64+ files"
-      : pluralCount(digest.files.length, "file");
   const agents = props.changes.worktrees.flatMap((worktree) => worktree.agents);
   const by = agents.length > 1 ? agents : [];
   const name = (id: string) => (
@@ -57,7 +55,7 @@ function FilesResult(props: {
           onClick={() => setOpen(!open)}
           className="focus-ring-inset block rounded-sm text-left text-ui font-medium"
         >
-          {count} changed
+          {filesChangedWords(digest)}
         </button>
         <p className="truncate text-xs text-subtle-foreground tabular-nums">
           {lines && `+${lines.added} −${lines.removed} · `}
@@ -115,13 +113,6 @@ function FilesResult(props: {
   );
 }
 
-const outcomeWords = {
-  passed: "passed",
-  failed: "failed",
-  running: "running",
-  ran: "ran",
-} as const;
-
 /** One check in words: "Tests passed", "Typecheck failed · exit 2", red only when it failed. */
 function CheckWords(props: { threadId: string; check: CheckRun }) {
   const item = useItem(props.threadId, props.check.itemId);
@@ -129,18 +120,13 @@ function CheckWords(props: { threadId: string; check: CheckRun }) {
     props.check,
     item?.type === "tool_call" ? item.call.status : undefined,
   );
-  const exit =
-    outcome === "failed" && typeof props.check.exitCode === "number"
-      ? ` · exit ${props.check.exitCode}`
-      : "";
   return (
     <li
       data-tone={outcome === "failed" ? "failed" : undefined}
       className={outcome === "failed" ? "text-(--tone-text)" : undefined}
       title={props.check.command}
     >
-      {checkLabels[props.check.kind]} {outcomeWords[outcome]}
-      {exit}
+      {checkWords(props.check, outcome)}
     </li>
   );
 }
@@ -159,9 +145,7 @@ export function Results(props: {
   checks: readonly CheckRun[];
 }) {
   const { turn } = props;
-  const failed = turn?.digest.commandsFailed ?? 0;
-  const checksFailed = props.checks.filter((check) => check.failed).length;
-  const otherFailures = Math.max(0, failed - checksFailed);
+  const otherFailures = otherCommandFailures(turn?.digest, props.checks);
   const files = (turn?.digest.files.length ?? 0) > 0;
   if (!props.prs.length && !files && !props.checks.length && !otherFailures) return null;
   return (

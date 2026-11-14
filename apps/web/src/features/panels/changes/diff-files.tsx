@@ -9,8 +9,11 @@ import type { useFileViews } from "./file-views.ts";
 
 export { useFileViews } from "./file-views.ts";
 
-/** Past this many rows across the files shown, only the files near the viewport mount. */
-const virtualRowsAbove = 2_000;
+/**
+ * Past this many rows across the files shown (a screen or two), only the files near the viewport
+ * mount: below it every file's rows are in the DOM at once.
+ */
+const virtualRowsAbove = 300;
 
 export interface DiffJump {
   /** Prefix of each file block's element id: `${anchor}-${index}`. */
@@ -51,7 +54,10 @@ export function useDiffJump(
     const index = files.findIndex((file) => file.path === path);
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- following the tab's request.
     setCurrent(path);
-    document.getElementById(`${anchor}-${index}`)?.scrollIntoView?.({ block: "start" });
+    const block = document.getElementById(`${anchor}-${index}`);
+    // Past a screen or two of rows the file may not be mounted yet: the list brings it in.
+    if (block) block.scrollIntoView?.({ block: "start" });
+    else blocks.current?.scrollToIndex(index);
   }, [path, ready, files, anchor]);
   return { anchor, blocks, current, jump };
 }

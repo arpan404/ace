@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
 enum ThreadDestination {
-    case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, logs
+    case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, summary, logs
     case rename, forkLast, merge, turns, attachments
     /// The side panel's tab this opens as on iPad; nil for what always opens over the thread.
     var panelTool: PanelTool? {
@@ -12,6 +12,7 @@ enum ThreadDestination {
         case .terminal: .terminal
         case .browser: .browser
         case .agents: .agents
+        case .summary: .summary
         case .scripts: .preview
         case .work, .search, .devices, .computer, .tools, .logs,
              .rename, .forkLast, .merge, .turns, .attachments: nil
@@ -157,6 +158,9 @@ struct ThreadMenu: View, Equatable {
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
     @State private var showing = false
+    /// The item picked, opened once the menu has gone: a sheet asked for while the menu's own
+    /// sheet is still leaving is dropped without a word.
+    @State private var picked: ThreadDestination?
 
     var body: some View {
         Button {
@@ -172,7 +176,12 @@ struct ThreadMenu: View, Equatable {
         .accessibilityIdentifier("thread.menu")
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
-                            open: open, leave: leave, pages: pages)
+                            open: { picked = $0 }, leave: leave, pages: pages)
+                .onDisappear {
+                    guard let destination = picked else { return }
+                    picked = nil
+                    open(destination)
+                }
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)

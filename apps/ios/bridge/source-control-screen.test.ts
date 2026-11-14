@@ -161,6 +161,24 @@ test("hosts read under their provider, and GitLab and Gitea show the write suppo
   expect(answer.screen.status.note).toBeNull();
 });
 
+test("a host ace has no pull request API for says what works through Git and links to its site", async () => {
+  const { ask } = await open({
+    hosts: [{ host: "github.com" }, { host: "git.example.com", forge: "gitbucket" }],
+    host: "git.example.com",
+    remote: "origin",
+  });
+  const screen = (await ask({ type: "source-control.screen" })).screen;
+  expect(screen.hosts[1]).toMatchObject({ name: "GitBucket", support: "pending" });
+  expect(screen.status).toMatchObject({
+    name: "GitBucket",
+    cli: { value: "Git only" },
+    api: { value: "Not in ace yet" },
+    note: expect.stringContaining("open them on git.example.com"),
+    site: "https://git.example.com",
+  });
+  expect(screen.status.note).toContain("Commits, branches, pushes and worktrees work through Git");
+});
+
 test("choosing the active host and the remote from the phone keeps a self-hosted GitLab host GitLab", async () => {
   const { ask, saved } = await open({
     hosts: [{ host: "github.com" }, { host: "git.example.com", forge: "gitlab", account: "ada" }],

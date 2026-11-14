@@ -176,7 +176,11 @@ struct BubbleLine: Codable, Sendable, Equatable {
         /// A mention's catalog kind; empty for words and code.
         let mention: String
     }
+    /// A passage of an agent's message this one replies to, drawn above the words.
+    struct Quote: Codable, Sendable, Equatable { let text: String }
     let segments: [Segment]
+    /// Absent from older bridges.
+    var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
     let origin: String
@@ -361,6 +365,8 @@ enum BridgePatch: Decodable, Sendable {
     case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
+    /// The thread's Summary (`bridge/thread-summary.ts`).
+    case summary(String, Int, ThreadSummarySheet)
     /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
     case logs(String, Int, LogsSheet)
     case logsCopy(String, String)
@@ -492,6 +498,7 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "thread.summary": let (id, epoch) = try scope(); self = .summary(id, epoch, try box.decode(ThreadSummarySheet.self, forKey: .sheet))
         case "logs.sheet": let (id, epoch) = try scope(); self = .logs(id, epoch, try LogsSheet(from: decoder))
         case "logs.copy": self = .logsCopy(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .text))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
@@ -518,17 +525,22 @@ enum BridgePatch: Decodable, Sendable {
 }
 
 /// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
-/// own id, and the paths it serves (absent from older daemons and bridges).
+/// own id, the paths it serves and its own name (absent from older daemons and bridges).
 struct MachineIdentityPatch: Decodable, Equatable, Sendable {
     let glyph: String
     let hostId: String?
     let paths: [MachinePath]?
-    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil) { self.glyph = glyph; self.hostId = hostId; self.paths = paths }
+    /// The name the machine gives itself (`host.displayName`), set from any device.
+    let name: String?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil, name: String? = nil) {
+        self.glyph = glyph; self.hostId = hostId; self.paths = paths; self.name = name
+    }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         glyph = try box.decode(String.self, forKey: .glyph)
         hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
         paths = MachinePath.lenient(box, forKey: .paths)
+        name = (try? box.decodeIfPresent(String.self, forKey: .name)).flatMap { $0 }
     }
-    private enum Keys: String, CodingKey { case glyph, hostId, paths }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths, name }
 }

@@ -88,18 +88,11 @@ struct RemoteScreenView: View {
                         .accessibilityIdentifier("screen.row")
                 }
             }
-            if let requirements = status.permissions.requirements {
-                ForEach(requirements) { requirement in
-                    DeviceNote(sentence: requirement.message, action: model.canOperate && requirement.requestPermission != nil ? requirement.action : nil) {
-                        if let key = requirement.requestPermission {
-                            Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
-                        }
-                    }
-                }
-            } else {
-                permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
-                permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
-            }
+            // Every permission, granted or not, as web's Permissions: reviewed here, granted on
+            // the machine (asking opens its System Settings there).
+            Section {
+                ForEach(ScreenPermissionRow.rows(status.permissions)) { row in permissionRow(row) }
+            } header: { InsetHeader("Permissions") }
         } else if screen.problem == nil {
             SkeletonRows(count: 2, label: "Loading computer use").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
         }
@@ -135,19 +128,35 @@ struct RemoteScreenView: View {
         .listRowSeparator(.hidden)
         .accessibilityIdentifier("computer.chrome")
         NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
-            Text("App access and device preferences").font(AceDesign.Typeface.title)
+            Text("App access").font(AceDesign.Typeface.title)
                 .foregroundStyle(AceDesign.Ink.muted)
         }
         .listRowBackground(AceDesign.Surface.background)
         .listRowSeparator(.hidden)
     }
 
-    @ViewBuilder private func permission(_ name: String, allowed: Bool, key: String) -> some View {
-        if !allowed {
-            DeviceNote(sentence: "macOS hasn't given ace \(name) permission.", action: model.canOperate ? "Grant access" : nil) {
-                Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
+    private func permissionRow(_ row: ScreenPermissionRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                Text(row.title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                Text(row.detail).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                if let action = row.action, let key = row.permission, model.canOperate {
+                    Button(action) {
+                        Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
+                    }
+                    // Borderless, so only the button asks and the rest of the row stays still.
+                    .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.accent)
+                    .disabled(screen.busy)
+                    .accessibilityIdentifier("screen.permission.\(row.id).request")
+                }
             }
+            Spacer(minLength: AceDesign.Space.related)
+            StateLabel(status: StatusDisplay(label: row.status, token: row.ready ? "done" : "neutral"))
         }
+        .padding(.vertical, AceTheme.Spacing.xxs)
+        .listRowBackground(AceDesign.Surface.background)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("screen.permission.\(row.id)")
     }
 
     private var menu: some View {

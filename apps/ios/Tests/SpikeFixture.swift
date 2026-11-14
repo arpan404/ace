@@ -17,4 +17,24 @@ enum SpikeFixture {
         struct Fresh: Decodable { let threadId: String }
         return try JSONDecoder().decode(Fresh.self, from: data).threadId
     }
+    /// `work`'s answer, or `SpikeTimeout` after `seconds`. A model action that waits on the bridge
+    /// (admission, receipt) has no deadline of its own; once the fixture's socket drops, it never
+    /// answers and the test would hold the run until the runner's own limit. `work` keeps running.
+    @MainActor static func within<T: Sendable>(_ label: String, seconds: Int = 25, _ work: @escaping @MainActor @Sendable () async -> T) async throws -> T {
+        let (answers, answer) = AsyncStream<Result<T, any Error>>.makeStream()
+        Task { @MainActor in answer.yield(.success(await work())) }
+        let timer = Task {
+            try await Task.sleep(for: .seconds(seconds))
+            answer.yield(.failure(SpikeTimeout(label: label)))
+        }
+        defer { timer.cancel(); answer.finish() }
+        for await result in answers { return try result.get() }
+        throw CancellationError()
+    }
+}
+
+/// A fixture wait that ran out of time, named by what it waited for.
+struct SpikeTimeout: Error, CustomStringConvertible {
+    let label: String
+    var description: String { "timed out: \(label)" }
 }

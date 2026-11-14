@@ -77,10 +77,20 @@ export class ThreadCache {
     const thread = this.lookup(id);
     return thread && structuredClone(thread);
   }
-  /** The shared frozen thread and the caller's own copy of it, from one lookup. */
-  checkout(id: string): { base: FrozenThread; thread: Thread } | undefined {
+  /**
+   * The shared frozen thread from one lookup, and the caller's own copy of it, made the first
+   * time `thread` is read: an event that changes no column never needs one.
+   */
+  checkout(id: string): { base: FrozenThread; readonly thread: Thread } | undefined {
     const base = this.lookup(id);
-    return base && { base, thread: structuredClone(base) };
+    if (!base) return undefined;
+    let copy: Thread | undefined;
+    return {
+      base,
+      get thread() {
+        return (copy ??= structuredClone(base));
+      },
+    };
   }
   /**
    * The store's own writer just wrote `written` to this thread's row, which now has

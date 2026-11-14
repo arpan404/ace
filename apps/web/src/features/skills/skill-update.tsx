@@ -1,4 +1,10 @@
 import type { SkillEntry, SkillUpdateReview, WorkspaceId } from "@ace/protocol";
+import {
+  changedFilesText,
+  runnableFileText,
+  updateChangeWords,
+  updateStatusText,
+} from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
 import { DiffBody } from "@/components/markdown/diff-body.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
@@ -60,9 +66,9 @@ export function SkillSourceRow(props: { entry: SkillEntry; workspaceId: Workspac
           <span>
             {sourceLine(entry.source, now)}
             {status === "available" && (
-              <span className="font-medium text-foreground"> · Update available</span>
+              <span className="font-medium text-foreground"> · {updateStatusText.available}</span>
             )}
-            {status === "current" && " · Up to date"}
+            {status === "current" && ` · ${updateStatusText.current}`}
           </span>
         }
       >
@@ -104,8 +110,6 @@ export function SkillSourceRow(props: { entry: SkillEntry; workspaceId: Workspac
   );
 }
 
-const changeWords = { added: "Added", changed: "Changed", removed: "Removed" } as const;
-
 /** What the update changes, file by file, and SKILL.md line by line; Update applies it. */
 function UpdateReviewDialog(props: {
   entry: SkillEntry;
@@ -135,8 +139,7 @@ function UpdateReviewDialog(props: {
           <DialogTitle>Update {title}</DialogTitle>
           <DialogDescription>
             {props.entry.source?.source}
-            {review &&
-              ` · ${review.files.length === 1 ? "1 file" : `${review.files.length} files`} changed`}
+            {review && ` · ${changedFilesText(review.files.length)}`}
           </DialogDescription>
         </DialogHeader>
         {review && (
@@ -149,11 +152,11 @@ function UpdateReviewDialog(props: {
                     <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
                     {file.flagged && (
                       <span className="shrink-0 font-medium text-foreground">
-                        Agents may run it
+                        {runnableFileText}
                       </span>
                     )}
                     <span className="w-16 shrink-0 text-right text-muted-foreground">
-                      {changeWords[file.change]}
+                      {updateChangeWords[file.change]}
                     </span>
                   </li>
                 ))}

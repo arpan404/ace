@@ -26,6 +26,11 @@ export const PaletteRequest = z.object({
     .default({ canStart: true, threadOpen: false }),
   /** Only this project's threads (the search's project filter), before ranking and limits. */
   workspaceId: z.string().min(1).max(256).optional(),
+  /** The paired machines, by id and name: with two or more, each can be switched to. */
+  machines: z
+    .array(z.object({ id: z.string().min(1).max(256), name: z.string().max(256) }))
+    .max(64)
+    .default([]),
 });
 export type PaletteRequest = z.infer<typeof PaletteRequest>;
 
@@ -91,6 +96,8 @@ export const paletteCommands: readonly Command[] = [
   },
   { id: "pulls", label: "Pull requests", detail: "Go to", fields: ["github", "pr", "review"] },
   { id: "issues", label: "Issues", detail: "Go to", fields: ["github", "bugs"] },
+  { id: "history", label: "History", detail: "Go to", fields: ["settled", "past", "older"] },
+  { id: "archived", label: "Archived threads", detail: "Go to", fields: ["archive", "restore"] },
   inThread("changes", "Show changes", ["diff"]),
   inThread("agents", "Open agent tree", ["subagents", "summary"]),
   inThread("search", "Search this thread", ["find"]),
@@ -99,12 +106,15 @@ export const paletteCommands: readonly Command[] = [
   inThread("browser", "Open the browser", ["preview", "web"]),
   inThread("devices", "Devices", ["simulator", "emulator"]),
   { id: "settings", label: "Settings", detail: "Go to", fields: ["preferences", "options"] },
+  settings("account", "Profile", ["account", "sign in", "avatar"]),
   settings("machines", "Machines and devices", ["computers", "paired", "fleet", "map"]),
   settings("pair", "Pair a computer", ["add", "qr"]),
-  settings("notifications", "Notifications", ["alerts"]),
+  settings("notifications", "Notifications", ["alerts", "push"]),
+  settings("lock", "App lock", ["face id", "passcode", "security"]),
   settings("appearance", "Appearance", ["dark", "light", "mode", "theme"]),
-  settings("archive", "Archived threads", ["archive", "restore"]),
+  settings("keyboard", "Keyboard shortcuts", ["keys", "hardware"]),
   settings("profiles", "Task profiles", ["profiles"]),
+  settings("cache", "Cached chats", ["offline", "storage"]),
   tool("projects", "Projects", ["folders"]),
   place("automations", "Automations", ["schedule"]),
   place("usage", "Usage", ["limits", "quota"]),
@@ -134,9 +144,25 @@ export interface PaletteAnswer {
 
 const limits = { commands: 8, projects: 5, threads: 20 };
 
+/** With two or more machines paired, one command per machine shows only its threads. */
+function machineCommands(machines: PaletteRequest["machines"]): Command[] {
+  if (machines.length < 2) return [];
+  return [
+    { id: "machine:", label: "Show all machines", detail: "Machine", fields: ["switch", "every"] },
+    ...machines.map((machine) => ({
+      id: `machine:${machine.id}`,
+      label: `Switch to ${machine.name || machine.id}`,
+      detail: "Machine",
+      fields: ["machine", "computer", "device"],
+    })),
+  ];
+}
+
 /** The commands an empty or typed query lists, best first. */
 export function rankCommands(request: PaletteRequest): PaletteAnswer["commands"] {
-  const offered = paletteCommands.filter((command) => command.when?.(request.context) ?? true);
+  const offered = [...paletteCommands, ...machineCommands(request.machines)].filter(
+    (command) => command.when?.(request.context) ?? true,
+  );
   const query = request.query.trim();
   const ranked = offered.flatMap((command) => {
     const score = rankCommand(query, command);

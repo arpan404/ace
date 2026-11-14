@@ -1,20 +1,9 @@
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { toolchainInstallers, toolchainNames } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-/** Each tool's name as people know it. */
-export const toolchainNames = {
-  git: "Git",
-  xcode: "iOS Simulator",
-  "serve-sim": "Simulator streaming",
-  android: "Android emulators",
-};
-
-/** Where to get the tools ace can't install itself. */
-export const toolchainInstallers = {
-  xcode: { href: "https://apps.apple.com/app/xcode/id497799835", label: "Install Xcode" },
-  android: { href: "https://developer.android.com/studio", label: "Install Android Studio" },
-};
+export { toolchainInstallers, toolchainNames } from "@ace/ui-core";
 
 /** The connected computer's tools (Git, Xcode, serve-sim, the Android SDK), read once. */
 export function useToolchains() {

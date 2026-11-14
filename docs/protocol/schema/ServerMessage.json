@@ -527,6 +527,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeRemoteResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDriveResult.json"
+    },
+    {
       "properties": {
         "outcome": {
           "$ref": "https://ace.local/protocol/v1/AccountResetOutcome.json"
@@ -1373,6 +1379,11 @@
     },
     {
       "properties": {
+        "databaseId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "grantTtlMs": {
           "maximum": 9007199254740991,
           "minimum": 0,

@@ -10,6 +10,10 @@ struct ChangesSheet: View {
     let title: String
     /// A file whose diff opens first (from Files); otherwise the first file's.
     var initial: String?
+    /// The scope to show (the Summary asks for This thread); nil opens on the last turn. It goes
+    /// with the open, or to the open sheet, once: `scopeShown` lets the host forget it.
+    var scope: String? = nil
+    var scopeShown: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.panelHost) private var panelHost
@@ -119,10 +123,19 @@ struct ChangesSheet: View {
         }
         .tint(AceTheme.Colours.foreground)
         .onAppear {
-            model.sheet(["kind": "changes", "open": true])
+            var opening: [String: Any] = ["kind": "changes", "open": true]
+            if let scope { opening["scope"] = scope }
+            model.sheet(opening)
+            if scope != nil { scopeShown?() }
             if let initial { model.sheet(["kind": "changes.scope", "scope": "working-tree"]); open(initial) }
         }
         .onDisappear { model.sheet(["kind": "changes", "open": false]) }
+        // Asked for while the sheet is already open.
+        .onChange(of: scope) { _, asked in
+            guard let asked else { return }
+            model.sheet(["kind": "changes.scope", "scope": asked])
+            scopeShown?()
+        }
         // The first file opens by itself once, as before; after that opening is the person's.
         .onChange(of: summary?.files.first?.path) { _, first in
             guard !opened, initial == nil, let first, summary?.open?.isEmpty ?? true else { return }

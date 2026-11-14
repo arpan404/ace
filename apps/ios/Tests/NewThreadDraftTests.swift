@@ -20,6 +20,23 @@ import Foundation
         let saved = try String(contentsOf: file.url, encoding: .utf8)
         #expect(!saved.localizedCaseInsensitiveContains("token") && !saved.localizedCaseInsensitiveContains("secret"))
     }
+    @Test func startingFromAnIssueOrPullRequestKeepsTheWordsTypedAndLinksOnlyThePickedOne() {
+        let ace = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "ace")
+        let drafts = NewThreadDraftModel(store: store())
+        drafts.edit { $0.projectId = "ace"; $0.text = "Look at this first." }
+        drafts.edit { $0.start(from: NewThreadStartSeed(text: "Work on GitHub issue #7: Crash", pullRequest: nil,
+                                                       issue: NewThreadIssue(repository: ace, number: 7, title: "Crash"))) }
+        #expect(drafts.draft.text == "Look at this first.\n\nWork on GitHub issue #7: Crash")
+        #expect(drafts.draft.issue?.number == 7)
+        // Picking a pull request after it links the pull request in the issue's place.
+        drafts.edit { $0.text = "" }
+        drafts.edit { $0.start(from: NewThreadStartSeed(text: "Work on GitHub PR #9: Fix",
+                                                       pullRequest: NewThreadPull(repository: ace, number: 9, headSha: String(repeating: "a", count: 40), title: "Fix"),
+                                                       issue: nil)) }
+        #expect(drafts.draft.text == "Work on GitHub PR #9: Fix")
+        #expect(drafts.draft.issue == nil)
+        #expect(drafts.draft.pullRequest?.number == 9)
+    }
     @Test func sendingTheSameDraftAgainReusesItsCommandButAnEditStartsAnew() {
         let file = store()
         let drafts = NewThreadDraftModel(store: file)

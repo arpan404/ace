@@ -41,6 +41,8 @@ export interface Services {
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
+  /** Shares provider CLI probes between status and engine discovery until the engine is up. */
+  startupProbes?: import("@ace/provider-kit/discovery").StartupProbes;
   utility?: import("./utility.ts").UtilityService;
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;

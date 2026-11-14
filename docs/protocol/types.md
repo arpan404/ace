@@ -964,6 +964,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| purpose | no | `"spade-cloud"` |  |
 | kind | yes | ["machine","device"] |  |
 | subject | yes | string | {"minLength":1,"maxLength":128} |
 
@@ -1652,6 +1653,7 @@ Example:
 | before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | automationId | no | string | {"minLength":1,"maxLength":256} |
 | limit | yes | integer | {"minimum":1,"maximum":100} |
+| finishedAfter | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
 
 Example:
@@ -1662,6 +1664,7 @@ Example:
   "before": 9,
   "limit": 7,
   "requestId": "example",
+  "source": "person",
   "type": "automation.inbox"
 }
 ```
@@ -3483,6 +3486,40 @@ Example:
 
 ```json
 "provider_subagent"
+```
+
+## AgentPointer
+
+[JSON Schema](schema/AgentPointer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| x | yes | number |  |
+| y | yes | number |  |
+| kind | yes | [AgentPointerKind.json](schema/AgentPointerKind.json) |  |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 9,
+  "kind": "move",
+  "x": 1,
+  "y": 9
+}
+```
+
+## AgentPointerKind
+
+[JSON Schema](schema/AgentPointerKind.json), input validation.
+
+Type: ["move","click","drag","scroll","type"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"move"
 ```
 
 ## AgentSelection
@@ -8032,11 +8069,16 @@ Example:
 | recording | no | object | {"properties":{"by":{"$ref":"https://ace.local/protocol/v1/BrowserTabActor.json"}},"required":["by"]} |
 | features | no | array | {"maxItems":32,"items":{"type":"string","maxLength":64}} |
 | video | no | [BrowserVideoStatus.json](schema/BrowserVideoStatus.json) |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
 
 Example:
 
 ```json
 {
+  "acceleration": {
+    "degraded": true,
+    "steps": []
+  },
   "closed": true,
   "pageStateLost": true,
   "permissionDenied": {
@@ -8067,6 +8109,8 @@ Example:
 | private | no | boolean |  |
 | inUse | no | [BrowserTabActor.json](schema/BrowserTabActor.json) |  |
 | pointer | no | [BrowserAgentPointer.json](schema/BrowserAgentPointer.json) |  |
+| agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
+| personActive | no | boolean |  |
 | lifecycle | no | [BrowserTabLifecycle.json](schema/BrowserTabLifecycle.json) |  |
 | kept | no | boolean |  |
 | pageStateLost | no | boolean |  |
@@ -8084,25 +8128,19 @@ Example:
 
 ```json
 {
-  "audible": false,
-  "canGoForward": true,
-  "inUse": {
-    "kind": "agent"
-  },
+  "favicon": "example",
   "kept": false,
-  "loading": false,
   "muted": true,
-  "openedBy": {
-    "agentId": "example",
-    "kind": "human"
+  "pageStateLost": false,
+  "pending_dialog": {
+    "dialogId": "example",
+    "message": "example",
+    "tabId": "example",
+    "type": "confirm"
   },
-  "pageStateLost": true,
-  "playing": false,
-  "pointer": {
-    "sequence": 9,
-    "x": 2,
-    "y": 3
-  },
+  "personActive": true,
+  "playing": true,
+  "private": false,
   "tabId": "example",
   "title": "example",
   "url": "example"
@@ -10354,6 +10392,7 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | protocolVersion | yes | `1` |  |
 | headSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| databaseId | no | string | {"minLength":1,"maxLength":128} |
 | grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
@@ -10662,6 +10701,18 @@ Example:
 }
 ```
 
+## CoworkSharing
+
+[JSON Schema](schema/CoworkSharing.json), input validation.
+
+Type: ["cowork","exclusive"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"exclusive"
+```
+
 ## CredentialReplacedClose
 
 [JSON Schema](schema/CredentialReplacedClose.json), input validation.
@@ -10900,6 +10951,7 @@ Example:
 | running | yes | `true` |  |
 | version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
 | ready | no | `true` |  |
+| admission | no | [MaintenanceStatus.json](schema/MaintenanceStatus.json) |  |
 
 Example:
 
@@ -11465,7 +11517,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| code | yes | ["sdk_missing","tool_missing","not_supported","foreground_required","not_found","not_booted","permission_denied","busy","timeout","command_failed","invalid_data","lease_required","stale_ref","limit"] |  |
+| code | yes | ["sdk_missing","tool_missing","not_supported","foreground_required","not_found","not_booted","permission_denied","busy","timeout","command_failed","invalid_data","lease_required","stale_ref","limit","person_busy"] |  |
 | message | yes | string | {"maxLength":2048} |
 | hint | yes | string | {"maxLength":2048} |
 | permission | no | ["screenRecording","accessibility"] |  |
@@ -11475,7 +11527,7 @@ Example:
 
 ```json
 {
-  "code": "stale_ref",
+  "code": "limit",
   "hint": "example",
   "message": "example",
   "platform": "android"
@@ -12353,6 +12405,11 @@ Example:
 ```json
 {
   "state": {
+    "acceleration": {
+      "degraded": true,
+      "reason": "example",
+      "steps": []
+    },
     "controller": "agent",
     "device": {
       "id": "android:9iLafiaTUCNwkb-PsUabVJF0D.vx7_YIBPrhpyw3vAyfj_Ru4gvsIh1gDKrWWT16NXV4.j0oNWJq",
@@ -12363,7 +12420,9 @@ Example:
     },
     "enabled": false,
     "lifecycle": "starting",
-    "posture": "open"
+    "personActive": true,
+    "posture": "open",
+    "sharing": "cowork"
   },
   "type": "devices.state"
 }
@@ -12471,6 +12530,10 @@ Example:
 | error | no | [DeviceFailure.json](schema/DeviceFailure.json) |  |
 | activity | no | [DeviceActivity.json](schema/DeviceActivity.json) |  |
 | posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
+| sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
+| agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
+| personActive | no | boolean |  |
 
 Example:
 
@@ -12487,6 +12550,7 @@ Example:
   },
   "enabled": false,
   "lifecycle": "idle",
+  "sharing": "cowork",
   "streamId": "GnxnDaqWNabIYhPEjj3lz9ak-"
 }
 ```
@@ -14876,6 +14940,20 @@ Example:
   },
   "title": "example"
 }
+```
+
+## HostedAddress
+
+[JSON Schema](schema/HostedAddress.json), input validation.
+
+Semantic rule: A former address of ace's backend is decoded as the current one.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
 ```
 
 ## HostedRepositoriesRequest
@@ -19624,6 +19702,54 @@ Example:
 }
 ```
 
+## MediaAcceleration
+
+[JSON Schema](schema/MediaAcceleration.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| steps | yes | array | {"maxItems":16,"items":{"type":"object","properties":{"step":{"type":"string","maxLength":32},"backend":{"type":"string","maxLength":32},"hardware":{"type":"boolean"},"readbacks":{"type":"integer","minimum":0,"maximum":4294967295},"uploads":{"type":"integer","minimum":0,"maximum":4294967295}},"required":["step","backend","hardware","readbacks","uploads"]}} |
+| degraded | yes | boolean |  |
+| reason | no | string | {"maxLength":256} |
+
+Example:
+
+```json
+{
+  "degraded": false,
+  "steps": []
+}
+```
+
+## MediaCapability
+
+[JSON Schema](schema/MediaCapability.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| step | yes | string | {"maxLength":32} |
+| codec | no | string | {"maxLength":64} |
+| backend | yes | string | {"maxLength":32} |
+| hardware | yes | boolean |  |
+| zeroCopy | yes | boolean |  |
+| state | yes | string | {"maxLength":32} |
+| maxWidth | yes | integer | {"minimum":0,"maximum":4294967295} |
+| maxHeight | yes | integer | {"minimum":0,"maximum":4294967295} |
+
+Example:
+
+```json
+{
+  "backend": "example",
+  "hardware": false,
+  "maxHeight": 3,
+  "maxWidth": 6,
+  "state": "example",
+  "step": "example",
+  "zeroCopy": false
+}
+```
+
 ## Mention
 
 [JSON Schema](schema/Mention.json), input validation.
@@ -20019,6 +20145,47 @@ Example:
 "example"
 ```
 
+## NativeToolSource
+
+[JSON Schema](schema/NativeToolSource.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":4096} |
+| usable | yes | boolean |  |
+| reason | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "usable": true
+}
+```
+
+## NativeToolStatus
+
+[JSON Schema](schema/NativeToolStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":64} |
+| label | yes | string | {"minLength":1,"maxLength":128} |
+| state | yes | union | {"anyOf":[{"type":"string","enum":["ready","unavailable","unknown"]},{"type":"string","x-ace-constraint":"Any other state a newer daemon sends is decoded as unknown."}]} |
+| reason | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "label": "example",
+  "reason": "example",
+  "state": "example"
+}
+```
+
 ## Notification
 
 [JSON Schema](schema/Notification.json), input validation.
@@ -20035,6 +20202,7 @@ Example:
 | preview | no | string | {"maxLength":300} |
 | message | no | string | {"maxLength":300} |
 | threadIds | no | array | {"minItems":1,"maxItems":100,"items":{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]}} |
+| cursor | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -20277,6 +20445,7 @@ Example:
   "notification": {
     "actions": [],
     "backgroundCount": 8,
+    "cursor": 8,
     "id": "example",
     "interactionId": "example",
     "preview": "example",
@@ -24867,6 +25036,8 @@ Example:
 | state | no | `"not_configured"` |  |
 | error | no | string | {"maxLength":1024} |
 | checkedAt | no | number | {"minimum":0} |
+| nativeTools | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/NativeToolStatus.json"}} |
+| toolSource | no | [NativeToolSource.json](schema/NativeToolSource.json) |  |
 | stale | yes | boolean |  |
 | refreshing | yes | boolean |  |
 
@@ -24981,6 +25152,7 @@ Example:
   "notification": {
     "actions": [],
     "backgroundCount": 1,
+    "cursor": 2,
     "id": "example",
     "status": "background_done",
     "threadId": "example",
@@ -24990,6 +25162,32 @@ Example:
     "title": "example"
   },
   "v": 1
+}
+```
+
+## PushNotificationAddress
+
+[JSON Schema](schema/PushNotificationAddress.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| channel | yes | `"push"` |  |
+| platform | yes | `"phone"` |  |
+| token | yes | string | {"pattern":"^[a-fA-F0-9]{16,400}$"} |
+| environment | yes | ["sandbox","production"] |  |
+| p256dh | yes | string | {"pattern":"^[A-Za-z0-9_-]{87}$"} |
+| auth | yes | string | {"pattern":"^[A-Za-z0-9_-]{22}$"} |
+
+Example:
+
+```json
+{
+  "auth": "bqyAPxijyhu93uyizalhh1",
+  "channel": "push",
+  "environment": "production",
+  "p256dh": "nQf7YVpFXY6c1mZaBqTXN15_dt9oz40m0w75uXXWiyrA6pNEqwlARzFZgzKwUkKXjjL-8kYnvkiHpWZHEtBc8qj",
+  "platform": "phone",
+  "token": "dc361e5baA6f1A6acb8a252A458d521EaDb0D4fafBC81898cCbA7A0e9BB1B59Dc2872b41BF8B05aFdAEd7aAb2b5E4dfD646EBa67Ee1b8EdFEAa5171afd6b71c17dBDaac136a4e0bd2fA84DFc64F6Ce71c7526AC064ac6bc5E187A8cdC7dBbeDe4eDDA2FeDf99Ebff8fC08DF5F1Fe4cB2caF3F4173FFf17f1CDbD2Ff1375ae07D91c9e65467786bACC7eFe347d"
 }
 ```
 
@@ -27076,6 +27274,7 @@ Example:
 | codecs | yes | array | {"minItems":1,"maxItems":2,"items":{"type":"string","enum":["jpeg","h264"]}} |
 | permissions | yes | object | {"properties":{"screen":{"type":"string","enum":["granted","denied","prompt","n/a"]},"input":{"type":"string","enum":["granted","denied","prompt","n/a"]}},"required":["screen","input"]} |
 | watchOnly | no | string | {"minLength":1,"maxLength":500} |
+| encoders | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/MediaCapability.json"}} |
 
 Example:
 
@@ -29503,7 +29702,6 @@ Example:
     "permissions": {
       "accessibility": true,
       "platform": "example",
-      "requirements": [],
       "screenRecording": true
     },
     "secureInputAllowed": true,
@@ -29512,7 +29710,7 @@ Example:
       "bundleIds": [
         "example"
       ],
-      "displayId": 8,
+      "displayId": 2,
       "kind": "display"
     }
   },
@@ -29555,11 +29753,16 @@ Example:
 | mode | no | [ScreenMode.json](schema/ScreenMode.json) | {"default":"background"} |
 | secureInputAllowed | no | boolean | {"default":false} |
 | holder | no | [ScreenAgentScope.json](schema/ScreenAgentScope.json) |  |
+| threadId | no | string | {"minLength":1,"maxLength":256} |
 | indicator | yes | boolean |  |
 | target | yes | [ScreenTarget.json](schema/ScreenTarget.json) |  |
 | permissions | yes | [DevicePermissions.json](schema/DevicePermissions.json) |  |
 | error | no | string | {"maxLength":1024} |
 | capabilities | no | [ScreenCapabilities.json](schema/ScreenCapabilities.json) |  |
+| sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+| agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
+| personActive | no | boolean |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
 
 Example:
 
@@ -29574,7 +29777,11 @@ Example:
   },
   "sessionId": "kM-zW-xOLHkbPBJTjGmClEE",
   "target": {
-    "kind": "chooser"
+    "bundleIds": [
+      "example"
+    ],
+    "displayId": 6,
+    "kind": "display"
   }
 }
 ```
@@ -30470,16 +30677,16 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
-    "browser.downloadDefault": "example",
+    "automations.enabled": false,
+    "browser.backendLoss": "headless",
     "browser.profileScope": "thread",
-    "generation.autoDraftCommits": false,
     "providers.coder.model": "example",
     "providers.coder.reasoningEffort": "high",
     "providers.configuration": [],
@@ -30487,12 +30694,12 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.relay": false,
-    "remote.tailscale": true,
+    "remote.enabled": true,
+    "remote.transport": "relay",
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
-    "threads.keepSettledFor": "7d",
-    "threads.unresponsiveAfter": "2m"
+    "threads.settleOnMerge": false,
+    "threads.useWorktree": true
   },
   "version": 2
 }
@@ -30513,7 +30720,7 @@ Example:
 
 ```json
 {
-  "key": "threads.sortBy",
+  "key": "threads.settleOnClose",
   "provenance": "defaults",
   "value": true
 }
@@ -30545,7 +30752,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -30644,7 +30851,7 @@ Example:
 
 ```json
 {
-  "key": "threads.settleOnClose",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -30894,7 +31101,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.followUpBehavior"
+    "threads.forkOnSwitch"
   ],
   "requestId": "example",
   "scope": {
@@ -30962,6 +31169,8 @@ Example:
 | providers.verifier.model | yes | string | {"minLength":1,"maxLength":256} |
 | providers.verifier.tier | yes | ["default","standard","fast","flex","priority"] |  |
 | providers.verifier.reasoningEffort | yes | ["default","none","minimal","low","medium","high","xhigh","max"] |  |
+| providers.codex.toolSource | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]} |
+| providers.claude.chrome | yes | ["auto","on","off"] |  |
 | browser.backend | yes | ["auto","embedded","headless"] |  |
 | browser.backendLoss | yes | ["pause","headless"] |  |
 | browser.profile | yes | ["persistent","ephemeral"] |  |
@@ -31010,67 +31219,65 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "ask",
+  "access.defaultMode": "full-access",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 3,
-  "automations.enabled": false,
+  "agents.maxRunningChildren": null,
+  "automations.enabled": true,
   "browser.backend": "embedded",
-  "browser.backendLoss": "headless",
+  "browser.backendLoss": "pause",
   "browser.downloadDefault": "example",
   "browser.downloadDir": "example",
   "browser.profile": "persistent",
   "browser.profileScope": "project",
   "browser.userChrome.storageReads": false,
-  "clients.keybindings": "example",
-  "clients.theme": null,
+  "clients.keybindings": 2,
+  "clients.theme": false,
   "computer.blockedApps": [],
-  "computer.lockedUse": false,
-  "devices.emulatorWindow": true,
+  "computer.lockedUse": true,
+  "devices.emulatorWindow": false,
   "devices.enabled": false,
-  "generation.autoDraftCommits": false,
-  "generation.model": {
-    "instance": "example",
-    "model": "example",
-    "provider": "antigravity"
-  },
+  "generation.autoDraftCommits": true,
+  "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
-    "kind": "terminal"
+    "kind": "laptop"
   },
-  "logs.maxBytes": 1048579,
+  "logs.maxBytes": 1048580,
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
   "notifications.remotePush": false,
   "projects.roots": [],
+  "providers.claude.chrome": "on",
   "providers.coder.model": "example",
-  "providers.coder.provider": "codex",
-  "providers.coder.reasoningEffort": "default",
-  "providers.coder.tier": "fast",
+  "providers.coder.provider": "acp",
+  "providers.coder.reasoningEffort": "high",
+  "providers.coder.tier": "flex",
+  "providers.codex.toolSource": null,
   "providers.configuration": [],
   "providers.default": "claude",
   "providers.planner.model": "example",
-  "providers.planner.provider": "codex",
-  "providers.planner.reasoningEffort": "none",
-  "providers.planner.tier": "fast",
+  "providers.planner.provider": null,
+  "providers.planner.reasoningEffort": "xhigh",
+  "providers.planner.tier": "default",
   "providers.reviewer.model": "example",
   "providers.reviewer.provider": null,
   "providers.reviewer.reasoningEffort": "xhigh",
   "providers.reviewer.tier": "fast",
   "providers.verifier.model": "example",
-  "providers.verifier.provider": "opencode",
-  "providers.verifier.reasoningEffort": "max",
-  "providers.verifier.tier": "default",
-  "remote.agentAccess": "operate",
+  "providers.verifier.provider": null,
+  "providers.verifier.reasoningEffort": "high",
+  "providers.verifier.tier": "priority",
+  "remote.agentAccess": "off",
   "remote.agentTransfers": true,
-  "remote.enabled": true,
+  "remote.enabled": false,
   "remote.hostedPairingLink": true,
   "remote.lan": false,
   "remote.mcpPublicUrl": null,
   "remote.relay": false,
-  "remote.relayMcp": false,
+  "remote.relayMcp": true,
   "remote.relayUrl": "wss://relay.example.invalid/",
   "remote.tailscale": false,
-  "remote.tailscaleMcp": true,
-  "remote.transferIgnoredFiles": true,
+  "remote.tailscaleMcp": false,
+  "remote.transferIgnoredFiles": false,
   "remote.transport": "tailscale",
   "sourceControl.preferences": {
     "host": "github.com",
@@ -31081,27 +31288,28 @@ Example:
     ],
     "remote": "origin"
   },
-  "spade.enabled": false,
+  "spade.enabled": true,
   "storage.backupWorktrees": false,
   "storage.retention": {
-    "caches": 1,
+    "artifacts": 1,
+    "attachments": 6,
     "idleThreads": true,
-    "worktrees": 9
+    "worktreeMode": "all_settled"
   },
   "storage.retentionDays": 3,
   "storage.scheduledCleanup": true,
-  "storage.worktreeRetentionDays": 7,
-  "threads.autoSettleAfter": "1w",
+  "storage.worktreeRetentionDays": null,
+  "threads.autoSettleAfter": "1d",
   "threads.followUpBehavior": "steer",
-  "threads.forkOnSwitch": true,
+  "threads.forkOnSwitch": false,
   "threads.keepSettledFor": "3d",
-  "threads.limitPolicy": "resume_at_reset",
+  "threads.limitPolicy": "snooze_until_reset",
   "threads.settleOnClose": false,
-  "threads.settleOnMerge": false,
-  "threads.sortBy": "created",
+  "threads.settleOnMerge": true,
+  "threads.sortBy": "manual",
   "threads.unresponsiveAfter": "15m",
-  "threads.useWorktree": false,
-  "worktree.preparationTimeoutMs": 60007
+  "threads.useWorktree": true,
+  "worktree.preparationTimeoutMs": 60001
 }
 ```
 
@@ -32740,6 +32948,183 @@ Example:
 }
 ```
 
+## SpadeComputer
+
+[JSON Schema](schema/SpadeComputer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| bot | yes | [SpadeBotId.json](schema/SpadeBotId.json) |  |
+| driver | yes | [SpadeComputerDriver.json](schema/SpadeComputerDriver.json) |  |
+| mode | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| browser | yes | object | {"properties":{"tabs":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/SpadeComputerTab.json"}}},"required":["tabs"]} |
+| screen | yes | object | {"properties":{"apps":{"maxItems":16,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"since":{"type":"integer","minimum":0,"maximum":9007199254740991},"personActive":{"type":"boolean"}},"required":["apps"]} |
+
+Example:
+
+```json
+{
+  "bot": "_HRJuo61nFX:9qP-NOMpzmYydAwhy-dhkWLrLxXcMYdwEGt3I9K9FBAQpq75EVmp1cttgTRzsq3Iu0xpC4NsBENzOAj2gAF4",
+  "browser": {
+    "tabs": []
+  },
+  "driver": "person",
+  "screen": {
+    "apps": [],
+    "personActive": true,
+    "since": 7
+  }
+}
+```
+
+## SpadeComputerDrive
+
+[JSON Schema](schema/SpadeComputerDrive.json), input validation.
+
+Semantic rule: At least one of driver or mode is required.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.computer.drive"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| bot | yes | [SpadeBotId.json](schema/SpadeBotId.json) |  |
+| driver | no | [SpadeComputerDriver.json](schema/SpadeComputerDriver.json) |  |
+| mode | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+
+Example:
+
+```json
+{
+  "bot": "fP-QnMuuTdDf",
+  "driver": "bot",
+  "requestId": "example",
+  "type": "spade.computer.drive"
+}
+```
+
+## SpadeComputerDriver
+
+[JSON Schema](schema/SpadeComputerDriver.json), input validation.
+
+Type: ["bot","person"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"person"
+```
+
+## SpadeComputerDriveResult
+
+[JSON Schema](schema/SpadeComputerDriveResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.computer.drive.result"` |  |
+| requestId | yes | string |  |
+| driver | no | [SpadeComputerDriver.json](schema/SpadeComputerDriver.json) |  |
+| mode | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+| stopped | no | boolean |  |
+| handback | no | [SpadeComputerHandback.json](schema/SpadeComputerHandback.json) |  |
+| error | no | ["forbidden","unavailable"] |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "stopped": true,
+  "type": "spade.computer.drive.result"
+}
+```
+
+## SpadeComputerGet
+
+[JSON Schema](schema/SpadeComputerGet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.computer.get"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| bot | yes | [SpadeBotId.json](schema/SpadeBotId.json) |  |
+
+Example:
+
+```json
+{
+  "bot": "2hF31OhbjNcPS02BXh_a.V.KTHwAjiROOkoclqhon9TLlDSQyrDD4pyuPRT0.en3lSDOXfVJZJGEQJ1ZySCRDTbF:GG4:7CbUH2dwE1pzMhPJ_2OWyfkU1ja",
+  "requestId": "example",
+  "type": "spade.computer.get"
+}
+```
+
+## SpadeComputerHandback
+
+[JSON Schema](schema/SpadeComputerHandback.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| drivenMs | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| visited | yes | array | {"maxItems":64,"items":{"type":"string","maxLength":8192}} |
+| opened | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/SpadeComputerTab.json"}} |
+| closed | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/SpadeComputerTab.json"}} |
+| screenUsed | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "closed": [],
+  "drivenMs": 7,
+  "opened": [],
+  "screenUsed": false,
+  "visited": []
+}
+```
+
+## SpadeComputerResult
+
+[JSON Schema](schema/SpadeComputerResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.computer.result"` |  |
+| requestId | yes | string |  |
+| computer | no | [SpadeComputer.json](schema/SpadeComputer.json) |  |
+| error | no | ["forbidden","unavailable"] |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.computer.result"
+}
+```
+
+## SpadeComputerTab
+
+[JSON Schema](schema/SpadeComputerTab.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| tabId | yes | string | {"minLength":1,"maxLength":128} |
+| title | yes | string | {"maxLength":1024} |
+| url | yes | string | {"maxLength":8192} |
+| backend | no | `"user"` |  |
+| personActive | no | boolean |  |
+
+Example:
+
+```json
+{
+  "tabId": "example",
+  "title": "example",
+  "url": "example"
+}
+```
+
 ## SpadeErrorCode
 
 [JSON Schema](schema/SpadeErrorCode.json), input validation.
@@ -32749,7 +33134,7 @@ Type: ["forbidden","invalid_path","unavailable","hidden","too_large","invalid_bo
 Example:
 
 ```json
-"invalid_body"
+"too_large"
 ```
 
 ## SpadeGrantRevoke
@@ -33217,12 +33602,13 @@ Example:
 {
   "requestId": "example",
   "status": {
-    "state": "off",
-    "thread": {
-      "busy": false,
-      "id": "example"
+    "grant": {
+      "lastUsedAt": null,
+      "state": "revoked"
     },
-    "version": "example"
+    "hidden": false,
+    "reason": "example",
+    "state": "off"
   },
   "type": "spade.status.result"
 }
@@ -33240,16 +33626,9 @@ Example:
 ```json
 {
   "status": {
+    "hidden": true,
     "reason": "example",
-    "setup": {
-      "platform": "example",
-      "reason": "example"
-    },
     "state": "failed",
-    "thread": {
-      "busy": false,
-      "id": "example"
-    },
     "version": "example"
   },
   "type": "spade.status.changed"
@@ -33391,6 +33770,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | state | yes | [SpadeState.json](schema/SpadeState.json) |  |
+| hidden | no | boolean |  |
 | version | no | string | {"maxLength":64} |
 | reason | no | string | {"maxLength":1024} |
 | setup | no | object | {"properties":{"reason":{"type":"string","maxLength":256},"platform":{"type":"string","maxLength":32}},"required":["reason","platform"]} |
@@ -33401,12 +33781,13 @@ Example:
 
 ```json
 {
-  "state": "failed",
-  "thread": {
-    "busy": true,
-    "id": "example"
+  "hidden": false,
+  "reason": "example",
+  "setup": {
+    "platform": "example",
+    "reason": "example"
   },
-  "version": "example"
+  "state": "failed"
 }
 ```
 
@@ -33425,16 +33806,14 @@ Example:
 {
   "status": {
     "grant": {
-      "lastUsedAt": 3,
+      "lastUsedAt": null,
       "state": "present"
     },
-    "setup": {
-      "platform": "example",
-      "reason": "example"
-    },
+    "hidden": false,
+    "reason": "example",
     "state": "ready",
     "thread": {
-      "busy": false,
+      "busy": true,
       "id": "example"
     },
     "version": "example"
@@ -33477,10 +33856,11 @@ Example:
 {
   "requestId": "example",
   "status": {
-    "setup": {
-      "platform": "example",
-      "reason": "example"
+    "grant": {
+      "lastUsedAt": 2,
+      "state": "revoked"
     },
+    "reason": "example",
     "state": "off"
   },
   "type": "spade.status.result"
@@ -33892,6 +34272,18 @@ Example:
   "measuredAt": 6,
   "reclaimableDatabaseBytes": 3
 }
+```
+
+## StoredAceAccountOrigin
+
+[JSON Schema](schema/StoredAceAccountOrigin.json), input validation.
+
+Type: intersection. See JSON Schema for constraints.
+
+Example:
+
+```json
+"https://backend.example.com"
 ```
 
 ## StreamingStorageMetrics

@@ -1,0 +1,16 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.open",
+    "source": "source-1",
+    "handle": 1,
+    "threadId": "source-1",
+    "tabId": "source-1",
+    "sessionId": "source-1",
+    "deviceId": "source-1",
+    "epoch": 1,
+    "origin": {
+      "kind": "tab"
+    }
+  }
+}

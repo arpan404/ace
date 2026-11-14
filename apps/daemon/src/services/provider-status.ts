@@ -7,6 +7,7 @@ import { checkCli } from "@ace/provider-kit/cli-requirements";
 import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
+import { startupProbes } from "@ace/provider-kit/discovery";
 import { ProviderStatuses } from "../provider-status.ts";
 import { applyInstallations } from "../installation-gate.ts";
 import { hasUnauthenticatedOpenCodeModels } from "../provider-model-availability.ts";
@@ -47,9 +48,14 @@ export function startProviderStatuses(context: ServiceContext): void {
       : context.services.accountRegistry?.selectedProvider(provider)) ??
     (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
   const toolFiles = cachedToolFiles(nodeFileSystem);
+  // The engine reads the same CLIs next; it closes the share once its discovery is done.
+  const probes = startupProbes();
+  context.services.startupProbes = probes;
+  context.resources.onShutdown(() => probes.close());
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
+      probe: context.options.providerStatus?.probe ?? probes.probe,
       antigravity: (signal) => antigravityDiscovery(context, signal),
       modelsAvailable: () =>
         Boolean(

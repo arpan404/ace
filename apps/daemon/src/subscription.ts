@@ -5,6 +5,7 @@ import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.
 import type { Store } from "./store.ts";
 import { sidebarSubscription } from "./sidebar-subscription.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
+import { routeThread } from "./thread-routes.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -28,7 +29,7 @@ export type SubscriptionStore = Pick<
   | "sidebarPage"
   | "readEvents"
 > &
-  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken">>;
+  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken" | "countThreadEvents">>;
 
 const fallbackPlacements = new WeakMap<object, SidebarPlacement>();
 /**
@@ -143,10 +144,20 @@ export function subscribe(
       progressTimer = schedule(flushProgress, progressIntervalMs);
     }
   };
-  const remove = store.subscribe((events) => {
-    if (initializing) queued.push(...events);
-    else deliver(events);
-  });
+  // Batches heard while the subscription starts, and the newest head among them.
+  let queuedHead = 0;
+  const hear = (events: Event[], head = events.at(-1)?.seq ?? 0) => {
+    if (!initializing) deliver(events, head);
+    else {
+      queued.push(...events);
+      queuedHead = Math.max(queuedHead, head);
+    }
+  };
+  // A thread subscription hears only its thread's events, plus each batch's head for progress.
+  const remove =
+    scope.kind === "thread"
+      ? routeThread(store, scope.threadId, hear)
+      : store.subscribe((events) => hear(events));
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -178,13 +189,18 @@ export function subscribe(
           ? store.acquireThread(scope.threadId)
           : createThreadListView(store.listThreads());
       if (scope.kind === "thread") acquired = scope.threadId;
+      // A thread's snapshot is shared and frozen: send a copy of its top level with the head.
       const snapshotView =
         scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
       const head = store.headSeq();
-      snapshotView.seq = head;
       cursor = head;
       progressHead = head;
-      send({ type: "snapshot", subscriptionId: id, seq: head, view: snapshotView });
+      send({
+        type: "snapshot",
+        subscriptionId: id,
+        seq: head,
+        view: { ...snapshotView, seq: head },
+      });
     } else {
       if (scope.kind === "thread" && !store.getThread(scope.threadId))
         throw new Error("Unknown thread");
@@ -192,16 +208,24 @@ export function subscribe(
       if (head > afterSeq) {
         // A list is within replayLimit of head already; a thread reads one past the limit of its
         // own events, so more than the limit shows as overflow and gets a snapshot.
-        const events = store
-          .readEvents({
-            afterSeq,
-            limit: replayLimit + 1,
-            byteLimit: replayFrameBytes * 2,
-            ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
-          })
-          .filter((event) => event.seq <= head);
+        // Too many events shows from the index alone, before any payload is read.
+        const overflows =
+          scope.kind === "thread" &&
+          store.countThreadEvents !== undefined &&
+          store.countThreadEvents(scope.threadId, afterSeq, head, replayLimit + 1) > replayLimit;
+        const events = overflows
+          ? []
+          : store
+              .readEvents({
+                afterSeq,
+                limit: replayLimit + 1,
+                byteLimit: replayFrameBytes * 2,
+                ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
+              })
+              .filter((event) => event.seq <= head);
         const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
         if (
+          overflows ||
           events.length > replayLimit ||
           bytes > replayFrameBytes * 2 ||
           events.some((event) => encoder.eventBytes(event) > replayFrameBytes)
@@ -210,9 +234,8 @@ export function subscribe(
             scope.kind === "thread"
               ? store.snapshotThread(scope.threadId)
               : createThreadListView(store.listThreads());
-          view.seq = head;
           cursor = progressHead = head;
-          send({ type: "snapshot", subscriptionId: id, seq: head, view });
+          send({ type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } });
         } else deliver(events, head, true);
       }
     }
@@ -220,7 +243,7 @@ export function subscribe(
     initializing = false;
     const pending = queued;
     queued = [];
-    deliver(pending);
+    deliver(pending, Math.max(queuedHead, pending.at(-1)?.seq ?? 0));
     return stop;
   } catch (error) {
     stop();

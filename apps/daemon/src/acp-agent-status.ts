@@ -20,10 +20,13 @@ export async function refreshAcpAgentAuth(options: {
   now(): number;
   probe: typeof probeOutput;
   signal?: AbortSignal;
+  /** Reads only this account's login: what a delegation to it needs. */
+  only?: string;
 }): Promise<void> {
   await Promise.all(
     options.registry.list().map(async ({ instance, quota }) => {
       if (instance.provider !== "acp") return;
+      if (options.only !== undefined && instance.id !== options.only) return;
       const cli = acpAgentCli(instance.acpAgentId);
       const installation = options.installed.findLast(
         (entry) =>

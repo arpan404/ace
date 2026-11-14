@@ -83,6 +83,37 @@ import Foundation
         // No flush: the app may be killed right after the send is saved.
         #expect(ThreadDrafts(url: url).text(for: key).isEmpty)
     }
+    @Test func aQuoteComesBackWithTheWordsAfterARelaunchAndOnlyOnItsThread() {
+        let url = draftsFile()
+        let key = ThreadDrafts.key(hostId: "host", threadId: "thread-a")
+        let quote = DraftQuote(id: "q1", text: "the guard", before: "It can double as ", after: ".")
+        ThreadDrafts(url: url).save(quotes: [quote], for: key)
+        let typing = ComposerDraft(saveDelay: .seconds(60))
+        typing.follow(key, in: ThreadDrafts(url: url))
+        typing.text = "Yes, do that"
+        typing.flush() // the words' own save keeps the quote
+        let relaunched = ThreadDrafts(url: url)
+        #expect(relaunched.text(for: key) == "Yes, do that")
+        #expect(relaunched.quotes(for: key) == [quote])
+        #expect(relaunched.quotes(for: ThreadDrafts.key(hostId: "other-host", threadId: "thread-a")).isEmpty)
+        #expect(relaunched.quotes(for: ThreadDrafts.key(hostId: "host", threadId: "thread-b")).isEmpty)
+    }
+    @Test func aDraftOfOnlyQuotesIsKeptUntilTheyGoWithTheMessage() async {
+        let url = draftsFile()
+        let key = ThreadDrafts.key(hostId: "host", threadId: "thread")
+        let quote = DraftQuote(id: "q1", text: "the scripts", before: "", after: "")
+        ThreadDrafts(url: url).save(quotes: [quote], for: key)
+        let draft = ComposerDraft(saveDelay: .seconds(60))
+        draft.follow(key, in: ThreadDrafts(url: url))
+        draft.text = "ship it"
+        await draft.submit(delivery: "follow") { _, _ in true }
+        // The words went; the quotes leave once the bridge says the message took them.
+        #expect(ThreadDrafts(url: url).quotes(for: key) == [quote])
+        ThreadDrafts(url: url).save(quotes: [], for: key)
+        let relaunched = ThreadDrafts(url: url)
+        #expect(relaunched.quotes(for: key).isEmpty)
+        #expect(relaunched.text(for: key).isEmpty)
+    }
     @Test func theOldestDraftsFallOffPastTheLimit() {
         let url = draftsFile()
         let drafts = ThreadDrafts(url: url)

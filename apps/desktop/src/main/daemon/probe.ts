@@ -85,14 +85,42 @@ async function request(
   return response.json();
 }
 
-/** True when the daemon answers its authenticated status endpoint. */
-export async function healthy(daemon: LocalDaemon, timeoutMs = 3_000): Promise<boolean> {
+/** A daemon's admission: whether it is closed, and what holds it closed (newer daemons). */
+export interface AdmissionFacts {
+  draining: boolean;
+  holds?: readonly string[] | undefined;
+}
+
+/**
+ * One status request's answer. Newer daemons give the host token their admission with it, so a
+ * health check needs no second request; older ones omit it.
+ */
+export type Health = { healthy: false } | { healthy: true; admission?: AdmissionFacts };
+
+/** Asks the daemon's authenticated status endpoint once. */
+export async function daemonHealth(daemon: LocalDaemon, timeoutMs = 3_000): Promise<Health> {
   try {
     const { DaemonHealth } = await protocol();
-    return DaemonHealth.safeParse(await request(daemon, "/v1/status", { timeoutMs })).success;
+    const parsed = DaemonHealth.safeParse(await request(daemon, "/v1/status", { timeoutMs }));
+    if (!parsed.success) return { healthy: false };
+    const { admission } = parsed.data;
+    return admission
+      ? {
+          healthy: true,
+          admission: {
+            draining: admission.draining,
+            ...(admission.holds ? { holds: admission.holds } : {}),
+          },
+        }
+      : { healthy: true };
   } catch {
-    return false;
+    return { healthy: false };
   }
+}
+
+/** True when the daemon answers its authenticated status endpoint. */
+export async function healthy(daemon: LocalDaemon, timeoutMs = 3_000): Promise<boolean> {
+  return (await daemonHealth(daemon, timeoutMs)).healthy;
 }
 
 /** Finds a healthy daemon in ACE_HOME, if one is already running there. */

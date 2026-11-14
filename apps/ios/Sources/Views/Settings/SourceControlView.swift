@@ -9,7 +9,7 @@ struct SourceControlScreen: Decodable, Equatable {
         let name: String
         let account: String?
         let active: Bool
-        /// "full", "browse" (read-only in Code review) or "pending" (API support not built yet).
+        /// "full", "browse" (read-only in Code review) or "pending" (Git only: no pull request API yet).
         let support: String
         var id: String { host }
     }
@@ -23,6 +23,8 @@ struct SourceControlScreen: Decodable, Equatable {
         let accounts: [Account]
         let note: String?
         let instructions: String?
+        /// The host's own site, where ace can't act on its pull requests and issues.
+        let site: String?
     }
     struct Transport: Decodable, Equatable { let value: String; let instructions: String }
     struct Provider: Decodable, Equatable, Identifiable {
@@ -174,7 +176,7 @@ struct SourceControlView: View {
     private func supportWord(_ support: String) -> String? {
         switch support {
         case "browse": "Browse only"
-        case "pending": "API support pending"
+        case "pending": "Git only"
         default: nil
         }
     }
@@ -187,6 +189,10 @@ struct SourceControlView: View {
             ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
             if let note = status.note { Text(note).foregroundStyle(AceDesign.Ink.muted) }
             if let instructions = status.instructions { Text(instructions).textSelection(.enabled) }
+            if let site = status.site, let url = URL(string: site) {
+                Link("Open \(url.host() ?? site)", destination: url)
+                    .accessibilityIdentifier("sourceControl.site")
+            }
             Button("Rescan") { Task { await read(fresh: true) } }.disabled(busy)
         } header: { InsetHeader(status.name) }
     }
@@ -265,7 +271,7 @@ private struct GitHostEditor: View {
                     }
                 } footer: {
                     if provider?.support == "pending" {
-                        Text("Pull requests, issues and API checks for \(name) aren't available yet.")
+                        Text("Commits, branches, pushes and worktrees work through Git. \(name) pull requests and issues aren't in ace yet, so they open on the host.")
                     } else if provider?.support == "browse" {
                         Text("Browse only: pull requests open in Code review, and reviews and merges open on the host.")
                     }

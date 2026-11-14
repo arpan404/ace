@@ -36,7 +36,9 @@ struct NoiseCipher: Sendable {
         guard let key else { return plaintext }
         let box = try ChaChaPoly.seal(plaintext, using: key, nonce: Self.nonceBytes(nonce), authenticating: ad)
         nonce += 1
-        var out = box.ciphertext
+        // `ciphertext` is a slice of the sealed box (it starts at index 12): copy it, so callers
+        // get bytes indexed from 0.
+        var out = Data(box.ciphertext)
         out.append(box.tag)
         return out
     }

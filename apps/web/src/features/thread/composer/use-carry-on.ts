@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useClient, useThread, useThreadMeta } from "@ace/client-react";
+import { useClient, useThread } from "@ace/client-react";
 import type { SwitchSelection } from "@ace/protocol";
 import { useCallback } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -29,7 +29,7 @@ export function useCarryOn(threadId: string) {
   const toast = useToast();
   const queue = useThread(threadId, ["queue"], queueOf);
   const run = useActiveRootRun(threadId);
-  const failed = useThreadMeta(threadId)?.status.state === "failed";
+  const failed = useThread(threadId, ["thread"], readFailed) === true;
   const base = JSON.stringify([queue?.paused ?? null, queue?.reason ?? null, run ?? null, failed]);
   const pending = usePendingChoice(carries, threadId, base);
   const { choose } = pending;
@@ -48,3 +48,6 @@ export function useCarryOn(threadId: string) {
   );
   return { carrying: pending.chosen?.value, carryOn };
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readFailed = (reader: ThreadReader) => reader.thread?.status.state === "failed";

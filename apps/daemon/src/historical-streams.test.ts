@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Item, Thread } from "@ace/protocol";
+import { AgentId, Item, Thread } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { Store } from "@ace/daemon";
 import { shell as shellItem } from "./payload-test-support.ts";
@@ -224,4 +224,43 @@ test("historical shell tails preserve whole UTF-8 characters at the byte boundar
   assertHistory();
   h.reopen();
   assertHistory();
+});
+
+test("a message ending in an attachment keeps each historical cutoff of the text streamed after it", () => {
+  const h = setup();
+  const id = h.thread.id;
+  const item = Item.parse({
+    id: "message",
+    agentId: "root",
+    type: "message",
+    role: "assistant",
+    complete: false,
+    createdAt: 1,
+    parts: [
+      { type: "text", text: "See" },
+      { type: "image", mimeType: "image/png", url: "file:///shot.png" },
+    ],
+  });
+  const delta = (append: string) => ({
+    type: "item.delta" as const,
+    itemId: item.id,
+    agentId: AgentId.parse("root"),
+    field: "text" as const,
+    append,
+  });
+  h.store.appendEvents(id, [{ type: "item.created", item }, delta("first")], 2);
+  const first = h.store.headSeq();
+  h.store.appendEvents(id, [delta(" second")], 3);
+  const second = h.store.headSeq();
+  const texts = (through: number) => {
+    const read = h.store.readHistoricalItemPage(id, through, through + 1, 1).items[0];
+    return read?.type === "message"
+      ? read.parts.map((part) => (part.type === "text" ? part.text : part.type))
+      : [];
+  };
+  expect(texts(first)).toEqual(["See", "image", "first"]);
+  expect(texts(second)).toEqual(["See", "image", "first second"]);
+  h.reopen();
+  expect(texts(first)).toEqual(["See", "image", "first"]);
+  expect(texts(second)).toEqual(["See", "image", "first second"]);
 });

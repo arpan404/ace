@@ -184,6 +184,24 @@ returned as `line`, the line to scroll to once the file opens.
 Send a new request on each keystroke (debounce about 100 ms) and cancel the previous one with
 `{"type":"service.cancel","id":…}`. Show a reply only if its `text` matches the field.
 
+## 3b. Large text files in parts (threads only for writes)
+
+`read` answers `parts: true` for a thread's text file over 1 MiB (`checkoutEditLimit`) and up to
+64 MiB: it is edited a part at a time instead of whole. Parts come from `page` as before
+(`{ path, offset, version? }` → `{ text, offset, nextOffset, size, version, done }`), each ending
+after a line break.
+
+### Request `part.write`
+
+`{ op: "part.write", path, offset, length, text, version }`: `offset` and `length` are the part's
+bytes (`page`'s `offset` and `nextOffset - offset`), `text` its edited text (≤1 MiB), `version`
+the version the part was read at. The bridge (`checkout-part-write.ts`) sends the file as the
+old bytes before the part, the new text, and the old bytes after it, read at `version` and
+uploaded (`upload.begin` with `expected: version`) a 64 KiB chunk at a time; the bytes pass
+twice, to hash and to send, and are never held whole. Answers `{ version }` once saved, or
+`{ conflict: <current version> }` when the file changed since the part was read (nothing is
+written; the phone reads the file again). Over 64 MiB is refused with the shared sentence.
+
 ## 4. Recent and open files (in place of tabs)
 
 Kept per thread (or project folder) on this device, between launches, in

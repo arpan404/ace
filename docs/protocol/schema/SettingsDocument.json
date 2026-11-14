@@ -140,6 +140,14 @@
           "maxItems": 32,
           "type": "array"
         },
+        "providers.claude.chrome": {
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "type": "string"
+        },
         "providers.coder.model": {
           "maxLength": 256,
           "minLength": 1,
@@ -177,6 +185,19 @@
             "priority"
           ],
           "type": "string"
+        },
+        "providers.codex.toolSource": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /."
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "providers.configuration": {
           "$ref": "https://ace.local/protocol/v1/ProviderConfigurations.json"

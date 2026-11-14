@@ -281,3 +281,17 @@ The owner asked for round bundle budgets, and whole kilobytes in the report: ini
 ## Amendment (2026-11-12): initial JS budget 365 KB
 
 The startup round got initial JS from 364 to 361 KB. Zod stays at startup because the thread route needs it too, so taking it out of startup only moves it into that route. The rest would need the tooltip and hover-card code out of startup (about 17 KB), either as ace's own smaller implementation or by swapping triggers in after their code loads, both UI risks. The owner chose to stop here and set the initial JS budget to 365 KB. The other budgets are unchanged.
+
+## Amendment (2026-11-14): boot and load order
+
+A cold load of a thread over a slow link (`tools/web-perf/src/slow-link.ts`: 300 ms round trip, 1.6 Mbit/s down, cold cache, report only) waited on a chain of requests, each discovered only once the one before it had run. The boot now starts each piece as early as it can be known:
+
+- The built page modulepreloads the entry's static closure, and a small inline script (hashed into the content policy) adds low-priority preloads for every chunk and stylesheet of the route at the loaded address (a thread, or Home; `apps/web/route-preloads.ts`). Low priority, because over HTTP/1.1 the route's many small chunks would otherwise hold the initial chunk and the client worker's script in the browser's six-connection queue.
+- The thread route's loader follows the thread on every load, not only on preload, so its saved copy and the daemon's snapshot load alongside the route's code.
+- A browser with a machine stored starts its client worker and the kept lookups' code from the page's entry; the gate still decides where the worker connects, and the first worker client takes it.
+- An outbox already carried over reads only its own IndexedDB database at start. `connection.start()` still waits for the intents to load: the welcome replays pending intents, and a send before they are loaded fails with `storage`, so starting the socket earlier could leave saved sends unsent until the next reconnect.
+- The machine pool starts once the startup screen has left and the browser is idle, unless the address opens a view on another machine (`?machine=`).
+- Only the sidebar's thread lists and the thread view hold the startup screen; other skeletons show in place.
+- The daemon sends the page and icons `no-cache` with an ETag from a hash of their bytes (304 on a repeat load; an update that keeps size and timestamp still changes it), and serves the `.br` and `.gz` copies the build writes beside each hashed asset of 16 KB or more (`apps/web/precompress.ts`) when they resolve inside the renderer, compressing the rest on the fly as before. The build fails if the written page has an inline script its policy doesn't allow by hash. The release archive leaves those copies out to stay within the oldest updater's 2,048-entry budget; the desktop app ships them.
+
+On the perf build the slow-link load went from 14.6 s to 12.2 s to the first transcript message, and from 5 to 3 sequential round trips. The rest is the thread route's ~175 chunks: on six connections at 300 ms each they take about nine seconds whenever they start. Fewer, larger lazy chunks (or HTTP/2) are what would close it; Rolldown's `entriesAware` merge was tried and left the thread route at about 160 files while changing every route's weight, so it is not part of this change.

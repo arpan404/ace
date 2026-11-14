@@ -1,5 +1,7 @@
 import type { DaemonProcess } from "./child.ts";
-import type { LocalDaemon } from "./probe.ts";
+import type { EndpointWatch } from "./readiness.ts";
+import type { FreezeSignal } from "./watchdog.ts";
+import type { AdmissionFacts, Health, LocalDaemon } from "./probe.ts";
 
 /** Everything the supervisor does to the world, passed in so tests substitute it. */
 export interface SupervisorPorts {
@@ -8,10 +10,20 @@ export interface SupervisorPorts {
    * supervisor only waits for a daemon.
    */
   spawn?: (() => DaemonProcess) | undefined;
+  /**
+   * Settles once a spawn has what it needs (the login shell's PATH). Awaited only on the way to
+   * spawning, so adopting a daemon that already runs never waits on it.
+   */
+  prepareSpawn?: (() => Promise<void>) | undefined;
+  /** Watches the home's endpoint file while a start waits (`readiness.ts`); else it polls. */
+  watchEndpoint?: (() => EndpointWatch | undefined) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
-  /** Whether the daemon answers its status endpoint, giving up after `timeoutMs`. */
-  healthy(daemon: LocalDaemon, timeoutMs: number): Promise<boolean>;
+  /**
+   * Whether the daemon answers its status endpoint, giving up after `timeoutMs`; with its
+   * admission when the daemon includes it.
+   */
+  health(daemon: LocalDaemon, timeoutMs: number): Promise<Health>;
   /** The login service from `ace service install`, when one is installed. */
   service?: { active(): Promise<boolean>; start(): Promise<void> } | undefined;
   /** The person's pause (the tray's control); resolves with the work still running. */
@@ -20,11 +32,11 @@ export interface SupervisorPorts {
   setUpdateHold(daemon: LocalDaemon, on: boolean): Promise<number>;
   blockers(daemon: LocalDaemon): Promise<number>;
   /** `holds` names what closes admission; daemons that predate holds omit it. */
-  maintenance(
-    daemon: LocalDaemon,
-  ): Promise<{ draining: boolean; holds?: readonly string[] | undefined }>;
+  maintenance(daemon: LocalDaemon): Promise<AdmissionFacts>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
+  /** The app's one main-thread beat, so health checks need no beat of their own. */
+  freezes?: FreezeSignal | undefined;
   /** Every supervisor decision is logged with the facts behind it, so restarts can be explained. */
   log(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void;
 }
