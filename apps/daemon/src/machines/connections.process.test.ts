@@ -505,7 +505,11 @@ test("a read sent again on a fresh connection keeps the call's own deadline", as
   const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port), 800);
   const profile = { ...target.profile, origin: proxy.origin };
   const connections = pool();
-  await machineRequest(profile, { origin, call: { op: "describe" } }, { timeoutMs: 5000, connections });
+  await machineRequest(
+    profile,
+    { origin, call: { op: "describe" } },
+    { timeoutMs: 5000, connections },
+  );
   proxy.cutAll();
   const started = Date.now();
   const failure = await machineRequest(

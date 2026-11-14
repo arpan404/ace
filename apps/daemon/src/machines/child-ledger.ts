@@ -376,9 +376,7 @@ export class ChildLedger {
   /** The person stopped watching a settled lost child: it stays as it ended, for good. */
   endWatch(id: ThreadId): void {
     this.store.atomic((db) =>
-      db
-        .prepare("UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1")
-        .run(id),
+      db.prepare("UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1").run(id),
     );
   }
   /** The lost child the parent's approval `ask` is about. */
