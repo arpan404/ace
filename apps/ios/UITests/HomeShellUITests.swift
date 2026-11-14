@@ -262,8 +262,8 @@ import XCTest
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
         let app = XCUIApplication()
-        // No fixture machine: the phone has nothing paired.
-        app.launchArguments = ["--spike", "--spike-machines", "none"]
+        // A fresh install: no computer paired, no fixture connected.
+        app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launch()
         defer { app.terminate() }
         let review = app.tabBars.firstMatch.buttons["Code review"]
