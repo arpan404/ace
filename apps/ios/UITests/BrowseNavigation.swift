@@ -100,22 +100,30 @@ extension XCUIApplication {
         XCTAssertTrue(row.isHittable, "\(identifier) never showed in the inbox")
         return row
     }
+    /// Where the Threads list is: the collection holding its rows. Beside an iPad's open thread
+    /// it is the sidebar, not the middle of the window.
+    @MainActor var threadsList: CGRect {
+        let list = collectionViews.containing(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-")).firstMatch
+        if list.exists, list.frame.width > 0 { return list.frame }
+        return inboxReady.exists ? inboxReady.frame : frame
+    }
     /// Waits for the Threads list. Back from a thread the list keeps its place, so scrolled down
-    /// its first row, the Inbox control, is out of view and unloaded: the list is dragged back to
-    /// its top, down its own column, as a person would.
+    /// its first row, the Inbox control, is out of view and unloaded: the list is flung back to
+    /// its top, inside its own frame, as a person would.
     @MainActor func waitForInbox(timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        let rows = buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-"))
         while Date() < deadline {
             if inboxReady.exists { return true }
-            let row = rows.firstMatch
-            if row.exists, row.isHittable, frame.width > 0 {
-                let x = min(max(row.frame.midX / frame.width, 0.05), 0.95)
-                coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3))
-                    .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.85)))
-            } else {
+            let list = threadsList
+            guard list != frame, frame.width > 0, frame.height > 0 else {
                 _ = inboxReady.waitForExistence(timeout: 1)
+                continue
             }
+            let x = list.midX / frame.width
+            let from = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.25) / frame.height))
+            let to = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.9) / frame.height))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
+            _ = inboxReady.waitForExistence(timeout: 1)
         }
         return inboxReady.exists
     }
@@ -139,7 +147,7 @@ extension XCUIApplication {
             // under the Threads list's own Inbox control.
             let exists = element.exists
             let frame = exists ? element.frame : .zero
-            let column = exists ? frame : inboxReady.exists ? inboxReady.frame : self.frame
+            let column = exists ? frame : threadsList
             let x = self.frame.width > 0 ? min(max(column.midX / self.frame.width, 0.05), 0.95) : 0.5
             let lower = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.72))
             let upper = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.38))
@@ -158,7 +166,7 @@ extension XCUIApplication {
     /// Drags the inbox list one screen further down, in the list's own column: beside an iPad's
     /// open thread the middle of the window is the thread, not the list.
     @MainActor func dragListUp() {
-        let column = inboxReady.exists ? inboxReady.frame : frame
+        let column = threadsList
         let x = frame.width > 0 ? min(max(column.midX / frame.width, 0.05), 0.95) : 0.5
         coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.75))
             .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3)), withVelocity: .fast, thenHoldForDuration: 0)
