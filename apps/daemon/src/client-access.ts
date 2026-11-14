@@ -47,15 +47,59 @@ export function pinnedAgent(
   now: () => number = Date.now,
   roots?: string[],
 ): Agent {
-  if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error("Invalid public-key fingerprint");
+  const connector = pinnedConnector(fingerprint, now, roots);
   const agent = new Agent({ keepAlive: false });
-  agent.createConnection = (options: ConnectionOptions, callback) => {
+  agent.createConnection = connector;
+  return agent;
+}
+
+/** TLS sessions kept from pinned handshakes, so the next connection to that key can resume. */
+export interface PinnedSessions {
+  get(): Buffer | undefined;
+  set(session: Buffer): void;
+}
+
+/**
+ * A pinned agent that keeps its connections open between requests and resumes TLS sessions from
+ * `sessions`. Every new socket, resumed or not, passes the same pin check before it is used; a
+ * session is kept only from a socket that passed it.
+ */
+export function pinnedKeepAliveAgent(
+  fingerprint: string,
+  sessions: PinnedSessions,
+  now: () => number = Date.now,
+  roots?: string[],
+): Agent {
+  const connector = pinnedConnector(fingerprint, now, roots, sessions);
+  const agent = new Agent({ keepAlive: true, maxSockets: 6, maxFreeSockets: 2 });
+  agent.createConnection = connector;
+  return agent;
+}
+
+function pinnedConnector(
+  fingerprint: string,
+  now: () => number,
+  roots: string[] | undefined,
+  sessions?: PinnedSessions,
+): Agent["createConnection"] {
+  if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new Error("Invalid public-key fingerprint");
+  return (options: ConnectionOptions, callback) => {
+    const resume = sessions?.get();
     const socket = connect({
       ...options,
       rejectUnauthorized: false,
       ...(roots ? { ca: roots } : {}),
+      ...(resume ? { session: resume } : {}),
     });
     let complete = false;
+    let pinned = false;
+    let offered: Buffer | undefined;
+    // TLS 1.3 sends tickets after the handshake: one is kept only once this socket is pinned.
+    if (sessions)
+      socket.on("session", (session: Buffer) => {
+        if (pinned) sessions.set(session);
+        else offered = session;
+      });
     const finish = (error?: Error) => {
       if (complete) return;
       complete = true;
@@ -63,7 +107,11 @@ export function pinnedAgent(
       if (error) {
         socket.destroy();
         callback?.(error, socket);
-      } else callback?.(null, socket);
+      } else {
+        pinned = true;
+        if (offered) sessions?.set(offered);
+        callback?.(null, socket);
+      }
     };
     const deadline = setTimeout(() => finish(new Error("TLS handshake timed out")), 10_000);
     deadline.unref();
@@ -87,7 +135,6 @@ export function pinnedAgent(
     });
     return undefined;
   };
-  return agent;
 }
 export async function accessRequest(
   origin: string,

@@ -12,7 +12,12 @@ export interface SniLimits {
   keepAlive: number;
 }
 
-const defaultLimits: SniLimits = { handshake: 10_000, headers: 10_000, keepAlive: 5_000 };
+/**
+ * An idle connection is kept a minute: long enough that another machine polling every few
+ * seconds, or re-checking every few minutes at first, reuses one pinned connection instead of a
+ * new TCP and TLS handshake each time.
+ */
+const defaultLimits: SniLimits = { handshake: 10_000, headers: 10_000, keepAlive: 60_000 };
 
 export interface SniListenerOptions {
   /** TLS options, including the `SNICallback` that picks a certificate per server name. */
@@ -56,6 +61,8 @@ const peer = (socket: Socket) =>
 export function sniListener(options: SniListenerOptions): SniListener {
   const limits = { ...defaultLimits, ...options.limits };
   const http = createHttpServer(options.requests);
+  // Answers say how long the connection is kept (`Keep-Alive: timeout=N`), so clients close it first.
+  http.keepAliveTimeout = limits.keepAlive;
   const front = createTlsServer({
     ALPNProtocols: ["http/1.1"],
     handshakeTimeout: limits.handshake,

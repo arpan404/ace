@@ -15,11 +15,14 @@ import {
   type MachineTransportOptions,
 } from "./transport.ts";
 import { FailureEpisodes, routineCall, routineOps } from "./failure-episodes.ts";
+import type { MachineConnections } from "./connections.ts";
 
 export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
   profiles(): RemoteProfile[];
   transport: MachineTransport;
+  /** Open connections calls reuse, dropped for machines no longer paired as they were. */
+  connections?: MachineConnections;
   /** Whether the machine takes transfers from this device; asked when agents can't use it. */
   transfers?(profile: RemoteProfile): Promise<{ name: string; accepts: boolean }>;
   log(message: string, fields: Record<string, unknown>): void;
@@ -150,7 +153,9 @@ export class MachineDirectory {
     call: MachineCall,
     options: MachineTransportOptions,
   ): Promise<unknown> {
-    const profile = this.deps.profiles().find((entry) => entry.name === machine);
+    const profiles = this.deps.profiles();
+    this.deps.connections?.retain(profiles);
+    const profile = profiles.find((entry) => entry.name === machine);
     const op = "tool" in call ? call.tool : call.op;
     if (!profile) {
       // A pairing that is gone keeps no failure runs.
@@ -163,7 +168,12 @@ export class MachineDirectory {
     const routine = routineCall(op);
     const key = `${machine}:${op}`;
     try {
-      const result = await this.deps.transport(profile, { origin, call }, options);
+      const { connections } = this.deps;
+      const result = await this.deps.transport(
+        profile,
+        { origin, call },
+        connections ? { ...options, connections } : options,
+      );
       // Any call getting through means the machine is reachable: loops waiting on it go now.
       if (routineOps.some((each) => this.failing.failing(`${machine}:${each}`)))
         this.deps.reachable?.(machine);

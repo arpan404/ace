@@ -9,7 +9,8 @@ import { computerName } from "../computer-name.ts";
 import { loadHostId } from "../local-files.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { AgentTransfers } from "./agent.ts";
-import { transferTransport } from "./client.ts";
+import { transferTransport, type TransferTransport } from "./client.ts";
+import { MachineConnections } from "../machines/connections.ts";
 import { TransferCommands } from "./commands.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import { OutgoingTransfers } from "./outgoing.ts";
@@ -21,6 +22,13 @@ export interface DaemonTransfers {
   incoming: IncomingTransfers;
   commands: TransferCommands;
   agents: AgentTransfers;
+}
+
+/** The shell's timer for closing idle connections; nothing waits on it at exit. */
+function schedule(ms: number, run: () => void) {
+  const timer = setTimeout(run, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
 }
 
 /** Waits `ms`, or less when the transfer is cancelled. The shell's only timer. */
@@ -61,6 +69,13 @@ export function startTransfers(context: ServiceContext): void {
     }
   };
 
+  // Probes, calls and chunks to one machine share one kept-open, pinned connection.
+  const connections = new MachineConnections({ schedule });
+  resources.own(() => connections.close());
+  const base = options.transfers?.transport ?? transferTransport;
+  const transport: TransferTransport = (profile, route, callOptions) =>
+    base(profile, route, { ...callOptions, connections });
+
   const incoming = new IncomingTransfers({
     store,
     directory: join(directory, "incoming"),
@@ -81,8 +96,12 @@ export function startTransfers(context: ServiceContext): void {
     git,
     gitPolicy: options.projects?.gitPolicy,
     archive,
-    transport: options.transfers?.transport ?? transferTransport,
-    profiles,
+    transport,
+    profiles: () => {
+      const listed = profiles();
+      connections.retain(listed);
+      return listed;
+    },
     origin: async () => ({
       hostId: HostId.parse(hostId),
       hostName: ((await hostName()) || "ace").slice(0, 256),

@@ -2,6 +2,7 @@ import { request as httpsRequest } from "node:https";
 import { MachineRefusal, type MachineCallRequest } from "@ace/protocol";
 import { pinnedAgent } from "../client-access.ts";
 import type { RemoteProfile } from "../cli/profiles.ts";
+import type { ConnectionLease, MachineConnections } from "./connections.ts";
 
 /** Why a call to another machine did not produce an answer. Never carries a credential. */
 export class MachineFailure extends Error {
@@ -36,6 +37,8 @@ export interface MachineTransportOptions {
   signal?: AbortSignal;
   /** Bytes the answer may use; browser screenshots need more than status reads. */
   maxBytes?: number;
+  /** Open connections to reuse; without them the call opens its own and closes it after. */
+  connections?: MachineConnections;
 }
 export type MachineTransport = (
   profile: RemoteProfile,
@@ -68,6 +71,12 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
     options,
   );
 
+/** A connection for this request alone, closed once it is answered. */
+function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
+  const agent = pinnedAgent(profile.fingerprint);
+  return { agent, release: () => agent.destroy() };
+}
+
 /** A JSON answer from a paired machine's listener; refusals keep their authored words. */
 export function pinnedRequest(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
@@ -75,18 +84,21 @@ export function pinnedRequest(
   options: MachineTransportOptions,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
-  const agent = pinnedAgent(profile.fingerprint);
+  const lease: ConnectionLease = options.connections?.lease(profile) ?? oneShot(profile);
+  const agent = lease.agent;
   const data = route.body;
   const maxBytes = options.maxBytes ?? 1024 * 1024;
   return new Promise<unknown>((resolve, reject) => {
     let connected = false;
     let settled = false;
+    let keepAlive: string | undefined;
     const finish = (error: MachineFailure | undefined, value?: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
       options.signal?.removeEventListener("abort", abort);
-      agent.destroy();
+      // A failed request's socket is destroyed with it; only a whole answer leaves it reusable.
+      lease.release(keepAlive);
       if (error) reject(error);
       else resolve(value);
     };
@@ -124,6 +136,8 @@ export function pinnedRequest(
     }
     request.on("response", (response) => {
       connected = true;
+      const hint = response.headers["keep-alive"];
+      keepAlive = typeof hint === "string" ? hint : undefined;
       const chunks: Buffer[] = [];
       let bytes = 0;
       response.on("data", (chunk: Buffer) => {
