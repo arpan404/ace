@@ -37,8 +37,8 @@ interface EventWriteSource {
   measurements: MeasurementStore;
   statement(sql: string): StatementSync;
   getThread(id: ThreadId): Thread | undefined;
-  /** The shared frozen thread and a private copy, from one cache lookup. */
-  checkoutThread(id: ThreadId): { base: FrozenThread; thread: Thread } | undefined;
+  /** The shared frozen thread and a private copy, made when first read, from one lookup. */
+  checkoutThread(id: ThreadId): { base: FrozenThread; readonly thread: Thread } | undefined;
   /** This writer just wrote `written` to the thread's row, which decodes to `thread` at `revision`. */
   rememberThread(
     id: ThreadId,
@@ -104,7 +104,10 @@ export class EventWriter {
       if (!payload) break;
       const previousSeq = seq;
       const checkout = this.source.checkoutThread(threadId);
-      const previous = checkout?.thread;
+      // A delta changes no thread column (`writtenColumns`) and folds nothing into the thread,
+      // so it reads the shared frozen thread; a write to it would throw, never pass silently.
+      const delta = payload.type === "item.delta";
+      const previous = delta ? (checkout?.base as Thread | undefined) : checkout?.thread;
       // Runs for an envelope too: it also records the turn's ask, whatever is stored.
       const prepared = previous ? prepareRunClient(this.source.db, previous, payload) : payload;
       let event = envelope;
@@ -153,8 +156,10 @@ export class EventWriter {
       }
       const liveChange = liveMetadataChange(this.source.db, thread, event.payload, event.at);
       if (liveChange) followup = liveChange;
-      updateThread(thread, event);
-      this.writeThread(checkout?.base, thread, event.payload);
+      if (!delta) {
+        updateThread(thread, event);
+        this.writeThread(checkout?.base, thread, event.payload);
+      }
       event.payload = this.source.payloads.cap(event.payload, threadId);
       this.source.payloads.persist(event);
       this.source.history.record(event);

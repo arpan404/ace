@@ -1,5 +1,6 @@
 import { hasUnresponsiveAncestor } from "@ace/core";
 import { streamFacts } from "./stream-facts.ts";
+import { streamedFactsBytes } from "./fact-bytes.ts";
 import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
@@ -365,7 +366,7 @@ export class EngineRepository {
       )
     )
       return false;
-    const bytes = Buffer.byteLength(JSON.stringify(facts));
+    const bytes = streamedFactsBytes(facts);
     if (bytes > 512 * 1024) return false;
     this.store.prepareLiveWrite(bytes);
     const events = streamFacts(snapshot, facts, now, this.ids);
