@@ -96,8 +96,13 @@ Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--
 link. Neither is part of `bun run check` or the perf gate; run them on purpose, and compare a
 change against [the baseline](slow-link-REPORT.md) taken on the same machine.
 
-The link is `@ace/perf-kit/link`: a local TCP proxy between the client and the listener that
-forwards bytes untouched (TLS and WebSocket pass through) and times their arrival. Profiles:
+The link is `@ace/perf-kit/link`: a local TCP proxy between clients and a listener that forwards
+bytes untouched (TLS and WebSocket pass through) and times their arrival. All connections through
+one shaper share one link per direction, taking turns segment by segment. Each holds at most
+64 KiB per direction (plus one socket read); past that the proxy stops reading, and it waits for a
+receiver's `drain`, so backpressure reaches the sender. Half-closes are forwarded after the
+delayed bytes. Loss is a stall of one retransmission timeout on a seeded fraction of segments.
+`countsAt(t)` reads the counts as they stood at an earlier moment. Profiles:
 `3g-slow` (400 kbit/s down, 200 kbit/s up, 400 ms round trip, 2% loss), `3g-fast` (1.6 Mbit/s
 down, 750 kbit/s up, 300 ms, 1%) and `lan` (unshaped). It counts bytes and flights in each
 direction; a round trip is one TCP handshake per new connection plus each flight the client

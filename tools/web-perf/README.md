@@ -115,10 +115,13 @@ cold visit and then the same thread again with the HTTP cache and the client's k
 
 - `--target=preview` (default): the perf build under `vite preview`, its thread fed by the endless
   agent, the link emulated by Chromium (latency and rates; no loss).
-- `--target=daemon`: the production build (`apps/web/dist`, built when missing) served by a real
+- `--target=daemon`: the production build (`apps/web/dist`, rebuilt unless it carries this run's
+  stamp for the current commit with no tracked file edited) served by a real
   daemon from this checkout over its TLS listener, in a temporary home with recorded threads
   (`apps/daemon/bench/slow-link-daemon.ts`). The browser pairs as a phone does, through the TCP
-  link shaper, which also models loss and counts WebSocket traffic, reported as `link` lines.
+  link shaper, which also models loss and counts WebSocket traffic up to first content, reported
+  as `link` lines. The cold visit stays until the page finishes loading, so the warm visit finds
+  everything the first one fetched.
 
 ```sh
 node tools/web-perf/src/slow-link.ts --target=daemon --profile=3g-slow --cache=cold,warm

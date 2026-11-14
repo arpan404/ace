@@ -1,10 +1,10 @@
 {
   "bench": "slow-link",
-  "startedAt": "2026-11-14T17:49:35.657Z",
+  "startedAt": "2026-11-14T21:49:20.891Z",
   "machine": {
     "cpus": 16,
-    "loadBefore": [18.875, 81.0458984375, 199.00830078125],
-    "loadAfter": [29.06494140625, 65.046875, 177.1611328125]
+    "loadBefore": [211.0263671875, 350.849609375, 489.72216796875],
+    "loadAfter": [136.9326171875, 263.55322265625, 430.6015625]
   },
   "profiles": [
     {
@@ -45,61 +45,175 @@
         "large": 1500
       },
       "welcome": {
-        "ms": 3725,
-        "roundTrips": 7,
+        "ms": 3716,
+        "roundTrips": 8,
         "downBytes": 6141,
-        "upBytes": 3763,
+        "upBytes": 3787,
         "stalls": 1
       },
       "sidebar": {
-        "ms": 4229,
-        "roundTrips": 8,
-        "downBytes": 10022,
-        "upBytes": 3916,
+        "ms": 4228,
+        "roundTrips": 9,
+        "downBytes": 10052,
+        "upBytes": 3940,
         "stalls": 1
       },
       "firstContent": {
         "small": {
-          "ms": 467,
+          "ms": 476,
           "roundTrips": 1,
-          "downBytes": 2414,
+          "downBytes": 2416,
           "upBytes": 195,
           "stalls": 0
         },
         "typical": {
-          "ms": 1106,
+          "ms": 1107,
           "roundTrips": 1,
-          "downBytes": 34391,
+          "downBytes": 34316,
           "upBytes": 195,
           "stalls": 0
         },
         "large": {
-          "ms": 1620,
+          "ms": 1624,
           "roundTrips": 1,
-          "downBytes": 59753,
+          "downBytes": 59928,
           "upBytes": 195,
           "stalls": 1
         }
       },
       "complete": {
         "small": {
-          "ms": 467,
+          "ms": 477,
           "roundTrips": 1,
-          "downBytes": 2414,
+          "downBytes": 2416,
           "upBytes": 195,
           "stalls": 0
         },
         "typical": {
-          "ms": 1106,
+          "ms": 1107,
           "roundTrips": 1,
-          "downBytes": 34391,
+          "downBytes": 34316,
           "upBytes": 195,
           "stalls": 0
         },
         "large": {
-          "ms": 1620,
+          "ms": 1624,
           "roundTrips": 1,
-          "downBytes": 59753,
+          "downBytes": 59928,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 6,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 3132,
+          "roundTrips": 10,
+          "downBytes": 6189,
+          "upBytes": 3839,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 3552,
+          "roundTrips": 11,
+          "downBytes": 6310,
+          "upBytes": 4051,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 392,
+        "duringLargeSnapshotMs": 1792
+      },
+      "resume": {
+        "ms": 4465,
+        "roundTrips": 9,
+        "downBytes": 17269,
+        "upBytes": 3999,
+        "stalls": 1,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 22526,
+        "roundTrips": 35,
+        "downBytes": 172066,
+        "upBytes": 12822,
+        "stalls": 3
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-fast",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 2674,
+        "roundTrips": 8,
+        "downBytes": 6141,
+        "upBytes": 3787,
+        "stalls": 1
+      },
+      "sidebar": {
+        "ms": 3015,
+        "roundTrips": 9,
+        "downBytes": 10018,
+        "upBytes": 3940,
+        "stalls": 1
+      },
+      "firstContent": {
+        "small": {
+          "ms": 330,
+          "roundTrips": 1,
+          "downBytes": 2544,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 487,
+          "roundTrips": 1,
+          "downBytes": 34387,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 628,
+          "roundTrips": 1,
+          "downBytes": 59933,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 330,
+          "roundTrips": 1,
+          "downBytes": 2544,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 487,
+          "roundTrips": 1,
+          "downBytes": 34387,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 628,
+          "roundTrips": 1,
+          "downBytes": 59933,
           "upBytes": 195,
           "stalls": 1
         }
@@ -115,152 +229,38 @@
         },
         "keptBytes": 723976,
         "welcome": {
-          "ms": 3101,
-          "roundTrips": 8,
+          "ms": 2202,
+          "roundTrips": 10,
           "downBytes": 6189,
-          "upBytes": 3791,
+          "upBytes": 3839,
           "stalls": 0
         },
         "confirmed": {
-          "ms": 3518,
-          "roundTrips": 9,
-          "downBytes": 6310,
-          "upBytes": 4003,
+          "ms": 2510,
+          "roundTrips": 11,
+          "downBytes": 10216,
+          "upBytes": 4051,
           "stalls": 0
         }
       },
       "approval": {
-        "idleMs": 419,
-        "duringLargeSnapshotMs": 1705
+        "idleMs": 200,
+        "duringLargeSnapshotMs": 738
       },
       "resume": {
-        "ms": 4263,
-        "roundTrips": 8,
-        "downBytes": 13378,
-        "upBytes": 3975,
-        "stalls": 1,
-        "streamedTextBytes": 120000,
-        "deltas": 2000
-      },
-      "totals": {
-        "ms": 21165,
-        "roundTrips": 30,
-        "downBytes": 171180,
-        "upBytes": 12702,
-        "stalls": 4
-      }
-    },
-    {
-      "path": "direct",
-      "profile": "3g-fast",
-      "threads": {
-        "small": 4,
-        "typical": 123,
-        "large": 1500
-      },
-      "welcome": {
-        "ms": 2676,
-        "roundTrips": 7,
-        "downBytes": 6141,
-        "upBytes": 3763,
-        "stalls": 1
-      },
-      "sidebar": {
-        "ms": 3011,
-        "roundTrips": 8,
-        "downBytes": 10041,
-        "upBytes": 3916,
-        "stalls": 1
-      },
-      "firstContent": {
-        "small": {
-          "ms": 321,
-          "roundTrips": 1,
-          "downBytes": 2414,
-          "upBytes": 195,
-          "stalls": 0
-        },
-        "typical": {
-          "ms": 483,
-          "roundTrips": 1,
-          "downBytes": 34466,
-          "upBytes": 195,
-          "stalls": 0
-        },
-        "large": {
-          "ms": 616,
-          "roundTrips": 1,
-          "downBytes": 59857,
-          "upBytes": 195,
-          "stalls": 1
-        }
-      },
-      "complete": {
-        "small": {
-          "ms": 321,
-          "roundTrips": 1,
-          "downBytes": 2414,
-          "upBytes": 195,
-          "stalls": 0
-        },
-        "typical": {
-          "ms": 483,
-          "roundTrips": 1,
-          "downBytes": 34466,
-          "upBytes": 195,
-          "stalls": 0
-        },
-        "large": {
-          "ms": 616,
-          "roundTrips": 1,
-          "downBytes": 59857,
-          "upBytes": 195,
-          "stalls": 1
-        }
-      },
-      "cached": {
-        "unconfirmedFromDisk": true,
-        "paint": {
-          "ms": 3,
-          "roundTrips": 0,
-          "downBytes": 0,
-          "upBytes": 0,
-          "stalls": 0
-        },
-        "keptBytes": 723976,
-        "welcome": {
-          "ms": 2206,
-          "roundTrips": 8,
-          "downBytes": 6189,
-          "upBytes": 3791,
-          "stalls": 0
-        },
-        "confirmed": {
-          "ms": 2512,
-          "roundTrips": 9,
-          "downBytes": 6310,
-          "upBytes": 4003,
-          "stalls": 0
-        }
-      },
-      "approval": {
-        "idleMs": 202,
-        "duringLargeSnapshotMs": 724
-      },
-      "resume": {
-        "ms": 2547,
-        "roundTrips": 8,
-        "downBytes": 15337,
-        "upBytes": 3975,
+        "ms": 2534,
+        "roundTrips": 9,
+        "downBytes": 13630,
+        "upBytes": 3999,
         "stalls": 0,
         "streamedTextBytes": 120000,
         "deltas": 2000
       },
       "totals": {
-        "ms": 15038,
-        "roundTrips": 30,
-        "downBytes": 161968,
-        "upBytes": 12702,
+        "ms": 14873,
+        "roundTrips": 35,
+        "downBytes": 167907,
+        "upBytes": 12822,
         "stalls": 2
       }
     },
@@ -273,61 +273,61 @@
         "large": 1500
       },
       "welcome": {
-        "ms": 28,
-        "roundTrips": 7,
+        "ms": 32,
+        "roundTrips": 8,
         "downBytes": 6141,
-        "upBytes": 3763,
+        "upBytes": 3787,
         "stalls": 0
       },
       "sidebar": {
-        "ms": 44,
-        "roundTrips": 8,
-        "downBytes": 10052,
-        "upBytes": 3916,
+        "ms": 47,
+        "roundTrips": 9,
+        "downBytes": 10041,
+        "upBytes": 3940,
         "stalls": 0
       },
       "firstContent": {
         "small": {
-          "ms": 6,
+          "ms": 11,
           "roundTrips": 1,
           "downBytes": 2535,
           "upBytes": 195,
           "stalls": 0
         },
         "typical": {
-          "ms": 9,
+          "ms": 13,
           "roundTrips": 1,
-          "downBytes": 34351,
+          "downBytes": 35233,
           "upBytes": 195,
           "stalls": 0
         },
         "large": {
-          "ms": 21,
+          "ms": 20,
           "roundTrips": 1,
-          "downBytes": 59627,
+          "downBytes": 61377,
           "upBytes": 195,
           "stalls": 0
         }
       },
       "complete": {
         "small": {
-          "ms": 7,
+          "ms": 11,
           "roundTrips": 1,
           "downBytes": 2535,
           "upBytes": 195,
           "stalls": 0
         },
         "typical": {
-          "ms": 9,
+          "ms": 13,
           "roundTrips": 1,
-          "downBytes": 34351,
+          "downBytes": 35233,
           "upBytes": 195,
           "stalls": 0
         },
         "large": {
-          "ms": 21,
+          "ms": 20,
           "roundTrips": 1,
-          "downBytes": 59627,
+          "downBytes": 61377,
           "upBytes": 195,
           "stalls": 0
         }
@@ -335,7 +335,7 @@
       "cached": {
         "unconfirmedFromDisk": true,
         "paint": {
-          "ms": 3,
+          "ms": 4,
           "roundTrips": 0,
           "downBytes": 0,
           "upBytes": 0,
@@ -343,38 +343,38 @@
         },
         "keptBytes": 723976,
         "welcome": {
-          "ms": 48,
-          "roundTrips": 8,
+          "ms": 45,
+          "roundTrips": 10,
           "downBytes": 6189,
-          "upBytes": 3791,
+          "upBytes": 3839,
           "stalls": 0
         },
         "confirmed": {
-          "ms": 51,
-          "roundTrips": 9,
+          "ms": 49,
+          "roundTrips": 11,
           "downBytes": 6310,
-          "upBytes": 4003,
+          "upBytes": 4051,
           "stalls": 0
         }
       },
       "approval": {
-        "idleMs": 9,
-        "duringLargeSnapshotMs": 8
+        "idleMs": 20,
+        "duringLargeSnapshotMs": 12
       },
       "resume": {
-        "ms": 23,
-        "roundTrips": 8,
-        "downBytes": 13343,
-        "upBytes": 3975,
+        "ms": 30,
+        "roundTrips": 9,
+        "downBytes": 13572,
+        "upBytes": 3999,
         "stalls": 0,
         "streamedTextBytes": 120000,
         "deltas": 2000
       },
       "totals": {
-        "ms": 4614,
-        "roundTrips": 30,
-        "downBytes": 153362,
-        "upBytes": 12702,
+        "ms": 4948,
+        "roundTrips": 35,
+        "downBytes": 160557,
+        "upBytes": 12822,
         "stalls": 0
       }
     },
@@ -387,14 +387,14 @@
         "large": 1500
       },
       "welcome": {
-        "ms": 2294,
+        "ms": 2277,
         "roundTrips": 4,
         "downBytes": 408,
         "upBytes": 724,
         "stalls": 1
       },
       "sidebar": {
-        "ms": 2791,
+        "ms": 2773,
         "roundTrips": 5,
         "downBytes": 4280,
         "upBytes": 901,
@@ -404,21 +404,21 @@
         "small": {
           "ms": 466,
           "roundTrips": 1,
-          "downBytes": 2524,
-          "upBytes": 196,
+          "downBytes": 2531,
+          "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 1107,
+          "ms": 1103,
           "roundTrips": 1,
-          "downBytes": 34332,
+          "downBytes": 34260,
           "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 1612,
+          "ms": 1616,
           "roundTrips": 1,
-          "downBytes": 61994,
+          "downBytes": 62028,
           "upBytes": 190,
           "stalls": 1
         }
@@ -427,21 +427,21 @@
         "small": {
           "ms": 466,
           "roundTrips": 1,
-          "downBytes": 2524,
-          "upBytes": 196,
+          "downBytes": 2531,
+          "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 1107,
+          "ms": 1103,
           "roundTrips": 1,
-          "downBytes": 34332,
+          "downBytes": 34260,
           "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 1612,
+          "ms": 1616,
           "roundTrips": 1,
-          "downBytes": 61994,
+          "downBytes": 62028,
           "upBytes": 190,
           "stalls": 1
         }
@@ -457,38 +457,38 @@
         },
         "keptBytes": 723976,
         "welcome": {
-          "ms": 1673,
-          "roundTrips": 5,
+          "ms": 1652,
+          "roundTrips": 4,
           "downBytes": 410,
           "upBytes": 730,
           "stalls": 0
         },
         "confirmed": {
-          "ms": 2689,
-          "roundTrips": 6,
+          "ms": 2066,
+          "roundTrips": 5,
           "downBytes": 526,
           "upBytes": 964,
-          "stalls": 1
+          "stalls": 0
         }
       },
       "approval": {
-        "idleMs": 372,
-        "duringLargeSnapshotMs": 1805
+        "idleMs": 371,
+        "duringLargeSnapshotMs": 1896
       },
       "resume": {
-        "ms": 2829,
-        "roundTrips": 6,
-        "downBytes": 8423,
+        "ms": 2736,
+        "roundTrips": 5,
+        "downBytes": 8001,
         "upBytes": 958,
         "stalls": 1,
         "streamedTextBytes": 120000,
         "deltas": 2000
       },
       "totals": {
-        "ms": 17553,
-        "roundTrips": 23,
-        "downBytes": 154114,
-        "upBytes": 3622,
+        "ms": 16787,
+        "roundTrips": 21,
+        "downBytes": 154231,
+        "upBytes": 3616,
         "stalls": 4
       }
     },
@@ -501,61 +501,61 @@
         "large": 1500
       },
       "welcome": {
-        "ms": 1712,
+        "ms": 1722,
         "roundTrips": 4,
         "downBytes": 408,
         "upBytes": 724,
         "stalls": 1
       },
       "sidebar": {
-        "ms": 2045,
+        "ms": 2055,
         "roundTrips": 5,
-        "downBytes": 4298,
+        "downBytes": 4255,
         "upBytes": 901,
         "stalls": 1
       },
       "firstContent": {
         "small": {
-          "ms": 322,
+          "ms": 324,
           "roundTrips": 1,
-          "downBytes": 2535,
+          "downBytes": 2522,
           "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 484,
-          "roundTrips": 2,
-          "downBytes": 34275,
-          "upBytes": 196,
+          "ms": 488,
+          "roundTrips": 1,
+          "downBytes": 34464,
+          "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 616,
+          "ms": 619,
           "roundTrips": 1,
-          "downBytes": 62115,
+          "downBytes": 61503,
           "upBytes": 190,
           "stalls": 1
         }
       },
       "complete": {
         "small": {
-          "ms": 322,
+          "ms": 325,
           "roundTrips": 1,
-          "downBytes": 2535,
+          "downBytes": 2522,
           "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 484,
-          "roundTrips": 2,
-          "downBytes": 34275,
-          "upBytes": 196,
+          "ms": 488,
+          "roundTrips": 1,
+          "downBytes": 34464,
+          "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 616,
+          "ms": 619,
           "roundTrips": 1,
-          "downBytes": 62115,
+          "downBytes": 61503,
           "upBytes": 190,
           "stalls": 1
         }
@@ -571,14 +571,14 @@
         },
         "keptBytes": 723976,
         "welcome": {
-          "ms": 1227,
+          "ms": 1244,
           "roundTrips": 4,
           "downBytes": 410,
           "upBytes": 730,
           "stalls": 0
         },
         "confirmed": {
-          "ms": 1535,
+          "ms": 1551,
           "roundTrips": 5,
           "downBytes": 526,
           "upBytes": 964,
@@ -586,23 +586,23 @@
         }
       },
       "approval": {
-        "idleMs": 193,
-        "duringLargeSnapshotMs": 734
+        "idleMs": 189,
+        "duringLargeSnapshotMs": 753
       },
       "resume": {
-        "ms": 1585,
+        "ms": 1598,
         "roundTrips": 5,
-        "downBytes": 10062,
+        "downBytes": 13319,
         "upBytes": 958,
         "stalls": 0,
         "streamedTextBytes": 120000,
         "deltas": 2000
       },
       "totals": {
-        "ms": 12049,
-        "roundTrips": 22,
-        "downBytes": 145860,
-        "upBytes": 3622,
+        "ms": 13823,
+        "roundTrips": 21,
+        "downBytes": 145368,
+        "upBytes": 3616,
         "stalls": 2
       }
     },
@@ -615,61 +615,61 @@
         "large": 1500
       },
       "welcome": {
-        "ms": 25,
-        "roundTrips": 5,
+        "ms": 70,
+        "roundTrips": 4,
         "downBytes": 408,
-        "upBytes": 751,
+        "upBytes": 724,
         "stalls": 0
       },
       "sidebar": {
-        "ms": 42,
-        "roundTrips": 6,
-        "downBytes": 4277,
+        "ms": 105,
+        "roundTrips": 5,
+        "downBytes": 4279,
         "upBytes": 901,
         "stalls": 0
       },
       "firstContent": {
         "small": {
-          "ms": 7,
+          "ms": 30,
           "roundTrips": 1,
-          "downBytes": 2526,
+          "downBytes": 3331,
           "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 17,
+          "ms": 16,
           "roundTrips": 1,
-          "downBytes": 34292,
+          "downBytes": 34302,
           "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 15,
+          "ms": 25,
           "roundTrips": 1,
-          "downBytes": 59550,
+          "downBytes": 61253,
           "upBytes": 190,
           "stalls": 0
         }
       },
       "complete": {
         "small": {
-          "ms": 7,
+          "ms": 30,
           "roundTrips": 1,
-          "downBytes": 2526,
+          "downBytes": 3331,
           "upBytes": 190,
           "stalls": 0
         },
         "typical": {
-          "ms": 17,
+          "ms": 16,
           "roundTrips": 1,
-          "downBytes": 34292,
+          "downBytes": 34302,
           "upBytes": 190,
           "stalls": 0
         },
         "large": {
-          "ms": 15,
+          "ms": 25,
           "roundTrips": 1,
-          "downBytes": 59550,
+          "downBytes": 61253,
           "upBytes": 190,
           "stalls": 0
         }
@@ -677,7 +677,7 @@
       "cached": {
         "unconfirmedFromDisk": true,
         "paint": {
-          "ms": 3,
+          "ms": 4,
           "roundTrips": 0,
           "downBytes": 0,
           "upBytes": 0,
@@ -685,37 +685,37 @@
         },
         "keptBytes": 723976,
         "welcome": {
-          "ms": 45,
-          "roundTrips": 5,
-          "downBytes": 410,
-          "upBytes": 730,
+          "ms": 38,
+          "roundTrips": 4,
+          "downBytes": 408,
+          "upBytes": 724,
           "stalls": 0
         },
         "confirmed": {
-          "ms": 54,
-          "roundTrips": 6,
-          "downBytes": 526,
-          "upBytes": 964,
+          "ms": 43,
+          "roundTrips": 5,
+          "downBytes": 524,
+          "upBytes": 958,
           "stalls": 0
         }
       },
       "approval": {
-        "idleMs": 13,
-        "duringLargeSnapshotMs": 8
+        "idleMs": 19,
+        "duringLargeSnapshotMs": 16
       },
       "resume": {
-        "ms": 28,
+        "ms": 29,
         "roundTrips": 5,
-        "downBytes": 7773,
+        "downBytes": 8631,
         "upBytes": 958,
         "stalls": 0,
         "streamedTextBytes": 120000,
         "deltas": 2000
       },
       "totals": {
-        "ms": 4702,
-        "roundTrips": 23,
-        "downBytes": 134094,
+        "ms": 5196,
+        "roundTrips": 22,
+        "downBytes": 153958,
         "upBytes": 3616,
         "stalls": 0
       }
