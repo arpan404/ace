@@ -291,15 +291,16 @@ mod tests {
             width: 1919,
             height: 1080,
         };
-        assert!(matches!(
+        assert!(
             check_dmabuf(
                 odd,
                 DRM_FORMAT_NV12,
                 &[LINEAR],
                 &[plane(0, 0, 2048), plane(0, 0, 2048)]
-            ),
-            Err(_)
-        ));
+            )
+            .is_err(),
+            "odd NV12"
+        );
     }
 
     #[test]
