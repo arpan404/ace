@@ -1,55 +1,117 @@
 import Testing
 @testable import Ace
 
-/// A file too large to show whole, as its pages build it: each part gives back exactly the text
-/// it was read as (so a save covers exactly its bytes), line numbers run on across parts, and
-/// find steps through matches, reading on before it wraps.
+/// A file too large to show whole: each part gives back exactly the text it was read as (BOM and
+/// CRLF included, so a save covers exactly its bytes), at most a window of parts is held however
+/// far reading goes, and find searches the file a page at a time, reaching every match however
+/// many there are.
 @Suite struct LargeFileTextTests {
-    private func page(_ text: String, at offset: Int, size: Int, done: Bool = false) -> FilePageAnswer {
-        FilePageAnswer(text: text, offset: offset, nextOffset: offset + text.utf8.count, size: size, version: "v1", done: done)
+    /// A file as pages of `lines` lines each, every line "row N" (with "hit" on rows in `hits`).
+    private func pages(_ count: Int, lines: Int = 3, hits: Set<Int> = []) -> [FilePageAnswer] {
+        var offset = 0
+        var out: [FilePageAnswer] = []
+        var texts: [String] = []
+        for page in 0..<count {
+            texts.append((0..<lines).map { line in
+                let row = page * lines + line
+                return hits.contains(row) ? "row \(row) hit\n" : "row \(row)\n"
+            }.joined())
+        }
+        let size = texts.reduce(0) { $0 + $1.utf8.count }
+        for (index, text) in texts.enumerated() {
+            out.append(FilePageAnswer(text: text, offset: offset, nextOffset: offset + text.utf8.count, size: size, version: "v1", done: index == count - 1))
+            offset += text.utf8.count
+        }
+        return out
     }
 
-    @Test func eachPartGivesBackTheTextItWasReadAsAndLinesRunOnAcrossParts() {
-        let first = "alpha\r\nbeta\n\n", second = "gamma\ndelta"
-        let size = first.utf8.count + second.utf8.count
+    @Test func aPartGivesBackItsTextExactlyWithItsBOMAndCRLFLines() {
+        let text = "\u{FEFF}alpha\r\nbeta\r\n\r\n"
         var reading = LargeFileText()
-        reading.take(page(first, at: 0, size: size))
-        reading.take(page(second, at: first.utf8.count, size: size, done: true))
-        #expect(reading.parts.map(\.text) == [first, second])
-        #expect(reading.parts.map(\.firstLine) == [0, 3])
-        #expect(reading.parts[1].offset == first.utf8.count && reading.parts[1].length == second.utf8.count)
-        #expect(reading.lineCount == 5)
-        #expect(reading.done && reading.percent == 100)
+        reading.take(FilePageAnswer(text: text, offset: 0, nextOffset: text.utf8.count, size: text.utf8.count + 5, version: "v1", done: false))
+        let part = reading.parts[0]
+        #expect(part.text.utf8.elementsEqual(text.utf8))
+        // Lines split at each line feed, so CRLF files number their lines.
+        #expect(part.lines.count == 3)
+        #expect(reading.starts.last == LargeFileText.Start(offset: text.utf8.count, firstLine: 3))
     }
 
-    @Test func aPageThatDoesNotStartWhereTheLastEndedIsIgnored() {
+    @Test func readingOnHoldsAWindowOfPartsAndReadsBackFromKnownStarts() {
+        let file = pages(LargeFileText.window + 4)
         var reading = LargeFileText()
-        reading.take(page("one\n", at: 0, size: 20))
-        reading.take(page("late\n", at: 0, size: 20))
-        #expect(reading.parts.count == 1)
-        #expect(reading.percent == 20)
+        for page in file { reading.take(page) }
+        #expect(reading.parts.count == LargeFileText.window)
+        #expect(reading.parts.first?.offset == file[4].offset)
+        #expect(reading.parts.first?.firstLine == 12)
+        #expect(reading.done && reading.hasEarlier)
+        // The page before the window is known, and reading it back lets the last part go.
+        #expect(reading.earlierStart == file[3].offset)
+        reading.takeEarlier(file[3])
+        #expect(reading.parts.first?.firstLine == 9 && reading.parts.count == LargeFileText.window && !reading.done)
     }
 
-    @Test func findCountsEveryMatchInAnyCaseWithItsLineAndColumn() {
+    @Test func aJumpShowsOnePartAtItsLineAndReadingGoesOnFromThere() {
+        let file = pages(10)
         var reading = LargeFileText()
-        reading.take(page("Event one\nnothing\n", at: 0, size: 100))
-        reading.take(page("an event, another EVENT\n", at: 18, size: 100))
-        #expect(reading.matches("event") == [.init(line: 0, column: 0), .init(line: 2, column: 3), .init(line: 2, column: 18)])
-        #expect(reading.matches("").isEmpty)
-        #expect(reading.matches("event", limit: 2).count == 2)
+        reading.take(file[0])
+        reading.jump(to: file[7], firstLine: 21)
+        reading.take(file[8])
+        #expect(reading.parts.map(\.firstLine) == [21, 24])
+        #expect(reading.hasEarlier)
     }
 
-    @Test func nextReadsOnBeforeWrappingAndPreviousWrapsToTheLast() {
-        #expect(FindStep.next(from: nil, count: 3, done: false) == .show(0))
-        #expect(FindStep.next(from: 1, count: 3, done: false) == .show(2))
-        // At the last match read so far, more of the file may hold the next one.
-        #expect(FindStep.next(from: 2, count: 3, done: false) == .readMore)
-        #expect(FindStep.next(from: nil, count: 0, done: false) == .readMore)
-        // Only once the whole file is read does Next go back to the first match.
-        #expect(FindStep.next(from: 2, count: 3, done: true) == .show(0))
-        #expect(FindStep.next(from: nil, count: 0, done: true) == FindStep.none)
-        #expect(FindStep.previous(from: 0, count: 3) == .show(2))
-        #expect(FindStep.previous(from: 2, count: 3) == .show(1))
-        #expect(FindStep.previous(from: nil, count: 0) == FindStep.none)
+    @Test func aSearchWithNoMatchReadsEachPageOnceAndHoldsNoText() {
+        var search = FileSearch(query: "missing")
+        var taken = 0
+        for page in pages(50) where search.next?.page == page.offset { search.take(page); taken += 1 }
+        #expect(taken == 50)
+        #expect(search.complete && search.found == 0)
+        #expect(FindStep.next(from: nil, in: search) == FindStep.none)
+    }
+
+    @Test func matchesPastTheBatchLimitStayReachableByNext() {
+        // Every row matches; batches of 4 over 30 rows.
+        let file = pages(10, hits: Set(0..<30))
+        var search = FileSearch(query: "hit", limit: 4)
+        var current: Int?
+        var reached: [Int] = []
+        steps: for _ in 0..<200 {
+            switch FindStep.next(from: current, in: search) {
+            case .show(let index):
+                // Round to the first again: every match has been shown.
+                if let current, index <= current { break steps }
+                guard let hit = search.hit(index) else { Issue.record("match \(index) isn't held"); return }
+                reached.append(hit.line)
+                current = index
+            case .search(let advance):
+                if advance { search.advance() }
+                if let next = search.next, let page = file.first(where: { $0.offset == next.page }) { search.take(page) }
+            case .rewind, .none:
+                break steps
+            }
+        }
+        #expect(reached == Array(0..<30))
+        #expect(search.complete && search.found == 30)
+    }
+
+    @Test func previousBeforeTheBatchHeldSearchesAgainFromTheStart() {
+        let file = pages(4, hits: Set(0..<12))
+        var search = FileSearch(query: "hit", limit: 4)
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.full && search.found == 4)
+        search.advance()
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.hit(4)?.line == 4 && search.hit(3) == nil)
+        #expect(FindStep.previous(from: 4, in: search) == .rewind(to: 3))
+        search.rewind()
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.hit(3)?.line == 3)
+    }
+
+    @Test func aMatchKnowsItsPageAndThatPagesFirstLine() {
+        let file = pages(5, hits: [13])
+        var search = FileSearch(query: "HIT")
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.hits == [FileSearch.Hit(page: file[4].offset, pageLine: 12, line: 13, column: 7)])
     }
 }

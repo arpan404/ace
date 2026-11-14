@@ -70,9 +70,8 @@ import XCTest
         capture("large-find")
         app.buttons["file.large.find"].tap()
 
-        // One part opens on its own and saves into the file.
-        let edit = app.buttons["file.large.edit.0"]
-        for _ in 0..<12 where !edit.isHittable { app.swipeDown() }
+        // The part in view (the match's) opens on its own and saves into the file.
+        let edit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.large.edit.'")).firstMatch
         XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap()
         let save = app.buttons["file.part.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 10))
@@ -81,7 +80,14 @@ import XCTest
         app.textViews.firstMatch.typeText("PHONEEDIT ")
         capture("large-edit")
         save.tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'PHONEEDIT'")).firstMatch.waitForExistence(timeout: 60), "the saved part reads back")
+        // The file reads again from its start; find reaches the saved edit wherever it is.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'read in parts'")).firstMatch.waitForExistence(timeout: 30))
+        app.buttons["file.large.find"].tap()
+        XCTAssertTrue(query.waitForExistence(timeout: 5))
+        query.typeText("PHONEEDIT")
+        app.buttons["file.large.next"].tap()
+        wait(for: [expectation(for: NSPredicate(format: "label BEGINSWITH '1 of 1'"), evaluatedWith: count)], timeout: 60)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'PHONEEDIT'")).firstMatch.waitForExistence(timeout: 10), "the saved part reads back")
         capture("large-saved")
     }
 
