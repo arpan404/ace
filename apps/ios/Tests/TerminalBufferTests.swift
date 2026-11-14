@@ -89,4 +89,71 @@ private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.tex
         }
         #expect(reply == "\u{1b}[1;3R")
     }
+
+    @Test func theRawLogKeepsOutputWithItsEscapesOnceThroughAReplayAndEmptiesOnClear() throws {
+        let model = TerminalScreenModel(); model.start("raw")
+        let red = "\u{1b}[31mfail\u{1b}[0m\r\n"
+        model.receive(try frame("raw", 0, red))
+        // A reconnect replays from an earlier offset: only the bytes not yet kept are added.
+        model.receive(try frame("raw", 0, red + "$ "))
+        #expect(model.rawLog == red + "$ ")
+        model.clear()
+        #expect(model.rawLog.isEmpty)
+        model.receive(try frame("raw", red.utf8.count + 2, "next"))
+        #expect(model.rawLog == "next")
+        model.start("other")
+        #expect(model.rawLog.isEmpty)
+    }
+
+    @Test func theRawLogSaysWhereOutputWasLost() throws {
+        let model = TerminalScreenModel(); model.start("lost")
+        model.receive(try frame("lost", 0, "first"))
+        model.receive(try frame("lost", 40, "later", truncatedBefore: true))
+        let log = model.rawLog
+        #expect(log.hasPrefix("first") && log.hasSuffix("later"))
+        #expect(log.contains("[Earlier output unavailable]"))
+        // Lost in transport, not dropped by the phone's limit: no dropped notice.
+        #expect(!(try String(contentsOf: model.raw.export(named: "lost"), encoding: .utf8)).contains(TerminalRawLog.droppedNotice))
+    }
+}
+
+/// A terminal's raw output as kept for exporting: bounded, the oldest whole chunks going first
+/// and let go of at once, and saved as a `.log` file to share that says when output was dropped.
+@Suite struct TerminalRawLogTests {
+    @Test func theOldestWholeChunksGoOncePastTheLimitButOneLongChunkStays() {
+        var log = TerminalRawLog(limit: 10)
+        log.append("aaaa"); log.append("bbbb"); log.append("cccc")
+        #expect(log.text == "bbbbcccc")
+        log.append(String(repeating: "z", count: 25))
+        #expect(log.text == String(repeating: "z", count: 25))
+    }
+
+    @Test func outputDroppedPastTheLimitIsLetGoAtOnce() {
+        var log = TerminalRawLog(limit: 1_000_000)
+        let chunk = String(repeating: "x", count: 32 * 1024)
+        for _ in 0..<1_000 { log.append(chunk) }
+        // A thousand 32 KB chunks: only what fits the limit stays in memory.
+        #expect(log.size <= 1_000_000)
+        #expect(log.retained == log.size)
+    }
+
+    @Test func anExportAfterDroppingOldOutputSaysSoAtTheTop() throws {
+        var log = TerminalRawLog(limit: 10)
+        log.append("\u{1b}[31maaaa"); log.append("bbbb"); log.append("cccc")
+        let exported = try String(contentsOf: log.export(named: "build"), encoding: .utf8)
+        #expect(exported == TerminalRawLog.droppedNotice + "bbbbcccc")
+        // Nothing dropped since Clear: the export is the output alone.
+        log.clear(); log.append("fresh")
+        #expect(try String(contentsOf: log.export(named: "build"), encoding: .utf8) == "fresh")
+    }
+
+    @Test func exportingWritesTheRawBytesToALogFileNamedForTheTerminal() throws {
+        var log = TerminalRawLog()
+        log.append("\u{1b}[1mbuild\u{1b}[0m ok\r\n")
+        let url = try log.export(named: "dev server: web/2")
+        #expect(url.pathExtension == "log")
+        // Characters a file name can't hold become dashes.
+        #expect(url.lastPathComponent == "dev server- web-2.log")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "\u{1b}[1mbuild\u{1b}[0m ok\r\n")
+    }
 }

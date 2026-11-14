@@ -119,6 +119,33 @@ test("a source file reads with the language the phone colours it in and its chan
   });
 });
 
+test("a file too large to show whole still carries its changed lines for the parts shown", async () => {
+  const fake = daemon();
+  const log = "data/events.log";
+  // About 2.5 MB: over the whole-file view limit, so the phone reads it in parts.
+  const lines = Array.from({ length: 50_000 }, (_, line) => `event ${line} ${"x".repeat(40)}`);
+  fake.checkouts.seedBytes(thread, log, new TextEncoder().encode(lines.join("\n")));
+  fake.workspace.setGitDiff(
+    thread,
+    [
+      `diff --git a/${log} b/${log}`,
+      `--- a/${log}`,
+      `+++ b/${log}`,
+      "@@ -2,2 +2,3 @@",
+      ` ${lines[1]}`,
+      `+${lines[2]}`,
+      ` ${lines[3]}`,
+      "",
+    ].join("\n"),
+  );
+  const { ask } = await connect(fake);
+  expect(await ask({ op: "read", path: log })).toMatchObject({
+    ok: true,
+    kind: "large",
+    marks: [[3, "added"]],
+  });
+});
+
 test("a binary file and a missing one say so instead of sending text", async () => {
   const { ask } = await connect();
   expect(await ask({ op: "read", path: "apps/web/public/fonts/inter.woff2" })).toMatchObject({

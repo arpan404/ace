@@ -18,7 +18,6 @@ struct ChangesSheet: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.panelHost) private var panelHost
     @State private var open: String?
-    @State private var reviewed: Set<String> = []
     @State private var wrap = true
     @State private var selection: LineSelection?
     /// One layer at a time over the sheet: a comment being written, replies, the review, the tree.

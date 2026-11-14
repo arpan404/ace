@@ -1,10 +1,11 @@
 import Testing
+import Foundation
 @testable import Ace
 
 /// A file too large to show whole: each part gives back exactly the text it was read as (BOM and
 /// CRLF included, so a save covers exactly its bytes), at most a window of parts is held however
 /// far reading goes, and find searches the file a page at a time, reaching every match however
-/// many there are.
+/// many there are. Its lines changed since the last commit come with it, by line number.
 @Suite struct LargeFileTextTests {
     /// A file as pages of `lines` lines each, every line "row N" (with "hit" on rows in `hits`).
     private func pages(_ count: Int, lines: Int = 3, hits: Set<Int> = []) -> [FilePageAnswer] {
@@ -165,5 +166,12 @@ import Testing
         var search = LargeFileFind(query: "\u{E9}")
         for page in file where search.next?.page == page.offset { search.take(page) }
         #expect(search.hits == [LargeFileFind.Hit(page: file[1].offset, pageLine: 0, line: 0, column: 30)])
+    }
+
+    @Test func aFileReadInPartsKeepsItsChangedLinesByLineNumber() throws {
+        let json = #"{"kind":"large","path":"data/events.log","size":2600000,"version":"v1","editable":false,"parts":true,"marks":[[3,"added"],[9,"removed"],[12,"modified"]]}"#
+        let content = try JSONDecoder().decode(FileContent.self, from: Data(json.utf8))
+        #expect(content.markedLines == [3: "added", 9: "removed", 12: "modified"])
+        #expect(content.markedLines[4] == nil)
     }
 }

@@ -154,6 +154,13 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     /// Whether the scope shown takes line comments, and why not in words.
     struct Review: Codable, Sendable, Equatable { let allowed: Bool; let reason: String }
     let review: Review?
+    /// Files viewed at their current diff, of every non-binary file in the scope (listed or
+    /// not); nil from older bridges.
+    struct Progress: Codable, Sendable, Equatable {
+        let viewed: Int; let files: Int
+        var fraction: Double { files == 0 ? 0 : Double(min(viewed, files)) / Double(files) }
+    }
+    let progress: Progress?
 }
 
 /// One file's unified diff within the shared budget; `truncated` sends the rest to the computer.

@@ -2,7 +2,7 @@ import XCTest
 
 /// The Changes sheet against the fixture's `ios-changes` thread (`scripts/changes-scenario.ts`):
 /// turn scopes, expand all, the file tree, paging a 22,000-line file, a line comment sent to the
-/// agent, approving, and viewed marks. `ACE_IOS_SHOTS` keeps each screen as a PNG.
+/// agent, approving, and viewed marks with the review bar's count of them. `ACE_IOS_SHOTS` keeps each screen as a PNG.
 @MainActor final class ChangesReviewUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
@@ -91,13 +91,51 @@ import XCTest
         app.buttons["Done"].firstMatch.tap()
 
         // Viewed marks are kept on the phone between runs: swipe one that isn't viewed yet.
+        let progress = app.descendants(matching: .any)["review.progress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 10))
+        let before = viewedCount(progress.label)
         let unviewed = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.' AND NOT (value CONTAINS 'Viewed')")).firstMatch
         XCTAssertTrue(unviewed.waitForExistence(timeout: 10))
         let id = unviewed.identifier
         unviewed.swipeLeft()
         let viewed = expectation(for: NSPredicate(format: "value CONTAINS 'Viewed'"), evaluatedWith: app.buttons[id])
         wait(for: [viewed], timeout: 10)
+        // The review bar counts it.
+        let counted = expectation(for: NSPredicate(format: "label BEGINSWITH %@", "\(before + 1) of "), evaluatedWith: progress)
+        wait(for: [counted], timeout: 10)
+        let after = progress.label
         capture("viewed")
+
+        // Leaving Changes and coming back keeps the mark and the count: on a phone Changes is a
+        // page beside Chat, elsewhere a sheet.
+        let chat = app.buttons["thread.page.chat"]
+        if chat.exists {
+            chat.tap()
+            XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
+            app.buttons["thread.page.changes"].tap()
+        } else {
+            app.buttons["changes.close"].tap()
+            XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10))
+            app.buttons["thread.menu"].tap()
+            let again = app.threadMenuItem("thread.changes")
+            XCTAssertTrue(again.waitForExistence(timeout: 10)); again.tap()
+        }
+        // The mark was made on Uncommitted; a fresh sheet opens on the last turn.
+        XCTAssertTrue(scope.waitForExistence(timeout: 20))
+        if !scope.label.contains("Uncommitted") {
+            scope.tap()
+            XCTAssertTrue(app.buttons["Uncommitted"].waitForExistence(timeout: 5)); app.buttons["Uncommitted"].tap()
+            wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Uncommitted'"), evaluatedWith: scope)], timeout: 20)
+        }
+        let reopened = app.descendants(matching: .any)["review.progress"]
+        XCTAssertTrue(reopened.waitForExistence(timeout: 20))
+        wait(for: [expectation(for: NSPredicate(format: "label == %@", after), evaluatedWith: reopened)], timeout: 20)
+        capture("viewed-reopened")
+    }
+
+    /// "3 of 7 files viewed" → 3.
+    private func viewedCount(_ label: String) -> Int {
+        Int(label.split(separator: " ").first ?? "") ?? -1
     }
 
     /// Expand all or Collapse all, whichever the row shows.

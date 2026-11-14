@@ -346,6 +346,7 @@ export class CheckoutFiles {
     const editable = "threadId" in scope;
     // Too large to edit whole: a thread's file is edited a part at a time instead.
     const parts = (size: number) => editable && size > checkoutEditLimit && size <= partFileLimit;
+    // Read in parts on the phone, with the same change bars beside each part's lines.
     if (read.kind === "large")
       return {
         kind: "large",
@@ -354,6 +355,7 @@ export class CheckoutFiles {
         version,
         editable: false,
         parts: parts(read.size),
+        marks: "threadId" in scope ? await this.#marks(scope.threadId, path, signal) : [],
       };
     const bytes = read.bytes;
     const size = bytes.length;
