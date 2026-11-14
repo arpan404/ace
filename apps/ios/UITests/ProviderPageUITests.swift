@@ -60,7 +60,8 @@ import XCTest
         let home = path.label
         XCTAssertFalse(home.isEmpty, "the folder Codex reads shows")
         change.tap()
-        let field = app.textFields["provider.toolSource.field"].firstMatch
+        // A SwiftUI alert's text field doesn't keep its identifier; it is the alert's only field.
+        let field = app.alerts.firstMatch.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: home.count + 4))
