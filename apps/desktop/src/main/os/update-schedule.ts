@@ -71,9 +71,13 @@ export function scheduleChecks(
     void checker.check("background");
     cancel = ports.timers.set(wait(ports.active() ? schedule.everyMs : schedule.idleEveryMs), tick);
   };
+  const launchedAt = ports.now();
   let cancel = ports.timers.set(schedule.launchLatestMs, tick);
   void ports.daemonRunning.then(() => {
     if (cancelled || lastCheck !== undefined) return;
+    // The earlier of the launch deadline and a few seconds after the daemon runs.
+    const deadlineIn = launchedAt + schedule.launchLatestMs - ports.now();
+    if (deadlineIn <= schedule.afterDaemonMs) return;
     cancel();
     cancel = ports.timers.set(schedule.afterDaemonMs, tick);
   });

@@ -82,6 +82,16 @@ describe("background update checks", () => {
     expect(a.checks).toEqual([60_000]);
   });
 
+  it("check at the launch deadline when the daemon runs just before it, not five seconds after", async () => {
+    const a = app();
+    await a.advance(59_000);
+    await a.daemonRunning();
+    await a.advance(1_000);
+    expect(a.checks).toEqual([60_000]);
+    await a.advance(10_000);
+    expect(a.checks).toEqual([60_000]);
+  });
+
   it("opening the window at launch does not jump ahead of the daemon's start", async () => {
     const a = app();
     a.schedule.opened();
