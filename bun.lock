@@ -788,6 +788,8 @@
     "packages/media": {
       "name": "@ace/media",
       "dependencies": {
+        "@ace/provider-kit": "workspace:*",
+        "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },
     },
