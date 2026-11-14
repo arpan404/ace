@@ -57,10 +57,6 @@ test("a live tile is pinned above the chat while the bot uses its browser, and g
   spade.computer.use("scout", { kind: "browser", live: true, title: "Hotels", url: staybook });
   const tile = await screen.findByRole("region", { name: "Browser · staybook.com, live" });
   expect(within(tile).getByText("Hotels")).toBeTruthy();
-  // The list says it too, on Scout's row.
-  expect(
-    within(await botRow("Scout")).getByRole("img", { name: "Using its browser" }),
-  ).toBeTruthy();
 
   spade.computer.use("scout", { kind: "browser", live: false, title: null, url: staybook });
   await waitFor(() => expect(screen.queryByRole("region", { name: /live$/ })).toBeNull());

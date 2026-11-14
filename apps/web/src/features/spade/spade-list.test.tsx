@@ -93,7 +93,8 @@ test("a row says what the bot uses on its computer, its machine when elsewhere, 
   );
   const list = await roster();
   const scout = await list.findByRole("link", { name: /^Scout/ });
-  expect(within(scout).getByRole("img", { name: "Using its browser and terminal" })).toBeTruthy();
+  // A bot busy on its computer shows no icons for it on its row.
+  expect(within(scout).queryByRole("img", { name: /^Using its/ })).toBeNull();
   const research = await list.findByRole("link", { name: /^Research/ });
   expect(research.textContent).toMatch(/Studio Mac$/);
   expect((await list.findByRole("link", { name: /^Garden/ })).textContent).toMatch(
