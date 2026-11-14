@@ -39,11 +39,13 @@ import Testing
         let search = ConversationSearch()
         // The phone's clock: `timeIntervalSince1970 * 1000`, never a whole number of milliseconds.
         let now = 1_794_700_000_123.456
-        let filters: [String: Any] = ["after": ConversationSearch.after(days: 7, now: now)]
+        let filters = ConversationSearch.filters(workspaceId: "ace", days: 7, now: now)
         let asked = Task { await search.search(model: model, text: "find", kind: "message", threadId: nil, filters: filters) }
         try await wait { session.requests.count == 1 }
         let request = try #require(session.requests[0]["request"] as? [String: Any])
-        let sent = try #require((request["filters"] as? [String: Any])?["after"] as? NSNumber)
+        let sentFilters = try #require(request["filters"] as? [String: Any])
+        #expect(sentFilters["workspaceId"] as? String == "ace")
+        let sent = try #require(sentFilters["after"] as? NSNumber)
         // The protocol's Timestamp is an integer: a fraction would fail the bridge's validation.
         #expect(sent.doubleValue == 1_794_700_000_123 - 7 * 86_400_000)
         #expect(sent.doubleValue.rounded(.down) == sent.doubleValue)
