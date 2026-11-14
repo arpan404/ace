@@ -1,92 +1,56 @@
+import {
+  initialHeartbeat,
+  nextAt,
+  stepHeartbeat,
+  type HeartbeatInput,
+  type HeartbeatState,
+} from "./heartbeat-machine.ts";
 import type { Scheduler } from "./types.ts";
 
 interface HeartbeatEvents {
   /**
-   * Send a ping; false if it couldn't go out, which ends the beat. `answered` runs when the pong
-   * for this very ping arrives: the daemon answers a socket's pings in order, so the nth pong
-   * answers the nth ping.
+   * Send a ping; false if it couldn't go out. `answered` runs when the pong for this very ping
+   * arrives: the daemon answers a socket's pings in order, so the nth pong answers the nth ping.
    */
   ping(answered?: () => void): boolean;
-  /** A ping went a whole interval without the daemon sending anything. */
+  /** The socket is dead: a beat heard nothing for an interval, or a probe went unanswered. */
   missed(): void;
 }
 
-/**
- * Liveness of a ready socket: every interval it pings, and an interval after a ping in which
- * nothing at all arrived means the socket is dead even if it never closed. Any frame counts as
- * proof of life, not just the pong: the daemon sends its pong behind whatever it already queued,
- * so on a busy stream the pong can be late while the socket is plainly alive.
- */
-/** A wake this soon after the newest outstanding probe joins it instead of pinging again. */
+/** A wake this soon after the last ping waits for the window's end to ping (ADR 0150). */
 export const probeJoinMs = 300;
-/** At most this many probes wait at once; a wake beyond them is covered by the newest. */
-export const maxProbes = 4;
 
+/**
+ * The shell of `heartbeat-machine.ts` for one connection: it sends the pings the machine asks
+ * for, tells it what came back, and runs one timer for the machine's next deadline. Time is
+ * `now` when given; it never runs behind a timer that already fired, so a connection without a
+ * clock still keeps its deadlines, measured by the scheduler.
+ */
 export class Heartbeat {
   #scheduler: Scheduler;
-  #intervalMs: number;
-  #cancel: (() => void) | undefined;
-  #awaiting = false;
+  #config: { intervalMs: number; joinMs: number };
+  #state: HeartbeatState = initialHeartbeat();
   #events: HeartbeatEvents | undefined;
-  /** Another loop pings this socket (the path manager's): no regular beat, probes only. */
-  #quiet = false;
-  /** Each probe still waiting out its own deadline: cancels its timer. */
-  #probes = new Set<() => void>();
-  /** When the newest outstanding probe pinged, on `now`. */
-  #newestAt: number | undefined;
-  #now: (() => number) | undefined;
+  #cancel: (() => void) | undefined;
+  #clock: () => number;
+  /** The time of the last timer that fired: time never reads earlier. */
+  #floor = 0;
   constructor(scheduler: Scheduler, intervalMs: number, now?: () => number) {
     this.#scheduler = scheduler;
-    this.#intervalMs = intervalMs;
-    this.#now = now;
+    this.#config = { intervalMs, joinMs: probeJoinMs };
+    this.#clock = now ?? (() => 0);
   }
   start(events: HeartbeatEvents): void {
-    this.stop();
     this.#events = events;
-    this.#beat(events);
+    this.#feed({ type: "start", now: this.#now() });
   }
   /**
-   * Check now instead of at the next beat: ping at once and give the daemon `withinMs` to answer
-   * that ping. Only the pong for the probe's own ping counts: a frame or a pong already on its
-   * way before the probe (sent before the network changed under the socket) proves nothing
-   * about the socket now. Silence ends the beat as a miss; once every probe is answered, the
-   * regular beat resumes. A probe while others wait never moves their deadlines: each keeps its
-   * own, so a socket dead at the first of many wakes is dropped `withinMs` after that one. A
-   * wake within `probeJoinMs` of the newest outstanding probe joins it, and at most `maxProbes`
-   * wait at once (a wake beyond them is covered by the newest), so a burst of wakes sends a few
-   * pings, not one each. Either way a socket dead at a wake is dropped within one deadline plus
-   * `probeJoinMs` of it. A no-op unless a beat is running.
+   * The app woke, or the network changed: check the socket, and drop it unless the pong for a
+   * ping sent at or after now arrives within `withinMs` of that ping (sent within
+   * `probeJoinMs`). A no-op unless a beat is running.
    */
   probe(withinMs: number): void {
-    const events = this.#events;
-    if (!events) return;
-    const at = this.#now?.();
-    if (this.#probes.size) {
-      // Without a clock every wake joins: the newest probe was sent no earlier than the first.
-      const newest = this.#newestAt;
-      const recent = at === undefined || newest === undefined || at - newest < probeJoinMs;
-      if (recent || this.#probes.size >= maxProbes) return;
-    }
-    // The regular beat waits while any probe does.
-    this.#cancel?.();
-    this.#cancel = undefined;
-    this.#awaiting = true;
-    let answered = false;
-    // A ping that can't go out (the socket ended, or owes too many pongs) is no probe: one
-    // still waiting covers this wake, or the connection's own close does.
-    if (!events.ping(() => (answered = true))) return;
-    this.#newestAt = at;
-    const cancel = this.#scheduler.set(withinMs, () => {
-      this.#probes.delete(cancel);
-      if (!answered) {
-        events.missed();
-        return;
-      }
-      if (this.#probes.size || this.#events !== events) return;
-      this.#awaiting = false;
-      this.#beat(events);
-    });
-    this.#probes.add(cancel);
+    this.#feed({ type: "wake", now: this.#now(), withinMs });
   }
   /**
    * Whether another loop already pings this socket and drops it when a pong goes missing (the
@@ -94,37 +58,48 @@ export class Heartbeat {
    * two ping loops; `probe` still checks it at once.
    */
   quiet(on: boolean): void {
-    if (on === this.#quiet) return;
-    this.#quiet = on;
-    const events = this.#events;
-    // While probes wait, the beat stays off; the last one answered starts it again.
-    if (!events || this.#awaiting || this.#probes.size) return;
-    this.#cancel?.();
-    this.#cancel = undefined;
-    this.#beat(events);
+    this.#feed({ type: "quiet", on, now: this.#now() });
   }
   /** A frame from the daemon arrived, the pong or any other. */
   heard(): void {
-    this.#awaiting = false;
+    this.#feed({ type: "frame" });
   }
   stop(): void {
-    this.#cancel?.();
-    this.#cancel = undefined;
-    for (const cancel of this.#probes) cancel();
-    this.#probes.clear();
-    this.#awaiting = false;
+    this.#feed({ type: "stop" });
     this.#events = undefined;
   }
-  #beat(events: HeartbeatEvents): void {
-    if (this.#quiet) return;
-    this.#cancel = this.#scheduler.set(this.#intervalMs, () => {
-      this.#cancel = undefined;
-      if (this.#awaiting) {
+  #now(): number {
+    return Math.max(this.#clock(), this.#floor);
+  }
+  #feed(input: HeartbeatInput): void {
+    const { state, effects } = stepHeartbeat(this.#state, input, this.#config);
+    this.#state = state;
+    const events = this.#events;
+    for (const effect of effects) {
+      if (!events || this.#events !== events) break;
+      if (effect.type === "missed") {
+        this.#arm();
         events.missed();
         return;
       }
-      this.#awaiting = true;
-      if (events.ping()) this.#beat(events);
+      const { seq } = effect;
+      const sent = events.ping(() => {
+        if (this.#events === events) this.#feed({ type: "pong", seq, now: this.#now() });
+      });
+      if (!sent) this.#feed({ type: "refused", seq, now: this.#now() });
+    }
+    this.#arm();
+  }
+  /** One timer, for the machine's next deadline. */
+  #arm(): void {
+    this.#cancel?.();
+    this.#cancel = undefined;
+    const at = nextAt(this.#state);
+    if (at === undefined) return;
+    this.#cancel = this.#scheduler.set(Math.max(0, at - this.#now()), () => {
+      this.#cancel = undefined;
+      this.#floor = Math.max(this.#floor, at);
+      this.#feed({ type: "timer", now: this.#now() });
     });
   }
 }

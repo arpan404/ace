@@ -76,12 +76,14 @@ test("a pong for a ping sent before a wake does not answer the wake's probe", as
   h.advance(beatMs);
   expect(h.pings()).toBe(1);
   h.connection.wake();
-  expect(h.pings()).toBe(2);
-  // The old pong lands: it answers the old ping, not the probe.
+  // The old pong lands: it answers the old ping, not the wake.
   h.advance(100);
   h.pong();
-  // The network changed under the socket: nothing more comes back. Dropped at the 5 s deadline.
-  h.advance(4_800);
+  // The wake came within 300 ms of the beat's ping: its own ping goes when that window ends.
+  h.advance(200);
+  expect(h.pings()).toBe(2);
+  // The network changed under the socket: nothing more comes back. Dropped 5 s after that ping.
+  h.advance(4_900);
   expect(h.connection.state).toBe("ready");
   h.advance(200);
   expect(h.connection.state).toBe("reconnecting");
@@ -202,11 +204,16 @@ test("200 wakes in a burst on a live socket send a few pings and keep it", async
   const before = h.pings();
   for (let wake = 0; wake < 200; wake++) h.connection.wake();
   await flush();
+  // One ping now, and one when the 300 ms window ends for the wakes inside it.
+  for (let step = 0; step < 10; step++) {
+    h.advance(100);
+    await flush();
+  }
+  expect(h.pings() - before).toBe(2);
   for (let step = 0; step < 10; step++) {
     h.advance(1_000);
     await flush();
   }
-  expect(h.pings() - before).toBeLessThanOrEqual(4);
   expect(h.connection.state).toBe("ready");
 });
 
@@ -230,4 +237,32 @@ test("wakes spaced over 20 s on a dead socket still drop it within the bound of 
   }
   expect(h.connection.state).toBe("reconnecting");
   expect(elapsed).toBeLessThanOrEqual(5_300);
+});
+
+test("a wake after the socket died is not covered by an earlier wake's answered probe", async () => {
+  const h = await ready();
+  h.connection.wake();
+  h.advance(50);
+  // That wake's probe is answered; then the socket dies.
+  h.pong();
+  h.advance(150);
+  h.connection.wake();
+  // Covered by a ping of its own, sent within 300 ms: dropped within 300 ms + 5 s of the wake.
+  h.advance(5_300);
+  expect(h.connection.state).toBe("reconnecting");
+});
+
+test("answered probes never fill a cap that would ignore a later wake", async () => {
+  const h = await ready();
+  // Wakes at 0, 300, 600 and 900 ms, each answered 10 ms later.
+  for (let wake = 0; wake < 4; wake++) {
+    h.connection.wake();
+    h.advance(10);
+    h.pong();
+    h.advance(wake < 3 ? 290 : 90);
+  }
+  // The socket has died; the wake at 1,000 ms must still be checked.
+  h.connection.wake();
+  h.advance(5_300);
+  expect(h.connection.state).toBe("reconnecting");
 });

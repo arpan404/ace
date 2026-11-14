@@ -74,14 +74,20 @@ fixed 150 ms race stagger dialed every path every time.
    pings it sent and still owes pongs for, and only a new socket starts from zero. A probe waits
    the active path's pong deadline (four smoothed round trips, at least 2 s, at most 10 s, from
    the path manager's link estimate), or 5 s while nothing has measured the link, so a healthy
-   slow link is not dropped at every wake. A wake while probes are waiting never moves their
-   deadlines: it adds its own ping and deadline, joins the newest probe if that one pinged less
-   than 300 ms before, and is covered by the newest when four are already waiting, so a burst
-   of wakes sends a few pings, not one each. A socket owing 64 pongs is not pinged again rather
-   than dropping an earlier ping's answer. So a socket that died while the app was away, or at
-   a wake, is dropped and redialed within that link's probe deadline plus 300 ms of that wake
-   (at most 10.3 s; 5.3 s before any measurement), however many wakes follow. The regular idle
-   beat still counts any frame as liveness.
+   slow link is not dropped at every wake. Wakes coalesce forwards, so every wake is
+   covered by a ping sent at or after it: a wake with no ping in the last 300 ms pings now; a
+   wake inside that window sends nothing yet and owes one ping, sent when the window ends, whose
+   probe covers every wake since the last ping. At most one ping goes out per 300 ms, an
+   answered probe is gone at once and never covers a later wake, and each probe keeps its own
+   deadline, which nothing moves. With deadlines of at most 10 s that bounds the probes waiting
+   at once to about 34, under the 64 pongs a socket may owe; a ping the socket still refuses
+   keeps its probe's deadline, and the socket is dropped at it unless a later ping is answered
+   first. The regular beat is never left off with nothing in its place. So a socket that died
+   while the app was away, or at a wake, is dropped and redialed within 300 ms plus that link's
+   probe deadline of that wake (at most 10.3 s; 5.3 s before any measurement), however many
+   wakes follow. The regular idle beat still counts any frame as liveness. This logic is a pure
+   state machine (`heartbeat-machine.ts`) with `Heartbeat` as its shell, checked by properties
+   over random wakes, pong delays and death times.
 
 The client keeps one link estimate, the active path's smoothed round trip, readable through
 `ClientApi.linkEstimate()` for other features.
