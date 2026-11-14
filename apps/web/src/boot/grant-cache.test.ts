@@ -16,11 +16,14 @@ function backend(skewMs = 0) {
   let issued = 0;
   const asked: string[] = [];
   let failNext = false;
+  /** The account backend can't be reached: every fetch fails as a network error does. */
+  let down = false;
   /** How far the forward-only clock is behind: it stands still while the laptop sleeps. */
   let slept = 0;
   const cache = grantCache(
     async (session) => {
       asked.push(session);
+      if (down) throw new TypeError("Failed to fetch");
       if (failNext) {
         failNext = false;
         throw new Error("backend down");
@@ -39,6 +42,7 @@ function backend(skewMs = 0) {
       slept += ms;
     },
     failOnce: () => (failNext = true),
+    setDown: (value: boolean) => (down = value),
   };
 }
 
@@ -158,7 +162,7 @@ test("a clock three minutes behind never presents a refused grant a second time"
 });
 
 /** An account machine's client on `b`'s cache, whose sockets each open and then wait. */
-function machine(b: ReturnType<typeof backend>) {
+function machine(b: ReturnType<typeof backend>, name = "") {
   const sockets: TransportEvents[] = [];
   const client = new Client({
     deviceId: DeviceId.parse("browser"),
@@ -170,8 +174,8 @@ function machine(b: ReturnType<typeof backend>) {
       send() {},
       close() {},
     }),
-    credential: async (): Promise<Credential> => ({ grant: await b.cache.grant("s") }),
-    grantRefused: (grant) => b.cache.refused(grant),
+    credential: async (): Promise<Credential> => ({ grant: await b.cache.grant("s", name) }),
+    grantRefused: (grant) => b.cache.refused(grant, name),
     storage: { load: async () => null, save: async () => {} },
     scheduler: {
       set(delay, run) {
@@ -182,9 +186,22 @@ function machine(b: ReturnType<typeof backend>) {
     random: () => 0,
     id: () => "id",
     now: () => 0,
-    limits: { retryBaseMs: 1, retryCapMs: 1 },
+    limits: { retryBaseMs: 5, retryCapMs: 5 },
   });
-  return { client, last: () => sockets.at(-1), sockets };
+  const deliver = (message: object) => sockets.at(-1)?.message(JSON.stringify(message));
+  return {
+    client,
+    last: () => sockets.at(-1),
+    sockets,
+    welcome: () =>
+      deliver({
+        type: "welcome",
+        hostId: "6f1c2a8e-4b7d-4e2a-9c1f-2d3b4a5c6d7e",
+        protocolVersion: 1,
+        headSeq: 0,
+      }),
+    refuse: () => deliver({ type: "error", code: "unauthorized", message: "Expired" }),
+  };
 }
 
 test("five drops before the welcome on a healthy grant fetch it once, not five times", async () => {
@@ -262,4 +279,50 @@ test("after the laptop sleeps ten minutes, the kept grant is not offered", async
   await b.cache.grant("s");
   b.sleep(600_000);
   expect(await b.cache.grant("s")).toBe("grant-2");
+});
+
+test("the backend down during the shared retry fetch, then back: both machines reconnect", async () => {
+  const b = backend();
+  const a = machine(b, "machine-a");
+  const other = machine(b, "machine-b");
+  await a.client.start();
+  await settle();
+  a.welcome();
+  await other.client.start();
+  await settle();
+  other.welcome();
+  // Both drop and reconnect, each saying hello with the kept grant from the cache.
+  a.last()?.close(1006, "gone");
+  other.last()?.close(1006, "gone");
+  await settle();
+  // The daemon finds the shared grant expired; the backend can't be reached for a fresh one.
+  b.setDown(true);
+  a.refuse();
+  other.refuse();
+  await settle();
+  // Failing to get a grant is no refusal of one: both keep trying, neither stops.
+  expect(a.client.state).not.toBe("fatal");
+  expect(other.client.state).not.toBe("fatal");
+  b.setDown(false);
+  await settle();
+  a.welcome();
+  other.welcome();
+  expect(a.client.state).toBe("ready");
+  expect(other.client.state).toBe("ready");
+  await a.client.close();
+  await other.client.close();
+});
+
+test("a first connect with the backend down connects on its own once it is back", async () => {
+  const b = backend();
+  b.setDown(true);
+  const m = machine(b, "machine-a");
+  await m.client.start();
+  await settle();
+  expect(m.client.state).not.toBe("fatal");
+  b.setDown(false);
+  await settle();
+  m.welcome();
+  expect(m.client.state).toBe("ready");
+  await m.client.close();
 });

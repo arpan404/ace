@@ -2,6 +2,7 @@ import { parseCredential, relayGrant, type Credential } from "./credentials.ts";
 import { handshakePath, type PathRoute, type WelcomedPath } from "./path-handshake.ts";
 import { pathTiming } from "./path-plan.ts";
 import { stageDeadline } from "./handshake-deadline.ts";
+import { credentialFailure } from "./credential-failure.ts";
 import { defaultMonotonic } from "./monotonic.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
@@ -394,8 +395,9 @@ export class Connection {
             })
             .catch((error: unknown) => {
               if (epoch !== this.#epoch) return;
-              if (error instanceof ClientError && error.code === "offline")
-                this.#lost(1006, "Credential unavailable offline");
+              // Failing to get a credential is no refusal of one: it is retried with backoff.
+              if (credentialFailure(error) === "transient")
+                this.#lost(1006, "Credential unavailable");
               else this.fail(new ClientError("auth"));
             });
         },
