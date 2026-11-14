@@ -132,7 +132,7 @@ private struct HistoryRowView: View {
                 }
             }
             Spacer(minLength: AceDesign.Space.related)
-            Text(row.thread.date).meta(AceTheme.Colours.subtleForeground).monospacedDigit()
+            Text(row.thread.date).monospacedDigit().meta(AceTheme.Colours.subtleForeground)
         }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceDesign.Space.related)

@@ -23,8 +23,8 @@ struct SettingsSearchResults: View {
                 Section { rows(phone) } header: { InsetHeader("On this phone") }
                     .insetRowBackground()
             }
-            ForEach(machines, id: \.0) { machine, found in
-                Section { rows(found) } header: { InsetHeader(inbox.name(machine)) }
+            ForEach(machines, id: \.0) { machine in
+                Section { rows(machine.1) } header: { InsetHeader(inbox.name(machine.0)) }
                     .insetRowBackground()
             }
             if phone.isEmpty && machines.isEmpty {
