@@ -267,6 +267,60 @@ test("a steer whose run ends while it is on its way never joins the run that sta
   expect(h.engine.queue(id).messages).toMatchObject([{ input: text("stale") }]);
 });
 
+test("a steer whose run ends on its way, with nothing running in its place, is never sent as a steer", async () => {
+  const frames = scriptFrames();
+  let gate: Promise<void> | undefined;
+  const entered = Promise.withResolvers<void>();
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start)] },
+      { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" })] },
+      { on: "send" },
+    ],
+    frames,
+    {
+      steer: true,
+      async assertWorkspaceAvailable() {
+        if (!gate) return;
+        entered.resolve();
+        await gate;
+      },
+    },
+  );
+  const id = await h.create();
+  const runs = () => Object.values(h.store.snapshotThread(id).runs);
+  const first = runs().find((run) => run.state === "active")?.id;
+  const release = Promise.withResolvers<void>();
+  gate = release.promise;
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: text("stale"),
+    delivery: "steer",
+    runId: first,
+  });
+  await entered.promise;
+  // Its run ends before the provider reads it, and no other starts.
+  h.command({ type: "thread.interrupt", threadId: id, cascade: true, runId: first });
+  for (let wait = 0; wait < 400 && runs().some((run) => run.state === "active"); wait++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(runs().some((run) => run.state === "active")).toBe(false);
+  release.resolve();
+  await h.engine.flush();
+  const steered = sends(h.adapter).filter(
+    (send) => JSON.stringify(send).includes('"stale"') && send.delivery === "steer",
+  );
+  expect(steered).toEqual([]);
+  // It waits as the next message (or went as one), never lost.
+  const queued = h.engine
+    .queue(id)
+    .messages.some((message) => JSON.stringify(message.input).includes('"stale"'));
+  const sentNext = sends(h.adapter).some(
+    (send) => JSON.stringify(send).includes('"stale"') && send.delivery === "queue",
+  );
+  expect(queued || sentNext).toBe(true);
+});
+
 test("claiming a message before provider startup makes a concurrent edit fail", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames);
