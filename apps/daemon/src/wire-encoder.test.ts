@@ -22,3 +22,56 @@ test("fan-out preserves per-subscription cursors and escaped Unicode payloads", 
     expect(ServerMessage.parse(JSON.parse(encoder.encode(message)))).toEqual(message);
   }
 });
+
+const titled = (seq: number, title: string) =>
+  Event.parse({
+    id: `e${seq}`,
+    seq,
+    at: 1,
+    threadId: "t",
+    payload: { type: "thread.updated", title },
+  });
+
+test("an events frame's measured size is its encoded size", () => {
+  const encoder = new WireEncoder();
+  for (const events of [
+    [],
+    [titled(1, "plain")],
+    [titled(1, 'é " 😀 \n'), titled(2, "\ud800"), titled(3, "z")],
+  ]) {
+    const message = {
+      type: "events",
+      subscriptionId: 'sub "é"',
+      afterSeq: 0,
+      throughSeq: 3,
+      events,
+    } satisfies ServerMessage;
+    expect(encoder.encodedBytes(message)).toBe(Buffer.byteLength(encoder.encode(message)));
+  }
+});
+
+const eventsMessage = (events: Event[]) =>
+  ({
+    type: "events",
+    subscriptionId: "s",
+    afterSeq: 0,
+    throughSeq: 1,
+    events,
+  }) satisfies ServerMessage;
+
+test("an event whose payload is replaced after it was sent is sent with the new payload", () => {
+  const encoder = new WireEncoder();
+  const event = Event.parse({
+    id: "e",
+    seq: 1,
+    at: 1,
+    threadId: "t",
+    payload: { type: "thread.updated", title: "inline" },
+  });
+  encoder.encode(eventsMessage([event]));
+  // Storing an event may swap its payload for a capped copy.
+  event.payload = { type: "thread.updated", title: "capped" };
+  const sent = ServerMessage.parse(JSON.parse(encoder.encode(eventsMessage([event]))));
+  expect(sent).toEqual(eventsMessage([event]));
+  expect(encoder.eventBytes(event)).toBe(Buffer.byteLength(JSON.stringify(event)));
+});
