@@ -81,25 +81,21 @@ import XCTest
 
     func testRenameSavesTheNameOnTheMachine() throws {
         let app = launchIntoMachine()
-        open(app, "machine.rename")
-        let field = app.textFields["machine.rename.field"]
-        XCTAssertTrue(field.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Every device shows this name."].exists, "the alert says where the name goes")
-        field.clearAndType("Studio Mac")
-        app.buttons["machine.rename.save"].tap()
+        // The fixture takes its host's name; read it from the page and put it back at the end.
+        let original = try machineName(app)
+        rename(app, to: "Studio Mac", from: original)
         XCTAssertTrue(app.navigationBars["Studio Mac"].waitForExistence(timeout: 15), "the page takes the machine's new name")
         screenshot("machine-renamed")
-        // Back to the fixture's own name, for the other tests on this fixture.
-        open(app, "machine.rename")
-        XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.clearAndType("studio")
-        app.buttons["machine.rename.save"].tap()
-        XCTAssertTrue(app.navigationBars["studio"].waitForExistence(timeout: 15))
+        rename(app, to: original, from: "Studio Mac")
+        XCTAssertTrue(app.navigationBars[original].waitForExistence(timeout: 15))
     }
 
     func testStartingTheUpdateShowsItsProgressAndResult() throws {
         let app = launchIntoMachine()
+        let name = try machineName(app)
         let software = element(app, "machine.software")
+        // Rename sits at the foot of the page; Software is above it.
+        for _ in 0..<6 where !software.isHittable { app.swipeDown() }
         for _ in 0..<6 where !software.isHittable { app.swipeUp() }
         XCTAssertTrue(software.waitForExistence(timeout: 20))
         XCTAssertTrue(software.label.contains("0.0.19 is available"))
@@ -108,7 +104,7 @@ import XCTest
         app.buttons["machine.software.now"].tap()
         let confirm = app.buttons["machine.software.now.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Update now asks first")
-        XCTAssertTrue(app.staticTexts["Update studio now?"].exists)
+        XCTAssertTrue(app.staticTexts["Update \(name) now?"].exists, "the question names the machine")
         confirm.tap()
         XCTAssertTrue(app.buttons["machine.software.cancel"].waitForExistence(timeout: 10), "a running update can be cancelled")
         screenshot("machine-software-updating")
@@ -149,6 +145,26 @@ import XCTest
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         row.tap()
         return app
+    }
+    /// The machine's name as its page has it (the fixture takes its host's), from Rename's title.
+    private func machineName(_ app: XCUIApplication) throws -> String {
+        open(app, "machine.rename")
+        let alert = app.alerts.matching(NSPredicate(format: "label BEGINSWITH 'Rename '")).firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        let name = String(alert.label.dropFirst("Rename ".count))
+        alert.buttons["Cancel"].tap()
+        return try XCTUnwrap(name.isEmpty ? nil : name, "Rename names the machine")
+    }
+    /// Rename's alert: its field doesn't carry an identifier, so it is the alert's only field.
+    private func rename(_ app: XCUIApplication, to name: String, from current: String) {
+        open(app, "machine.rename")
+        let alert = app.alerts["Rename \(current)"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.staticTexts["Every device shows this name."].exists, "the alert says where the name goes")
+        let field = alert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.clearAndType(name)
+        alert.buttons["Save"].tap()
     }
     private func open(_ app: XCUIApplication, _ id: String) {
         let link = app.buttons[id]
