@@ -235,13 +235,37 @@ final class IngestRoute {
     /// ace-media's ingest fell behind: the next unit should be a keyframe.
     var onKeyframe: () -> Void = {}
 
-    /// Replaced writers still writing what they had queued, held until they finish.
-    private var replaced: [ObjectIdentifier: IngestWriter] = [:]
+    /// Replaced writers still writing what they had queued, held until they finish, by their
+    /// retirement's own number (an object's address can be reused once it is freed).
+    private var replaced: [UInt64: (writer: IngestWriter, cancel: () -> Void)] = [:]
+    private var retirements: UInt64 = 0
+    /// Most replaced writers kept draining at once, and most bytes they may hold queued: past
+    /// either the oldest is closed and its path cut.
+    static let maxRetired = 4
+    static let maxRetiredBytes = 16 * 1024 * 1024
     private let drainLimit: TimeInterval
 
+    /// Opens a writer; tests stand in for the socket.
+    typealias Connect = (_ socket: String, _ token: Data, _ onClosed: @escaping () -> Void, _ onKeyframe: @escaping () -> Void) throws -> IngestWriter
+    /// Runs `work` after `delay` seconds; returns its cancel.
+    typealias Schedule = (_ delay: TimeInterval, _ work: @escaping () -> Void) -> () -> Void
+    private let connect: Connect
+    private let schedule: Schedule
+
+    static let connectSocket: Connect = { socket, token, onClosed, onKeyframe in
+        try IngestWriter(path: socket, token: token, onClosed: onClosed, onKeyframe: onKeyframe)
+    }
+    static let dispatchSchedule: Schedule = { delay, work in
+        let item = DispatchWorkItem(block: work)
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: item)
+        return { item.cancel() }
+    }
+
     /// `drainLimit` bounds how long a replaced writer may drain before it is closed, its path cut.
-    init(legacy: @escaping (EncodedVideo) -> Void, now: @escaping () -> UInt64, drainLimit: TimeInterval = 2) {
+    init(legacy: @escaping (EncodedVideo) -> Void, now: @escaping () -> UInt64, drainLimit: TimeInterval = 2,
+         connect: @escaping Connect = IngestRoute.connectSocket, schedule: @escaping Schedule = IngestRoute.dispatchSchedule) {
         self.legacy = legacy; self.now = now; self.drainLimit = drainLimit
+        self.connect = connect; self.schedule = schedule
     }
     /// Replaced writers still draining.
     var retiring: Int { lock.lock(); defer { lock.unlock() }; return replaced.count }
@@ -276,9 +300,9 @@ final class IngestRoute {
         final class Held { weak var writer: IngestWriter? }
         let held = Held()
         let next = try target.map { target in
-            try IngestWriter(path: target.socket, token: target.token, onClosed: { [weak self] in
+            try connect(target.socket, target.token, { [weak self] in
                 if let failed = held.writer { self?.failed(failed) }
-            }, onKeyframe: { [weak self] in self?.onKeyframe() })
+            }, { [weak self] in self?.onKeyframe() })
         }
         held.writer = next
         lock.lock()
@@ -286,23 +310,41 @@ final class IngestRoute {
         let boundary = previous == nil ? lastLegacy : lastIngest
         writer = next; address = target
         if next != nil { lastIngest = nil }
+        // ace-media may have closed the connection before it was installed here, when its one
+        // failure callback could find no current writer: that is a failure now.
+        if let next, next.isClosed { writer = nil; address = nil }
         lock.unlock()
         if let previous { retire(previous) }
         return (true, boundary)
     }
 
     /// Keeps a replaced writer until its queue is written (the units ace-media still needs), or
-    /// until `drainLimit`, when it is closed and ace-media sees that path cut.
+    /// until `drainLimit`, when it is closed and ace-media sees that path cut. At most
+    /// `maxRetired` writers or `maxRetiredBytes` queued are kept: past that the oldest is cut.
     private func retire(_ previous: IngestWriter) {
-        let id = ObjectIdentifier(previous)
-        lock.lock(); replaced[id] = previous; lock.unlock()
-        let release = { [weak self] in
-            guard let self else { return }
-            self.lock.lock(); let held = self.replaced.removeValue(forKey: id); self.lock.unlock()
-            held?.close()
+        lock.lock()
+        retirements += 1
+        let generation = retirements
+        lock.unlock()
+        let release: () -> Void = { [weak self] in self?.release(generation) }
+        let cancel = schedule(drainLimit, release)
+        lock.lock()
+        replaced[generation] = (previous, cancel)
+        var evicted: [IngestWriter] = []
+        while replaced.count > Self.maxRetired || replaced.values.reduce(0, { $0 + $1.writer.queued }) > Self.maxRetiredBytes,
+              let oldest = replaced.keys.min(), let entry = replaced.removeValue(forKey: oldest) {
+            entry.cancel(); evicted.append(entry.writer)
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + drainLimit, execute: release)
+        lock.unlock()
+        for writer in evicted { writer.close() }
         previous.finish(done: release)
+    }
+
+    /// One retirement is over (drained, or out of time): its writer is closed, its timer cancelled.
+    private func release(_ generation: UInt64) {
+        lock.lock(); let entry = replaced.removeValue(forKey: generation); lock.unlock()
+        entry?.cancel()
+        entry?.writer.close()
     }
 
     private func failed(_ failed: IngestWriter) {
@@ -317,9 +359,11 @@ final class IngestRoute {
     /// Closes at once, dropping what is queued.
     func close() {
         lock.lock()
-        let writers = [writer].compactMap { $0 } + Array(replaced.values)
+        let current = writer
+        let retired = Array(replaced.values)
         writer = nil; address = nil; replaced.removeAll()
         lock.unlock()
-        for writer in writers { writer.close() }
+        current?.close()
+        for entry in retired { entry.cancel(); entry.writer.close() }
     }
 }
