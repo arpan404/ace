@@ -85,13 +85,12 @@ export interface PinnedRequest {
  */
 const rereadableOps: ReadonlySet<string> = new Set(["status", "describe", "command.jobs"]);
 
-/** Short reads, which no long call can hold up (ConnectionLane `reads`). */
-const readOps: ReadonlySet<string> = new Set([
-  "status",
-  "describe",
-  "command.jobs",
-  "browser.session",
-]);
+/**
+ * Reads made by polling (ConnectionLane `reads`): child and session status, job reads. Nothing
+ * with a stretched timeout, and nothing that waits on another machine's slow work, shares their
+ * lane: describe and starting a session are work.
+ */
+const readOps: ReadonlySet<string> = new Set(["status", "command.jobs"]);
 
 /**
  * Which connections a call uses (ConnectionLane): a cancel, an answer to a request for the

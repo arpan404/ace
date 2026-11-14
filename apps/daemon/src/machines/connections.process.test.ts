@@ -820,3 +820,26 @@ test("a transfer client holding a pairing removed since reaches nothing when it 
   expect(failure).toBeInstanceOf(MachineNotSent);
   expect(requests).toBe(1);
 });
+
+test("a status read arrives at once while thirty-two slow describes and session starts are in flight", async () => {
+  const target = await busyMachine(3000, (asked) => asked.op === "describe" || asked.op === "browser.session");
+  const connections = pool();
+  const slow = Array.from({ length: 32 }, (_, index) =>
+    machineRequest(
+      target.profile,
+      { origin, call: index % 2 === 0 ? { op: "describe" } : { op: "browser.session" } },
+      { timeoutMs: 10_000, connections },
+    ),
+  );
+  await expect.poll(() => target.arrived.length).toBe(32);
+  const sent = Date.now();
+  await expect(
+    machineRequest(
+      target.profile,
+      { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+      { timeoutMs: 10_000, connections },
+    ),
+  ).resolves.toEqual({ ok: true });
+  expect(Date.now() - sent).toBeLessThan(500);
+  await Promise.all(slow);
+});

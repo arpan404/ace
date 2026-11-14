@@ -9,11 +9,10 @@ export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "
 /**
  * Which connections a call uses, so no kind of call can wait behind another that may itself
  * wait on it:
- * - `reads`: short reads made by polling or answered at once (child and session status, job
- *   reads, describe, starting a session, transfer probes and status), which a long call can
- *   never hold up;
- * - `work`: calls that may take long or wait on a person (tool calls, delegate, message,
- *   transfer calls and chunks);
+ * - `reads`: reads made by polling only (child and session status, job reads, transfer status,
+ *   and their resends), which nothing slow can hold up;
+ * - `work`: everything else that isn't urgent: tool calls, starting a session, describe,
+ *   delegate, message, transfer probes, calls and chunks;
  * - `urgent`: a cancel, a command stop, an answer to a request for the person.
  */
 export type ConnectionLane = "reads" | "work" | "urgent";
