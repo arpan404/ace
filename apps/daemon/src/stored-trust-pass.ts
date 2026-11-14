@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { StoredTrust } from "./stored-decode.ts";
-import { recordStoredTrust, storedWriteGeneration, type OpenedTrust } from "./stored-shape.ts";
+import { storedWriteGeneration, type OpenedTrust } from "./stored-shape.ts";
 import { isStoreRetry } from "./store-busy.ts";
 import { verifyStoredBatch } from "./stored-trust-batch.ts";
-import { confirmThreadRows } from "./thread-row-trust.ts";
+import type { TrustTableWrites } from "./stored-trust-writes.ts";
 
 /**
  * The idle pass that lets rows an older build wrote regain the trusted read path (ADR 0125).
@@ -14,7 +14,7 @@ import { confirmThreadRows } from "./thread-row-trust.ts";
  * reads the same as stored as validated, and any other sequence stays on the validating path.
  *
  * Widening trust never changes what a read returns, so progress is kept in memory and saved
- * every `batchesPerSave` batches through a write declared to change no thread read; a restart
+ * every `batchesPerSave` batches through a trust-table write that changes no thread read; a restart
  * repeats at most that many batches. Every batch first checks the write generation
  * (`stored-shape.ts`): when another build recorded a start, everything this build trusted is
  * dropped until it opens again. Once the pass finishes nothing watches the generation: one
@@ -56,8 +56,8 @@ export function scheduleTrustPass(tick: () => void): () => void {
 export interface StoredTrustPassOptions {
   scheduler: TrustPassScheduler;
   db: DatabaseSync;
-  /** Commits `run` as a write that changes nothing a thread read returns. */
-  commit: <T>(run: (db: DatabaseSync) => T) => T;
+  /** The pass's only writes, each to trust tables only (`stored-trust-writes.ts`). */
+  writes: TrustTableWrites;
   shape: string;
   opened: OpenedTrust;
   trust: StoredTrust;
@@ -100,8 +100,11 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
   const save = () => {
     const pending = unsaved;
     if (!pending) return;
-    const saved = options.commit((tx) =>
-      recordStoredTrust(tx, options.shape, options.opened, pending.from, pending.rejected),
+    const saved = options.writes.saveProgress(
+      options.shape,
+      options.opened,
+      pending.from,
+      pending.rejected,
     );
     unsaved = undefined;
     sinceSave = 0;
@@ -113,7 +116,7 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
       return false;
     }
     if (!threadsDone) {
-      if (options.commit((tx) => confirmThreadRows(tx, threadRowsPerBatch)) > 0) return true;
+      if (options.writes.stampThreadRows(threadRowsPerBatch) > 0) return true;
       threadsDone = true;
     }
     const done = verifyStoredBatch(db, trust);
@@ -151,20 +154,5 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
         if (!isStoreRetry(error)) options.report(error);
       }
     },
-  };
-}
-
-/** A plain write transaction on `db`, for a caller that knows none is open. */
-export function plainCommit(db: DatabaseSync): <T>(run: (db: DatabaseSync) => T) => T {
-  return (run) => {
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = run(db);
-      db.exec("COMMIT");
-      return result;
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
   };
 }

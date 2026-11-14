@@ -88,12 +88,14 @@ trusted.
      rejections, which are held in memory.
    - **Progress.** Widening trust never changes what a read returns, so progress is held in
      memory and saved (`stored_event_confirmed` and the rejections) every 32 batches and at
-     close. The save is a write the store declares changes no thread read
-     (`writeOutsideThreadReads`): it wakes no listener or WAL maintenance, and the read cache
-     carries its entries over it unless another connection committed meanwhile. Nothing proves
-     such a write neutral. Its statements may only write the tables in
-     `threadReadNeutralTables`, and one that writes any other table throws before it runs. A crash
-     repeats at most 32 batches.
+     close. A crash repeats at most 32 batches.
+   - **Writes that change no thread read.** The pass writes only through
+     `stored-trust-writes.ts`: named operations (save progress and rejections, stamp thread
+     rows) whose SQL is fixed in `stored-shape.ts` and `thread-row-trust.ts` and touches only
+     the trust tables. Each commits outside the store's transaction hooks, so it wakes no
+     listener or WAL maintenance, and the thread read cache carries its entries over it
+     unless another connection committed meanwhile. No API hands a caller a connection under
+     that carry-over: a new trust write is a new named operation there.
    - **Whose record it is.** The trusted boundary and the record belong to one build and one
      write generation.
      - The build key is the release version (`ACE_VERSION`) hashed with a build id: a

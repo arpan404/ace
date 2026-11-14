@@ -7,7 +7,6 @@ import {
   type OpenedTrust,
 } from "./stored-shape.ts";
 import {
-  plainCommit,
   runInProgress,
   scheduleTrustPass,
   startStoredTrustPass,
@@ -15,7 +14,7 @@ import {
 } from "./stored-trust-pass.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
-import { threadReadNeutral } from "./thread-read-neutral.ts";
+import { trustTableWrites } from "./stored-trust-writes.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
@@ -454,7 +453,11 @@ export class Store {
           rejectedLimit: options.trustPass?.rejectedLimit,
           batchesPerSave: options.trustPass?.batchesPerSave,
           db: this.db,
-          commit: (run) => this.writeOutsideThreadReads(run),
+          writes: trustTableWrites({
+            db: this.db,
+            generation: () => this.readGeneration(),
+            carryOver: (before, after) => this.readCache.carryOver(before, after),
+          }),
           shape: eventShape,
           opened,
           trust: this.trust,
@@ -475,20 +478,6 @@ export class Store {
   /** The committed generation thread reads are cached under: other connections' and own commits. */
   private readGeneration(): string {
     return `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`;
-  }
-  /**
-   * Commit `run`, outside any transaction, as a write declared to change nothing any thread read
-   * returns (the idle trust pass's progress and thread-row stamps), so the read cache keeps its
-   * entries. If another connection committed meanwhile the cache invalidates as usual. Nothing
-   * proves a write neutral; `run` may only write the tables in `threadReadNeutralTables`, and a
-   * statement writing any other throws before it runs.
-   */
-  private writeOutsideThreadReads<T>(run: (db: DatabaseSync) => T): T {
-    const before = this.readGeneration();
-    const result = plainCommit(this.db)((db) => run(threadReadNeutral(db)));
-    const after = this.readGeneration();
-    if (before.split(":")[0] === after.split(":")[0]) this.readCache.carryOver(before, after);
-    return result;
   }
   private onError: (error: unknown) => void;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */

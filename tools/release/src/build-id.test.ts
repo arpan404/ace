@@ -63,19 +63,20 @@ it("moving a file to another name changes the build id", async () => {
   expect(await releaseDigest(renamed)).not.toBe(await releaseDigest(root));
 });
 
+/** An assembly like the release build's: the bundle first, then a server staged after it. */
+const assemble = (server: string) => {
+  const root = mkdtempSync(join(tmpdir(), "ace-build-id-"));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  return assembleRelease(root, [
+    async () => writeFileSync(join(root, "ace.mjs"), 'import "./chunk-AAAA.mjs";'),
+    async () => {
+      mkdirSync(join(root, "spade"));
+      writeFileSync(join(root, "spade/spade-server"), server);
+    },
+  ]).then((id) => ({ root, id }));
+};
+
 it("a file staged after the bundle still changes the assembled release's build id", async () => {
-  /** An assembly like the release build's: the bundle first, then a server staged after it. */
-  const assemble = (server: string) => {
-    const root = mkdtempSync(join(tmpdir(), "ace-build-id-"));
-    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
-    return assembleRelease(root, [
-      async () => writeFileSync(join(root, "ace.mjs"), 'import "./chunk-AAAA.mjs";'),
-      async () => {
-        mkdirSync(join(root, "spade"));
-        writeFileSync(join(root, "spade/spade-server"), server);
-      },
-    ]).then((id) => ({ root, id }));
-  };
   const first = await assemble("server 1");
   const rebuilt = await assemble("server 1");
   const patched = await assemble("server 2");

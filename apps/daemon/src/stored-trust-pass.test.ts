@@ -493,3 +493,31 @@ it("a second connection reads the daemon's trust, or none for another build, and
   expect(readAsStored(daemon, oldest)).toBe(true);
   expect(readAsStored(await open(release("build B", "1.0.0")), oldest)).toBe(true);
 });
+
+it("a cached thread read stays cached while the pass stamps thread rows", async () => {
+  const { open, idle } = setup();
+  const store = await open(release("build A"));
+  const { thread } = history(store, 10);
+  // A change outside the writer leaves the thread's row unconfirmed until the pass stamps it.
+  sql(store, "UPDATE threads SET title = 'Renamed' WHERE id = ?", thread);
+  const stamped = () =>
+    store.atomic(
+      (db) =>
+        db
+          .prepare(
+            "SELECT 1 FROM thread_row_trust t JOIN sidebar_thread_revisions r ON r.thread_id = t.thread_id AND r.revision = t.revision WHERE t.thread_id = ?",
+          )
+          .get(thread) !== undefined,
+    );
+  expect(stamped()).toBe(false);
+  const page = store.readItems(thread, Number.MAX_SAFE_INTEGER, 50);
+  const before = store.streamingMetrics().reads;
+
+  // The first tick sees this test's appends and waits; the second stamps.
+  idle(2);
+  expectSame(store.readItems(thread, Number.MAX_SAFE_INTEGER, 50), page);
+  const after = store.streamingMetrics().reads;
+  expect(after.hits).toBe(before.hits + 1);
+  expect(after.invalidations).toBe(before.invalidations);
+  expect(stamped()).toBe(true);
+});
