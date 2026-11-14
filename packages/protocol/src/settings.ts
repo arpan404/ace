@@ -135,6 +135,13 @@ export const SettingsValues = z.object({
    */
   "devices.enabled": z.boolean(),
   /**
+   * Where live video is encoded and carried (ADR 0147, phase 2). `auto` sends Mac screens'
+   * video through ace-media, which hands it back to the daemon's viewers, recordings and
+   * stills; `legacy` keeps every frame on the screen helper's own socket. `legacy` by default
+   * until the phase ships.
+   */
+  "media.encode": z.enum(["auto", "legacy"]),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

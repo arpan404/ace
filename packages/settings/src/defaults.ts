@@ -58,6 +58,7 @@ export const defaults: SettingsValues = {
   "spade.enabled": false,
   "devices.emulatorWindow": false,
   "devices.enabled": true,
+  "media.encode": "legacy",
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

@@ -22,10 +22,11 @@ import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
+import { startMediaProducers } from "../media-producers.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startScreen(
-  { config, options, resources, services, store, now: epochNow }: ServiceContext,
+  { config, options, resources, services, store, log, now: epochNow }: ServiceContext,
   clock: ScreenCoworkOptions["clock"] = {
     now: () => performance.now(),
     set: nodeScheduler.after,
@@ -66,6 +67,23 @@ export async function startScreen(
           }
         : {}),
   });
+  // ace-media (ADR 0147, phase 2): Mac screens stream into it while `media.encode` is `auto`.
+  const media =
+    process.platform === "darwin" && helper && !options.screen && services.settings
+      ? await startMediaProducers({
+          settings: services.settings,
+          dataDir: config.dataDir,
+          env: process.env,
+          entry: process.argv[1],
+          sourceRoot: join(import.meta.dirname, "../../../.."),
+          platform: process.platform,
+          log: (level, message, fields) => log.log(level, `media: ${message}`, fields),
+        }).catch((error: unknown) => {
+          log.log("warn", "ace-media unavailable", { error: String(error) });
+          return undefined;
+        })
+      : undefined;
+  if (media) resources.own(() => media.stop());
   const manager =
     options.screen ??
     (helper
@@ -74,6 +92,7 @@ export async function startScreen(
           inheritResponsibility: config.screenHelperInheritsResponsibility,
           session,
           cowork,
+          media: media?.producers.sources,
         })
       : undefined);
   if (!manager) return;

@@ -47,6 +47,7 @@
     "spade.enabled",
     "devices.emulatorWindow",
     "devices.enabled",
+    "media.encode",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",
