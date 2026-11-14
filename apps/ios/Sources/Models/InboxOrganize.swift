@@ -90,7 +90,8 @@ struct MoveGroup: Equatable {
     @ObservationIgnored private var landings: [InboxKey: Landing] = [:]
 
     /// Each machine's threads among `keys`, in the order given.
-    static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
+    /// Pure, so a value type off the main actor (`MoveAsk`) can group its picks too.
+    nonisolated static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
         var order: [String] = []
         var groups: [String: [String]] = [:]
         for key in keys {
