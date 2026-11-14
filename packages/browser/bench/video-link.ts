@@ -250,7 +250,7 @@ try {
   const glassToGlassP50 = quantile(glassToGlass, 0.5);
   console.log(
     JSON.stringify({
-      path: `${seconds} s scroll (${context}) over ${threeG?.name ?? "phone"}: ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter${threeG ? `, ${threeG.loss * 100}% loss, slow start, 500 KB burst every 10 s, seed ${seed}` : ""}`,
+      path: `${seconds} s scroll (${context}) over ${threeG?.name ?? "phone"}: ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter${threeG ? `, ${threeG.loss * 100}% loss, slow start, ${(threeG.competing?.bytes ?? 0) / 1000} KB burst every 10 s, seed ${seed}` : ""}`,
       framesPerSecond: perSecond,
       sentMegabits,
       median,

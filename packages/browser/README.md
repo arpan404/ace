@@ -280,16 +280,17 @@ round trip). On each leg:
   restarts after an idle longer than the retransmit timeout.
 - **Loss:** a lost segment stalls its leg for one round trip. A lost tail (one of the last
   three segments sent back to back) stalls for the retransmit timeout: the round trip plus
-  200 ms. Either cuts the window to 0.7.
+  200 ms. Either cuts the window to 0.7, CUBIC's multiplicative decrease.
 - **Jitter:** up to 30 ms on the radio leg. Delivery stays in order.
-- **A competing flow:** the main session sends a 500 KB burst every 10 s on the down radio leg,
-  starting 5 s in. It takes half the link while it has bytes left.
+- **A competing flow:** the main session sends a burst every 10 s on the down radio leg,
+  starting 5 s in, sized at 25 % of what the link carries in those 10 s. It takes half the link
+  while it has bytes left.
 
-| Profile   | Down / up     | Round trip | Loss  |
-| --------- | ------------- | ---------- | ----- |
-| `3g-400`  | 400 / 200 k   | 500 ms     | 2 %   |
-| `3g-800`  | 800 / 400 k   | 400 ms     | 1.5 % |
-| `3g-1600` | 1.6 M / 800 k | 300 ms     | 1 %   |
+| Profile   | Down / up     | Round trip | Loss  | Burst  |
+| --------- | ------------- | ---------- | ----- | ------ |
+| `3g-400`  | 400 / 200 k   | 500 ms     | 2 %   | 125 KB |
+| `3g-800`  | 800 / 400 k   | 400 ms     | 1.5 % | 250 KB |
+| `3g-1600` | 1.6 M / 800 k | 300 ms     | 1 %   | 500 KB |
 
 The 3G profiles report only. Each profile's `enforced` field stays false until 3G pacing (M2b)
 lands. M2b then sets it for `3g-400` and `3g-1600`, which fail below their targets: first

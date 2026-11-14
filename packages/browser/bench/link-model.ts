@@ -12,14 +12,14 @@
  *   filled; after a loss it grows by one segment per round trip. After an idle longer than the
  *   retransmit timeout it restarts from 10 segments (slow start after idle).
  * - **Loss.** Each segment is lost with the profile's probability. A lost segment followed by at
- *   least three more sent back to back with it (`sendAll`) is fast-retransmitted: it, and everything behind it, arrives
- *   one round trip late. A lost tail (one of the last three, which can't raise three duplicate
- *   acks) waits for the retransmit timeout: the round trip plus a 200 ms minimum. Either loss
- *   cuts the window to 0.7 of itself (at least 2 segments), and it grows by one per round trip
- *   from there.
+ *   least three more sent back to back with it (`sendAll`) is fast-retransmitted: it, and
+ *   everything behind it, arrives one round trip late. A lost tail (one of the last three, which
+ *   can't raise three duplicate acks) waits for the retransmit timeout: the round trip plus a
+ *   200 ms minimum. Either loss cuts the window to 0.7 of itself (at least 2 segments), CUBIC's
+ *   multiplicative decrease (beta 0.7, RFC 9438), and it grows by one per round trip from there.
  * - **Jitter.** Each segment's one-way delay gains up to the jitter, but delivery stays in order.
- * - **A competing flow.** On the down radio leg, the main session sends a burst every 10 s.
- *   While a burst is unsent it is a backlogged TCP flow taking a fair half of the link; it takes
+ * - **A competing flow.** On the down radio leg, the main session sends a burst every 10 s,
+ *   sized at 25 % of what the link carries in those 10 s (125 KB at 400 kbit/s). While a burst is unsent it is a backlogged TCP flow taking a fair half of the link; it takes
  *   all of it while video is idle.
  *
  * The `phone` profile is the original 25 Mbit/s link, kept exactly as it was: one queue at the
@@ -86,7 +86,7 @@ const MIN_RTO_MS = 200;
 const DUP_ACKS = 3;
 const MAX_WINDOW = 4096;
 /**
- * The window after a loss, as a share of what it was (CUBIC's 0.7). Tail losses cut it the same
+ * The window after a loss, as a share of what it was: CUBIC's beta, 0.7 (RFC 9438). Tail losses cut it the same
  * way: tail loss probes turn them into ordinary recovery instead of a collapse to one segment.
  */
 const LOSS_BETA = 0.7;
@@ -323,7 +323,17 @@ export interface LinkProfile {
 
 /** The Mac to the relay: a wired leg, fast and short. */
 const RELAY_LEG = { kbps: 50_000, rttMs: 40, jitterMs: 0 } as const;
-const BURSTS: CompetingFlow = { bytes: 500_000, everyMs: 10_000, firstAfterMs: 5_000 };
+const BURST_EVERY_MS = 10_000;
+/** The main session's share of the link's average over each burst period. */
+const BURST_SHARE = 0.25;
+/** A burst every 10 s of 25 % of what the down link carries in that time. */
+export function burstsFor(downKbps: number): CompetingFlow {
+  return {
+    bytes: Math.round((downKbps * 1000 * BURST_SHARE * BURST_EVERY_MS) / 1000 / 8),
+    everyMs: BURST_EVERY_MS,
+    firstAfterMs: 5_000,
+  };
+}
 
 export const threeGProfiles = {
   "3g-400": {
@@ -333,7 +343,7 @@ export const threeGProfiles = {
     rttMs: 500,
     jitterMs: 30,
     loss: 0.02,
-    competing: BURSTS,
+    competing: burstsFor(400),
     targets: { firstPictureMs: 2000, glassToGlassP50Ms: 1500, fpsMedian: 5, codedWidth: 640 },
     enforced: false,
   },
@@ -344,7 +354,7 @@ export const threeGProfiles = {
     rttMs: 400,
     jitterMs: 30,
     loss: 0.015,
-    competing: BURSTS,
+    competing: burstsFor(800),
     enforced: false,
   },
   "3g-1600": {
@@ -354,7 +364,7 @@ export const threeGProfiles = {
     rttMs: 300,
     jitterMs: 30,
     loss: 0.01,
-    competing: BURSTS,
+    competing: burstsFor(1600),
     targets: { firstPictureMs: 2000, glassToGlassP50Ms: 1000, fpsMedian: 15, codedWidth: 1152 },
     enforced: false,
   },
