@@ -155,6 +155,26 @@ import Testing
         #expect(drawer.asked == ["first|light", "next|light", "away|light"])
     }
 
+    @Test func aRowBackOnScreenBeforeTheDiagramAheadFinishesStillGetsItsDiagram() async {
+        let drawer = Drawer()
+        let renders = DiagramRenders<Picture> { await drawer.draw($0, $1) }
+        let ahead = RenderGate(), row = RenderGate()
+        async let first = ahead.run { await renders.drawn("first", dark: false) }
+        let request = Task { await row.run { await renders.drawn("row", dark: false) } }
+        await settle()
+        // Scrolled away and straight back while "first" is still drawing.
+        row.close()
+        await settle()
+        row.open()
+        await settle()
+        await drawer.finishAll(); await settle()
+        _ = await first
+        await drawer.finishAll(); await settle()
+        let drawn = await request.value
+        #expect(drawn?.name == "row", "work the gate cut short is asked for again")
+        #expect(drawer.asked == ["first|light", "row|light"])
+    }
+
     @Test func aViewDiscardedWhileItsGateIsClosedStopsWaiting() async {
         let drawer = Drawer()
         let gate = RenderGate()

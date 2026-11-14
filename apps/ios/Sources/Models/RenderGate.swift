@@ -12,9 +12,13 @@ import Foundation
     private var waiting: [Int: CheckedContinuation<Void, Never>] = [:]
     /// Cancels the work of each request running now.
     private var running: [Int: () -> Void] = [:]
+    /// Attempts the gate cancelled by closing: their work runs again, whether or not the gate
+    /// has opened by the time it gives up.
+    private var cutShort: Set<Int> = []
 
-    /// The work's result, run while the gate is open. Work cut short by the gate closing (nil
-    /// while closed) runs again once it opens; nil when the request itself was cancelled.
+    /// The work's result, run while the gate is open. Work the gate cut short by closing runs
+    /// again once it is open, even if it opened before that work gave up; nil when the request
+    /// itself was cancelled.
     func run<Result: Sendable>(_ work: @escaping @MainActor () async -> Result?) async -> Result? {
         while !Task.isCancelled {
             guard isOpen else {
@@ -23,14 +27,18 @@ import Foundation
             }
             let id = take()
             let task = Task { @MainActor in await work() }
-            running[id] = { task.cancel() }
+            running[id] = { [weak self] in
+                self?.cutShort.insert(id)
+                task.cancel()
+            }
             let result = await withTaskCancellationHandler {
                 await task.value
             } onCancel: {
                 task.cancel()
             }
             running[id] = nil
-            if result != nil || isOpen || Task.isCancelled { return result }
+            let cut = cutShort.remove(id) != nil
+            if result != nil || !cut || Task.isCancelled { return result }
         }
         return nil
     }
