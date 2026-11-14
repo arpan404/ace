@@ -21,9 +21,20 @@ const compressible = new Set([".html", ".js", ".css", ".svg"]);
 /**
  * Built files under `/assets/` carry a hash of their content in their name, so a browser keeps
  * them for good: a remote device then downloads a lazy screen's code once, not on every visit.
- * The page and the icons keep their names across builds, so they are always asked for again.
+ * The page and the icons keep their names across builds, so a browser keeps them but asks again
+ * each time (`no-cache`) with the tag it was given: an unchanged page answers 304 with no body.
  */
 const hashedAssetCache = "public, max-age=31536000, immutable";
+const revalidated = "no-cache";
+/** The file's version (size and modification time); weak, so it holds across codings. */
+const versionTag = (size: number, mtimeMs: number) =>
+  `W/"${size.toString(36)}-${Math.trunc(mtimeMs).toString(36)}"`;
+const matches = (header: string | undefined, tag: string) =>
+  header !== undefined &&
+  header.split(",").some((candidate) => {
+    const trimmed = candidate.trim();
+    return trimmed === "*" || trimmed.replace(/^W\//, "") === tag.replace(/^W\//, "");
+  });
 /** Serve only the shipped renderer. No workspace or user-home files are reachable. */
 export function webHttp(root: string | undefined, next: RequestListener): RequestListener {
   const compressed = compressedFiles(32 * 1024 * 1024);
@@ -52,10 +63,19 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
           ? negotiateContentEncoding(request.headers["accept-encoding"])
           : undefined;
       response.setHeader("Content-Type", types[extension] ?? "application/octet-stream");
-      response.setHeader("Cache-Control", hashed ? hashedAssetCache : "no-store");
+      response.setHeader("Cache-Control", hashed ? hashedAssetCache : revalidated);
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("X-Content-Type-Options", "nosniff");
       if (compressible.has(extension)) response.setHeader("Vary", "Accept-Encoding");
+      if (!hashed) {
+        const tag = versionTag(info.size, info.mtimeMs);
+        response.setHeader("ETag", tag);
+        if (matches(request.headers["if-none-match"], tag)) {
+          response.statusCode = 304;
+          response.end();
+          return;
+        }
+      }
       const body =
         encoding &&
         (await compressed(file, encoding, info.size, info.mtimeMs).catch(() => undefined));

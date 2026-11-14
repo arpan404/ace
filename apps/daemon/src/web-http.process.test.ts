@@ -78,7 +78,7 @@ test("a browser accepting brotli receives the exact renderer bytes", async ({ on
   expect(response.headers["content-encoding"]).toBe("br");
   expect(response.headers.vary).toBe("Accept-Encoding");
   expect(response.headers["content-type"]).toContain("text/html");
-  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.headers["cache-control"]).toBe("no-cache");
   expect(Number(response.headers["content-length"])).toBe(response.body.length);
   expect(brotliDecompressSync(response.body).toString("utf8")).toBe(html);
 });
@@ -94,7 +94,7 @@ test("a browser accepting only gzip receives a gzip body matching the file", asy
   expect(gunzipSync(response.body).toString("utf8")).toBe(script);
 });
 
-test("built assets are cached for good while the page and icons are always fetched again", async ({
+test("built assets are cached for good while the page and icons are always revalidated", async ({
   onTestFinished,
 }) => {
   const { port, root } = await serveRenderer(onTestFinished);
@@ -102,9 +102,9 @@ test("built assets are cached for good while the page and icons are always fetch
   const script = await fetchRaw(port, "/assets/app.js");
   expect(script.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
   const page = await fetchRaw(port, "/t/some-thread");
-  expect(page.headers["cache-control"]).toBe("no-store");
+  expect(page.headers["cache-control"]).toBe("no-cache");
   const icon = await fetchRaw(port, "/favicon.svg");
-  expect(icon.headers["cache-control"]).toBe("no-store");
+  expect(icon.headers["cache-control"]).toBe("no-cache");
   const missing = await fetchRaw(port, "/assets/missing-0123.js");
   expect(missing.status).toBe(404);
   expect(missing.headers["cache-control"]).toBeUndefined();
@@ -231,4 +231,29 @@ test("other root files are not exposed; the page is served in their place", asyn
   const response = await fetchRaw(port, "/secret.png");
   expect(response.headers["content-type"]).toBe("text/html; charset=utf-8");
   expect(response.body.toString("utf8")).toBe(html);
+});
+
+test("a repeat load of an unchanged page is answered 304, and a rebuilt one in full", async ({
+  onTestFinished,
+}) => {
+  const { port, root } = await serveRenderer(onTestFinished);
+  const first = await fetchRaw(port, "/t/some-thread", { "accept-encoding": "br" });
+  const tag = first.headers.etag;
+  expect(tag).toMatch(/^W\/".+"$/);
+  const again = await fetchRaw(port, "/t/other-thread", {
+    "accept-encoding": "br",
+    "if-none-match": String(tag),
+  });
+  expect(again.status).toBe(304);
+  expect(again.body.length).toBe(0);
+  expect(again.headers.etag).toBe(tag);
+  const rebuilt = `<html><body>${"new ace ".repeat(500)}</body></html>`;
+  await writeFile(join(root, "index.html"), rebuilt);
+  const fresh = await fetchRaw(port, "/", {
+    "accept-encoding": "br",
+    "if-none-match": String(tag),
+  });
+  expect(fresh.status).toBe(200);
+  expect(fresh.headers.etag).not.toBe(tag);
+  expect(brotliDecompressSync(fresh.body).toString("utf8")).toBe(rebuilt);
 });
