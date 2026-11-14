@@ -5,6 +5,8 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
+import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import {
   legacyMediaSettings,
@@ -42,7 +44,27 @@ function findBinary(): string | undefined {
   });
 }
 
-export function startMedia(context: ServiceContext): BrowserMedia | undefined {
+/** The daemon's ace-media as its producers see it. */
+export type DaemonMedia = BrowserMedia & {
+  /**
+   * For a long-lived producer (a screen session): its source, kept until closed. Before the
+   * runtime exists (`media.encode` never asked for it) the producer waits, and is added once it
+   * does, so a session started under `legacy` still moves when the setting turns `auto`.
+   */
+  attach(producer: IngestProducer): IngestSource;
+};
+
+/** One per daemon: the browser and the screen share it. */
+const started = new WeakMap<object, DaemonMedia | undefined>();
+
+export function startMedia(context: ServiceContext): DaemonMedia | undefined {
+  if (started.has(context.services)) return started.get(context.services);
+  const media = createMedia(context);
+  started.set(context.services, media);
+  return media;
+}
+
+function createMedia(context: ServiceContext): DaemonMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
   const binary = findBinary();
   if (!binary) return undefined;
@@ -52,6 +74,8 @@ export function startMedia(context: ServiceContext): BrowserMedia | undefined {
   let starting: Promise<void> | undefined;
   let closed = false;
   let runtimeDir: string | undefined;
+  /** Long-lived producers waiting for the runtime, with the source they get then. */
+  const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
 
   const start = () =>
     (starting ??= (async () => {
@@ -70,8 +94,10 @@ export function startMedia(context: ServiceContext): BrowserMedia | undefined {
         random: Math.random,
         listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
         id,
+        capabilities: platformRouteCapabilities(process.platform),
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
       });
+      for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
@@ -101,5 +127,21 @@ export function startMedia(context: ServiceContext): BrowserMedia | undefined {
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
     pictureCodecs: () => runtime?.pictureCodecs() ?? [],
     endpoint: () => runtime?.sources.endpoint(),
+    attach: (producer) => {
+      if (runtime) return runtime.sources.add(producer);
+      const slot: { source: IngestSource | undefined } = { source: undefined };
+      waiting.set(producer, slot);
+      return {
+        streaming: () => slot.source?.streaming() ?? false,
+        reconnect: () => slot.source?.reconnect(),
+        encodes: (encodes) => slot.source?.encodes(encodes),
+        key: (encode) => slot.source?.key(encode),
+        picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,
+        close: () => {
+          waiting.delete(producer);
+          slot.source?.close();
+        },
+      };
+    },
   };
 }

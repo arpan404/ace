@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenStreamConfigured.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "boundary": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "codec": {
+      "enum": [
+        "jpeg",
+        "h264"
+      ],
+      "type": "string"
+    },
+    "ingest": {
+      "enum": [
+        "on",
+        "off"
+      ],
+      "type": "string"
+    },
+    "switched": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "codec"
+  ],
+  "type": "object"
+}
