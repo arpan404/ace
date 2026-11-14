@@ -139,6 +139,12 @@ final class IngestWriter {
         return true
     }
 
+    /// Bytes of units not yet fully written.
+    var queued: Int { lock.lock(); defer { lock.unlock() }; return queuedBytes }
+    /// Bytes of payloads the writer still holds, written or not.
+    var held: Int { lock.lock(); defer { lock.unlock() }; return pending.reduce(0) { $0 + $1.count } }
+    var isClosed: Bool { lock.lock(); defer { lock.unlock() }; return closed }
+
     /// No more units: what is queued is still written, then the connection closes.
     func finish() {
         lock.lock(); defer { lock.unlock() }
@@ -174,7 +180,12 @@ final class IngestWriter {
             }
             if written == 0 { break }
             offset += written
-            if offset == frame.count { queuedBytes -= frame.count; offset = 0; head += 1 }
+            if offset == frame.count {
+                // A written unit is freed at once, so `limit` bounds what the writer holds.
+                queuedBytes -= frame.count; offset = 0
+                pending[head] = Data(); head += 1
+                if head >= 64 { pending.removeFirst(head); head = 0 }
+            }
         }
         lock.unlock()
         if failed { onClosed() }
