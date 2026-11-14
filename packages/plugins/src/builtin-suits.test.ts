@@ -17,7 +17,7 @@ async function home(): Promise<string> {
 
 it("a first run fills the library with the shipped Suits, each one a valid Suit in its own folder", async () => {
   const library = join(await home(), ".ace", "suits");
-  expect(await seedBuiltinSuits(library)).toEqual(["starfield", "warm-paper"]);
+  expect(await seedBuiltinSuits(library)).toEqual(["neon-district", "starfield", "warm-paper"]);
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(
       JSON.parse(await readFile(join(library, id, "suit.json"), "utf8")),

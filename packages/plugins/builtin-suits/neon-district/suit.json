@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "id": "neon-district",
+  "name": "Neon District",
+  "description": "A rain-soaked megacity at night: magenta and cyan neon, flickering windows, and signs that flash when a pull request merges. Dark only.",
+  "version": "1",
+  "base": "midnight",
+  "dark": {
+    "canvas": "#0B0912",
+    "sidebar": "#08070E",
+    "surface": "#15111F",
+    "raised": "#1A1526",
+    "hover": "#18132A",
+    "active": "#241B36",
+    "border": "#2A2140",
+    "borderStrong": "#3E3060",
+    "faint": "#73698C",
+    "subtle": "#9D93B4",
+    "muted": "#C0B7D2",
+    "text": "#F0EAF8",
+    "code": "#0E0B17",
+    "accent": "#FF2D95",
+    "accentHover": "#FF5AAD",
+    "accentFg": "#16030D",
+    "accentText": "#FF6FB8",
+    "diffAdd": "#0D2724",
+    "diffAddFg": "#5FF2D6",
+    "diffDel": "#2E0F1C",
+    "diffDelFg": "#FF8FB0",
+    "syntax": {
+      "kw": "#FF6FB8",
+      "fn": "#3DF2FF",
+      "str": "#C8F560",
+      "num": "#FFC94D",
+      "type": "#B18CFF",
+      "com": "#8A80A3",
+      "punc": "#9D93B4"
+    },
+    "glass": { "blur": 22, "saturate": 170 }
+  },
+  "shape": { "radius": 0.6, "border": 1 },
+  "motion": { "speed": 0.9 }
+}

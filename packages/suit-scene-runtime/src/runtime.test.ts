@@ -207,23 +207,39 @@ test("a definition without frame, or a second definition, is an error", () => {
   ]);
 });
 
-test("the shipped Starfield scene starts clean and draws under the runtime", () => {
-  const source = readFileSync(
-    new URL("../../plugins/builtin-suits/starfield/scene.js", import.meta.url),
-    "utf8",
-  );
-  const page = sandbox();
-  new Function("ace", source)(page.ace);
-  page.send(init);
-  page.send({ type: "tick", time: 0 });
-  page.send({ type: "signal", signal: "pr-merged" });
-  page.send({ type: "tick", time: 33 });
-  page.send({ type: "resize", width: 400, height: 300, pixelRatio: 1 });
-  page.send({ type: "tick", time: 66 });
-  expect(page.replies).toEqual([
-    { type: "ready" },
-    { type: "drawn", time: 0 },
-    { type: "drawn", time: 33 },
-    { type: "drawn", time: 66 },
-  ]);
-});
+/** An offscreen canvas for scenes that paint layers once and blit them. */
+const offscreenDocument = {
+  createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
+};
+
+test.each(["starfield", "neon-district"])(
+  "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
+  (id) => {
+    const source = readFileSync(
+      new URL(`../../plugins/builtin-suits/${id}/scene.js`, import.meta.url),
+      "utf8",
+    );
+    const page = sandbox();
+    new Function("ace", "document", "OffscreenCanvas", source)(
+      page.ace,
+      offscreenDocument,
+      undefined,
+    );
+    page.send(init);
+    page.send({ type: "tick", time: 0 });
+    for (const signal of ["working", "waiting", "failed", "pr-merged", "done"])
+      page.send({ type: "signal", signal });
+    page.send({ type: "tick", time: 33 });
+    page.send({ type: "resize", width: 400, height: 300, pixelRatio: 1 });
+    page.send({ type: "tick", time: 66 });
+    page.send({ type: "motion", reduceMotion: true });
+    page.send({ type: "tick", time: 99 });
+    expect(page.replies).toEqual([
+      { type: "ready" },
+      { type: "drawn", time: 0 },
+      { type: "drawn", time: 33 },
+      { type: "drawn", time: 66 },
+      { type: "drawn", time: 99 },
+    ]);
+  },
+);

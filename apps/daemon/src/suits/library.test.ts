@@ -163,16 +163,17 @@ test("an edit on disk is announced once it settles, with the new list", async ()
   await vi.waitFor(() => expect(heard.at(-1)?.[0]?.name).toBe("Neon Night"), { timeout: 3000 });
 });
 
-test("both Suits ace ships pass every check the daemon runs before one applies", async () => {
+test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["starfield", "warm-paper"]);
+  expect(seeded).toEqual(["neon-district", "starfield", "warm-paper"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
   }
   // The scene Suit is served with its scene; the colours-only one has none.
   expect(detail(await library.read("starfield")).sceneUrl).toMatch(/scene\.html$/);
+  expect(detail(await library.read("neon-district")).sceneUrl).toMatch(/scene\.html$/);
   expect(detail(await library.read("warm-paper")).sceneUrl).toBeNull();
 });
 
