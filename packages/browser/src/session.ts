@@ -23,6 +23,7 @@ import { requestAsPerson, type PersonFile, type PersonRequest } from "./person-r
 import { DroppedFiles } from "./dropped-files.ts";
 import { readDownload } from "./download-read.ts";
 import { OfflineRetries } from "./offline-retry.ts";
+import { RecoveryRetry } from "./recovery-retry.ts";
 import { printPdf } from "./page-capture.ts";
 import { carriedCookies, type CarriedCookie } from "./cookie-carry.ts";
 import { ViewerSizes } from "./viewer-sizes.ts";
@@ -72,6 +73,10 @@ export class BrowserSession {
   private printing: Promise<void> | undefined;
   /** Which person's viewer sized the page last, to give it back when that viewer leaves. */
   private viewers = new ViewerSizes();
+  /** Tries again to show the watched tab after a failed wake (`wakeWatched`). */
+  private shownWake: RecoveryRetry;
+  /** Why the watched tab could not be shown, and how many tries failed in a row. */
+  private wakeFailure: { reason: string; attempts: number } | undefined;
   get evictable(): boolean {
     return (
       this.tabs.all().every((tab) => !tab.private && !tab.busy) &&
@@ -124,6 +129,7 @@ export class BrowserSession {
       },
     );
     this.tabs = new SessionTabs(this.host(), () => this.options.backend);
+    this.shownWake = new RecoveryRetry(options.navigationClock);
     this.offline = new OfflineRetries(options.navigationClock, async (tabId) => {
       await this.tabs.page(tabId).cdp.send("Page.reload");
     });
@@ -166,23 +172,60 @@ export class BrowserSession {
     this.live.onVideoStatus(() => this.emit());
     // Watching counts as using the shown tab: it idles from when the person looks away, and a
     // tab that rested or froze unwatched is brought back as soon as someone watches it.
-    this.live.onWatched((watched) => {
+    this.live.onWatched(() => {
       if (this.closed) return;
-      const shown = this.tabs.viewed();
-      shown?.seen();
-      if (!watched || !shown) return;
-      // A frozen or dropped page is captured afresh once it runs again, as a newly shown tab is.
-      if (shown.lifecycle !== "live") this.recapture("Tab capture failed");
-      else void this.wakeIdle(shown.id).catch(() => {});
+      this.tabs.viewed()?.seen();
+      this.wakeWatched();
     });
     this.persist();
     this.scheduleLifecycle();
+  }
+  /**
+   * Someone started (or keeps) watching: the shown tab comes back. A frozen or dropped page is
+   * captured afresh once it runs again, as a newly shown tab is (a failure there pauses the
+   * browser). A resting page is shown again; if that fails, it is tried again, waiting longer
+   * each time, while anyone watches, and the video says it is retrying rather than stay blank.
+   */
+  private wakeWatched(): void {
+    this.shownWake.stop();
+    const shown = this.tabs.viewed();
+    if (this.closed || !shown || !this.live.watched()) {
+      if (this.wakeFailure) {
+        this.wakeFailure = undefined;
+        this.emit();
+      }
+      return;
+    }
+    if (shown.lifecycle !== "live") {
+      this.recapture("Tab capture failed");
+      return;
+    }
+    this.wakeIdle(shown.id).then(
+      () => {
+        this.shownWake.recovered();
+        if (!this.wakeFailure) return;
+        this.wakeFailure = undefined;
+        this.emit();
+      },
+      (error: unknown) => {
+        if (this.closed) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        this.wakeFailure = {
+          reason: `The page could not be shown: ${reason}`.slice(0, 2048),
+          attempts: (this.wakeFailure?.attempts ?? 0) + 1,
+        };
+        this.emit();
+        this.shownWake.schedule(() => this.wakeWatched());
+      },
+    );
   }
   /** A frozen tab runs again, a discarded one reopens (its page state reported lost). */
   private async wakeIdle(tabId: string): Promise<void> {
     const runtime = this.tabs.find(tabId);
     if (!runtime) return;
-    const woke = await wakeTab(runtime, this.options.backend.tabs);
+    const waking = wakeTab(runtime, this.options.backend.tabs);
+    // The video waits for the page it shows to be back.
+    const woke = await (tabId === this.captured ? this.live.restoring(waking) : waking);
     if (woke === "reopened") this.tabs.stateLost(tabId, true);
     if (woke) this.emit();
   }
@@ -268,6 +311,7 @@ export class BrowserSession {
     });
   }
   private videoStatus() {
+    if (this.wakeFailure) return { status: "retrying" as const, ...this.wakeFailure };
     // State is read while the constructor still sets up the tabs, before the live capture exists.
     const live: LiveCapture | undefined = this.live;
     return live?.video.status();
@@ -471,11 +515,20 @@ export class BrowserSession {
   }
   /** What only the person may ask of a page, such as answering a site's sign-in. */
   async asPerson(request: PersonRequest): Promise<BrowserState> {
-    this.tab(request.tabId);
+    const tab = this.tab(request.tabId);
     this.lastActivity = this.options.now();
-    await requestAsPerson(this.options.backend.tabs, request, async () =>
-      join(this.options.dir, "chosen-files", this.options.id()),
-    );
+    // Held awake from the request until the page has it, files still being staged included.
+    const release = tab.hold();
+    try {
+      await requestAsPerson(
+        this.options.backend.tabs,
+        request,
+        async () => join(this.options.dir, "chosen-files", this.options.id()),
+        () => this.wakeIdle(tab.id),
+      );
+    } finally {
+      release();
+    }
     this.emit();
     return this.state;
   }
@@ -486,8 +539,14 @@ export class BrowserSession {
   ): Promise<BrowserState> {
     const tab = this.tab(request.tabId);
     this.lastActivity = this.options.now();
-    const paths = await this.drops.stage(request.files);
-    await tab.drop(paths, { x: request.x, y: request.y }, request.modifiers, connectionId);
+    // Held awake while the files are staged; the drop itself wakes the page on the person's lane.
+    const release = tab.hold();
+    try {
+      const paths = await this.drops.stage(request.files);
+      await tab.drop(paths, { x: request.x, y: request.y }, request.modifiers, connectionId);
+    } finally {
+      release();
+    }
     return this.state;
   }
   /** A chunk of one of this thread's finished downloads, for the person's device. */
@@ -582,6 +641,8 @@ export class BrowserSession {
     if (this.closed || this.printing) return;
     const runtime = tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId);
     if (!runtime || runtime.private) return;
+    // Held awake from before the wake until the PDF is written, failure or not.
+    const release = runtime.hold();
     this.printing = (async () => {
       await this.wakeIdle(runtime.id);
       const pdf = await printPdf(
@@ -603,6 +664,7 @@ export class BrowserSession {
     })()
       .catch(() => {})
       .finally(() => {
+        release();
         this.printing = undefined;
       });
   }
@@ -939,6 +1001,7 @@ export class BrowserSession {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.stopLifecycle();
+      this.shownWake.stop();
       this.offline.close();
       for (const tab of this.tabs.all()) tab.annotation.end("stopped");
       this.lastUrl = this.options.backend.url();

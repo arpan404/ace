@@ -226,8 +226,25 @@ export class TabRuntime {
       (command?.action === "history" && command.direction === "reload");
     if (!revives && this.crashed()) throw new BrowserActionError("tab_crashed");
   }
+  /** Commands are queued or running on it, or work outside its queue holds it awake (`hold`). */
   get busy(): boolean {
-    return !this.queue.idle || !this.lane.idle;
+    return !this.queue.idle || !this.lane.idle || this.holds > 0;
+  }
+  private holds = 0;
+  /**
+   * Keeps the tab awake for work that runs outside its command queue (a print, a person's
+   * answer to a prompt, files being staged): no rest, freeze or discard until the returned
+   * release runs, once, after which its idle time starts over.
+   */
+  hold(): () => void {
+    this.holds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds--;
+      this.lastActiveAt = this.host.options.now();
+    };
   }
   get private(): boolean {
     return this.access.private;

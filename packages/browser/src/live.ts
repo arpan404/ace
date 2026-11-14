@@ -214,7 +214,21 @@ export class LiveCapture {
     }
   }
   /** One video step; a page that went away meanwhile skips it rather than throw in a timer. */
+  /** Wakes of the shown page under way: the video waits for them. */
+  private restorations = 0;
+  /**
+   * The shown page is being brought back (shown again, thawed or reopened) by `waking`. No
+   * video starts or plays meanwhile, so a viewer's first picture is the restored page at its
+   * size, never a hidden or stale one. Resolves as `waking` does.
+   */
+  restoring<T>(waking: Promise<T>): Promise<T> {
+    this.restorations++;
+    return waking.finally(() => {
+      this.restorations--;
+    });
+  }
   private stepVideo(): void {
+    if (this.restorations > 0) return;
     let viewport: { width: number; height: number };
     try {
       viewport = this.viewport();
