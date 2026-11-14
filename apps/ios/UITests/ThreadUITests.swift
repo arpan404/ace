@@ -106,8 +106,8 @@ import XCTest
     }
     func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
         let app = launch()
-        reveal("thread.ios-log-long", in: app)
-        app.buttons["thread.ios-log-long"].tap()
+        // Far down the fixture's inbox: the shared helper scrolls until the row is in the middle.
+        app.revealRow("thread.ios-log-long").tap()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         let rail = app.descendants(matching: .any)["transcript.turnRail"]
@@ -117,8 +117,11 @@ import XCTest
         XCTAssertTrue(rail.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
         screenshot("turn-rail")
-        // Its top tick is the first turn: lifting there brings that turn's ask into view.
-        rail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.3)
+        // The rail's touch area is a full tap wide and as tall as the rail.
+        XCTAssertGreaterThanOrEqual(rail.frame.width, 44)
+        XCTAssertGreaterThan(rail.frame.height, 88)
+        // Its top tick is the first turn: lifting just inside its top brings that turn's ask into view.
+        rail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).press(forDuration: 0.3)
         let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part 1.")).firstMatch
         expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: first)
         waitForExpectations(timeout: 15)

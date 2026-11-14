@@ -41,22 +41,28 @@ struct TranscriptTurnRail: View {
     }
 
     private func rail(ticks: [Int], height: CGFloat) -> some View {
-        ZStack(alignment: .topTrailing) {
-            ForEach(ticks, id: \.self) { ordinal in
-                let lit = ordinal == current
-                Capsule()
-                    .fill(lit ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(width: lit ? AceDesign.Space.group : AceDesign.Space.related, height: AceTheme.Dimensions.border * 2)
-                    .offset(y: TurnRail.offset(of: ordinal, height: Double(height), ticks: ticks).map { CGFloat($0) } ?? 0)
+        // The strip itself is the touch area, a full tap wide and the rail's height; the ticks and
+        // the card are drawn over it, so a tap anywhere along it lands.
+        Color.clear
+            .frame(width: AceDesign.Size.tap, height: height)
+            .overlay(alignment: .topTrailing) {
+                ZStack(alignment: .topTrailing) {
+                    ForEach(ticks, id: \.self) { ordinal in
+                        let lit = ordinal == current
+                        Capsule()
+                            .fill(lit ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
+                            .frame(width: lit ? AceDesign.Space.group : AceDesign.Space.related, height: AceTheme.Dimensions.border * 2)
+                            .offset(y: TurnRail.offset(of: ordinal, height: Double(height), ticks: ticks).map { CGFloat($0) } ?? 0)
+                    }
+                    if let scrub, let y = TurnRail.offset(of: scrub, height: Double(height), ticks: ticks) {
+                        card(scrub)
+                            .offset(x: -AceDesign.Size.tap, y: CGFloat(y) - AceDesign.Size.tap / 2)
+                    }
+                }
+                .padding(.trailing, AceDesign.Space.tight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            if let scrub, let y = TurnRail.offset(of: scrub, height: Double(height), ticks: ticks) {
-                card(scrub)
-                    .offset(x: -AceDesign.Size.tap, y: CGFloat(y) - AceDesign.Size.tap / 2)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(width: AceDesign.Size.tap, height: height, alignment: .topTrailing)
-        .padding(.trailing, AceDesign.Space.tight)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
