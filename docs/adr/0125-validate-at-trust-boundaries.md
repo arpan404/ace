@@ -90,24 +90,38 @@ trusted.
      memory and saved (`stored_event_confirmed` and the rejections) every 32 batches and at
      close. The save is a write the store declares changes no thread read
      (`writeOutsideThreadReads`): it wakes no listener or WAL maintenance, and the read cache
-     carries its entries over it unless another connection committed meanwhile. A crash
+     carries its entries over it unless another connection committed meanwhile. Nothing proves
+     such a write neutral. Its statements may only write the tables in
+     `threadReadNeutralTables`, and one that writes any other table throws before it runs. A crash
      repeats at most 32 batches.
-   - **Whose record it is.** The record belongs to one build and one write generation. The
-     build key is the release version (`ACE_VERSION`) hashed with the bytes of the bundled
-     entry the daemon runs from (`ace.mjs`). The release bundles the daemon with
-     content-hashed chunks whose names the entry holds, so any change to the shipped code
-     changes the key. That includes a protocol transform, refinement or decoder, which the
-     shape can't see, and a local rebuild of the same version with different code. A
-     rebuild of identical code keeps the key. A daemon run from source keeps nothing across
-     restarts. The history publication worker is handed the daemon's own key. The
-     generation is a counter that SQLite triggers bump on every write to `stored_event_shape`,
-     by any build, including builds from before the pass. So a build that recorded its start
-     in between, even one that later records this shape again, invalidates the record. Every
-     batch checks the generation before it reads, and a save succeeds only while the record
-     still matches. On a mismatch the running daemon drops all stored-row trust until it
-     opens again. Once the pass finishes, nothing watches the generation. This is safe only
-     because one daemon owns a data directory (`acquireLock`), so another build writing
-     while this one runs is unsupported.
+   - **Whose record it is.** The trusted boundary and the record belong to one build and one
+     write generation.
+     - The build key is the release version (`ACE_VERSION`) hashed with a build id: a
+       digest the release bundle step writes as `build-id` beside `ace.mjs`
+       (`tools/release/src/build-id.ts`). It covers every daemon file: the entry, its
+       chunks, every separately bundled helper (the fixed-name `*-worker.mjs`,
+       `*-process.mjs`, `*-host.mjs`), runtime packages, and native and wasm assets.
+     - Any change to the shipped code changes the key. That includes a protocol transform,
+       refinement or decoder, which the shape can't see, and a local rebuild of the same
+       version with different files. A rebuild of identical files keeps the key.
+     - When the shape or the key differs from what is recorded, trust starts above the head
+       even though the shape is unchanged, and the idle pass re-confirms older rows, newest
+       first. So after every update, history reads are validated (the speed before this
+       decision) until the pass has re-confirmed them, most recent rows first.
+     - A daemon run from source, or a release without a readable build id, has no key and
+       records a new start at every open, keeping nothing.
+     - The history publication worker reads the same `build-id` beside its own file. It
+       refuses to publish when its key differs from the daemon's (the release on disk
+       changed under a running daemon). It opens trust read-only: it never writes the
+       record or a start, and runs no pass. The
+       generation is a counter that SQLite triggers bump on every write to `stored_event_shape`,
+       by any build, including builds from before the pass. So a build that recorded its start
+       in between, even one that later records this shape again, invalidates the record. Every
+       batch checks the generation before it reads, and a save succeeds only while the record
+       still matches. On a mismatch the running daemon drops all stored-row trust until it
+       opens again. Once the pass finishes, nothing watches the generation. This is safe only
+       because one daemon owns a data directory (`acquireLock`), so another build writing
+       while this one runs is unsupported.
    - **At open.** The start, the reset and the rejections change in one savepoint, so an
      interrupted open leaves the previous state whole. Trust is decided after the open-time
      passes that rewrite stored rows.
