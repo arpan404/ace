@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { join } from "node:path";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import { ServerMessage } from "@ace/protocol";
 
 /**
@@ -83,5 +84,16 @@ export async function firstClient(endpoint: string, token: string, started: numb
   const threadsListMs = await listed.promise;
   socket.close();
   await once(socket, "close");
-  return { welcomeMs, threadsListMs, sawStarting: starting };
+  // A start that got faster by leaving a service behind is no improvement: name any that is not ready.
+  const status = z
+    .object({ services: z.array(z.object({ name: z.string(), state: z.string() })) })
+    .parse(
+      await (
+        await fetch(new URL("/v1/status", endpoint), {
+          headers: { authorization: `Bearer ${token}` },
+        })
+      ).json(),
+    );
+  const notReady = status.services.filter((service) => service.state !== "ready");
+  return { welcomeMs, threadsListMs, sawStarting: starting, notReady };
 }
