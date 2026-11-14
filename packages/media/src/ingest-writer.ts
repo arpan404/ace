@@ -120,27 +120,39 @@ export class IngestWriter {
    * cut.
    */
   finish(): void {
-    if (this.#state.kind !== "open") return;
+    if (!this.#move({ kind: "finishing", step: "keyframe" })) return;
     this.#disarm();
     this.#arm();
-    if (this.#pending) {
-      this.#state = { kind: "finishing", step: "keyframe" };
-      this.#room();
-    } else this.#writeEnd();
+    // With no keyframe waiting, the end frame goes at once.
+    this.#room();
+  }
+
+  /**
+   * The only setter: `ended` and `cut` are terminal, nothing leaves them, and a finish never goes
+   * back to `open`. False when the move isn't allowed.
+   */
+  #move(next: State): boolean {
+    const from = this.#state.kind;
+    if (from === "ended" || from === "cut") return false;
+    if (from === "finishing" && next.kind === "open") return false;
+    this.#state = next;
+    return true;
+  }
+
+  #is(kind: State["kind"]): boolean {
+    return this.#state.kind === kind;
   }
 
   /** At once, dropping what is queued: ace-media sees that path cut. Not reported. */
   close(): void {
-    if (this.#state.kind === "ended" || this.#state.kind === "cut") return;
-    this.#state = { kind: "cut" };
+    if (!this.#move({ kind: "cut" })) return;
     this.#stop();
     this.#socket.destroy();
   }
 
   /** The only way a failure is reported, at most once. */
   #cut(reason: string): void {
-    if (this.#state.kind === "ended" || this.#state.kind === "cut") return;
-    this.#state = { kind: "cut" };
+    if (!this.#move({ kind: "cut" })) return;
     this.#stop();
     this.#socket.destroy();
     this.#options.onClosed(reason);
@@ -171,11 +183,13 @@ export class IngestWriter {
     });
   }
 
+  /** Only from a finish whose keyframe has gone (or never waited). */
   #writeEnd(): void {
-    this.#state = { kind: "finishing", step: "end" };
+    const state = this.#state;
+    if (state.kind !== "finishing" || state.step !== "keyframe") return;
+    if (!this.#move({ kind: "finishing", step: "end" })) return;
     this.#write(encodeMediaFrame({ ...control(4), payload: new Uint8Array(0) }), () => {
-      if (this.#state.kind !== "finishing") return;
-      this.#state = { kind: "ended" };
+      if (!this.#is("finishing") || !this.#move({ kind: "ended" })) return;
       this.#disarm();
       this.#socket.end();
     });
@@ -223,8 +237,9 @@ export class IngestWriter {
       if (pending && !this.#fits(pending.length)) return;
       this.#pending = undefined;
       if (pending) this.#write(pending);
+      // The write may have cut the path (a destroyed socket): the end goes only if it didn't.
       // The deadline stays armed until the end frame's write succeeds.
-      this.#writeEnd();
+      if (this.#is("finishing")) this.#writeEnd();
     }
   }
 

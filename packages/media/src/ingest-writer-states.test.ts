@@ -273,6 +273,25 @@ const cases: Case[] = [
     ended: false,
     destroyed: true,
   },
+  {
+    name: "a socket destroyed before a finish's keyframe goes is one cut, through every later event",
+    run: ({ socket, writer, expire, backlogged }) => {
+      backlogged();
+      writer.finish();
+      // Destroyed, its close not yet delivered: the backlog's completion finds room.
+      socket.destroyed = true;
+      socket.complete();
+      socket.close();
+      socket.emit("error");
+      socket.emit("drain");
+      expire();
+      expect(writer.write(unit(3, true))).toBe(false);
+    },
+    cuts: ["destroyed"],
+    seen: ["1:1"],
+    ended: false,
+    destroyed: true,
+  },
 ];
 
 for (const test of cases)
