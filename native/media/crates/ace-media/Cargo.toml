@@ -39,3 +39,7 @@ media-vt = { path = "../media-vt" }
 [[example]]
 name = "ingest"
 path = "bench/ingest.rs"
+
+[[example]]
+name = "still"
+path = "bench/still.rs"

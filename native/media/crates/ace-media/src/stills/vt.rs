@@ -13,6 +13,7 @@ use media_codec::{CpuJpegCodec, CpuPicture, Decoder, JpegCodec, Picture, Size};
 use media_vt::{Copies, DecodeOutput, VtDecoder, VtFormat, VtJpeg, VtScaler, VtSurface, read_back};
 use media_wire::control::{Backend, SourceStep, Step};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// What the probe found: whether VideoToolbox's JPEG sessions are worth opening.
 #[derive(Clone, Copy, Debug)]
@@ -83,7 +84,7 @@ impl VtStills {
 
     fn jpeg_source(
         &mut self,
-        data: &[u8],
+        data: &Arc<[u8]>,
         size: Size,
         target: Size,
     ) -> Result<Vec<SourceStep>, String> {
@@ -91,7 +92,7 @@ impl VtStills {
             self.options.jpeg_decode && self.jpeg.decode_hardware(size, target) == Ok(true);
         if !on_gpu {
             self.prepared = Prepared::Cpu;
-            return self.cpu.prepare_jpeg(data, target);
+            return self.cpu.prepare_jpeg(Arc::clone(data), target);
         }
         let picture = JpegCodec::decode(&mut self.jpeg, data, target.width, target.height)
             .map_err(|_| "decode-failed")?;
@@ -211,7 +212,7 @@ impl StillBackend for VtStills {
     fn encode_poster(&mut self, quality: u8, out: &mut Vec<u8>) -> Result<SourceStep, String> {
         if self.poster.is_none() {
             let Some(picture) = prepared_picture(&self.prepared, &self.streams)? else {
-                return self.cpu.encode(quality, out);
+                return self.cpu.encode_poster(quality, out);
             };
             let surface = VtSurface::of(picture).ok_or("encode-failed")?;
             if self.to_bgra.is_none() {
