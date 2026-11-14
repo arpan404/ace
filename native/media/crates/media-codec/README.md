@@ -35,13 +35,25 @@ chroma upsampling or downsampling, no intermediate RGB copy.
   blocks use libjpeg-turbo-rs's runtime-selected NEON/AVX2 IDCT; reduced blocks use
   an N-point IDCT of the low-frequency coefficients. Progressive, arithmetic,
   12-bit, CMYK and multi-scan streams go to zune-jpeg instead (that fallback
-  allocates). Malformed entropy data never panics; restarts resynchronise.
+  allocates).
+- **Untrusted input.** Only bytes before the next marker count as entropy data.
+  Running out early, an unexpected marker, data or non-one padding left before a
+  restart, a wrong RSTn and a missing EOI are errors; a payload too small for the
+  declared frame (two bits per block minimum) fails before any plane is sized.
+  Coefficients keep baseline limits (DC category ≤ 11, AC ≤ 10, valid run/size,
+  DC within ±2047) and a dequantised magnitude ≤ 2048, twice what 8-bit samples
+  can produce. Zero quantisers, DC table symbols above 15, duplicate component
+  ids, repeated scan selectors and partial spectra in sequential frames are
+  rejected. Blocks decode in SOS order into SOF-ordered planes. `fuzz/` holds
+  a cargo-fuzz target and seed corpus (see its README).
 - **Resample.** Each plane is resampled separately with a triangle filter whose
   support widens with the scale. Taps are 14-bit fixed point, sum exactly to one
   and are rebuilt only when geometry changes. The vertical pass runs over whole
   rows, the horizontal pass over at most eight taps per sample. Chroma is mapped by
   its true extent, so odd sizes stay co-sited. On aarch64 the loops compile to NEON;
-  on x86_64 they run in an AVX2 build when the CPU has it (`SimdKernel`).
+  on x86_64 both passes run inside an explicit AVX2 function when the CPU has it
+  (`SimdKernel`); its assembly uses `vpmaddwd`/`vpmovzxbd` on ymm registers. A test
+  checks the vector and scalar builds agree bit for bit.
 - **Encode.** Baseline 4:2:0 (or grayscale) with the Annex K tables at the IJG
   quality scaling. Forward DCT and quantisation use libjpeg-turbo-rs's NEON/AVX2
   kernel with reciprocal divisors; the entropy coder writes into the caller's
@@ -106,12 +118,12 @@ fail on any allocation after warm-up, on p95 above 20 ms on macOS (30 ms
 elsewhere), or on scalar resampling where AVX2 exists. The still bench also runs
 the native macOS comparison. The counting allocator lives only in bench code.
 
-Mac16,5, eight workers, NEON, host load average about 70:
+Mac16,5, eight workers, NEON, host load average about 20:
 
 | Path    | Median    | p95       | Decode p50/p95 | Scale p50/p95 | Encode p50/p95   |
 | ------- | --------- | --------- | -------------- | ------------- | ---------------- |
-| CPU     | 5.357 ms  | 6.226 ms  | 1.871 / 2.054  | 1.665 / 1.856 | 1.810 / 2.081 ms |
-| ImageIO | 16.581 ms | 18.254 ms | 6.024 mean     | 7.671 mean    | 3.179 mean       |
+| CPU     | 6.176 ms  | 6.594 ms  | 2.621 / 2.779  | 1.720 / 1.779 | 1.835 / 2.059 ms |
+| ImageIO | 16.865 ms | 20.851 ms | 6.170 mean     | 7.980 mean    | 3.044 mean       |
 
 **Allocations: 0 per frame after warm-up** in every stage (decode, scale, encode)
 and in the worker queues. The previous library-based path made 2325 per frame.
