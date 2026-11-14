@@ -1183,15 +1183,31 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   RGBA, BGRA, NV12 and RGB (widened to RGBX). Output is AVCC with the avcC description on
   keyframes, Constrained Baseline at the lowest level that holds the size and rate. The page asks
   for `prefer-software`, so `hardware: false` is true of what runs.
+- **Fixed command line.** Callers pass the executable and the profile root, never switches: the
+  sandbox, web security, the debugging transport and the profile can't be changed from outside.
+- **Lifetime.** A guard owns Chrome and its profile from the moment it exists, on every path.
+  Chrome runs in its own process group (Unix) or a kill-on-close job (Windows), and cleanup ends
+  the whole tree. If ace-media dies, Chrome exits because its debugging pipe closes (checked on
+  macOS and Windows); Linux also sets `PR_SET_PDEATHSIG`, from a reaper thread that lives as
+  long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
+  `SingletonLock` holder gone) are reclaimed at start.
+- **Bounds.** The page's request head is read under an absolute deadline (one second per
+  client), and the token is compared in constant time. Unread replies from the pipe (16), page
+  events (256) and chunk bytes (64 MiB) are bounded; past a bound the session ends with the
+  reason, like a protocol error.
 - **Supervision.** At most three pictures in flight, then `Backpressure`. A browser that exits
   or crashes is replaced on the next picture, configured the same way, and that picture is a
-  keyframe; three restarts with no chunk in between and the encoder reports failure.
+  keyframe. Deaths and failed launches both count, and a failed launch is retried after a
+  doubling backoff (pictures get `Backpressure` meanwhile). After three in a row with no chunk
+  the encoder gives up for good. `poll_result` reports a browser death or a page encoder failure
+  once, after the units already out.
 - **Selection.** `last_resort_needed` is true only when no other backend's encode trial is
   hardware and `ok`. The trial (`probe`) runs on its own thread and returns `timed-out` at its
   deadline; the abandoned thread closes its browser.
-- **Windows** isn't wired yet: Chrome takes the pipe there as inherited C runtime descriptors 3
-  and 4, which needs a launcher written against the `windows` crate. Until then `Session::start`
-  returns `Unsupported` on Windows; E1's no-MFT VM fallback needs it.
+- **Windows.** Chrome takes the pipe from C runtime descriptors 3 and 4, handed over through
+  `STARTUPINFO.lpReserved2`, with a `STARTUPINFOEX` handle list so only those handles and `NUL`
+  are inherited. Chrome and Edge are found where the daemon looks (Program Files, LocalAppData,
+  `PATH`).
 - **Measured** on the M-series Mac (shared, load average 16–38 during the runs), Chrome for
   Testing 153, `cargo run --release -p media-chrome --example encode`, 10 s after 2 s warm-up:
 
@@ -1201,5 +1217,10 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   | 1920×1080 RGBA @ 30, 6 Mb     | 28.1    | 79 % of a core          | 5.7 %               | 12 / 129 ms       |
   | 1280×800 JPEG q80 @ 60, 8 Mb  | 60.1    | 77 % of a core          | 1.0 %               | 6 / 11 ms         |
 
-  Cold start to a configured encoder is 0.4–0.7 s and the probe trial 0.65 s here. The VM
-  figure the row asks for is still owed.
+  Cold start to a configured encoder is 0.4–0.7 s and the probe trial 0.65 s here.
+
+  On the Windows 11 ARM64 VM (VMware, 8 vCPU, Edge, native build): 1920×1080 JPEG q80 @ 30
+  gave 30.1 fps out, p50/p95 13/21 ms; 1280×800 JPEG q80 @ 60 gave 60.1 fps, 7/11 ms. The bench
+  doesn't measure CPU on Windows. Cold start there is 1.3–1.5 s and the probe trial 1.7 s, close
+  to the probe's 2 s deadline, so a slower VM's first trial may time out; a late success then
+  arrives as `capabilities.changed`. An x64 Windows VM and a Linux VM are still unmeasured.

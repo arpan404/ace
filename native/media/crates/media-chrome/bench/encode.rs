@@ -4,7 +4,7 @@
 //!
 //! Feeds a paced stream of pictures (a real screenshot scrolling, JPEG q80 like a page's
 //! screencast, or raw RGBA) to the Chrome encoder and reports frames out, latency, and the CPU
-//! the browser's process tree and this process used, as a share of one core. Unix only.
+//! the browser's process tree and this process used, as a share of one core (CPU on Unix only).
 
 use media_chrome::{ChromeEncoder, ChromeOptions, ChromeSearch, find_chrome, jpeg_picture};
 use media_codec::{
@@ -150,7 +150,8 @@ fn percentile(sorted: &[Duration], p: f64) -> f64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = args()?;
-    let data_dir = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ace"));
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let data_dir = home.map(|home| PathBuf::from(home).join(".ace"));
     let chrome = match args.chrome.clone() {
         Some(path) => path,
         None => find_chrome(&ChromeSearch::from_env(data_dir)).ok_or("no Chrome found")?,
@@ -261,11 +262,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         percentile(&latencies, 0.5),
         percentile(&latencies, 0.95)
     );
-    println!(
-        "cpu chrome tree {:.1} % of a core, this process {:.1} %",
-        (chrome_after - chrome_before) / wall * 100.0,
-        (me_after - me_before) / wall * 100.0
-    );
+    if cfg!(unix) {
+        println!(
+            "cpu chrome tree {:.1} % of a core, this process {:.1} %",
+            (chrome_after - chrome_before) / wall * 100.0,
+            (me_after - me_before) / wall * 100.0
+        );
+    } else {
+        println!("cpu not measured here (the bench reads `ps`)");
+    }
     drop(encoder);
     let _ = std::fs::remove_dir_all(profiles);
     Ok(())
