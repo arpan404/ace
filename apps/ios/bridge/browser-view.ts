@@ -4,6 +4,8 @@ import {
   describeBrowserFailure,
   displayAddress,
   downloadStateLabels,
+  pageConnection,
+  pageConnectionLabels,
   sitePermissionLabel,
   zoomLabel,
   type BrowserFailure,
@@ -124,6 +126,11 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     /** The bar at rest shows the site alone, as Safari's does. */
     addressHost: preview(addressHost(url) ?? "", 256),
     blank: !state.closed && blank(url),
+    /** The page's security mark at the address's start: secure, insecure or local, in words too. */
+    connection: (() => {
+      const kind = pageConnection(blank(url) ? undefined : url);
+      return { kind, label: pageConnectionLabels[kind] };
+    })(),
     shown: shown
       ? {
           canGoBack: shown.canGoBack === true,

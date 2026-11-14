@@ -3,7 +3,8 @@ import XCTest
 /// The browser's page commands and annotate mode on the spike fixture's checkout page: Ask agent
 /// about this page puts the page in the message, annotate pins comments that join the message,
 /// the menu's sheets (page source, screenshots at sizes, extensions) open with what the page
-/// has, a download is saved onto the phone, and the page is recorded and stopped.
+/// has, a download is saved onto the phone, the page is recorded and stopped, watch mode follows
+/// the agent and the thread's browser moves to another engine.
 final class BrowserPageToolsUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }
@@ -19,6 +20,13 @@ final class BrowserPageToolsUITests: XCTestCase {
         app.threadMenuItem("thread.browser").tap()
         XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
         sleep(2)
+    }
+    /// The fixture browser as the spike daemon holds it: its engine and pages.
+    private struct FixtureBrowser: Decodable { let backend: String?; let closed: Bool; let url: String?; let tabs: [String] }
+    private func fixtureBrowser() async throws -> FixtureBrowser {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/browser"))
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try JSONDecoder().decode(FixtureBrowser.self, from: data)
     }
     private func control(_ action: String) async throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/browser")))
@@ -135,6 +143,70 @@ final class BrowserPageToolsUITests: XCTestCase {
         screenshot("browser-tools-13-clear")
         confirm.tap()
         XCTAssertTrue(app.buttons["browser.done"].waitForExistence(timeout: 10))
+    }
+
+    /// Watch mode follows the agent and shows a strip while on; Engine for this thread moves the
+    /// thread's browser to ace's Chrome and the page comes back there.
+    @MainActor func testWatchingTheAgentAndMovingTheBrowserToAnotherEngine() async throws {
+        let app = XCUIApplication()
+        openBrowser(app)
+        app.buttons["browser.menu"].tap()
+        item(app, "browser.menu.watch", "Watch the agent").tap()
+        let stop = app.buttons["browser.watch.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        screenshot("browser-watch-1-on")
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 10))
+
+        let before = try await fixtureBrowser()
+        XCTAssertNotEqual(before.backend, "headless")
+        app.buttons["browser.menu"].tap()
+        item(app, "browser.menu.engine", "Engine for this thread").tap()
+        let chrome = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                                      "browser.menu.engine.headless", "ace's Chrome only")).firstMatch
+        XCTAssertTrue(chrome.waitForExistence(timeout: 5))
+        screenshot("browser-engine-1-menu")
+        chrome.tap()
+        // The thread's browser now runs in ace's Chrome, with the same pages and the same one shown.
+        var after = try await fixtureBrowser()
+        for _ in 0..<30 where after.backend != "headless" || after.closed || after.tabs.count < before.tabs.count {
+            try await Task.sleep(for: .milliseconds(500))
+            after = try await fixtureBrowser()
+        }
+        XCTAssertEqual(after.backend, "headless")
+        XCTAssertFalse(after.closed)
+        XCTAssertEqual(Set(after.tabs), Set(before.tabs))
+        XCTAssertEqual(after.url, before.url)
+        XCTAssertFalse(app.alerts["Browser"].exists)
+        // And the phone shows that page again.
+        let address = app.buttons["browser.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        let host = try XCTUnwrap(before.url.flatMap { URL(string: $0)?.host() })
+        XCTAssertTrue((address.value as? String)?.contains(host) == true)
+        screenshot("browser-engine-2-moved")
+    }
+
+    /// The address starts with the page's security mark, and with Connection stats on the menu
+    /// shows the round trip of the person's input to the page.
+    @MainActor func testTheAddressMarksTheConnectionAndTheMenuShowsTheRoundTrip() {
+        let app = XCUIApplication()
+        openBrowser(app)
+        let address = app.buttons["browser.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        XCTAssertTrue((address.value as? String)?.contains("Secure connection") == true)
+        // A touch on the page, so there is a round trip to show.
+        app.descendants(matching: .any)["browser.surface"].firstMatch.tap()
+        sleep(1)
+        app.buttons["browser.menu"].tap()
+        // A menu's switch and its plain rows read as buttons or switches depending on the OS.
+        let stats = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                                                         "browser.menu.connectionStats", "Connection stats")).firstMatch
+        XCTAssertTrue(stats.waitForExistence(timeout: 5))
+        stats.tap()
+        app.buttons["browser.menu"].tap()
+        let latency = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Input round trip'")).firstMatch
+        XCTAssertTrue(latency.waitForExistence(timeout: 5))
+        screenshot("browser-connection-1-stats")
     }
 
     private func screenshot(_ name: String) {

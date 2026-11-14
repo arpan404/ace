@@ -9,11 +9,13 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { z } from "zod";
-import type { KeyValueStorage } from "@ace/ui-core";
+import { nextLatency, type KeyValueStorage } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
 import { DeviceAction, devicePresetRows, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
 import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
+import { BrowserEngineTool, EngineAction } from "./browser-engine.ts";
+import { BrowserWatch, WatchAction } from "./browser-watch.ts";
 import { BrowserPageAction, BrowserPageTools, type PhoneFiles } from "./browser-page-tools.ts";
 import { AnnotateAction, BrowserAnnotate, type ImageStager } from "./browser-annotate.ts";
 import type { ThreadAnnotations } from "./thread-annotations.ts";
@@ -107,6 +109,10 @@ export interface BrowserThreadContext {
   stage?: ImageStager;
   /** The open thread's next-message annotations. */
   annotations?(threadId: string): ThreadAnnotations | undefined;
+  /** The thread's status state ("working", "waiting"…), for watch mode. */
+  threadState?(threadId: string): string | undefined;
+  /** Hears every change to the threads' statuses; call the result to stop. */
+  observeThreads?(listener: () => void): () => void;
 }
 const noContext: BrowserThreadContext = {
   agentName: () => "An agent",
@@ -149,6 +155,12 @@ export class BrowserLive {
   #tools: BrowserTools;
   #page: BrowserPageTools;
   #annotate: BrowserAnnotate;
+  #engine: BrowserEngineTool;
+  #following = new BrowserWatch();
+  /** Each thread's input round trip in milliseconds, once the person has used its page. */
+  #latency = new Map<string, number>();
+  /** Stops hearing the threads' statuses; set while watch mode is on. */
+  #unobserve: (() => void) | undefined;
   #devices: PhoneDevices;
   constructor(
     owner: BrowserOwner,
@@ -218,7 +230,25 @@ export class BrowserLive {
       now: () => context.now(),
       changed,
     });
+    this.#engine = new BrowserEngineTool({
+      owner,
+      sink,
+      preview,
+      now: () => context.now(),
+      current,
+      workspaceId: (threadId) => context.workspaceId(threadId),
+      changed,
+      opened: () => {
+        const watch = this.#watch;
+        if (!watch) return;
+        // A new engine streams its own pictures: Swift starts its decoder again.
+        watch.subscribed = false;
+        this.#restart(watch);
+        this.#subscribe(watch);
+      },
+    });
     this.#stops.push(owner.onMessage((message) => this.#receive(message)));
+
     const connection = owner.connectionState();
     this.#stops.push(
       connection.subscribe(() => {
@@ -242,6 +272,7 @@ export class BrowserLive {
   }
   dispose(): void {
     this.close();
+    this.#endFollowing();
     for (const stop of this.#stops.splice(0)) stop();
   }
   /**
@@ -297,6 +328,23 @@ export class BrowserLive {
         this.#page.handle(page.data);
         return true;
       }
+      const following = WatchAction.safeParse(raw);
+      if (following.success) {
+        const watch = this.#watch;
+        if (!watch) return false;
+        const status = this.#context.threadState?.(watch.threadId);
+        const tabId = this.#following.set(watch.threadId, watch.state, following.data.on, status);
+        if (tabId) this.#show(watch, tabId);
+        if (this.#following.view(watch.threadId, watch.state, status)?.on) this.#observe(watch);
+        else this.#endFollowing();
+        this.#putView(watch);
+        return true;
+      }
+      const engine = EngineAction.safeParse(raw);
+      if (engine.success) {
+        this.#engine.handle(engine.data);
+        return true;
+      }
       const annotate = AnnotateAction.safeParse(raw);
       if (!annotate.success) return false;
       this.#annotate.handle(annotate.data);
@@ -330,6 +378,15 @@ export class BrowserLive {
         presets: devicePresetRows,
       }));
       this.#subscribe(watch);
+      const latency = this.#latency.get(action.threadId);
+      if (latency !== undefined) {
+        const ms = Math.round(latency);
+        this.#sink.put("browser:latency", () => ({
+          type: "browser.latency",
+          threadId: action.threadId,
+          ms,
+        }));
+      }
       return true;
     }
     if (action.kind === "close") {
@@ -371,6 +428,7 @@ export class BrowserLive {
         const input = BrowserInput.safeParse(action.input);
         if (!input.success) return false;
         const tabId = watch.state?.activeTabId;
+        const started = this.#context.now();
         void this.#owner
           .request({
             type: "browser.input",
@@ -378,6 +436,7 @@ export class BrowserLive {
             input: input.data,
             ...(tabId ? { tabId } : {}),
           })
+          .then(() => this.#timed(watch.threadId, this.#context.now() - started))
           .catch(() => {});
         return true;
       }
@@ -403,10 +462,12 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    this.#endFollowing();
     this.#annotate.close();
     this.#tools.close();
     this.#page.close();
     this.#sink.clear("browser:view");
+    this.#sink.clear("browser:latency");
     this.#sink.clear("browser:presets");
     this.#sink.clear("browser:page");
     if (this.#owner.state !== "ready") return;
@@ -446,6 +507,8 @@ export class BrowserLive {
           }
           watch.error = undefined;
           watch.subscribed = true;
+          // The menu's note names the machine's default; read again on each new subscription.
+          void this.#engine.readDefault();
           watch.retry?.();
           watch.retry = undefined;
           // A size reported while the subscribe was on its way.
@@ -458,6 +521,39 @@ export class BrowserLive {
       });
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */
+  /**
+   * The person's input round trip, sent to answered, for the ⋯ menu's connection stats: a
+   * moving average per thread, sent only when its whole milliseconds change.
+   */
+  #timed(threadId: string, sample: number): void {
+    const before = this.#latency.get(threadId);
+    const next = nextLatency(before, sample);
+    this.#latency.set(threadId, next);
+    const ms = Math.round(next);
+    if (before !== undefined && Math.round(before) === ms) return;
+    this.#sink.put("browser:latency", () => ({ type: "browser.latency", threadId, ms }));
+  }
+  /** Watch mode hears the thread's status, to end once its agents stop working. */
+  #observe(watch: Watch): void {
+    if (this.#unobserve) return;
+    this.#unobserve = this.#context.observeThreads?.(() => {
+      const status = this.#context.threadState?.(watch.threadId);
+      if (this.#watch !== watch || !this.#following.status(watch.threadId, status)) return;
+      this.#endFollowing();
+      this.#putView(watch);
+    });
+  }
+  #endFollowing(): void {
+    this.#following.stop();
+    this.#unobserve?.();
+    this.#unobserve = undefined;
+  }
+  /** Watch mode shows the agent's tab. */
+  #show(watch: Watch, tabId: string): void {
+    void this.#owner
+      .request({ type: "browser.tabs.select", threadId: watch.threadId, tabId })
+      .catch(() => {});
+  }
   #restart(watch: Watch): void {
     watch.generation++;
     watch.pages.clear();
@@ -478,6 +574,8 @@ export class BrowserLive {
       watch.state = state;
       this.#tools.observe(state);
       this.#page.observe(state);
+      const follow = this.#following.follow(watch.threadId, state);
+      if (follow) this.#show(watch, follow);
       // A tab shown for the first time gets its device (`browser-device.ts`).
       this.#devices.observe(watch);
       if (
@@ -518,6 +616,12 @@ export class BrowserLive {
         generation: watch.generation,
         error: watch.error ?? null,
         device: this.#devices.view(watch),
+        engine: state ? this.#engine.view(state, watch.threadId) : null,
+        watch: this.#following.view(
+          watch.threadId,
+          state,
+          this.#context.threadState?.(watch.threadId),
+        ),
         state: state
           ? browserViewState(state, {
               tabsLimit: this.#tabsLimit,

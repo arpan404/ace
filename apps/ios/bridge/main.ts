@@ -491,6 +491,8 @@ async function start(json: string): Promise<void> {
       Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
     annotations: (threadId) =>
       threadId === visit.threadId ? visit.session?.annotations : undefined,
+    threadState: (threadId) => reading.cachedThreads()?.thread(threadId)?.status.state,
+    observeThreads: (listener) => reading.cachedThreads()?.observe(listener) ?? (() => {}),
     devices: phoneDeviceStorage({
       load: () => call("storage.devices.load"),
       save: async (value) => {

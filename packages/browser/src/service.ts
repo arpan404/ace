@@ -529,6 +529,7 @@ export class BrowserService {
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },
+          embeddedAvailable: () => this.embedded !== undefined,
           ...(this.options.userChromeStorageReads
             ? {
                 storageReads: () =>

@@ -40,6 +40,8 @@ import UIKit
     private(set) var saving: [String: BrowserSaving] = [:]
     /// Bumped by the page's own Send in annotate mode: the screen goes to the message.
     private(set) var annotateSends = 0
+    /// The person's input round trip to the page in milliseconds, once they have used it.
+    private(set) var latency: Int?
     /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
     private(set) var stills: [String: UIImage] = [:]
     /// The picture on screen now and the tab it came from.
@@ -78,7 +80,7 @@ import UIKit
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
-        done = nil; source = nil; sizes = nil; extensions = nil
+        done = nil; source = nil; sizes = nil; extensions = nil; latency = nil
         stills = [:]; stillOrder = []
     }
     func clearSource() { source = nil }
@@ -159,6 +161,7 @@ import UIKit
         // A save outlives the view: the file is the person's once it is on the phone.
         case .saving(let result): saving[result.key] = result
         case .annotateSend: if threadId != nil { annotateSends += 1 }
+        case .latency(let threadId, let ms): if threadId == self.threadId, latency != ms { latency = ms }
         }
     }
 }

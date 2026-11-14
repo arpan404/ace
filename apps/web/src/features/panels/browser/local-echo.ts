@@ -1,17 +1,7 @@
 /**
- * Local echo for the live page: the person's own pointer and the input round trip, shown before
+ * Local echo for the live page: the person's own pointer, shown before
  * the page's next frame. Pure: the shell (`use-local-echo.ts`) owns timers, frames and the DOM.
  */
-
-/**
- * The input round trip shown in the ⋯ menu: a moving average, so one slow request moves it
- * a little and a lasting change shows within a few. The first sample is taken as it is.
- */
-export function nextLatency(previous: number | undefined, sample: number): number {
-  if (!Number.isFinite(sample) || sample < 0) return previous ?? 0;
-  if (previous === undefined) return sample;
-  return previous + (sample - previous) * 0.25;
-}
 
 /** CSS cursor keywords a page may set; anything else is drawn as the default arrow. */
 const cursorKeywords = new Set([

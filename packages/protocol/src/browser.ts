@@ -423,7 +423,9 @@ export const BrowserState = z.object({
   recording: z.object({ by: BrowserTabActor }).optional(),
   /**
    * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
-   * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
+   * cursors are drawn in the page itself, so clients draw none over frames. `engines`: the
+   * daemon reports which engines can open now, and `embedded-engine` is there while the desktop
+   * app's can. Unknown names are kept.
    */
   features: z.array(z.string().max(64)).max(32).optional(),
   /** Set while the live video can't start and is being retried; absent once video plays. */
