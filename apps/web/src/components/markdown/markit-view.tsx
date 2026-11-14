@@ -130,6 +130,8 @@ export function MarkitView(props: {
     if (!parent) return;
     const { markdown: text, keep: target } = latest.current;
     const context = target ? latest.current.contextOf(target, text) : undefined;
+    // Every client's records of threads they no longer hold go first, here and at unmount.
+    sweepKeptAnswers();
     // Taken whether or not the first frame expected it: a drawing under another context is
     // dropped here, so a stale one never stays kept beside the new.
     const kept =

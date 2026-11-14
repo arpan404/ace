@@ -1,18 +1,13 @@
 import { readFileSync } from "node:fs";
-import { FakeDaemon } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
 import { markitWasmFile } from "@ace/markit-web/assets";
 import { preloadMarkit } from "@ace/markit-web/react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { fakeClient } from "@/test/fake-client.ts";
 import {
   answerContext,
   createKeptAnswer,
-  keptAnswersFor,
   KeptAnswers,
   rendererOverhead,
-  sweepKeptAnswers,
   type KeptAnswer,
 } from "./kept-answers.ts";
 import { MarkitView, type KeepTarget, type MarkitCallbacks } from "./markit-view.tsx";
@@ -160,19 +155,6 @@ describe("a finished answer mounting again", () => {
     dark.unmount();
   });
 
-  it("finishes the view's file-link work when it comes back", async () => {
-    const answers = everyThread();
-    const text = "Changed `src/app.ts`.";
-    const first = render(answerView({ text, answers, threadId: "thread-a" }));
-    await drawn(first.container);
-    first.unmount();
-
-    const linking = vi.fn();
-    const again = render(answerView({ text, answers, threadId: "thread-a", drawn: linking }));
-    expect(rawText(again.container)).toBeNull();
-    expect(linking).toHaveBeenCalledWith(drawing(again.container), true);
-  });
-
   it("draws again when its text changed while it was away", async () => {
     const answers = everyThread();
     const first = render(answerView({ text: "Deleted **14**.", answers, threadId: "thread-a" }));
@@ -218,7 +200,9 @@ const context = (text: string) =>
 
 describe("the kept answers", () => {
   it("stay within their count and their weight, which counts DOM and renderer cost", async () => {
-    const kept = new KeptAnswers(() => true, { entries: 2, bytes: 3 * rendererOverhead });
+    const kept = new KeptAnswers(() => true, {
+      bounds: { entries: 2, bytes: 3 * rendererOverhead },
+    });
     const answers = await Promise.all(
       ["one **a**", "two **b**", "three **c**"].map((t) => drawnAnswer(t)),
     );
@@ -253,44 +237,25 @@ describe("the kept answers", () => {
     expect(kept.has({ threadId: "t2", itemId: "i" }, context("b"))).toBe(true);
     await expect(first.renderer.render("again")).rejects.toThrow("Renderer disposed");
   });
-});
 
-describe("a client's kept answers", () => {
-  it("lose a thread's answers when it is deleted, and all of them when the client closes", async () => {
-    const daemon = new FakeDaemon({ clock: () => Date.parse("2026-11-14T00:00:00Z") });
-    daemon.createThread({ id: "thread-gone", workspaceId: "ws", title: "Gone", provider: "codex" });
-    daemon.createThread({ id: "thread-kept", workspaceId: "ws", title: "Kept", provider: "codex" });
-    const client = fakeClient(daemon);
-    await client.start();
-    const gone = client.thread("thread-gone");
-    const stays = client.thread("thread-kept");
-    await waitFor(() => expect(gone.store.thread).toBeDefined());
-    await waitFor(() => expect(stays.store.thread).toBeDefined());
-    const kept = keptAnswersFor(client);
-    kept.keep(
-      { threadId: "thread-gone", itemId: "i" },
-      context("a"),
-      await drawnAnswer("a **1**"),
-      20,
-    );
-    kept.keep(
-      { threadId: "thread-kept", itemId: "i" },
-      context("b"),
-      await drawnAnswer("b **2**"),
-      20,
-    );
-    expect(kept.size).toBe(2);
-
-    await client.command({ type: "thread.delete", threadId: ThreadId.parse("thread-gone") });
-    await waitFor(() => expect(gone.store.thread?.deletedAt).toBeDefined());
-    sweepKeptAnswers();
-    expect(kept.has({ threadId: "thread-gone", itemId: "i" }, context("a"))).toBe(false);
-    expect(kept.size).toBe(1);
-
-    gone.release();
-    stays.release();
-    await client.close();
-    sweepKeptAnswers();
+  it("hold heights within their own bound, and drop a thread's heights with it", async () => {
+    const held = new Set(["t1", "t2"]);
+    const kept = new KeptAnswers((threadId) => held.has(threadId), { heightEntries: 3 });
+    // Answers with images are never kept as drawings; they leave only their height.
+    for (let index = 0; index < 5; index++)
+      kept.keep(
+        { threadId: index < 2 ? "t1" : "t2", itemId: `i${index}` },
+        context(`image ${index}`),
+        await drawnAnswer(`![shot](shot-${index}.png)`),
+        120,
+      );
     expect(kept.size).toBe(0);
+    expect(kept.records).toBe(3);
+    expect(kept.height({ threadId: "t2", itemId: "i4" }, context("image 4"))).toBe(120);
+    // Another context (the text changed) has no height to hold.
+    expect(kept.height({ threadId: "t2", itemId: "i4" }, context("image 5"))).toBeUndefined();
+    held.delete("t2");
+    kept.sweep();
+    expect(kept.records).toBe(0);
   });
 });

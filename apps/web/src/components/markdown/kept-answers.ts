@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { MarkitRenderer, type MarkitOptions } from "@ace/markit-web/react";
-import { LruCache } from "@ace/ui-core";
+import { contentHash, LruCache } from "@ace/ui-core";
 
 /*
  * A finished thread answer stays drawn when its row unmounts (a thread switch, a row scrolled
@@ -105,32 +105,54 @@ export function disposeKeptAnswer(answer: KeptAnswer): void {
   answer.element.remove();
 }
 
+/** Heights kept per client, for answers drawn before: a fixed bound, each record under 300 bytes. */
+export const heightEntries = 2_000;
+
+/** How a client's kept answers are bounded, and who hears when they first hold something. */
+export interface KeptOptions {
+  bounds?: { entries: number; bytes: number };
+  heightEntries?: number;
+  /** Called whenever a drawing or a height is retained (the shell registers the cache then). */
+  retained?: () => void;
+}
+
 /** One client's kept answers. `holds(threadId)`: the client still has that thread. */
 export class KeptAnswers {
   readonly #cache: LruCache<string, Entry>;
   readonly #holds: (threadId: string) => boolean;
-  /** Each thread's entry keys, so a thread's answers go together. */
+  readonly #retained: () => void;
+  /** Each thread's record keys (a drawing, a height or both), so a thread's records go together. */
   readonly #byThread = new Map<string, Set<string>>();
-  /** Heights of answers drawn before, for those no longer kept, so their row keeps its size. */
-  readonly #heights = new Map<string, { context: string; height: number }>();
+  /**
+   * The height each answer was last drawn at, for a mount that must draw again: under a short
+   * fingerprint of the context that drew it, never the text itself.
+   */
+  readonly #heights = new Map<string, { threadId: string; fingerprint: string; height: number }>();
   readonly #heightEntries: number;
 
-  constructor(holds: (threadId: string) => boolean, bounds = keptBounds, heightEntries = 2_000) {
+  constructor(holds: (threadId: string) => boolean, options: KeptOptions = {}) {
+    const bounds = options.bounds ?? keptBounds;
     this.#holds = holds;
+    this.#retained = options.retained ?? (() => {});
     this.#cache = new LruCache<string, Entry>({
       maxEntries: bounds.entries,
       maxWeight: bounds.bytes,
       weigh: (entry) => entry.weight,
       dispose: (entry) => {
-        this.#forget(entry);
         disposeKeptAnswer(entry.answer);
+        this.#unindex(entry.threadId, entry.key);
       },
     });
-    this.#heightEntries = heightEntries;
+    this.#heightEntries = options.heightEntries ?? heightEntries;
   }
 
+  /** Drawings kept. */
   get size(): number {
     return this.#cache.size;
+  }
+  /** Drawings and heights held, of any thread. */
+  get records(): number {
+    return this.#cache.size + this.#heights.size;
   }
   get bytes(): number {
     return this.#cache.weight;
@@ -143,10 +165,14 @@ export class KeptAnswers {
 
   /** The kept drawing of this answer under `context`, now the caller's. Any other is dropped. */
   take(scope: AnswerScope, context: string): KeptAnswer | undefined {
-    this.sweep();
-    const entry = this.#cache.take(scopeKey(scope));
+    if (!this.#holds(scope.threadId)) {
+      this.purgeThread(scope.threadId);
+      return undefined;
+    }
+    const key = scopeKey(scope);
+    const entry = this.#cache.take(key);
     if (!entry) return undefined;
-    this.#forget(entry);
+    this.#unindex(entry.threadId, key);
     if (entry.context === context) return entry.answer;
     disposeKeptAnswer(entry.answer);
     return undefined;
@@ -154,47 +180,47 @@ export class KeptAnswers {
 
   /**
    * Keeps a finished drawing made under `context`, unless the client no longer holds its thread
-   * or what it shows isn't bounded by its text. Either way its height is remembered.
+   * or what it shows isn't bounded by its text. A held thread's answer leaves its height.
    */
   keep(scope: AnswerScope, context: string, answer: KeptAnswer, height: number): void {
     const key = scopeKey(scope);
-    this.#remember(key, context, height);
     answer.element.remove();
     answer.hooks.current = detached;
-    if (!this.#holds(scope.threadId) || answer.element.querySelector(unbounded)) {
+    if (!this.#holds(scope.threadId)) {
       disposeKeptAnswer(answer);
-    } else {
+      this.purgeThread(scope.threadId);
+      return;
+    }
+    this.#remember(scope.threadId, key, context, height);
+    if (answer.element.querySelector(unbounded)) disposeKeptAnswer(answer);
+    else {
       const weight = keptWeight(context, answer.element);
       this.#cache.set(key, { answer, key, threadId: scope.threadId, context, weight });
-      if (this.#cache.has(key)) {
-        let keys = this.#byThread.get(scope.threadId);
-        if (!keys) this.#byThread.set(scope.threadId, (keys = new Set()));
-        keys.add(key);
-      }
+      if (this.#cache.has(key)) this.#index(scope.threadId, key);
     }
-    this.sweep();
   }
 
   /** The height this answer was last drawn at under `context`, if known. */
   height(scope: AnswerScope, context: string): number | undefined {
     const known = this.#heights.get(scopeKey(scope));
-    return known?.context === context ? known.height : undefined;
+    return known?.fingerprint === contentHash(context) ? known.height : undefined;
   }
 
-  /** Drops the answers of every thread the client no longer holds. */
+  /** Drops the drawings and heights of every thread the client no longer holds. */
   sweep(): void {
     for (const threadId of this.#byThread.keys())
       if (!this.#holds(threadId)) this.purgeThread(threadId);
   }
 
-  /** Drops every kept answer and height of one thread. */
+  /** Drops every kept drawing and height of one thread. */
   purgeThread(threadId: string): void {
-    for (const key of this.#byThread.get(threadId) ?? []) {
+    const keys = this.#byThread.get(threadId);
+    this.#byThread.delete(threadId);
+    for (const key of keys ?? []) {
+      this.#heights.delete(key);
       const entry = this.#cache.take(key);
       if (entry) disposeKeptAnswer(entry.answer);
-      this.#heights.delete(key);
     }
-    this.#byThread.delete(threadId);
   }
 
   clear(): void {
@@ -203,27 +229,39 @@ export class KeptAnswers {
     this.#heights.clear();
   }
 
-  #forget(entry: Entry): void {
-    const keys = this.#byThread.get(entry.threadId);
-    keys?.delete(entry.key);
-    if (keys?.size === 0) this.#byThread.delete(entry.threadId);
+  #index(threadId: string, key: string): void {
+    let keys = this.#byThread.get(threadId);
+    if (!keys) this.#byThread.set(threadId, (keys = new Set()));
+    keys.add(key);
+    this.#retained();
   }
 
-  #remember(key: string, context: string, height: number): void {
+  /** Forgets `key` for its thread once neither a drawing nor a height is kept under it. */
+  #unindex(threadId: string, key: string): void {
+    if (this.#cache.has(key) || this.#heights.has(key)) return;
+    const keys = this.#byThread.get(threadId);
+    keys?.delete(key);
+    if (keys?.size === 0) this.#byThread.delete(threadId);
+  }
+
+  #remember(threadId: string, key: string, context: string, height: number): void {
     if (height <= 0) return;
     this.#heights.delete(key);
-    this.#heights.set(key, { context, height });
-    if (this.#heights.size > this.#heightEntries) {
-      const oldest = this.#heights.keys().next().value;
-      if (oldest !== undefined) this.#heights.delete(oldest);
-    }
+    this.#heights.set(key, { threadId, fingerprint: contentHash(context), height });
+    this.#index(threadId, key);
+    if (this.#heights.size <= this.#heightEntries) return;
+    const oldest = this.#heights.entries().next().value;
+    if (!oldest) return;
+    this.#heights.delete(oldest[0]);
+    this.#unindex(oldest[1].threadId, oldest[0]);
   }
 }
 
 /*
  * The shell: each client's kept answers live and die with it. A client that closed holds no
- * thread (`peekThread` answers nothing), so its answers go at the next sweep, which every
- * view that keeps an answer runs for every client (`sweepKeptAnswers`).
+ * thread (`peekThread` answers nothing), so its records go at the next sweep. Every view runs
+ * one for every client as it mounts and as it unmounts (`sweepKeptAnswers`). A client's cache
+ * is swept while it holds any record: retaining one registers it again.
  */
 const owned = new WeakMap<ClientApi, KeptAnswers>();
 const live = new Set<KeptAnswers>();
@@ -237,17 +275,19 @@ function holdsThread(client: ClientApi, threadId: string): boolean {
 export function keptAnswersFor(client: ClientApi): KeptAnswers {
   let kept = owned.get(client);
   if (!kept) {
-    kept = new KeptAnswers((threadId) => holdsThread(client, threadId));
+    const created = new KeptAnswers((threadId) => holdsThread(client, threadId), {
+      retained: () => live.add(created),
+    });
+    kept = created;
     owned.set(client, kept);
   }
-  live.add(kept);
   return kept;
 }
 
-/** Sweeps every client's kept answers, forgetting those left with none. */
+/** Sweeps every client's kept answers, forgetting those that hold nothing any more. */
 export function sweepKeptAnswers(): void {
   for (const kept of live) {
     kept.sweep();
-    if (kept.size === 0) live.delete(kept);
+    if (kept.records === 0) live.delete(kept);
   }
 }
