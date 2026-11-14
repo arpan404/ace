@@ -22,7 +22,7 @@ export class NativeImageStore {
   }
   /** An `items` row the history backfill found, by its creation sequence (`storedItem`). */
   storedItem(createdSeq: unknown, json: unknown): Item {
-    return storedItem(Number(createdSeq), String(json), this.trust.from);
+    return storedItem(Number(createdSeq), String(json), this.trust);
   }
   decorate(thread: ThreadId, payload: EventPayload): EventPayload {
     if (payload.type !== "item.created" && payload.type !== "item.updated") return payload;

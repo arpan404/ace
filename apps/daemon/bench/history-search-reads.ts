@@ -5,7 +5,12 @@ import { HistoryIndex } from "../src/history-index.ts";
 import { ItemTextStore } from "../src/item-text-store.ts";
 import { PayloadStore } from "../src/payload-store.ts";
 import { SearchReplay } from "../src/search-replay.ts";
-import { decodeStoredItem, untrusted, type StoredTrust } from "../src/stored-decode.ts";
+import {
+  decodeStoredItem,
+  trustedFrom,
+  untrusted,
+  type StoredTrust,
+} from "../src/stored-decode.ts";
 
 /**
  * CPU per history page, search replay page and text preview, decoding every stored row (what
@@ -46,7 +51,7 @@ function readers(trust: StoredTrust) {
     texts: new ItemTextStore(db, trust),
   };
 }
-const modes = { decoded: readers(untrusted()), trusted: readers({ from: 0 }) };
+const modes = { decoded: readers(untrusted()), trusted: readers(trustedFrom(0)) };
 
 const threads = db
   .prepare(
