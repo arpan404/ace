@@ -23,6 +23,7 @@ import { H264Jpeg } from "./h264-jpeg.ts";
 import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { startHostFrames, type HostFrames } from "./host-frames.ts";
+import { DeviceVideoPaths, type DeviceMedia } from "./media-paths.ts";
 
 /** Control bytes queued in the socket before input is refused rather than delayed. */
 const controlBacklog = 256 * 1024;
@@ -40,6 +41,8 @@ type Link = {
   startedAt: number;
   /** The picture encoded on the host; the server then runs control only. */
   frames: HostFrames | undefined;
+  /** The host-encoded picture's way through ace-media, while the daemon has one. */
+  paths: DeviceVideoPaths | undefined;
 };
 
 /** The picture's size: the host-encoded one's, else what scrcpy's stream said. */
@@ -96,6 +99,8 @@ export async function scrcpyCapture(options: {
    * the picture comes from scrcpy as before.
    */
   host?: { grpc: EmulatorGrpc; encoder: string; directory: string };
+  /** ace-media (ADR 0147, phase 2): the host-encoded picture streams into it while routed. */
+  media?: DeviceMedia;
 }): Promise<DeviceCapture> {
   const { runtime, platform, device } = options;
   const transport = await platform.captureTransport(device);
@@ -201,6 +206,7 @@ export async function scrcpyCapture(options: {
   /** Starts a server run and makes it the current link before any of its video is read. */
   const connect = async (): Promise<void> => {
     let current: Link | undefined;
+    let paths: DeviceVideoPaths | undefined;
     const box = (maxSize: number) => maxSize || longEdge;
     const wanted = profileFor(settings, transport, scid());
     const frames = options.host
@@ -213,14 +219,44 @@ export async function scrcpyCapture(options: {
           env: options.env,
           unit: (unit) => {
             if (!current) return;
+            if (paths) return paths.daemon(unit);
             current.streaming = true;
             if (!stopped && link === current) publishVideo(unit);
           },
           failed: (error) => {
             if (current) lost(current, error);
           },
+          ingestClosed: () => paths?.ingestClosed(),
         }).catch(() => undefined)
       : undefined;
+    const media = options.media;
+    if (frames && media)
+      paths = new DeviceVideoPaths({
+        media,
+        source: `emulator:${options.streamId}`,
+        kind: "emulator-frames",
+        origin: {
+          kind: "emulator-frames",
+          path: frames.file,
+          width: shortEdge,
+          height: longEdge,
+          stride: shortEdge * 4,
+        },
+        deviceId: device.id,
+        emit: (unit) => {
+          if (!current) return;
+          current.streaming = true;
+          if (!stopped && link === current) publishVideo(unit);
+        },
+        switch: (address) =>
+          frames.ingest(
+            address
+              ? { socket: address.socket, token: Buffer.from(address.token).toString("base64") }
+              : undefined,
+          ),
+        keyframe: () => frames.keyframe(),
+        schedule: (callback, ms) => runtime.after(ms, callback),
+      });
     const profile: ServerProfile = { ...wanted, video: frames === undefined };
     const connection = await startScrcpyServer({
       adb: transport.adb,
@@ -233,6 +269,7 @@ export async function scrcpyCapture(options: {
       env: options.env,
       ...(options.signal ? { signal: options.signal } : {}),
     }).catch(async (error: unknown) => {
+      paths?.close();
       await frames?.stop();
       throw error;
     });
@@ -240,6 +277,7 @@ export async function scrcpyCapture(options: {
       connection,
       profile,
       frames,
+      paths,
       startedAt: runtime.now(),
       clipboard: new ScrcpyClipboard({
         send: (message) => send(message, started),
@@ -307,6 +345,7 @@ export async function scrcpyCapture(options: {
   const disconnect = async (current: Link | undefined) => {
     if (!current) return;
     current.clipboard.close();
+    current.paths?.close();
     await Promise.all([current.frames?.stop(), current.connection.close()]);
   };
   const setImages = async (images: boolean) => {

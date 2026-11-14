@@ -64,12 +64,16 @@ export const builtRouteCapabilities: RouteCapabilities = {
 };
 
 /**
- * This build's capabilities on `platform`: Mac screens stream into ace-media's ingest too (E3).
+ * This build's capabilities on `platform`. On a Mac the screen helper streams into ace-media's
+ * ingest too (E3): screens, and Android emulators whose picture it encodes (`--encode-frames`).
  * Screens elsewhere wait for their helpers' encoders (E1, E2).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
   return platform === "darwin"
-    ? { ...builtRouteCapabilities, ingest: [...builtRouteCapabilities.ingest, "screen"] }
+    ? {
+        ...builtRouteCapabilities,
+        ingest: [...builtRouteCapabilities.ingest, "screen", "emulator-frames"],
+      }
     : builtRouteCapabilities;
 }
 
