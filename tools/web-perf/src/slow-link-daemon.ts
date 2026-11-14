@@ -1,19 +1,42 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { BrowserContext } from "@playwright/test";
 import { z } from "zod";
 import { startBenchDaemon } from "@ace/perf-kit/daemon";
 import { bunBinary } from "../../../scripts/runtimes.ts";
+import { staleBuild } from "./web-build-stamp.ts";
 
 /*
  * The slow-link run's `daemon` target: the bench daemon from apps/daemon/bench (a real daemon in
  * a temporary home, its threads replayed from recorded fixtures, no provider CLI), serving the
  * production web build from its TLS listener for paired devices, as a phone opening a pairing
- * link reaches it. The daemon serves apps/web/dist; it is built here when it is missing.
+ * link reaches it. The daemon serves apps/web/dist; it is built here unless the build there
+ * carries this run's stamp for the current commit with no tracked file edited
+ * (web-build-stamp.ts).
  */
 
 const web = new URL("../../../apps/web/", import.meta.url).pathname;
+const stampFile = `${web}dist/.slow-link-build.json`;
+const exec = promisify(execFile);
+
+/** Builds apps/web/dist for this checkout unless the build there is already this checkout's. */
+async function freshWebBuild(): Promise<void> {
+  const git = async (...args: string[]) => (await exec("git", args, { cwd: web })).stdout.trim();
+  const checkout = {
+    commit: await git("rev-parse", "HEAD"),
+    dirty: (await git("status", "--porcelain", "--untracked-files=no")) !== "",
+  };
+  const stamp = await readFile(stampFile, "utf8")
+    .then((text): unknown => JSON.parse(text))
+    .catch(() => undefined);
+  const stale = staleBuild(stamp, checkout);
+  if (stale === undefined) return;
+  process.stderr.write(`Building apps/web/dist: the build there can't be used, ${stale}.\n`);
+  await exec("bunx", ["vite", "build"], { cwd: web, maxBuffer: 64 * 1024 * 1024 });
+  // An edited tree gets no stamp, so the next run builds again.
+  if (!checkout.dirty) await writeFile(stampFile, JSON.stringify({ commit: checkout.commit }));
+}
 const entry = new URL("../../../apps/daemon/bench/slow-link-daemon.ts", import.meta.url).pathname;
 
 const Ready = z.object({
@@ -44,11 +67,7 @@ export interface DaemonApp {
 }
 
 export async function withDaemonApp<T>(run: (app: DaemonApp) => Promise<T>): Promise<T> {
-  if (!existsSync(`${web}dist/index.html`))
-    await promisify(execFile)("bunx", ["vite", "build"], {
-      cwd: web,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+  await freshWebBuild();
   const daemon = await startBenchDaemon({
     entry,
     execPath: bunBinary(),
