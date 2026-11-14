@@ -20,6 +20,7 @@ import {
   useDeleteConfirmation,
 } from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
+import { currentNow } from "@/lib/live-connection.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -343,17 +344,37 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
       `Archived ${count(entries.length)}`,
     );
-  /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
-  const stopTree = (listed: ThreadListEntry) => {
+  /**
+   * Archive and delete decide by whether a thread runs, so they wait for a confirmed list: a
+   * saved "done" may be working again, and a saved "working" may have ended.
+   */
+  const listCurrent = () => {
+    if (currentNow(client)) return true;
+    toast.add({
+      title: "Not changed yet",
+      description: "Try again once the thread list is up to date.",
+    });
+    return false;
+  };
+  /**
+   * Stop the whole tree and the commands it watches, as Stop & archive promises. The interrupt
+   * always names what it may stop: the root run the list says runs, else the thread's cursor
+   * (nothing started after it is stopped); with neither, nothing is stopped.
+   */
+  const stopTree = (listed: ThreadListEntry): boolean => {
     const runId = listed.live?.rootRunId ?? undefined;
+    const cursor = client.cachedThread?.(listed.id)?.cursor;
+    const fence = runId ? { runId } : cursor === undefined ? undefined : { beforeSeq: cursor };
+    if (!fence) {
+      toast.error({
+        title: "Couldn't stop the thread",
+        description: "Open it and stop it there, then archive it.",
+      });
+      return false;
+    }
     const sends = [
       client.enqueue(
-        {
-          type: "thread.interrupt",
-          threadId: listed.id,
-          cascade: true,
-          ...(runId ? { runId } : {}),
-        },
+        { type: "thread.interrupt", threadId: listed.id, cascade: true, ...fence },
         crypto.randomUUID(),
       ),
       ...(listed.live?.watching ?? []).map((task) =>
@@ -363,6 +384,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     void Promise.all(sends).catch((error: unknown) =>
       toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
     );
+    return true;
   };
   const deleteOne = (entry: ThreadTarget, force: boolean) =>
     overlay
@@ -486,11 +508,13 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       }
       for (const entry of changing) void act(entry, unpin(entry));
     },
-    archiveMany: (entries, archived) =>
+    archiveMany: (entries, archived) => {
+      if (!listCurrent()) return;
       askBeforeArchive(archiving, leftRunning(entries), () => {
         archiveManyNow(entries);
         archived?.();
-      }),
+      });
+    },
     archiveManyNow,
     leftRunning,
     removeMany: (entries) => removeAll(entries),
@@ -533,6 +557,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         );
         leave?.();
       };
+      if (!listCurrent()) return;
       const lease = client.threads();
       const listed = lease.store.thread(entry.id);
       lease.release();
@@ -547,7 +572,8 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         running,
         archive: archiveNow,
         stopAndArchive: () => {
-          stopTree(listed);
+          // Confirmed later than it was asked: the list must still be current, and the Stop safe.
+          if (!listCurrent() || !stopTree(listed)) return;
           archiveNow();
         },
       });
@@ -558,7 +584,12 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       const lease = client.threads();
       const status = lease.store.thread(entry.id)?.status;
       lease.release();
-      const question = status ? deleteQuestion([{ title: entry.title, status }]) : undefined;
+      // Only a confirmed list may say it runs: otherwise the delete goes unforced, and the daemon
+      // refuses it if work still runs, offering Stop and delete from what is true now.
+      const question =
+        status && currentNow(client)
+          ? deleteQuestion([{ title: entry.title, status }])
+          : undefined;
       confirmation.open({
         title: entry.title,
         running: question?.running ?? "",
