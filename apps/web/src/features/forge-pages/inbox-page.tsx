@@ -16,7 +16,8 @@ import {
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { repositoryParam } from "@/lib/pull-request-route.ts";
+import { markAllReadWrites } from "@ace/ui-core";
+import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 import { useClock } from "@/lib/time.ts";
 import { ForgeList } from "./forge-list.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
@@ -138,15 +139,15 @@ export function InboxPage(props: {
   };
   const filtered = !!(search.reason || search.repo || search.only);
   const unread = list.rows.some((row) => row.unread);
-  /**
-   * GitHub can mark everything read, or one repository's; it can't mark only participating
-   * threads, one reason's or some projects', so then the rows on show are marked one by one.
-   */
+  /** Everything on show read, up to the moment of the press (`markAllReadWrites`). */
   const readAll = async () => {
-    if (!search.only && !search.reason && !choice.picked.length)
-      return writes.readAll(search.repo, clock());
-    for (const row of list.rows)
-      if (row.unread && !(await writes.write({ action: "read", id: row.id }))) return false;
+    const sends = markAllReadWrites({
+      narrowed: !!(search.only || search.reason || choice.picked.length),
+      unread: list.rows.filter((row) => row.unread).map((row) => row.id),
+      before: clock(),
+      repository: repositoryFromParam(search.repo),
+    });
+    for (const input of sends) if (!(await writes.write(input))) return false;
     return true;
   };
   const open = (url: string) =>

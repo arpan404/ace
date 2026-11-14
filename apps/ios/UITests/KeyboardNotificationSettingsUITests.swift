@@ -83,6 +83,34 @@ import XCTest
         XCTAssertFalse(from.waitForExistence(timeout: 2))
     }
 
+    func testEachMachineOpensItsPushWhenTheAppIsClosedSwitch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", port]
+        app.launch()
+        defer { app.terminate() }
+        app.openBrowseDestination("settings.notifications")
+        let machine = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch
+        // The machines come after the phone's own sections.
+        for _ in 0..<8 where !(machine.exists && machine.isHittable) { app.swipeUp() }
+        XCTAssertTrue(machine.waitForExistence(timeout: 10))
+        // The row's name opens the machine; its switch only mutes it.
+        machine.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        let link = app.buttons["notifications.machine.push"]
+        XCTAssertTrue(link.waitForExistence(timeout: 10))
+        link.tap()
+        // The machine's own page, as its bridge describes it, with the one switch it keeps.
+        let push = app.switches["setting.notifications.remotePush"]
+        XCTAssertTrue(push.waitForExistence(timeout: 10))
+        let before = push.value as? String
+        screenshot("notifications-push")
+        flip(push)
+        let flipped = NSPredicate(format: "value != %@", before ?? "")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: flipped, evaluatedWith: push)], timeout: 10), .completed,
+                       "the machine keeps the change")
+        screenshot("notifications-push-changed")
+        flip(push)
+    }
+
     /// A switch's knob: the inner switch where the system draws one, else the switch itself.
     private func flip(_ toggle: XCUIElement) {
         let inner = toggle.switches.firstMatch

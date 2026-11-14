@@ -4,6 +4,8 @@ import SwiftUI
 struct AceAccountView: View {
     /// Nil for the debug fixture, which has no account machines.
     var machines: MachinesModel?
+    /// The machines this phone reaches, whose year of work the page adds up.
+    var inbox: MachineInbox?
     /// The app's account (the header's avatar shows the same), else this page's own.
     @Environment(AceAccountModel.self) private var shared: AceAccountModel?
     @State private var own = AceAccountModel()
@@ -11,6 +13,10 @@ struct AceAccountView: View {
     @State private var forgetting: AceMachine?
     @State private var notice: ProblemNotice?
     @State private var browserProblem: String?
+    /// The year of work over every machine (`ProfileReads`), and why it couldn't be read.
+    @State private var activity: ProfileReport?
+    @State private var activityProblem: String?
+    @State private var activityRead = 0
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     var body: some View {
@@ -19,7 +25,12 @@ struct AceAccountView: View {
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.restore() }
-        .refreshable { await machines?.refreshAccount() }
+        // Again on Retry, and when a machine attaches, connects or drops.
+        .task(id: activityKey) { await readActivity() }
+        .refreshable {
+            await machines?.refreshAccount()
+            await readActivity()
+        }
         // Signing in or out changes which machines this phone reaches through the account.
         .onChange(of: model.account?.id) { _, _ in browserProblem = nil; Task { await machines?.refreshAccount() } }
         .onChange(of: model.login?.loginUrl) { _, url in if let url { Task { await authenticate(url) } } }
@@ -39,6 +50,12 @@ struct AceAccountView: View {
         List {
             profileSection
             if let error = model.error { Section { ServiceProblem(message: error) }.insetRowBackground() }
+            if let inbox, !inbox.sessions.isEmpty {
+                ProfileActivitySections(report: activity, problem: activityProblem) {
+                    activityProblem = nil
+                    activityRead += 1
+                }
+            }
             browserFailure
             if model.account != nil, let machines { accountMachines(machines) }
         }
@@ -78,6 +95,18 @@ struct AceAccountView: View {
                 Button("Retry", action: retryBrowser).buttonStyle(.textAction())
             }.insetRowBackground()
         }
+    }
+
+    private var activityKey: String {
+        let machines = (inbox?.sessions ?? []).map { "\($0.hostId):\($0.client.connection)" }.joined(separator: ",")
+        return "\(activityRead)|\(machines)"
+    }
+
+    private func readActivity() async {
+        guard let inbox, !inbox.sessions.isEmpty else { return }
+        let reads = ProfileReads(machines: inbox.sessions, name: inbox.name)
+        let problem = await reads.report { activity = $0 }
+        if activity == nil { activityProblem = problem }
     }
 
     private func retryBrowser() {

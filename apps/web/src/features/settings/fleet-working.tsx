@@ -2,7 +2,7 @@ import { agentAccessNotes, agentAccessOptions } from "@ace/ui-core";
 import { HairlineRow, RowAction, RowGroup } from "@/components/hairline-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { AllMachinesScope } from "./all-machines-scope.tsx";
-import { transferLine } from "./data/fleet-words.ts";
+import { transferLine } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { useSettingControl } from "./data/use-settings.ts";

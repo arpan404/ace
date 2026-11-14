@@ -19,7 +19,13 @@ struct MachinesView: View {
                 }
             }
             if !inbox.sessions.isEmpty {
+                FleetUpdatesSection(inbox: inbox)
                 Section {
+                    NavigationLink { FleetMapView(inbox: inbox, machines: machines) } label: {
+                        InsetRow("Fleet map", systemImage: "network", subtitle: "How each machine and device is reached, and what needs you")
+                    }
+                    .accessibilityIdentifier("machines.fleetMap")
+                    .insetRowBackground()
                     NavigationLink { FleetRulesView(inbox: inbox) } label: {
                         InsetRow("Fleet rules", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Remote access and agents, on every machine")
                     }
@@ -61,7 +67,8 @@ struct MachinesView: View {
     }
     /// Connected machines in their runtimes' order, then the ones turned off here or needing
     /// pairing again: every machine stays listed, once.
-    private var listed: [String] {
+    private var listed: [String] { Self.listed(inbox: inbox, machines: machines) }
+    static func listed(inbox: MachineInbox, machines: MachinesModel?) -> [String] {
         let live = inbox.sessions.map(\.hostId)
         guard let machines else { return live }
         let rest = machines.machines.map(\.hostId).filter { hostId in
@@ -135,6 +142,9 @@ struct ConnectionDot: View {
     let paused: Bool
     /// Turned off on this phone: no connection, its threads and notifications hidden.
     let off: Bool
+    /// Threads whose agents the machine says are working now. A copy this phone kept says nothing
+    /// current, so it never counts (AGENTS.md: never claim work the machine hasn't confirmed).
+    let working: Int
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
@@ -153,12 +163,17 @@ struct ConnectionDot: View {
             : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         symbol = Self.symbol(entry?.icon?.kind)
         paused = client?.admission?.paused == true
+        working = client?.inbox.values.filter { $0.confirmed == true && $0.workingSince != nil }.count ?? 0
     }
     var connected: Bool { connection.token == "done" }
     /// The address while connected; otherwise the connection word and when it was last seen.
     var subtitle: String {
         var parts: [String] = []
-        if connected { parts.append(address ?? connection.label) }
+        if connected {
+            // As the web's fleet map words a machine: its agents at work first.
+            if working > 0 { parts.append(working == 1 ? "1 agent working" : "\(working) agents working") }
+            parts.append(address ?? connection.label)
+        }
         else if off { parts.append(connection.label) }
         else {
             parts.append(connection.label)

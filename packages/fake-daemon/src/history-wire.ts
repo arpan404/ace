@@ -16,6 +16,9 @@ export class FakeHistory {
   /** Times a client asked for past sessions, and times it ended that look. */
   lists = 0;
   releases = 0;
+  /** Each continue the fake carried out: which thread, and how it was asked to go on. */
+  continued: { threadId: string; mode: "resume" | "fork"; input: unknown[]; delivery: string }[] =
+    [];
   private scan: import("@ace/protocol").HistoryScanStatus | undefined;
   seedScan(scan: import("@ace/protocol").HistoryScanStatus): void {
     this.scan = scan;
@@ -170,7 +173,13 @@ export class FakeHistory {
           status: "unsupported",
           reason: "Native resume unavailable",
         });
-      else
+      else {
+        this.continued.push({
+          threadId: message.threadId,
+          mode: message.mode,
+          input: message.input,
+          delivery: message.delivery,
+        });
         send({
           type: "history.continue",
           requestId: message.requestId,
@@ -179,6 +188,7 @@ export class FakeHistory {
           nativeSessionId: session.nativeId,
           instanceId: session.instanceId,
         });
+      }
       return true;
     }
     return false;

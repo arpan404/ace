@@ -16,6 +16,8 @@ extension NotificationCoordinator {
         for request in access where !known.contains(request.requestId) {
             // In the foreground the sheet opens by itself.
             guard !foreground, delivering(hostId) else { continue }
+            // Already shown from the daemon's push: once is enough.
+            guard !desk.pushed.contains(AccessAlert.identifier(request.requestId, hostId: hostId)) else { continue }
             desk.post(.access(request.alert, hostId: hostId, machine: machineName(hostId)))
         }
         accessSeen[hostId] = pending
@@ -40,5 +42,12 @@ extension NotificationCoordinator {
         if let hostId, MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
         if foreground, client(hostId)?.outside.access.contains(where: { $0.requestId == requestId }) == true { return [] }
         return [.banner, .list, .sound]
+    }
+}
+
+extension OutsideClientsModel.Access {
+    var alert: AccessAlert {
+        AccessAlert(requestId: requestId, clientName: clientName, domain: verified ? domain : nil,
+                    matchCode: matchCode, expiresAt: expiresAt)
     }
 }

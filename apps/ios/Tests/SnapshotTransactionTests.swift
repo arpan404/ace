@@ -156,6 +156,28 @@ import Testing
         #expect(model.error == "The conversation could not be synced. Retry the connection.")
     }
 
+    /// Opening a thread while the bridge is busy: a newer pass begins before the first open's
+    /// fence. The bridge sends that pass only what changed since the rows it already staged, so
+    /// those rows stay and the newer fence commits them.
+    @Test func aNewerPassBeforeTheFirstOpenCommitsKeepsWhatWasStagedAndCommitsOnItsFence() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let epoch = try #require(model.thread?.epoch)
+        model.receive(try frame([
+            ["type": "thread.reset", "threadId": "thread", "epoch": epoch, "revision": 1],
+            ["type": "thread.metadata", "threadId": "thread", "epoch": epoch, "row": row(label: "Working", token: "working")],
+            item("a", thread: "thread", epoch: epoch, index: 0),
+        ]))
+        model.receive(try frame([["type": "thread.snapshot.begin", "threadId": "thread", "epoch": epoch, "revision": 2]]))
+        model.receive(try frame([item("b", thread: "thread", epoch: epoch, index: 1)]))
+        model.receive(try frame([["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 2, "revision": 2]]))
+        let shown = try #require(model.thread)
+        #expect(shown.loaded)
+        #expect(shown.order == ["a", "b"])
+        #expect(shown.metadata?.state == "working")
+        #expect(model.error == nil)
+    }
+
     private func row(label: String, token: String) -> [String: Any] {
         ["id": "thread", "title": "T", "state": token, "project": "p", "branch": "", "machine": "m", "provider": "codex",
          "model": "x", "agents": 1, "updatedAt": 0, "canSteer": false, "status": ["label": label, "token": token]]

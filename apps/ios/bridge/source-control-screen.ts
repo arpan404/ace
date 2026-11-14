@@ -110,6 +110,19 @@ const transportWords: Record<SourceControlReadiness["transport"], string> = {
   no_remote: "No remote",
 };
 
+/**
+ * What works with a host ace has no pull request API for, and where to go for the rest: Git
+ * itself works there, and its pull requests and issues are on the host's own site.
+ */
+export function gitOnlyNote(name: string, host: string): string {
+  return `Commits, branches, pushes and worktrees work through Git. ${name} pull requests and issues aren't in ace yet, so open them on ${host}.`;
+}
+
+/** The host's own site, for a host saved by name; nil for an address that isn't a hostname. */
+export function siteOf(host: string): string | null {
+  return /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `https://${host}` : null;
+}
+
 /** The screen Swift draws from one readiness answer. Pure. */
 export function sourceControlScreen(status: SourceControlReadiness) {
   const active = status.preferences.host;
@@ -138,20 +151,24 @@ export function sourceControlScreen(status: SourceControlReadiness) {
       cli: {
         title: `${name} ${checks ? "CLI" : "connection"}`,
         value: !checks
-          ? "API support pending"
+          ? "Git only"
           : status.cli === "available"
             ? `${cliOf(forge)} ${status.version ?? ""}`.trim()
             : "Not installed",
       },
       api: {
         title: `${name} API`,
-        value: checks ? apiWords(status, current?.account ?? undefined) : "Not available yet",
+        value: checks ? apiWords(status, current?.account ?? undefined) : "Not in ace yet",
       },
       accounts: status.accounts.map((entry) => ({ login: entry.login, active: entry.active })),
       note:
         support(forge) === "browse"
           ? "Pull request details and changed files are available in Code review. Reviews and merge actions open on the host."
-          : null,
+          : checks
+            ? null
+            : gitOnlyNote(name, active),
+      /** The host's site, offered as a way forward where ace can't act on its pull requests. */
+      site: checks ? null : siteOf(active),
       // What to do next; when everything is ready the rows already say so.
       instructions: status.api === "ready" ? null : status.instructions,
     },

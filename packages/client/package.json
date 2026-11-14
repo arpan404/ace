@@ -10,6 +10,7 @@
     "./attachment-source": "./src/attachment-stream.ts",
     "./devices": "./src/devices.ts",
     "./files": "./src/files.ts",
+    "./sha256": "./src/sha256.ts",
     "./project-calls": "./src/project-calls.ts",
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",

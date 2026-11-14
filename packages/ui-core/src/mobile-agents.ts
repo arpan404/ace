@@ -2,6 +2,7 @@ import { isInternalTask } from "@ace/projection";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
+import { lostChildAsk, type LostChildAsk } from "./lost-child.ts";
 import { modelLabel } from "./providers.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
 import {
@@ -80,6 +81,8 @@ export interface AgentSheetRow {
   icon: AgentNodeIcon;
   /** Its own requests the person can answer from the tree, oldest first. */
   requests: string[];
+  /** A child on another machine whose pairing is gone: the sentence and Stop tracking. */
+  lost: LostChildAsk | null;
 }
 
 export interface TaskSheetRow {
@@ -222,6 +225,12 @@ export function agentSheet(
     (interaction: Interaction) => interaction.state === "pending",
   );
   const work = agentTreeWork(agents, tasks, interactions, reader.thread?.status);
+  // The daemon's request about each lost child, by the child's thread, wherever it opened.
+  const lost = new Map<string, LostChildAsk>();
+  for (const interaction of interactions) {
+    const ask = lostChildAsk(interaction);
+    if (ask && !lost.has(ask.childThreadId)) lost.set(ask.childThreadId, ask);
+  }
   const fresh = reader.unconfirmed !== true && reader.syncing !== true;
   const order = treeOrder(agents);
   // Stop names only the subagents it would stop: those still unsettled.
@@ -319,6 +328,7 @@ export function agentSheet(
         fresh,
       ),
       requests: own.map((interaction) => interaction.id),
+      lost: (agent.machine && agent.childThreadId && lost.get(agent.childThreadId)) || null,
     });
   }
 

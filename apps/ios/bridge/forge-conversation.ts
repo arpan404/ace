@@ -1,5 +1,6 @@
 import type { ForgeComment, ForgePrStatus, ForgeReviewState } from "@ace/protocol";
 import {
+  commentFixRequest,
   authoredReviewComment,
   canHide,
   can,
@@ -55,6 +56,8 @@ export interface CommentView {
   editBody: string;
   /** Its task boxes tick and save (the viewer may edit it). */
   tasks: boolean;
+  /** What "Fix with agent" puts in the thread's composer; null for a comment with no text. */
+  fix: string | null;
 }
 export interface ThreadView {
   id: string;
@@ -81,6 +84,8 @@ export interface Conversation {
   capabilities?: ForgeCapabilitySource;
   /** The pull request's address, under which each comment has its own. */
   url: string;
+  /** Its number, which "Fix with agent" names. */
+  number: number;
   /** Its repository, for GitHub's links in comment text. */
   repository: { host: string; owner: string; name: string };
   /** Locked to this account: comments, reviews and reactions are refused. */
@@ -144,6 +149,14 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     unhide: hideable && reason !== undefined,
     editBody: own ? conversation.preview(authoredReviewComment(comment.body), 65_536) : "",
     tasks: own && writable(conversation),
+    fix:
+      comment.body.trim() === ""
+        ? null
+        : conversation.preview(
+            commentFixRequest(comment, { number: conversation.number, url: conversation.url }),
+            // The whole request, as the web's: a 64k comment quoted line by line can pass 90k.
+            200_000,
+          ),
   };
 }
 

@@ -684,6 +684,11 @@
           "maximum": 9007199254740991,
           "type": "integer"
         },
+        "finishedAfter": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "limit": {
           "maximum": 100,
           "minimum": 1,

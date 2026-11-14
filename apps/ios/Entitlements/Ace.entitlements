@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The app's entitlements without remote push (ACE_PUSH=NO, the default in project.yml). Keep the
+     app group in step with AcePush.entitlements. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.app.ace.ios</string>
+	</array>
+</dict>
+</plist>

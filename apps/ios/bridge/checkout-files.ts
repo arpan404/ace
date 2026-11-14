@@ -34,6 +34,7 @@ import {
 } from "./checkout-request.ts";
 import { checkoutTree, searchRows } from "./checkout-tree.ts";
 import { readPage } from "./checkout-pages.ts";
+import { partFileLimit, writePart } from "./checkout-part-write.ts";
 
 /*
  * The Files screen's requests (`native.files`), answered one at a time like the web's checkout
@@ -145,6 +146,8 @@ export class CheckoutFiles {
         );
       case "write":
         return this.#write(scope, op.path, op.text, op.expected, signal);
+      case "part.write":
+        return writePart(this.#owner, threadId, op, signal);
       case "create":
         return this.#mutate(
           scope,
@@ -341,8 +344,17 @@ export class CheckoutFiles {
       throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
     const { version } = read;
     const editable = "threadId" in scope;
+    // Too large to edit whole: a thread's file is edited a part at a time instead.
+    const parts = (size: number) => editable && size > checkoutEditLimit && size <= partFileLimit;
     if (read.kind === "large")
-      return { kind: "large", path, size: read.size, version, editable: false };
+      return {
+        kind: "large",
+        path,
+        size: read.size,
+        version,
+        editable: false,
+        parts: parts(read.size),
+      };
     const bytes = read.bytes;
     const size = bytes.length;
     const image = imageType(path);
@@ -359,6 +371,7 @@ export class CheckoutFiles {
       text,
       markdown: isMarkdownPath(path),
       editable: editable && size <= checkoutEditLimit,
+      parts: parts(size),
       language: highlightLanguage(path) ?? null,
       marks,
     };

@@ -180,6 +180,9 @@ extension XCUIApplication {
             buttons[id].tap()
             return
         }
+        // The shared X (`SheetClose`: Search conversation, Tools, the browser's sheets) has only its label.
+        let shared = navigationBars.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch
+        if shared.exists { shared.tap(); return }
         XCTFail("No sheet to close")
     }
 }

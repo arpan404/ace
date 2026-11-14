@@ -23,6 +23,8 @@ struct ForgeComment: Decodable, Sendable, Equatable, Identifiable {
     let unhide: Bool
     let editBody: String
     let tasks: Bool
+    /// What "Fix with agent" hands the thread on the pull request; nil from an older bridge.
+    var fix: String? = nil
 }
 
 /// A line conversation: where it sits, whether it is resolved, its comments and its reply box.

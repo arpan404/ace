@@ -8,6 +8,7 @@ import type {
 } from "@ace/protocol";
 import {
   followUpDelivery,
+  guestSession,
   isBusy,
   modelLabel,
   providerDisplayName,
@@ -66,6 +67,8 @@ export function controlsRow(
   const alternate = deliveryOf(reader, setting, true);
   const selection = runsOn(thread);
   const busy = isBusy(status);
+  // A guest session has no composer: its bottom is whose work it is, with Stop while it runs.
+  const guest = guestSession(thread);
   const provider = next?.provider || selection?.provider || thread?.provider;
   const model = next?.model || (selection?.model ? modelLabel(selection.model) : "");
   return {
@@ -73,7 +76,11 @@ export function controlsRow(
     delivery: delivery ?? null,
     alternate: alternate === delivery ? null : (alternate ?? null),
     // Stop is hidden while the agent asks a question: answering is how that turn moves on.
-    canStop: busy && !questionPending(reader) && stopFence(reader) !== undefined,
+    // A guest's calls wait as background rows, so it works while the thread only waits.
+    canStop:
+      (busy || guest?.working === true) &&
+      !questionPending(reader) &&
+      stopFence(reader) !== undefined,
     provider: provider ?? "",
     /** "Claude": the model sheet's section header. */
     providerName: provider ? providerDisplayName(provider) : "",
@@ -83,6 +90,7 @@ export function controlsRow(
     note: next?.note ?? "",
     /** The next message starts a new thread on that model, carrying this one's context. */
     continues: next?.continues ?? false,
+    guest: guest ? { line: preview(guest.line, 512) } : null,
   };
 }
 
