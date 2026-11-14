@@ -92,18 +92,18 @@ import XCTest
         app.buttons["Close"].tap()
         XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
     }
-    /// An answer's maths is typeset, never shown as TeX, and its Mermaid fence draws as a diagram
-    /// whose source is a tap away.
+    /// An answer's maths reaches VoiceOver whole and its Mermaid fence draws as a diagram whose
+    /// source is a tap away.
     func testAnAnswersMathsAndMermaidDiagramRender() {
         let app = launch()
         app.revealRow("thread.ios-rich-answer").tap()
         let any = app.descendants(matching: .any)
         let prose = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "hypotenuse follows", "hypotenuse follows")).firstMatch
         XCTAssertTrue(prose.waitForExistence(timeout: 25))
-        let tex = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "\\sqrt", "\\sqrt"))
-        XCTAssertEqual(tex.count, 0, "display maths is typeset, not shown as its TeX")
-        let inline = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "a^2", "a^2"))
-        XCTAssertEqual(inline.count, 0, "inline maths is typeset too")
+        // Typeset maths still reads as its TeX to VoiceOver, so the tree can't tell typeset from
+        // not; `AnswerMarkdownTests` checks the formulas are drawn. Here: they reach VoiceOver whole.
+        let spoken = any.matching(NSPredicate(format: "value CONTAINS %@", "$$c = \\sqrt{a^2 + b^2}$$")).firstMatch
+        XCTAssertTrue(spoken.exists, "the display formula reads whole, in its delimiters")
         let diagram = app.images["answer.diagram"]
         XCTAssertTrue(diagram.waitForExistence(timeout: 20), "the Mermaid fence draws as a diagram")
         XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Phone --> Daemon", "Phone --> Daemon")).firstMatch.exists,
