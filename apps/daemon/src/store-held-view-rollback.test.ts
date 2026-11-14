@@ -172,3 +172,78 @@ it("a held view whose rebuild fails is rebuilt by the next read", () => {
   expect(stored()).toEqual({ held: "pending", acquired: "resolved", snapshot: "resolved" });
   expect(stored().held).toBe("resolved");
 });
+
+/** A thread with a pending approval and no held view yet. */
+function unheld() {
+  const home = mkdtempSync(join(tmpdir(), "ace-held-lease-"));
+  cleanup.push(() => rmSync(home, { recursive: true, force: true }));
+  const store = new Store(join(home, "events.sqlite"));
+  cleanup.push(() => store.close());
+  const thread = createDevThread(store, store.createWorkspace("/repo", "Repo", 1));
+  const approval = Interaction.parse({
+    id: "approval",
+    threadId: thread.id,
+    agentId: "root",
+    state: "pending",
+    createdAt: 1,
+    blocking: true,
+    request: { kind: "approval", title: "Continue?", options: [] },
+  });
+  store.appendEvents(thread.id, [{ type: "interaction.opened", interaction: approval }]);
+  const resolve = () =>
+    store.appendEvents(thread.id, [
+      { type: "interaction.closed", interactionId: "approval", state: "resolved", closedAt: 2 },
+    ]);
+  const state = (view: { interactions: Record<string, { state: string } | undefined> }) =>
+    view.interactions.approval?.state;
+  return { store, id: thread.id, resolve, state };
+}
+
+it("a thread first acquired inside a rolled-back transaction is held as stored", () => {
+  const { store, id, resolve, state } = unheld();
+  expect(() =>
+    store.atomic(() => {
+      resolve();
+      expect(state(store.acquireThread(id))).toBe("resolved");
+      throw new Error("rejected");
+    }),
+  ).toThrow("rejected");
+  // The lease taken inside still holds the thread; its next read outside shows what is stored.
+  expect(store.viewedThreads()).toContain(id);
+  const view = store.acquireThread(id);
+  expect(state(view)).toBe("pending");
+  // It is the held view from now on: it follows committed writes.
+  resolve();
+  expect(state(view)).toBe("resolved");
+  store.releaseThread(id);
+  store.releaseThread(id);
+  expect(store.viewedThreads()).not.toContain(id);
+});
+
+it("a lease taken inside a transaction and released outside it balances", () => {
+  const { store, id, resolve, state } = unheld();
+  const held = store.acquireThread(id);
+  store.atomic(() => {
+    store.acquireThread(id);
+  });
+  store.releaseThread(id);
+  // Still held by the first lease, and still live.
+  expect(store.viewedThreads()).toContain(id);
+  resolve();
+  expect(state(held)).toBe("resolved");
+  store.releaseThread(id);
+  expect(store.viewedThreads()).not.toContain(id);
+});
+
+it("a lease taken outside a transaction and released inside it balances", () => {
+  const { store, id, resolve, state } = unheld();
+  const held = store.acquireThread(id);
+  const again = store.acquireThread(id);
+  expect(again).toBe(held);
+  store.atomic(() => store.releaseThread(id));
+  expect(store.viewedThreads()).toContain(id);
+  resolve();
+  expect(state(held)).toBe("resolved");
+  store.atomic(() => store.releaseThread(id));
+  expect(store.viewedThreads()).not.toContain(id);
+});
