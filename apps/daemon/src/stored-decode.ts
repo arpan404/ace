@@ -52,7 +52,11 @@ export const untrusted = (): StoredTrust => ({
 });
 /** Trust in every row from `from` on. */
 export const trustedFrom = (from: number): StoredTrust => ({ from, rejected: new Set() });
-/** Whether the row whose body was written at `seq` is read as stored. */
+/**
+ * Whether the row whose body was written at `seq` is read as stored. Every table a read trusts
+ * through this must be checked by the idle pass by sequence (`stored-trust-batch.ts`), and
+ * `stored-trust-coverage.test.ts` must plant a row of it: extend both when adding a trusted read.
+ */
 export function isTrusted(trust: StoredTrust, seq: number): boolean {
   return seq >= trust.from && (trust.rejected.size === 0 || !trust.rejected.has(seq));
 }

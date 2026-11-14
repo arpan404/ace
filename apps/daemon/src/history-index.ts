@@ -230,6 +230,8 @@ export class HistoryIndex {
       // Text items carry the sources their preview was just given; any other item's preview
       // policy is the identity, so it is taken from the event instead of a stored copy.
       // The item store seeded that preview from this event's item just before (event-writer.ts).
+      // No trust check: the row is the one this transaction wrote from the validated event, so
+      // it is never a row an older build left, whatever its item's sequence.
       const item = hasTextPreview(p.item)
         ? justWrittenItem(
             String(
@@ -249,7 +251,10 @@ export class HistoryIndex {
               "SELECT s.id,s.size FROM item_text_targets t JOIN item_text_streams s ON s.id=t.stream_id WHERE t.item_id=? AND s.thread_id=?",
             ).get(p.itemId, event.threadId);
       if (!row) return;
-      // Columns of the daemon's own stream tables, read as stored (ADR 0125).
+      // Columns of the daemon's own stream tables, read as stored (ADR 0125). No trust check:
+      // they are an id and a byte count, not a body any schema shapes, and every build has
+      // written them the same way (the id it made, the size it summed), so an older build's row
+      // reads the same as this one's.
       const stream = { id: String(row.id), size: Number(row.size) };
       // A message ending in an attachment acquires a new append target on its first delta.
       if (p.field !== "output" && !this.hasVersion(stream.id, event.seq)) {

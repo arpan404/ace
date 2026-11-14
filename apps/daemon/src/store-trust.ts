@@ -7,6 +7,7 @@ import {
   startStoredTrustPass,
   type TrustPassScheduler,
 } from "./stored-trust-pass.ts";
+import { openStoredTrustIndexes } from "./stored-trust-batch.ts";
 import { trustTableWrites } from "./stored-trust-writes.ts";
 
 /** The store's stored-row trust options (ADR 0125). */
@@ -34,8 +35,10 @@ export function openStoreTrust(
   options: StoredTrustOptions,
   trust: StoredTrust,
 ): OpenedTrust | undefined {
-  if (!options.storedTrustReader)
+  if (!options.storedTrustReader) {
+    openStoredTrustIndexes(db);
     return openStoredTrust(db, shape, options.storedTrustBuild, trust);
+  }
   readStoredTrust(db, shape, options.storedTrustBuild, trust);
   return undefined;
 }

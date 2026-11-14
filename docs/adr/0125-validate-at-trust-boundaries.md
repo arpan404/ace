@@ -70,19 +70,26 @@ trusted.
    work, a transaction is open, history is being published, maintenance holds writes, live
    output is buffered, or any event was written since the previous tick.
 
-   - **What a batch checks** (`stored-trust-batch.ts`). Up to 512 events below the boundary,
-     with the event and every item, text preview and history revision written at each one's
-     sequence. Each row is read both validated and as stored, and its sequence becomes
-     trusted only when both give the same value, field order and byte size.
+   - **What a batch checks** (`stored-trust-batch.ts`). Up to 512 events below the
+     boundary. For each event's sequence, every row a read trusts by that sequence, enumerated
+     by the sequence itself and never by what the event names: the event, the item created at
+     it and its text preview, every history revision at it and every streamed text chunk at it,
+     whichever item they belong to. Each row is read both validated and as stored, and the
+     sequence becomes trusted only when every row gives the same value, field order and byte
+     size both ways. Revisions and chunks are found through indexes on their sequence
+     (`history_item_revisions_seq`, `item_text_chunks_seq`), created at open with
+     `IF NOT EXISTS` like this table's other indexes. The first open after the upgrade builds
+     them once, measured at 389 ms for 2 million revision rows, with no migration step or
+     version bump. Each adds one index entry per revision or chunk written.
+     `stored-trust-coverage.test.ts` plants a row of each kind that the event at its sequence
+     doesn't name, and is where a new trusted read adds its kind.
    - **What a batch costs.** Every body's size is read from SQLite's record header
-     (`octet_length`, which loads no content) before the body is loaded or any JSON function
-     runs on it. Every load is charged to a 1 MiB budget, so a batch loads at most 1 MiB of
-     stored JSON. SQLite parses at most that much again, to find which revisions an event's
-     payload names.
+     (`octet_length`, which loads no content) before the body is loaded. Every load is charged
+     to a 1 MiB budget, so a batch loads at most 1 MiB of stored JSON.
    - **What stays validated.** A sequence goes into `stored_event_rejected` when any of its
      rows differs, fails validation or isn't valid JSON. It is also rejected unchecked when
-     its rows together exceed the budget, and when an item is written at it whose event is
-     gone. Every row at a rejected sequence keeps the
+     its rows together exceed the budget, and when an item, revision or chunk is written at
+     it whose event is gone. Every row at a rejected sequence keeps the
      lenient validating decode exactly as before: a rejected item also puts the event at the
      same sequence back on the validating path. The pass stops extending trust after 100,000
      rejections, which are held in memory.
