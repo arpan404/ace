@@ -36,91 +36,110 @@ export function recheckEveryPolls(agePolls: number | undefined): number {
   return RECHECK_STEPS.find((step) => agePolls < step.upTo)?.every ?? RECHECK_SLOWEST_POLLS;
 }
 
+/** What the schedule needs to know about one machine (`ChildLedger.recheckMachines`). */
+export interface RecheckFacts {
+  /** When its youngest settled child settled. */
+  latest: number | null;
+  /** A child there is past its 24 h mark and still owed its last check. */
+  expired: boolean;
+  /** A stop there is still unconfirmed: its real end is read at the fast pace. */
+  unconfirmed: boolean;
+}
+
 /**
- * When each machine's settled children are next re-checked, and which of them still owe a check
- * that only this daemon's memory can tell. Pure: the caller passes the time, the poll interval,
- * when each machine's youngest settled child settled, and which re-checks were answered.
+ * When each machine's settled children are next re-checked. Pure: the caller passes the time,
+ * the poll interval, the machine's facts, and which re-checks were answered.
  *
  * The rule it keeps: no child sits on a slow pace, or leaves tracking, without a check answered
  * after the last thing that could have reopened it unseen.
- * - A daemon that just started knows nothing of what happened while it was down: every machine is
- *   re-checked at the fast pace until each settled child saved there has been read once.
+ * - Children are read in rounds: a round covers every child tracked on the machine, sixteen per
+ *   call, one call every fast interval (10 s) until the round is done. The age-based pace only
+ *   sets the wait between rounds.
+ * - A daemon that just started knows nothing of what happened while it was down: its first round
+ *   on each machine starts at the fast pace.
  * - A re-check that failed is not a check: the machine stays due, asked again as soon as its
  *   failure backoff allows.
- * - A child reaching the end of the 24-hour window is kept for up to `graceMs` more, first in
- *   line, until one check answered at that age; then it leaves tracking.
+ * - A child past its 24 h mark, or a stop still unconfirmed, keeps the machine on the fast pace.
+ *   A child leaves tracking only once a check made at or after its 24 h mark is answered (the
+ *   caller closes its window then); no timer ends tracking on its own.
  */
 export class RecheckSchedule {
   private pollMs: number;
   private start: number;
   private last = new Map<string, number>();
   private polls = new Map<string, number>();
-  /** Per machine, the settled children saved at start not yet read since. */
-  private unread = new Map<string, Set<string>>();
-  /** Children read at or past the end of the window, by when they settled. */
-  private final = new Map<string, number>();
+  /** Per machine, the children the current round has not read yet; absent before the first. */
+  private rounds = new Map<string, Set<string>>();
   constructor(pollMs: number, start: number) {
     this.pollMs = pollMs;
     this.start = start;
   }
-  /** How long past the window a child waits for its last check: two of the slowest intervals. */
-  get graceMs(): number {
-    return 2 * RECHECK_SLOWEST_POLLS * this.pollMs;
+  /**
+   * A turn on `machine` is about to be taken; `tracked` is every child tracked there now. A new
+   * round begins when the last one is done; children no longer tracked leave the current one.
+   * Returns the children the round still has to read.
+   */
+  turn(machine: string, tracked: readonly string[]): string[] {
+    const round = this.rounds.get(machine);
+    const now = new Set(tracked);
+    const next =
+      round && round.size > 0 ? new Set([...round].filter((id) => now.has(id))) : new Set(now);
+    this.rounds.set(machine, next);
+    return [...next];
   }
-  /** Whether the start pass for `machine` has begun; it begins once, with what was saved. */
-  started(machine: string): boolean {
-    return this.unread.has(machine);
-  }
-  /** The settled children saved for `machine` when this daemon first looked at it. */
-  begin(machine: string, ids: readonly string[]): void {
-    if (!this.unread.has(machine)) this.unread.set(machine, new Set(ids));
-  }
-  /** `ids` on `machine` answered a re-check at `now`; those past the window are done for good. */
-  answered(machine: string, ids: readonly { id: string; settledAt: number | null }[], now: number) {
+  /**
+   * `ids` on `machine` answered a re-check at `now`. Returns those it read at or after their
+   * 24 h mark, whose re-check window the caller closes.
+   */
+  answered(
+    machine: string,
+    ids: readonly { id: string; settledAt: number | null }[],
+    now: number,
+  ): { id: string; settledAt: number }[] {
     this.last.set(machine, now);
     this.polls.set(machine, 0);
-    const unread = this.unread.get(machine);
+    const round = this.rounds.get(machine);
+    const ended: { id: string; settledAt: number }[] = [];
     for (const { id, settledAt } of ids) {
-      unread?.delete(id);
-      if (settledAt !== null && now - settledAt >= RECHECK_WINDOW_MS) this.final.set(id, settledAt);
+      round?.delete(id);
+      if (settledAt !== null && now - settledAt >= RECHECK_WINDOW_MS) ended.push({ id, settledAt });
     }
+    return ended;
   }
-  /** Children whose last check is done, so they leave tracking; older entries are forgotten. */
-  finished(now: number): string[] {
-    for (const [id, settledAt] of this.final)
-      if (settledAt < now - RECHECK_WINDOW_MS - this.graceMs) this.final.delete(id);
-    return [...this.final.keys()];
-  }
-  /** When `machine` is due, its youngest child having settled at `latest`. */
-  dueAt(machine: string, latest: number | null, now: number): number {
+  /** When `machine` is due. */
+  dueAt(machine: string, facts: RecheckFacts, now: number): number {
     const last = this.last.get(machine) ?? this.start;
-    return last + this.everyPolls(machine, latest, now) * this.pollMs;
+    return last + this.everyPolls(machine, facts, now) * this.pollMs;
   }
   /**
    * Whether a poll at `now` re-checks `machine`: its time has come by the clock, or as many polls
    * have run since its last answered re-check, which holds even if the clock stalls.
    */
-  due(machine: string, latest: number | null, now: number): boolean {
+  due(machine: string, facts: RecheckFacts, now: number): boolean {
     const polls = (this.polls.get(machine) ?? 0) + 1;
     this.polls.set(machine, polls);
     return (
-      now >= this.dueAt(machine, latest, now) || polls >= this.everyPolls(machine, latest, now)
+      now >= this.dueAt(machine, facts, now) || polls >= this.everyPolls(machine, facts, now)
     );
   }
   /** Machines with no settled child to re-check keep no schedule. */
   retain(machines: ReadonlySet<string>): void {
-    for (const map of [this.last, this.polls, this.unread])
+    for (const map of [this.last, this.polls, this.rounds])
       for (const machine of map.keys()) if (!machines.has(machine)) map.delete(machine);
   }
-  private everyPolls(machine: string, latest: number | null, now: number): number {
-    // Until every child saved at start has been read, whatever their age: the fast pace.
-    const unread = this.unread.get(machine);
-    if (!unread || unread.size > 0) return RECHECK_POLLS;
-    const age = latest === null ? undefined : Math.max(0, now - latest) / this.pollMs;
+  private everyPolls(machine: string, facts: RecheckFacts, now: number): number {
+    const round = this.rounds.get(machine);
+    // The first round after start, the rest of a round, a child owed its last check, or a stop
+    // still unconfirmed: the fast pace.
+    if (!round || round.size > 0 || facts.expired || facts.unconfirmed) return RECHECK_POLLS;
+    const age = facts.latest === null ? undefined : Math.max(0, now - facts.latest) / this.pollMs;
     return recheckEveryPolls(age);
   }
 }
-/** Only children settled this recently are re-checked. */
+/**
+ * Children settled this recently are re-checked at the age-based pace; one past it is read once
+ * more, then leaves tracking.
+ */
 export const RECHECK_WINDOW_MS = 24 * 60 * 60 * 1000;
 /**
  * At most this many children per machine per re-check, one status call each; each machine's

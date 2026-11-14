@@ -514,52 +514,66 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
     );
   }
-  /** Machines with a settled child still tracked by `scope`, with when the latest settled. */
-  recheckMachines(scope: RecheckScope): { machine: string; latest: number | null }[] {
+  /**
+   * Machines with a settled child the re-check tracks: when the latest of them settled, whether
+   * any settled before `expiry` (past the window, still owed its last check), and whether a stop
+   * there is still unconfirmed.
+   */
+  recheckMachines(expiry: number): RecheckMachine[] {
     return this.store
       .atomic((db) =>
         db
           .prepare(
-            `SELECT machine, MAX(settled_at) AS latest FROM machine_children WHERE ${tracked} GROUP BY machine`,
+            `SELECT machine, MAX(settled_at) AS latest, MAX(settled_at IS NOT NULL AND settled_at<?) AS expired, MAX(stopped_unconfirmed) AS unconfirmed FROM machine_children WHERE ${tracked} GROUP BY machine`,
           )
-          .all(scope.since, scope.expiry, JSON.stringify(scope.finished)),
+          .all(expiry),
       )
       .map((row) => ({
         machine: z.string().parse(row.machine),
         latest: z.number().nullable().parse(row.latest),
+        expired: Number(row.expired) === 1,
+        unconfirmed: Number(row.unconfirmed) === 1,
       }));
   }
-  /** Every settled child `scope` tracks on one machine, by id. */
-  recheckIds(machine: string, scope: RecheckScope): string[] {
+  /** Every settled child the re-check tracks on one machine, by id. */
+  recheckIds(machine: string): string[] {
     return this.store
       .atomic((db) =>
-        db
-          .prepare(`SELECT id FROM machine_children WHERE ${tracked} AND machine=?`)
-          .all(scope.since, scope.expiry, JSON.stringify(scope.finished), machine),
+        db.prepare(`SELECT id FROM machine_children WHERE ${tracked} AND machine=?`).all(machine),
       )
       .map((row) => z.string().parse(row.id));
   }
   /**
-   * One machine's settled children due a re-check: those past the window waiting for their last
-   * check first, then those checked longest ago.
+   * One machine's settled children due a re-check: those past the window first, then those the
+   * current round has not read yet (`unread`), then those checked longest ago.
    */
-  recheckTurn(machine: string, scope: RecheckScope, limit: number): ChildRow[] {
+  recheckTurn(
+    machine: string,
+    expiry: number,
+    unread: readonly string[],
+    limit: number,
+  ): ChildRow[] {
     return this.store
       .atomic((db) =>
         db
           .prepare(
-            `SELECT * FROM machine_children WHERE ${tracked} AND machine=? ORDER BY (settled_at IS NOT NULL AND settled_at<?) DESC, rechecked, id LIMIT ?`,
+            `SELECT * FROM machine_children WHERE ${tracked} AND machine=? ORDER BY (settled_at IS NOT NULL AND settled_at<?) DESC, (id IN (SELECT value FROM json_each(?))) DESC, rechecked, id LIMIT ?`,
           )
-          .all(
-            scope.since,
-            scope.expiry,
-            JSON.stringify(scope.finished),
-            machine,
-            scope.expiry,
-            limit,
-          ),
+          .all(machine, expiry, JSON.stringify(unread), limit),
       )
       .map((raw) => ChildRow.parse(raw));
+  }
+  /**
+   * Children read at or after their 24 h mark leave the re-check for good: their re-check window
+   * closes (`settled_at` null), unless they settled again since they were read.
+   */
+  endRecheck(rows: readonly { id: string; settledAt: number }[]): void {
+    this.store.atomic((db) => {
+      const end = db.prepare(
+        "UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1 AND settled_at=?",
+      );
+      for (const row of rows) end.run(row.id, row.settledAt);
+    });
   }
   /** The latest re-check turn recorded. */
   lastRecheckTurn(): number {
@@ -577,18 +591,19 @@ export class ChildLedger {
   }
 }
 
-/**
- * Which settled children the re-check tracks: settled at or after `since` (the 24-hour window
- * and the grace after it) or stopped without confirmation, less those settled before `expiry`
- * (the window's start) whose last check is done (`finished`).
- */
-export interface RecheckScope {
-  since: number;
-  expiry: number;
-  finished: readonly string[];
+/** A machine with settled children to re-check (`ChildLedger.recheckMachines`). */
+export interface RecheckMachine {
+  machine: string;
+  latest: number | null;
+  expired: boolean;
+  unconfirmed: boolean;
 }
-const tracked =
-  "settled=1 AND (settled_at>=? OR stopped_unconfirmed=1) AND NOT (settled_at IS NOT NULL AND settled_at<? AND id IN (SELECT value FROM json_each(?)))";
+/**
+ * Which settled children the re-check tracks: every one whose re-check window is still open
+ * (`settled_at` set; it closes only once a check answered at or after its 24 h mark), and every
+ * stop not yet confirmed. No time bound: an unreachable machine's children stay until it answers.
+ */
+const tracked = "settled=1 AND (settled_at IS NOT NULL OR stopped_unconfirmed=1)";
 
 /** SQLite caps bound values per statement; long id lists go in pieces. */
 function chunks(ids: readonly string[]): string[][] {

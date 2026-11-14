@@ -77,3 +77,61 @@ it("a re-check that failed does not count: the child is read once its machine an
   await runUntil(h, failedAt + 30_000);
   expect(h.state(id)).toBe("working");
 });
+
+it("a child that ran again while its machine was unreachable past the window is read once it answers", async () => {
+  const h = machine(undefined, { pollMs: 1000 });
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 60_000);
+  // Just before its 24 h mark it starts again there, and its machine can't be reached for hours.
+  h.report(id, working);
+  h.reads.error = new Error("Studio is unreachable");
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 3 * HOUR);
+  expect(h.state(id)).toBe("done");
+  h.reads.error = undefined;
+  await runUntil(h, h.clock.now + 60_000);
+  expect(h.state(id)).toBe("working");
+});
+
+it("a child past the window when the daemon restarts is still read once before it is let go", async () => {
+  const first = machine();
+  const id = first.add("child");
+  first.report(id, done("Done."));
+  await first.step();
+  const settledAt = first.clock.now;
+  first.children.close();
+  // The daemon was off for two days; the child started again there meanwhile.
+  const restarted = machine(first.home, { startAt: settledAt + 2 * RECHECK_WINDOW_MS });
+  restarted.report(id, working);
+  await runUntil(restarted, restarted.clock.now + 2 * POLL_MS * RECHECK_POLLS);
+  expect(restarted.state(id)).toBe("working");
+});
+
+it("sixty-four children settling together are each read after their 24 h mark", async () => {
+  const h = machine(undefined, { pollMs: 1000 });
+  const ids = Array.from({ length: 64 }, (_, index) => h.add(`child-${index}`));
+  for (const id of ids) h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS - 1);
+  // Right at the end of the window every one of them starts again there.
+  for (const id of ids) h.report(id, working);
+  await runUntil(h, settledAt + RECHECK_WINDOW_MS + 30 * 60 * 1000);
+  for (const id of ids) expect(h.state(id), id).toBe("working");
+});
+
+it("a child read after its 24 h mark leaves tracking for good, even across a restart", async () => {
+  const first = machine();
+  const id = first.add("child");
+  first.report(id, done("Done."));
+  await first.step();
+  const settledAt = first.clock.now;
+  await runUntil(first, settledAt + RECHECK_WINDOW_MS + 2 * POLL_MS * RECHECK_SLOWEST_POLLS);
+  expect(first.timers).toEqual([]);
+  first.children.close();
+  const restarted = machine(first.home, { startAt: settledAt + 2 * RECHECK_WINDOW_MS });
+  expect(restarted.timers).toEqual([]);
+  expect(restarted.asked).toEqual([]);
+});

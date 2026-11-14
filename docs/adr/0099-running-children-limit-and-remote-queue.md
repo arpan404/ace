@@ -94,21 +94,23 @@ settle, and the caller must notice so the parent never reads done while it runs.
 - _Work started on that machine_ (the person there messages the thread). Pairing is one-way:
   the caller holds a device token for the target, the target has no route or credential back
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently
-  settled children with the ordinary `status` call: children settled within the last 24 hours,
-  at most 16 per machine per check (one call each). Each machine is re-checked at a pace set by
-  its youngest settled child: every 10 polls (10 s by default) for its first 2 minutes, then
-  every 30 s until 10 minutes, every minute until an hour, every 2.5 minutes until 4 hours, and
-  every 5 minutes after that, so a day costs about 390 calls instead of 8,640. A child settling
-  there brings its machine back to the fast pace. Work started again on a settled child is read
-  within one interval of that pace (5 minutes at worst) when a machine has at most 16 settled
-  children in the window; with more, each is read every `ceil(n / 16)` intervals. No child sits on
-  the slow pace, or leaves tracking, without a check answered after the last thing that could
-  have reopened it unseen: a daemon that just started re-checks every machine at the fast pace
-  until each settled child saved there has been read once (within `ceil(n / 16)` times 10 s of
-  start); a re-check that failed is not a check, so the machine is asked again as soon as its
-  failure backoff allows (at most 30 s); and a child reaching the end of the 24 hours stays
-  tracked, first in line, for up to two slow intervals (10 minutes) until one check answered at
-  that age. A stop that was never confirmed takes its real end at the same pace. On each machine
+  settled children with the ordinary `status` call: each child from when it settles until a
+  check after its 24-hour mark is answered, at most 16 per machine per check (one call each), in rounds: a round reads every child tracked
+  on the machine, one call every 10 s until it is done. The wait between rounds follows the
+  machine's youngest settled child: 10 s for its first 2 minutes, then 30 s until 10 minutes, a
+  minute until an hour, 2.5 minutes until 4 hours, and 5 minutes after that, so one settled child
+  costs about 390 calls a day instead of 8,640. A child settling there brings its machine back to
+  the fast pace. No child sits on the slow pace, or leaves tracking, without a check answered
+  after the last thing that could have reopened it unseen:
+  - a daemon that just started reads every machine's children in a fast first round;
+  - a re-check that failed is not a check: the machine is asked again as soon as its failure
+    backoff allows (at most 30 s), however long it stays unreachable;
+  - a child past its 24 hours, or a stop not yet confirmed, keeps its machine on the fast pace;
+  - a child leaves tracking only once a check made at or after its 24-hour mark is answered
+    (its `settled_at` is cleared then), never on a timer, across restarts too.
+  Work started again on a settled child is read within one wait plus one round: at most
+  5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
+  and after a restart within `ceil(n / 16)` × 10 s. On each machine
   the children checked longest ago go first (a saved turn number), so every eligible child is
   checked in turn however many there are. A child
   found running again reopens: the parent's row shows it running and the parent waits until it
