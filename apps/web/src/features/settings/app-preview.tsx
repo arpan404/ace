@@ -14,11 +14,15 @@ function Line(props: { className: string }) {
   return <i className={cn("block h-[0.32em] shrink-0 rounded-full", props.className)} />;
 }
 
+/** A built-in theme, or the Suit on screen (its rules are scoped to `data-suit`). */
+export type PreviewLook = { theme: ThemeId } | { suit: string };
+
 /** One scheme of the window: a quiet sidebar, one exchange and the composer. */
-function Layer(props: { theme: ThemeId; scheme: Scheme; className?: string }) {
+function Layer(props: { look: PreviewLook; scheme: Scheme; className?: string }) {
   return (
     <span
-      data-theme={props.theme}
+      data-theme={"theme" in props.look ? props.look.theme : undefined}
+      data-suit={"suit" in props.look ? props.look.suit : undefined}
       data-scheme={props.scheme}
       className={cn(
         "absolute inset-0 grid grid-cols-[28%_1fr] bg-background text-foreground",
@@ -59,11 +63,11 @@ function Layer(props: { theme: ThemeId; scheme: Scheme; className?: string }) {
 }
 
 /**
- * `theme` as the app draws it in one scheme, or as one window split down the middle with the
+ * `look` as the app draws it in one scheme, or as one window split down the middle with the
  * light half on the left and the dark half on the right, split on a diagonal. Fills its parent, which sets the aspect.
  */
 export function AppPreview(props: {
-  theme: ThemeId;
+  look: PreviewLook;
   scheme: Scheme | "split";
   className?: string;
 }) {
@@ -76,10 +80,10 @@ export function AppPreview(props: {
       )}
     >
       <span className="absolute inset-0 text-[length:min(4.4cqw,6.8cqh)]">
-        <Layer theme={props.theme} scheme={props.scheme === "dark" ? "dark" : "light"} />
+        <Layer look={props.look} scheme={props.scheme === "dark" ? "dark" : "light"} />
         {props.scheme === "split" && (
           <Layer
-            theme={props.theme}
+            look={props.look}
             scheme="dark"
             className="[clip-path:polygon(62%_0,100%_0,100%_100%,38%_100%)]"
           />

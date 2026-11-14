@@ -149,3 +149,20 @@ test("a Suit that tries to set status colours still renders ace's own status tok
   for (const name of ["--status-working", "--status-failed", "--status-waiting", "--danger"])
     expect(sheet).toContain(`${name}:${midnight[name]}`);
 });
+
+test("while a Suit is on, the theme picker shows it as the chosen custom look, and a theme turns it off", async () => {
+  await openAppearance({ suits: fakeSuitLibrary([sunset]).transport });
+  await userEvent.click(await screen.findByRole("button", { name: "Use Sunset" }));
+  const themes = screen.getByRole("radiogroup", { name: "Theme" });
+  const chosen = () =>
+    within(themes)
+      .getAllByRole("radio")
+      .filter((radio) => radio.getAttribute("aria-checked") === "true")
+      .map((radio) => radio.getAttribute("aria-label"));
+  await waitFor(() => expect(chosen()).toEqual(["Custom · Sunset"]));
+
+  await userEvent.click(within(themes).getByRole("radio", { name: "Paper" }));
+  await waitFor(() => expect(root.hasAttribute("data-suit")).toBe(false));
+  expect(root.getAttribute("data-theme")).toBe("paper");
+  expect(chosen()).toEqual(["Paper"]);
+});

@@ -28,7 +28,7 @@ export function ModePicker() {
           onChoose={() => update({ mode: value })}
           preview={
             <AppPreview
-              theme={resolved.theme}
+              look={resolved.suit ? { suit: resolved.suit } : { theme: resolved.theme }}
               scheme={value === "system" ? "split" : value}
               className="aspect-[16/9]"
             />
