@@ -514,29 +514,20 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
     );
   }
-  /** True while any child settled at or after `since`, or a stop of one is still unconfirmed. */
-  hasRecentlySettled(since: number): boolean {
-    return Boolean(
-      this.store.atomic((db) =>
-        db
-          .prepare(
-            "SELECT 1 FROM machine_children WHERE settled=1 AND (settled_at>=? OR stopped_unconfirmed=1) LIMIT 1",
-          )
-          .get(since),
-      ),
-    );
-  }
-  /** Machines with a child settled at or after `since`. */
-  recheckMachines(since: number): string[] {
+  /** Machines with a child settled at or after `since`, with when the latest of them settled. */
+  recheckMachines(since: number): { machine: string; latest: number | null }[] {
     return this.store
       .atomic((db) =>
         db
           .prepare(
-            "SELECT DISTINCT machine FROM machine_children WHERE settled=1 AND (settled_at>=? OR stopped_unconfirmed=1)",
+            "SELECT machine, MAX(settled_at) AS latest FROM machine_children WHERE settled=1 AND (settled_at>=? OR stopped_unconfirmed=1) GROUP BY machine",
           )
           .all(since),
       )
-      .map((row) => z.string().parse(row.machine));
+      .map((row) => ({
+        machine: z.string().parse(row.machine),
+        latest: z.number().nullable().parse(row.latest),
+      }));
   }
   /** One machine's settled children due a re-check, those checked longest ago first. */
   recheckTurn(machine: string, since: number, limit: number): ChildRow[] {

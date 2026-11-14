@@ -69,7 +69,8 @@ test("a stopped parent's result waits untried and quiet, and reaches it at once 
   expect(logged(h, "Machine result waits for its stopped parent")).toHaveLength(1);
   // Nothing to try until the parent is resumed: only the slow re-check pace is left, and the
   // waiting result is asked about once a minute, never every poll.
-  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+  expect(h.timers).toHaveLength(1);
+  expect(h.timers[0]?.ms).toBeGreaterThanOrEqual(POLL_MS * RECHECK_POLLS);
 
   h.stopped.delete(parent);
   h.children.threadChanged(parent);
@@ -97,7 +98,8 @@ test("a delivery that keeps failing backs off, is logged once, and is delivered 
   }
   expect(h.attempts).toHaveLength(4);
   // Only the slow re-check pace polls now, never the one-second retry of every poll.
-  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+  expect(h.timers).toHaveLength(1);
+  expect(h.timers[0]?.ms).toBeGreaterThanOrEqual(POLL_MS * RECHECK_POLLS);
   h.clock.now += 4_000;
   await h.fire();
   expect(h.attempts).toHaveLength(4);

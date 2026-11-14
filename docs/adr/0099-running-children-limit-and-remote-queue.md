@@ -95,10 +95,15 @@ settle, and the caller must notice so the parent never reads done while it runs.
   the caller holds a device token for the target, the target has no route or credential back
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently
   settled children with the ordinary `status` call: children settled within the last 24 hours,
-  at most 16 per machine per check (one call each), every 10 polls (10 s by default) or on every
-  poll once only settled children are watched, as those polls already come at that pace. Every
-  machine is asked each time, and on each the children checked longest ago go first (a saved
-  turn number), so every eligible child is checked in turn however many there are. A child
+  at most 16 per machine per check (one call each). Each machine is re-checked at a pace set by
+  its youngest settled child: every 10 polls (10 s by default) for its first 2 minutes, then
+  every 30 s until 10 minutes, every minute until an hour, every 2.5 minutes until 4 hours, and
+  every 5 minutes after that, so a day costs about 390 calls instead of 8,640. A child settling
+  there brings its machine back to the fast pace. Work started again on a settled child is read
+  within one interval of that pace (5 minutes at worst) when a machine has at most 16 settled
+  children in the window; with more, each is read every `ceil(n / 16)` intervals. On each machine
+  the children checked longest ago go first (a saved turn number), so every eligible child is
+  checked in turn however many there are. A child
   found running again reopens: the parent's row shows it running and the parent waits until it
   settles again. One that ran and settled with a different result hands the parent that result;
   changes that leave the outcome and result alone (a title, a pin) are ignored. Work started

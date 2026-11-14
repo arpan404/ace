@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { RECHECK_PER_MACHINE, RECHECK_POLLS } from "./child-recheck.ts";
+import { RECHECK_PER_MACHINE, RECHECK_POLLS, RECHECK_SLOWEST_POLLS } from "./child-recheck.ts";
 import { HOUR, POLL_MS, done, machine, message, working } from "./children-test-support.ts";
 
 it("a message its machine has not answered for keeps the child open, even across a restart, until it is answered", async () => {
@@ -297,4 +297,64 @@ it("however many messages wait for a full machine, they never crowd out another 
   expect(gates.inFlight("other")).toBe(1);
   expect(gates.inFlight("busy")).toBe(4);
   await gates.releaseAll();
+});
+
+/** Steps polls until the clock passes `until`, returning when each status call went out. */
+async function runUntil(h: ReturnType<typeof machine>, until: number) {
+  const calls: number[] = [];
+  while (h.timers.length > 0 && (h.timers[0]?.at ?? Infinity) <= until) {
+    const before = h.asked.length;
+    await h.step();
+    if (h.asked.length > before) calls.push(h.clock.now);
+  }
+  return calls;
+}
+
+it("a settled child is re-checked often at first and less as it ages, at most 5 minutes apart", async () => {
+  // The shipped one-second poll, so the counts are a day's at the default pace.
+  const pollMs = 1000;
+  const h = machine(undefined, { pollMs });
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.step();
+  const settledAt = h.clock.now;
+  const calls = await runUntil(h, settledAt + 24 * HOUR);
+  const gaps = calls.map((at, index) => at - (calls[index - 1] ?? settledAt));
+  // Every 10 s just after it settled, when work there most likely starts again.
+  expect(gaps.slice(1, 6)).toEqual(Array(5).fill(pollMs * RECHECK_POLLS));
+  // Never further apart than 5 minutes, and far fewer calls than one every 10 s for a day.
+  expect(Math.max(...gaps)).toBeLessThanOrEqual(pollMs * RECHECK_SLOWEST_POLLS);
+  const before = (24 * HOUR) / (pollMs * RECHECK_POLLS);
+  console.log(`settled child re-checks in a day: ${calls.length} (was ${before})`);
+  expect(calls.length).toBeLessThan(before / 10);
+});
+
+it("a settled child started again there hours later is noticed within the slowest re-check", async () => {
+  const h = machine();
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await h.fire();
+  await runUntil(h, h.clock.now + 5 * HOUR);
+  // The person there sends it new work; the next re-check reads it working again.
+  const reopenedAt = h.clock.now;
+  h.report(id, working);
+  await runUntil(h, reopenedAt + POLL_MS * RECHECK_SLOWEST_POLLS);
+  expect(h.state(id)).toBe("working");
+});
+
+it("a child settling on a machine brings that machine's re-checks back to the fast pace", async () => {
+  const h = machine();
+  const old = h.add("old");
+  h.report(old, done("Old result."));
+  await h.fire();
+  await runUntil(h, h.clock.now + 5 * HOUR);
+  const fresh = h.add("fresh");
+  h.report(fresh, done("Fresh result."));
+  await runUntil(h, h.clock.now + POLL_MS * 2);
+  expect(h.state(fresh)).toBe("done");
+  const settledAt = h.clock.now;
+  // Work started again on the old child is read within the fast pace, not the slowest.
+  h.report(old, working);
+  await runUntil(h, settledAt + POLL_MS * RECHECK_POLLS);
+  expect(h.state(old)).toBe("working");
 });

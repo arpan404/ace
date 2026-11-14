@@ -24,8 +24,8 @@ import { ChildResults, type ChildResultsDeps } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
   RECHECK_PER_MACHINE,
-  RECHECK_POLLS,
   RECHECK_WINDOW_MS,
+  RecheckSchedule,
   recheckOutcome,
 } from "./child-recheck.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
@@ -100,15 +100,13 @@ export class MachineChildren implements RemoteChildren {
   /** When the scheduled poll runs, by the injected clock. */
   private dueAt = 0;
   private polling = false;
-  /** Polls since settled children were last re-checked for work started on their machine. */
-  private sinceRecheck = 0;
   /** The next poll is set for when settled children are due a re-check, so it re-checks them. */
   private recheckPoll = false;
   /**
-   * When settled children were last re-checked, by the injected clock: the next re-check is due
-   * one re-check interval after it, however many polls come in between.
+   * When each machine's settled children are next re-checked, by the injected clock: fast while
+   * one settled there recently, slower as they age, however many polls come in between.
    */
-  private lastRecheckAt: number;
+  private rechecks: RecheckSchedule;
   /**
    * Machines whose status calls fail, each asked again later after every failure and at once
    * when another call to it gets through; logged when that starts and when it ends.
@@ -127,7 +125,7 @@ export class MachineChildren implements RemoteChildren {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
     this.turn = this.ledger.lastRecheckTurn();
-    this.lastRecheckAt = deps.now();
+    this.rechecks = new RecheckSchedule(deps.pollMs, deps.now());
     this.served = this.ledger.lastServedTurn();
     this.reach = new RetryBackoff(deps.pollMs, UNREACHABLE_RETRY_CAP_MS);
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
@@ -365,17 +363,18 @@ export class MachineChildren implements RemoteChildren {
    */
   private arm() {
     if (this.closed) return;
-    const slow = this.deps.pollMs * RECHECK_POLLS;
     const now = this.deps.now();
-    // The re-check's own deadline, never pushed back by polls that come sooner.
-    const recheckAt = this.lastRecheckAt + slow;
+    // The next re-check's own deadline, never pushed back by polls that come sooner.
+    let recheckAt = Number.POSITIVE_INFINITY;
     let delay: number | undefined = this.deps.pollMs;
     try {
       if (!this.ledger.hasUnsettled() && !this.ledger.anyMessages()) {
         const wake = this.results.wakeAt(now);
         const waits: number[] = [];
         if (wake !== undefined) waits.push(Math.max(this.deps.pollMs, wake - now));
-        if (this.ledger.hasRecentlySettled(now - RECHECK_WINDOW_MS))
+        for (const { machine, latest } of this.ledger.recheckMachines(now - RECHECK_WINDOW_MS))
+          recheckAt = Math.min(recheckAt, this.rechecks.dueAt(machine, latest, now));
+        if (recheckAt !== Number.POSITIVE_INFINITY)
           waits.push(Math.max(this.deps.pollMs, recheckAt - now));
         delay = waits.length ? Math.min(...waits) : undefined;
       }
@@ -496,22 +495,23 @@ export class MachineChildren implements RemoteChildren {
     }
   }
   /**
-   * Settled children due a re-check, grouped by machine: once a re-check interval has passed
-   * since the last one by the clock (or the poll was set for that deadline), and at least every
-   * `RECHECK_POLLS` polls. A machine failing its calls is left out until its wait is over.
+   * Settled children due a re-check, grouped by machine: once that machine's re-check interval
+   * has passed since its last one by the clock (or the poll was set for that deadline), and at
+   * least every interval's worth of polls. The interval grows as the machine's youngest settled
+   * child ages (`recheckEveryPolls`). A machine failing its calls is left out until its wait is
+   * over.
    */
   private recheckDue(now: number): [string, ChildRow[]][] {
-    const due =
-      this.recheckPoll ||
-      now >= this.lastRecheckAt + this.deps.pollMs * RECHECK_POLLS ||
-      ++this.sinceRecheck >= RECHECK_POLLS;
-    if (!due) return [];
-    this.sinceRecheck = 0;
-    this.lastRecheckAt = now;
     const since = now - RECHECK_WINDOW_MS;
+    const at = this.recheckPoll ? Math.max(now, this.dueAt) : now;
+    const machines = this.ledger.recheckMachines(since);
+    this.rechecks.retain(new Set(machines.map((entry) => entry.machine)));
+    const due = machines.filter(({ machine, latest }) => this.rechecks.due(machine, latest, at));
+    if (due.length === 0) return [];
     const turn = ++this.turn;
-    // Every machine, and on each the children checked longest ago: all are checked in turn.
-    return this.ledger.recheckMachines(since).flatMap((machine) => {
+    // Every machine due, and on each the children checked longest ago: all are checked in turn.
+    return due.flatMap(({ machine }) => {
+      this.rechecks.checked(machine, now);
       if (!this.reach.due(machine, now)) return [];
       const rows = this.ledger.recheckTurn(machine, since, RECHECK_PER_MACHINE);
       this.ledger.markRechecked(
