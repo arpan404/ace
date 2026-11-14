@@ -444,6 +444,12 @@ const entries = [
     ],
   },
   {
+    id: "appearance.suits",
+    page: "/settings/appearance",
+    title: "Suits",
+    keywords: ["suit", "custom theme", "look", "style", "skin", "fonts", "scene", "backdrop"],
+  },
+  {
     id: "appearance.accent",
     page: "/settings/appearance",
     title: "Accent",

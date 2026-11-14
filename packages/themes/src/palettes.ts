@@ -32,9 +32,11 @@ export type {
   RampStep,
   Scheme,
   StatusSet,
+  SchemeSource,
   Syntax,
   ThemeDefinition,
   ThemeFonts,
+  ThemeSource,
 } from "./types.ts";
 
 /*
@@ -93,7 +95,16 @@ function fitted(draft: Palette, scheme: Scheme): Palette {
   };
 }
 
-function palette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
+/**
+ * One scheme of a source as a palette: raised surfaces tinted, row fills, the glass tint solved
+ * and every text role fitted to the surfaces. Built-in themes and Suits (`custom-palette.ts`) go
+ * through it alike.
+ */
+export function paletteFromSource(
+  source: SchemeSource,
+  scheme: Scheme,
+  material: Material,
+): Palette {
   // A raised surface is the canvas lifted: its hue and chroma, at its own lightness.
   const raised = tintedLike(source.raised, source.canvas);
   // The glass is solved against the designed text, before any fitting: fitting only moves text
@@ -132,8 +143,8 @@ function theme(source: ThemeSource): ThemeDefinition {
     character: source.character,
     fonts: source.fonts,
     accent: { light: source.light.accent, dark: source.dark.accent },
-    light: palette(source.light, "light", source.material.light),
-    dark: palette(source.dark, "dark", source.material.dark),
+    light: paletteFromSource(source.light, "light", source.material.light),
+    dark: paletteFromSource(source.dark, "dark", source.material.dark),
   };
 }
 
@@ -141,6 +152,16 @@ function theme(source: ThemeSource): ThemeDefinition {
 export const themeIds = ["ace", "paper", "midnight", "grove", "harbor", "dusk"] as const;
 export type ThemeId = (typeof themeIds)[number];
 export const defaultThemeId: ThemeId = "ace";
+
+/** Each theme as designed, before fitting: what a Suit's palette starts from. */
+export const themeSources: Record<ThemeId, ThemeSource> = {
+  ace,
+  paper,
+  midnight,
+  grove,
+  harbor,
+  dusk,
+};
 
 export const themes: Record<ThemeId, ThemeDefinition> = {
   ace: theme(ace),

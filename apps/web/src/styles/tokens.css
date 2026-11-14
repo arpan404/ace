@@ -56,13 +56,13 @@
    * Corners, sized to the padding around them so nested corners stay concentric (inner = outer
    * minus inset): 4 tags and marks; 6 inputs, small controls and tooltips; 8 buttons, rows and
    * menu items; 12 cards, popups, dialogs and bubbles (a menu's 4px inset leaves its items 8);
-   * 18 the composer.
+   * 18 the composer. A Suit scales them all by `--radius-scale` (theme/suits/suit-css.ts).
    */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 18px;
+  --radius-xs: calc(4px * var(--radius-scale, 1));
+  --radius-sm: calc(6px * var(--radius-scale, 1));
+  --radius: calc(8px * var(--radius-scale, 1));
+  --radius-lg: calc(12px * var(--radius-scale, 1));
+  --radius-xl: calc(18px * var(--radius-scale, 1));
 }
 
 :root[data-density="compact"] {
