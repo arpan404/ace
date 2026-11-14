@@ -71,12 +71,28 @@ test("on a slow link a call someone waits on is given longer, within its cap", a
   for (let i = 0; i < 20; i++)
     await h.machines.call("studio", origin, status, { timeoutMs: 10_000 });
   await h.machines
-    .call("studio", origin, { op: "message", threadId: ThreadId.parse("child"), requestId: "r-1", text: "Go on", delivery: "queue" }, { timeoutMs: 15_000 })
+    .call(
+      "studio",
+      origin,
+      {
+        op: "message",
+        threadId: ThreadId.parse("child"),
+        requestId: "r-1",
+        text: "Go on",
+        delivery: "queue",
+      },
+      { timeoutMs: 15_000 },
+    )
     .catch(() => {});
   expect(h.timeouts.at(-1)).toBeLessThanOrEqual(60_000);
   // A cancel is never stretched.
   await h.machines
-    .call("studio", origin, { op: "cancel", threadId: ThreadId.parse("child") }, { timeoutMs: 15_000 })
+    .call(
+      "studio",
+      origin,
+      { op: "cancel", threadId: ThreadId.parse("child") },
+      { timeoutMs: 15_000 },
+    )
     .catch(() => {});
   expect(h.timeouts.at(-1)).toBe(15_000);
 });

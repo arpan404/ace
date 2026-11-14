@@ -635,8 +635,8 @@ test("a read whose answer had begun to arrive is never sent again", async () => 
   };
   const connections = pool();
   const read = { origin, call: { op: "status" as const, threadIds: [ThreadId.parse("child-1")] } };
-  await machineRequest({ ...target(profile) }, read, { timeoutMs: 5000, connections });
-  const failure = await machineRequest({ ...target(profile) }, read, {
+  await machineRequest(savedProfile(profile), read, { timeoutMs: 5000, connections });
+  const failure = await machineRequest(savedProfile(profile), read, {
     timeoutMs: 5000,
     connections,
   }).catch((error: unknown) => error);
@@ -645,7 +645,7 @@ test("a read whose answer had begun to arrive is never sent again", async () => 
 });
 
 /** A full saved profile for an address, pin and token. */
-function target(profile: { origin: string; fingerprint: string; token: string }) {
+function savedProfile(profile: { origin: string; fingerprint: string; token: string }) {
   return {
     id: "5b0f3f4e-8f3a-4b8e-9d3c-2f6a1c7e9b10",
     name: "studio",

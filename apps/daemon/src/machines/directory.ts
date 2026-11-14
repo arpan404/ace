@@ -205,7 +205,10 @@ export class MachineDirectory {
         ? this.timing.timeout(
             machine,
             options.timeoutMs,
-            Math.max(options.timeoutMs, Math.min(STRETCH_CAP_MS, options.timeoutMs * TIMEOUT_STRETCH)),
+            Math.max(
+              options.timeoutMs,
+              Math.min(STRETCH_CAP_MS, options.timeoutMs * TIMEOUT_STRETCH),
+            ),
           )
         : options.timeoutMs;
     const started = clock?.();

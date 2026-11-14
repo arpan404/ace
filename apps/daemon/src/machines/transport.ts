@@ -247,9 +247,7 @@ function pinnedOnce(
       if (request.socket && !request.socket.connecting) connected = true;
     });
     request.on("error", () =>
-      finish(
-        request.reusedSocket && received === 0 ? new StaleConnection("disconnected") : lost(),
-      ),
+      finish(request.reusedSocket && received === 0 ? new StaleConnection("disconnected") : lost()),
     );
     // After the error listener: destroying an aborted request reports through it.
     if (options.signal?.aborted) {
