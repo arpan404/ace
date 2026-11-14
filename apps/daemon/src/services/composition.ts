@@ -1,5 +1,3 @@
-import { startExternalMcp } from "./external-mcp.ts";
-import { startSpade } from "./spade.ts";
 import { startStorage } from "./storage.ts";
 import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
@@ -36,14 +34,24 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
-import { startAgentControl } from "./agent-control.ts";
-import { startMachines } from "./machines.ts";
-import { startTransfers } from "../transfers/service.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import { startUtility } from "./utility.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
+
+/**
+ * A listener-phase service that only this list names loads its module when it starts, after
+ * the daemon listens, so its code is not on the path to the first client's welcome. Modules
+ * the socket registry imports for their sessions load before listening either way.
+ */
+const later =
+  <Name extends string>(
+    load: () => Promise<Record<Name, ServiceDefinition["start"]>>,
+    name: Name,
+  ): ServiceDefinition["start"] =>
+  async (context) =>
+    (await load())[name](context);
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
@@ -200,28 +208,28 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     phase: "listener",
     requires: ["engine"],
     after: ["accounts", "context", "notifications", "settings"],
-    start: startAgentControl,
+    start: later(() => import("./agent-control.ts"), "startAgentControl"),
   },
   {
     name: "machines",
     phase: "listener",
     requires: ["engine"],
     after: ["agentControl", "settings", "browser"],
-    start: startMachines,
+    start: later(() => import("./machines.ts"), "startMachines"),
   },
   {
     name: "transfers",
     phase: "listener",
     requires: ["engine"],
     after: ["machines", "projects", "workspaceActions", "settings", "agentControl"],
-    start: startTransfers,
+    start: later(() => import("../transfers/service.ts"), "startTransfers"),
   },
   {
     name: "externalMcp",
     phase: "listener",
     requires: ["agentControl"],
     after: ["agentControl", "browser", "screen", "models", "settings"],
-    start: startExternalMcp,
+    start: later(() => import("./external-mcp.ts"), "startExternalMcp"),
   },
   {
     // Spade's grant acts as its host thread on the MCP endpoint, stored beside the outside
@@ -230,7 +238,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     phase: "listener",
     requires: ["settings"],
     after: ["settings", "engine", "mcp", "agentControl", "projects", "externalMcp"],
-    start: startSpade,
+    start: later(() => import("./spade.ts"), "startSpade"),
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
   {
