@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
+import { ClientError, type ClientCore } from "@ace/client";
 import { machinePhone } from "./machine-page-fixture.ts";
-import type { MachineSoftwareScreen } from "./machine-software.ts";
+import { MachineSoftware, type MachineSoftwareScreen } from "./machine-software.ts";
 
 /*
  * A machine page's Software from the phone, over the real SDK and a fake machine whose update
@@ -92,4 +93,61 @@ test("with nothing on offer it checks for updates", async () => {
   expect(page.actions.map((entry) => entry.label)).toEqual(["Check for updates"]);
   const checked = await phone.act("check");
   expect(checked.problem).toBeNull();
+});
+
+/** The phone's runtime, whose next `count` update reads fail the way `error` says. */
+async function flaky() {
+  const phone = await machinePhone();
+  phones.push(phone);
+  let failures: { count: number; error: () => Error } = { count: 0, error: () => new Error() };
+  const request = ((message: { type: string }, options?: object) =>
+    message.type === "machineUpdate.request" && failures.count-- > 0
+      ? Promise.reject(failures.error())
+      : phone.owner.request(message as never, options)) as ClientCore["request"];
+  const software = new MachineSoftware({ request });
+  const signal = new AbortController().signal;
+  return {
+    daemon: phone.daemon,
+    fail: (count: number, error: () => Error) => (failures = { count, error }),
+    read: () =>
+      software.answer({ type: "machine.software", name: "studio", access: "admin" }, signal),
+    act: (action: "idle" | "now") =>
+      software.answer(
+        { type: "machine.software.act", name: "studio", access: "admin", action, agents: 0 },
+        signal,
+      ),
+  };
+}
+
+test("a read the machine doesn't answer mid-update keeps its last status, still updating", async () => {
+  const phone = await flaky();
+  phone.daemon.machineUpdate.seed({ state: "available", available: "0.0.19", busy: 0 });
+  await phone.act("now");
+  phone.daemon.machineUpdate.step();
+  const before = await phone.read();
+  expect(before.updating).toBe(true);
+  // ace restarts to update: its reads time out, then find it offline.
+  phone.fail(1, () => new ClientError("timeout"));
+  const timedOut = await phone.read();
+  expect(timedOut).toMatchObject({ updating: true, reachable: false, progress: before.progress });
+  expect(timedOut.line).not.toContain("too old");
+  expect(timedOut.note).toContain("Waiting for studio to answer");
+  phone.fail(1, () => new ClientError("offline"));
+  expect(await phone.read()).toMatchObject({ updating: true, reachable: false });
+  // Back up: the result shows.
+  while (phone.daemon.machineUpdate.step()) {}
+  const after = await phone.read();
+  expect(after).toMatchObject({ updating: false, reachable: true, progressTone: "on" });
+});
+
+test("only a daemon that refuses the request outright reads as too old to report", async () => {
+  const phone = await flaky();
+  phone.fail(1, () => new ClientError("timeout"));
+  const unanswered = await phone.read();
+  expect(unanswered.reachable).toBe(false);
+  expect(unanswered.line).not.toContain("too old");
+  phone.fail(1, () => new ClientError("daemon", "unknown_request"));
+  const refused = await phone.read();
+  expect(refused.reachable).toBe(true);
+  expect(refused.line).toBe("Its ace is too old to report its version.");
 });

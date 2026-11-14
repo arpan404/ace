@@ -40,7 +40,7 @@ export const MachineUpdateStartRequest = z.object({
 export type MachineUpdateStartRequest = z.infer<typeof MachineUpdateStartRequest>;
 
 async function ask(
-  owner: ClientCore,
+  owner: Pick<ClientCore, "request">,
   request:
     | { operation: "status" }
     | { operation: "start"; mode: "idle" | "now"; version: string; agents: number },
@@ -70,7 +70,7 @@ export async function readMachineUpdate(
 
 /** Ask this machine to update; a refusal comes back in the person's words. */
 export async function startMachineUpdate(
-  owner: ClientCore,
+  owner: Pick<ClientCore, "request">,
   request: MachineUpdateStartRequest,
   signal: AbortSignal,
 ): Promise<{

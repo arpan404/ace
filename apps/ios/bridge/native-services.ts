@@ -11,7 +11,7 @@ import {
   readMachineUpdate,
   startMachineUpdate,
 } from "./fleet-updates.ts";
-import { answerMachineSoftware, MachineSoftwareRequest } from "./machine-software.ts";
+import { MachineSoftware, MachineSoftwareRequest } from "./machine-software.ts";
 import { MachineRenameRequest, renameMachine } from "./machine-rename.ts";
 import {
   combineProfile,
@@ -171,6 +171,8 @@ export class NativeServices {
   readonly care: HostCare | undefined;
   /** A provider's Settings page: its reads, edits and CLI installs (`provider-services.ts`). */
   readonly providers: ProviderServices;
+  /** A machine page's Software, keeping the last status through ace's restart (`machine-software.ts`). */
+  readonly software: MachineSoftware;
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
   readonly automations: NativeAutomations | undefined;
@@ -205,6 +207,7 @@ export class NativeServices {
     this.inbox = inbox;
     this.care = care;
     this.providers = new ProviderServices(owner);
+    this.software = new MachineSoftware(owner);
   }
   /**
    * This runtime's services are stopping or being replaced: requests in flight are cancelled,
@@ -422,7 +425,7 @@ export class NativeServices {
       // A machine page's Software and Rename (`machine-software.ts`, `machine-rename.ts`).
       const software = MachineSoftwareRequest.safeParse(raw);
       if (software.success) {
-        const value = await answerMachineSoftware(this.owner, software.data, controller.signal);
+        const value = await this.software.answer(software.data, controller.signal);
         this.#reply(id, true, value, "");
         return;
       }
