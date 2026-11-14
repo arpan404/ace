@@ -3,7 +3,7 @@ import Darwin
 @testable import ScreenHelper
 
 /// A listening Unix socket standing in for ace-media's ingest, read on demand.
-private final class Listener {
+final class Listener {
     let path: String
     private let fd: Int32
     private(set) var connection: Int32 = -1
@@ -43,6 +43,8 @@ private final class Listener {
             data.append(contentsOf: buffer[0..<got])
         }
     }
+    /// Ends the accepted connection, as ace-media dropping it.
+    func drop() { if connection >= 0 { close(connection); connection = -1 } }
     deinit { if connection >= 0 { close(connection) }; close(fd); unlink(path) }
 }
 

@@ -145,13 +145,16 @@ final class IngestWriter {
     var held: Int { lock.lock(); defer { lock.unlock() }; return pending.reduce(0) { $0 + $1.count } }
     var isClosed: Bool { lock.lock(); defer { lock.unlock() }; return closed }
 
-    /// No more units: what is queued is still written, then the connection closes.
-    func finish() {
+    /// No more units: what is queued is still written, then the connection closes and `done`
+    /// runs on the writer's queue (also when the connection fails or `close()` comes first).
+    func finish(done: @escaping () -> Void = {}) {
         lock.lock(); defer { lock.unlock() }
-        guard !closed else { return }
+        guard !closed else { queue.async(execute: done); return }
+        finished = done
         finishing = true
         if head == pending.count { shut() }
     }
+    private var finished: (() -> Void)?
 
     private func enqueue(_ frame: Data) {
         lock.lock(); defer { lock.unlock() }
@@ -203,6 +206,7 @@ final class IngestWriter {
     private func shut() {
         guard !closed else { return }
         closed = true
+        if let done = finished { finished = nil; queue.async(execute: done) }
         pending.removeAll(); head = 0; queuedBytes = 0
         if suspended { suspended = false; writable.resume() }
         writable.cancel(); readable.cancel()
@@ -211,4 +215,111 @@ final class IngestWriter {
     /// Closes at once, dropping what is queued.
     func close() { lock.lock(); shut(); lock.unlock() }
     deinit { close() }
+}
+
+/// Where a producer's video units go: the daemon's socket (`legacy`) or ace-media's ingest. The
+/// route is read and each unit written under one lock, so a switch has an exact boundary: the
+/// sequence of the last unit the previous path took. The route owns its writers.
+final class IngestRoute {
+    private let lock = NSLock()
+    /// Writes one unit to the daemon's socket.
+    private let legacy: (EncodedVideo) -> Void
+    private let now: () -> UInt64
+    private var writer: IngestWriter?
+    private var address: (socket: String, token: Data)?
+    private var lastLegacy: UInt64?
+    private var lastIngest: UInt64?
+    /// The current writer failed: video is on the daemon's socket again. Its argument is the
+    /// last sequence the writer took. Called on the writer's queue.
+    var onClosed: (UInt64?) -> Void = { _ in }
+    /// ace-media's ingest fell behind: the next unit should be a keyframe.
+    var onKeyframe: () -> Void = {}
+
+    /// Replaced writers still writing what they had queued, held until they finish.
+    private var replaced: [ObjectIdentifier: IngestWriter] = [:]
+    private let drainLimit: TimeInterval
+
+    /// `drainLimit` bounds how long a replaced writer may drain before it is closed, its path cut.
+    init(legacy: @escaping (EncodedVideo) -> Void, now: @escaping () -> UInt64, drainLimit: TimeInterval = 2) {
+        self.legacy = legacy; self.now = now; self.drainLimit = drainLimit
+    }
+    /// Replaced writers still draining.
+    var retiring: Int { lock.lock(); defer { lock.unlock() }; return replaced.count }
+
+    var ingesting: Bool { lock.lock(); defer { lock.unlock() }; return writer != nil }
+
+    func publish(_ unit: EncodedVideo) {
+        lock.lock(); defer { lock.unlock() }
+        if let writer {
+            guard let frame = ingestFrame(unit, now: now()), writer.write(frame, keyframe: unit.keyframe) else { return }
+            lastIngest = unit.sequence
+        } else {
+            legacy(unit); lastLegacy = unit.sequence
+        }
+    }
+
+    /// Runs `write` (a still on the daemon's socket) under the route's lock, as unit `sequence`.
+    func legacyStill(_ sequence: UInt64, _ write: () -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        write(); lastLegacy = sequence
+    }
+
+    /// Sends to ace-media at `socket` with `token` from now on (or the daemon's socket for nil).
+    /// Returns whether video moved and, if so, the last sequence the previous path took. An
+    /// address already in use changes nothing.
+    func route(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
+        lock.lock()
+        let same = target?.socket == address?.socket && target?.token == address?.token
+        lock.unlock()
+        if same { return (false, nil) }
+        // Each writer reports its failure as its own: one replaced since never touches its successor.
+        final class Held { weak var writer: IngestWriter? }
+        let held = Held()
+        let next = try target.map { target in
+            try IngestWriter(path: target.socket, token: target.token, onClosed: { [weak self] in
+                if let failed = held.writer { self?.failed(failed) }
+            }, onKeyframe: { [weak self] in self?.onKeyframe() })
+        }
+        held.writer = next
+        lock.lock()
+        let previous = writer
+        let boundary = previous == nil ? lastLegacy : lastIngest
+        writer = next; address = target
+        if next != nil { lastIngest = nil }
+        lock.unlock()
+        if let previous { retire(previous) }
+        return (true, boundary)
+    }
+
+    /// Keeps a replaced writer until its queue is written (the units ace-media still needs), or
+    /// until `drainLimit`, when it is closed and ace-media sees that path cut.
+    private func retire(_ previous: IngestWriter) {
+        let id = ObjectIdentifier(previous)
+        lock.lock(); replaced[id] = previous; lock.unlock()
+        let release = { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); let held = self.replaced.removeValue(forKey: id); self.lock.unlock()
+            held?.close()
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + drainLimit, execute: release)
+        previous.finish(done: release)
+    }
+
+    private func failed(_ failed: IngestWriter) {
+        lock.lock()
+        guard writer === failed else { lock.unlock(); return }
+        writer = nil; address = nil
+        let boundary = lastIngest
+        lock.unlock()
+        onClosed(boundary)
+    }
+
+    /// Closes at once, dropping what is queued.
+    func close() {
+        lock.lock()
+        let writers = [writer].compactMap { $0 } + Array(replaced.values)
+        writer = nil; address = nil; replaced.removeAll()
+        lock.unlock()
+        for writer in writers { writer.close() }
+    }
 }
