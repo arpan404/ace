@@ -19,7 +19,7 @@ import {
   type Event,
   type ItemsPage,
   type OmittedItem,
-  type RawPayload,
+  RawPayload,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
@@ -130,8 +130,10 @@ export class ItemStore {
     this.statement(
       "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
     ).run(item.id, event.threadId, event.seq, body);
-    this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`).run(
+    // `raw_seq`: this write's sequence. Only an upsert rewrites an item's raw payloads (a delta
+    // changes its text or output), so it names their version (`rawRevision`).
+    this.statement(`INSERT INTO item_heads (id, thread_id, created_seq, size, item_type, text_prefix, text_last_unit, agent_id, raw_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit, raw_seq = excluded.raw_seq`).run(
       item.id,
       event.threadId,
       event.seq,
@@ -140,6 +142,7 @@ export class ItemStore {
       prefix,
       lastUnit,
       item.agentId ?? "",
+      event.seq,
     );
     this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
     recordSkillUsage((sql) => this.statement(sql), event.threadId, item);
@@ -381,15 +384,35 @@ export class ItemStore {
     ).get(itemId, threadId);
     return row ? this.materialize(itemId, row.item, row.created_seq) : undefined;
   }
-  /** An item's raw payloads as stored (a tool call's `call.raw`); undefined without the item. */
-  storedRaw(threadId: ThreadId, itemId: string): RawPayload[] | undefined {
+  /**
+   * Which version of an item's raw payloads is stored: its creation and the write that last
+   * replaced its body, read from its head row alone. Undefined without the item.
+   */
+  rawRevision(threadId: ThreadId, itemId: string): string | undefined {
     const row = this.statement(
-      "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
+      "SELECT created_seq, raw_seq FROM item_heads WHERE id = ? AND thread_id = ?",
     ).get(itemId, threadId);
-    if (!row) return undefined;
-    // Raw payloads take no text chunks, so the stored body alone holds them.
-    const item = storedItem(Number(row.created_seq), String(row.item), this.trust);
-    return item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
+    return row ? `${Number(row.created_seq)}.${Number(row.raw_seq)}` : undefined;
+  }
+  /**
+   * An item's raw payloads (a tool call's `call.raw`) from index `from`, read one at a time
+   * as the caller takes them: SQLite walks the stored JSON, and only the entries taken are
+   * decoded here. Each is read leniently: one that is not a raw payload comes as its data.
+   */
+  *rawEntries(threadId: ThreadId, itemId: string, from: number): Generator<RawPayload> {
+    const head = this.statement("SELECT item_type FROM item_heads WHERE id = ? AND thread_id = ?").get(
+      itemId,
+      threadId,
+    );
+    if (!head) return;
+    const path = head.item_type === "tool_call" ? "$.call.raw" : "$.raw";
+    for (const row of this.statement(
+      "SELECT e.value AS value, e.type AS type FROM items i, json_each(i.item, ?) e WHERE i.id = ? AND i.thread_id = ? AND e.key >= ? ORDER BY e.key",
+    ).iterate(path, itemId, threadId, from)) {
+      const value: unknown = row.type === "object" || row.type === "array" ? JSON.parse(String(row.value)) : row.value;
+      const parsed = RawPayload.safeParse(value);
+      yield parsed.success ? parsed.data : { type: "unreadable", data: value };
+    }
   }
   createdSeq(threadId: ThreadId, itemId: string): number | undefined {
     const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(

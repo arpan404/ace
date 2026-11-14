@@ -409,8 +409,11 @@ export class PayloadStore {
   stepItem(threadId: ThreadId, itemId: string): Item | undefined {
     return this.items.stepItem(threadId, itemId);
   }
-  storedRaw(threadId: ThreadId, itemId: string): RawPayload[] | undefined {
-    return this.items.storedRaw(threadId, itemId);
+  rawRevision(threadId: ThreadId, itemId: string): string | undefined {
+    return this.items.rawRevision(threadId, itemId);
+  }
+  rawEntries(threadId: ThreadId, itemId: string, from: number): Generator<RawPayload> {
+    return this.items.rawEntries(threadId, itemId, from);
   }
   itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
     return this.items.createdSeq(threadId, itemId);

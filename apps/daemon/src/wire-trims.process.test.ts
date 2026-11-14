@@ -466,3 +466,57 @@ test("an entry with an oversized name or type answers within the page limit and 
   // The socket is still up: another read is answered.
   expect(pageOf(await readRaw(client, f.thread.id, { requestId: "after", from: 0 })).from).toBe(0);
 });
+
+test("paging a large item reads from storage only what each page holds", async () => {
+  const { f, join } = await setup();
+  const client = await join({ trims: [wireTrims.rawOnDemand] });
+  // 600 entries of about 4 KB: some 2.4 MB, three pages.
+  const many = Array.from({ length: 600 }, (_, index) => ({
+    type: "assistant",
+    data: { index, text: "y".repeat(4_000) },
+  }));
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: Item.parse({ ...reply, raw: many }) },
+  ]);
+  // Count the raw entries the read takes out of storage, whichever store read it uses.
+  let taken = 0;
+  const store = f.store as unknown as Record<string, unknown>;
+  for (const name of ["itemRaw", "itemRawEntries"]) {
+    const read = store[name];
+    if (typeof read !== "function") continue;
+    store[name] = function (this: unknown, ...args: unknown[]) {
+      const result: unknown = read.apply(this, args);
+      if (Array.isArray(result)) {
+        taken += result.length;
+        return result;
+      }
+      if (result && typeof result === "object" && Symbol.iterator in result)
+        return (function* () {
+          for (const entry of result as Iterable<unknown>) {
+            taken++;
+            yield entry;
+          }
+        })();
+      return result;
+    };
+  }
+  let from: number | undefined = 0;
+  let cursor: string | undefined;
+  const read: unknown[] = [];
+  for (let request = 0; from !== undefined; request++) {
+    const before = taken;
+    const page = pageOf(
+      await readRaw(client, f.thread.id, {
+        requestId: `large-${request}`,
+        from,
+        ...(cursor ? { revision: cursor } : {}),
+      }),
+    );
+    // A page takes its own entries and at most one more (the one that did not fit).
+    expect(taken - before).toBeLessThanOrEqual(page.raw.length + 1);
+    read.push(...page.raw);
+    cursor = page.revision;
+    from = page.next;
+  }
+  expect(read).toEqual(many);
+});

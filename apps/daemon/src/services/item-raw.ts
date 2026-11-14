@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { RawPayload } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -39,34 +38,31 @@ function bounded(payload: RawPayload): RawPayload {
   return { type: cut(payload.type), ...name, data };
 }
 
-/** Names one version of an item's payloads: any change to them gives another. */
-function revisionOf(raw: readonly RawPayload[]): string {
-  return createHash("sha256").update(JSON.stringify(raw)).digest("base64url").slice(0, 22);
-}
-
 /**
- * The payloads from `from` that fit `limit` bytes of JSON, each bounded, at least one while any
- * remain, and where the next page starts.
+ * The payloads `entries` yields, taken one at a time until `limit` bytes of JSON, each bounded,
+ * at least one while any remain; where the next page starts (`from` + taken) if one is left.
+ * At most one entry past the page is read: the one that did not fit.
  */
-function page(raw: readonly RawPayload[], from: number, limit: number) {
+function page(entries: Iterator<RawPayload>, from: number, limit: number) {
   const kept: RawPayload[] = [];
   let bytes = 2;
-  let index = from;
-  for (; index < raw.length; index++) {
-    const payload = raw[index];
-    if (payload === undefined) break;
-    const sent = bounded(payload);
+  for (let entry = entries.next(); !entry.done; entry = entries.next()) {
+    const sent = bounded(entry.value);
     bytes += json(sent) + 1;
-    if (kept.length && bytes > limit) break;
+    if (kept.length && bytes > limit) {
+      entries.return?.();
+      return { raw: kept, next: from + kept.length };
+    }
     kept.push(sent);
   }
-  return { raw: kept, next: index < raw.length ? index : undefined };
+  return { raw: kept, next: undefined };
 }
 
 /**
  * `item.raw`: one item's verbatim provider payloads, which a client on the `raw-on-demand` trim
  * got the item without. Read under the same checks as the item itself: read scope, and a
- * thread this device may read. A page continues only the version of the payloads it began.
+ * thread this device may read. A page continues only the version of the payloads it began
+ * (`revision`, from the item's head row: no page reads more of them than it sends).
  */
 export function createItemRawSession(context: SocketContext): SocketService {
   return {
@@ -77,18 +73,18 @@ export function createItemRawSession(context: SocketContext): SocketService {
         context.fail("forbidden", "Thread is not readable", false, scope);
         return true;
       }
-      let stored: RawPayload[] | undefined;
+      const store = context.options.store;
+      let revision: string | undefined;
       try {
-        stored = context.options.store.itemRaw(message.threadId, message.itemId);
+        revision = store.itemRawRevision(message.threadId, message.itemId);
       } catch {
         context.fail("item_raw_failed", "Could not read the item", false, scope);
         return true;
       }
-      if (!stored) {
+      if (revision === undefined) {
         context.fail("item_not_found", "No such item in this thread", false, scope);
         return true;
       }
-      const revision = revisionOf(stored);
       const reply = {
         type: "item.raw" as const,
         requestId: message.requestId,
@@ -97,12 +93,24 @@ export function createItemRawSession(context: SocketContext): SocketService {
         revision,
         from: message.from,
       };
-      // A continuation of another version, or one with no version at all, starts again.
+      // A continuation of another version, or one with no version at all, starts again; the
+      // payloads are not read.
       if (message.from > 0 && message.revision !== revision) {
         context.send({ ...reply, changed: true, raw: [] });
         return true;
       }
-      const { raw, next } = page(stored, message.from, itemRawReplyBytes);
+      let raw: RawPayload[];
+      let next: number | undefined;
+      try {
+        ({ raw, next } = page(
+          store.itemRawEntries(message.threadId, message.itemId, message.from),
+          message.from,
+          itemRawReplyBytes,
+        ));
+      } catch {
+        context.fail("item_raw_failed", "Could not read the item", false, scope);
+        return true;
+      }
       context.send({ ...reply, raw, ...(next === undefined ? {} : { next }) });
       return true;
     },
