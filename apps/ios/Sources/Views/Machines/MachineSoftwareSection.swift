@@ -36,6 +36,8 @@ struct MachineSoftwareSection: View {
     @State private var acting = false
     @State private var confirming = false
     @State private var problem: String?
+    /// Moves when an action starts an update: the page's read task follows it from there.
+    @State private var round = 0
 
     private var access: String { model.canAdmin.map { $0 ? "admin" : "read" } ?? "unknown" }
     private var label: String { String((name.isEmpty ? "This machine" : name).prefix(128)) }
@@ -90,7 +92,7 @@ struct MachineSoftwareSection: View {
         } message: { confirm in Text(confirm.body) }
         // Read when connected; while an update runs, again every few seconds so its progress and
         // result show. The machine restarts on the way, so a failed read just waits for the next.
-        .readWhenConnected(model, id: name) { await follow() }
+        .readWhenConnected(model, id: "\(name)/\(round)") { await follow() }
     }
 
     private func follow() async {
@@ -119,7 +121,7 @@ struct MachineSoftwareSection: View {
                 let next = try await model.service(MachineSoftwareData.act(action, name: label, access: access, agents: agents),
                                                    as: MachineSoftwareData.self, timeout: .seconds(20))
                 withAnimation { data = next }
-                if next.updating { await follow() }
+                if next.updating { round += 1 }
             } catch { problem = error.localizedDescription }
         }
     }
