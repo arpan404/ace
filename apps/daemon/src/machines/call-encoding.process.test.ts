@@ -199,25 +199,26 @@ test("a machine downgraded under the same pairing gets the read again uncompress
 
 /** A busy parent's status, one child waiting on the person in a browser tab at a sign-in URL. */
 const asking = {
-  threads: bigAnswer.threads.map((thread, index) => ({
-    ...thread,
-    requests:
-      index === 0
-        ? [
-            {
-              threadId: thread.threadId,
-              interactionId: "help-1",
-              request: {
-                kind: "browser_help",
-                tabId: "tab-1",
-                reason: "sign_in",
-                message: "Sign in to continue",
-                url: "https://example.test/callback?code=secret-one-time-code",
+  threads: bigAnswer.threads.map((thread, index) =>
+    Object.assign({}, thread, {
+      requests:
+        index === 0
+          ? [
+              {
+                threadId: thread.threadId,
+                interactionId: "help-1",
+                request: {
+                  kind: "browser_help",
+                  tabId: "tab-1",
+                  reason: "sign_in",
+                  message: "Sign in to continue",
+                  url: "https://example.test/callback?code=secret-one-time-code",
+                },
               },
-            },
-          ]
-        : [],
-  })),
+            ]
+          : [],
+    }),
+  ),
 };
 
 test("a status answer carrying a request for the person, with its URL, goes out as it is", async () => {

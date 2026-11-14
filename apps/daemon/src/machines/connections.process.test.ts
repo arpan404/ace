@@ -182,7 +182,11 @@ test("a cancel reaches its machine at once while long tool calls hold every shar
   const target = await busyMachine(3000);
   const connections = pool();
   const long = Array.from({ length: 8 }, () =>
-    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+    machineRequest(
+      target.profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ),
   );
   await expect.poll(() => target.arrived.length).toBeGreaterThanOrEqual(6);
   const sent = Date.now();
@@ -202,7 +206,11 @@ test("a call waiting for a free connection is timed from when it is sent, not wh
   const target = await busyMachine(1500);
   const connections = pool();
   const long = Array.from({ length: 6 }, () =>
-    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+    machineRequest(
+      target.profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ),
   );
   await expect.poll(() => target.arrived.length).toBe(6);
   // It waits about 1.5 s for a connection, longer than its own 1 s, and still gets its answer.
@@ -343,21 +351,22 @@ async function limitedMachine(limits: Partial<SniLimits>) {
 }
 
 /** One request on a connection of its own that the caller keeps open as long as it is allowed. */
-function rawCall(origin: string, bearer: string) {
+function rawCall(address: string, bearer: string) {
   return new Promise<{ status: number; keepAlive: string | undefined }>((resolve, reject) => {
     const agent = pinnedKeepAliveAgent(identity.fingerprint, { get: () => undefined, set() {} }, 1);
     cleanups.push(() => agent.destroy());
     const request = httpsRequest(
-      new URL("/v1/machine-calls", origin),
+      new URL("/v1/machine-calls", address),
       { method: "POST", agent, headers: { authorization: `Bearer ${bearer}` } },
       (response) => {
         response.resume();
         response.on("end", () =>
           resolve({
             status: response.statusCode ?? 0,
-            keepAlive: typeof response.headers["keep-alive"] === "string"
-              ? response.headers["keep-alive"]
-              : undefined,
+            keepAlive:
+              typeof response.headers["keep-alive"] === "string"
+                ? response.headers["keep-alive"]
+                : undefined,
           }),
         );
       },

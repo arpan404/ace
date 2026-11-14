@@ -239,9 +239,7 @@ function pinnedOnce(
     });
     request.on("error", () =>
       finish(
-        request.reusedSocket && answer === undefined
-          ? new StaleConnection("disconnected")
-          : lost(),
+        request.reusedSocket && answer === undefined ? new StaleConnection("disconnected") : lost(),
       ),
     );
     // After the error listener: destroying an aborted request reports through it.
