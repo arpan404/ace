@@ -7,8 +7,8 @@ import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { loginShellPath } from "./login-path.ts";
 import {
+  daemonHealth,
   findRunningDaemon,
-  healthy,
   maintenanceBlockers,
   maintenanceStatus,
   readLocalDaemon,
@@ -21,6 +21,7 @@ import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions 
 import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
+import type { FreezeSignal } from "./watchdog.ts";
 
 /**
  * The app's daemon target from its environment, with the daemon home chosen by
@@ -68,6 +69,8 @@ export interface RuntimeOptions {
    * first lookup, spawn, running). Without it those records are not written.
    */
   sinceLaunch?: () => number;
+  /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
+  freezes?: FreezeSignal;
 }
 
 /**
@@ -151,7 +154,7 @@ export class DaemonRuntime {
             looked = true;
             return found;
           },
-          healthy,
+          health: daemonHealth,
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
           setUpdateHold,
@@ -164,6 +167,7 @@ export class DaemonRuntime {
             },
           },
           now: Date.now,
+          freezes: options.freezes,
           log: options.log,
         },
         {},

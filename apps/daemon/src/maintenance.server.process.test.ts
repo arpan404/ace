@@ -22,6 +22,10 @@ test("maintenance closes websocket command admission until the local host releas
   expect(
     await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "POST", token }),
   ).toEqual({ draining: true, blockers: 0, waiting: 0, holds: ["user"] });
+  // The host's status carries admission too, so the app's health check needs one request.
+  expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toMatchObject({
+    admission: { draining: true, holds: ["user"] },
+  });
   c.send({
     type: "command",
     command: Command.parse({

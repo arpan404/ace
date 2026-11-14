@@ -35,7 +35,8 @@ import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { bundledStallWorker, watchFreezes } from "./diagnostics/freeze-watch.ts";
-import { createStallOperation } from "@ace/diagnostics/stall";
+import { createStallOperation, systemHeartbeat } from "@ace/diagnostics/stall";
+import { startMainBeat } from "./diagnostics/main-beat.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
@@ -175,12 +176,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const daemonLog = logger("daemon");
   // Names what the main thread is doing, so a freeze is reported with its operation.
   const operation = createStallOperation();
+  // One timer notices the main thread freezing, for the stall watchdog and the daemon's
+  // health checks alike. Read on `Date.now`, the supervisor's clock.
+  const beat = startMainBeat({ clock: systemHeartbeat, now: Date.now });
   watchFreezes({
     log: logger("freeze"),
     directory: app.getPath("logs"),
     pid: process.pid,
     operation,
     spawn: bundledStallWorker(import.meta.url),
+    clock: beat.clock,
   });
   void logFreshStart(target, log, new Date());
   const info: AppInfo = {
@@ -207,6 +212,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     env: process.env,
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
+    freezes: beat,
     daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
     ),
