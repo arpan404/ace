@@ -7,7 +7,7 @@ import { UnifiedDiffLines, type DiffRow } from "./diff.ts";
  * proportional to the part.
  */
 export class PatchFileReader {
-  /** The section's rows so far; earlier rows never change as more parts arrive. */
+  /** The section's rows so far (since the last `release`); earlier rows never change. */
   readonly rows: DiffRow[] = [];
   #lines = new UnifiedDiffLines();
   /** The part of a line the last part ended inside. */
@@ -27,6 +27,14 @@ export class PatchFileReader {
       if (this.#ended) return;
     }
     this.#partial += text.slice(start);
+  }
+
+  /**
+   * Let go of the rows read so far, to bound what a long section holds: later parts add their
+   * rows as if the earlier ones were still there, with the same line numbers and folds.
+   */
+  release(): void {
+    this.rows.length = 0;
   }
 
   /** No more parts come: the line the last one ended inside is read as it is. */

@@ -124,15 +124,17 @@ One header per open file. The key used to be the single `changes:file`. It is no
 | `rows`      | number                            | Rows the bridge holds for the file so far.                                                                                                                                              |
 | `remaining` | number \| null                    | Rows not yet sent. Null while the file isn't fully read from the daemon (more may come).                                                                                                |
 | `complete`  | boolean                           | Every row of the file is known.                                                                                                                                                         |
-| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 16 MiB held, or past the daemon's 32 Mi offset limit. The rest is only on the computer.                                          |
+| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 16 MiB held in this part (then `onward`), or past the daemon's 32 Mi offset limit (git's output ends there for ace).             |
+| `part`      | number                            | Which part of a file read in parts this is, from 0. A new part, like a new version, clears the pages shown, and page 0 comes again.                                                     |
+| `onward`    | boolean                           | This part stopped at what the bridge holds and the file goes on: `changes.onward` lets this part go and reads the next. `changes.rewind` goes back to part 0.                           |
 | `empty`     | boolean                           | Complete and no line rows: a mode change, an empty file.                                                                                                                                |
 | `viewed`    | boolean                           | As the summary row.                                                                                                                                                                     |
 
-Show "Show more" while `remaining !== 0`, then send `changes.more`. When `remaining` is null and no page arrives yet, the next daemon page is being read.
+Show "Show more" while `remaining !== 0`, then send `changes.more`. Once `remaining` is 0 and `onward` is true, offer reading on. When `remaining` is null and no page arrives yet, the next daemon page is being read.
 
 ### `changes:page:<id>:<index>` → `type: "changes.page"` _new_
 
-Fields: `file`, `path`, `version` and `index` (0-based). `layout` is `"unified"` or `"split"`, plus one of:
+Fields: `file`, `path`, `version`, `part` (the header's part it belongs to; a page of another part is dropped) and `index` (0-based). `layout` is `"unified"` or `"split"`, plus one of:
 
 - `lines: Row[]` when `layout` is unified;
 - `pairs: Pair[]` when `layout` is split.
