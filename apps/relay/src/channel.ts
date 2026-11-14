@@ -80,7 +80,7 @@ export interface BinaryChannel {
 export interface MessageChannel<Incoming extends WireMessage, Outgoing extends WireMessage>
   extends AsyncIterable<Incoming>, BinaryChannel {
   send(message: Outgoing): Promise<void>;
-  sendBinary(bytes: Uint8Array): Promise<void>;
+  sendBinary(bytes: Uint8Array, lane?: Lane): Promise<void>;
   receiveFrame(): Promise<Incoming | Uint8Array>;
   frames(): AsyncIterable<Incoming | Uint8Array>;
   receive(): Promise<Incoming>;
@@ -465,12 +465,12 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       onReceive?.(payload.text);
       return payload.text;
     },
-    async sendBinary(bytes) {
+    async sendBinary(bytes, lane = INTERACTIVE) {
       const data = z.instanceof(Uint8Array).parse(bytes);
       if (!data.length || data.length > BINARY_MESSAGE_LIMIT)
         return Promise.reject(new Error("Binary message too large"));
       // The caller keeps these bytes immutable until the send completes.
-      return enqueue(data, data.length, fragmentKinds.binary, INTERACTIVE);
+      return enqueue(data, data.length, fragmentKinds.binary, lane);
     },
     async receiveBinary() {
       const frame = await channel.receiveFrame();

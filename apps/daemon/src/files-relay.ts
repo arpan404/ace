@@ -87,6 +87,13 @@ export async function startFilesRelay(
         const device = admitted.device;
         // Credit fragments go only to a client that asked; its first one precedes the welcome.
         if (hello.flowControl?.includes("credit")) channel.flowControl?.();
+        // Lanes only on the main channel, and only with credit: they pace by its credits.
+        if (
+          hello.channel === undefined &&
+          hello.flowControl?.includes("credit") &&
+          hello.flowControl.includes("lanes")
+        )
+          channel.lanes?.();
         if (hello.channel === undefined) {
           const actor = mainActor(device, admitted.stillAdmitted, options);
           if (!actor || !options.relayMain) {

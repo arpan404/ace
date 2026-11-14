@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./wire": "./src/wire.ts",
-    "./testing": "./src/testing/peer.ts"
+    "./testing": "./src/testing/peer.ts",
+    "./testing/slow-link": "./src/testing/slow-link.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
