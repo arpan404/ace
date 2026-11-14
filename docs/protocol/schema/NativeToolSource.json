@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/NativeToolSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "usable": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "path",
+    "usable"
+  ],
+  "type": "object"
+}

@@ -33,6 +33,8 @@ struct ThreadView: View {
     /// The scope the Changes page opens on next, when the Summary asked for one.
     @State private var changesScope: String?
     @State private var media: TranscriptRow?
+    /// A visualization opened full screen (a phone, or an iPad without room for the panel).
+    @State private var visualization: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
     @State private var showScripts = false
@@ -113,11 +115,10 @@ struct ThreadView: View {
     private var feed: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
-            .publishedMedia(model: model, threadId: thread.id)
             .markdownShelf(threadId: thread.id)
     }
 
@@ -228,6 +229,9 @@ struct ThreadView: View {
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .fullScreenCover(item: $visualization) { row in
+                NavigationStack { VisualizationScreen(thread: thread, itemId: row.id, title: row.text) }
+            }
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }).toolbar { SheetClose() } }
             }
@@ -285,6 +289,8 @@ struct ThreadView: View {
             }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             .environment(\.stripTasks, Set(screen.leftRunning?.taskIds ?? []))
+            // The transcript and a visualization opened full screen share one copy of each page.
+            .publishedMedia(model: model, threadId: thread.id)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
@@ -496,6 +502,13 @@ struct ThreadView: View {
     /// What typing does now, short: ask, steer or queue while the tree works, reply while it waits.
     private var placeholder: String {
         ComposerPlaceholder.text(fork: screen.fork != nil, answering: !stripRequests.isEmpty, busy: screen.controls?.busy == true)
+    }
+    private func openMedia(_ row: TranscriptRow) {
+        switch MediaOpening.of(row, panelBeside: panelPlace != .none) {
+        case .panel(let title): panel(["op": "open", "kind": PanelTool.visualization.rawValue, "id": row.id, "title": title])
+        case .fullScreen: visualization = row
+        case .viewer: media = row
+        }
     }
     private func open(_ destination: ThreadDestination) {
         // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.

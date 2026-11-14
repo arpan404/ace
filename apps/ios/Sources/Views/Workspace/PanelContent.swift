@@ -4,6 +4,7 @@ import SwiftUI
 /// navigation stack so what it pushes (a file, an agent's transcript) stays in the panel. Only
 /// the tab showing is built; another tab's screen starts again when picked, as on the web.
 struct PanelContent: View {
+    let tab: PanelView.Tab
     let tool: PanelTool
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
@@ -44,6 +45,11 @@ struct PanelContent: View {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
+        case .visualization:
+            NavigationStack {
+                VisualizationScreen(thread: thread, itemId: tab.resource ?? "", title: tab.title)
+            }
+            .publishedMedia(model: model, threadId: thread.id)
         }
     }
 }
