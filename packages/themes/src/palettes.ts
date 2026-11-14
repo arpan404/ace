@@ -93,7 +93,13 @@ function fitted(draft: Palette, scheme: Scheme): Palette {
   };
 }
 
-function palette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
+/**
+ * One scheme of a theme as the app draws it, from every colour as designed: the derived pressed
+ * accent and shadow, the solved glass tint, and text roles fitted to read on every surface. A
+ * Suit's palette (ADR 0150) is built the same way, from its base theme's source and its own
+ * colours.
+ */
+export function schemePalette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
   // A raised surface is the canvas lifted: its hue and chroma, at its own lightness.
   const raised = tintedLike(source.raised, source.canvas);
   // The glass is solved against the designed text, before any fitting: fitting only moves text
@@ -132,8 +138,8 @@ function theme(source: ThemeSource): ThemeDefinition {
     character: source.character,
     fonts: source.fonts,
     accent: { light: source.light.accent, dark: source.dark.accent },
-    light: palette(source.light, "light", source.material.light),
-    dark: palette(source.dark, "dark", source.material.dark),
+    light: schemePalette(source.light, "light", source.material.light),
+    dark: schemePalette(source.dark, "dark", source.material.dark),
   };
 }
 
@@ -141,6 +147,16 @@ function theme(source: ThemeSource): ThemeDefinition {
 export const themeIds = ["ace", "paper", "midnight", "grove", "harbor", "dusk"] as const;
 export type ThemeId = (typeof themeIds)[number];
 export const defaultThemeId: ThemeId = "ace";
+
+/** Each theme as designed, before `schemePalette` builds it. */
+export const themeSources: Record<ThemeId, ThemeSource> = {
+  ace,
+  paper,
+  midnight,
+  grove,
+  harbor,
+  dusk,
+};
 
 export const themes: Record<ThemeId, ThemeDefinition> = {
   ace: theme(ace),
