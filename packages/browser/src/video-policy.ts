@@ -48,6 +48,8 @@ export interface VideoEncode {
   height: number;
   fps: number;
   bitrate: number;
+  /** The encode's id in ace-media's frames, while its capture streams there (E4). */
+  id?: number | undefined;
 }
 
 export interface VideoPlan {

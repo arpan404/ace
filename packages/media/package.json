@@ -14,8 +14,12 @@
     "./egress": "./src/egress.ts",
     "./epochs": "./src/epochs.ts",
     "./recordings": "./src/recordings.ts",
+    "./stills": "./src/stills.ts",
     "./tee": "./src/tee.ts",
-    "./session-link": "./src/session-link.ts"
+    "./session-link": "./src/session-link.ts",
+    "./ingest-sources": "./src/ingest-sources.ts",
+    "./path-merge": "./src/path-merge.ts",
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

@@ -2,7 +2,9 @@
 //! Shared helpers for the engine's behaviour tests.
 mod egress;
 mod grants;
+mod pictures;
 mod sources;
+mod stills;
 
 use super::*;
 use media_wire::control::{FromMedia, Refusal, Status, ToMedia};

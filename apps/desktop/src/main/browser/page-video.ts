@@ -27,6 +27,10 @@ export interface PageVideoHost<Source> {
   encodes(capture: string, encodes: readonly EncodeSpec[]): void;
   keyframe(capture: string, encode: string): void;
   audio(capture: string, on: boolean): void;
+  /** Stream into ace-media's ingest (E4), or (undefined) back over the backend socket. */
+  ingest(capture: string, target: IngestTarget | undefined): void;
+  /** ace-media's ingest is at `url` now: the encoder page is made to reach it (E4). */
+  reach(url: string): void;
   stop(capture: string): void;
   /** A capture stopped, whatever the reason (asked to, its page went away, the encoder died). */
   onStopped(listener: (capture: string) => void): () => void;
@@ -37,6 +41,8 @@ const id = z.string().min(1).max(256);
 const size = z.number().int().min(2).max(8192);
 const EncodeSpec = z.object({
   key: id,
+  /** The encode's id in ace-media's frames, while the capture streams there. */
+  id: z.number().int().min(0).max(0xffffffff).optional(),
   codec: z.string().min(1).max(64),
   width: size,
   height: size,
@@ -54,6 +60,15 @@ const Encodes = z.object({ capture: id, encodes: z.array(EncodeSpec).max(8) });
 const Keyframe = z.object({ capture: id, encode: id });
 const Audio = z.object({ capture: id, on: z.boolean() });
 const Stop = z.object({ capture: id });
+/** Only ace-media's loopback ingest, with a 32-byte token. */
+const IngestTarget = z.object({
+  url: z.string().regex(/^ws:\/\/127\.0\.0\.1:\d{1,5}\/ingest$/),
+  token: z.base64().length(44),
+  epoch: z.number().int().min(0).max(0xffffffff),
+});
+export type IngestTarget = z.infer<typeof IngestTarget>;
+const Ingest = z.object({ capture: id, target: IngestTarget.optional() });
+const Reach = z.object({ url: IngestTarget.shape.url });
 
 export class PageVideo<Source> {
   private host: PageVideoHost<Source>;
@@ -113,6 +128,15 @@ export class PageVideo<Source> {
       case "ace.video.audio": {
         const { capture, on } = Audio.parse(params);
         if (this.captures.has(capture)) this.host.audio(capture, on);
+        return {};
+      }
+      case "ace.video.ingest": {
+        const { capture, target } = Ingest.parse(params);
+        if (this.captures.has(capture)) this.host.ingest(capture, target);
+        return {};
+      }
+      case "ace.video.reach": {
+        this.host.reach(Reach.parse(params).url);
         return {};
       }
       case "ace.video.stop": {

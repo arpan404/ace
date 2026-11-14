@@ -410,6 +410,24 @@ pub enum ToMedia {
         #[serde(rename = "on")]
         on: bool,
     },
+    /// E4: the encodes ace-media runs for a source it encodes itself (`tab-pictures`,
+    /// `user-tab`) while the daemon still plans them (`delivery: legacy`). Replaces the
+    /// previous list; an empty list stops encoding.
+    #[serde(rename = "source.encodes")]
+    SourceEncodes {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "encodes")]
+        encodes: Vec<EncodeSpec>,
+    },
+    /// E4: the next picture of this encode is a keyframe.
+    #[serde(rename = "source.key")]
+    SourceKey {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "encode")]
+        encode: u32,
+    },
     #[serde(rename = "media.ticket")]
     MediaTicket {
         #[serde(rename = "connection")]
@@ -815,6 +833,10 @@ pub enum FromMedia {
         width: u32,
         #[serde(rename = "height")]
         height: u32,
+        /// The path the still took: decode (or JPEG decode), scale and JPEG encode, each with
+        /// its backend, whether it ran on hardware, and its picture-sized copies.
+        #[serde(rename = "steps")]
+        steps: Vec<SourceStep>,
     },
     #[serde(rename = "still.failed")]
     StillFailed {

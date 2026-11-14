@@ -108,6 +108,16 @@ fn the_egress_lane_idles_until_a_source_needs_it_then_carries_its_units_under_it
     settle(&mut media, "p1");
     let _ = a.write_all(&media_frame(1, 1, vec![5; 64]));
     let _ = b.write_all(&media_frame(1, 1, vec![6; 64]));
+    // The close ended "a" with its marker after its last unit; then the lane idles.
+    let _ = egress.set_read_timeout(Some(Duration::from_secs(5)));
+    let end = read_egress(&mut egress).map(|u| (u.handle, u.frame.end()));
+    assert_eq!(
+        end,
+        Some((
+            11,
+            Some(media_wire::frame::EgressEnd { interrupted: false })
+        ))
+    );
     let _ = egress.set_read_timeout(Some(Duration::from_millis(300)));
     assert!(read_egress(&mut egress).is_none(), "idle again");
 
