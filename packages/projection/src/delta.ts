@@ -26,7 +26,8 @@ function serializedBytes(byte: number): number {
   if (byte < 32) return [8, 9, 10, 12, 13].includes(byte) ? 2 : 6;
   return characterBytes(byte);
 }
-function outputTail(text: string): string {
+/** The reference path: encodes, so a lone surrogate becomes U+FFFD as it always has. */
+function encodedTail(text: string): string {
   const bytes = encoder.encode(utf8Slice(text, 4096, true));
   let start = bytes.length;
   let size = 0;
@@ -40,8 +41,81 @@ function outputTail(text: string): string {
   }
   return decoder.decode(bytes.subarray(start));
 }
+function isHigh(unit: number): boolean {
+  return unit >= 0xd800 && unit <= 0xdbff;
+}
+function isLow(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
+}
+function asciiCost(unit: number): number {
+  if (unit === 34 || unit === 92) return 2;
+  if (unit >= 32) return 1;
+  return unit === 8 || unit === 9 || unit === 10 || unit === 12 || unit === 13 ? 2 : 6;
+}
+/** UTF-8 bytes of a string as `TextEncoder` writes it: a lone surrogate becomes U+FFFD (3). */
+function utf8Length(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (isHigh(unit) && isLow(text.charCodeAt(i + 1))) {
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+/**
+ * The longest suffix of whole characters within the 4 KiB transport budget, and its UTF-8 size,
+ * read off the string without encoding it. Undefined when a lone surrogate falls inside it: the
+ * encoder would replace that, so the caller takes the encoding path.
+ */
+function scanTail(text: string): { tail: string; bytes: number } | undefined {
+  let start = text.length;
+  let size = 0;
+  let bytes = 0;
+  while (start > 0) {
+    const unit = text.charCodeAt(start - 1);
+    let width = 1;
+    let cost: number;
+    if (unit < 0x80) cost = asciiCost(unit);
+    else if (unit < 0x800) cost = 2;
+    else if (isLow(unit) && start >= 2 && isHigh(text.charCodeAt(start - 2))) {
+      cost = 4;
+      width = 2;
+    } else if (isHigh(unit) || isLow(unit)) return undefined;
+    else cost = 3;
+    if (size + cost > 4096) break;
+    size += cost;
+    bytes += unit < 0x80 ? 1 : cost;
+    start -= width;
+  }
+  return { tail: start === 0 ? text : text.slice(start), bytes };
+}
+/** Whether well-formed text fits one delta's 4 KiB transport budget whole. */
+function fitsOneDelta(text: string): boolean {
+  let size = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) size += asciiCost(unit);
+    else if (unit < 0x800) size += 2;
+    else if (isHigh(unit) && isLow(text.charCodeAt(i + 1))) {
+      size += 4;
+      i++;
+    } else if (isHigh(unit) || isLow(unit)) return false;
+    else size += 3;
+    if (size > 4096) return false;
+  }
+  return true;
+}
 /** Split output at whole characters, budgeting both UTF-8 and JSON bytes. */
 export function* outputDeltas(text: string): Generator<string> {
+  // Most appends fit one delta: then the split below would give the text back unchanged.
+  if (fitsOneDelta(text)) {
+    yield text;
+    return;
+  }
   const bytes = encoder.encode(text);
   if (!bytes.length) {
     yield "";
@@ -70,17 +144,21 @@ export function summarizeOutput(
   append: string,
   previous?: OutputSummary,
 ): OutputSummary {
-  const addedBytes = encoder.encode(append).length;
+  const addedBytes = utf8Length(append);
   const bytes = (previous?.bytes ?? 0) + addedBytes;
-  const tail = outputTail(
+  const streamId = previous?.streamId ?? outputStreamId(itemId);
+  // A leading low surrogate would pair with the previous tail here, never in the encoded path.
+  const kept =
+    addedBytes >= 4096
+      ? scanTail(append)
+      : isLow(append.charCodeAt(0))
+        ? undefined
+        : scanTail((previous?.tail ?? "") + append);
+  if (kept) return { streamId, bytes, tail: kept.tail, truncated: bytes > kept.bytes };
+  const tail = encodedTail(
     addedBytes >= 4096 ? append : (previous?.tail ?? "") + utf8Slice(append, 4096, true),
   );
-  return {
-    streamId: previous?.streamId ?? outputStreamId(itemId),
-    bytes,
-    tail,
-    truncated: bytes > encoder.encode(tail).length,
-  };
+  return { streamId, bytes, tail, truncated: bytes > encoder.encode(tail).length };
 }
 /**
  * Whether a text carries its stream's end, so a delta extends it: a whole text, or a preview
