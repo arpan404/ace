@@ -3,6 +3,7 @@ import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits
 import { fontProblems, parseManifest, problem, readabilityProblems } from "./checks.ts";
 import { suitLimits } from "./limits.ts";
 import { suitSchemes } from "./palette.ts";
+import { isSceneFile, regionOrnaments, regionScenes } from "./regions.ts";
 
 export { problem };
 
@@ -28,7 +29,7 @@ export interface SuitPlan {
 }
 
 const checkFor = (path: string) =>
-  path === "suit.json" ? "schema" : path === "scene.js" ? "scene" : "asset";
+  path === "suit.json" ? "schema" : isSceneFile(path) ? "scene" : "asset";
 const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** What a reader may read of `entries`, and the problems the walk itself found. */
@@ -70,7 +71,7 @@ export function plan(entries: readonly SuitEntry[]): SuitPlan {
     const cap =
       path === "suit.json"
         ? suitLimits.manifestBytes
-        : path === "scene.js"
+        : isSceneFile(path)
           ? suitLimits.sceneBytes
           : undefined;
     if (cap !== undefined) {
@@ -152,11 +153,20 @@ export function inspectSuit(
   if (manifest) {
     const present = new Set(files.keys());
     problems.push(...fontProblems(manifest, present));
+    problems.push(...regionScenes(manifest, present).problems);
+    // Only whether each reference lands matters here; the reader serves the real URLs.
+    problems.push(
+      ...regionOrnaments(manifest, files, (path) => (present.has(path) ? path : undefined))
+        .problems,
+    );
     // Readability only counts once the manifest itself holds together.
     if (problems.every((entry) => entry.check !== "schema"))
       problems.push(...readabilityProblems(manifest));
   }
-  const hasScene = scene !== undefined || sceneSkipped;
+  const regionScene =
+    manifest !== undefined &&
+    Object.keys(regionScenes(manifest, new Set(files.keys())).scenes).length > 0;
+  const hasScene = scene !== undefined || sceneSkipped || regionScene;
   return {
     manifest: manifest ? { ...manifest, scene: hasScene } : undefined,
     summary: {
