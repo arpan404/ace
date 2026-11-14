@@ -41,6 +41,25 @@ const Viewport = z.strictObject({
   dpr: z.number().finite().nonnegative(),
   scale: z.number().finite().nonnegative(),
 });
+/**
+ * What a client says about its link (ADR 0149, K3): the client's word, bounded by type. It only
+ * picks a viewer's starting step and never raises a rate above what the link has measured.
+ * Strict, unlike the lenient client-facing `MediaLinkHint` (`@ace/protocol`): the daemon builds
+ * this field by field from the parsed client hint, dropping absent fields, and never passes the
+ * client's object through, or an extra field from a newer client would fail `viewer.open`.
+ */
+const LinkHint = z.strictObject({
+  /** `navigator.connection.effectiveType`; an open string, so a later value parses. */
+  effectiveType: id.optional(),
+  downlinkKbps: u32.optional(),
+  rttMs: u32.optional(),
+  /** `Save-Data`, or `navigator.connection.saveData`. */
+  saveData: z.boolean().optional(),
+  /** iOS `NWPath.isExpensive`. */
+  expensive: z.boolean().optional(),
+  /** iOS `NWPath.isConstrained` (Low Data Mode). */
+  constrained: z.boolean().optional(),
+});
 const EncodeSpec = z.strictObject({
   id: u32,
   codec: z.string(),
@@ -64,16 +83,15 @@ const Capability = z.strictObject({
   maxHeight: u32,
 });
 /** The steps a source runs, with picture-sized GPU↔CPU copies per frame (per still for stills). */
+const SourceStep = z.strictObject({
+  step: Step,
+  backend: Backend,
+  hardware: z.boolean(),
+  readbacks: u32,
+  uploads: u32,
+});
 const Acceleration = z.strictObject({
-  steps: z.array(
-    z.strictObject({
-      step: Step,
-      backend: Backend,
-      hardware: z.boolean(),
-      readbacks: u32,
-      uploads: u32,
-    }),
-  ),
+  steps: z.array(SourceStep),
   degraded: z.boolean(),
   reason: z.string().optional(),
 });
@@ -142,12 +160,20 @@ export const ToMedia = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("record.epochs"),
     source: id,
+    recording: id,
     seq: sequence,
     decided: u32,
     clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
+  z.strictObject({
+    type: z.literal("source.encodes"),
+    source: id,
+    encodes: z.array(EncodeSpec),
+  }),
+  z.strictObject({ type: z.literal("source.key"), source: id, encode: u32 }),
   z.strictObject({
     type: z.literal("media.ticket"),
     connection: id,
@@ -166,6 +192,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     viewport: Viewport,
     local: z.boolean(),
     audio: z.boolean(),
+    link: LinkHint.optional(),
   }),
   z.strictObject({
     type: z.literal("viewer.configure"),
@@ -174,6 +201,17 @@ export const ToMedia = z.discriminatedUnion("type", [
     audio: z.boolean(),
   }),
   z.strictObject({ type: z.literal("viewer.close"), viewer: id }),
+  /** The view is hidden or backgrounded: nothing goes to it until `viewer.resume`. */
+  z.strictObject({ type: z.literal("viewer.pause"), viewer: id }),
+  /** The view shows again; its first picture is a keyframe. */
+  z.strictObject({ type: z.literal("viewer.resume"), viewer: id }),
+  /** The main session's smoothed round trip and queued bytes, every 500 ms (K3). */
+  z.strictObject({
+    type: z.literal("session.link"),
+    session: id,
+    rttMs: u32,
+    backlogBytes: sequence,
+  }),
   z.strictObject({ type: z.literal("relay.dial"), stream: id, url: z.string() }),
   z.strictObject({ type: z.literal("relay.out"), stream: id }),
   z.strictObject({ type: z.literal("relay.pull"), stream: id }),
@@ -296,7 +334,14 @@ export const FromMedia = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("record.done"), recording: id, parts: z.array(Part) }),
   z.strictObject({ type: z.literal("record.failed"), recording: id, reason: z.string() }),
-  z.strictObject({ type: z.literal("still.done"), request: id, width: u32, height: u32 }),
+  z.strictObject({
+    type: z.literal("still.done"),
+    request: id,
+    width: u32,
+    height: u32,
+    /** The path the still took, step by step, with its picture-sized copies. */
+    steps: z.array(SourceStep),
+  }),
   z.strictObject({ type: z.literal("still.failed"), request: id, reason: z.string() }),
   z.strictObject({
     type: z.literal("log"),

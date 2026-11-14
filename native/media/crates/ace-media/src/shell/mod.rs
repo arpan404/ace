@@ -5,17 +5,20 @@
 //! carries out the engine's effects in order. Exits within 1 s of stdin closing.
 mod budget;
 mod effects;
+mod egress;
 mod ingest;
 mod lanes;
+mod pictures;
 mod writer;
 
-use crate::engine::recorder::NoRecorders;
+use crate::encode::worker::Output;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
-use crate::probe::{CpuTrial, TRIAL_DEADLINE, probe};
+use crate::probe::{TRIAL_DEADLINE, probe, trials};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
+use egress::EgressLane;
 use ingest::{Ingest, IngestEvent};
 use media_wire::control::{
     Control, ControlFrame, FromMedia, Ingest as IngestAddress, Lane, Listen, Protocol, ToMedia,
@@ -27,7 +30,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{mpsc, oneshot};
-use writer::{NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
+use writer::{EGRESS_LIMIT, NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
 
 /// Exit codes the supervisor reads: 2 stops restarts until the daemon restarts.
 pub const EXIT_OK: i32 = 0;
@@ -61,8 +64,10 @@ impl Clock {
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
+        let mono = self.0.elapsed();
         Now {
-            mono_ms: self.0.elapsed().as_millis() as u64,
+            mono_ms: mono.as_millis() as u64,
+            mono_us: mono.as_micros() as u64,
             wall_ms: wall,
         }
     }
@@ -78,7 +83,12 @@ pub async fn run(version: &str) -> i32 {
         Err(_) => return EXIT_PROTOCOL,
     };
     let ControlFrame {
-        message: ToMedia::Init { runtime_dir, .. },
+        message:
+            ToMedia::Init {
+                runtime_dir,
+                data_dir,
+                ..
+            },
         payload,
     } = init
     else {
@@ -98,7 +108,13 @@ pub async fn run(version: &str) -> i32 {
     let control_path = dir.join(format!("m{pid}c.sock"));
     let ingest_path = dir.join(format!("m{pid}i.sock"));
     let paths = [control_path.clone(), ingest_path.clone()];
-    let code = serve(version, &clock, stdin, secret, &control_path, &ingest_path).await;
+    let places = Places {
+        control: &control_path,
+        ingest: &ingest_path,
+        data: Path::new(&data_dir),
+        runtime: &dir,
+    };
+    let code = serve(version, &clock, stdin, secret, places).await;
     for path in paths {
         let _ = std::fs::remove_file(path);
     }
@@ -122,14 +138,26 @@ async fn fired<T>(rx: &mut Option<oneshot::Receiver<T>>) {
     }
 }
 
+/// Where ace-media keeps its sockets and finds its data.
+struct Places<'a> {
+    control: &'a Path,
+    ingest: &'a Path,
+    data: &'a Path,
+    runtime: &'a Path,
+}
+
 async fn serve(
     version: &str,
     clock: &Clock,
     mut stdin: tokio::io::Stdin,
     secret: LaneSecret,
-    control_path: &Path,
-    ingest_path: &Path,
+    places: Places<'_>,
 ) -> i32 {
+    let Places {
+        control: control_path,
+        ingest: ingest_path,
+        ..
+    } = places;
     let control = match bind_unix(control_path) {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("control socket: {error}")),
@@ -144,12 +172,12 @@ async fn serve(
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
 
-    let probed =
-        tokio::task::spawn_blocking(|| probe(vec![Box::new(CpuTrial)], TRIAL_DEADLINE)).await;
+    let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
     let Ok((mut capabilities, late)) = probed else {
         return fail("probe");
     };
     let (late_tx, mut late_rx) = mpsc::unbounded_channel();
+    let late_chrome = late_tx.clone();
     std::thread::spawn(move || {
         while let Ok(result) = late.recv() {
             if late_tx.send(result).is_err() {
@@ -157,6 +185,21 @@ async fn serve(
             }
         }
     });
+    // The last-resort encoder is tried only where no hardware encoder worked; its result comes
+    // after `ready`, as `capabilities.changed`.
+    let shared: crate::encode::platform::SharedCapabilities =
+        Arc::new(Mutex::new(capabilities.list()));
+    let profiles = places.runtime.join("chrome");
+    let chrome = crate::trials::chrome_options(&capabilities.list(), places.data, &profiles)
+        .filter(|_| std::fs::create_dir_all(&profiles).is_ok());
+    if let Some(options) = chrome.clone() {
+        let slot = capabilities.add_slot();
+        crate::trials::chrome_trial(options, TRIAL_DEADLINE, move |found| {
+            let _ = late_chrome.send((slot, vec![found]));
+        });
+    }
+    let (encoded_tx, mut encoded_rx) = mpsc::channel(256);
+    let mut pictures = pictures::Pictures::new(shared.clone(), chrome, encoded_tx);
 
     let mut stdout = Writer::spawn(tokio::io::stdout(), NORMAL_LIMIT);
     let ready = FromMedia::Ready {
@@ -198,13 +241,31 @@ async fn serve(
         }
     });
 
-    let mut engine = Engine::new(Box::new(NoRecorders));
+    let egress_lane = EgressLane::default();
+    let mut engine = Engine::new(
+        Box::new(crate::record::Mp4Recorders),
+        Box::new(egress_lane.clone()),
+    );
+    let (still_tx, mut still_rx) = mpsc::unbounded_channel();
+    let started = clock.0;
+    let threads = crate::stills::StillThreads::probed(
+        crate::stills::thread_count(std::thread::available_parallelism().map_or(1, |n| n.get())),
+        &capabilities.list(),
+        Arc::new(move || started.elapsed().as_micros() as u64),
+        Arc::new(move |outcome| {
+            let _ = still_tx.send(outcome);
+        }),
+    );
+    if let Ok(threads) = threads {
+        engine = engine.with_stills(Box::new(threads));
+    }
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
     let mut priority_out: Option<Writer> = None;
     let mut priority_failed: Option<oneshot::Receiver<()>> = None;
     let mut egress_closed: Option<oneshot::Receiver<()>> = None;
+    let mut egress_failed: Option<oneshot::Receiver<()>> = None;
     let mut tick = tokio::time::interval(TICK);
     let mut lanes_pending = true;
 
@@ -221,6 +282,7 @@ async fn serve(
             _ = fired(&mut priority_failed) => break fail("the priority lane failed"),
             _ = &mut stdout.failed => break fail("stdout failed"),
             _ = fired(&mut egress_closed) => break fail("the egress lane closed"),
+            _ = fired(&mut egress_failed) => break fail("the egress lane failed"),
             up = &mut lanes, if lanes_pending => {
                 lanes_pending = false;
                 let Ok(up) = up else { break fail("lane authentication") };
@@ -243,11 +305,14 @@ async fn serve(
                 });
                 let (closed_tx, closed_rx) = oneshot::channel();
                 egress_closed = Some(closed_rx);
-                let mut egress = up.egress;
+                let (mut egress_read, egress_write) = up.egress.into_split();
+                let mut writer = Writer::spawn(egress_write, EGRESS_LIMIT);
+                egress_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
+                egress_lane.connect(writer);
                 tokio::spawn(async move {
-                    // Egress carries frames out only (G1); reading tells us when it drops.
+                    // Egress carries frames out only; reading tells us when it drops.
                     let mut byte = [0u8; 1];
-                    while matches!(egress.read(&mut byte).await, Ok(n) if n > 0) {}
+                    while matches!(egress_read.read(&mut byte).await, Ok(n) if n > 0) {}
                     let _ = closed_tx.send(());
                 });
             }
@@ -264,6 +329,8 @@ async fn serve(
                         priority: priority_out.as_ref(),
                         connections: &mut connections,
                         lag: &lag,
+                        pictures: &mut pictures,
+                        now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
                     break EXIT_OK;
@@ -285,22 +352,40 @@ async fn serve(
                 }
                 None => {}
             },
+            Some((source, token, output)) = encoded_rx.recv() => match output {
+                Output::Unit(frame) => engine.encoded(&source, token, frame, clock.now()),
+                Output::Report(acceleration) => engine.encoder_steps(&source, token, acceleration),
+                Output::Failed(reason) => engine.encoder_failed(&source, token, &reason),
+                Output::Drained => engine.encoder_drained(&source, token),
+            },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
-                let changed = FromMedia::CapabilitiesChanged { capabilities: capabilities.list() };
+                let list = capabilities.list();
+                if let Ok(mut shared) = shared.lock() {
+                    *shared = list.clone();
+                }
+                engine.capabilities_changed(&list);
+                let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()
                 {
                     break fail("stdout is backed up past its bound");
                 }
             }
-            _ = tick.tick() => engine.tick(clock.now()),
+            Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            _ = tick.tick() => {
+                let now = clock.now();
+                engine.encoders_stuck(pictures.stuck(now.mono_ms));
+                engine.tick(now);
+            }
         }
         let mut outputs = Outputs {
             stdout: &stdout,
             priority: priority_out.as_ref(),
             connections: &mut connections,
             lag: &lag,
+            pictures: &mut pictures,
+            now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
             Step::Continue => {}

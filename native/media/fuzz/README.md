@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# media-codec fuzzing
+# media-codec and media-bitstream fuzzing
 
 `transcode` feeds arbitrary bytes through `CpuJpegCodec` on one long-lived
 instance. The first byte picks targets and quality. It checks that nothing
@@ -22,3 +22,14 @@ Seeds cover grayscale, every sampling layout, odd edges, restart intervals,
 progressive, arithmetic and CMYK fallbacks, malformed DHT/DQT/SOS, near-maximal
 coefficients with impossible quantisers, and a truncated scan. Only `seed-*`
 files are committed; libFuzzer's own discoveries stay local.
+
+`bitstream` feeds arbitrary bytes to every media-bitstream reader (H.264 and HEVC parameter
+sets and slice headers, `avcC`/`hvcC`, Annex B and length-prefixed framing). It checks that
+nothing panics and that each accepted parameter set writes back to one that reads the same:
+
+```sh
+cargo fuzz run bitstream -- -max_total_time=600 -max_len=4096
+```
+
+The workspace tests run a seeded mutation sweep of the same property over the VideoToolbox
+vectors (`crates/media-bitstream/tests/hostile.rs`) on every `check:media`.
