@@ -13,13 +13,9 @@ import {
   ThreadProviderMetadata,
   ThreadTransitionView,
   UsageUpdated,
-  type AgentId,
-  type AgentStatus,
   type EventId,
   type Thread,
   type ThreadId,
-  type ThreadStatus,
-  type TurnDigest,
 } from "@ace/protocol";
 import { z } from "zod";
 
@@ -85,26 +81,6 @@ export function storedTextChunk(
     field: field as Extract<EventPayload, { type: "item.delta" }>["field"],
     append: JSON.parse(String(append)) as string,
   };
-}
-/**
- * Rows of the thread summary index (`long-thread/`). Only its writer fills them, from validated
- * events, and an index in an older layout is refused at open (`long-thread/database.ts`).
- */
-export function storedIndexCommand(json: string): TurnDigest["commands"][number] {
-  // Trusted: the writer stored a command preview built from a validated tool call.
-  return JSON.parse(json) as TurnDigest["commands"][number];
-}
-export function storedIndexStatus(json: string): ThreadStatus {
-  // Trusted: the writer stored a validated thread status.
-  return JSON.parse(json) as ThreadStatus;
-}
-export function storedIndexAgentId(value: unknown): AgentId {
-  // Trusted: the writer stored the id of a validated agent.
-  return String(value) as AgentId;
-}
-export function storedIndexAgentStatus(json: string): AgentStatus {
-  // Trusted: the writer stored a validated agent status.
-  return JSON.parse(json) as AgentStatus;
 }
 /**
  * An item row the current write transaction stored moments ago from a validated Item, such as

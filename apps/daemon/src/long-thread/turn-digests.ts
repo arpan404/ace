@@ -1,7 +1,11 @@
-import type { TurnDigest } from "@ace/protocol";
+import { TurnDigest } from "@ace/protocol";
 import { digestFromCounters } from "@ace/projection";
-import { storedIndexCommand } from "../stored-decode.ts";
 import type { Counters, LongThreadDatabase } from "./database.ts";
+
+// Index rows hold protocol values written by whichever build indexed them (the index has no
+// build fingerprint), so the JSON commands and the paths are validated as they are read.
+const Command = TurnDigest.shape.commands.element;
+const Path = TurnDigest.shape.files.element.shape.path;
 
 /** A whole turn's digest key: a thread and a turn ordinal (0 is the whole thread). */
 export type TurnKey = readonly [thread: string, ordinal: number];
@@ -42,7 +46,7 @@ type FileEntry = TurnDigest["files"][number];
 const turnFile = (row: Record<string, unknown>): FileEntry => {
   const unknown = Number(row.unknown) > 0;
   return {
-    path: String(row.path),
+    path: Path.parse(row.path),
     added: unknown ? null : Math.max(0, Number(row.added)),
     removed: unknown ? null : Math.max(0, Number(row.removed)),
   };
@@ -51,7 +55,7 @@ const turnFile = (row: Record<string, unknown>): FileEntry => {
 const agentFile = (row: Record<string, unknown>): FileEntry => {
   const unknown = Number(row.unknown) !== 0;
   return {
-    path: String(row.path),
+    path: Path.parse(row.path),
     added: unknown ? null : Number(row.added),
     removed: unknown ? null : Number(row.removed),
   };
@@ -64,7 +68,7 @@ function details(
   commands: readonly Record<string, unknown>[],
 ): TurnDigest {
   digest.files = files.slice(0, 64).map(file);
-  digest.commands = commands.slice(0, 64).map((row) => storedIndexCommand(String(row.data)));
+  digest.commands = commands.slice(0, 64).map((row) => Command.parse(JSON.parse(String(row.data))));
   digest.truncated = files.length > 64 || commands.length > 64;
   return digest;
 }

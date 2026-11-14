@@ -147,3 +147,64 @@ test("a turn credits each file and command to the agent that made it", () => {
   expect(linked && commands(linked.digest)).toEqual(["child test"]);
   expect(turns(store, thread).turns[0]?.subagents).toEqual([]);
 });
+
+test("index rows an older build left are validated, never sent as stored", async () => {
+  const f = seed();
+  // An older build's index: commands and agent statuses carrying a field this schema doesn't have.
+  f.store.atomic((db) =>
+    db.exec(
+      `UPDATE long_commands SET data = json_set(data, '$.legacy', 1);
+       UPDATE long_agents SET status = json_set(status, '$.legacy', 1);`,
+    ),
+  );
+  await f.restart();
+  const page = turns(f.store, f.thread);
+  expect(JSON.stringify(page)).not.toContain("legacy");
+  expect(commands(page.turns[1]?.digest ?? { commands: [] }).toSorted()).toEqual([
+    "lint",
+    "make 1",
+  ]);
+  // A status no variant of this schema accepts fails the read instead of reaching a client.
+  f.store.atomic((db) =>
+    db.exec(`UPDATE long_agents SET status = '{"state":"retired"}' WHERE id = 'inline-sub'`),
+  );
+  await f.restart();
+  expect(() => turns(f.store, f.thread)).toThrow();
+});
+
+test("a turn with more than 64 files or commands shows 64 of each and says it was cut", () => {
+  const f = storeFixture();
+  const { store, thread } = f;
+  const sub = AgentId.parse("busy-sub");
+  store.appendEvents(thread.id, [{ type: "item.created", item: userMessage("ask-busy") }]);
+  start(store, thread, "busy", 10);
+  store.appendEvents(thread.id, [subagent(thread, sub, 11)]);
+  for (let index = 0; index < 70; index++)
+    store.appendEvents(thread.id, [
+      { type: "item.created", item: owned(`edit-${index}`, root, edit(`main/${index}.ts`)) },
+      { type: "item.created", item: owned(`run-${index}`, root, shell(`step ${index}`)) },
+      { type: "item.created", item: owned(`sub-edit-${index}`, sub, edit(`sub/${index}.ts`)) },
+      { type: "item.created", item: owned(`sub-run-${index}`, sub, shell(`sub ${index}`)) },
+    ]);
+  end(store, thread, "busy", 20);
+  store.appendEvents(thread.id, [{ type: "item.created", item: userMessage("ask-small") }]);
+  start(store, thread, "small", 30);
+  store.appendEvents(thread.id, [
+    { type: "item.created", item: owned("small-run", root, shell("small")) },
+  ]);
+  end(store, thread, "small", 40);
+
+  const [busy, small] = turns(store, thread).turns;
+  if (!busy || !small) throw new Error("Missing turns");
+  expect(busy.digest).toMatchObject({ commandsRun: 140, truncated: true });
+  expect([busy.digest.files.length, busy.digest.commands.length]).toEqual([64, 64]);
+  const shares = [busy.main?.digest, busy.subagents[0]?.digest];
+  for (const share of shares) {
+    expect(share).toMatchObject({ commandsRun: 70, truncated: true });
+    expect([share?.files.length, share?.commands.length]).toEqual([64, 64]);
+  }
+  expect(paths(shares[1] ?? { files: [] }).every((path) => path.startsWith("sub/"))).toBe(true);
+  expect(small.digest).toMatchObject({ commandsRun: 1, truncated: false });
+  expect(commands(small.digest)).toEqual(["small"]);
+  expect(turns(store, thread, { before: 2, limit: 1 }).turns).toEqual([busy]);
+});

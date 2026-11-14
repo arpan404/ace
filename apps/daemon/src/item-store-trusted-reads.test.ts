@@ -1,7 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type SQLOutputValue,
+  type StatementSync,
+} from "node:sqlite";
 import { AgentId, AgentItem, ItemId, type ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
@@ -172,18 +177,17 @@ function interleaved(path: string, during: () => void): DatabaseSync {
     const statement = prepare(sql);
     if (!sql.includes("json_each") || !sql.includes("item_text_chunks")) return statement;
     const iterate = statement.iterate.bind(statement);
-    statement.iterate = (...values: SQLInputValue[]) => {
-      const rows = iterate(...values);
-      return (function* () {
-        for (const row of rows) {
-          yield row;
-          if (!ran) {
-            ran = true;
-            during();
-          }
+    function* hooked(...values: SQLInputValue[]): Generator<Record<string, SQLOutputValue>> {
+      for (const row of iterate(...values)) {
+        yield row;
+        if (!ran) {
+          ran = true;
+          during();
         }
-      })() as ReturnType<StatementSync["iterate"]>;
-    };
+      }
+    }
+    // The overloads differ only in named parameters, which these statements never take.
+    statement.iterate = hooked as StatementSync["iterate"];
     return statement;
   };
   return db;

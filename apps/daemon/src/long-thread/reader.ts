@@ -1,16 +1,18 @@
 import { z } from "zod";
 import {
+  AgentId,
+  AgentStatus,
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
+  ThreadStatus,
+  TurnSubagentSummary,
+  TurnSummary,
   type Thread,
   type ThreadId,
-  type ThreadStatus,
   type TurnDigest,
-  type TurnSummary,
   type TurnsPageRequest,
   type TurnsPageResponse,
   type ThreadCatchUpRequest,
-  type TurnSubagentSummary,
 } from "@ace/protocol";
 import {
   agentThreadStatus,
@@ -18,7 +20,6 @@ import {
   turnIsSettled,
   turnActivityStatus,
 } from "@ace/projection";
-import { storedIndexAgentId, storedIndexAgentStatus, storedIndexStatus } from "../stored-decode.ts";
 import { LongThreadDatabase, type Counters } from "./database.ts";
 import { Digests } from "./digests.ts";
 import { readAgentDigests, readTurnDigests, type AgentKey, type TurnKey } from "./turn-digests.ts";
@@ -31,9 +32,15 @@ const TurnRow = z.object({
   ended_at: z.number().nullable(),
   root_outcome: z.enum(["active", "completed", "interrupted", "failed"]),
   settled_seq: z.number().nullable(),
-  initiating: z.string(),
-  latest: z.string(),
+  initiating: TurnSummary.shape.initiatingMessagePreview,
+  latest: TurnSummary.shape.latestAgentMessagePreview,
 });
+// The index has no build fingerprint: whichever build indexed a turn wrote its JSON, so every
+// protocol value taken from it is validated here. Only the page built from them is not.
+const indexStatus = (json: unknown): ThreadStatus => ThreadStatus.parse(JSON.parse(String(json)));
+const indexAgentStatus = (json: unknown): AgentStatus =>
+  AgentStatus.parse(JSON.parse(String(json)));
+const SubagentName = TurnSubagentSummary.shape.name;
 export class TurnReader {
   private readonly data: LongThreadDatabase;
   private readonly digests: Digests;
@@ -51,7 +58,7 @@ export class TurnReader {
     counters: Counters,
   ): ThreadStatus {
     if (Number(head?.ordinal) === row.ordinal) {
-      const status = this.thread(thread)?.status ?? storedIndexStatus(String(head?.status));
+      const status = this.thread(thread)?.status ?? indexStatus(head?.status);
       if (!turnIsSettled(status) || status.state === "failed") return status;
     }
     const linked = this.data
@@ -65,9 +72,8 @@ export class TurnReader {
       )
       .get(thread, row.ordinal);
     const active = turnActivityStatus(counters, [
-      // A linked child's row is the threads table's, which this build stores validated.
-      ...(linked ? [storedIndexStatus(String(linked.status))] : []),
-      ...(owned ? [agentThreadStatus(storedIndexAgentStatus(String(owned.status)))] : []),
+      ...(linked ? [indexStatus(linked.status)] : []),
+      ...(owned ? [agentThreadStatus(indexAgentStatus(owned.status))] : []),
     ]);
     if (active) return active;
     if (row.settled_seq === null) return { state: "working", agents: 1 };
@@ -119,10 +125,10 @@ export class TurnReader {
       const subagents = page.subagents.map(({ agent, child, digest }) => {
         // In the schema's field order, as a parse of it would give.
         const summary: TurnSubagentSummary = {
-          agentId: storedIndexAgentId(agent.id),
+          agentId: AgentId.parse(agent.id),
           ...(child ? { threadId: child.id } : {}),
-          ...(agent.name == null ? {} : { name: String(agent.name) }),
-          status: child?.status ?? agentThreadStatus(storedIndexAgentStatus(String(agent.status))),
+          ...(agent.name == null ? {} : { name: SubagentName.parse(agent.name) }),
+          status: child?.status ?? agentThreadStatus(indexAgentStatus(agent.status)),
           startedAt: Number(agent.started_at),
           ...(agent.ended_at == null ? {} : { endedAt: Number(agent.ended_at) }),
           digest: digestAt(digest),
@@ -144,14 +150,14 @@ export class TurnReader {
         ...(root === undefined || page.main === undefined
           ? {}
           : {
-              main: { agentId: storedIndexAgentId(root), digest: digestAt({ agent: page.main }) },
+              main: { agentId: AgentId.parse(root), digest: digestAt({ agent: page.main }) },
             }),
         subagents,
         subagentsTruncated: (agents[index]?.length ?? 0) > 32,
       };
     });
   }
-  /** Built from rows the summary index holds (`storedIndex*`), so it is not validated again. */
+  /** Built from index values validated as they are read, so the page is not validated again. */
   page(input: TurnsPageRequest, seq: number): TurnsPageResponse {
     const rows =
       input.after === undefined
