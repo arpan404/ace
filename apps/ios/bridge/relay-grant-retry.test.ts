@@ -31,7 +31,11 @@ function refusing(end: "lost" | "unauthorized"): Transport {
         if (end === "lost") events?.close(1006);
         else
           events?.message(
-            JSON.stringify({ type: "error", code: "unauthorized", message: "Valid hello required" }),
+            JSON.stringify({
+              type: "error",
+              code: "unauthorized",
+              message: "Valid hello required",
+            }),
           );
       });
     },
