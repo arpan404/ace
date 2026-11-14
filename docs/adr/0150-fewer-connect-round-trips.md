@@ -43,8 +43,11 @@ fixed 150 ms race stagger dialed every path every time.
 6. **The race stagger scales too.** It is 1.5 times how long the last race took to open its
    winner, between 150 ms and 2 s. A path that fails fast still lets the next one start at once.
 7. **Timers.** A socket the path manager pings carries no second ping loop: the connection's
-   heartbeat stands down (a wake probe still runs). Hidden windows ping every 40 s, inside the
-   daemon's 60 s idle limit. A connect's single 120 s deadline is now one per stage (the socket
+   heartbeat stands down (a wake probe still runs). Hidden windows ping every 25 s (was 15 s): a
+   keep-alive under the 30 s after which many NATs and phone carriers forget an idle mapping,
+   kept apart from the failure deadline of item 5. With no standby, a path that goes silent
+   while hidden is dropped within 25 s + 3 pong deadlines: 31 s on a fast link, 55 s at the
+   10 s cap (19 s before, when one miss was enough). A connect's single 120 s deadline is now one per stage (the socket
    opening; the hello waiting for its welcome): 30 s, or four times what that stage took last
    time, at most 120 s. A daemon that says `starting` still gets the whole 120 s.
 

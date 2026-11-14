@@ -72,7 +72,7 @@ export interface MultipathOptions {
   now(): number;
   /** High resolution, for the swap's duration (`performance.now`); `now` when absent. */
   clock?(): number;
-  /** Whether the app is in front: pings are 5 s apart then, 40 s otherwise. */
+  /** Whether the app is in front: pings are 5 s apart then, 25 s otherwise. */
   visible?(): boolean;
   /** The path that won last time, tried first. */
   lastWinner?: string | undefined;

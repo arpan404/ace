@@ -172,6 +172,8 @@ export async function connected(
     grant?: ClientOptions["grant"];
     /** False when the first connect isn't expected to be ready at once on `first`. */
     ready?: boolean;
+    /** Whether the app is in front (`MultipathOptions.visible`); always, when absent. */
+    visible?(): boolean;
   } = {},
 ) {
   const clock = new Clock();
@@ -190,6 +192,7 @@ export async function connected(
     now: () => clock.now,
     lastWinner: first,
     mismatch: (planned) => mismatched.push(planned.kind),
+    ...(options.visible ? { visible: options.visible } : {}),
   });
   const race = multipath.route();
   let id = 0;

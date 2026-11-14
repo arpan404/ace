@@ -14,8 +14,12 @@ export const pathTiming = {
   raceStaggerMs: 150,
   raceStaggerCapMs: 2_000,
   pingVisibleMs: 5_000,
-  /** Hidden, a ping only keeps the socket inside the daemon's 60 s idle limit. */
-  pingHiddenMs: 40_000,
+  /**
+   * Hidden, a ping is a keep-alive: under the 30 s after which many NATs and phone carriers
+   * silently forget an idle mapping, and so well inside the daemon's 60 s idle limit. It is not
+   * the failure deadline (`pongDeadline`), which scales to the link on its own.
+   */
+  pingHiddenMs: 25_000,
   /** The warm standby only proves it is alive. */
   standbyPingMs: 30_000,
   /**
@@ -247,7 +251,7 @@ function standbyRelays(paths: readonly PlannedPath[], active: PlannedPath): Plan
     .toSorted((a, b) => pathRank(a.kind) - pathRank(b.kind));
 }
 
-/** How often the active path is pinged: every 5 s while visible, 40 s while hidden. */
+/** How often the active path is pinged: every 5 s while visible, 25 s while hidden. */
 export function pingEvery(visible: boolean): number {
   return visible ? pathTiming.pingVisibleMs : pathTiming.pingHiddenMs;
 }

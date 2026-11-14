@@ -47,7 +47,7 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
    This is one step earlier than "first to finish hello": the hello's credential differs per
    path (a ticket on a direct socket, a token or grant on a relay), so it cannot be sent on
    every path at once.
-2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden (40 s since
+2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden (25 s since
    [ADR 0150](0150-fewer-connect-round-trips.md)) (a
    machine worker counts as visible while any tab it serves is); the round trip is smoothed
    (EWMA, an eighth of each sample).
