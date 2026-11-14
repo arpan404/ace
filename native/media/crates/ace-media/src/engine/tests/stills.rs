@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `still.take` end to end through the engine, against a model decoder standing in for the
-//! hardware. Each test unit's payload is `[picture id, encode id]`, and a configuration record
-//! names its codec and width. The model decodes as a real decoder does: a group starts at a
+//! hardware. Each length-prefixed test unit's payload is `[picture id, encode id]`, and its
+//! configuration record names its codec and width. Annex B units are real NAL units: parameter
+//! sets and slices tagged with the stream they belong to, whose record the model builds with
+//! `record::video` as the real maker does. The model decodes as a real decoder does: a group starts at a
 //! keyframe whose record fits it, a decoder fed another stream's units or a stale record
 //! fails, and a still is the last picture decoded. So every assertion is on what the daemon
 //! receives: the still's picture and size, or why it failed.
 use super::super::stills::{
-    DECODE_FAILED, Made, NEEDS_KEYFRAME, StillInput, StillJob, StillMaker, StillOutcome,
+    DECODE_FAILED, Made, NEEDS_KEYFRAME, StillInput, StillJob, StillMaker, StillOutcome, StillUnit,
 };
 use super::*;
 use media_codec::Size;
@@ -45,6 +47,35 @@ fn record(codec: u8, width: u16) -> Vec<u8> {
     vec![codec, (width / 10) as u8]
 }
 
+/// A unit's picture id and the stream it was coded in.
+fn coded(unit: &StillUnit) -> (u8, u8) {
+    if unit.codec != 1 {
+        return (unit.payload[0], unit.payload[1]);
+    }
+    let nals = crate::record::video::nal_units(&unit.payload);
+    match nals.iter().find(|n| matches!(n[0] & 0x1f, 1 | 5)) {
+        Some(slice) => (slice[2], slice[1]),
+        None => (0, 0),
+    }
+}
+
+/// Whether a keyframe's record is the one its stream was coded with.
+fn fits(key: &StillUnit) -> bool {
+    if key.codec == 3 && key.description.is_empty() {
+        // The length-prefixed tests' stand-in for parameter sets in band.
+        return true;
+    }
+    if key.codec != 1 {
+        return key.description == record(key.codec, key.size.width as u16);
+    }
+    let Ok(made) = crate::record::video::encoded(1, &key.payload, &key.description) else {
+        return false;
+    };
+    let stream = coded(key).1;
+    made.description
+        .is_some_and(|r| r.windows(2).any(|w| w == [0x68, stream]))
+}
+
 fn decode(streams: &mut HashMap<u32, Stream>, job: &StillJob) -> Result<u8, String> {
     let StillInput::Video { group, units, .. } = &job.input else {
         unreachable!()
@@ -53,14 +84,12 @@ fn decode(streams: &mut HashMap<u32, Stream>, job: &StillJob) -> Result<u8, Stri
         let Some(key) = units.first().filter(|u| u.key) else {
             return Err(NEEDS_KEYFRAME.into());
         };
-        let in_band = matches!(key.codec, 1 | 3) && key.description.is_empty();
-        let width = key.size.width as u16;
-        if !in_band && key.description != record(key.codec, width) {
+        if !fits(key) {
             return Err(DECODE_FAILED.into());
         }
         let stream = Stream {
             group: *group,
-            encode: key.payload[1],
+            encode: coded(key).1,
             decoded_at: job.target,
             picture: None,
         };
@@ -70,10 +99,11 @@ fn decode(streams: &mut HashMap<u32, Stream>, job: &StillJob) -> Result<u8, Stri
         unreachable!()
     };
     for unit in units {
-        if unit.payload[1] != state.encode {
+        let (picture, stream) = coded(unit);
+        if stream != state.encode {
             return Err(DECODE_FAILED.into());
         }
-        state.picture = Some(unit.payload[0]);
+        state.picture = Some(picture);
     }
     if job.target.width > state.decoded_at.width {
         return Err(NEEDS_KEYFRAME.into());
@@ -93,6 +123,7 @@ impl StillMaker for Maker {
         };
         let outcome = StillOutcome {
             request: job.request,
+            token: job.token,
             result: result.map(|jpeg| Made {
                 jpeg,
                 size: job.target,
@@ -545,5 +576,77 @@ fn shutdown_fails_every_still_still_open() {
     assert_eq!(
         answers(&engine.effects().collect::<Vec<_>>()),
         [failed("q1", "shutdown")]
+    );
+}
+
+/// An Annex B H.264 keyframe of stream `stream`, picture `picture`: its parameter sets in band
+/// when `in_band`.
+fn annex_b_key(picture: u8, stream: u8, in_band: bool) -> MediaFrame {
+    let mut payload = Vec::new();
+    let mut nal = |bytes: &[u8]| {
+        payload.extend_from_slice(&[0, 0, 0, 1]);
+        payload.extend_from_slice(bytes);
+    };
+    if in_band {
+        nal(&[0x67, 66, 0, 30, stream]);
+        nal(&[0x68, stream]);
+    }
+    nal(&[0x65, stream, picture]);
+    let mut frame = frame(1, 1, 1, payload);
+    frame.width = 640;
+    frame.height = 480;
+    frame
+}
+
+#[test]
+fn a_keyframe_without_parameter_sets_decodes_with_the_last_ones_the_stream_carried() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    // Stream A's record arrives as the frame's description.
+    let mut first = annex_b_key(1, 0xa, false);
+    let Some(record_a) = crate::record::video::avcc(&[0x67, 66, 0, 30, 0xa], &[0x68, 0xa]) else {
+        panic!("avcC")
+    };
+    first.description = record_a;
+    feed(&mut engine, [first]);
+    assert_eq!(
+        shot(&mut engine, &maker, "a", 1000),
+        [still("a", 1, (640, 480))]
+    );
+    // The same configuration restarts as stream B, its parameter sets in band only.
+    feed(&mut engine, [annex_b_key(2, 0xb, true)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "b", 1000),
+        [still("b", 2, (640, 480))]
+    );
+    // B's next keyframe carries neither: it needs B's parameter sets, not A's.
+    feed(&mut engine, [annex_b_key(3, 0xb, false)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "c", 1000),
+        [still("c", 3, (640, 480))]
+    );
+}
+
+#[test]
+fn a_result_from_before_a_close_never_answers_a_reused_request_id() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    feed(&mut engine, [key(1)]);
+    take(&mut engine, "r", "s1", 320);
+    let closed = send(
+        &mut engine,
+        json!({ "type": "source.close", "source": "s1" }),
+        &[],
+        NOW,
+    );
+    assert_eq!(answers(&closed), [failed("r", "source-closed")]);
+    open_tab(&mut engine, "s1", 2, 8);
+    hello(&mut engine, 2, 8);
+    ingest(&mut engine, 2, key(5), NOW);
+    take(&mut engine, "r", "s1", 320);
+    // The closed source's job finishes first, then the new one's.
+    assert_eq!(
+        answers(&arrive(&mut engine, &maker)),
+        [still("r", 5, (320, 240))]
     );
 }

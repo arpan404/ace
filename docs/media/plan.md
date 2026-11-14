@@ -1459,11 +1459,12 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   - **One encode.** Stills follow the encode whose keyframe started the current group; other
     encodes' units are ignored until one of them sends a keyframe, which starts a new group.
   - **Its configuration.** A group's configuration is its encode, `MediaFrame` codec (which
-    also fixes Annex B or length-prefixed) and coded size. A keyframe without a record keeps
-    the last one only when the configuration is the same, since producers send it only when it
-    changes; any other configuration drops it. A delta whose configuration differs ends the
-    group. For Annex B the parameter sets in the stream win over any record
-    (`record::video::encoded`, which recordings use too).
+    also fixes Annex B or length-prefixed) and coded size. Each keyframe decodes with one
+    record: the parameter sets in the stream (Annex B) win, then the record the frame carries,
+    then the one kept from the last keyframe of the same configuration, since producers send
+    it only when it changes (`record::video::encoded` applies the same order for recordings and
+    the maker). That record is the one kept, so parameter sets that change in band are followed;
+    any other configuration drops it. A delta whose configuration differs ends the group.
   - **Bounds.** Past 120 units or 32 MiB undecoded the group is dropped, and the next still
     sends `source.keyframe` (`drop`) once and waits for the keyframe. VP8, VP9 and PNG sources
     fail `unsupported-codec`.
@@ -1496,8 +1497,9 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   under 2 px or quality outside 1–100), `busy`, `unsupported-codec`, `decode-unavailable`,
   `decode-failed` (which also drops the group), `deadline` (checked on every 100 ms tick and by
   the maker), `source-closed` (every request for the source, waiting or with the maker),
-  `shutdown`. A result after its request failed is dropped, so a closed or reopened source
-  never gets a still from before.
+  `shutdown`. Each job carries a token of its own, and a result counts only if the request is
+  still waiting on that token: one from before a close, a deadline or a reused request id is
+  dropped, so a closed or reopened source never gets a still from before.
 - **The poster** (`stills/poster.rs`, consumed by D1): the still path at the viewer's viewport,
   then the highest JPEG quality from 10 to 90 whose size is at most 20 KB, stopping at the first
   of at least 10 KB; a picture too busy for 20 KB at quality 10 is made ¾ the size, up to three

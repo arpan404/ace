@@ -82,6 +82,7 @@ fn stream(codec: Codec, frames: u32) -> Vec<StillUnit> {
 fn job(input: StillInput, target: Size) -> StillJob {
     StillJob {
         request: Id::new("q".to_owned()).unwrap_or_else(|_| unreachable!()),
+        token: 1,
         stream: 1,
         input,
         target,

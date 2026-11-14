@@ -61,6 +61,9 @@ pub enum StillInput {
 
 pub struct StillJob {
     pub request: Id,
+    /// This dispatch's own token, unique in the process: its result must carry it back, so a
+    /// result is never taken for a later request that reuses the id.
+    pub token: u64,
     /// The source's handle, unique in this process: the maker keeps decoder state by it.
     pub stream: u32,
     pub input: StillInput,
@@ -80,6 +83,8 @@ pub struct Made {
 
 pub struct StillOutcome {
     pub request: Id,
+    /// The job's token.
+    pub token: u64,
     pub result: Result<Made, String>,
 }
 
@@ -153,6 +158,7 @@ struct Request {
 
 struct Held {
     request: Request,
+    token: u64,
     /// The video group the job continued, if any.
     group: Option<u64>,
 }
@@ -161,6 +167,7 @@ pub struct Stills {
     maker: Box<dyn StillMaker>,
     current: HashMap<String, Entry>,
     next_group: u64,
+    next_token: u64,
     /// Requests waiting for a keyframe.
     waiting: Vec<Request>,
     /// Requests a maker has.
@@ -173,6 +180,7 @@ impl Stills {
             maker,
             current: HashMap::new(),
             next_group: 0,
+            next_token: 0,
             waiting: Vec::new(),
             made: HashMap::new(),
         }
@@ -237,15 +245,12 @@ impl Stills {
                     entry.current = Current::Lost;
                     return;
                 }
-                if !frame.description.is_empty() {
-                    entry.config = Some((config, frame.description.clone()));
-                } else if entry.config.as_ref().is_some_and(|(c, _)| *c != config) {
-                    entry.config = None;
-                }
+                let record = used_record(frame, config, entry.config.take());
                 let mut unit = unit(frame, true, config.size);
-                if let Some((_, description)) = &entry.config {
-                    unit.description.clone_from(description);
+                if let Some(record) = &record {
+                    unit.description.clone_from(record);
                 }
+                entry.config = record.map(|record| (config, record));
                 self.next_group += 1;
                 entry.current = Current::Video {
                     group: self.next_group,
@@ -390,8 +395,11 @@ impl Stills {
             StillInput::Video { group, .. } => Some(*group),
             StillInput::Jpeg { .. } => None,
         };
+        self.next_token += 1;
+        let token = self.next_token;
         let job = StillJob {
             request: request.request.clone(),
+            token,
             stream: handle,
             input,
             target,
@@ -401,7 +409,14 @@ impl Stills {
         match self.maker.take(job) {
             Ok(()) => {
                 let key = request.request.get().to_owned();
-                self.made.insert(key, Held { request, group });
+                self.made.insert(
+                    key,
+                    Held {
+                        request,
+                        token,
+                        group,
+                    },
+                );
             }
             Err(job) => {
                 self.restore(&request.source, job.input);
@@ -450,6 +465,12 @@ impl Stills {
 
     /// A maker's result. Dropped when its request already failed at its deadline.
     pub fn finished(&mut self, outcome: StillOutcome, out: &mut Vec<Effect>) {
+        // Only the result of the job this request is waiting on: one for an earlier request
+        // with the same id (failed at close or its deadline) belongs to nothing.
+        let current = self.made.get(outcome.request.get());
+        if current.is_none_or(|held| held.token != outcome.token) {
+            return;
+        }
         let Some(held) = self.made.remove(outcome.request.get()) else {
             return;
         };
@@ -521,6 +542,31 @@ impl Stills {
             failed(out, id(&request), "shutdown");
         }
     }
+}
+
+/// The configuration record a keyframe decodes with, which is what the next keyframe of the
+/// same configuration without one keeps. Parameter sets in the stream win (Annex B), as
+/// `record::video` decides for recordings and the maker; then the record the frame carries;
+/// then the cached one, only if it belongs to this configuration.
+fn used_record(
+    frame: &MediaFrame,
+    config: Config,
+    cached: Option<(Config, Vec<u8>)>,
+) -> Option<Vec<u8>> {
+    let given = if frame.description.is_empty() {
+        cached
+            .filter(|(c, _)| *c == config)
+            .map(|(_, record)| record)
+    } else {
+        Some(frame.description.clone())
+    };
+    if !matches!(frame.codec, 1 | 3) {
+        return given;
+    }
+    let in_band = crate::record::video::encoded(frame.codec, &frame.payload, &[])
+        .ok()
+        .and_then(|unit| unit.description);
+    in_band.or(given)
 }
 
 /// A JPEG's own size wins over the frame's; one with neither can't be fitted.

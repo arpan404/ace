@@ -220,6 +220,7 @@ pub fn make(
 ) -> StillOutcome {
     let StillJob {
         request,
+        token,
         stream,
         input,
         target,
@@ -240,7 +241,11 @@ pub fn make(
                 steps,
             })
         });
-    StillOutcome { request, result }
+    StillOutcome {
+        request,
+        token,
+        result,
+    }
 }
 
 /// A unit as a decoder takes it: length-prefixed, with its configuration record on keyframes.

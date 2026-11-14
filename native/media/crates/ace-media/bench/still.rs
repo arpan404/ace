@@ -89,6 +89,7 @@ impl Bench {
         use ace_media::engine::stills::StillMaker;
         let job = StillJob {
             request: Id::new("bench".to_owned())?,
+            token: 1,
             stream: 1,
             input,
             target,
