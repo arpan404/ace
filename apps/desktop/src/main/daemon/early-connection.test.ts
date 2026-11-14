@@ -47,7 +47,7 @@ describe("the page's hand-off while the daemon starts", () => {
       "host-id": "host-1",
       "daemon-endpoint": "http://127.0.0.1:6161",
     });
-    expect((await runtime().earlyConnection())?.url).toBe("ws://127.0.0.1:6161/");
+    expect(await runtime().earlyConnection()).toMatchObject({ url: "ws://127.0.0.1:6161/" });
   });
 
   it("is nothing on a first start, which has no identity yet and nothing cached", async () => {
