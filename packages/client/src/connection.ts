@@ -109,6 +109,9 @@ export class Connection {
   #keepers = new Map<Transport, GrantKeeper>();
   /** Frames heard on the active path, so a late pong behind a busy stream isn't a miss. */
   #heard = 0;
+  /** The epoch whose hello went out: its socket takes read subscribes before the welcome. */
+  #greeted = -1;
+  #greeting: (() => void) | undefined;
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -337,7 +340,9 @@ export class Connection {
           void Promise.resolve()
             .then(() => transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
-              if (epoch === this.#epoch) this.send(this.#hello(transport, credential));
+              if (epoch !== this.#epoch || !this.send(this.#hello(transport, credential))) return;
+              this.#greeted = epoch;
+              this.#greeting?.();
             })
             .catch((error: unknown) => {
               if (epoch !== this.#epoch) return;
@@ -580,6 +585,18 @@ export class Connection {
     else if (epoch === this.#draining?.epoch) this.#finishDrain();
   }
 
+  /**
+   * Whether read subscribes may go out now: once welcomed, or once this socket's hello is out.
+   * The daemon handles a socket's messages in order and nothing after the hello before its
+   * welcome, so a subscribe sent with the hello is answered one flight later, not two.
+   */
+  get subscribable(): boolean {
+    return this.state === "ready" || (this.#greeted === this.#epoch && !!this.#transport);
+  }
+  /** Called once a socket's hello is sent, before its welcome: send read subscribes then. */
+  onHello(greeting: () => void): void {
+    this.#greeting = greeting;
+  }
   /** What the client does when the connection moves to another path. */
   onPathSwitch(switched: PathSwitched): void {
     this.#switched = switched;
