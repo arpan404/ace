@@ -37,8 +37,8 @@
       "sha256": "2fbe7141fad0592485549db0e31163aedf811542668fad6e6004e7f0c75c8ea7"
     },
     "requests.md": {
-      "bytes": 116099,
-      "sha256": "885284ec66f602e6706b48c413226ebfcca285cc6116531a82154de92a274007"
+      "bytes": 116240,
+      "sha256": "9e60c6504890693caa03fdf8a61061a51212f861faf6a130687dc8adee1734d3"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -669,8 +669,8 @@
       "sha256": "3b18231a943a585c6ec16913a9196aa58bf26c8e32ad9c7e17c75087ffeff7cd"
     },
     "schema/BrowserCaptureViewport.json": {
-      "bytes": 962,
-      "sha256": "0cb05c77107a586489d2d744c3841faf10c97f5331e918587ffe8e07e4b90c98"
+      "bytes": 1095,
+      "sha256": "23d7fe3d6e62e9c059833569b5f44242a6fc29d0b589cb0e7deaa45f8f29fb04"
     },
     "schema/BrowserCertificateError.json": {
       "bytes": 358,
@@ -1153,8 +1153,8 @@
       "sha256": "eb3369375a7c6d42ed271320f8655fc342085f3e9ea8d9222ec5ee41630667d1"
     },
     "schema/DeviceOperation.json": {
-      "bytes": 14108,
-      "sha256": "7eb563c20d039d23a54c8d092d862cf72a13f5fa73a6ee6ca9f795d6fbb2fb30"
+      "bytes": 14206,
+      "sha256": "c2eac94f3f624e51a2da3dc5cf2e45395c639f3c0dfe0c19a996f6a5b564ab13"
     },
     "schema/DevicePermission.json": {
       "bytes": 208,
@@ -2552,6 +2552,10 @@
       "bytes": 862,
       "sha256": "690423e7db99754b14539f6d29da88fc80f9d16db34a11dc74a13f3c255810d8"
     },
+    "schema/MediaLinkHint.json": {
+      "bytes": 4185,
+      "sha256": "e72f76037116af0794f4f9ade6e08ca953be87fab163efb82d8e3a0b3d15c0fc"
+    },
     "schema/Mention.json": {
       "bytes": 720,
       "sha256": "147a4a3c755b724af5abb34cd1c929c5e6e0555da4c840b026ff1a985a97bb3a"
@@ -3741,8 +3745,8 @@
       "sha256": "f6bc45f3e07014d9777f054825b014de9df2b52244abcc291034b3accbc0deb3"
     },
     "schema/ScreenOperation.json": {
-      "bytes": 10844,
-      "sha256": "4c491bb856940bb27e8ea5ff77b277e0291560056b035dfa11c12241cc7fb3e4"
+      "bytes": 10942,
+      "sha256": "f67c72f08f2669527600a2e70fdc1c5778dd0930e387a5e5099494110d0f7b67"
     },
     "schema/ScreenPermissions.json": {
       "bytes": 195,
@@ -5225,10 +5229,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1050990,
-      "sha256": "8c9e50e34e16dd95d70bb9fa43d20f234fc71ecfdaa3689bcae84e671b69c411"
+      "bytes": 1053974,
+      "sha256": "2adcc0eac9be33f7dccbb985a75f2f11917f0f27933080edb928d8f7e25b9a3c"
     }
   },
-  "input": "895b85fba88f2f85779774fd24c5628e43e2104d6067aa47e55afc38aeed30a7",
+  "input": "488cb438fba6b7998ef085d581a350f1137b336cf4207f06b9d138f77c842afd",
   "version": 1
 }
