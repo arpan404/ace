@@ -10,6 +10,31 @@ struct MoveThreadSheet: View {
     let subject: String
     let choose: (ComposeProject) -> Void
     @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            MoveProjectList(client: client, from: from, choose: choose)
+                .navigationTitle("Move \(subject) to…").navigationBarTitleDisplayMode(.inline)
+                .escapeCloses { dismiss() }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("move.close")
+                    }
+                }
+        }
+        .tint(AceTheme.Colours.foreground)
+        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+}
+
+/// One machine's projects to move threads to, searchable; picking one answers and goes back
+/// (closing the sheet, or popping to the machines when moving across several).
+struct MoveProjectList: View {
+    let client: ClientModel
+    let from: String?
+    let choose: (ComposeProject) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
 
     private var projects: [ComposeProject] {
@@ -21,66 +46,54 @@ struct MoveThreadSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                switch client.compose.projectsState {
-                case "failed":
-                    EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
-                        Button("Try again", action: reload)
-                    }
-                    .listRowBackground(Color.clear)
-                case "ready":
-                    if projects.isEmpty {
-                        EmptyState(systemImage: "folder", title: query.isEmpty ? "No other project" : "No projects match",
-                                   line: query.isEmpty ? "Add one on your computer first." : nil)
-                            .listRowBackground(Color.clear)
-                    } else {
-                        Section {
-                            ForEach(projects) { project in
-                                Button { choose(project); dismiss() } label: {
-                                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                                        Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
-                                            .foregroundStyle(AceTheme.Colours.foreground)
-                                        Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                                    }
-                                    .padding(.horizontal, AceDesign.Space.row)
-                                    .padding(.vertical, AceDesign.Space.related)
-                                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-                                    .contentShape(Rectangle())
+        List {
+            switch client.compose.projectsState {
+            case "failed":
+                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
+                    Button("Try again", action: reload)
+                }
+                .listRowBackground(Color.clear)
+            case "ready":
+                if projects.isEmpty {
+                    EmptyState(systemImage: "folder", title: query.isEmpty ? "No other project" : "No projects match",
+                               line: query.isEmpty ? "Add one on your computer first." : nil)
+                        .listRowBackground(Color.clear)
+                } else {
+                    Section {
+                        ForEach(projects) { project in
+                            Button { choose(project); dismiss() } label: {
+                                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                                    Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
+                                        .foregroundStyle(AceTheme.Colours.foreground)
+                                    Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                                 }
-                                .buttonStyle(.row)
-                                .accessibilityIdentifier("move.project.\(project.id)")
-                                .inboxRowChrome()
+                                .padding(.horizontal, AceDesign.Space.row)
+                                .padding(.vertical, AceDesign.Space.related)
+                                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                        } header: {
-                            Text("Projects").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
-                                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .buttonStyle(.row)
+                            .accessibilityIdentifier("move.project.\(project.id)")
+                            .inboxRowChrome()
                         }
+                    } header: {
+                        Text("Projects").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
                     }
-                default:
-                    HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() }.listRowBackground(Color.clear)
                 }
+            default:
+                HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() }.listRowBackground(Color.clear)
             }
-            // Heading and rows, as the inbox draws them: no card around the list.
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
-            .environment(\.defaultMinListRowHeight, 0)
-            .searchable(text: $query, prompt: "Search projects")
-            .navigationTitle("Move \(subject) to…").navigationBarTitleDisplayMode(.inline)
-            .escapeCloses { dismiss() }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("move.close")
-                }
-            }
-            .task { reload() }
-            .refreshable { reload() }
         }
-        .tint(AceTheme.Colours.foreground)
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        // Heading and rows, as the inbox draws them: no card around the list.
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(AceTheme.Colours.background)
+        .environment(\.defaultMinListRowHeight, 0)
+        .searchable(text: $query, prompt: "Search projects")
+        .task { reload() }
+        .refreshable { reload() }
     }
 
     private func reload() { client.composeAction(["kind": "projects"]) }
@@ -112,10 +125,13 @@ private struct OrganizeSheets: ViewModifier {
                 Button("Close", role: .cancel) { organize.problem = nil }
             } message: { Text(organize.problem ?? "") }
             .sheet(item: $organize.moving) { ask in
-                if let client = inbox.client(ask.machineId) {
-                    let workspaces = Set(ask.keys.compactMap { inbox.row($0)?.workspaceId })
+                if ask.machines.count > 1 {
+                    MoveAcrossSheet(inbox: inbox, ask: ask) { groups in
+                        Task { await organize.move(groups, in: inbox) }
+                    }
+                } else if let machine = ask.machines.first?.machineId, let client = inbox.client(machine) {
                     let first = ask.keys.first.flatMap { inbox.row($0) }
-                    MoveThreadSheet(client: client, from: workspaces.count == 1 ? workspaces.first : nil,
+                    MoveThreadSheet(client: client, from: MoveAcrossSheet.sharedProject(ask.keys, in: inbox),
                                     subject: ask.keys.count == 1 ? "“\(first?.title ?? "thread")”" : "\(ask.keys.count) threads") { project in
                         Task { await organize.move(ask.keys, to: project, in: inbox) }
                     }

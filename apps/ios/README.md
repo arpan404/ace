@@ -332,7 +332,10 @@ Each row carries its action ids from the web's shared `threadMenu` (`@ace/ui-cor
 words in the layout's `menuLabels`. Read, auto-settle and move go through the inbox action;
 delete and every action on several threads go through `inbox.bulk` (`bridge/inbox-manage.ts`),
 which waits a few seconds for the machine's answers so the phone can offer Stop and delete.
-`OrganizeUITests` drive these against the fixture.
+A move picked across machines asks for a project on each machine (`MoveAcrossSheet`): a project
+belongs to one machine, so each machine's threads go to one of its own, with one toast and Undo,
+and a refusal is named thread by thread. `OrganizeUITests` drive these against the fixture, and
+`RoutingUITests` the move across two machines.
 
 Search (the bar's magnifying glass, ⌘K or ⌘F) is search everything: before a query, recent
 searches and every command; with one, commands, settings, projects and threads of every paired
@@ -456,7 +459,8 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   page's own. A hidden `UITextField` over the focused field brings up the keyboard the field asks
   for (`KeyboardStyle`); `RemoteTyping` replays its edits as Backspace, Delete and text, and IME
   composition as marked text. Select, date, time, month, week and colour pickers open native
-  pickers and answer with `pick` (`PickerValues`, in UTC). Tooltips show over the page.
+  pickers and answer with `pick` (`PickerValues`, in UTC); a picker kind with no native control
+  takes the value typed in the page's own format. Tooltips show over the page.
 - Tests: `BrowserStreamTests` (pieces written by the daemon's encoder), `BrowserInputTests`,
   `H264DecodeTests` (real VideoToolbox frames), `BrowserLiveTests`, and
   `bunx vitest run apps/ios/bridge/browser-live.test.ts` on the fake daemon.
@@ -599,7 +603,13 @@ viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
-version opened; a newer version is only replaced on Replace. Create, rename, move and delete
+version opened; a newer version is only replaced on Replace. Larger text (`LargeFileView`) reads
+a part (about 256 KB, `page`) at a time and holds at most eight (`LargeFileText`). Find
+(`LargeFileFind`) searches the file a page at a time without keeping it, holds at most 10,000
+matches with a point to go on from, and jumps to a match's part by its offset. A thread's file
+up to 64 MB edits a part at a time, saved with `part.write` over exactly the bytes the part was
+read from (BOM and CRLF kept; a part that isn't valid UTF-8 is refused), never over a newer
+version. Create, rename, move and delete
 (to Recently deleted, with Undo and a restore list) use the web's checks and the shared error
 sentences (`checkoutError`). An answer's local links route through `checkoutLinkPath`: a
 checkout file opens at its line; a file elsewhere is fetched with `link.download` for that

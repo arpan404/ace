@@ -46,6 +46,11 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("work"), open: z.boolean() }),
   z.object({ kind: z.literal("work.refresh") }),
   z.object({ kind: z.literal("work.branches") }),
+  /** The branch picker's search, and its next page of matching branches. */
+  z.object({ kind: z.literal("work.branches.find"), query: z.string().max(256) }),
+  z.object({ kind: z.literal("work.branches.more") }),
+  /** The Work sheet's next page of linked pull requests. */
+  z.object({ kind: z.literal("work.prs.more") }),
   z.object({
     kind: z.literal("work.action"),
     action: z.unknown(),
@@ -271,6 +276,15 @@ export class Sheets {
         return this.#work !== undefined;
       case "work.branches":
         void this.#work?.branches();
+        return this.#work !== undefined;
+      case "work.branches.find":
+        this.#work?.findBranches(action.query);
+        return this.#work !== undefined;
+      case "work.branches.more":
+        this.#work?.moreBranches();
+        return this.#work !== undefined;
+      case "work.prs.more":
+        this.#work?.morePrs();
         return this.#work !== undefined;
       case "work.action": {
         // The sheet's own session when Work is shown; else the open thread as it stands.

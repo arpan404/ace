@@ -3,6 +3,7 @@ import SwiftUI
 /// The project's branches, default first, with the system search field: the current one is
 /// marked and can't be picked; picking another switches the checkout to it (asking first when
 /// uncommitted changes would come along). While the checkout can't move, the list says why.
+/// The bridge searches every branch it read and sends a page at a time; Show more asks for the next.
 struct WorkBranchPicker: View {
     @Bindable var model: ClientModel
     let runner: WorkRunner
@@ -10,10 +11,12 @@ struct WorkBranchPicker: View {
     @State private var search = ""
     private var work: WorkSummary? { model.sheets.work }
     private var branches: WorkBranches? { model.sheets.branches }
+    /// The page for what's typed; until the bridge answers a new search, the old page filtered here.
     private var shown: [String] {
         let names = branches?.names ?? []
         let query = search.trimmingCharacters(in: .whitespaces)
-        return query.isEmpty ? names : names.filter { $0.localizedCaseInsensitiveContains(query) }
+        guard branches?.query.trimmingCharacters(in: .whitespaces) != query, !query.isEmpty else { return names }
+        return names.filter { $0.localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -26,7 +29,18 @@ struct WorkBranchPicker: View {
             case "ready":
                 ForEach(shown, id: \.self) { name in row(name) }
                 if shown.isEmpty { Text("No branch matches").foregroundStyle(AceDesign.Ink.muted) }
-                if branches?.truncated == true { Text("More branches on your computer").foregroundStyle(AceDesign.Ink.muted) }
+                if let more = branches?.more, more > 0 {
+                    Button("Show \(min(more, 200).formatted()) more of \(more.formatted())") {
+                        model.sheet(["kind": "work.branches.more"])
+                    }
+                    .buttonStyle(.textAction(.prominent))
+                    .listRowBackground(AceDesign.Surface.background)
+                    .accessibilityIdentifier("work.branches.more")
+                }
+                if branches?.truncated == true {
+                    Text("ace lists a project's first 1,000 branches.")
+                        .foregroundStyle(AceDesign.Ink.muted)
+                }
             case "error":
                 HStack {
                     Text("Couldn't read the branches.").foregroundStyle(AceTheme.StatusText.failed)
@@ -44,6 +58,7 @@ struct WorkBranchPicker: View {
         .scrollContentBackground(.hidden)
         .background(AceDesign.Surface.background)
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find a branch")
+        .onChange(of: search) { _, query in model.sheet(["kind": "work.branches.find", "query": String(query.prefix(256))]) }
         .navigationTitle("Switch branch")
         .navigationBarTitleDisplayMode(.inline)
         .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)

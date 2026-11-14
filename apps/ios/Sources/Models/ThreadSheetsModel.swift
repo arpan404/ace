@@ -85,13 +85,13 @@ import Observation
         switch patch {
         case .tree(let rows): tree = rows
         case .file(let header):
-            if let old = files[header.path], old.version != header.version || old.file != header.file {
+            if let old = files[header.path], old.version != header.version || old.file != header.file || old.part != header.part {
                 pages[old.file] = nil
                 wholeLines[old.file] = nil
             }
             files[header.path] = header
         case .page(let page):
-            guard files[page.path]?.version == page.version else { return }
+            guard let header = files[page.path], header.version == page.version, header.part == page.part else { return }
             pages[page.file, default: [:]][page.index] = page
         case .line(let line):
             guard files[line.path]?.version == line.version else { return }
