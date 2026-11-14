@@ -74,6 +74,30 @@ fn luma_comparable(jpeg: &[u8]) -> bool {
         .all(|f| f >> 4 <= first >> 4 && f & 15 <= first & 15)
 }
 
+/// Valid streams zune-jpeg 0.5 cannot read, all of which libjpeg decodes:
+/// fill bytes (extra 0xFF) before a header marker (T.81 B.1.1.2) and sampling
+/// factors that are not powers of two (legal 1..=4, including 3).
+fn zune_supports(jpeg: &[u8]) -> bool {
+    let scan = jpeg
+        .windows(2)
+        .position(|w| w == [0xFF, 0xDA])
+        .unwrap_or(jpeg.len());
+    if jpeg[..scan].windows(2).any(|w| w == [0xFF, 0xFF]) {
+        return false;
+    }
+    let Some(sof) = jpeg
+        .windows(2)
+        .position(|w| w[0] == 0xFF && (w[1] == 0xC0 || w[1] == 0xC1))
+        .and_then(|at| jpeg.get(at + 4..))
+    else {
+        return true;
+    };
+    let count = usize::from(*sof.get(5).unwrap_or(&0));
+    (0..count)
+        .filter_map(|i| sof.get(7 + i * 3))
+        .all(|f| (f >> 4).is_power_of_two() && (f & 15).is_power_of_two())
+}
+
 fn mean_error(a: &[u8], b: &[u8]) -> f64 {
     let total: u64 = a
         .iter()
@@ -130,6 +154,9 @@ fuzz_target!(|data: &[u8]| {
             }
             let (out_size, out_pixels) = reference(&out).expect("output is not a decodable JPEG");
             assert_eq!(out_size, target, "output size");
+            if !zune_supports(jpeg) {
+                continue;
+            }
             assert!(
                 zune(jpeg, ColorSpace::RGB).is_some(),
                 "accepted a stream zune-jpeg rejects"

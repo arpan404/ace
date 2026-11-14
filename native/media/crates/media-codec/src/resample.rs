@@ -118,6 +118,7 @@ impl Taps {
         self.key = Some(key);
     }
     /// The nonzero taps of one output: first source index and weights.
+    #[inline(always)]
     fn get(&self, out: usize) -> (usize, &[i16]) {
         let (lead, count) = self.spans[out];
         let base = out * self.stride + lead as usize;
@@ -192,57 +193,105 @@ impl Resampler {
         self.vertical.plan(from.height, extent.1, to.height);
         self.horizontal.plan(from.width, extent.0, to.width);
         self.rows.resize(row_bytes * to.height as usize, 0);
-        let (rows, acc, taps) = (&mut self.rows, &mut self.acc, &self.vertical);
-        dispatch(kernel, || {
-            vertical(src, from.stride, row_bytes, taps, rows, acc)
-        });
-        let (rows, taps) = (&self.rows, &self.horizontal);
-        let lines = dst
-            .chunks_mut(to.stride)
-            .take(to.height as usize)
-            .zip(rows.chunks_exact(row_bytes));
-        match pack {
-            Pack::Plane => dispatch(kernel, || {
-                lines.for_each(|(out, row)| horizontal_plane(row, taps, out))
-            }),
-            Pack::Rgb => dispatch(kernel, || {
-                lines.for_each(|(out, row)| horizontal_pixels::<3, 3>(row, taps, out, [0, 1, 2, 3]))
-            }),
-            Pack::Rgba => dispatch(kernel, || {
-                lines.for_each(|(out, row)| horizontal_pixels::<4, 4>(row, taps, out, [0, 1, 2, 3]))
-            }),
-            Pack::BgraToRgb => dispatch(kernel, || {
-                lines.for_each(|(out, row)| horizontal_pixels::<4, 3>(row, taps, out, [2, 1, 0, 3]))
-            }),
-        }
+        let pass = Pass {
+            pack,
+            src,
+            src_stride: from.stride,
+            row_bytes,
+            vertical: &self.vertical,
+            horizontal: &self.horizontal,
+            rows: &mut self.rows,
+            acc: &mut self.acc,
+            dst,
+            dst_stride: to.stride,
+            dst_rows: to.height as usize,
+        };
+        run_passes(kernel, pass);
         Ok(())
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code)]
-#[inline(never)]
-fn dispatch(kernel: SimdKernel, work: impl FnOnce()) {
-    #[target_feature(enable = "avx2")]
-    fn avx2(work: impl FnOnce()) {
-        work()
-    }
-    if kernel == SimdKernel::Avx2 && std::arch::is_x86_feature_detected!("avx2") {
-        // SAFETY: AVX2 support was confirmed on this CPU immediately above.
-        unsafe { avx2(work) }
-    } else {
-        work()
+/// Everything both passes touch, so one call carries it into the
+/// feature-specific copy.
+struct Pass<'a> {
+    pack: Pack,
+    src: &'a [u8],
+    src_stride: usize,
+    row_bytes: usize,
+    vertical: &'a Taps,
+    horizontal: &'a Taps,
+    rows: &'a mut Vec<u8>,
+    acc: &'a mut Vec<i32>,
+    dst: &'a mut [u8],
+    dst_stride: usize,
+    dst_rows: usize,
+}
+
+/// Both passes. `inline(always)` and closure-free, so every loop is compiled
+/// inside whichever feature-enabled wrapper calls it.
+#[inline(always)]
+fn passes(p: Pass<'_>) {
+    vertical(p.src, p.src_stride, p.row_bytes, p.vertical, p.rows, p.acc);
+    let lines = p
+        .dst
+        .chunks_mut(p.dst_stride)
+        .take(p.dst_rows)
+        .zip(p.rows.chunks_exact(p.row_bytes));
+    let taps = p.horizontal;
+    match p.pack {
+        Pack::Plane => {
+            for (out, row) in lines {
+                horizontal_plane(row, taps, out);
+            }
+        }
+        Pack::Rgb => {
+            for (out, row) in lines {
+                horizontal_pixels::<3, 3>(row, taps, out, [0, 1, 2, 3]);
+            }
+        }
+        Pack::Rgba => {
+            for (out, row) in lines {
+                horizontal_pixels::<4, 4>(row, taps, out, [0, 1, 2, 3]);
+            }
+        }
+        Pack::BgraToRgb => {
+            for (out, row) in lines {
+                horizontal_pixels::<4, 3>(row, taps, out, [2, 1, 0, 3]);
+            }
+        }
     }
 }
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+fn passes_avx2(p: Pass<'_>) {
+    passes(p)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+fn run_passes(kernel: SimdKernel, p: Pass<'_>) {
+    if kernel == SimdKernel::Avx2 && std::arch::is_x86_feature_detected!("avx2") {
+        // SAFETY: AVX2 support was confirmed on this CPU immediately above.
+        unsafe { passes_avx2(p) }
+    } else {
+        passes(p)
+    }
+}
+/// NEON is architectural on aarch64, so the baseline build already uses it.
 #[cfg(not(target_arch = "x86_64"))]
-#[inline(never)]
-fn dispatch(_kernel: SimdKernel, work: impl FnOnce()) {
-    work()
+fn run_passes(_kernel: SimdKernel, p: Pass<'_>) {
+    passes(p)
 }
 
 #[inline(always)]
 fn clamp(acc: i32) -> u8 {
     (acc >> BITS).clamp(0, 255) as u8
+}
+
+#[inline(always)]
+fn line(src: &[u8], stride: usize, row_bytes: usize, row: usize) -> &[u8] {
+    &src[row * stride..row * stride + row_bytes]
 }
 
 /// Each output row is a weighted sum of whole source rows. Row slices are
@@ -257,38 +306,49 @@ fn vertical(
     acc: &mut Vec<i32>,
 ) {
     acc.resize(row_bytes, 0);
-    let line = |i: usize| &src[i * stride..i * stride + row_bytes];
     for (y, out) in rows.chunks_exact_mut(row_bytes).enumerate() {
         let (start, weights) = taps.get(y);
-        let w = |k: usize| i32::from(weights[k]);
         match weights.len() {
-            1 => out.copy_from_slice(line(start)),
+            1 => out.copy_from_slice(line(src, stride, row_bytes, start)),
             2 => {
-                let (w0, w1) = (w(0), w(1));
-                for ((o, a), b) in out.iter_mut().zip(line(start)).zip(line(start + 1)) {
+                let (w0, w1) = (i32::from(weights[0]), i32::from(weights[1]));
+                for ((o, a), b) in out
+                    .iter_mut()
+                    .zip(line(src, stride, row_bytes, start))
+                    .zip(line(src, stride, row_bytes, start + 1))
+                {
                     *o = clamp(ROUND + i32::from(*a) * w0 + i32::from(*b) * w1);
                 }
             }
             3 => {
-                let (w0, w1, w2) = (w(0), w(1), w(2));
+                let (w0, w1, w2) = (
+                    i32::from(weights[0]),
+                    i32::from(weights[1]),
+                    i32::from(weights[2]),
+                );
                 for (((o, a), b), c) in out
                     .iter_mut()
-                    .zip(line(start))
-                    .zip(line(start + 1))
-                    .zip(line(start + 2))
+                    .zip(line(src, stride, row_bytes, start))
+                    .zip(line(src, stride, row_bytes, start + 1))
+                    .zip(line(src, stride, row_bytes, start + 2))
                 {
                     *o =
                         clamp(ROUND + i32::from(*a) * w0 + i32::from(*b) * w1 + i32::from(*c) * w2);
                 }
             }
             4 => {
-                let (w0, w1, w2, w3) = (w(0), w(1), w(2), w(3));
+                let (w0, w1, w2, w3) = (
+                    i32::from(weights[0]),
+                    i32::from(weights[1]),
+                    i32::from(weights[2]),
+                    i32::from(weights[3]),
+                );
                 for ((((o, a), b), c), d) in out
                     .iter_mut()
-                    .zip(line(start))
-                    .zip(line(start + 1))
-                    .zip(line(start + 2))
-                    .zip(line(start + 3))
+                    .zip(line(src, stride, row_bytes, start))
+                    .zip(line(src, stride, row_bytes, start + 1))
+                    .zip(line(src, stride, row_bytes, start + 2))
+                    .zip(line(src, stride, row_bytes, start + 3))
                 {
                     *o = clamp(
                         ROUND
@@ -303,7 +363,7 @@ fn vertical(
                 acc.fill(ROUND);
                 for (k, weight) in weights.iter().enumerate() {
                     let weight = i32::from(*weight);
-                    for (a, s) in acc.iter_mut().zip(line(start + k)) {
+                    for (a, s) in acc.iter_mut().zip(line(src, stride, row_bytes, start + k)) {
                         *a += i32::from(*s) * weight;
                     }
                 }
@@ -411,5 +471,54 @@ mod tests {
         .unwrap_or_else(|e| panic!("{e}"));
         // Radius-two triangles clipped at the edges: weights 3:3:1 and 1:3:3.
         assert_eq!(dst, [71, 207]);
+    }
+    #[test]
+    fn vector_and_scalar_builds_resample_identically() {
+        // Integer arithmetic: the AVX2/NEON build must match the scalar one
+        // bit for bit. On aarch64 both run the NEON build.
+        let mut seed = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut noise = |len: usize| -> Vec<u8> {
+            (0..len)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    seed as u8
+                })
+                .collect()
+        };
+        for (pack, channels, out_channels) in [
+            (Pack::Plane, 1, 1),
+            (Pack::Rgb, 3, 3),
+            (Pack::Rgba, 4, 4),
+            (Pack::BgraToRgb, 4, 3),
+        ] {
+            for (w, h, ow, oh) in [(1206, 263, 722, 157), (37, 23, 91, 7), (300, 41, 17, 40)] {
+                let from = Layout {
+                    width: w,
+                    height: h,
+                    stride: w as usize * channels + 5,
+                };
+                let to = layout(ow, oh, out_channels);
+                let src = noise(from.stride * h as usize);
+                let mut results = Vec::new();
+                for kernel in [SimdKernel::detect(), SimdKernel::Scalar] {
+                    let mut dst = vec![0_u8; to.stride * oh as usize];
+                    Resampler::default()
+                        .run(
+                            kernel,
+                            pack,
+                            &src,
+                            from,
+                            (f64::from(w), f64::from(h)),
+                            &mut dst,
+                            to,
+                        )
+                        .unwrap_or_else(|e| panic!("{e}"));
+                    results.push(dst);
+                }
+                assert!(results[0] == results[1], "{w}x{h} -> {ow}x{oh}");
+            }
+        }
     }
 }

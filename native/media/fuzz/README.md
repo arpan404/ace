@@ -4,7 +4,8 @@
 
 `transcode` feeds arbitrary bytes through `CpuJpegCodec` on one long-lived
 instance. The first byte picks targets and quality. It checks that nothing
-panics; that any accepted stream is also accepted by zune-jpeg; that output is a
+panics; that any accepted stream is also accepted by zune-jpeg (except valid
+streams zune-jpeg 0.5 cannot read: header fill bytes, sampling factor 3); that output is a
 JPEG of exactly the target size; that repeating a transcode after other work
 gives identical bytes; and, for streams the baseline decoder owns, that luma
 stays within 24 mean levels of zune-jpeg's.

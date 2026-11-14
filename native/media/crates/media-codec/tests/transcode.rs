@@ -36,6 +36,7 @@ fn size_helpers_widen_instead_of_overflowing() {
         }
     );
     assert_eq!(dct_scaled_size(tiny, huge), tiny);
+    assert_eq!(jpeg_capacity(huge), usize::MAX);
     assert!(
         jpeg_capacity(Size {
             width: 8192,

@@ -18,10 +18,15 @@ use libjpeg_turbo_rs::simd::{EncoderSimdRoutines, QuantDivisors};
 
 /// Output capacity that holds any 4:2:0 baseline JPEG this encoder writes
 /// for natural images: three bytes per padded pixel plus headers.
+/// Saturates rather than overflowing for sizes no encoder accepts.
 pub fn jpeg_capacity(size: Size) -> usize {
-    let w = (size.width as usize).div_ceil(16) * 16;
-    let h = (size.height as usize).div_ceil(16) * 16;
-    w * h * 3 + 2048
+    let padded = |side: u32| (side as usize).div_ceil(16).checked_mul(16);
+    padded(size.width)
+        .zip(padded(size.height))
+        .and_then(|(w, h)| w.checked_mul(h))
+        .and_then(|pixels| pixels.checked_mul(3))
+        .and_then(|bytes| bytes.checked_add(2048))
+        .unwrap_or(usize::MAX)
 }
 
 /// Reciprocal division by `d` for the SIMD quantiser: for 0 <= x < 2^15,
