@@ -63,8 +63,10 @@ import XCTest
         // A SwiftUI alert's text field doesn't keep its identifier; it is the alert's only field.
         let field = app.alerts.firstMatch.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: home.count + 4))
+        // A tap in the middle leaves the caret mid-text: tap the trailing edge, then delete all it holds.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        let held = (field.value as? String) ?? home
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(held.count, home.count) + 4))
         field.typeText("/Users/ada/ace-tools-missing")
         app.alerts.buttons["Use folder"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["/Users/ada/ace-tools-missing"].waitForExistence(timeout: 15), "the typed folder saves and reads back")
