@@ -79,7 +79,10 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
   queued behind a 1 MiB snapshot waited 20.7 s. A main-channel hello that lists `lanes` with
   `credit` lets the daemon interleave interactive messages with bulk ones; the reader credits
   every 32 KiB and the sender keeps only what the path holds in flight (at least 128 KiB), so
-  the same approval waits 2.7 to 3.7 s. The lane marker is a bit in the encrypted fragment
+  an approval on another thread waits about 5 s. Only messages that can't make anything look
+  further along may go ahead (a pong, or events that only add output or ask a human, on threads
+  with no queued bulk); statuses, sidebar patches and command receipts still wait behind all
+  queued bulk, since the daemon's router doesn't know the agent tree. The lane marker is a bit in the encrypted fragment
   flag: the relay, hosted or self-hosted, forwards the same opaque frames and needs no change.
   Fragments are sealed in the order they are written, so nonce order and replay protection
   per direction hold. Peers that don't announce lanes keep the old framing byte for byte.
