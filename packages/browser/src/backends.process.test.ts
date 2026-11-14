@@ -30,12 +30,17 @@ it("prefers the socket desktop while a per-thread override routes another thread
   expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/headless"]);
   expect(f.headless.opens[0]?.profileDir).toContain(f.home);
 });
-it("selects headless after desktop disconnect and rejects an explicit missing embedded backend", async () => {
+it("selects headless after desktop disconnect, says the desktop engine is gone, and rejects an explicit missing embedded backend", async () => {
   const f = await backendFixture({
     backendPreference: (options) => (options.threadId === "explicit" ? "embedded" : "auto"),
   });
+  expect((await f.open()).features).toEqual(expect.arrayContaining(["engines", "embedded-engine"]));
   await f.disconnect();
-  expect(await f.open()).toMatchObject({ backend: "headless" });
+  const after = await f.open("after");
+  expect(after).toMatchObject({ backend: "headless" });
+  // Clients read that "Desktop app only" can't open now, before moving a browser there.
+  expect(after.features).toContain("engines");
+  expect(after.features).not.toContain("embedded-engine");
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
 it("a desktop that opens a view but never draws it hands the session to ace's Chromium", async () => {

@@ -1,6 +1,7 @@
 # 0148: ace-media is GPU-accelerated end to end
 
-Status: accepted. Date: 2026-11-14. Decided by: the owner (2026-11-14: "Make sure we have
+Status: accepted. Amended by [ADR 0149](0149-media-holds-up-on-3g.md) (keyframe cap). Date:
+2026-11-14. Decided by: the owner (2026-11-14: "Make sure we have
 gpu/cpu accelerated media pipeline"). Amends [ADR 0147](0147-ace-media-rust-media-pipeline.md)
 §3 (encoders, decoders, licences) and §6 (stills). The build plan is
 [docs/media/plan.md](../media/plan.md).
