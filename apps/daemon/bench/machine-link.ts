@@ -37,7 +37,15 @@ const Ready = z.object({
 const SourceReady = z.object({ endpoint: z.string(), token: z.string() });
 const Calls = z.object({
   now: z.number(),
-  calls: z.array(z.object({ op: z.string(), at: z.number(), ms: z.number(), ok: z.boolean() })),
+  calls: z.array(
+    z.object({
+      op: z.string(),
+      at: z.number(),
+      ms: z.number(),
+      ok: z.boolean(),
+      done: z.boolean(),
+    }),
+  ),
 });
 const Delegated = z.object({ result: z.object({ data: z.object({ threadId: z.string() }) }) });
 const State = z.object({ state: z.string() });
@@ -124,17 +132,19 @@ async function measure(profileName: string) {
     };
     const running = await window();
     // Times below are the source's own clock: performance.now() differs between processes.
+    // The finish is timed on the source's clock, read just before the target is told (two IPC
+    // hops early at most): performance.now() differs between processes.
     const finishedAt = Calls.parse(await source.request({ op: "calls" })).now;
     await target.request({ op: "finish", thread: threadId });
     let seen = "";
-    let firstStatusAfterFinishMs: number | null = null;
-    for (let tries = 0; tries < 600 && firstStatusAfterFinishMs === null; tries++) {
+    /** From the finish to the first answer reporting it, whenever that request started. */
+    let finishToDoneAnswerMs: number | null = null;
+    for (let tries = 0; tries < 600 && finishToDoneAnswerMs === null; tries++) {
       seen = State.parse(await target.request({ op: "state", thread: threadId })).state;
-      const next = Calls.parse(await source.request({ op: "calls" })).calls.find(
-        (entry) => entry.op === "status" && entry.at > finishedAt,
+      const answer = Calls.parse(await source.request({ op: "calls" })).calls.find(
+        (entry) => entry.op === "status" && entry.done,
       );
-      if (seen === "done" && next)
-        firstStatusAfterFinishMs = Math.round(next.at + next.ms - finishedAt);
+      if (answer) finishToDoneAnswerMs = Math.round(answer.at + answer.ms - finishedAt);
       else await sleep(250);
     }
     const settled = await window();
@@ -142,8 +152,8 @@ async function measure(profileName: string) {
       profile: profile.name,
       childState: seen,
       delegate,
-      /** From the child finishing to the source's first status answer after it. */
-      firstStatusAfterFinishMs,
+      /** From the child finishing to the first status answer that reported it finished. */
+      finishToDoneAnswerMs,
       running,
       settled,
     };
@@ -177,7 +187,7 @@ const phase = (label: string, value: Run["running"]) =>
 function summary(run: Run): string {
   return [
     `${run.profile}: delegate ${run.delegate.ms} ms ${run.delegate.roundTrips} RT, ` +
-      `first status after the child finished ${run.firstStatusAfterFinishMs ?? "never"} ms`,
+      `child finished → first answer reporting it ${run.finishToDoneAnswerMs ?? "never"} ms`,
     phase("child running", run.running),
     phase("child settled", run.settled),
   ].join("\n");

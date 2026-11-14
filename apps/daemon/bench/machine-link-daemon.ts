@@ -102,16 +102,43 @@ const registry = new AdapterRegistry();
 for (const provider of ["codex", "claude"] as const)
   registry.register(adapter(provider), { installed: true, auth: "logged_in", loginHint: "unused" });
 
-/** Every call the source made to the target: its operation, when and how long it took. */
-const calls: { op: string; at: number; ms: number; ok: boolean }[] = [];
+/**
+ * A status answer, read leniently: it comes from the other daemon. Only whether it reports a
+ * finished thread matters here.
+ */
+const StatusAnswer = z.object({
+  threads: z.array(
+    z.object({ status: z.object({ state: z.string() }).passthrough() }).passthrough(),
+  ),
+});
+const reportsDone = (answer: unknown) =>
+  StatusAnswer.safeParse(answer).data?.threads.some((thread) => thread.status.state === "done") ??
+  false;
+/**
+ * Every call the source made to the target: its operation, when it started, how long it took,
+ * and for status calls whether the answer reported the child finished.
+ */
+const calls: { op: string; at: number; ms: number; ok: boolean; done: boolean }[] = [];
 const counted: MachineTransport = async (profile, body, options) => {
   const started = performance.now();
   try {
     const answer = await machineRequest(profile, body, options);
-    calls.push({ op: body.call.op, at: started, ms: performance.now() - started, ok: true });
+    calls.push({
+      op: body.call.op,
+      at: started,
+      ms: performance.now() - started,
+      ok: true,
+      done: body.call.op === "status" && reportsDone(answer),
+    });
     return answer;
   } catch (error) {
-    calls.push({ op: body.call.op, at: started, ms: performance.now() - started, ok: false });
+    calls.push({
+      op: body.call.op,
+      at: started,
+      ms: performance.now() - started,
+      ok: false,
+      done: false,
+    });
     throw error;
   }
 };
