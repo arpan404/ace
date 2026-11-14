@@ -1,5 +1,5 @@
 import { MarkitRenderer, type MarkitOptions } from "@ace/markit-web/react";
-import { BoundedLru, type LruBounds } from "./bounded-lru.ts";
+import { LruCache } from "@ace/ui-core";
 
 /*
  * Finished prose stays drawn when its row unmounts (a thread switch, a row scrolled out of the
@@ -35,7 +35,7 @@ export interface KeptAnswer {
  * ADR 0056's bound for drawn prose kept off the page. Weighed as the text's UTF-16 bytes times
  * four: the DOM markit drew (markup, code rows) and the worker's copy of the parsed source.
  */
-export const keptBounds: LruBounds = { entries: 200, bytes: 12 * 1024 * 1024 };
+export const keptBounds = { entries: 200, bytes: 12 * 1024 * 1024 };
 export const keptWeight = (text: string) => text.length * 2 * 4;
 
 const hookNames = ["onLink", "onReference", "resolveImage", "renderDiagram", "onError"] as const;
@@ -58,13 +58,18 @@ export function disposeKeptAnswer(answer: KeptAnswer): void {
 
 /** The page's kept answers. */
 export class KeptAnswers {
-  readonly #cache: BoundedLru<KeptAnswer>;
+  readonly #cache: LruCache<string, KeptAnswer>;
   /** Heights of answers drawn before, for those no longer kept, so their row keeps its size. */
   readonly #heights = new Map<string, { length: number; height: number }>();
   readonly #heightEntries: number;
 
-  constructor(bounds: LruBounds = keptBounds, heightEntries = 2_000) {
-    this.#cache = new BoundedLru(bounds, disposeKeptAnswer);
+  constructor(bounds = keptBounds, heightEntries = 2_000) {
+    this.#cache = new LruCache({
+      maxEntries: bounds.entries,
+      maxWeight: bounds.bytes,
+      weigh: (answer) => keptWeight(answer.text),
+      dispose: disposeKeptAnswer,
+    });
     this.#heightEntries = heightEntries;
   }
 
@@ -72,12 +77,12 @@ export class KeptAnswers {
     return this.#cache.size;
   }
   get bytes(): number {
-    return this.#cache.bytes;
+    return this.#cache.weight;
   }
 
   /** Whether `text` under `key` is kept, drawn finished. */
   has(key: string, text: string): boolean {
-    return this.#cache.has(key, (answer) => answer.text === text);
+    return this.#cache.get(key)?.text === text;
   }
 
   /** The kept drawing of `text` under `key`, now the caller's. A stale one is dropped. */
@@ -92,7 +97,7 @@ export class KeptAnswers {
   keep(key: string, answer: KeptAnswer, height: number): void {
     answer.element.remove();
     this.remember(key, answer.text, height);
-    this.#cache.put(key, answer, keptWeight(answer.text));
+    this.#cache.set(key, answer);
   }
 
   /** The height `text` under `key` was last drawn at, if known. */

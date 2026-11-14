@@ -3,7 +3,7 @@ import { act, render } from "@testing-library/react";
 import { markitWasmFile } from "@ace/markit-web/assets";
 import { preloadMarkit } from "@ace/markit-web/react";
 import { beforeAll, describe, expect, it } from "vitest";
-import { BoundedLru } from "./bounded-lru.ts";
+import { KeptAnswers, createKeptAnswer } from "./kept-answers.ts";
 import { MarkitProse } from "./markit-prose.tsx";
 
 /*
@@ -77,34 +77,28 @@ describe("a finished answer mounting again", () => {
   });
 });
 
-describe("the kept-answer cache", () => {
-  it("stays within its entry count, dropping the least recently used", () => {
-    const disposed: string[] = [];
-    const cache = new BoundedLru<string>({ entries: 2, bytes: 1_000 }, (value) =>
-      disposed.push(value),
-    );
-    cache.put("a", "a", 10);
-    cache.put("b", "b", 10);
-    expect(cache.take("a")).toBe("a");
-    cache.put("a", "a", 10);
-    cache.put("c", "c", 10);
-    expect(disposed).toEqual(["b"]);
-    expect(cache.size).toBe(2);
-    expect(cache.has("a") && cache.has("c")).toBe(true);
+describe("the kept answers", () => {
+  it("stay within their count and bytes, freeing the renderers they drop", () => {
+    const kept = new KeptAnswers({ entries: 2, bytes: 8 * 20 });
+    const answers = ["first answer", "second one", "third one"].map((text) => {
+      const answer = createKeptAnswer({ worker: "inline" }, {});
+      answer.text = text;
+      return answer;
+    });
+    answers.forEach((answer, index) => kept.keep(`item-${index}`, answer, 40));
+    expect(kept.size).toBe(2);
+    expect(kept.bytes).toBeLessThanOrEqual(8 * 20);
+    expect(kept.has("item-0", "first answer")).toBe(false);
+    // The dropped renderer was destroyed: it renders nothing more.
+    return expect(answers[0]?.renderer.render("again")).rejects.toThrow("Renderer disposed");
   });
 
-  it("stays within its bytes, and never holds one entry larger than the whole budget", () => {
-    const disposed: string[] = [];
-    const cache = new BoundedLru<string>({ entries: 10, bytes: 100 }, (value) =>
-      disposed.push(value),
-    );
-    cache.put("a", "a", 60);
-    cache.put("b", "b", 60);
-    expect(disposed).toEqual(["a"]);
-    expect(cache.bytes).toBe(60);
-    cache.put("huge", "huge", 101);
-    expect(disposed).toEqual(["a", "huge"]);
-    expect(cache.has("huge")).toBe(false);
-    expect(cache.bytes).toBe(60);
+  it("refuse an answer heavier than the whole budget", () => {
+    const kept = new KeptAnswers({ entries: 10, bytes: 8 * 4 });
+    const answer = createKeptAnswer({ worker: "inline" }, {});
+    answer.text = "longer than four";
+    kept.keep("item-huge", answer, 40);
+    expect(kept.size).toBe(0);
+    expect(kept.has("item-huge", "longer than four")).toBe(false);
   });
 });
