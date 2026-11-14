@@ -161,31 +161,38 @@ describe("checkpoints hold the bytes on disk", () => {
     );
   });
 
-  test.runIf(posix)("a restore under an fsmonitor that reports nothing changed keeps every byte", async () => {
-    const repo = await repository({ "watched.txt": "aaaa\n", "other.txt": "other\n" });
-    const target = await service.createCheckpoint({ worktree: repo, threadId: "lying", label: "a" });
-    const monitor = join(await scratch(), "monitor.sh");
-    await writeFile(monitor, "#!/bin/sh\nprintf 'token\\0'\n");
-    await chmod(monitor, 0o755);
-    await git(repo, "config", "core.fsmonitor", monitor);
-    await git(repo, "config", "core.fsmonitorHookVersion", "2");
-    await git(repo, "config", "core.untrackedCache", "true");
-    await git(repo, "update-index", "--untracked-cache", "--fsmonitor");
-    await git(repo, "status", "--porcelain");
-    await hiddenEdit(repo, "watched.txt", "bbbb\n");
-    await put(repo, "new-dir/new.txt", "new file\n");
-    const edited = await disk(repo);
-    // Restoring the earlier checkpoint writes its bytes although the monitor claims no change.
-    const { safetyCheckpointId } = await service.restoreCheckpoint({
-      worktree: repo,
-      checkpoint: target.id,
-    });
-    expect(await readFile(join(repo, "watched.txt"), "utf8")).toBe("aaaa\n");
-    await expect(stat(join(repo, "new-dir/new.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-    // The safety checkpoint taken during the restore saw the hidden edit and the new file.
-    await service.restoreCheckpoint({ worktree: repo, checkpoint: safetyCheckpointId });
-    expect(await disk(repo)).toEqual(edited);
-  });
+  test.runIf(posix)(
+    "a restore under an fsmonitor that reports nothing changed keeps every byte",
+    async () => {
+      const repo = await repository({ "watched.txt": "aaaa\n", "other.txt": "other\n" });
+      const target = await service.createCheckpoint({
+        worktree: repo,
+        threadId: "lying",
+        label: "a",
+      });
+      const monitor = join(await scratch(), "monitor.sh");
+      await writeFile(monitor, "#!/bin/sh\nprintf 'token\\0'\n");
+      await chmod(monitor, 0o755);
+      await git(repo, "config", "core.fsmonitor", monitor);
+      await git(repo, "config", "core.fsmonitorHookVersion", "2");
+      await git(repo, "config", "core.untrackedCache", "true");
+      await git(repo, "update-index", "--untracked-cache", "--fsmonitor");
+      await git(repo, "status", "--porcelain");
+      await hiddenEdit(repo, "watched.txt", "bbbb\n");
+      await put(repo, "new-dir/new.txt", "new file\n");
+      const edited = await disk(repo);
+      // Restoring the earlier checkpoint writes its bytes although the monitor claims no change.
+      const { safetyCheckpointId } = await service.restoreCheckpoint({
+        worktree: repo,
+        checkpoint: target.id,
+      });
+      expect(await readFile(join(repo, "watched.txt"), "utf8")).toBe("aaaa\n");
+      await expect(stat(join(repo, "new-dir/new.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      // The safety checkpoint taken during the restore saw the hidden edit and the new file.
+      await service.restoreCheckpoint({ worktree: repo, checkpoint: safetyCheckpointId });
+      expect(await disk(repo)).toEqual(edited);
+    },
+  );
 
   test.runIf(posix)(
     "a file staged through a clean filter restores its own bytes when filters are off",
