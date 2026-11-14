@@ -54,6 +54,8 @@ struct WorktreeStartCard: Codable, Sendable, Equatable {
 struct WorktreeStartRead: Sendable, Equatable {
     var card: WorktreeStartCard?
     var made: String? = nil
+    /// The person took the stopped start back to New thread; false from older bridges.
+    var returned = false
 }
 
 /// What New thread does next while a start it sent is pending.
@@ -61,12 +63,15 @@ enum NewThreadWait: Equatable {
     case wait
     case open(String)
     case refused(String)
+    /// The person took the start back to New thread: the wait ends with nothing to say.
+    case returned
 
     /// `outcome` is the daemon's receipt, `worktree` the worktree's report, `listed` whether the
     /// thread list already has a thread (it opens once it does).
     static func next(outcome: ComposeOutcome?, worktree: WorktreeStartRead?, listed: (String) -> Bool) -> NewThreadWait {
         let thread = outcome?.ok == true ? outcome?.id : worktree?.made
         if let thread { return listed(thread) ? .open(thread) : .wait }
+        if worktree?.returned == true { return .returned }
         guard let outcome, !outcome.ok else { return .wait }
         // A cancel or a failed setup keeps its card, with Retry and Don't use worktree.
         if worktree?.card != nil { return .wait }

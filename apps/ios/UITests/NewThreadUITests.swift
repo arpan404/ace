@@ -334,7 +334,7 @@ import XCTest
         screenshot("worktree-local")
     }
 
-    func testBackToNewThreadGivesTheWordsBackAndTheStartLeavesUnsent() {
+    func testBackToNewThreadReopensNewThreadWithTheWords() {
         let app = launch()
         let words = "Give these words back \(UUID().uuidString.prefix(4))"
         sendInWorktree(app, project: "setup-script", text: words)

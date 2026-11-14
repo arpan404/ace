@@ -111,7 +111,7 @@ enum ComposePatch: Decodable, Sendable {
 
     private enum Keys: String, CodingKey {
         case type, state, projects, providers, start, tabs, favorites, starProblem, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message, canAllow
-        case files, blocked, card, made
+        case files, blocked, card, made, returned
     }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -149,7 +149,8 @@ enum ComposePatch: Decodable, Sendable {
         case "compose.worktree":
             self = .worktree(id: try box.decode(String.self, forKey: .id),
                              WorktreeStartRead(card: try box.decodeIfPresent(WorktreeStartCard.self, forKey: .card),
-                                               made: try box.decodeIfPresent(String.self, forKey: .made)))
+                                               made: try box.decodeIfPresent(String.self, forKey: .made),
+                                               returned: try box.decodeIfPresent(Bool.self, forKey: .returned) ?? false))
         case "compose.attachments":
             self = .attachments(workspaceId: try box.decode(String.self, forKey: .workspaceId), try box.decode([AttachmentFile].self, forKey: .files),
                                 blocked: try box.decodeIfPresent(String.self, forKey: .blocked))

@@ -52,6 +52,10 @@ struct NewThreadEntry: ViewModifier {
                         refusedStart = awaiting
                         refused = message
                         break waiting
+                    case .returned:
+                        // Its words are back in New thread, which the card's sheet opens.
+                        sent = nil
+                        break waiting
                     case .wait:
                         if worktree?.card != nil, shownCard != id, !composing, !composerShown {
                             shownCard = id

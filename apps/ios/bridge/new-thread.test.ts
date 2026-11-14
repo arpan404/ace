@@ -723,6 +723,8 @@ test("Back to New thread forgets the stopped start on the daemon and its card go
   await until(() => worktreeCard("draft-tree-0005")?.canReturn);
   compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "dismiss" });
   await until(() => worktreeCard("draft-tree-0005") === null);
+  // Taken back, not refused: New thread's wait ends without saying the thread didn't start.
+  expect(latest("compose.worktree", "draft-tree-0005")?.returned).toBe(true);
   const asked = sent.filter((text) => text.includes('"action":"dismiss"'));
   expect(asked).toHaveLength(1);
 });

@@ -69,4 +69,17 @@ import Testing
         }
         #expect(read.card?.canReturn != true)
     }
+
+    @Test func aStartTheyTookBackEndsTheWaitWithoutSayingItDidntStart() {
+        let refused = ComposeOutcome(ok: false, id: nil, message: "Worktree cancelled")
+        #expect(NewThreadWait.next(outcome: refused, worktree: WorktreeStartRead(card: nil, returned: true), listed: { _ in true }) == .returned)
+    }
+
+    @Test func aTakenBackStartDecodesAsReturned() throws {
+        let json = #"{"type":"compose.worktree","id":"c-1","card":null,"made":null,"returned":true}"#
+        guard case .worktree(_, let read) = try JSONDecoder().decode(ComposePatch.self, from: Data(json.utf8)) else {
+            Issue.record("not a worktree card"); return
+        }
+        #expect(read.returned)
+    }
 }

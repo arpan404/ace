@@ -139,6 +139,8 @@ export class WorktreeStarts {
       card: entry && !entry.returned ? this.#card(state, entry) : null,
       /** The thread made in it (or on the local checkout instead), to open; null until then. */
       made: made(state),
+      /** The person took the stopped start back to New thread: no refusal to say. */
+      returned: entry?.returned ?? false,
     }));
   }
 
