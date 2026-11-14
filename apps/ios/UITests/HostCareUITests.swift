@@ -134,6 +134,59 @@ import XCTest
         app.buttons["Keep sign-ins"].tap()
     }
 
+    func testConnectAnAppListsAddressesAndSwitchesTheRelayOnTheMachine() throws {
+        let app = launchIntoMachine()
+        open(app, "machine.connectedApps")
+        let local = element(app, "connect.address.local")
+        for _ in 0..<6 where !local.isHittable { app.swipeUp() }
+        XCTAssertTrue(local.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["connect.address.local.copy"].exists, "a serving address can be copied")
+        XCTAssertTrue(app.buttons["connect.enroll.copy"].exists, "the enroll command shows")
+        let relay = app.switches["connect.address.relay.switch"].firstMatch
+        for _ in 0..<6 where !relay.isHittable { app.swipeUp() }
+        XCTAssertTrue(relay.waitForExistence(timeout: 10))
+        XCTAssertEqual(relay.value as? String, "0")
+        screenshot("connect-an-app")
+        relay.switches.firstMatch.tap()
+        let on = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: relay)
+        wait(for: [on], timeout: 15)
+        // Read again from the machine: the switch was saved there.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        open(app, "machine.connectedApps")
+        let again = app.switches["connect.address.relay.switch"].firstMatch
+        for _ in 0..<6 where !again.isHittable { app.swipeUp() }
+        XCTAssertTrue(again.waitForExistence(timeout: 15))
+        XCTAssertEqual(again.value as? String, "1")
+        again.switches.firstMatch.tap()
+        let off = expectation(for: NSPredicate(format: "value == '0'"), evaluatedWith: again)
+        wait(for: [off], timeout: 15)
+    }
+
+    func testPullingToRefreshShowsAnAddressChangeMadeElsewhere() throws {
+        try outside("home")
+        defer { try? outside("home") }
+        let app = launchIntoMachine()
+        open(app, "machine.connectedApps")
+        let relay = app.switches["connect.address.relay.switch"].firstMatch
+        for _ in 0..<6 where !relay.isHittable { app.swipeUp() }
+        XCTAssertTrue(relay.waitForExistence(timeout: 20))
+        XCTAssertEqual(relay.value as? String, "0")
+        XCTAssertFalse(app.buttons["connect.address.relay.copy"].exists)
+        XCTAssertEqual(app.buttons["connect.ownUrl.edit"].label, "Add")
+        // Another client turns the relay on and adds its own URL.
+        try outside("elsewhere")
+        for _ in 0..<4 { app.swipeDown() }
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        for _ in 0..<6 where !relay.isHittable { app.swipeUp() }
+        let on = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: relay)
+        wait(for: [on], timeout: 15)
+        XCTAssertTrue(app.buttons["connect.address.relay.copy"].waitForExistence(timeout: 10), "the relay's address can be copied")
+        XCTAssertEqual(app.buttons["connect.ownUrl.edit"].label, "Change")
+        XCTAssertTrue(app.buttons["connect.address.custom.copy"].exists, "the new own URL can be copied")
+        screenshot("connect-an-app-refreshed")
+    }
+
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
@@ -173,6 +226,17 @@ import XCTest
         for _ in 0..<6 where !link.isHittable { app.swipeUp() }
         XCTAssertTrue(link.waitForExistence(timeout: 15))
         link.tap()
+    }
+    /// Stages outside-app state on the fixture (`scripts/outside-scenario.ts`).
+    private func outside(_ kind: String) throws {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        guard let url = URL(string: "http://127.0.0.1:\(port)/review/outside") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data("\"\(kind)\"".utf8)
+        let done = expectation(description: "outside \(kind)")
+        URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func screenshot(_ name: String) {

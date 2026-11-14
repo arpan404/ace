@@ -9,6 +9,7 @@ struct ConnectedAppsView: View {
     let machine: String
     @State private var apps: ConnectedApps?
     @State private var problem: String?
+    @State private var refreshes = 0
 
     var body: some View {
         List {
@@ -30,6 +31,7 @@ struct ConnectedAppsView: View {
                     Text("Apps outside ace that can reach this machine's threads. None can answer approvals or questions; you answer those in ace.")
                 }
                 .insetRowBackground()
+                ConnectAppSection(model: model, machine: machine, refresh: refreshes)
                 if !ended.isEmpty {
                     Section {
                         ForEach(ended) { grant in ConnectedAppRow(grant: grant) }
@@ -52,7 +54,7 @@ struct ConnectedAppsView: View {
         .smoothChange(apps?.grants.map(\.id))
         .navigationTitle("Connected apps").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { await read() }
-        .refreshable { await read() }
+        .refreshable { refreshes += 1; await read() }
     }
 
     private func read() async {

@@ -1,4 +1,4 @@
-import { outsideScenario, seedOutside } from "./outside-scenario.ts";
+import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -369,7 +369,14 @@ const server = Bun.serve<undefined>({
         })),
       });
     if (path === "/review/outside" && request.method === "POST") {
-      outsideScenario(daemon, z.enum(["ask", "screen", "clear"]).parse(await request.json()));
+      const kinds = [
+        "ask",
+        "screen",
+        "clear",
+        "elsewhere",
+        "home",
+      ] as const satisfies OutsideScenario[];
+      outsideScenario(daemon, z.enum(kinds).parse(await request.json()));
       return Response.json({ ok: true });
     }
     if (path === "/review/many" && request.method === "POST") {

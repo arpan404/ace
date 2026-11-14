@@ -39,6 +39,9 @@ struct ProviderPageView<Extra: View>: View {
                 if !page.missing { access(page) }
                 if let models = page.models, !page.off { ProviderBehaviourSection(model: model, provider: provider, models: models) }
                 extra(page)
+                if let source = page.toolSource, !page.missing {
+                    ProviderToolSourceSection(model: model, page: page, source: source) { saved += 1 }
+                }
                 if page.mcp {
                     Section {
                         NavigationLink { ProviderMcpView(model: model, provider: provider, name: page.name) } label: {
