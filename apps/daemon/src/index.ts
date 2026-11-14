@@ -48,6 +48,7 @@ import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
+import { storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
 import { spawn } from "node:child_process";
@@ -340,7 +341,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
       join(config.dataDir, "events.sqlite"),
       (error) => log.log("error", "Event subscriber failed", logError(error)),
       // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
-      { now, lineage: lineageFile(join(config.dataDir, "sequence-mark.json")) },
+      {
+        now,
+        lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
+        storedTrustBuild: storedTrustBuild(process.env.ACE_VERSION),
+      },
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).

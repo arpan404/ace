@@ -1,7 +1,9 @@
 import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
-import { openStoredTrust, storedEventShape } from "./stored-shape.ts";
+import { openStoredTrust, storedEventShape, type OpenedTrust } from "./stored-shape.ts";
 import {
+  plainCommit,
+  runInProgress,
   scheduleTrustPass,
   startStoredTrustPass,
   type TrustPassScheduler,
@@ -107,8 +109,10 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   checkpointWorker?: CheckpointWorkerFactory;
   /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
   eventShape?: string;
+  /** What the idle pass confirms is kept under (`storedTrustBuild`); none keeps it in memory. */
+  storedTrustBuild?: string | undefined;
   /** Ticks of the idle pass that confirms older rows (`stored-trust-pass.ts`), for tests. */
-  trustPass?: { scheduler: TrustPassScheduler; batchesPerTick?: number };
+  trustPass?: { scheduler: TrustPassScheduler; rejectedLimit?: number; batchesPerSave?: number };
   /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
   threadRowShape?: string;
   /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
@@ -261,6 +265,7 @@ export class Store {
     );
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     const eventShape = options.eventShape ?? storedEventShape(schemaVersion);
+    let opened: OpenedTrust;
     try {
       this.db.exec(
         // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
@@ -283,7 +288,6 @@ export class Store {
       });
       migrate(this.db);
       this.sequences.initialize();
-      openStoredTrust(this.db, eventShape, this.trust);
       migrateSidebarRevisions(this.db);
       this.keepLineage(options.lineage);
       openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
@@ -340,6 +344,8 @@ export class Store {
       this.atomic(seedSentMessages);
       // After the passes above that rewrite threads rows; the writer keeps stamps current.
       this.atomic((db) => confirmThreadRows(db));
+      // After every open-time pass that rewrites stored rows, before the first append.
+      opened = openStoredTrust(this.db, eventShape, options.storedTrustBuild, this.trust);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -430,15 +436,20 @@ export class Store {
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
     this.trustPass = startStoredTrustPass({
       scheduler: options.trustPass?.scheduler ?? scheduleTrustPass,
-      batchesPerTick: options.trustPass?.batchesPerTick,
-      atomic: (run) => this.atomic(run),
+      rejectedLimit: options.trustPass?.rejectedLimit,
+      batchesPerSave: options.trustPass?.batchesPerSave,
+      db: this.db,
+      commit: plainCommit(this.db),
       shape: eventShape,
+      opened,
       trust: this.trust,
       busy: () =>
+        this.db.isTransaction ||
         !!this.transactionEvents ||
         this.historyWriting ||
         this.writes.isHeld() ||
-        this.streaming.buffer.bytes > 0,
+        this.streaming.buffer.bytes > 0 ||
+        runInProgress(this.db),
       headSeq: () => this.headSeq(),
       report: (error) => this.onError(error),
     });
