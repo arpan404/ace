@@ -104,6 +104,30 @@ import XCTest
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
+    func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
+        let app = launch()
+        reveal("thread.ios-log-long", in: app)
+        app.buttons["thread.ios-log-long"].tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertFalse(rail.exists, "the rail stays away at the live end")
+        // Reading back shows the rail beside the transcript and Scroll to end over the composer.
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
+        screenshot("turn-rail")
+        // Its top tick is the first turn: lifting there brings that turn's ask into view.
+        rail.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0)).press(forDuration: 0.3)
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part 1.")).firstMatch
+        expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        screenshot("turn-rail-first-turn")
+        // Scroll to end goes back to the live end, where neither shows.
+        app.buttons["transcript.latest"].tap()
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForNonExistence(timeout: 15))
+        XCTAssertTrue(rail.waitForNonExistence(timeout: 5))
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)

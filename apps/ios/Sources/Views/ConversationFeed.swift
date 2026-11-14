@@ -77,6 +77,9 @@ struct ConversationFeed: View {
     /// The keyboard's last animation duration: the composer opens on the same spring as it.
     @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
+    /// The turn the top of the screen is in, for the turn rail; read when a scroll settles. Only
+    /// the rail observes it, so a settle never re-evaluates the feed.
+    @State private var readerPlace = TurnRailPlace()
     @State private var feedFrame: CGRect = .zero
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
@@ -217,6 +220,14 @@ struct ConversationFeed: View {
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
+        // A long thread's turns down the trailing edge while reading away from the end.
+        .overlay {
+            TranscriptTurnRail(model: model, threadId: thread.id, behind: behind && keyboardLift == 0, reading: readerPlace,
+                               bottom: barHeight + keyboardLift) { turn in
+                setFollowing(false)
+                reading.jump(toTurn: turn, model: model, live: thread)
+            }
+        }
         .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
@@ -255,6 +266,7 @@ struct ConversationFeed: View {
                 }
                 updateBehind()
                 pageIfNeeded(proxy)
+                if behind { readerPlace.place = currentReaderPlace() }
             case .animating: break
             @unknown default: break
             }
@@ -556,6 +568,17 @@ struct ConversationFeed: View {
         if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
         if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
         if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
+    }
+    /// The turn the top row is in, for the turn rail. Only when a scroll settles: it walks the rows held.
+    private func currentReaderPlace() -> TurnRail.Place? {
+        guard let top = currentTopRow() else { return nil }
+        let rows = TranscriptFeedRow.rows(shown)
+        guard let index = rows.firstIndex(where: { $0.id == top.rowID }) else { return nil }
+        let marks = rows.map { row -> TurnRail.Mark in
+            if row.block.row.kind == "user" { return .ask }
+            return row.block.row.ordinal.map(TurnRail.Mark.head) ?? .answer
+        }
+        return TurnRail.readerPlace(marks, top: index)
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {

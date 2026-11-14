@@ -174,7 +174,7 @@ private struct RenameSheet: View {
     }
 }
 
-private struct TurnsPage: Decodable {
+struct TurnsPage: Decodable {
     struct Turn: Decodable, Identifiable {
         let ordinal: Int
         let startedAt: Double
