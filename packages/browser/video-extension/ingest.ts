@@ -11,9 +11,18 @@ import { encodeMediaFrame, type MediaFrame } from "@ace/media/frame";
 
 export interface IngestTarget {
   url: string;
-  /** The source's single-use token, base64. */
-  token: string;
+  /** The source's single-use token. The sink owns these bytes and zeroes them on every end. */
+  token: Uint8Array;
   epoch: number;
+}
+
+/** The part of a WebSocket the sink uses; a test passes its own. */
+export interface IngestSocket {
+  binaryType: "arraybuffer" | "blob";
+  readonly bufferedAmount: number;
+  addEventListener(type: "open" | "error" | "close", listener: () => void): void;
+  send(data: Uint8Array<ArrayBuffer>): void;
+  close(): void;
 }
 
 /** Past this much unsent on the socket, deltas are dropped until the next keyframe. */
@@ -82,34 +91,69 @@ export interface AudioChunk {
 }
 
 export class IngestSink {
-  readonly #socket: WebSocket;
+  readonly #socket: IngestSocket;
+  #token: Uint8Array;
   #open = false;
   #closed = false;
   readonly #lost: () => void;
   /**
    * `opened` runs once the hello is sent: chunks may go to it from then. `lost` runs if the
-   * socket fails or ace-media closes it; chunks go back to the daemon.
+   * socket fails, ace-media closes it, or a send fails; chunks go back to the daemon. The token
+   * is zeroed once the hello is sent, and on every way the sink can end before that.
    */
-  constructor(target: IngestTarget, opened: () => void, lost: () => void) {
+  constructor(
+    target: IngestTarget,
+    opened: () => void,
+    lost: () => void,
+    connect: (url: string) => IngestSocket = (url) => new WebSocket(url),
+  ) {
     this.#lost = lost;
-    const token = base64Bytes(target.token);
-    this.#socket = new WebSocket(target.url);
-    this.#socket.binaryType = "arraybuffer";
-    this.#socket.addEventListener("open", () => {
+    this.#token = target.token;
+    let socket: IngestSocket;
+    try {
+      socket = connect(target.url);
+    } catch (error) {
+      this.#wipe();
+      throw error;
+    }
+    this.#socket = socket;
+    socket.binaryType = "arraybuffer";
+    socket.addEventListener("open", () => {
       if (this.#closed) return;
-      this.#socket.send(frame({ kind: kindHello, payload: token }));
-      token.fill(0);
+      try {
+        socket.send(frame({ kind: kindHello, payload: this.#token }));
+      } catch {
+        this.#fail();
+        return;
+      } finally {
+        this.#wipe();
+      }
       this.#open = true;
       opened();
     });
-    const fail = () => {
-      this.#open = false;
-      if (this.#closed) return;
-      this.#closed = true;
-      this.#lost();
-    };
-    this.#socket.addEventListener("error", fail);
-    this.#socket.addEventListener("close", fail);
+    socket.addEventListener("error", () => this.#fail());
+    socket.addEventListener("close", () => this.#fail());
+  }
+
+  #wipe(): void {
+    this.#token.fill(0);
+  }
+
+  #fail(): void {
+    this.#open = false;
+    this.#wipe();
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#lost();
+  }
+
+  /** One frame, or the sink fails and the capture goes back to the daemon. */
+  #send(bytes: Uint8Array<ArrayBuffer>): void {
+    try {
+      this.#socket.send(bytes);
+    } catch {
+      this.#fail();
+    }
   }
 
   /** Taking chunks now. */
@@ -125,7 +169,7 @@ export class IngestSink {
   video(chunk: VideoChunk): void {
     if (!this.#open) return;
     const description = chunk.key ? chunk.description : undefined;
-    this.#socket.send(
+    this.#send(
       frame({
         kind: kindVideo,
         flags: (chunk.key ? 1 : 0) | (description ? 4 : 0),
@@ -149,7 +193,7 @@ export class IngestSink {
     const description = new Uint8Array(5);
     new DataView(description.buffer).setUint32(0, chunk.sampleRate);
     description[4] = chunk.channels;
-    this.#socket.send(
+    this.#send(
       frame({
         kind: kindAudio,
         flags: 4,
@@ -165,9 +209,16 @@ export class IngestSink {
 
   /** The producer goes back to the daemon: an end frame after the last chunk, then close. */
   close(): void {
+    this.#wipe();
     if (this.#closed) return;
     this.#closed = true;
-    if (this.#open) this.#socket.send(frame({ kind: kindEnd, payload: none }));
+    if (this.#open) {
+      try {
+        this.#socket.send(frame({ kind: kindEnd, payload: none }));
+      } catch {
+        // The socket is already gone: ace-media marks the stream cut.
+      }
+    }
     this.#open = false;
     this.#socket.close();
   }
