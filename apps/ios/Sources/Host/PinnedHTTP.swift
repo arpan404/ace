@@ -13,23 +13,18 @@ struct PinnedHTTPResponse: Codable, Sendable, Equatable { let status: Int; let b
 
 /// One request over HTTPS whose server must present the pinned public key. Credentials are
 /// written only after the pin and validity check pass; redirects are refused, never followed.
-final class PinnedHTTP: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+/// It runs on its machine's `PinnedSession`, so it reuses a connection that session holds open.
+final class PinnedHTTP: PinnedTaskHandler, @unchecked Sendable {
     static let maximumResponse = 1_048_576
-    private let pin: String
-    private let host: String?
-    private let now: @Sendable () -> Date
     private let completion: @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void
-    private let queue = OperationQueue()
+    /// Every field below is read and written on the session's queue only.
     private var status = 0
     private var data = Data()
     private var failure: PinnedHTTPError?
     private var finished = false
 
-    private init(host: String?, pin: String, now: @escaping @Sendable () -> Date,
-                 completion: @escaping @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void) {
-        self.host = host; self.pin = pin; self.now = now; self.completion = completion
-        super.init()
-        queue.maxConcurrentOperationCount = 1
+    private init(completion: @escaping @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void) {
+        self.completion = completion
     }
 
     /// The request URL is `origin` plus a fixed `/v1/` path; nothing from the pairing fragment.
@@ -58,26 +53,31 @@ final class PinnedHTTP: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         return value
     }
 
+    /// One request on a session of its own, for a caller with no machine session (pairing).
     static func send(origin: URL, pin: String?, request: PinnedHTTPRequest, timeout: TimeInterval = 15,
                      now: @escaping @Sendable () -> Date = { Date() },
                      completion: @escaping @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void) {
+        let session = PinnedSession(host: origin.host, pin: pin, now: now)
+        send(on: session, origin: origin, request: request, timeout: timeout) { result in
+            session.close()
+            completion(result)
+        }
+    }
+    /// One request on `session`, which must be pinned to `origin`'s host. No answer within
+    /// `timeout` of silence, or `timeout` plus five seconds in all, is `.offline`.
+    static func send(on session: PinnedSession, origin: URL, request: PinnedHTTPRequest, timeout: TimeInterval = 15,
+                     completion: @escaping @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void) {
         let built: URLRequest
         do throws(PinnedHTTPError) {
-            guard let pin, PinnedTrust.isPin(pin) else { throw .invalid }
+            guard let pin = session.pin, PinnedTrust.isPin(pin), session.host == origin.host else { throw .invalid }
             built = try urlRequest(origin: origin, request, timeout: timeout)
         } catch { completion(.failure(error)); return }
-        let exchange = PinnedHTTP(host: origin.host, pin: pin ?? "", now: now, completion: completion)
-        let config = URLSessionConfiguration.ephemeral
-        config.tlsMinimumSupportedProtocolVersion = .TLSv12
-        config.urlCache = nil
-        config.httpCookieStorage = nil
-        config.urlCredentialStorage = nil
-        config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = timeout + 5
-        config.waitsForConnectivity = false
-        let session = URLSession(configuration: config, delegate: exchange, delegateQueue: exchange.queue)
-        session.dataTask(with: built).resume()
-        session.finishTasksAndInvalidate()
+        let exchange = PinnedHTTP(completion: completion)
+        guard let task = session.dataTask(built, handler: exchange) else { completion(.failure(.offline)); return }
+        task.resume()
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout + 5) { [weak task] in
+            session.queue.addOperation { if !exchange.finished { task?.cancel() } }
+        }
     }
 
     private func finish(_ result: Result<PinnedHTTPResponse, PinnedHTTPError>) {
@@ -86,35 +86,24 @@ final class PinnedHTTP: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         data = Data()
         completion(result)
     }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        switch PinnedTrust.evaluate(challenge, host: host, pin: pin, now: now()) {
-        case .success(let credential): completionHandler(.useCredential, credential)
-        case .failure:
-            failure = .pin
-            completionHandler(.cancelAuthenticationChallenge, nil)
-        }
-    }
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+    func refusedTrust(_ task: URLSessionTask) { failure = .pin }
+    func redirected(_ task: URLSessionTask) {
         failure = .redirect
-        completionHandler(nil)
         task.cancel()
     }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
-        guard let http = response as? HTTPURLResponse else { failure = .invalid; completionHandler(.cancel); return }
-        if (300..<400).contains(http.statusCode) { failure = .redirect; completionHandler(.cancel); return }
-        if response.expectedContentLength > Int64(Self.maximumResponse) { failure = .limit; completionHandler(.cancel); return }
+    func received(_ response: URLResponse, task: URLSessionDataTask) -> URLSession.ResponseDisposition {
+        guard let http = response as? HTTPURLResponse else { failure = .invalid; return .cancel }
+        if (300..<400).contains(http.statusCode) { failure = .redirect; return .cancel }
+        if response.expectedContentLength > Int64(Self.maximumResponse) { failure = .limit; return .cancel }
         status = http.statusCode
-        completionHandler(.allow)
+        return .allow
     }
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+    func received(_ chunk: Data, task: URLSessionDataTask) {
         guard failure == nil else { return }
-        if data.count + chunk.count > Self.maximumResponse { failure = .limit; dataTask.cancel(); return }
+        if data.count + chunk.count > Self.maximumResponse { failure = .limit; task.cancel(); return }
         data.append(chunk)
     }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    func completed(_ task: URLSessionTask, error: Error?) {
         if let failure { finish(.failure(failure)); return }
         guard error == nil, status != 0 else { finish(.failure(.offline)); return }
         guard let body = String(data: data, encoding: .utf8) else { finish(.failure(.invalid)); return }
