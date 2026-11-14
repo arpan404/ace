@@ -321,6 +321,31 @@ test("a steer whose run ends on its way, with nothing running in its place, is n
   expect(queued || sentNext).toBe(true);
 });
 
+test("with steer as the default, a send whose sender saw no run queues behind the run it didn't see", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start)] }, { on: "send" }], frames, {
+    steer: true,
+    preferences: { followUpBehavior: "steer" },
+  });
+  const id = await h.create();
+  expect(Object.values(h.store.snapshotThread(id).runs).some((run) => run.state === "active")).toBe(
+    true,
+  );
+  // Sent from a copy that showed the thread done: no delivery, and "saw none".
+  h.command({ type: "thread.send", threadId: id, input: text("unseen"), runId: null });
+  await h.engine.flush();
+  expect(sends(h.adapter)).toHaveLength(1);
+  expect(h.engine.queue(id).messages).toMatchObject([{ input: text("unseen"), delivery: "queue" }]);
+  // An older sender that says nothing gets the default as before: it steers in.
+  h.command({ type: "thread.send", threadId: id, input: text("legacy") });
+  await h.engine.flush();
+  expect(h.adapter.commands.at(-1)).toEqual({
+    type: "send",
+    input: text("legacy"),
+    delivery: "steer",
+  });
+});
+
 test("claiming a message before provider startup makes a concurrent edit fail", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames);

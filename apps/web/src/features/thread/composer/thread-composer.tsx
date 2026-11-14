@@ -231,9 +231,10 @@ export function ThreadComposer({
     });
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
-      // A steer names the run it was typed against: if that run is over when it arrives (sent
-      // offline, replayed later), the daemon queues it instead of steering another run.
-      runId: delivery === "steer" ? rootRun : undefined,
+      // Every message says what its sender saw: the run it was typed against, or none (`null`).
+      // A steer, asked for or the daemon's default, goes in only while that still holds;
+      // otherwise the daemon queues it rather than joining a run its sender didn't see.
+      runId: rootRun ?? null,
       client,
       storage,
       clock: uploadClock(time.read),

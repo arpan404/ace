@@ -2192,7 +2192,14 @@
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
         },
         "runId": {
-          "$ref": "https://ace.local/protocol/v1/RunId.json"
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/RunId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

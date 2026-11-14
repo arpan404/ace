@@ -90,8 +90,8 @@ export function createSessionCommands(
     // and it is refused unread, never retried into that other turn or a new one.
     if (fence && delivery === "steer") {
       assertSteerTarget(delivery, fence);
-      const target = fence.turn ?? turn;
-      if (!turn || target !== turn) throw new SteerTargetLost();
+      // Named to Codex: only that turn. A fence naming no turn (its sender saw none) starts one.
+      if (fence.turn !== undefined && fence.turn !== turn) throw new SteerTargetLost();
     }
     const clientUserMessageId = origin !== "ace" || turn ? config.userMessageId() : undefined;
     if (commandId && clientUserMessageId)

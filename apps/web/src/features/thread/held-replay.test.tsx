@@ -7,6 +7,7 @@ import { answerStore } from "@/features/thread/interactions/answers.ts";
 import { retryFailedSend } from "@/lib/live-actions.ts";
 import { slowReplay } from "@/test/held-replay.ts";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 /*
  * The window after a reconnect's welcome and before its replay lands: connected, but every copy
@@ -176,4 +177,46 @@ test("connected again but not caught up: a Retry of a kept message doesn't resum
   replay.release(app.client);
   await waitFor(() => expect(app.client.peekThread?.("legacy-send")?.syncing).toBe(false));
   await expect(retry()).resolves.toBe("resumed");
+});
+
+test("a message sent from a copy that shows the thread done never joins a run started meanwhile", async () => {
+  const { app, replay } = slowDaemon();
+  createIdleTask(app.daemon, {
+    id: "thread-idle",
+    workspaceId: "relay",
+    title: "Tidy the README",
+    provider: "codex",
+  });
+  await app.client.start();
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  await app.client.request({
+    type: "settings.set",
+    key: "threads.followUpBehavior",
+    value: "steer",
+    layer: { kind: "global" },
+  });
+  await app.open("/t/thread-idle");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+
+  // Connected again, the replay held: the copy still shows the thread done. Meanwhile another
+  // device starts a run on it.
+  await replay.hold(app.client);
+  act(() =>
+    app.daemon.apply("thread-idle", [
+      { type: "turn.started", agent: "root", nativeTurnId: "elsewhere", trigger: "user" },
+    ]),
+  );
+  await userEvent.type(message, "One more thing{Enter}");
+  await waitFor(() =>
+    expect(replay.sent.some((payload) => payload.type === "thread.send")).toBe(true),
+  );
+  const sent = replay.sent.find((payload) => payload.type === "thread.send");
+  // It says it saw no run, so the daemon's default steer queues it instead.
+  expect(sent?.runId).toBeNull();
+  const { queue } = await app.client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse("thread-idle"),
+  });
+  expect(JSON.stringify(queue.messages)).toContain("One more thing");
+  replay.release(app.client);
 });

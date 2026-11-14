@@ -21,6 +21,7 @@ export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadI
   const p = command.payload;
   if (p.type !== "thread.send" || p.runId === undefined) return command;
   const { runId, ...payload } = p;
+  // Resolved delivery: the daemon's default may have made this a steer the sender never asked for.
   if (p.delivery === "steer" && !steerLostRun(repo, id, runId)) return command;
   return Command.parse({
     ...command,
@@ -28,12 +29,15 @@ export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadI
   });
 }
 
-/** Whether the root run a steer names is no longer the thread's active root run. */
-export function steerLostRun(repo: EngineRepository, id: ThreadId, runId: string): boolean {
+/**
+ * Whether what a steer's sender saw no longer holds: the root run it named isn't the active one,
+ * or (`null`, it saw none) a root run is active now.
+ */
+export function steerLostRun(repo: EngineRepository, id: ThreadId, runId: string | null): boolean {
   const state = repo.requireState(id);
-  return !(
-    state.agents[state.rootKey ?? ""]?.activeRun === runId && state.runs[runId]?.state === "active"
-  );
+  const active = state.agents[state.rootKey ?? ""]?.activeRun;
+  if (runId === null) return active !== undefined;
+  return !(active === runId && state.runs[runId]?.state === "active");
 }
 
 /**

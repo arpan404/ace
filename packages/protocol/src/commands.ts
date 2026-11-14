@@ -115,11 +115,12 @@ export const CommandPayload = z.discriminatedUnion("type", [
      */
     delivery: FollowUpBehavior.optional(),
     /**
-     * The root run a `steer` was aimed at. When that run is no longer the root's active run
-     * (it ended, or another began while the sender was away), the message queues instead of
-     * joining whatever runs now. Omitted: steers into the current run, as before.
+     * What the sender saw: the root run it believed active, or `null` when it believed none was.
+     * A steer (asked for, or the daemon's default) goes in only when that is still so; otherwise
+     * the message queues as the next one, never joining a run its sender didn't see. Omitted (an
+     * older sender): as before.
      */
-    runId: RunId.optional(),
+    runId: RunId.nullable().optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),

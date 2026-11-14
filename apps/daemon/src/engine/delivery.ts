@@ -201,7 +201,7 @@ export async function executeIntent(
         const runId = p.runId;
         if (steerLostRun(repo, actor.id, runId)) throw new SteerTargetLost();
         fence = {
-          turn: repo.requireState(actor.id).runs[runId]?.nativeId,
+          turn: runId === null ? undefined : repo.requireState(actor.id).runs[runId]?.nativeId,
           current: () => !steerLostRun(repo, actor.id, runId),
         };
       }

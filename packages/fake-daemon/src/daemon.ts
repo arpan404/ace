@@ -1443,14 +1443,18 @@ export class FakeDaemon implements Host {
               payload.threadId,
               payload.context?.attachments.map((a) => a.sha256) ?? [],
             ),
-            // An omitted delivery resolves the person's follow-up setting, as the daemon does.
-            delivery:
+            // An omitted delivery resolves the person's follow-up setting, as the daemon does,
+            // and a steer goes in only while the run its sender saw (or none) still holds.
+            delivery: fencedDelivery(
+              host,
               payload.delivery ??
-              (this.services.settings.resolve("threads.followUpBehavior", {
-                threadId: payload.threadId,
-              }) === "steer"
-                ? "steer"
-                : "queue"),
+                (this.services.settings.resolve("threads.followUpBehavior", {
+                  threadId: payload.threadId,
+                }) === "steer"
+                  ? "steer"
+                  : "queue"),
+              payload.runId,
+            ),
           }),
         );
         if (sent.ok) this.markSent(payload.threadId);
@@ -1515,4 +1519,18 @@ export class FakeDaemon implements Host {
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
     }
   }
+}
+
+/** A steer whose sender saw another root run (or none, `null`) than the active one queues. */
+function fencedDelivery(
+  host: ThreadHost,
+  delivery: "steer" | "queue",
+  seen: string | null | undefined,
+): "steer" | "queue" {
+  if (delivery !== "steer" || seen === undefined) return delivery;
+  const root = host.view.thread.rootAgentId;
+  const active =
+    Object.values(host.view.runs).find((run) => run.agentId === root && run.state === "active")
+      ?.id ?? null;
+  return active === seen ? "steer" : "queue";
 }

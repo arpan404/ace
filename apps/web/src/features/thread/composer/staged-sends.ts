@@ -21,7 +21,6 @@ import { z } from "zod";
 import { readDraft } from "./draft-store.ts";
 import { releaseUploadFiles } from "./release-upload-files.ts";
 import { rememberAttachments, type StagedSend } from "./send-store.ts";
-import { followUpDelivery } from "@/lib/live-actions.ts";
 import {
   browserUploadClock,
   claimUpload,
@@ -68,7 +67,7 @@ const Stored = z.object({
   attachments: z.array(StoredFile),
   options: TurnOptions.optional(),
   delivery: z.enum(["steer", "queue"]).optional(),
-  runId: RunId.optional(),
+  runId: RunId.nullable().optional(),
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed: z.string().optional(),
 });
@@ -439,15 +438,13 @@ function sentFiles(
   });
 }
 
-/**
- * The delivery a held message goes with, decided as it goes (`followUpDelivery`): a steer names
- * the run it was typed against, and one that names none queues while the copy isn't current.
- */
-function followUp(client: ClientApi, send: StagedSend) {
-  const delivery = followUpDelivery(client, send.threadId, send.delivery, send.runId);
+/** A held message's delivery, and what its sender saw (the run, or `null` for none). */
+function followUp(send: StagedSend) {
   return {
-    ...(delivery ? { delivery } : {}),
-    ...(delivery === "steer" && send.runId ? { runId: RunId.parse(send.runId) } : {}),
+    ...(send.delivery ? { delivery: send.delivery } : {}),
+    ...(send.runId !== undefined
+      ? { runId: send.runId === null ? null : RunId.parse(send.runId) }
+      : {}),
   };
 }
 
@@ -464,7 +461,7 @@ async function enqueueReady(client: ClientApi, commandId: string): Promise<boole
       mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),
       attachments: sentFiles(send.attachments),
     },
-    ...followUp(client, send),
+    ...followUp(send),
     ...(send.options ? { options: send.options } : {}),
   };
   const local = withPreviews(send);

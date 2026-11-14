@@ -4,13 +4,14 @@ import {
   BackgroundTaskId,
   CommandId,
   InteractionId,
+  RunId,
   ThreadId,
   type CommandPayload,
   type ContentPart,
   type InteractionResolution,
   type MessageContext,
 } from "@ace/protocol";
-import { queueActionPayload, type QueueAction, type StopFence } from "@ace/ui-core";
+import { activeRootRun, queueActionPayload, type QueueAction, type StopFence } from "@ace/ui-core";
 import { CommandRefused, runCommand } from "./daemon-command.ts";
 import { currentNow } from "./live-connection.ts";
 import type { ListAction } from "./list-actions.ts";
@@ -265,20 +266,11 @@ export function sendListAction<T>(
   return refusing(gated(client, "list", payload, send));
 }
 
-/**
- * A message's delivery as it is sent: a steer aimed at no known run, sent while the thread's copy
- * isn't current, queues instead (nothing says what runs now). A steer naming its run keeps it:
- * the daemon queues that one itself if the run is over.
- */
-export function followUpDelivery(
-  client: ClientApi,
-  threadId: string,
-  delivery: "steer" | "queue" | undefined,
-  runId: string | undefined,
-): "steer" | "queue" | undefined {
-  return delivery === "steer" && runId === undefined && !currentNow(client, threadId)
-    ? "queue"
-    : delivery;
+/** The root run this client's copy of a thread shows active, or `null` for none (or no copy). */
+function seenRun(client: ClientApi, threadId: string): RunId | null {
+  const copy = client.peekThread?.(threadId);
+  const run = copy ? activeRootRun(copy) : undefined;
+  return run === undefined ? null : RunId.parse(run);
 }
 
 /**
@@ -294,7 +286,15 @@ export function retryFailedSend(
 ): Promise<"resumed" | "resent"> {
   const gatedClient: Pick<ClientApi, "request" | "command" | "enqueue"> = {
     request: (input, options) => client.request(input, options),
-    enqueue: (sent, id) => client.enqueue(sent, id),
+    // A message sent again says what its sender sees now: a default steer never joins an
+    // unseen run.
+    enqueue: (sent, id) =>
+      client.enqueue(
+        sent.type === "thread.send" && sent.runId === undefined
+          ? { ...sent, runId: seenRun(client, sent.threadId) }
+          : sent,
+        id,
+      ),
     command: (sent, options, id) =>
       sent.type === "queue.resume" && !currentNow(client, sent.threadId)
         ? Promise.reject(new CommandRefused("stale_copy"))
