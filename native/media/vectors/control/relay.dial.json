@@ -1,0 +1,8 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "relay.dial",
+    "stream": "source-1",
+    "url": "value"
+  }
+}

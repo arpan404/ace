@@ -31,6 +31,7 @@ import { spawnSdkProcess } from "./sdk-process.ts";
 import { AceListing } from "./ace-listing.ts";
 import { claudeToolSearchFacts } from "./tool-search-facts.ts";
 import { readClaudeUsage } from "./usage-read.ts";
+import { CliVersions } from "./cli-versions.ts";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
@@ -47,6 +48,7 @@ function nativeKey(key: string, kind: string): string {
 export async function openSession(
   ctx: SessionContext,
   options: ClaudeOptions = {},
+  versions: CliVersions = new CliVersions(),
 ): Promise<ProviderSession> {
   const selectedOptions = ClaudeSelectionOptions.parse(ctx.options ?? {});
   const configuration = configurationOptions(options.configuration ?? codingConfiguration);
@@ -56,10 +58,13 @@ export async function openSession(
   const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(ctx.executable ?? options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
-  const versionProbe = await probeOutput(executable, ["--version"], { env });
-  if (versionProbe.code !== 0) throw new Error("Claude version probe failed");
+  const version = await versions.read(executable, async () => {
+    const probe = await probeOutput(executable, ["--version"], { env });
+    if (probe.code !== 0) throw new Error("Claude version probe failed");
+    return probe.stdout;
+  });
   // Steer binding (user_message_uuids) and the tree contract need the minimum; never run older.
-  requireReadableMinimum("claude", versionProbe.stdout);
+  requireReadableMinimum("claude", version);
   ctx.signal.throwIfAborted();
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();

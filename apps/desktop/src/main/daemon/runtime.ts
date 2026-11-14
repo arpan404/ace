@@ -6,9 +6,10 @@ import { DoctorReport, providerSummaries, type ProviderSummary } from "../../sha
 import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { loginShellPath } from "./login-path.ts";
+import { watchEndpointFile } from "./endpoint-watch.ts";
 import {
+  daemonHealth,
   findRunningDaemon,
-  healthy,
   maintenanceBlockers,
   maintenanceStatus,
   readLocalDaemon,
@@ -21,6 +22,7 @@ import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions 
 import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
+import type { FreezeSignal } from "./watchdog.ts";
 
 /**
  * The app's daemon target from its environment, with the daemon home chosen by
@@ -63,6 +65,13 @@ export interface RuntimeOptions {
   log: Log;
   /** Each line the spawned daemon prints; by default logged as `daemon: <line>`. */
   daemonOutput?: (line: string, stream: "stdout" | "stderr") => void;
+  /**
+   * Milliseconds since the app launched, for the launch steps the log records (login PATH,
+   * first lookup, spawn, running). Without it those records are not written.
+   */
+  sinceLaunch?: () => number;
+  /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
+  freezes?: FreezeSignal;
 }
 
 /**
@@ -89,6 +98,12 @@ export class DaemonRuntime {
         platform: options.platform ?? process.platform,
       });
     this.path = loginShellPath(options.env);
+    const launchStep = (message: string, data: Record<string, unknown> = {}) => {
+      if (options.sinceLaunch)
+        options.log("info", message, { ...data, sinceLaunchMs: Math.round(options.sinceLaunch()) });
+    };
+    void this.path.then(() => launchStep("The login shell's PATH is ready"));
+    let looked = false;
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
     this.status =
@@ -111,23 +126,37 @@ export class DaemonRuntime {
           : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
-      const prioritize = daemonLaunchPolicy(systemLaunchPort(options.platform ?? process.platform));
+      const launchPolicy = daemonLaunchPolicy(
+        systemLaunchPort(options.platform ?? process.platform),
+      );
       this.supervisor = new DaemonSupervisor(
         {
           spawn:
             this.target.kind === "managed"
-              ? () =>
-                  (options.spawnDaemon ?? spawnDaemon)({
+              ? () => {
+                  launchStep("Spawning the daemon");
+                  return (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
-                    prioritize,
+                    prioritize: launchPolicy.wrap,
                     onOutput:
                       options.daemonOutput ??
                       ((line, stream) =>
                         options.log(stream === "stderr" ? "warn" : "info", `daemon: ${line}`)),
-                  })
+                  });
+                }
               : undefined,
-          find: () => findRunningDaemon(home),
-          healthy,
+          prepareSpawn: async () => {
+            const [path] = await Promise.all([this.path, launchPolicy.ready()]);
+            this.resolvedPath = path;
+          },
+          watchEndpoint: () => watchEndpointFile(home),
+          find: async () => {
+            const found = await findRunningDaemon(home);
+            if (!looked) launchStep("Looked for a running daemon", { found: Boolean(found) });
+            looked = true;
+            return found;
+          },
+          health: daemonHealth,
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
           setUpdateHold,
@@ -140,16 +169,27 @@ export class DaemonRuntime {
             },
           },
           now: Date.now,
+          freezes: options.freezes,
           log: options.log,
         },
         {},
       );
-      this.supervisor.onStatus((status) => this.update(status));
+      let ran = false;
+      this.supervisor.onStatus((status) => {
+        if (status.state === "running" && !ran) {
+          ran = true;
+          launchStep("The daemon is running", { source: status.source });
+        }
+        this.update(status);
+      });
     }
   }
 
+  /**
+   * Adopting a daemon that already runs needs no PATH, so the login shell (about a second on a
+   * busy shell profile) is waited for only before this app spawns its own.
+   */
   async start(): Promise<void> {
-    this.resolvedPath = await this.path;
     if (this.target.kind === "remote" || this.target.kind === "fake") {
       this.update({
         ...this.status,

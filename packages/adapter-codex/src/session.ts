@@ -453,6 +453,13 @@ export async function openCodexSession(
   lifetime.attached(link);
   try {
     if (ctx.signal.aborted) throw ctx.signal.reason;
+    // Independent of the profile catalog: both requests are in flight together.
+    const configured =
+      permissionMode === null && ctx.resetPermissions
+        ? request("config/read", { cwd: ctx.cwd, includeLayers: false })
+        : undefined;
+    // Awaited below; a failure while the catalog is read must not go unhandled meanwhile.
+    void configured?.catch(() => {});
     try {
       const listing = PermissionProfiles.parse(
         await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }),
@@ -509,10 +516,9 @@ export async function openCodexSession(
     const threadPolicy: Pick<
       ThreadStartParams,
       "permissions" | "approvalPolicy" | "approvalsReviewer" | "config"
-    > =
-      permissionMode === null && ctx.resetPermissions
-        ? configuredTurnPolicy(await request("config/read", { cwd: ctx.cwd, includeLayers: false }))
-        : codexThreadPolicy(permissionMode, ctx.cwd);
+    > = configured
+      ? configuredTurnPolicy(await configured)
+      : codexThreadPolicy(permissionMode, ctx.cwd);
     const params = {
       cwd: ctx.cwd,
       ...threadPolicy,

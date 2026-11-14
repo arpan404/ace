@@ -147,6 +147,13 @@ jobs:
 
       - name: Unit tests
         working-directory: apps/ios
+        # Under the job's limit, so a hung test fails this step and the steps below still show
+        # and upload where it stopped.
+        timeout-minutes: 40
+        env:
+          # The runner's simulator is 3 to 4 times slower than a dev Mac; speed budgets that read
+          # this (TerminalPerformanceTests) stretch by it and still fail a larger regression.
+          TEST_RUNNER_ACE_PERF_SLACK: "4"
         run: |
           xcodebuild test-without-building -project Ace.xcodeproj -scheme Ace -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
@@ -158,6 +165,13 @@ jobs:
           grep -E "error:|✘|failed|Fatal|crash" .build/test.log | head -200
           tail -60 .build/test.log
           exit 1
+
+      - name: Show where the unit tests stopped
+        if: ${{ failure() }}
+        working-directory: apps/ios
+        run: |
+          grep -nE "Test Case .*started|Test .* started|Suite .* started|✘|error:" .build/test.log | tail -40 || true
+          tail -80 .build/test.log || true
 
       - name: Upload logs and test results
         if: ${{ !cancelled() }}

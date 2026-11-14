@@ -52,7 +52,7 @@ import XCTest
     func testSearchListsThePlacesAndOpensOne() {
         let app = launch()
         app.openSearch()
-        for place in ["pulls", "issues", "automations", "skills", "usage", "machines", "settings"] {
+        for place in ["pulls", "issues", "automations", "skills", "usage", "history", "archived", "machines", "settings"] {
             XCTAssertTrue(app.buttons["search.place.\(place)"].waitForExistence(timeout: 10), "\(place) is missing from Places")
         }
         XCTAssertFalse(app.buttons["search.place.spade"].exists)
@@ -63,6 +63,118 @@ import XCTest
         for _ in 0..<4 where !app.buttons["library.projects"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["library.projects"].exists)
         capture("settings")
+    }
+
+    func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
+        let app = launch()
+        for (place, title) in [("usage", "Usage"), ("automations", "Automations"), ("history", "History"), ("archived", "Archived")] {
+            app.openSearch()
+            let capsule = app.buttons["search.place.\(place)"]
+            XCTAssertTrue(capsule.waitForExistence(timeout: 10), "\(place) is missing from Places")
+            capsule.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10), "\(title) didn't open from home")
+            capture("place-\(place)")
+            app.buttons["settings.close"].tap()
+            XCTAssertTrue(app.buttons["search.place.settings"].waitForExistence(timeout: 10))
+        }
+        // Settings keeps its own way to History and Archived.
+        app.buttons["search.place.settings"].tap()
+        for _ in 0..<4 where !app.buttons["settings.history"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["settings.history"].exists)
+        XCTAssertTrue(app.buttons["settings.archive"].exists)
+    }
+
+    func testThePaletteFiltersCommandsAndRunsTheOneChosen() {
+        let app = launch()
+        app.openSearch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("history")
+        let history = app.buttons["search.command.history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        // Typing narrows the list: a command that doesn't match is gone.
+        XCTAssertFalse(app.buttons["search.command.settings:appearance"].exists)
+        capture("palette-history")
+        history.tap()
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
+        app.buttons["settings.close"].tap()
+        // A settings page by name opens on that page. Search keeps its query; clear it first.
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.typeText("keyboard")
+        let keyboard = app.buttons["search.command.settings:keyboard"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        keyboard.tap()
+        XCTAssertTrue(app.navigationBars["Keyboard"].waitForExistence(timeout: 10))
+    }
+
+    func testSettingsSearchFindsPhoneAndMachineSettingsAndOpensThemInView() {
+        let app = launch()
+        app.openSearch()
+        app.buttons["search.place.settings"].tap()
+        let field = app.searchFields["Search settings"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("dark mode")
+        let mode = app.buttons["settings.search.phone/appearance.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10))
+        // It says where it sits.
+        XCTAssertTrue(mode.label.contains("Appearance"))
+        capture("settings-search-phone")
+        mode.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // A machine's own setting, under that machine's name, opens its page with the row in view.
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.typeText("tailscale")
+        let tailscale = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", "/remote/remote.tailscale")).firstMatch
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 15))
+        XCTAssertTrue(tailscale.label.contains("Remote access"))
+        capture("settings-search-machine")
+        tailscale.tap()
+        XCTAssertTrue(app.navigationBars["Remote access"].waitForExistence(timeout: 10))
+        let row = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Tailscale")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.isHittable)
+    }
+
+    func testHistorySearchSaysWhenNothingSettledMatches() {
+        let app = launch()
+        app.openSearch()
+        app.buttons["search.place.history"].tap()
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["history.project"].exists)
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("zzqx nothing like it")
+        XCTAssertTrue(app.staticTexts["Nothing settled matches “zzqx nothing like it”"].waitForExistence(timeout: 15))
+        capture("history-no-match")
+    }
+
+    func testChatsFilterNarrowsTheListAndClearingBringsItBack() {
+        let app = launch()
+        app.tabBars.firstMatch.buttons["Chats"].tap()
+        let chat = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        let identifier = chat.identifier
+        // The filter field waits under the title until the list is pulled down.
+        let field = app.searchFields["Filter chats"]
+        if !field.exists { app.swipeDown() }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("zzqx")
+        XCTAssertTrue(app.staticTexts["No results for “zzqx”"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons[identifier].exists)
+        capture("chats-filtered")
+        field.buttons["Clear text"].tap()
+        XCTAssertTrue(app.buttons[identifier].waitForExistence(timeout: 10))
     }
 
     func testTypingInSearchFindsSettingsPagesAndThreads() {

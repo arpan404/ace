@@ -156,6 +156,7 @@ export class PillFollower {
               segments: pill.segments.map((segment) => ({
                 kind: segment.kind,
                 label: preview(segment.label, 256),
+                detail: preview(segment.detail ?? "", 256),
                 opens: segment.opens,
                 live: segment.live,
               })),

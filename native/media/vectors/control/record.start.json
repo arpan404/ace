@@ -1,0 +1,11 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "record.start",
+    "recording": "source-1",
+    "source": "source-1",
+    "directory": "value",
+    "maxBytes": 1,
+    "pointerTrack": true
+  }
+}

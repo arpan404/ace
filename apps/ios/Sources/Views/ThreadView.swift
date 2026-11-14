@@ -30,7 +30,11 @@ struct ThreadView: View {
     @State private var agentRoute: SubagentRoute?
     /// The file Changes opens at, when something named one (the review sheet's file rows).
     @State private var changesFile: String?
+    /// The scope the Changes page opens on next, when the Summary asked for one.
+    @State private var changesScope: String?
     @State private var media: TranscriptRow?
+    /// A visualization opened full screen (a phone, or an iPad without room for the panel).
+    @State private var visualization: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
     @State private var showScripts = false
@@ -76,6 +80,12 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
+    /// Reply can put an agent's words on the next message: this composer is here to send them, and
+    /// one more quote fits. A fork or a new thread being started takes no quotes.
+    private var canQuote: Bool {
+        model.canOperate && !archived && screen.controls?.guest == nil && screen.fork == nil
+            && screen.controls?.continues != true && !screen.quotesFull
+    }
     /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
@@ -105,11 +115,10 @@ struct ThreadView: View {
     private var feed: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
-            .publishedMedia(model: model, threadId: thread.id)
             .markdownShelf(threadId: thread.id)
     }
 
@@ -124,6 +133,7 @@ struct ThreadView: View {
                     feed
                 } else {
                     ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
+                                   changesScope: changesScope, scopeShown: { changesScope = nil },
                                    barHeight: barHeight, openChat: { select(.chat) })
                 }
             }
@@ -160,12 +170,21 @@ struct ThreadView: View {
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
             .modifier(ThreadPushedTools(model: model, thread: thread, pushed: $pushedTool, openThread: openThread,
-                                        openAgent: { agentRoute = $0 }, mention: model.canOperate ? { mention = $0 } : nil))
+                                        openAgent: { agentRoute = $0 }, openChanges: { changesScope = "all"; open(.changes) },
+                                        mention: model.canOperate ? { mention = $0 } : nil))
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
                              openThread: { child in agentRoute = nil; openThread(child) })
             }
             .environment(\.focusComposer) { composerFocus += 1 }
+            // Reply quotes what the agent said into this composer, caret in it to write the reply.
+            .environment(\.replyToMessage, canQuote ? MessageReply(threadId: thread.id) { text, start, end in
+                model.addQuote(text, start: start, end: end)
+                composerFocus += 1
+            } : nil)
+            .keepsThreadQuotes(model: model, thread: thread)
+            // A scope the Summary asked for is this thread's only.
+            .onChange(of: thread.id) { _, _ in changesScope = nil }
             .environment(\.openChanges) { path in
                 changesFile = path
                 open(.changes)
@@ -210,8 +229,11 @@ struct ThreadView: View {
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .fullScreenCover(item: $visualization) { row in
+                NavigationStack { VisualizationScreen(thread: thread, itemId: row.id, title: row.text) }
+            }
             .sheet(isPresented: $showSearch) {
-                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
+                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }).toolbar { SheetClose() } }
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle,
@@ -267,6 +289,8 @@ struct ThreadView: View {
             }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             .environment(\.stripTasks, Set(screen.leftRunning?.taskIds ?? []))
+            // The transcript and a visualization opened full screen share one copy of each page.
+            .publishedMedia(model: model, threadId: thread.id)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
@@ -400,6 +424,10 @@ struct ThreadView: View {
         if archived {
             ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                 .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if let guest = screen.controls?.guest {
+            GuestSessionNote(line: guest.line, canStop: model.canOperate && screen.controls?.canStop == true,
+                             stopping: screen.stopping) { model.stopTree() }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
         } else if model.canOperate {
             ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                          send: { text, alternate, references in
@@ -419,13 +447,16 @@ struct ThreadView: View {
                              }
                          },
                          recall: { older in await model.sentText(thread.id, older: older) },
-                         files: screen.attachments.count, chips: screen.annotations.count + (model.sheets.chip?.count ?? 0),
+                         files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          run: runComposerAction, focusRequest: composerFocus) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                } else {
+                    // As the web's composer strip: the thread's automations, when nothing more urgent is there.
+                    ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
                 ComposerAccessories(model: model, screen: screen, problem: attachProblem)
             } leading: { pick in
@@ -472,6 +503,13 @@ struct ThreadView: View {
     private var placeholder: String {
         ComposerPlaceholder.text(fork: screen.fork != nil, answering: !stripRequests.isEmpty, busy: screen.controls?.busy == true)
     }
+    private func openMedia(_ row: TranscriptRow) {
+        switch MediaOpening.of(row, panelBeside: panelPlace != .none) {
+        case .panel(let title): panel(["op": "open", "kind": PanelTool.visualization.rawValue, "id": row.id, "title": title])
+        case .fullScreen: visualization = row
+        case .viewer: media = row
+        }
+    }
     private func open(_ destination: ThreadDestination) {
         // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
         if panelPlace != .none, let tool = destination.panelTool {
@@ -502,7 +540,7 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .logs: showLogs = true
         // Pages: with the side panel they opened as its tabs above.
-        case .changes, .files, .terminal, .browser, .agents: break
+        case .changes, .files, .terminal, .browser, .agents, .summary: break
         }
     }
     /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.

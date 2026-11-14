@@ -1,3 +1,4 @@
+import { planCount, todoStatusWords } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import type { ShownPlan } from "@/lib/use-plans.ts";
@@ -17,7 +18,7 @@ export function SummaryPlan(props: { plans: readonly ShownPlan[] }) {
   if (!todos.length) return null;
   const done = todos.filter(({ todo }) => todo.status === "completed").length;
   return (
-    <Section name="Plan" count={`${done} of ${todos.length}`}>
+    <Section name="Plan" count={planCount({ done, total: todos.length })}>
       <div
         role="progressbar"
         aria-label="Plan progress"
@@ -52,15 +53,7 @@ export function SummaryPlan(props: { plans: readonly ShownPlan[] }) {
               </span>
               <span className="min-w-0">
                 {todo.content}
-                <span className="sr-only">
-                  {todo.status === "completed"
-                    ? ", done"
-                    : todo.status === "in_progress"
-                      ? ", in progress"
-                      : todo.status === "cancelled"
-                        ? ", cancelled"
-                        : ", to do"}
-                </span>
+                <span className="sr-only">, {todoStatusWords(todo.status)}</span>
               </span>
             </li>
           );

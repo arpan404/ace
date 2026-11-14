@@ -16,9 +16,11 @@ export function configuredDiscovery(
           auth: "unknown" as const,
           loginHint: "Provider disabled in Settings",
         };
+      const shared = context.services.startupProbes?.probe;
       return discoverProvider(
         provider,
         configuredProviderDiscovery(provider, config?.binaryPath, {
+          ...(shared ? { probe: shared } : {}),
           ...options,
           signal: options.signal ?? context.signal,
         }),

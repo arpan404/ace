@@ -56,3 +56,22 @@ test("the daemon saying its CLIs changed reads them again, and a failed read kee
   expect(after.providers).toEqual(first.providers);
   providers.dispose();
 });
+
+test("a refresh asked while a read is out reads again after it, so the newer answer shows", async () => {
+  const { owner } = await connected();
+  let reads = 0;
+  const counting: ProvidersOwner = {
+    ...owner,
+    request: (request, options) => {
+      if (request.type === "providers.request") reads++;
+      return owner.request(request, options);
+    },
+  };
+  const providers = new MachineProviders(counting, pump);
+  providers.refresh();
+  // "Check again" lands while the first read is still out: it isn't dropped.
+  providers.refresh();
+  await until(() => reads === 2);
+  expect(reads).toBe(2);
+  providers.dispose();
+});

@@ -16,7 +16,12 @@ export function inputProjection(entries: SchemaEntry[]): SchemaEntry[] {
           throw new Error("Structural input projection requires a source schema and semantic rule");
         const projected = visit(projection);
         if (!(projected instanceof z.ZodType)) throw new Error("Invalid structural projection");
-        result = projected.meta({ "x-ace-constraint": value.meta()?.["x-ace-constraint"] });
+        // Keep the projected schema's examples: some inputs (origins, ids) are hard to generate.
+        const examples = projected.meta()?.examples;
+        result = projected.meta({
+          ...(examples === undefined ? {} : { examples }),
+          "x-ace-constraint": value.meta()?.["x-ace-constraint"],
+        });
       } else {
         const def = { ...value._zod.def };
         result = value.clone(def);

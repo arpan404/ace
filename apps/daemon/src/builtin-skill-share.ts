@@ -6,48 +6,66 @@ import {
   builtinSkillRootUnused,
   type BuiltinSkillProcessLease,
 } from "./builtin-skill-processes.ts";
+import type { ProcessLease } from "@ace/provider-kit/process";
 
 type Holder = {
   root: string;
   skills: Awaited<ReturnType<typeof prepareBuiltinSkills>>;
   lease: BuiltinSkillProcessLease;
   users: number;
+  /** Launches promised to users that have not started them yet. */
+  reserved: number;
   retired: boolean;
+  leaseClosed: boolean;
 };
 export type SharedBuiltinSkills = {
   args: string[];
   directories: string[];
-  lease: BuiltinSkillProcessLease;
+  lease: ProcessLease;
   release(): Promise<void>;
 };
 
 /**
- * One projection of the shipped skill bundle for every session of a provider whose process is
- * shared. Identical spawn arguments let those sessions run on one process. A root is replaced
- * once its lease cannot record another launch, and removed when nothing uses it.
+ * One projection of the shipped skill bundle for every session of a provider. Codex sessions
+ * share an app-server, so identical spawn arguments let them run on one process; Claude sessions
+ * each launch their own process from the same read-only copy, so each acquisition reserves its
+ * launch up front. A root is replaced once its lease cannot promise another launch, and removed
+ * when nothing uses it. A replaced root's lease stays open for users still holding it.
  */
-export function sharedBuiltinSkills(provider: "codex", dataDir: string) {
+export function sharedBuiltinSkills(provider: "claude" | "codex", dataDir: string) {
+  const launchesPerUser = provider === "claude";
   let current: Promise<Holder> | undefined;
   async function create(): Promise<Holder> {
     const root = await createBuiltinSkillRoot(dataDir);
     try {
       const skills = await prepareBuiltinSkills(provider, root);
-      return { root, skills, lease: builtinSkillProcessLease(root), users: 0, retired: false };
+      return {
+        root,
+        skills,
+        lease: builtinSkillProcessLease(root),
+        users: 0,
+        reserved: 0,
+        retired: false,
+        leaseClosed: false,
+      };
     } catch (error) {
       await rm(root, { recursive: true, force: true });
       throw error;
     }
   }
   async function cleanup(holder: Holder): Promise<void> {
+    if (!holder.retired || holder.users) return;
+    if (!holder.leaseClosed) {
+      holder.leaseClosed = true;
+      holder.lease.close();
+    }
     // A process still running from this root keeps it; the next daemon start reclaims it.
-    if (!holder.retired || holder.users || !builtinSkillRootUnused(holder.root)) return;
+    if (!builtinSkillRootUnused(holder.root)) return;
     await holder.skills.close();
     await rm(holder.root, { recursive: true, force: true });
   }
   function retire(holder: Holder): void {
-    if (holder.retired) return;
     holder.retired = true;
-    holder.lease.close();
   }
   async function usable(): Promise<Holder> {
     for (;;) {
@@ -59,7 +77,13 @@ export function sharedBuiltinSkills(provider: "codex", dataDir: string) {
         if (current === pending) current = undefined;
         throw error;
       }
-      if (!holder.retired && holder.lease.spare() > 0) return holder;
+      const promised = launchesPerUser ? holder.reserved : 0;
+      if (!holder.retired && holder.lease.spare() - promised > 0) {
+        // Taken in the same step as the check, so concurrent acquisitions cannot overbook it.
+        holder.users++;
+        if (launchesPerUser) holder.reserved++;
+        return holder;
+      }
       if (current === pending) {
         current = undefined;
         retire(holder);
@@ -70,15 +94,27 @@ export function sharedBuiltinSkills(provider: "codex", dataDir: string) {
   return {
     async acquire(): Promise<SharedBuiltinSkills> {
       const holder = await usable();
-      holder.users++;
+      let reservation = launchesPerUser;
+      const spend = () => {
+        if (!reservation) return;
+        reservation = false;
+        holder.reserved--;
+      };
       let released = false;
       return {
         args: [...holder.skills.args],
         directories: [...holder.skills.directories],
-        lease: holder.lease,
+        lease: {
+          preparing() {
+            spend();
+            holder.lease.preparing();
+          },
+          spawned: (pid) => holder.lease.spawned(pid),
+        },
         async release() {
           if (released) return;
           released = true;
+          spend();
           holder.users--;
           await cleanup(holder);
         },

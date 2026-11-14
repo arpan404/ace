@@ -8,7 +8,7 @@ import {
   type RouteEnd,
   type Row,
 } from "./fleet-map-route.ts";
-import { relayEnd, type FleetMap, type WireKind, type ZoneId } from "./fleet-map-types.ts";
+import { relayEnd, type FleetMap, type WireKind, type ZoneId } from "@ace/ui-core/fleet-map";
 
 /*
  * Where the Fleet map draws everything, from its facts. Pure and deterministic: the same facts

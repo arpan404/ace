@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LinkRate } from "./link-rate.ts";
+import { LinkRate, outstandingSends } from "./link-rate.ts";
 
 const limits = { min: 500_000, max: 16_000_000, initial: 4_000_000 };
 
@@ -57,6 +57,19 @@ describe("a viewer's link rate", () => {
     const before = rate.rate;
     rate.dropped(5_100);
     expect(rate.rate).toBeLessThan(before * 0.7);
+  });
+
+  it("when acks stop, only the newest sends are remembered for the ack that comes later", () => {
+    const start = { min: 500_000, max: 16_000_000, initial: 1_000_000 };
+    const bounded = new LinkRate(start);
+    const fewer = new LinkRate(start);
+    for (let index = 0; index < 1_000; index++) bounded.sent(index, 150, index);
+    for (let index = 1_000 - outstandingSends; index < 1_000; index++)
+      fewer.sent(index, 150, index);
+    bounded.acknowledged(999, 1_020);
+    fewer.acknowledged(999, 1_020);
+    expect(bounded.rate).toBe(fewer.rate);
+    expect(bounded.rtt).toBe(fewer.rtt);
   });
 
   it("a high but steady round trip is not mistaken for a queue", () => {

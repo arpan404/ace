@@ -1,0 +1,657 @@
+[
+  {
+    "name": "refused key keeps its bytes across retries",
+    "window": {
+      "frames": 3,
+      "bytes": 100
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "refuse": true
+      },
+      {
+        "publish": {
+          "sequence": 0,
+          "key": true,
+          "bytes": {
+            "length": 100
+          }
+        }
+      },
+      {
+        "flush": true
+      },
+      {
+        "flush": true
+      },
+      {
+        "flush": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": false,
+          "bytes": {
+            "length": 100
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 1
+          }
+        }
+      },
+      {
+        "refuse": false
+      },
+      {
+        "flush": true
+      },
+      {
+        "ack": 0
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": true,
+          "bytes": {
+            "length": 100
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 50
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 0
+      },
+      {
+        "offered": 0
+      },
+      {
+        "offered": 0
+      },
+      {
+        "offered": 0
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 0
+      },
+      {
+        "counted": 0,
+        "bytes": 100
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 100
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      }
+    ]
+  },
+  {
+    "name": "acks crossing 2^32",
+    "window": {
+      "frames": 4,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 4294967294,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4294967295,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4294967296,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4294967297,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 4294967295
+      },
+      {
+        "publish": {
+          "sequence": 4294967298,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4294967299,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 4294967299
+      },
+      {
+        "publish": {
+          "sequence": 4294967300,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 4294967294
+      },
+      {
+        "counted": 4294967294,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 4294967295
+      },
+      {
+        "counted": 4294967295,
+        "bytes": 10
+      },
+      {
+        "offered": 4294967296
+      },
+      {
+        "counted": 4294967296,
+        "bytes": 10
+      },
+      {
+        "offered": 4294967297
+      },
+      {
+        "counted": 4294967297,
+        "bytes": 10
+      },
+      {
+        "offered": 4294967298
+      },
+      {
+        "counted": 4294967298,
+        "bytes": 10
+      },
+      {
+        "offered": 4294967299
+      },
+      {
+        "counted": 4294967299,
+        "bytes": 10
+      },
+      {
+        "offered": 4294967300
+      },
+      {
+        "counted": 4294967300,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "stale and future acks",
+    "window": {
+      "frames": 4,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 0,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 2
+      },
+      {
+        "ack": 1
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 6,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 7,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 99
+      },
+      {
+        "publish": {
+          "sequence": 8,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 9,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 0
+      },
+      {
+        "counted": 0,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 10
+      },
+      {
+        "offered": 5
+      },
+      {
+        "counted": 5,
+        "bytes": 10
+      },
+      {
+        "offered": 6
+      },
+      {
+        "counted": 6,
+        "bytes": 10
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 9
+      },
+      {
+        "counted": 9,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "zero-byte frames",
+    "window": {
+      "frames": 3,
+      "bytes": 0
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 0,
+          "key": true,
+          "bytes": {
+            "length": 0
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": false,
+          "bytes": {
+            "length": 0
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 1
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": true,
+          "bytes": {
+            "length": 0
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 0
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 0
+          }
+        }
+      },
+      {
+        "ack": 3
+      },
+      {
+        "publish": {
+          "sequence": 6,
+          "key": false,
+          "bytes": {
+            "length": 0
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 0
+      },
+      {
+        "counted": 0,
+        "bytes": 0
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 0
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 0
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      }
+    ]
+  },
+  {
+    "name": "viewer joining mid-GOP",
+    "window": {
+      "frames": 4,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "publish": {
+          "sequence": 0,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 5
+      },
+      {
+        "counted": 5,
+        "bytes": 10
+      }
+    ]
+  }
+]

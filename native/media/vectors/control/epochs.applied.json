@@ -1,0 +1,10 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "epochs.applied",
+    "source": "source-1",
+    "seq": 1,
+    "written": 1,
+    "dropped": 1
+  }
+}

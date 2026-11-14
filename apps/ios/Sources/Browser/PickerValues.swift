@@ -7,6 +7,15 @@ enum PickerValues {
     /// The calendar date kinds a native date picker answers.
     static let dateKinds: Set<String> = ["date", "time", "datetime-local", "month", "week"]
 
+    /// The phone's control for a page's picker: its options, the colour or date picker, or, for a
+    /// kind it has no control for, a field to type the value in the page's own format.
+    enum Control: Equatable { case options, colour, date, typed }
+    static func control(_ kind: String) -> Control {
+        if kind == "select" { return .options }
+        if kind == "color" { return .colour }
+        return dateKinds.contains(kind) ? .date : .typed
+    }
+
     static func date(_ value: String, kind: String) -> Date? {
         for format in formats(kind) {
             if let date = formatter(format).date(from: value) { return date }

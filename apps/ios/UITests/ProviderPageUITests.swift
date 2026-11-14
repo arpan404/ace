@@ -64,6 +64,28 @@ import XCTest
         screenshot("antigravity-installed")
     }
 
+    func testSetUpAgentsOpensAgainFromProvidersAndLeadsToSignIn() {
+        let app = launch()
+        defer { app.terminate() }
+        let setup = app.buttons["providers.setup"]
+        XCTAssertTrue(setup.waitForExistence(timeout: 30))
+        setup.tap()
+        XCTAssertTrue(app.staticTexts["Connect your agents"].waitForExistence(timeout: 20))
+        // The fixture's Claude Code is signed in and Codex is signed out.
+        let progress = app.descendants(matching: .any)["setup.progress"].firstMatch
+        XCTAssertTrue(progress.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["setup.done"].exists, "a ready agent lets the person finish")
+        let codex = app.buttons["setup.row.codex"]
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        XCTAssertTrue(codex.label.contains("Sign in needed"))
+        screenshot("setup-agents")
+        codex.tap()
+        XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 10), "a signed-out agent opens its sign-in")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["setup.done"].tap()
+        XCTAssertTrue(setup.waitForExistence(timeout: 10), "Done goes back to Providers")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]

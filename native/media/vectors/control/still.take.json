@@ -1,0 +1,13 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "still.take",
+    "request": "source-1",
+    "source": "source-1",
+    "maxWidth": 1,
+    "maxHeight": 1,
+    "maxPixels": 1,
+    "quality": 1,
+    "deadlineMs": 1
+  }
+}

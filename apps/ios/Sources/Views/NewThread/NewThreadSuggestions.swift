@@ -1,14 +1,18 @@
 import SwiftUI
 
-/// The row above + and Send: the screenshot just taken, the skills last used in this project and
-/// "Same as last time" when the picks have moved off the project's last ones. Each one shows only
-/// while it would do something; with none, the row isn't there.
+/// The row above + and Send: the screenshot just taken, the skills last used in this project,
+/// "Same as last time" when the picks have moved off the project's last ones, and the project's
+/// open pull requests and issues to start from. Each one shows only while it would do something;
+/// with none, the row isn't there.
 struct NewThreadSuggestions: View {
     let screenshot: LatestScreenshot?
     let skills: [NewThreadSkill]
     /// The project has `/` skills to pick from, but none used here yet.
     let offersSkills: Bool
     let sameAsLast: Bool
+    /// The open work lists there are to start from, with their totals.
+    var startFrom: [(kind: NewThreadStartFrom.Kind, label: String, total: Int)] = []
+    var openStartFrom: (NewThreadStartFrom.Kind) -> Void = { _ in }
     let attachScreenshot: (LatestScreenshot) -> Void
     let pickSkill: (NewThreadSkill) -> Void
     let openSkills: () -> Void
@@ -16,8 +20,9 @@ struct NewThreadSuggestions: View {
     @State private var thumbnail: UIImage?
     @Environment(\.displayScale) private var scale
 
-    static func shows(screenshot: LatestScreenshot?, skills: [NewThreadSkill], offersSkills: Bool, sameAsLast: Bool) -> Bool {
-        screenshot != nil || !skills.isEmpty || offersSkills || sameAsLast
+    static func shows(screenshot: LatestScreenshot?, skills: [NewThreadSkill], offersSkills: Bool, sameAsLast: Bool,
+                      startsFrom: Bool = false) -> Bool {
+        screenshot != nil || !skills.isEmpty || offersSkills || sameAsLast || startsFrom
     }
 
     var body: some View {
@@ -50,6 +55,18 @@ struct NewThreadSuggestions: View {
                     Button(action: openSkills) { capsule { Text("Skills") } }
                         .accessibilityHint("Lists this project's skills")
                         .accessibilityIdentifier("newThread.skills")
+                }
+                ForEach(startFrom, id: \.kind) { list in
+                    Button { openStartFrom(list.kind) } label: {
+                        capsule {
+                            HStack(spacing: AceDesign.Space.tight) {
+                                Text(list.label)
+                                Text(verbatim: "\(list.total)").monospacedDigit().foregroundStyle(AceDesign.Ink.subtle)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Start from one of \(list.total) open \(list.label.lowercased())")
+                    .accessibilityIdentifier("newThread.startFrom.\(list.kind.rawValue)")
                 }
                 if sameAsLast {
                     Button(action: restoreLast) { capsule { Text("Same as last time") } }

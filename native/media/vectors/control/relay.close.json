@@ -1,0 +1,9 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "relay.close",
+    "id": "source-1",
+    "stream": "source-1",
+    "reason": "value"
+  }
+}

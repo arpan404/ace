@@ -19,7 +19,7 @@ export type OptionalCapability =
   | "trace";
 
 /** What `storage.value.*` keeps: one value per key, each owned by one shared module. */
-export type KeptValueKey = "review" | "files";
+export type KeptValueKey = "review" | "files" | "runAlerts";
 
 /** Formats `inflate` expands. */
 export type InflateFormat = "gzip" | "deflate" | "deflate-raw";

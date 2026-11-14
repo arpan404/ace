@@ -30,6 +30,9 @@
       ],
       "type": "object"
     },
+    "hidden": {
+      "type": "boolean"
+    },
     "reason": {
       "maxLength": 1024,
       "type": "string"

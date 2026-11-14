@@ -1,6 +1,7 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import { definition, deferred, harness, start } from "./service-test-support.ts";
-import type { GhResponse } from "./index.ts";
+import { AutomationStore, type GhResponse } from "./index.ts";
 
 const github = () =>
   definition({
@@ -113,4 +114,95 @@ test("renaming an automation preserves its poll failure until another check succ
   expect(list(h).schedules?.[0]?.lastPollError?.message).toBe("GitHub sign-in required");
   h.restart();
   expect(list(h).schedules?.[0]?.lastPollError?.message).toBe("GitHub sign-in required");
+});
+
+test("the inbox can leave out runs that finished by a time, keeping runs still going", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  h.service.put(definition({ id: "long", prompt: "Review" }));
+  // The long run starts first and is still going while three short ones finish, a second apart.
+  h.service.trigger("long", { key: "long-0", variables: {} });
+  for (let index = 0; index < 3; index++) {
+    h.service.trigger("triage", { key: `short-${index}`, variables: {} });
+    await h.nextExecution(index + 1);
+    h.now = start + index * 1_000;
+    // `finish` waits for every run to settle; the long one is still going, so end this one alone.
+    h.completions[index + 1]?.resolve({
+      threadId: `t-${index}`,
+      status: "succeeded",
+      result: "Done",
+    });
+    await vi.waitFor(() =>
+      expect(h.service.inbox().runs.find((run) => run.eventKey === `short-${index}`)?.status).toBe(
+        "succeeded",
+      ),
+    );
+  }
+  const read = (finishedAfter: number, limit = 50, before?: number | null) =>
+    h.service.handle({
+      type: "automation.inbox",
+      requestId: `after-${finishedAfter}-${before ?? "top"}`,
+      limit,
+      finishedAfter,
+      ...(before ? { before } : {}),
+    }).inbox;
+  expect(read(start + 500)?.runs.map((run) => run.eventKey)).toEqual([
+    "short-2",
+    "short-1",
+    "long-0",
+  ]);
+  // Paged, it still leaves nothing out and repeats nothing.
+  const first = read(start + 500, 2);
+  const rest = read(start + 500, 2, first?.before);
+  expect([...(first?.runs ?? []), ...(rest?.runs ?? [])].map((run) => run.eventKey)).toEqual([
+    "short-2",
+    "short-1",
+    "long-0",
+  ]);
+  expect(rest?.before).toBeNull();
+  // The long run finishes last, so it is news after the newest short one.
+  h.now = start + 5_000;
+  await h.finish(0);
+  expect(read(start + 2_000)?.runs.map((run) => run.eventKey)).toEqual(["long-0"]);
+});
+
+test("runs saved before finish times had their own column are still left out by finish time", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  for (let index = 0; index < 3; index++) {
+    h.now = start + index * 1_000;
+    h.service.trigger("triage", { key: `old-${index}`, variables: {} });
+    await h.finish(index);
+  }
+  h.service.stop();
+  // The store as an older build left it: no finish-time column or its index.
+  const db = new DatabaseSync(h.storePath);
+  db.exec("DROP INDEX IF EXISTS automation_finished; DROP INDEX IF EXISTS automation_unfinished");
+  db.exec("ALTER TABLE automation_runs DROP COLUMN finished_at");
+  db.close();
+  const reopened = new AutomationStore(h.storePath);
+  expect(
+    reopened.inbox(50, undefined, undefined, start + 500).runs.map((run) => run.eventKey),
+  ).toEqual(["old-2", "old-1"]);
+  reopened.close();
+});
+
+test("a run an older build finished after the upgrade is still left out by finish time on reopen", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  for (let index = 0; index < 2; index++) {
+    h.now = start + index * 1_000;
+    h.service.trigger("triage", { key: `run-${index}`, variables: {} });
+    await h.finish(index);
+  }
+  h.service.stop();
+  // An older build that knows nothing of the column finished run-0 and left its finish time empty.
+  const db = new DatabaseSync(h.storePath);
+  db.prepare("UPDATE automation_runs SET finished_at=NULL WHERE event_key='run-0'").run();
+  db.close();
+  const reopened = new AutomationStore(h.storePath);
+  expect(
+    reopened.inbox(50, undefined, undefined, start + 500).runs.map((run) => run.eventKey),
+  ).toEqual(["run-1"]);
+  reopened.close();
 });
