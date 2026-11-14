@@ -7,6 +7,7 @@ import {
   pingEvery,
   pongDeadline,
   raceOrder,
+  raceStagger,
   smoothRtt,
   standbyFor,
   standbyRetryMs,
@@ -116,6 +117,8 @@ export class Multipath {
   #switching = false;
   #openingStandby = false;
   #lastWinner: string | undefined;
+  /** How long the last race took to open its winner: the next race's stagger follows it. */
+  #lastOpenMs: number | undefined;
   /** Paths that reached another daemon: never used again by this manager. */
   #refused = new Set<string>();
   #closed = false;
@@ -144,11 +147,14 @@ export class Multipath {
           this.#lastWinner,
         );
         const routes = this.#routes();
+        const startedAt = this.#options.now();
         return racingTransport({
           routes: order.flatMap((path) => routes.filter((route) => route.path.key === path.key)),
           scheduler: this.#options.scheduler,
+          staggerMs: raceStagger(this.#lastOpenMs),
           won: (route) => {
             this.#racing = route;
+            this.#lastOpenMs = this.#options.now() - startedAt;
           },
           failed: (route) => this.#failed(route),
         });

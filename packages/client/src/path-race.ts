@@ -17,8 +17,10 @@ export interface MachineRoute extends PathRoute {
 }
 
 export interface RaceOptions {
-  /** The paths to try, in order: the first starts at once, each next 150 ms later. */
+  /** The paths to try, in order: the first starts at once, each next `staggerMs` later. */
   routes: readonly MachineRoute[];
+  /** How long to wait for a path before starting the next; 150 ms when absent (`raceStagger`). */
+  staggerMs?: number;
   scheduler: Scheduler;
   /** `route` opened first: the connection says hello on it with that route's credential. */
   won(route: MachineRoute): void;
@@ -173,7 +175,7 @@ export function racingTransport(options: RaceOptions): Transport {
           },
         });
         if (!winner && next < options.routes.length)
-          cancelNext = options.scheduler.set(pathTiming.raceStaggerMs, start);
+          cancelNext = options.scheduler.set(options.staggerMs ?? pathTiming.raceStaggerMs, start);
       };
       if (!options.routes.length) {
         closed = true;

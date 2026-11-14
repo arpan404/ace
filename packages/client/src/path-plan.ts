@@ -7,8 +7,12 @@ import { MachinePath, type MachinePathKind } from "@ace/protocol";
 
 /** The timings ADR 0114 fixes. Tests and the manager read them from here. */
 export const pathTiming = {
-  /** A race starts the next path after this long without the previous one opening. */
+  /**
+   * A race starts the next path after this long without the previous one opening, at least;
+   * after a slow win it waits longer (`raceStagger`), up to `raceStaggerCapMs`.
+   */
   raceStaggerMs: 150,
+  raceStaggerCapMs: 2_000,
   pingVisibleMs: 5_000,
   pingHiddenMs: 15_000,
   /** The warm standby only proves it is alive. */
@@ -142,9 +146,25 @@ export function raceOrder(
   return soonest ? [soonest] : [];
 }
 
+/**
+ * How long a race waits for a path before starting the next, given how long the last race's
+ * winner took to open (`lastOpenMs`): 150 ms with nothing measured, else one and a half times
+ * that, within 150 ms and 2 s. Over a relay that opens in about 3 s, a fixed 150 ms would dial
+ * every path every time, doubling handshake bytes and grant fetches on a metered link. A path
+ * that fails fast still lets the next start at once.
+ */
+export function raceStagger(lastOpenMs: number | undefined): number {
+  if (lastOpenMs === undefined || !Number.isFinite(lastOpenMs)) return pathTiming.raceStaggerMs;
+  const scaled = Math.round(1.5 * Math.max(0, lastOpenMs));
+  return Math.min(pathTiming.raceStaggerCapMs, Math.max(pathTiming.raceStaggerMs, scaled));
+}
+
 /** When each path in a race starts, relative to the race's start. */
-export function raceSchedule(order: readonly PlannedPath[]): { path: PlannedPath; at: number }[] {
-  return order.map((path, index) => ({ path, at: index * pathTiming.raceStaggerMs }));
+export function raceSchedule(
+  order: readonly PlannedPath[],
+  staggerMs: number = pathTiming.raceStaggerMs,
+): { path: PlannedPath; at: number }[] {
+  return order.map((path, index) => ({ path, at: index * staggerMs }));
 }
 
 /** Paths better ranked than the active one and not resting: what an upgrade check probes. */
