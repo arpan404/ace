@@ -14,7 +14,9 @@ test("a coding the other side refuses with q=0 is never used", () => {
 });
 
 test("a body compressed either way reads back as sent", () => {
-  const body = Buffer.from(JSON.stringify({ threads: Array(200).fill({ state: "working" }) }));
+  const body = Buffer.from(
+    JSON.stringify({ threads: Array.from({ length: 200 }, () => ({ state: "working" })) }),
+  );
   for (const coding of ["zstd", "deflate"] as const) {
     const sent = encodeBody(body, coding);
     expect(sent.length).toBeLessThan(body.length / 4);

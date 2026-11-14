@@ -52,22 +52,29 @@ function directory() {
 
 test("a machine on a fast link keeps the base timeouts", async () => {
   const h = directory();
-  for (let i = 0; i < 5; i++) await h.machines.call("studio", origin, status, { timeoutMs: 10_000 });
+  for (let i = 0; i < 5; i++)
+    await h.machines.call("studio", origin, status, { timeoutMs: 10_000 });
   expect(h.timeouts.at(-1)).toBe(10_000);
 });
 
 test("a machine on a slow link is given longer to answer, within bounds", async () => {
   const h = directory();
   h.reply.ms = 3000;
-  for (let i = 0; i < 5; i++) await h.machines.call("studio", origin, status, { timeoutMs: 10_000 });
+  for (let i = 0; i < 5; i++)
+    await h.machines.call("studio", origin, status, { timeoutMs: 10_000 });
   const stretched = h.timeouts.at(-1) ?? 0;
   expect(stretched).toBeGreaterThan(10_000);
   expect(stretched).toBeLessThanOrEqual(50_000);
   // Work is never given a stretched timeout: only short reads are.
   await h.machines
-    .call("studio", origin, { op: "cancel", threadId: ThreadId.parse("child") }, {
-      timeoutMs: 15_000,
-    })
+    .call(
+      "studio",
+      origin,
+      { op: "cancel", threadId: ThreadId.parse("child") },
+      {
+        timeoutMs: 15_000,
+      },
+    )
     .catch(() => {});
   expect(h.timeouts.at(-1)).toBe(15_000);
 });

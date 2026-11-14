@@ -136,11 +136,10 @@ export class MachineDirectory {
           const known = this.seen.get(profile.name);
           // It answered other calls moments ago: it is there, only slow over this link.
           if (error instanceof MachineTimeout && known && this.answeredRecently(profile.name))
-            return {
-              ...known,
-              status: "online",
+            return Object.assign({}, known, {
+              status: "online" as const,
               next: "Answering slowly over this link; what is shown may be a little old.",
-            };
+            });
           if (!offline) this.seen.delete(profile.name);
           // Transfers don't need agent access there (ADR 0101): list a machine that takes them.
           if (!offline && this.deps.transfers) {

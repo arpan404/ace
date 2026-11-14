@@ -52,6 +52,22 @@ interface Seen {
   answers: string[];
 }
 
+// An older build: JSON bodies only, answered as they are, and no word of what it reads.
+function older(request: IncomingMessage, response: ServerResponse) {
+  const chunks: Buffer[] = [];
+  request.on("data", (chunk: Buffer) => chunks.push(chunk));
+  request.on("end", () => {
+    response.setHeader("Content-Type", "application/json");
+    try {
+      JSON.parse(Buffer.concat(chunks).toString());
+    } catch {
+      response.writeHead(400).end(JSON.stringify({ error: "invalid" }));
+      return;
+    }
+    response.writeHead(200).end(JSON.stringify(bigAnswer));
+  });
+}
+
 /** A machine running this build's handler, answering every call with `bigAnswer`. */
 async function machine(mode: { old: boolean } = { old: false }) {
   const seen: Seen = { requests: [], answers: [] };
@@ -60,21 +76,6 @@ async function machine(mode: { old: boolean } = { old: false }) {
     (presented) => (presented === token ? device : undefined),
     (_request, response) => response.writeHead(404).end(),
   );
-  // An older build: JSON bodies only, answered as they are, and no word of what it reads.
-  const older = (request: IncomingMessage, response: ServerResponse) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      response.setHeader("Content-Type", "application/json");
-      try {
-        JSON.parse(Buffer.concat(chunks).toString());
-      } catch {
-        response.writeHead(400).end(JSON.stringify({ error: "invalid" }));
-        return;
-      }
-      response.writeHead(200).end(JSON.stringify(bigAnswer));
-    });
-  };
   const listener = sniListener({
     tls: identity,
     requests: (request, response) => {

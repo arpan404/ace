@@ -36,11 +36,7 @@ import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { cachedProfiles, fileStamp } from "../machines/profile-cache.ts";
-import {
-  TransferClient,
-  transferTransport,
-  type TransferTransport,
-} from "../transfers/client.ts";
+import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
 import { readLocalToken } from "../local-token.ts";
@@ -232,8 +228,7 @@ export function startMachines(context: ServiceContext): void {
       maxAgeMs: 60_000,
     }),
     transport: options.machines?.transport ?? machineRequest,
-    transfers: async (profile) =>
-      new TransferClient(probes, profile).probe(),
+    transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
     // Sim tools are offered here while a linked machine lends its devices, even with ours off.
     served: () => services.mcp?.toolsChanged(),
@@ -259,8 +254,7 @@ export function startMachines(context: ServiceContext): void {
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
     hostName,
-    transfers: (profile) =>
-      new TransferClient(probes, profile).probe(),
+    transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;

@@ -466,10 +466,7 @@ export class MachineCaller {
     let stop: (() => void) | undefined;
     let done = false;
     // Read every poll at first and after any change there, slower while nothing changes.
-    const pace = new QuietBackoff(
-      this.deps.pollMs,
-      this.deps.pollMs * SESSION_WATCH_SLOWEST_POLLS,
-    );
+    const pace = new QuietBackoff(this.deps.pollMs, this.deps.pollMs * SESSION_WATCH_SLOWEST_POLLS);
     let seen = "[]";
     const watch = (delay = pace.waitMs) => {
       stop = this.deps.schedule(delay, () => {
