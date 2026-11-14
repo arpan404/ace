@@ -133,3 +133,28 @@ it("a resume whose small snapshot would not reach the cursor replays instead", (
   // A snapshot that holds everything after the cursor is still preferred.
   expect(reconnect(store, a.id, cursor, 5000).map((sent) => sent.type)).toEqual(["snapshot"]);
 });
+
+it.each([
+  ["deleted", (id: string) => ({ type: "item.deleted" as const, itemId: message(id).id })],
+  ["edited", (id: string) => ({ type: "item.updated" as const, item: message(id, "edited") })],
+])(
+  "a resume where an item older than the snapshot was %s replays, so the change arrives",
+  (_change, change) => {
+    const { store, a } = setup();
+    for (let index = 0; index < 40; index++)
+      store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+    const cursor = store.headSeq();
+    // While the client is away, an item older than any small snapshot holds changes.
+    store.appendEvents(a.id, [change("old0")]);
+    streamTurn(store, a.id, "long", 4000);
+    const wire = reconnect(store, a.id, cursor, 5000, { items: 30, bytes: 64 * 1024 });
+    const delivered = wire.flatMap((sent) => (sent.type === "events" ? sent.events : []));
+    expect(
+      delivered.some(
+        (event) =>
+          (event.payload.type === "item.deleted" && event.payload.itemId === "old0") ||
+          (event.payload.type === "item.updated" && event.payload.item.id === "old0"),
+      ),
+    ).toBe(true);
+  },
+);

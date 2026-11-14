@@ -101,19 +101,35 @@ function replayFrames(events: Event[], encoder: WireEncoder): Event[][] {
 /** A thread replay at or under this many bytes is sent without weighing a snapshot against it. */
 const replayCompareBytes = 16 * 1024;
 /**
- * `message` when it costs fewer bytes than a replay of `replayBytes` and holds every item
- * created after `afterSeq`: the client then keeps the history it holds (ADR 0062) instead of
- * reading it again.
+ * `message` when it costs fewer bytes than a replay of `replayBytes` (the `missed` events) and
+ * the client ends where the replay would leave it. The snapshot must hold every item created
+ * after `afterSeq`, so the client keeps the history it holds (ADR 0062) instead of reading it
+ * again. And no missed event may change an item the snapshot does not carry: the client keeps
+ * its own copy of such an older item, so an edit or deletion of it would never arrive.
  */
 function smallerSnapshot(
   message: ServerMessage,
   afterSeq: number,
+  missed: readonly Event[],
   replayBytes: number,
   encoder: WireEncoder,
 ): ServerMessage | undefined {
   if (message.type !== "snapshot" || message.view.kind !== "thread") return undefined;
-  const before = message.view.itemsBefore;
-  if (before !== null && before > afterSeq + 1) return undefined;
+  const view = message.view;
+  if (view.itemsBefore !== null && view.itemsBefore > afterSeq + 1) return undefined;
+  const created = new Set<string>();
+  for (const event of missed) {
+    const payload = event.payload;
+    if (payload.type === "item.created") created.add(payload.item.id);
+    const changed =
+      payload.type === "item.updated"
+        ? payload.item.id
+        : payload.type === "item.delta" || payload.type === "item.deleted"
+          ? payload.itemId
+          : undefined;
+    if (changed !== undefined && !created.has(changed) && !Object.hasOwn(view.items, changed))
+      return undefined;
+  }
   return Buffer.byteLength(encoder.encode(message)) < replayBytes ? message : undefined;
 }
 
@@ -290,7 +306,7 @@ export function subscribe(
         // transcript from it, ADR 0062). Small replays skip the comparison.
         const cheaper =
           scope.kind === "thread" && bytes > replayCompareBytes
-            ? smallerSnapshot(snapshot(), afterSeq, bytes, encoder)
+            ? smallerSnapshot(snapshot(), afterSeq, events, bytes, encoder)
             : undefined;
         if (
           overflows ||
