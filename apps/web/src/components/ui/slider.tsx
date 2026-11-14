@@ -15,6 +15,8 @@ function Slider({
   return (
     <SliderPrimitive.Root
       data-slot="slider"
+      data-part="slider"
+      data-state={props.disabled ? "disabled" : undefined}
       className={cn("w-40 data-disabled:opacity-50", className)}
       {...props}
     >

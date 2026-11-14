@@ -54,6 +54,9 @@ function SheetContent({
       <SheetOverlay />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
+        data-part="dialog"
+        data-variant="sheet"
+        data-state="open"
         data-side={side}
         className={cn(
           layers.modal,

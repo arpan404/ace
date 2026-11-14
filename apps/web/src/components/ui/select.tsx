@@ -63,6 +63,8 @@ function Select<T extends string>(props: {
         // A default-size select takes a settings row's shared width; one given a width keeps it.
         data-slot={props.className ? undefined : "select"}
         id={props.id}
+        data-part="select"
+        data-state={props.disabled ? "disabled" : undefined}
         aria-label={props.label}
         aria-required={props.required || undefined}
         aria-invalid={props["aria-invalid"] || undefined}
@@ -87,7 +89,12 @@ function Select<T extends string>(props: {
           sideOffset={6}
           className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
         >
-          <SelectPrimitive.Popup className={cn(material, popupFrame, "min-w-(--anchor-width)")}>
+          <SelectPrimitive.Popup
+            data-part="menu"
+            data-variant="select"
+            data-state="open"
+            className={cn(material, popupFrame, "min-w-(--anchor-width)")}
+          >
             <SelectPrimitive.List className="max-h-64 overflow-y-auto">
               {grouped(props.options).map((run) =>
                 run.group === undefined ? (
@@ -117,6 +124,9 @@ function SelectItem<T extends string>({ option }: { option: SelectOption<T> }) {
       value={option.value}
       aria-label={option.label}
       disabled={option.disabled}
+      data-part="menu-item"
+      data-variant="option"
+      data-state={option.disabled ? "disabled" : undefined}
       className={menuItem}
     >
       {option.icon}

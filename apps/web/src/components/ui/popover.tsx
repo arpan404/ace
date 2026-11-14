@@ -61,6 +61,8 @@ function PopoverContent({
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
+          data-part="popover"
+          data-state="open"
           className={cn(material, popupFrame, popupBounds, className)}
           {...props}
         >

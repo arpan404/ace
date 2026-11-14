@@ -20,6 +20,7 @@ function EmptyState(props: {
     return (
       <div
         data-slot="empty"
+        data-part="empty-state"
         data-variant="inline"
         className={cn(
           "flex flex-col items-start gap-1 px-4 pt-3 text-ui leading-normal text-muted-foreground",
@@ -35,6 +36,7 @@ function EmptyState(props: {
   return (
     <div
       data-slot="empty"
+      data-part="empty-state"
       className={cn(
         "flex h-full min-h-0 flex-col items-center justify-center gap-1 px-5 py-6 text-center",
         props.className,

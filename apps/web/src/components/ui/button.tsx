@@ -58,7 +58,9 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      data-part="button"
       data-variant={variant ?? "secondary"}
+      data-state={props.disabled ? "disabled" : undefined}
       className={cn(buttonVariants({ variant, tone, size }), className)}
       {...props}
     />

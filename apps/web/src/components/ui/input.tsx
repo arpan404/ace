@@ -5,7 +5,11 @@ const field =
   "w-full min-w-0 rounded-md bg-(--field) px-2.5 text-ui text-foreground shadow-[inset_0_0_0_1px_var(--border),var(--depth-well)] outline-none transition-shadow duration-(--motion-fast) placeholder:text-subtle-foreground focus-visible:shadow-[0_0_0_1px_color-mix(in_oklab,var(--ring)_50%,transparent)] disabled:opacity-50 aria-invalid:shadow-[0_0_0_1px_var(--destructive)] pointer-coarse:text-[16px]";
 
 function Input({ className, ...props }: InputPrimitive.Props) {
-  return <InputPrimitive data-slot="input" className={cn(field, "h-8", className)} {...props} />;
+  return <InputPrimitive
+      data-slot="input"
+      data-part="input"
+      data-state={props.disabled ? "disabled" : undefined}
+      className={cn(field, "h-8", className)} {...props} />;
 }
 
 /**
@@ -16,6 +20,9 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       data-slot="textarea"
+      data-part="input"
+      data-variant="multiline"
+      data-state={props.disabled ? "disabled" : undefined}
       className={cn(
         field,
         "max-h-[40vh] min-h-20 resize-none py-2 leading-normal [field-sizing:content]",

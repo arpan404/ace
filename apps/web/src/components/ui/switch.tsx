@@ -6,6 +6,8 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
+      data-part="switch"
+      data-state={props.disabled ? "disabled" : props.checked ? "checked" : undefined}
       className={cn(
         "relative inline-flex h-5 w-[34px] shrink-0 rounded-full bg-input p-0.5 transition-colors duration-(--motion-base) data-checked:bg-ring disabled:opacity-50",
         "focus-ring touch-hit touch-hit-lg",
