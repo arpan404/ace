@@ -112,7 +112,8 @@ struct FileScreen: View {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts)
+                LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
+                                  marks: content.markedLines)
             case "binary":
                 EmptyState(systemImage: "doc", title: "Binary file",
                            line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
@@ -130,7 +131,8 @@ struct FileScreen: View {
                 }
             default:
                 if inParts {
-                    LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts)
+                    LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts,
+                                  marks: content.markedLines)
                 } else {
                     textBody(content)
                 }
@@ -156,7 +158,7 @@ struct FileScreen: View {
         } else {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
                                                     language: content.language,
-                                                    marks: Dictionary((content.marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { a, _ in a })),
+                                                    marks: content.markedLines),
                            wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
                            selected: mention == nil ? nil : { selectedLines = $0 },
                            mention: mention == nil ? nil : { mentionSelection($0) })
