@@ -183,13 +183,13 @@ export class KeptAnswers {
 
   /** Drops the answers of every thread the client no longer holds. */
   sweep(): void {
-    for (const threadId of [...this.#byThread.keys()])
+    for (const threadId of this.#byThread.keys())
       if (!this.#holds(threadId)) this.purgeThread(threadId);
   }
 
   /** Drops every kept answer and height of one thread. */
   purgeThread(threadId: string): void {
-    for (const key of [...(this.#byThread.get(threadId) ?? [])]) {
+    for (const key of this.#byThread.get(threadId) ?? []) {
       const entry = this.#cache.take(key);
       if (entry) disposeKeptAnswer(entry.answer);
       this.#heights.delete(key);
