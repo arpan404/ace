@@ -62,11 +62,10 @@ impl Fixture {
             .iter()
             .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
             .collect();
-        if settings.iter().any(|(k, _)| *k == "FAKE_ONCE") {
-            for (key, value) in &mut owned {
-                if key == "FAKE_ONCE" {
-                    *value = dir.join(value.as_str()).display().to_string();
-                }
+        // File settings name files inside the fixture's directory.
+        for (key, value) in &mut owned {
+            if key == "FAKE_ONCE" || key == "FAKE_LOG" {
+                *value = dir.join(value.as_str()).display().to_string();
             }
         }
         let borrowed: Vec<(&str, &str)> = owned
@@ -78,6 +77,7 @@ impl Fixture {
         let mut options = ChromeOptions::new(script, dir.join("profiles"));
         options.startup_timeout = Duration::from_secs(10);
         options.reply_timeout = Duration::from_secs(3);
+        options.restart_backoff = Duration::from_millis(20);
         Ok((Self { dir }, options))
     }
 }
@@ -210,12 +210,21 @@ fn a_crashed_browser_is_replaced_and_the_stream_resumes_at_a_keyframe() -> Resul
     }
     // The third picture kills the browser; it never comes out.
     encoder.encode(picture(SIZE, 2)?, false)?;
+    // The death is reported once by poll_result, not hidden.
     let deadline = Instant::now() + Duration::from_secs(5);
+    let reported = loop {
+        match encoder.poll_result() {
+            Err(CodecError::Backend(reason)) => break reason,
+            Ok(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            other => return Err(CodecError::Backend(format!("no death reported: {other:?}"))),
+        }
+    };
+    assert!(reported.contains("next picture"), "{reported}");
+    assert_eq!(encoder.poll_result(), Ok(None));
     let mut resumed = None;
     let mut pts = 3;
     while resumed.is_none() && Instant::now() < deadline {
-        // A picture sent into the dying browser may fail; the next one starts a new browser.
-        let _ = encoder.encode(picture(SIZE, pts)?, false);
+        encoder.encode(picture(SIZE, pts)?, false)?;
         pts += 1;
         std::thread::sleep(Duration::from_millis(20));
         resumed = encoder.poll_result()?;
@@ -245,6 +254,9 @@ fn a_browser_that_keeps_dying_is_given_up_on() -> Result<(), CodecError> {
         matches!(&last, Err(CodecError::Backend(reason)) if reason.contains("keeps exiting")),
         "{last:?}"
     );
+    // Given up for good: every call says so.
+    assert_eq!(encoder.poll_result(), last.clone().map(|()| None));
+    assert_eq!(encoder.configure(&spec(SIZE)), last);
     Ok(())
 }
 
@@ -276,5 +288,129 @@ fn dropping_the_encoder_closes_the_browser_and_removes_its_profile() -> Result<(
         .map(|entries| entries.count())
         .unwrap_or(0);
     assert_eq!(profiles, 0);
+    Ok(())
+}
+
+#[test]
+fn failed_launches_count_toward_the_restart_budget_and_back_off() -> Result<(), CodecError> {
+    let (fixture, options) = Fixture::new(
+        "launch",
+        &[("FAKE_DIE_AT_START", "1"), ("FAKE_LOG", "starts")],
+    )?;
+    let max = options.max_restarts;
+    let mut encoder = ChromeEncoder::new(options);
+    let mut outcomes = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let outcome = encoder.configure(&spec(SIZE));
+        let gave_up = matches!(&outcome, Err(CodecError::Backend(reason)) if reason.contains("keeps failing"));
+        outcomes.push(outcome);
+        if gave_up || Instant::now() > deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(
+        outcomes.contains(&Err(CodecError::Backpressure)),
+        "a relaunch waits for its backoff"
+    );
+    let starts = std::fs::read_to_string(fixture.dir.join("starts")).unwrap_or_default();
+    assert_eq!(starts.lines().count(), max as usize + 1);
+    // No more launches once given up.
+    for _ in 0..5 {
+        assert!(encoder.configure(&spec(SIZE)).is_err());
+    }
+    let starts = std::fs::read_to_string(fixture.dir.join("starts")).unwrap_or_default();
+    assert_eq!(starts.lines().count(), max as usize + 1);
+    Ok(())
+}
+
+fn ended_by_flood(flood: &str, expected: &str) -> Result<(), CodecError> {
+    let (_fixture, options) = Fixture::new(&format!("flood-{expected}"), &[("FAKE_FLOOD", flood)])?;
+    let mut encoder = ChromeEncoder::new(options);
+    encoder.configure(&spec(SIZE))?;
+    encoder.encode(picture(SIZE, 0)?, false)?;
+    // Nobody takes the chunks while the page floods.
+    std::thread::sleep(Duration::from_secs(1));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match encoder.poll_result() {
+            Ok(Some(_)) => {}
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            Ok(None) => {
+                return Err(CodecError::Backend(
+                    "the flood never ended the session".into(),
+                ));
+            }
+            Err(CodecError::Backend(reason)) => {
+                assert!(reason.contains(expected), "{reason}");
+                return Ok(());
+            }
+            Err(other) => return Err(other),
+        }
+    }
+}
+
+#[test]
+fn a_page_that_floods_bytes_nobody_takes_is_ended() -> Result<(), CodecError> {
+    ended_by_flood("80:1048576", "bytes")
+}
+
+#[test]
+fn a_page_that_floods_events_nobody_takes_is_ended() -> Result<(), CodecError> {
+    ended_by_flood("400:16", "events")
+}
+
+/// The other half of the parent-death test: a process that owns an encoder, then is killed.
+#[test]
+fn owner_entry() -> Result<(), CodecError> {
+    let Some(dir) = std::env::var_os("MEDIA_CHROME_OWNER").map(PathBuf::from) else {
+        return Ok(());
+    };
+    let mut encoder = ChromeEncoder::new(ChromeOptions::new(
+        dir.join("fake-chrome"),
+        dir.join("profiles"),
+    ));
+    encoder.configure(&spec(SIZE))?;
+    let pid = encoder.browser_pid().ok_or(CodecError::NotConfigured)?;
+    std::fs::write(dir.join("browser.pid"), pid.to_string())
+        .map_err(|e| CodecError::Backend(e.to_string()))?;
+    std::thread::sleep(Duration::from_secs(60));
+    Ok(())
+}
+
+#[test]
+fn the_browser_exits_when_its_owner_is_killed() -> Result<(), CodecError> {
+    let (fixture, _) = Fixture::new("owner", &[])?;
+    let io = |e: std::io::Error| CodecError::Backend(e.to_string());
+    let mut owner = std::process::Command::new(std::env::current_exe().map_err(io)?)
+        .args(["--exact", "owner_entry", "--test-threads=1", "--quiet"])
+        .env("MEDIA_CHROME_OWNER", &fixture.dir)
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .map_err(io)?;
+    let pid_file = fixture.dir.join("browser.pid");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let browser = loop {
+        if let Some(pid) = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|t| t.parse::<u32>().ok())
+        {
+            break pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the owner never started its browser"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(process_running(browser));
+    owner.kill().map_err(io)?;
+    owner.wait().map_err(io)?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_running(browser) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!process_running(browser), "the browser outlived its owner");
     Ok(())
 }

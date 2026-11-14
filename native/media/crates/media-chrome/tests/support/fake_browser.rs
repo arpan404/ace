@@ -7,7 +7,10 @@
 //! - `FAKE_EXIT_AFTER=n`: exit after the nth picture (once per `FAKE_ONCE` marker file, if set);
 //! - `FAKE_STALL=1`: take pictures and never answer them;
 //! - `FAKE_REFUSE_WIDTH=w`: refuse configurations of that width;
-//! - `FAKE_NO_PAGE=1`: answer the pipe but never open the page.
+//! - `FAKE_NO_PAGE=1`: answer the pipe but never open the page;
+//! - `FAKE_DIE_AT_START=1`: exit at once, as a browser that can't start does;
+//! - `FAKE_FLOOD=n:bytes`: answer the first picture with n chunks of that many bytes;
+//! - `FAKE_LOG=path`: append a line to the file at every start.
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -88,6 +91,10 @@ fn page(url: String) {
     });
     let stall = std::env::var_os("FAKE_STALL").is_some();
     let refuse = env_u32("FAKE_REFUSE_WIDTH");
+    let flood = std::env::var("FAKE_FLOOD").ok().and_then(|value| {
+        let (count, bytes) = value.split_once(':')?;
+        Some((count.parse::<u32>().ok()?, bytes.parse::<usize>().ok()?))
+    });
     let _ = output.send(Message::text(r#"{"t":"hello","quantizer":true}"#));
     let mut pictures = 0;
     let mut generation = 0;
@@ -118,6 +125,16 @@ fn page(url: String) {
                 if stall {
                     continue;
                 }
+                if let Some((count, size)) = flood {
+                    for index in 0..count {
+                        let mut reply = chunk(index, generation, false, 0);
+                        reply.resize(reply.len() + size, 0);
+                        if output.send(Message::binary(reply)).is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 let mut timestamp = [0u8; 8];
                 timestamp.copy_from_slice(&bytes[24..32]);
                 let reply = chunk(
@@ -138,6 +155,16 @@ fn page(url: String) {
 
 /// The fake browser's main: serves the pipe until `Browser.close` or end of file.
 pub fn run() {
+    if let Ok(log) = std::env::var("FAKE_LOG") {
+        let _ = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(log)
+            .and_then(|mut file| file.write_all(b"start\n"));
+    }
+    if std::env::var_os("FAKE_DIE_AT_START").is_some() {
+        std::process::exit(1);
+    }
     let (Ok(commands), Ok(mut replies)) = (
         std::fs::File::open("/dev/fd/3"),
         std::fs::OpenOptions::new().write(true).open("/dev/fd/4"),

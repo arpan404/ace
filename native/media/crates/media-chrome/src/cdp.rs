@@ -8,19 +8,20 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::thread::JoinHandle;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::time::{Duration, Instant};
 
 pub struct Pipe {
     writer: Box<dyn Write + Send>,
     replies: Receiver<Value>,
     next_id: u64,
-    reader: Option<JoinHandle<()>>,
 }
 
 /// The largest message read from Chrome; the browser target's replies are small.
 const MAX_MESSAGE: usize = 1024 * 1024;
+/// Replies not yet taken. Commands go one at a time, so more than this means Chrome is sending
+/// replies nobody asked for: the browser is treated as gone.
+pub const MAX_QUEUED_REPLIES: usize = 16;
 
 impl Pipe {
     /// `alive` turns false when Chrome closes its end (it exited or crashed).
@@ -29,16 +30,20 @@ impl Pipe {
         reader: Box<dyn Read + Send>,
         alive: Arc<AtomicBool>,
     ) -> Self {
-        let (sender, replies) = channel();
-        let reader = std::thread::Builder::new()
+        let (sender, replies) = sync_channel(MAX_QUEUED_REPLIES);
+        let thread_alive = alive.clone();
+        let started = std::thread::Builder::new()
             .name("media-chrome-cdp".into())
-            .spawn(move || read_messages(reader, &sender, &alive))
-            .ok();
+            .spawn(move || read_messages(reader, &sender, &thread_alive));
+        if started.is_err() {
+            alive.store(false, Ordering::SeqCst);
+        }
+        // The reader is never joined: it ends at end of file, which closing the browser causes,
+        // and nothing waits on it.
         Self {
             writer,
             replies,
             next_id: 0,
-            reader,
         }
     }
 
@@ -80,16 +85,7 @@ impl Pipe {
     }
 }
 
-impl Drop for Pipe {
-    fn drop(&mut self) {
-        // The reader ends when Chrome's end closes, which the session makes sure of first.
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
-    }
-}
-
-fn read_messages(reader: Box<dyn Read + Send>, replies: &Sender<Value>, alive: &AtomicBool) {
+fn read_messages(reader: Box<dyn Read + Send>, replies: &SyncSender<Value>, alive: &AtomicBool) {
     let mut reader = BufReader::new(reader);
     let mut message = Vec::new();
     loop {
@@ -110,7 +106,10 @@ fn read_messages(reader: Box<dyn Read + Send>, replies: &Sender<Value>, alive: &
             continue;
         };
         if value.get("id").is_some() {
-            let _ = replies.send(value);
+            match replies.try_send(value) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => break,
+            }
         } else if value.get("method").and_then(Value::as_str) == Some("Inspector.targetCrashed")
             || value.get("method").and_then(Value::as_str) == Some("Target.targetCrashed")
         {

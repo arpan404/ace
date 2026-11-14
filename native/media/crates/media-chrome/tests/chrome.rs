@@ -181,15 +181,27 @@ fn a_killed_chrome_is_restarted_and_encoding_resumes_at_a_keyframe() -> Result<(
     assert!(killed.success());
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut index = 3u64;
+    let mut reported = 0;
     let resumed = loop {
         assert!(Instant::now() < deadline, "encoding did not resume");
         let _ = encoder.encode(Picture::Cpu(rgba(SIZE, index)?), false);
         index += 1;
         std::thread::sleep(Duration::from_millis(30));
-        if let Some(unit) = encoder.poll_result()? {
-            break unit;
+        match encoder.poll_result() {
+            Ok(Some(unit)) => break unit,
+            Ok(None) => {}
+            Err(CodecError::Backend(_)) => reported += 1,
+            Err(other) => return Err(other),
         }
     };
+    // The death is reported exactly once, whichever call noticed it first; a report queued
+    // by a restart comes after the units already out.
+    for _ in 0..3 {
+        if let Err(CodecError::Backend(_)) = encoder.poll_result() {
+            reported += 1;
+        }
+    }
+    assert_eq!(reported, 1);
     assert!(resumed.key);
     assert_h264(&resumed);
     assert_eq!(encoder.restarts(), 1);
@@ -226,4 +238,94 @@ fn the_probe_trial_reports_a_working_software_encoder() {
     assert!(!capability.hardware && !capability.zero_copy);
     assert!(capability.max_width > 0);
     let _ = std::fs::remove_dir_all(profiles);
+}
+
+/// Processes in a process group, from `pgrep -g`.
+fn group_members(group: u32) -> usize {
+    std::process::Command::new("pgrep")
+        .args(["-g", &group.to_string()])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).lines().count())
+        .unwrap_or(0)
+}
+
+#[test]
+fn dropping_the_encoder_ends_every_chrome_process() -> Result<(), CodecError> {
+    let Some((mut encoder, profiles)) = encoder("tree") else {
+        return Ok(());
+    };
+    encoder.configure(&spec(SIZE))?;
+    encoder.encode(Picture::Cpu(rgba(SIZE, 0)?), false)?;
+    next_unit(&mut encoder)?;
+    let group = encoder.browser_pid().ok_or(CodecError::NotConfigured)?;
+    assert!(group_members(group) > 1, "Chrome runs helpers in its group");
+    drop(encoder);
+    assert_eq!(group_members(group), 0);
+    assert_eq!(
+        std::fs::read_dir(&profiles).map(|e| e.count()).unwrap_or(0),
+        0
+    );
+    let _ = std::fs::remove_dir_all(profiles);
+    Ok(())
+}
+
+/// The owner half of the parent-death test.
+#[test]
+fn chrome_owner_entry() -> Result<(), CodecError> {
+    let Some(dir) = std::env::var_os("MEDIA_CHROME_REAL_OWNER").map(PathBuf::from) else {
+        return Ok(());
+    };
+    let Some((mut encoder, _)) = encoder("owner") else {
+        return Ok(());
+    };
+    encoder.configure(&spec(SIZE))?;
+    let pid = encoder.browser_pid().ok_or(CodecError::NotConfigured)?;
+    std::fs::write(dir.join("browser.pid"), pid.to_string())
+        .map_err(|e| CodecError::Backend(e.to_string()))?;
+    std::thread::sleep(Duration::from_secs(60));
+    Ok(())
+}
+
+#[test]
+fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), CodecError> {
+    if chrome().is_none() {
+        return Ok(());
+    }
+    let io = |e: std::io::Error| CodecError::Backend(e.to_string());
+    let dir = std::env::temp_dir().join(format!("media-chrome-real-owner-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(io)?;
+    let mut owner = std::process::Command::new(std::env::current_exe().map_err(io)?)
+        .args([
+            "--exact",
+            "chrome_owner_entry",
+            "--test-threads=1",
+            "--quiet",
+        ])
+        .env("MEDIA_CHROME_REAL_OWNER", &dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(io)?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let group = loop {
+        if let Some(pid) = std::fs::read_to_string(dir.join("browser.pid"))
+            .ok()
+            .and_then(|t| t.parse::<u32>().ok())
+        {
+            break pid;
+        }
+        assert!(Instant::now() < deadline, "the owner never started Chrome");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(group_members(group) > 0);
+    owner.kill().map_err(io)?;
+    owner.wait().map_err(io)?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while group_members(group) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(group_members(group), 0, "Chrome outlived its owner");
+    let _ = std::fs::remove_dir_all(dir);
+    Ok(())
 }

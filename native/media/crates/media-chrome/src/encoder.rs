@@ -2,7 +2,14 @@
 //! `ChromeEncoder`: media-codec's `Encoder` on a supervised headless Chrome. Chrome starts with
 //! the first configuration. If it crashes or is killed, the next picture starts another one,
 //! configures it the same way and is encoded as a keyframe, so the stream resumes decodable.
-//! Restarts that never produce a chunk are bounded; past the bound the encoder reports failure.
+//!
+//! - **Bounded restarts.** Browsers that exit before a chunk comes out and launches that fail
+//!   both count; a failed launch is retried after a doubling backoff (pictures meanwhile get
+//!   `Backpressure`). Past `max_restarts` the encoder has given up for good: every call returns
+//!   the same error, and the owner makes a new encoder if it wants to try again.
+//! - **Errors from `poll_result`.** A browser that died and a page whose encoder failed are each
+//!   reported once, after every chunk that did come out. They are not fatal: the next picture
+//!   starts a new browser or configures a new page encoder, and is encoded as a keyframe.
 
 use crate::session::{Event, Session};
 use crate::wire::{Command, Notice, PictureHeader, picture_format, picture_message};
@@ -12,7 +19,7 @@ use media_codec::{
     RateControl, Size,
 };
 use std::collections::VecDeque;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Pictures sent to the page whose chunks haven't come back. More is refused as backpressure:
 /// a software encoder that falls behind should drop at the source, not queue.
@@ -33,8 +40,17 @@ pub struct ChromeEncoder {
     key_owed: bool,
     description: Option<Vec<u8>>,
     output: VecDeque<EncodedUnit>,
-    failure: Option<CodecError>,
-    /// Restarts since the last chunk.
+    /// The page's encoder failed: the next picture configures a new one.
+    reconfigure: bool,
+    /// An error for `poll_result` to report once.
+    report: Option<CodecError>,
+    /// The current browser's death was reported.
+    death_reported: bool,
+    /// Set once the restart budget is spent; returned by every call after.
+    given_up: Option<CodecError>,
+    /// No relaunch before this, after a failed one.
+    retry_at: Option<Instant>,
+    /// Browser deaths and failed launches since the last chunk.
     restarts_without_output: u32,
     restarts: u64,
     quantizer: bool,
@@ -55,7 +71,11 @@ impl ChromeEncoder {
             key_owed: true,
             description: None,
             output: VecDeque::new(),
-            failure: None,
+            reconfigure: false,
+            report: None,
+            death_reported: false,
+            given_up: None,
+            retry_at: None,
             restarts_without_output: 0,
             restarts: 0,
             quantizer: false,
@@ -74,26 +94,59 @@ impl ChromeEncoder {
     }
 
     fn session(&mut self) -> Result<&mut Session, CodecError> {
+        if let Some(error) = &self.given_up {
+            return Err(error.clone());
+        }
         if self
             .session
             .as_ref()
             .is_some_and(|session| !session.alive())
         {
+            if !self.death_reported
+                && let Some(session) = &self.session
+            {
+                // Found by a picture before poll_result saw it: still reported, once.
+                self.report = Some(CodecError::Backend(format!(
+                    "{}; a new browser took over at a keyframe",
+                    session.end_reason()
+                )));
+            }
+            // Dropping it closes what is left of the old browser's tree.
             self.session = None;
             self.restarts += 1;
             self.restarts_without_output += 1;
+            // Chunks of the old browser are gone with it.
+            self.in_flight = 0;
         }
         if self.session.is_none() {
             if self.restarts_without_output > self.options.max_restarts {
-                return Err(CodecError::Backend(
-                    "Chrome keeps exiting before it encodes".into(),
-                ));
+                return Err(self.give_up("Chrome keeps exiting before it encodes".into()));
             }
-            let session = Session::start(&self.options)?;
-            self.quantizer = session.quantizer;
-            // Chunks of the old browser are gone with it.
-            self.in_flight = 0;
-            self.session = Some(session);
+            if self.retry_at.is_some_and(|at| Instant::now() < at) {
+                return Err(CodecError::Backpressure);
+            }
+            match Session::start(&self.options) {
+                Ok(session) => {
+                    self.retry_at = None;
+                    self.quantizer = session.quantizer;
+                    self.in_flight = 0;
+                    self.death_reported = false;
+                    self.reconfigure = false;
+                    self.key_owed = true;
+                    self.session = Some(session);
+                }
+                Err(error) => {
+                    self.restarts_without_output += 1;
+                    if self.restarts_without_output > self.options.max_restarts {
+                        return Err(self.give_up(format!("Chrome keeps failing to start: {error}")));
+                    }
+                    let doublings = (self.restarts_without_output - 1).min(5);
+                    let wait = (self.options.restart_backoff * (1u32 << doublings))
+                        .min(Duration::from_secs(2));
+                    self.retry_at = Some(Instant::now() + wait);
+                    return Err(error);
+                }
+            }
             if let Some(spec) = self.spec.clone() {
                 self.send_configure(&spec)?;
             }
@@ -101,6 +154,13 @@ impl ChromeEncoder {
         self.session
             .as_mut()
             .ok_or_else(|| CodecError::Backend("no browser".into()))
+    }
+
+    fn give_up(&mut self, reason: String) -> CodecError {
+        let error = CodecError::Backend(reason);
+        self.given_up = Some(error.clone());
+        self.session = None;
+        error
     }
 
     /// Sends a configuration and waits for the page's answer; chunks arriving meanwhile are kept.
@@ -195,7 +255,10 @@ impl ChromeEncoder {
                 if generation == self.generation =>
             {
                 // The page's encoder is closed; the next picture configures a new one.
-                self.failure = Some(CodecError::Backend(reason));
+                self.report = Some(CodecError::Backend(format!(
+                    "Chrome's encoder failed: {reason}; the next picture starts a new one at a keyframe"
+                )));
+                self.reconfigure = true;
                 self.in_flight = 0;
                 self.key_owed = true;
             }
@@ -212,6 +275,9 @@ impl ChromeEncoder {
 
 impl Encoder for ChromeEncoder {
     fn configure(&mut self, spec: &EncodeSpec) -> Result<(), CodecError> {
+        if let Some(error) = &self.given_up {
+            return Err(error.clone());
+        }
         spec.validate()?;
         if spec.codec != Codec::H264 {
             return Err(CodecError::Unsupported(
@@ -244,9 +310,9 @@ impl Encoder for ChromeEncoder {
             // Starting a browser configures it from `self.spec`; keep the old one on failure.
             let previous = self.spec.replace(spec.clone());
             if let Err(error) = self.session() {
-                if previous.is_some() {
+                if previous.is_some() && self.session.is_some() {
                     // A new browser with no encoder: the next picture configures the old spec.
-                    self.failure = Some(error.clone());
+                    self.reconfigure = true;
                 }
                 self.spec = previous;
                 return Err(error);
@@ -270,14 +336,13 @@ impl Encoder for ChromeEncoder {
         }
         let format = picture_format(&picture)?;
         self.drain();
-        let restarted = self.session.as_ref().is_none_or(|session| !session.alive());
-        if self.failure.take().is_some() || restarted {
-            self.key_owed = true;
-            if !restarted {
-                self.send_configure(&spec)?;
-            }
-        }
+        // Starts a browser (configured from `self.spec`) if there is none or it died.
         self.session()?;
+        if self.reconfigure {
+            self.send_configure(&spec)?;
+            self.reconfigure = false;
+            self.key_owed = true;
+        }
         if self.in_flight >= MAX_IN_FLIGHT {
             return Err(CodecError::Backpressure);
         }
@@ -312,6 +377,30 @@ impl Encoder for ChromeEncoder {
     fn poll(&mut self) -> Option<EncodedUnit> {
         self.drain();
         self.output.pop_front()
+    }
+
+    fn poll_result(&mut self) -> Result<Option<EncodedUnit>, CodecError> {
+        self.drain();
+        if let Some(unit) = self.output.pop_front() {
+            return Ok(Some(unit));
+        }
+        if let Some(error) = &self.given_up {
+            return Err(error.clone());
+        }
+        if let Some(session) = &self.session
+            && !session.alive()
+            && !self.death_reported
+        {
+            self.death_reported = true;
+            return Err(CodecError::Backend(format!(
+                "{}; the next picture starts a new browser at a keyframe",
+                session.end_reason()
+            )));
+        }
+        match self.report.take() {
+            Some(error) => Err(error),
+            None => Ok(None),
+        }
     }
 
     fn caps(&self) -> EncoderCaps {

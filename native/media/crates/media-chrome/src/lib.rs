@@ -9,14 +9,24 @@
 //!   JPEG pictures as they are (`JpegSurface`), CPU pictures packed (RGBA, BGRA, NV12; RGB is
 //!   widened to RGBX). Chunks come back as AVCC with the avcC description on keyframes.
 //! - **Supervision.** A crashed browser is replaced on the next picture, which is encoded as a
-//!   keyframe. Dropping the encoder closes the browser and removes its profile.
+//!   keyframe. Dropping the encoder closes the browser's whole process tree and removes its
+//!   profile; if ace-media itself dies, Chrome exits when its debugging pipe closes.
+//! - **Fixed command line.** Callers choose the executable and profile root, never switches.
 
 mod cdp;
+mod cmdline;
 mod discover;
 mod encoder;
 mod level;
 mod page;
 mod probe;
+#[cfg(unix)]
+#[path = "process_unix.rs"]
+mod process;
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod process;
+mod profiles;
 mod session;
 mod wire;
 
@@ -39,10 +49,11 @@ pub struct ChromeOptions {
     pub startup_timeout: Duration,
     /// A configuration or flush answered by the page.
     pub reply_timeout: Duration,
-    /// Restarts in a row with no chunk in between before the encoder gives up.
+    /// Restarts in a row with no chunk in between, failed launches included, before the
+    /// encoder gives up for good.
     pub max_restarts: u32,
-    /// Extra Chrome switches, last on the command line (the daemon's `--no-sandbox` choice).
-    pub extra_args: Vec<String>,
+    /// The wait before the first relaunch after a failed one; it doubles each time, to 2 s.
+    pub restart_backoff: Duration,
 }
 
 impl ChromeOptions {
@@ -53,7 +64,7 @@ impl ChromeOptions {
             startup_timeout: Duration::from_secs(10),
             reply_timeout: Duration::from_secs(5),
             max_restarts: 3,
-            extra_args: Vec::new(),
+            restart_backoff: Duration::from_millis(100),
         }
     }
 }
