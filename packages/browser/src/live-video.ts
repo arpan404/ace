@@ -282,6 +282,7 @@ export class LiveVideo {
         const step = viewer.scale.update({
           link,
           pixels: full.width * full.height,
+          side: Math.max(full.width, full.height),
           fps: videoFps,
           now,
           probing: viewer.link.probing,

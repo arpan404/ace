@@ -43,6 +43,7 @@ fn picture_link(i: &Value) -> PictureLink {
     PictureLink {
         link: n(i, "link"),
         pixels: n(i, "pixels"),
+        side: i["side"].as_f64().unwrap_or(0.0),
         fps: n(i, "fps"),
         now: n(i, "now"),
         probing: b(i, "probing"),

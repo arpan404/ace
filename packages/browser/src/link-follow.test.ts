@@ -83,8 +83,11 @@ test("a phone view on a thin measured link drops frames first and keeps its size
   follow.tick();
   advance(1_000);
   follow.tick();
-  expect(applied.at(-1)).toMatchObject({ fps: 5, bitrate: 400_000 });
+  // Below 15 fps: first a smaller picture, still readable on its long side, then fewer frames.
+  expect(applied.at(-1)).toMatchObject({ bitrate: 400_000 });
+  expect(applied.at(-1)?.fps).toBeLessThan(15);
   expect(applied.at(-1)?.maxWidth).toBeLessThan(1440);
+  expect(applied.at(-1)?.maxHeight).toBeGreaterThanOrEqual(1152);
 });
 
 function video(sequence: number, bytes = 40_000): CapturedPicture {

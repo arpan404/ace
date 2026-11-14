@@ -513,6 +513,234 @@
     ]
   },
   {
+    "name": "readable at 16000000",
+    "steps": [
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 6000000",
+    "steps": [
+      {
+        "input": {
+          "link": 6000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 4000000",
+    "steps": [
+      {
+        "input": {
+          "link": 4000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 2500000",
+    "steps": [
+      {
+        "input": {
+          "link": 2500000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 1,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 2100000",
+    "steps": [
+      {
+        "input": {
+          "link": 2100000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.84,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 1600000",
+    "steps": [
+      {
+        "input": {
+          "link": 1600000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 1000000",
+    "steps": [
+      {
+        "input": {
+          "link": 1000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.5927039999999999,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 800000",
+    "steps": [
+      {
+        "input": {
+          "link": 800000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.4978713599999999,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 400000",
+    "steps": [
+      {
+        "input": {
+          "link": 400000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "readable at 150000",
+    "steps": [
+      {
+        "input": {
+          "link": 150000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.3512980316159999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "a portrait phone already near readable",
+    "steps": [
+      {
+        "input": {
+          "link": 1200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 1170
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "a 30 fps view, readable",
+    "steps": [
+      {
+        "input": {
+          "link": 1200000,
+          "pixels": 4096000,
+          "fps": 30,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.5927039999999999,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
     "name": "a view that asks for 30 fps",
     "steps": [
       {

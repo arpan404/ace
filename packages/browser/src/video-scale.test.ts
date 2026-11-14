@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PictureScale, framesBpp, keyframeSeconds, stepNeeds } from "./video-scale.ts";
+import {
+  PictureScale,
+  framesBpp,
+  keyframeSeconds,
+  readableSide,
+  stepNeeds,
+} from "./video-scale.ts";
 
 const pixels = 2560 * 1600;
 /** Bits per pixel per frame a step gets from a link. */
@@ -28,6 +34,31 @@ describe("the picture and frame rate a link carries", () => {
     for (const step of steps) if (step.scale < 1) expect(step.fps).toBe(5);
     expect(steps.at(-1)?.scale).toBeLessThan(1);
     expect(new Set(fps).size).toBeGreaterThan(3);
+  });
+
+  it("below 15 fps the picture first shrinks, at 15 fps, but no smaller than readable text", () => {
+    const steps = [6e6, 3e6, 1.2e6, 900e3, 600e3, 300e3, 150e3].map((link) =>
+      new PictureScale().update({ ...at(link, 0), side: 2560 }),
+    );
+    // About 720p at 15 fps on a 3G link that has 1.2 Mbit/s left: not 5 fps of a full picture.
+    const thin = steps[2];
+    expect(thin?.fps).toBe(15);
+    expect(2560 * (thin?.scale ?? 0)).toBeGreaterThanOrEqual(readableSide);
+    for (const step of steps)
+      if (step.fps === 15) expect(2560 * step.scale).toBeGreaterThanOrEqual(readableSide);
+    // Below that the frame rate drops at the readable size, and only then the size again.
+    const slower = steps.filter((step) => step.fps < 15);
+    expect(slower.length).toBeGreaterThan(0);
+    const fps = steps.map((step) => step.fps);
+    expect(fps).toEqual(fps.toSorted((a, b) => b - a));
+    expect(steps.at(-1)?.scale).toBeLessThan(readableSide / 2560);
+  });
+
+  it("a picture already near readable size keeps its pixels and loses frames", () => {
+    const small = { ...at(450e3, 0), pixels: 1170 * 720, side: 1170 };
+    const step = new PictureScale().update(small);
+    expect(step.scale).toBe(1);
+    expect(step.fps).toBeLessThan(15);
   });
 
   it("while the rate is still probing, the picture shrinks first and keeps 60 fps", () => {

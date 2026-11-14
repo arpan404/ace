@@ -99,6 +99,7 @@ fn main() {
             black_box(scale.update(PictureLink {
                 link: rate.rate(),
                 pixels: 1920.0 * 1080.0,
+                side: 0.0,
                 fps: 60.0,
                 now: at,
                 probing: rate.probing(),

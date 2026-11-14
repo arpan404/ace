@@ -75,6 +75,7 @@ fn scale_sizes_first_picture_immediately_and_cancels_short_pressure_spells() {
     let at = |link, now| PictureLink {
         link,
         pixels: 2_073_600.0,
+        side: 0.0,
         fps: 60.0,
         now,
         probing: true,
@@ -101,6 +102,7 @@ fn a_measured_thin_link_steps_the_frame_rate_before_the_size() {
             PictureScale::default().update(PictureLink {
                 link,
                 pixels: 2560.0 * 1600.0,
+                side: 0.0,
                 fps: 60.0,
                 now: 0.0,
                 probing: false,

@@ -103,6 +103,7 @@ export class LinkFollow {
     const step = this.#scale.update({
       link: link.rate,
       pixels: asked.maxWidth * asked.maxHeight,
+      side: Math.max(asked.maxWidth, asked.maxHeight),
       fps: asked.fps,
       now: this.#now(),
       probing: link.probing,

@@ -46,6 +46,7 @@ fn sixty_fps_pacing_allocates_nothing_after_viewer_construction() {
         black_box(scale.update(PictureLink {
             link: rate.rate(),
             pixels: 2_073_600.0,
+            side: 0.0,
             fps: 60.0,
             now,
             probing: rate.probing(),

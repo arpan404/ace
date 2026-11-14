@@ -10,13 +10,13 @@ import { PictureScale, type PictureLink, type PictureStep } from "../src/video-s
  */
 
 const pixels = 2560 * 1600;
-const input = (link: number, now: number, probing: boolean, fps = 60): PictureLink => ({
-  link,
-  pixels,
-  fps,
-  now,
-  probing,
-});
+const input = (
+  link: number,
+  now: number,
+  probing: boolean,
+  fps = 60,
+  side?: number,
+): PictureLink => ({ link, pixels, fps, now, probing, ...(side ? { side } : {}) });
 
 /** One `PictureScale` per scenario, its steps in order. */
 function ladder(name: string, inputs: PictureLink[]) {
@@ -45,6 +45,10 @@ export function scaleSteps() {
       input(1.2e6, 400, false),
       input(1.2e6, 1_500, false),
     ]),
+    // The plan's 3G refinement: shrink at 15 fps to a readable size before 8 and 5 fps.
+    ...descending.map((link) => ladder(`readable at ${link}`, [input(link, 0, false, 60, 2560)])),
+    ladder("a portrait phone already near readable", [input(1.2e6, 0, false, 60, 1170)]),
+    ladder("a 30 fps view, readable", [input(1.2e6, 0, false, 30, 2560)]),
     ladder("a view that asks for 30 fps", [input(16e6, 0, false, 30), input(1e6, 0, false, 30)]),
   ];
 }
