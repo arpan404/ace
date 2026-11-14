@@ -42,6 +42,9 @@ struct VisualizationScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Its own element holding the page, so the page's web view keeps its identifier.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("visualization.screen")
         .background(AceTheme.Colours.background)
         .modifier(PageTitle(title: shownTitle, subtitle: ""))
         .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +69,6 @@ struct VisualizationScreen: View {
             if !Task.isCancelled { copied = false }
         }
         .task(id: "\(itemId)|\(scheme == .dark ? "dark" : "light")|\(attempt)|\(source != nil)") { await load() }
-        .accessibilityIdentifier("visualization.screen")
     }
 
     private func load() async {
