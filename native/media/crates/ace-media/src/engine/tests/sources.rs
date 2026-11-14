@@ -555,3 +555,22 @@ fn a_recorder_error_reports_every_part_it_closed_before_the_failure() {
         .collect();
     assert_eq!(reported, ["part 0", "part 1", "disk-full"]);
 }
+
+#[test]
+fn an_emulator_source_is_fed_by_its_producer_over_ingest() {
+    // The screen helper's `--encode-frames` encodes the emulator's frame file and streams the
+    // units here; ace-media doesn't read the file itself.
+    let mut engine = engine();
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "emu", "handle": 3, "epoch": 2,
+                "origin": { "kind": "emulator-frames", "path": "/tmp/frames.rgba",
+                            "width": 1080, "height": 2400, "stride": 4320 } }),
+        &[5; 32],
+        NOW,
+    );
+    assert_eq!(statuses(&opened), [("emu".into(), Status::Starting, None)]);
+    hello(&mut engine, 7, 5);
+    let playing = ingest(&mut engine, 7, unit(2, true), NOW);
+    assert_eq!(statuses(&playing), [("emu".into(), Status::Playing, None)]);
+}

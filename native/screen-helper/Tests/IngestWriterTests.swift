@@ -3,7 +3,7 @@ import Darwin
 @testable import ScreenHelper
 
 /// A listening Unix socket standing in for ace-media's ingest, read on demand.
-private final class Listener {
+final class Listener {
     let path: String
     private let fd: Int32
     private(set) var connection: Int32 = -1
@@ -88,5 +88,36 @@ final class IngestWriterTests: XCTestCase {
         XCTAssertEqual(received.count, helloBytes + units.reduce(0) { $0 + $1.count })
         XCTAssertEqual(received.suffix(units[2].count), units[2], "the last unit is written before the close")
         XCTAssertTrue(waitFor { writer.isClosed })
+    }
+}
+
+final class FrameRouteTests: XCTestCase {
+    private func unit(_ sequence: UInt64, keyframe: Bool = false) -> EncodedVideo {
+        let payload = Data([0, 0, 0, 1, keyframe ? 0x65 : 0x41, UInt8(sequence & 0xff)])
+        return EncodedVideo(keyframe: keyframe, codec: keyframe ? "avc1.640033" : nil, width: 64, height: 64, scale: 1,
+            sequence: sequence, timestamp: Double(sequence), epoch: 0, capturedAt: 0, payloadBytes: payload.count,
+            packet: { header in header + payload })
+    }
+
+    func testASwitchHasAnExactBoundaryAndEachUnitGoesOneWay() throws {
+        var stdout: [Data] = []
+        let route = FrameRoute(stdout: { stdout.append($0) })
+        route.publish(unit(1, keyframe: true))
+        route.publish(unit(2))
+        let listener = try Listener()
+        let writer = try IngestWriter(path: listener.path, token: Data(repeating: 3, count: 32), onClosed: {}, onKeyframe: {})
+        listener.accept()
+        XCTAssertEqual(route.switchTo(writer), 2, "the last sequence stdout took")
+        route.publish(unit(3, keyframe: true))
+        route.publish(unit(4))
+        XCTAssertEqual(stdout.count, 2, "nothing after the switch reaches stdout")
+        XCTAssertEqual(route.switchTo(nil), 4, "the last sequence ace-media took")
+        route.publish(unit(5, keyframe: true))
+        XCTAssertEqual(stdout.count, 3)
+        // ace-media got the hello and units 3 and 4, then a clean close.
+        let (received, ended) = listener.readToEnd()
+        XCTAssertTrue(ended)
+        // Header 44, producer stamp 28, payload 6; the keyframe also carries its 11-byte codec.
+        XCTAssertEqual(received.count, (44 + 32) + (44 + 11 + 28 + 6) + (44 + 28 + 6))
     }
 }

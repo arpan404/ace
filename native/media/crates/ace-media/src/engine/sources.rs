@@ -216,11 +216,10 @@ impl Sources {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
         let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
-        let reads_itself = pictures
-            || matches!(
-                origin,
-                Origin::Simulator { .. } | Origin::Scrcpy { .. } | Origin::EmulatorFrames { .. }
-            );
+        // An emulator's frame file is encoded by the screen helper's `--encode-frames`, which
+        // streams the units in over ingest like any producer and stamps its own epochs.
+        let reads_itself =
+            pictures || matches!(origin, Origin::Simulator { .. } | Origin::Scrcpy { .. });
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
             stamper.apply(epoch, false, now);
@@ -244,12 +243,9 @@ impl Sources {
             },
         );
         status(out, id, Status::Starting, None, None);
-        // Readers for simulators, scrcpy and emulator frame files land with their producers'
-        // PRs; until then the daemon keeps reading those itself.
-        if matches!(
-            origin,
-            Origin::Simulator { .. } | Origin::Scrcpy { .. } | Origin::EmulatorFrames { .. }
-        ) {
+        // Readers for simulators and scrcpy land with their producers' PRs; until then the
+        // daemon keeps reading those itself.
+        if matches!(origin, Origin::Simulator { .. } | Origin::Scrcpy { .. }) {
             if let Some(source) = self.by_id.get_mut(id.get()) {
                 source.status = Status::Ended;
             }

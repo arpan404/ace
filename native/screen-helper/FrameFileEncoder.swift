@@ -9,9 +9,14 @@ import Darwin
 ///
 /// Commands arrive on stdin, one JSON object per line:
 /// `{"op":"frame","seq":n,"width":w,"height":h,"ts":ms}` (the file holds a new picture),
-/// `{"op":"bitrate","bitrate":b}` (in place, no keyframe) and `{"op":"keyframe"}`. Packets go to
-/// stdout in the capture's own framing (length, JSON header, Annex B). Only the newest picture
-/// waits while one encodes. End of stdin ends the process.
+/// `{"op":"bitrate","bitrate":b}` (in place, no keyframe), `{"op":"keyframe"}` and
+/// `{"op":"ingest","socket":path,"token":base64}` (send to ace-media's ingest from now on;
+/// without `socket`, back to stdout). Packets go to stdout in the capture's own framing (length,
+/// JSON header, Annex B), or to ace-media as MediaFrames. Each switch starts at a keyframe and is
+/// reported on stderr as one JSON line, `{"event":"ingest","state":"on"|"off"|"closed",
+/// "boundary":n|null}`: the last sequence the previous path took. A switch away from ace-media
+/// writes every queued unit before the connection closes. Only the newest picture waits while
+/// one encodes. End of stdin ends the process.
 /// One picture the emulator wrote into the shared file.
 struct FrameNote { let seq: UInt64; let width: Int; let height: Int; let ts: Double }
 
@@ -55,6 +60,51 @@ final class FrameFileState {
     }
 }
 
+/// Where `--encode-frames` sends each unit: stdout, or ace-media's ingest. The route is read and
+/// the unit written under one lock, so a switch has an exact boundary.
+final class FrameRoute {
+    private let lock = NSLock()
+    private let stdout: (Data) -> Void
+    private var ingest: IngestWriter?
+    private var lastStdout: UInt64?
+    private var lastIngest: UInt64?
+    init(stdout: @escaping (Data) -> Void) { self.stdout = stdout }
+    var ingesting: Bool { lock.lock(); defer { lock.unlock() }; return ingest != nil }
+    func publish(_ unit: EncodedVideo) {
+        lock.lock(); defer { lock.unlock() }
+        if let ingest {
+            guard let frame = ingestFrame(unit, now: DispatchTime.now().uptimeNanoseconds), ingest.write(frame, keyframe: unit.keyframe) else { return }
+            lastIngest = unit.sequence
+        } else if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) {
+            stdout(packet); lastStdout = unit.sequence
+        }
+    }
+    /// Sends to `next` (nil: stdout) from now on; the last sequence the previous path took.
+    func switchTo(_ next: IngestWriter?) -> UInt64? {
+        lock.lock()
+        let previous = ingest
+        let boundary = previous == nil ? lastStdout : lastIngest
+        ingest = next
+        if next != nil { lastIngest = nil }
+        lock.unlock()
+        previous?.finish()
+        return boundary
+    }
+    /// The ingest connection `failed` failed: back to stdout. Nil when it was no longer in use.
+    func closed(_ failed: IngestWriter) -> UInt64?? {
+        lock.lock(); defer { lock.unlock() }
+        guard ingest === failed else { return nil }
+        ingest = nil
+        return .some(lastIngest)
+    }
+}
+
+/// One `--encode-frames` event on stderr.
+private func report(_ state: String, _ boundary: UInt64?) {
+    let event: [String: Any] = ["event": "ingest", "state": state, "boundary": boundary.map { $0 as Any } ?? NSNull()]
+    if let line = try? JSONSerialization.data(withJSONObject: event) { FileHandle.standardError.write(line + Data([10])) }
+}
+
 enum FrameFileEncoder {
 
     static func run(path: String) -> Never {
@@ -65,8 +115,8 @@ enum FrameFileEncoder {
         var mapped: (pointer: UnsafeMutableRawPointer, length: Int)?
         var pool: (pool: CVPixelBufferPool, width: Int, height: Int)?
         var state: FrameFileState!
-        let encoder = VideoEncoder(sessionId: "emulator", version: 2,
-            publish: { packet in output.write(packet) },
+        let route = FrameRoute(stdout: { packet in output.write(packet) })
+        let encoder = VideoEncoder(units: { unit in route.publish(unit) },
             completed: { queue.async { state.completed() } }, keyframeInterval: 20)
         encoder.configure(bitrate: 6_000_000, fps: 60)
 
@@ -124,6 +174,25 @@ enum FrameFileEncoder {
                         state.bitrate(bitrate)
                     }
                 case "keyframe":
+                    state.keyframe()
+                case "ingest":
+                    let socket = object["socket"] as? String
+                    let token = (object["token"] as? String).flatMap { Data(base64Encoded: $0) }
+                    final class Held { weak var writer: IngestWriter? }
+                    let held = Held()
+                    let writer = socket.flatMap { socket in token.flatMap { token in
+                        try? IngestWriter(path: socket, token: token, onClosed: {
+                            queue.async {
+                                guard let failed = held.writer, let boundary = route.closed(failed) else { return }
+                                report("closed", boundary); state.keyframe()
+                            }
+                        }, onKeyframe: { queue.async { state.keyframe() } })
+                    } }
+                    held.writer = writer
+                    // A refused address leaves video where it was, and says so.
+                    if socket != nil && writer == nil { report(route.ingesting ? "on" : "off", nil); return }
+                    let boundary = route.switchTo(writer)
+                    report(writer == nil ? "off" : "on", boundary)
                     state.keyframe()
                 default: break
                 }
