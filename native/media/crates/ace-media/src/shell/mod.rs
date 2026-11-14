@@ -9,7 +9,6 @@ mod ingest;
 mod lanes;
 mod writer;
 
-use crate::engine::recorder::NoRecorders;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
@@ -61,8 +60,10 @@ impl Clock {
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
+        let mono = self.0.elapsed();
         Now {
-            mono_ms: self.0.elapsed().as_millis() as u64,
+            mono_ms: mono.as_millis() as u64,
+            mono_us: mono.as_micros() as u64,
             wall_ms: wall,
         }
     }
@@ -198,7 +199,7 @@ async fn serve(
         }
     });
 
-    let mut engine = Engine::new(Box::new(NoRecorders));
+    let mut engine = Engine::new(Box::new(crate::record::Mp4Recorders));
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;

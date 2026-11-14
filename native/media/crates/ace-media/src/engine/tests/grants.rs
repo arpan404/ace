@@ -259,8 +259,8 @@ fn a_ticket_opens_its_connection_once_and_only_before_it_expires() {
 
     ticket(&mut engine, "unused", owner("d1", pairing(1)), 3, 4);
     let later = Now {
-        mono_ms: NOW.mono_ms,
         wall_ms: NOW.wall_ms + 30_000,
+        ..NOW
     };
     assert!(
         engine.claim_ticket(&[4; 32], later).is_none(),

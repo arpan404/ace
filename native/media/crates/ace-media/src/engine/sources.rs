@@ -2,13 +2,13 @@
 //! Sources, their ingest connections, epochs and recordings (docs/media/plan.md, "Ingest
 //! framing" and "Recording privacy barrier"). Pure: `now` is ace-media's monotonic
 //! milliseconds, which only bound how long the barrier holds frames.
-use super::recorder::{RecordSpec, Recorder, Recorders};
-use super::{Effect, log, normal, priority};
+use super::recorder::{RecordSpec, Recorder, Recorders, Started};
+use super::{Effect, Now, log, normal, priority};
 use crate::secret::{SecretId, Vault};
 use media_core::privacy::{Barrier, Decision, Event, Frame, Limits, ReadStamper, Track};
-use media_wire::control::{FromMedia, Id, KeyReason, Level, Origin, Sequence, Status};
+use media_wire::control::{FromMedia, Id, KeyReason, Level, Origin, Part, Sequence, Status};
 use media_wire::frame::MediaFrame;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// An ingest connection, named by the shell.
 pub type IngestId = u64;
@@ -24,11 +24,27 @@ const FLAG_KEYFRAME: u32 = 1;
 pub const MAX_SOURCES: usize = 256;
 pub const MAX_HANDLES: usize = 65_536;
 const CODEC_JPEG: u8 = 7;
+/// `record.meta` messages waiting for their epoch's decision; past this the oldest are dropped.
+pub const MAX_PENDING_META: usize = 1_024;
+
+/// A frame with when it was captured on ace-media's clock: its arrival less the producer's age.
+pub struct Timed {
+    frame: MediaFrame,
+    captured_us: u64,
+}
+
+struct Meta {
+    epoch: u32,
+    at_us: u64,
+    data: serde_json::Value,
+}
 
 struct Recording {
     id: Id,
-    barrier: Barrier<MediaFrame>,
+    barrier: Barrier<Timed>,
     recorder: Box<dyn Recorder>,
+    /// Pointer and lease changes, written only once their epoch is decided clear.
+    meta: VecDeque<Meta>,
 }
 
 struct Source {
@@ -52,7 +68,7 @@ pub struct Sources {
     /// Every handle this process was given: handles are never reused while it lives.
     handles: HashSet<u32>,
     bindings: HashMap<IngestId, String>,
-    events: Vec<Event<MediaFrame>>,
+    events: Vec<Event<Timed>>,
 }
 
 fn status(
@@ -174,7 +190,7 @@ impl Sources {
         id: &str,
         epoch: u32,
         payload: Vec<u8>,
-        now: u64,
+        now: Now,
         out: &mut Vec<Effect>,
     ) {
         let Some(source) = self.by_id.get(id) else {
@@ -184,7 +200,7 @@ impl Sources {
         let stamped = source
             .stamper
             .as_ref()
-            .map_or(epoch, |s| s.stamp(now).min(epoch));
+            .map_or(epoch, |s| s.stamp(now.mono_ms).min(epoch));
         let frame = MediaFrame {
             kind: KIND_PICTURE,
             flags: FLAG_KEYFRAME,
@@ -261,7 +277,7 @@ impl Sources {
 
     /// A frame from an ingest connection. The first must be a hello with an unused token of an
     /// open source; anything else closes the connection.
-    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: u64, out: &mut Vec<Effect>) {
+    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now, out: &mut Vec<Effect>) {
         let Some(id) = self.bindings.get(&conn).cloned() else {
             return out.push(Effect::CloseIngest(conn));
         };
@@ -276,7 +292,7 @@ impl Sources {
                     status(out, &source.id, Status::Ended, None, None);
                 }
             }
-            _ => self.unbind(conn, now, out),
+            _ => self.unbind(conn, now.mono_ms, out),
         }
     }
 
@@ -336,7 +352,7 @@ impl Sources {
         self.ingest_closed(conn, now, out);
     }
 
-    fn unit(&mut self, id: &str, frame: MediaFrame, now: u64, out: &mut Vec<Effect>) {
+    fn unit(&mut self, id: &str, frame: MediaFrame, now: Now, out: &mut Vec<Effect>) {
         let Some(source) = self.by_id.get_mut(id) else {
             return;
         };
@@ -359,49 +375,95 @@ impl Sources {
             epoch: frame.epoch,
             keyframe: frame.flags & FLAG_KEYFRAME != 0,
             bytes: frame.payload.len(),
-            payload: frame,
+            payload: Timed {
+                captured_us: now.mono_us.saturating_sub(u64::from(frame.age_us)),
+                frame,
+            },
         };
         recording
             .barrier
-            .frame(barrier_frame, now, &mut self.events);
+            .frame(barrier_frame, now.mono_ms, &mut self.events);
         self.release(id, out);
     }
 
-    /// Hands what the barrier released to the recorder and the daemon.
+    /// Hands what the barrier released to the recorder and the daemon, then the metadata whose
+    /// epochs are now decided. A recorder error ends the recording with `record.failed`.
     fn release(&mut self, id: &str, out: &mut Vec<Effect>) {
         let Some(source) = self.by_id.get_mut(id) else {
             self.events.clear();
             return;
         };
+        let mut closed = Vec::new();
+        let mut failure = None;
         for event in self.events.drain(..) {
             let Some(recording) = &mut source.recording else {
                 continue;
             };
-            match event {
-                Event::Write(frame) => recording.recorder.write(&frame.payload),
-                Event::Drop(..) => {}
-                Event::Gap => recording.recorder.gap(),
-                Event::Keyframe => normal(
-                    out,
-                    FromMedia::SourceKeyframe {
-                        source: source.id.clone(),
-                        encode: source.encode,
-                        reason: KeyReason::Resume,
-                    },
-                ),
+            let written = match event {
+                Event::Write(frame) => {
+                    let Timed { frame, captured_us } = frame.payload;
+                    if failure.is_some() {
+                        continue;
+                    }
+                    recording.recorder.write(&frame, captured_us, &mut closed)
+                }
+                Event::Drop(..) => Ok(()),
+                Event::Gap if failure.is_none() => recording.recorder.gap(&mut closed),
+                Event::Gap => Ok(()),
+                Event::Keyframe => {
+                    normal(
+                        out,
+                        FromMedia::SourceKeyframe {
+                            source: source.id.clone(),
+                            encode: source.encode,
+                            reason: KeyReason::Resume,
+                        },
+                    );
+                    Ok(())
+                }
                 Event::Applied {
                     seq,
                     written,
                     dropped,
-                } => priority(
+                } => {
+                    priority(
+                        out,
+                        FromMedia::EpochsApplied {
+                            source: source.id.clone(),
+                            seq: sequence(seq),
+                            written: sequence(written),
+                            dropped: sequence(dropped),
+                        },
+                    );
+                    Ok(())
+                }
+            };
+            if let Err(reason) = written {
+                failure.get_or_insert(reason);
+            }
+        }
+        if failure.is_none()
+            && let Some(recording) = &mut source.recording
+            && let Err(reason) = flush_meta(recording)
+        {
+            failure = Some(reason);
+        }
+        let Some(recording) = &source.recording else {
+            return;
+        };
+        parts(out, &recording.id, closed);
+        if let Some(reason) = failure {
+            let recording = source.recording.take();
+            if let Some(recording) = recording {
+                // Close what was written; the recording itself has failed.
+                let _ = recording.recorder.finish();
+                normal(
                     out,
-                    FromMedia::EpochsApplied {
-                        source: source.id.clone(),
-                        seq: sequence(seq),
-                        written: sequence(written),
-                        dropped: sequence(dropped),
+                    FromMedia::RecordFailed {
+                        recording: recording.id,
+                        reason,
                     },
-                ),
+                );
             }
         }
     }
@@ -430,7 +492,11 @@ impl Sources {
         }
         match recorders.start(spec) {
             Err(reason) => fail(out, &reason),
-            Ok(recorder) => {
+            Ok(Started {
+                recorder,
+                recovered,
+            }) => {
+                parts(out, recording, recovered);
                 let mut barrier = Barrier::new(source.epoch, Limits::default());
                 if source.stamper.is_some() {
                     barrier.issued(source.epoch);
@@ -439,6 +505,7 @@ impl Sources {
                     id: recording.clone(),
                     barrier,
                     recorder,
+                    meta: VecDeque::new(),
                 });
             }
         }
@@ -457,10 +524,36 @@ impl Sources {
         }
     }
 
-    pub fn record_meta(&mut self, recording: &str, epoch: u32, data: &serde_json::Value) {
-        if let Some(r) = self.recording_mut(recording) {
-            r.recorder.meta(epoch, data);
+    /// `record.meta`: kept until the barrier decides its epoch, then written (clear) or
+    /// dropped (discarded), so a pointer never outlives the privacy of its moment.
+    pub fn record_meta(
+        &mut self,
+        recording: &str,
+        epoch: u32,
+        data: serde_json::Value,
+        now: Now,
+        out: &mut Vec<Effect>,
+    ) {
+        let found = self.by_id.iter_mut().find(|(_, s)| {
+            s.recording
+                .as_ref()
+                .is_some_and(|r| r.id.get() == recording)
+        });
+        let Some((key, source)) = found else {
+            return;
+        };
+        let key = key.clone();
+        if let Some(r) = &mut source.recording {
+            if r.meta.len() >= MAX_PENDING_META {
+                r.meta.pop_front();
+            }
+            r.meta.push_back(Meta {
+                epoch,
+                at_us: now.mono_us,
+                data,
+            });
         }
+        self.release(&key, out);
     }
 
     pub fn record_stop(&mut self, recording: &Id, out: &mut Vec<Effect>) {
@@ -502,6 +595,42 @@ impl Sources {
                 finish(recording, out);
             }
         }
+    }
+}
+
+/// Writes the pending metadata whose epoch is decided clear, in order, and drops what was
+/// discarded. Metadata behind an undecided epoch waits, and so does everything after it.
+fn flush_meta(recording: &mut Recording) -> Result<(), String> {
+    while let Some(meta) = recording.meta.front() {
+        match recording.barrier.decided(meta.epoch) {
+            None => break,
+            Some(clear) => {
+                if let Some(meta) = recording.meta.pop_front()
+                    && clear
+                {
+                    recording
+                        .recorder
+                        .meta(meta.at_us, meta.epoch, &meta.data)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parts(out: &mut Vec<Effect>, recording: &Id, parts: Vec<Part>) {
+    for part in parts {
+        normal(
+            out,
+            FromMedia::RecordPart {
+                recording: recording.clone(),
+                path: part.path,
+                index: part.index,
+                bytes: part.bytes,
+                duration_ms: part.duration_ms,
+                gaps: part.gaps,
+            },
+        );
     }
 }
 

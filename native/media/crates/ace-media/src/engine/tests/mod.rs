@@ -10,12 +10,14 @@ use serde_json::{Value, json};
 
 pub(super) const NOW: Now = Now {
     mono_ms: 1_000,
+    mono_us: 1_000_000,
     wall_ms: 50_000,
 };
 
 pub(super) fn at(mono_ms: u64) -> Now {
     Now {
         mono_ms,
+        mono_us: mono_ms * 1_000,
         wall_ms: NOW.wall_ms,
     }
 }

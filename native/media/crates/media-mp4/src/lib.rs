@@ -8,7 +8,7 @@ mod fragment;
 mod init;
 mod recovery;
 use boxes::Boxes;
-pub use recovery::recovery_prefix;
+pub use recovery::{Prefix, fragment_end, recovery_prefix, recovery_prefix_by};
 
 /// Maximum complete part size, including its final random-access index.
 pub const PART_LIMIT: u64 = 512 * 1024 * 1024;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Sources, ingest connections, epochs and the recording barrier.
-use super::super::recorder::{RecordSpec, Recorder, Recorders};
+use super::super::recorder::{RecordSpec, Recorder, Recorders, Started};
 use super::super::*;
 use super::*;
 use media_wire::control::{FromMedia, Part, Status};
@@ -151,14 +151,19 @@ type Log = Arc<Mutex<Vec<String>>>;
 struct FakeRecorder(Log);
 
 impl Recorder for FakeRecorder {
-    fn write(&mut self, frame: &MediaFrame) {
+    fn write(&mut self, frame: &MediaFrame, _: u64, _: &mut Vec<Part>) -> Result<(), String> {
         self.push(format!("write {} {}", frame.epoch, frame.flags & 1));
+        Ok(())
     }
-    fn gap(&mut self) {
+    fn gap(&mut self, _: &mut Vec<Part>) -> Result<(), String> {
         self.push("gap".into());
+        Ok(())
     }
     fn cut(&mut self) {}
-    fn meta(&mut self, _: u32, _: &serde_json::Value) {}
+    fn meta(&mut self, _: u64, epoch: u32, data: &serde_json::Value) -> Result<(), String> {
+        self.push(format!("meta {epoch} {data}"));
+        Ok(())
+    }
     fn finish(self: Box<Self>) -> Result<Vec<Part>, String> {
         self.push("finish".into());
         Ok(Vec::new())
@@ -176,8 +181,11 @@ impl FakeRecorder {
 struct FakeRecorders(Log);
 
 impl Recorders for FakeRecorders {
-    fn start(&mut self, _: &RecordSpec<'_>) -> Result<Box<dyn Recorder>, String> {
-        Ok(Box::new(FakeRecorder(self.0.clone())))
+    fn start(&mut self, _: &RecordSpec<'_>) -> Result<Started, String> {
+        Ok(Started {
+            recorder: Box::new(FakeRecorder(self.0.clone())),
+            recovered: Vec::new(),
+        })
     }
 }
 
@@ -340,4 +348,33 @@ fn finishing_closes_every_connection_and_recording() {
             .any(|e| matches!(e, Effect::Normal(FromMedia::RecordDone { .. })))
     );
     assert_eq!(written(&log), ["finish"]);
+}
+
+#[test]
+fn pointer_metadata_is_written_only_for_epochs_decided_clear() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    open_tab(&mut engine, "s1", 1, 3);
+    send(
+        &mut engine,
+        json!({ "type": "record.start", "recording": "r1", "source": "s1", "directory": "/tmp/r",
+                "maxBytes": 1_000_000, "pointerTrack": true }),
+        &[],
+        NOW,
+    );
+    for (epoch, x) in [(1, 10), (2, 20), (3, 30)] {
+        send(
+            &mut engine,
+            json!({ "type": "record.meta", "recording": "r1", "epoch": epoch,
+                    "data": { "x": x } }),
+            &[],
+            NOW,
+        );
+    }
+    assert!(written(&log).is_empty(), "nothing before a decision");
+    // Epoch 1 clear, 2 discarded (the source went private), 3 still undecided.
+    decide(&mut engine, 0, 2, json!([[1, 1]]), json!([]), NOW);
+    assert_eq!(written(&log), ["meta 1 {\"x\":10}"]);
+    decide(&mut engine, 1, 3, json!([[3, 3]]), json!([]), NOW);
+    assert_eq!(written(&log), ["meta 1 {\"x\":10}", "meta 3 {\"x\":30}"]);
 }
