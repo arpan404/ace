@@ -49,8 +49,15 @@ pub enum Effect {
 /// Picture encoder threads stuck past their deadline at which ace-media exits to be restarted.
 pub const MAX_STUCK_ENCODERS: usize = 2;
 
-/// What a JPEG source's encoder thread is told.
+/// What a JPEG source's encoder thread, or a source's reader, is told.
 pub enum EncodeEffect {
+    /// Start reading a source ace-media reads itself (a Simulator's serve-sim stream) under
+    /// `token`; its units come back as encoded units, its end as a drain or a failure.
+    Read {
+        source: String,
+        token: u64,
+        url: String,
+    },
     Configure {
         source: String,
         /// The encoder this is for (`Sources` gives each encoder one).
@@ -96,6 +103,7 @@ impl std::fmt::Debug for EncodeEffect {
             Self::Picture { source, epoch, .. } => write!(f, "Picture({source}, epoch {epoch})"),
             Self::Key { source, encode, .. } => write!(f, "Key({source}, {encode})"),
             Self::Drain { source, .. } => write!(f, "Drain({source})"),
+            Self::Read { source, .. } => write!(f, "Read({source})"),
             Self::Close { source, .. } => write!(f, "Close({source})"),
         }
     }
