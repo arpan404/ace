@@ -2,25 +2,15 @@ import type { ClientApi } from "@ace/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { DaemonTarget } from "./connection-settings.ts";
-import { deviceId } from "./device-id.ts";
 
-/** The build this page runs: a record another build wrote may hold data of another shape. */
-const build = import.meta.env.VITE_ACE_BUILD ?? "dev";
-
-let loading:
-  | Promise<[typeof import("@/lib/query-persistence.ts"), typeof import("./read-snapshots.ts")]>
-  | undefined;
+let loading: Promise<typeof import("./kept-queries-restore.ts")> | undefined;
 /**
  * The lookup cache's code, loaded once. Called from the page's entry alongside the connection
  * gate, so the cache is ready to restore when the app mounts instead of starting its download
- * then; a failed load is tried again on the next call.
+ * then. A failed load leaves this session without the cache, as before.
  */
 export function loadKeptQueries() {
-  loading ??= Promise.all([import("@/lib/query-persistence.ts"), import("./read-snapshots.ts")]);
-  loading.catch(() => {
-    loading = undefined;
-  });
-  return loading;
+  return (loading ??= import("./kept-queries-restore.ts"));
 }
 
 /**
@@ -41,22 +31,9 @@ export function useKeptQueries(
     let stop: (() => void) | undefined;
     let ended = false;
     void loadKeptQueries().then(
-      ([{ persistQueries }, { browserReadSnapshots }]) => {
-        if (ended || typeof indexedDB === "undefined") return;
-        stop = persistQueries({
-          queries,
-          storage: browserReadSnapshots({
-            ...target,
-            deviceId: target.pairedDeviceId ?? deviceId(),
-          }),
-          build,
-          hostId,
-          writable: () => client.state === "ready",
-          schedule(delayMs, run) {
-            const timer = setTimeout(run, delayMs);
-            return () => clearTimeout(timer);
-          },
-        });
+      ({ keepQueries }) => {
+        if (!ended && typeof indexedDB !== "undefined")
+          stop = keepQueries(queries, client, target, hostId);
       },
       (error: unknown) => console.error("ace: couldn't load the lookup cache", error),
     );

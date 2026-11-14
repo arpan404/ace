@@ -65,9 +65,7 @@ type SpawnedClientWorker = WorkerHandle & {
 
 let sharedFailed = false;
 /** A worker started ahead of the first client (`startClientWorker`), not yet handed to one. */
-let early: { worker: SpawnedClientWorker; expire: ReturnType<typeof setTimeout> } | undefined;
-/** How long a worker started ahead waits for a client before it is closed. */
-const earlyWorkerMs = 30_000;
+let early: SpawnedClientWorker | undefined;
 
 /**
  * Start the client worker now, ahead of the connection gate: its script, and the service
@@ -75,50 +73,29 @@ const earlyWorkerMs = 30_000;
  * instead of after the gate's first commit. The worker does nothing until a client attaches
  * and says which daemon to reach (it only ever answers a tab), so nothing about the connection
  * is decided here; the first `createWorkerClient` takes this worker. A failure before then is
- * kept and reported to that client. Unclaimed after 30 s (the gate chose no machine) it is
- * closed.
+ * kept and reported to that client. One the gate doesn't claim at once (it asks the person
+ * first) waits, idle, for the client it creates later.
  */
 export function startClientWorker(): void {
   if (early) return;
-  const worker = spawnWorker();
+  const worker = (early = spawnWorker());
   if (!worker) return;
+  const { failure } = worker;
   let failed = false;
-  const stopEarly = worker.failure.watch(() => {
-    failed = true;
-  });
-  const held: SpawnedClientWorker = {
-    ...worker,
-    failure: {
-      watch(lost) {
-        stopEarly();
-        if (failed) {
-          queueMicrotask(lost);
-          return () => {};
-        }
-        return worker.failure.watch(lost);
-      },
-      close: () => worker.failure.close(),
-    },
-  };
-  early = {
-    worker: held,
-    expire: setTimeout(() => {
-      if (early?.worker !== held) return;
-      early = undefined;
-      stopEarly();
-      held.failure.close();
-    }, earlyWorkerMs),
+  const stop = failure.watch(() => (failed = true));
+  const watch = failure.watch;
+  failure.watch = (lost) => {
+    stop();
+    if (!failed) return watch(lost);
+    queueMicrotask(lost);
+    return () => {};
   };
 }
 
 function workerPort(): SpawnedClientWorker | undefined {
   const waiting = early;
-  if (waiting) {
-    early = undefined;
-    clearTimeout(waiting.expire);
-    return waiting.worker;
-  }
-  return spawnWorker();
+  early = undefined;
+  return waiting ?? spawnWorker();
 }
 
 function spawnWorker(): SpawnedClientWorker | undefined {

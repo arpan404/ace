@@ -14,24 +14,10 @@ function hasDirectory(storage: KeyValueStorage): boolean {
   }
 }
 
-async function createPool(storage: KeyValueStorage, session: KeyValueStorage) {
-  const [{ browserMachinePool }, { accountMachineOptions }] = await Promise.all([
-    import("./machine-pool.ts"),
-    import("./account-machine-options.ts"),
-  ]);
-  const made = browserMachinePool({
-    storage,
-    session,
-    account: accountMachineOptions({ storage, session }),
-  });
-  try {
-    await made.start();
-    return made;
-  } catch (error) {
-    await made.close();
-    throw error;
-  }
-}
+const createPool = (storage: KeyValueStorage, session: KeyValueStorage) =>
+  import("./machine-pool-start.ts").then((module) =>
+    module.startBrowserMachinePool(storage, session),
+  );
 
 /** When a stored pool starts at boot: calls `start` once, or never if cancelled first. */
 export type PoolStart = (start: () => void) => () => void;
@@ -46,27 +32,17 @@ export function afterFirstScreen(
   startup: Pick<Startup, "getSnapshot" | "subscribe">,
   idle: (run: () => void) => () => void,
 ): PoolStart {
-  const shown = () => {
-    const phase = startup.getSnapshot().phase;
-    return phase === "leaving" || phase === "gone";
-  };
   return (start) => {
-    let cancelIdle: (() => void) | undefined;
-    const go = () => {
-      cancelIdle ??= idle(start);
+    let cancel: (() => void) | undefined;
+    const check = () => {
+      const phase = startup.getSnapshot().phase;
+      if (!cancel && (phase === "leaving" || phase === "gone")) cancel = idle(start);
     };
-    if (shown()) {
-      go();
-      return () => cancelIdle?.();
-    }
-    const stop = startup.subscribe(() => {
-      if (!shown()) return;
-      stop();
-      go();
-    });
+    const stop = startup.subscribe(check);
+    check();
     return () => {
       stop();
-      cancelIdle?.();
+      cancel?.();
     };
   };
 }
