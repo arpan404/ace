@@ -8,7 +8,7 @@ import Foundation
 /// matches; once it is full the search stops at the match that didn't fit and remembers where,
 /// so matches past any count stay reachable and no page is searched twice. Work is linear in
 /// the text searched. Pure.
-struct FileSearch: Equatable {
+struct LargeFileFind: Equatable {
     /// One match: its line (0-based, in the file), where in the line (in characters), and the
     /// page it starts on with the line that page starts in, so the view can show that page.
     struct Hit: Equatable {
@@ -148,7 +148,7 @@ enum FindStep: Equatable {
     case rewind(to: Int)
     case none
 
-    static func next(from current: Int?, in search: FileSearch) -> FindStep {
+    static func next(from current: Int?, in search: LargeFileFind) -> FindStep {
         let wanted = current.map { $0 + 1 } ?? 0
         if search.hit(wanted) != nil { return .show(wanted) }
         if wanted < search.found { return .rewind(to: wanted) }
@@ -158,7 +158,7 @@ enum FindStep: Equatable {
         return search.hit(0) != nil ? .show(0) : .rewind(to: 0)
     }
 
-    static func previous(from current: Int?, in search: FileSearch) -> FindStep {
+    static func previous(from current: Int?, in search: LargeFileFind) -> FindStep {
         guard let current, current > 0 else {
             // Before the first: the last match, once the count is final.
             guard search.complete, search.found > 0 else { return .none }

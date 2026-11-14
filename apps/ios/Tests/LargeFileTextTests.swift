@@ -61,7 +61,7 @@ import Testing
     }
 
     @Test func aSearchWithNoMatchReadsEachPageOnceAndHoldsNoText() {
-        var search = FileSearch(query: "missing")
+        var search = LargeFileFind(query: "missing")
         var taken = 0
         for page in pages(50) where search.next?.page == page.offset { search.take(page); taken += 1 }
         #expect(taken == 50)
@@ -72,7 +72,7 @@ import Testing
     @Test func matchesPastTheBatchLimitStayReachableByNext() {
         // Every row matches; batches of 4 over 30 rows.
         let file = pages(10, hits: Set(0..<30))
-        var search = FileSearch(query: "hit", limit: 4)
+        var search = LargeFileFind(query: "hit", limit: 4)
         var current: Int?
         var reached: [Int] = []
         steps: for _ in 0..<200 {
@@ -96,7 +96,7 @@ import Testing
 
     @Test func previousBeforeTheBatchHeldSearchesAgainFromTheStart() {
         let file = pages(4, hits: Set(0..<12))
-        var search = FileSearch(query: "hit", limit: 4)
+        var search = LargeFileFind(query: "hit", limit: 4)
         for page in file where search.next?.page == page.offset { search.take(page) }
         #expect(search.full && search.found == 4)
         search.advance()
@@ -110,9 +110,9 @@ import Testing
 
     @Test func aMatchKnowsItsPageAndThatPagesFirstLine() {
         let file = pages(5, hits: [13])
-        var search = FileSearch(query: "HIT")
+        var search = LargeFileFind(query: "HIT")
         for page in file where search.next?.page == page.offset { search.take(page) }
-        #expect(search.hits == [FileSearch.Hit(page: file[4].offset, pageLine: 12, line: 13, column: 7)])
+        #expect(search.hits == [LargeFileFind.Hit(page: file[4].offset, pageLine: 12, line: 13, column: 7)])
     }
 
     /// Pages of `texts` laid end to end, the last one ending the file.
@@ -128,11 +128,11 @@ import Testing
     @Test func aMatchAcrossTheCutOfALongLineIsFoundAndLinesAfterItKeepTheirNumbers() {
         // A line longer than a page is cut mid-word: "nee" | "dle".
         let file = laid(["short\n" + String(repeating: "x", count: 20) + "nee", "dle tail\nnext needle\n"])
-        var search = FileSearch(query: "needle")
+        var search = LargeFileFind(query: "needle")
         for page in file where search.next?.page == page.offset { search.take(page) }
         #expect(search.hits == [
-            FileSearch.Hit(page: file[0].offset, pageLine: 0, line: 1, column: 20),
-            FileSearch.Hit(page: file[1].offset, pageLine: 1, line: 2, column: 5),
+            LargeFileFind.Hit(page: file[0].offset, pageLine: 0, line: 1, column: 20),
+            LargeFileFind.Hit(page: file[1].offset, pageLine: 1, line: 2, column: 5),
         ])
         // The shown parts number the cut line once: the second part starts in it.
         var reading = LargeFileText()
@@ -143,7 +143,7 @@ import Testing
     @Test func aDenseUnicodeLineIsSearchedThroughEveryBatchQuickly() {
         // 200,000 matches on one line cut across four pages, in batches of 10,000.
         let file = laid(Array(repeating: String(repeating: "é", count: 50_000), count: 4))
-        var search = FileSearch(query: "É")
+        var search = LargeFileFind(query: "É")
         let clock = ContinuousClock()
         let took = clock.measure {
             while let next = search.next {
@@ -162,8 +162,8 @@ import Testing
         // Pages end between clusters (`bridge/checkout-pages.ts`), so the accent stays with its
         // letter at the start of the next page; "é" typed composed finds "e" + U+0301.
         let file = laid([String(repeating: "x", count: 30), "e\u{301}yy"])
-        var search = FileSearch(query: "\u{E9}")
+        var search = LargeFileFind(query: "\u{E9}")
         for page in file where search.next?.page == page.offset { search.take(page) }
-        #expect(search.hits == [FileSearch.Hit(page: file[1].offset, pageLine: 0, line: 0, column: 30)])
+        #expect(search.hits == [LargeFileFind.Hit(page: file[1].offset, pageLine: 0, line: 0, column: 30)])
     }
 }

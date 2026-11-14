@@ -3,7 +3,7 @@ import SwiftUI
 /// A text file too large to show whole, read a page (about 256 KB) at a time with line numbers.
 /// The phone holds a few parts at once (`LargeFileText.window`): Show more reads on and lets the
 /// first part go, Show earlier reads back. Find searches the whole file a page at a time without
-/// holding it (`FileSearch`) and jumps the shown parts to each match. Share saves the whole file
+/// holding it (`LargeFileFind`) and jumps the shown parts to each match. Share saves the whole file
 /// to the phone however big it is. A thread's file can be edited a part at a time: each part
 /// opens on its own and saves over the bytes it was read from.
 struct LargeFileView: View {
@@ -20,11 +20,11 @@ struct LargeFileView: View {
     @State private var download: String?
     @State private var finding = false
     @State private var query = ""
-    @State private var search = FileSearch(query: "")
+    @State private var search = LargeFileFind(query: "")
     @State private var searching = false
     /// The match shown: its overall index and where it is.
     @State private var current: Int?
-    @State private var shown: FileSearch.Hit?
+    @State private var shown: LargeFileFind.Hit?
     @State private var editingPart: LargeFileText.Part?
     @FocusState private var findFocused: Bool
     private var saved: FileDownload? { download.flatMap { model.files.downloads[$0] } }
@@ -55,7 +55,7 @@ struct LargeFileView: View {
         }
         .task(id: path) { if reading.parts.isEmpty { await more() } }
         .onChange(of: saved?.phase) { _, phase in if phase == "saved" { UINotificationFeedbackGenerator().notificationOccurred(.success) } }
-        .onChange(of: query) { _, next in search = FileSearch(query: next); current = nil; shown = nil }
+        .onChange(of: query) { _, next in search = LargeFileFind(query: next); current = nil; shown = nil }
         .onDisappear { if let download { model.action(["type": "files.download.done", "id": download]) } }
         .sheet(item: $editingPart) { part in
             FilePartEditor(model: model, scope: scope, path: path, part: part, version: reading.version ?? "") { saved in
@@ -214,7 +214,7 @@ struct LargeFileView: View {
     /// After a save the parts' offsets move: read the file again from its start.
     private func reload() async {
         reading = LargeFileText()
-        search = FileSearch(query: query)
+        search = LargeFileFind(query: query)
         current = nil; shown = nil; failure = nil
         await more()
     }
