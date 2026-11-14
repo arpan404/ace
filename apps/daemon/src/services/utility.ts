@@ -7,6 +7,7 @@ import type { CatalogModel, ModelListResult, ProviderKind } from "@ace/protocol"
 import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
+import { knownCliPath } from "../utility-known-cli.ts";
 import { cursorAgentSignedIn } from "../acp-agent-cli.ts";
 import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
@@ -38,6 +39,17 @@ async function locateCli(
     target.provider === "codex" ||
     target.provider === "opencode"
   ) {
+    // The provider check already found the CLI and its login: no probe per title or branch.
+    const known = knownCliPath({
+      status: services.providerStatuses
+        ?.list()
+        .find((row) => row.provider === target.provider && row.runtime === "cli"),
+      binary,
+      auth: accountAuth(context, target.instance ?? `${target.provider}-cli-default`),
+      needsLogin: target.provider !== "opencode",
+    });
+    if (known === "unavailable") return undefined;
+    if (known !== "probe") return { path: known, env };
     const cli = await discoverProvider(target.provider, {
       signal,
       env,
@@ -62,6 +74,15 @@ async function locateCli(
   )
     return undefined;
   return path ? { path, env } : undefined;
+}
+
+/** An account's login as last observed; unknown while account homes are still validated. */
+function accountAuth(context: ServiceContext, id: string): "logged_in" | "logged_out" | "unknown" {
+  try {
+    return context.services.accountRegistry?.get(id)?.quota.auth ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function catalog(context: ServiceContext, provider: ProviderKind): CatalogModel[] {
