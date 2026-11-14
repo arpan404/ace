@@ -529,6 +529,10 @@ export class Connection {
         // handed ticket is gone.
         if (this.#usedHanded === epoch && this.state !== "ready") {
           this.#report("connection.handed_ticket_refused", {});
+          // This socket is gone, as after any drop: what it carried (the subscribes sent with
+          // its hello) is let go before the next one subscribes again.
+          this.#cleanup();
+          this.#disconnected();
           this.#connect();
           return;
         }

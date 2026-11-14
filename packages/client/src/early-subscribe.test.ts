@@ -1,6 +1,6 @@
 import { ClientMessage, DeviceId, ThreadId, ThreadView } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { ClientCore, defaultLimits, type TransportEvents } from "./index.ts";
+import { ClientCore, defaultLimits, type Credential, type TransportEvents } from "./index.ts";
 
 /** Let promise chains run. */
 const settle = async () => {
@@ -8,7 +8,7 @@ const settle = async () => {
 };
 
 /** A client on manual time whose sockets open at once; each socket's sends are kept apart. */
-function harness() {
+function harness(credential: () => Promise<Credential> = async () => "a".repeat(64)) {
   let now = 0;
   const timers = new Set<{ at: number; run(): void }>();
   const sockets: { events: TransportEvents; sent: ClientMessage[] }[] = [];
@@ -33,7 +33,7 @@ function harness() {
         close() {},
       };
     },
-    credential: async () => "a".repeat(64),
+    credential,
     storage: { load: async () => null, save: async () => {} },
     scheduler: {
       set(delay, run) {
@@ -65,13 +65,14 @@ function harness() {
     return last;
   };
   const deliver = (message: unknown) => socket().events.message(JSON.stringify(message));
-  const welcome = (databaseId?: string) =>
+  const welcome = (databaseId?: string, extra: object = {}) =>
     deliver({
       type: "welcome",
       hostId: "host",
       protocolVersion: 1,
       headSeq: 1,
       ...(databaseId ? { databaseId } : {}),
+      ...extra,
     });
   return { client, sockets, socket, deliver, welcome, settle, advance };
 }
@@ -218,4 +219,40 @@ test("a welcome naming the database the early resume assumed keeps it", async ()
   expect(threadSubscribes(sent)[0]?.afterSeq).toBe(5);
   expect(sent.some((message) => message.type === "unsubscribe")).toBe(false);
   thread.release();
+});
+
+test("after a refused handed ticket, the replacement socket subscribes again and content flows", async () => {
+  const h = harness(async () => ({ ticket: "e".repeat(64) }));
+  const thread = h.client.thread("thread");
+  const sidebar = h.client.threads();
+  await h.client.start();
+  await h.settle();
+  h.welcome("db-a", { ticket: { ticket: "c".repeat(64), ttlMs: 60_000 } });
+  await h.settle();
+  h.socket().events.close(1006, "gone");
+  await h.advance(defaultLimits.retryCapMs);
+  // The daemon restarted: it no longer knows the handed ticket, and refuses the hello.
+  expect(h.socket().sent[0]).toMatchObject({ type: "hello", ticket: "c".repeat(64) });
+  const refused = h.sockets.length;
+  h.deliver({ type: "error", code: "unauthorized", message: "Valid hello required" });
+  await h.settle();
+  expect(h.sockets.length).toBe(refused + 1);
+  // The replacement socket exchanged a ticket, and subscribes everything held again.
+  const sent = h.socket().sent;
+  expect(sent[0]).toMatchObject({ type: "hello", ticket: "e".repeat(64) });
+  h.welcome("db-a");
+  await h.settle();
+  const [subscribe] = threadSubscribes(h.socket().sent);
+  expect(subscribe).toBeDefined();
+  expect(listSubscribes(h.socket().sent)).toHaveLength(1);
+  h.deliver({
+    type: "snapshot",
+    subscriptionId: subscribe?.subscriptionId,
+    seq: 2,
+    view: view(2, "Flowing"),
+  });
+  expect(h.client.state).toBe("ready");
+  expect(thread.store.thread?.title).toBe("Flowing");
+  thread.release();
+  sidebar.release();
 });
