@@ -70,6 +70,8 @@ pub struct Api {
     pub render_picture: unsafe extern "C" fn(Dpy, VAContextID, *mut VABufferID, c_int) -> VAStatus,
     pub end_picture: unsafe extern "C" fn(Dpy, VAContextID) -> VAStatus,
     pub sync_surface: unsafe extern "C" fn(Dpy, VASurfaceID) -> VAStatus,
+    /// `vaSyncSurface2` (libva 2.9+): a sync with a timeout in nanoseconds.
+    pub sync_surface2: Option<unsafe extern "C" fn(Dpy, VASurfaceID, u64) -> VAStatus>,
     pub create_image:
         unsafe extern "C" fn(Dpy, *mut VAImageFormat, c_int, c_int, *mut VAImage) -> VAStatus,
     pub destroy_image: unsafe extern "C" fn(Dpy, VAImageID) -> VAStatus,
@@ -110,6 +112,15 @@ macro_rules! resolve {
     }};
 }
 
+macro_rules! optional {
+    ($lib:expr, $name:literal) => {{
+        // SAFETY: as in `resolve!`; a missing symbol is `None`.
+        unsafe { $lib.get(concat!($name, "\0").as_bytes()) }
+            .ok()
+            .map(|symbol| *symbol)
+    }};
+}
+
 impl Api {
     /// Opens libva. Never panics: a missing library is [`LoadError::Missing`].
     pub fn load() -> Result<Self, LoadError> {
@@ -145,6 +156,7 @@ impl Api {
             render_picture: resolve!(va, "vaRenderPicture"),
             end_picture: resolve!(va, "vaEndPicture"),
             sync_surface: resolve!(va, "vaSyncSurface"),
+            sync_surface2: optional!(va, "vaSyncSurface2"),
             create_image: resolve!(va, "vaCreateImage"),
             destroy_image: resolve!(va, "vaDestroyImage"),
             put_image: resolve!(va, "vaPutImage"),

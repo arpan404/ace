@@ -287,7 +287,11 @@ pub fn hevc_picture_params(
     p.decoded_curr_pic = hevc_picture(targets.reconstructed, frame.index, 0);
     p.reference_frames = [VAPictureHEVC::invalid(); 15];
     if let (false, Some(reference)) = (frame.idr, targets.reference) {
-        p.reference_frames[0] = hevc_picture(reference, frame.index - 1, 0);
+        p.reference_frames[0] = hevc_picture(
+            reference,
+            frame.index - 1,
+            VA_PICTURE_HEVC_RPS_ST_CURR_BEFORE,
+        );
     }
     p.coded_buf = targets.coded;
     p.collocated_ref_pic_index = 0xff;
@@ -339,7 +343,11 @@ pub fn hevc_slice(
     p.ref_pic_list0 = [VAPictureHEVC::invalid(); 15];
     p.ref_pic_list1 = [VAPictureHEVC::invalid(); 15];
     if let (false, Some(reference)) = (frame.idr, targets.reference) {
-        p.ref_pic_list0[0] = hevc_picture(reference, frame.index - 1, 0);
+        p.ref_pic_list0[0] = hevc_picture(
+            reference,
+            frame.index - 1,
+            VA_PICTURE_HEVC_RPS_ST_CURR_BEFORE,
+        );
     }
     p.max_num_merge_cand = 5;
     p.slice_qp_delta = (i32::from(qp) - (plan.pps.init_qp_minus26 + 26)) as i8;

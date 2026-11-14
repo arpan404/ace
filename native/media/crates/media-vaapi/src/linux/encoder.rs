@@ -3,11 +3,11 @@
 //! [`Encoder`]. IPPP with one reference, IDR on request, CBR/VBR or CQP, ace's packed
 //! SPS/PPS/VPS where the driver takes them. Each picture is synced and read back before
 //! `encode` returns, so `poll` never waits.
-use super::device::{Buffer, Config, Context, Device};
+use super::device::{Buffer, Coded, Config, Context, Device};
 use super::ffi::*;
 use super::params::{self, Rate, Targets};
 use super::surface::{Surface, SurfacePool};
-use super::vpp::VaScaler;
+use super::vpp::{Holder, VaScaler};
 use crate::formats::{NV12, VA_RT_FORMAT_YUV420};
 use crate::plan::{self, Gop, H264Plan, HevcPlan};
 use crate::select::{self, Candidate, rc};
@@ -19,6 +19,7 @@ use media_codec::{
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+#[derive(PartialEq)]
 enum Headers {
     H264(H264Plan),
     Hevc(HevcPlan),
@@ -65,11 +66,13 @@ struct Session {
     spec: EncodeSpec,
     info: SessionInfo,
     headers: Headers,
-    // Field order is drop order: buffers and surfaces before the context and config.
+    // Field order is drop order: the coded buffer, then the context, then the surfaces it
+    // rendered to, then the config.
     coded: Buffer,
+    coded_bytes: usize,
+    context: Context,
     recon: Vec<Surface>,
     inputs: SurfacePool,
-    context: Context,
     _config: Config,
     current: usize,
     have_reference: bool,
@@ -216,9 +219,7 @@ impl VaEncoder {
         let context = self
             .device
             .create_context(&config, coded_size, &mut targets)?;
-        // An intra picture rarely exceeds 1.5 bytes per pixel; leave headroom for headers.
-        let coded_bytes =
-            (coded_size.width as usize * coded_size.height as usize * 3 / 2).max(1 << 16) + 4096;
+        let coded_bytes = coded_capacity(coded_size, false);
         let coded = self
             .device
             .empty(&context, buffer::ENC_CODED, coded_bytes)?;
@@ -235,9 +236,10 @@ impl VaEncoder {
             },
             headers,
             coded,
+            coded_bytes,
+            context,
             recon,
             inputs: SurfacePool::new(&self.device, NV12, spec.size)?,
-            context,
             _config: config,
             current: 0,
             have_reference: false,
@@ -256,7 +258,7 @@ impl VaEncoder {
     }
 
     /// The NV12 surface at the session's size that holds `picture`.
-    fn input(&mut self, picture: &Picture) -> Result<InputSurface, CodecError> {
+    fn input<'p>(&mut self, picture: &'p Picture) -> Result<InputSurface<'p>, CodecError> {
         let size = self
             .session
             .as_ref()
@@ -292,7 +294,10 @@ impl VaEncoder {
         let scaler = self.scaler()?;
         let source = scaler.surface_for(picture)?;
         scaler.process(&source, &output)?;
-        Ok(InputSurface::Pooled(output))
+        Ok(InputSurface::Converted {
+            output,
+            _source: source,
+        })
     }
 
     fn encode_input(
@@ -398,7 +403,19 @@ impl VaEncoder {
         device.submit(ctx, input, &refs)?;
         device.sync(input)?;
         let mut data = Vec::new();
-        device.read_coded(&s.coded, &mut data)?;
+        if device.read_coded(&s.coded, &mut data)? == Coded::Overflow {
+            // Never hand on a cut picture: grow the buffer, and the error makes the next
+            // picture an IDR.
+            let size = s.headers.coded_size();
+            let grown = (s.coded_bytes * 2).min(coded_capacity(size, true));
+            if grown > s.coded_bytes {
+                s.coded = device.empty(&s.context, buffer::ENC_CODED, grown)?;
+                s.coded_bytes = grown;
+            }
+            return Err(CodecError::Backend(
+                "the picture overflowed the coded buffer".into(),
+            ));
+        }
         if data.is_empty() {
             return Err(CodecError::Backend(
                 "the VA encoder produced no data".into(),
@@ -429,16 +446,30 @@ impl VaEncoder {
     }
 }
 
-enum InputSurface {
-    Picture(VASurfaceID),
-    Pooled(Surface),
+/// Coded buffer bytes for a picture of `size`: 1.5 bytes per pixel to start (an intra
+/// picture rarely needs more), up to 4 after overflows, plus room for headers.
+fn coded_capacity(size: Size, most: bool) -> usize {
+    let pixels = size.width as usize * size.height as usize;
+    let per_pixel_halves = if most { 8 } else { 3 };
+    (pixels * per_pixel_halves / 2).max(1 << 16) + 4096
 }
 
-impl InputSurface {
+/// The encoder's input for one picture. A converted picture keeps its upload surface until
+/// the encode has synced, so the pool can't hand it out while VPP may still read it.
+enum InputSurface<'p> {
+    Picture(VASurfaceID),
+    Pooled(Surface),
+    Converted {
+        output: Surface,
+        _source: Holder<'p>,
+    },
+}
+
+impl InputSurface<'_> {
     fn id(&self) -> VASurfaceID {
         match self {
             Self::Picture(id) => *id,
-            Self::Pooled(s) => s.id(),
+            Self::Pooled(s) | Self::Converted { output: s, .. } => s.id(),
         }
     }
 }
@@ -524,7 +555,20 @@ impl Encoder for VaEncoder {
                 && s.spec.fps == spec.fps
                 && same_mode
             {
-                // Only the rate: the stream continues; the next picture carries it.
+                // Only the rate: the stream continues and the next picture carries it. A new
+                // rate can need a higher level; then the headers change and the next picture
+                // is an IDR that carries them.
+                let headers = match &s.headers {
+                    Headers::H264(_) => {
+                        Headers::H264(plan::h264_plan(spec, s.info.candidate.profile)?)
+                    }
+                    Headers::Hevc(_) => Headers::Hevc(plan::hevc_plan(spec)?),
+                };
+                if headers != s.headers {
+                    s.headers = headers;
+                    s.gop.restart();
+                    s.have_reference = false;
+                }
                 if let RateControl::Bitrate(_) = spec.rate {
                     s.sequence_owed = true;
                 }

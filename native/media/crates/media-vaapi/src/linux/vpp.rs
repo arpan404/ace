@@ -156,6 +156,10 @@ impl Scaler for VaScaler {
         let input = self.surface_for(picture)?;
         let output = self.output(size)?;
         self.process(&input, &output)?;
+        // An uploaded input goes back to its pool once VPP has read it, not before.
+        if matches!(input, Holder::Owned(_)) {
+            self.device.sync(output.id())?;
+        }
         drop(input);
         Ok(output.into_picture(picture.pts_us()))
     }

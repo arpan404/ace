@@ -9,10 +9,33 @@ use crate::select;
 use media_codec::{CodecError, Size};
 use std::ffi::{CStr, c_int, c_uint, c_void};
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+/// What a coded buffer held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Coded {
+    Complete,
+    /// The picture didn't fit (`VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK`, or a segment list
+    /// past the cap): the bytes are incomplete and must not be used.
+    Overflow,
+}
+
+/// How long one sync may wait by default before the picture counts as lost.
+pub const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// More segments than any driver writes for one picture: a longer list is corrupt.
+const MAX_SEGMENTS: usize = 64;
 
 pub struct Device {
     api: Api,
+    /// `vaSyncSurface2`'s timeout in nanoseconds.
+    sync_timeout_ns: AtomicU64,
+    /// Set once the driver answers `vaSyncSurface2` with "unimplemented".
+    sync2_missing: AtomicBool,
+    /// Idle `VAImage`s for uploads and readbacks, reused by format and size.
+    images: Mutex<Vec<VAImage>>,
     display: VADisplay,
     lock: Mutex<()>,
     vendor: String,
@@ -117,6 +140,9 @@ impl Device {
         };
         Ok(Arc::new(Self {
             api,
+            sync_timeout_ns: AtomicU64::new(SYNC_TIMEOUT.as_nanos() as u64),
+            sync2_missing: AtomicBool::new(false),
+            images: Mutex::new(Vec::new()),
             display,
             lock: Mutex::new(()),
             vendor,
@@ -499,23 +525,56 @@ impl Device {
         }
     }
 
+    /// The longest one sync waits (libva 2.9+; older libva waits as long as the driver does).
+    pub fn set_sync_timeout(&self, timeout: Duration) {
+        let ns = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX).max(1);
+        self.sync_timeout_ns.store(ns, Ordering::Relaxed);
+    }
+
+    /// Waits for `surface`'s work. A GPU that doesn't finish in the sync timeout is
+    /// `DeadlineExceeded`, never an endless wait where `vaSyncSurface2` exists.
     pub fn sync(&self, surface: VASurfaceID) -> Result<(), CodecError> {
         let _g = self.guard();
+        if let Some(sync2) = self.api.sync_surface2
+            && !self.sync2_missing.load(Ordering::Relaxed)
+        {
+            let timeout = self.sync_timeout_ns.load(Ordering::Relaxed);
+            // SAFETY: a surface of this display.
+            let status = unsafe { sync2(self.display, surface, timeout) };
+            match status {
+                VA_STATUS_ERROR_TIMEDOUT => {
+                    return Err(CodecError::DeadlineExceeded);
+                }
+                VA_STATUS_ERROR_UNIMPLEMENTED => self.sync2_missing.store(true, Ordering::Relaxed),
+                _ => return self.check(status, "vaSyncSurface2"),
+            }
+        }
         // SAFETY: a surface of this display.
         let status = unsafe { (self.api.sync_surface)(self.display, surface) };
         self.check(status, "vaSyncSurface")
     }
 
-    /// Copies a coded buffer's segments into `out`.
-    pub fn read_coded(&self, buffer: &Buffer, out: &mut Vec<u8>) -> Result<(), CodecError> {
+    /// Copies a coded buffer's segments into `out`. On [`Coded::Overflow`] `out` is left
+    /// empty: a partial picture is never handed on.
+    pub fn read_coded(&self, buffer: &Buffer, out: &mut Vec<u8>) -> Result<Coded, CodecError> {
+        let start = out.len();
         let first = self.map(buffer)?;
         let mut segment = first.cast::<VACodedBufferSegment>();
-        let mut guard_count = 0;
+        let mut count = 0;
+        let mut result = Coded::Complete;
         // SAFETY: a mapped coded buffer is a linked list of segments, each pointing at
         // `size` bytes, valid until unmapped.
-        let copied = unsafe {
-            while !segment.is_null() && guard_count < 64 {
+        unsafe {
+            while !segment.is_null() {
+                if count == MAX_SEGMENTS {
+                    result = Coded::Overflow;
+                    break;
+                }
                 let s = std::ptr::read_unaligned(segment);
+                if s.status & VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK != 0 {
+                    result = Coded::Overflow;
+                    break;
+                }
                 if !s.buf.is_null() && s.size > 0 {
                     out.extend_from_slice(std::slice::from_raw_parts(
                         s.buf.cast::<u8>(),
@@ -523,12 +582,14 @@ impl Device {
                     ));
                 }
                 segment = s.next.cast();
-                guard_count += 1;
+                count += 1;
             }
-            Ok(())
-        };
+        }
         self.unmap(buffer)?;
-        copied
+        if result == Coded::Overflow {
+            out.truncate(start);
+        }
+        Ok(result)
     }
 
     pub(crate) fn create_image(
@@ -551,6 +612,41 @@ impl Device {
         };
         self.check(status, "vaCreateImage")?;
         Ok(image)
+    }
+
+    /// An image of `format` and `size`: an idle one when cached, else a new one.
+    pub(crate) fn take_image(
+        &self,
+        format: &VAImageFormat,
+        size: Size,
+    ) -> Result<VAImage, CodecError> {
+        let cached = {
+            let mut images = self.images.lock().unwrap_or_else(|p| p.into_inner());
+            images
+                .iter()
+                .position(|i| {
+                    i.format.fourcc == format.fourcc
+                        && u32::from(i.width) == size.width
+                        && u32::from(i.height) == size.height
+                })
+                .map(|at| images.swap_remove(at))
+        };
+        match cached {
+            Some(image) => Ok(image),
+            None => self.create_image(format, size),
+        }
+    }
+
+    /// Returns an image to the cache, or destroys it when the cache is full.
+    pub(crate) fn give_image(&self, image: VAImage) {
+        const KEEP: usize = 8;
+        let mut images = self.images.lock().unwrap_or_else(|p| p.into_inner());
+        if images.len() < KEEP {
+            images.push(image);
+        } else {
+            drop(images);
+            self.destroy_image(&image);
+        }
     }
 
     pub(crate) fn destroy_image(&self, image: &VAImage) {
@@ -629,6 +725,10 @@ impl Device {
 
 impl Drop for Device {
     fn drop(&mut self) {
+        let images = std::mem::take(&mut *self.images.lock().unwrap_or_else(|p| p.into_inner()));
+        for image in &images {
+            self.destroy_image(image);
+        }
         // SAFETY: every resource holds an Arc to this device, so none outlives the display.
         unsafe { (self.api.terminate)(self.display) };
     }

@@ -3,7 +3,8 @@
 //! start"): open a session per step and push one picture through it. The probe runs this on
 //! its own thread under the 2 s deadline; `stop` is checked between steps, so a cancelled
 //! trial closes its sessions and returns at the next boundary, reporting the steps it didn't
-//! reach as `timed-out`.
+//! reach as `timed-out`. Every GPU wait is bounded by [`TRIAL_SYNC_TIMEOUT`], so a hung
+//! driver fails its step instead of holding the thread and the display.
 use super::device::{Device, OpenError};
 use super::encoder::VaEncoder;
 use super::ffi::attrib;
@@ -97,6 +98,10 @@ fn gray_nv12(size: Size) -> Result<CpuPicture, CodecError> {
         0,
     )
 }
+
+/// The longest a trial step waits on the GPU (libva 2.9+ with `vaSyncSurface2`; an older
+/// libva can't bound the wait, and the probe abandons the thread at its deadline instead).
+pub const TRIAL_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(400);
 
 const TRIAL: Size = Size {
     width: 256,
@@ -271,7 +276,14 @@ fn jpeg_trials(
             }
         };
         let out = codec.decode(&jpeg, TRIAL.width, TRIAL.height)?;
-        if out.size() != TRIAL {
+        // Wait for the GPU and read the picture back: a decode that never finishes fails.
+        let Picture::Platform(p) = &out else {
+            return Err(CodecError::Backend("decoded into CPU memory".into()));
+        };
+        let read = Surface::of(p)
+            .ok_or_else(|| CodecError::Backend("not a VA surface".into()))?
+            .read(0)?;
+        if read.size() != TRIAL {
             return Err(CodecError::Backend("decoded to the wrong size".into()));
         }
         Ok(ok(
@@ -287,6 +299,9 @@ fn jpeg_trials(
 /// The trial on an open device: one entry per step, `failed` where it didn't work. Steps
 /// the driver doesn't list at all are left out: the machine has no hardware for them.
 pub fn trial_on(device: &Arc<Device>, stop: &dyn Fn() -> bool) -> Vec<Capability> {
+    // Each wait on the GPU is bounded well inside the probe's 2 s, so a hung step fails
+    // and the trial returns, closing its sessions and the display.
+    device.set_sync_timeout(TRIAL_SYNC_TIMEOUT);
     let listed = device.profiles().unwrap_or_default();
     let jpeg = || Some("jpeg".to_string());
     // The steps this driver lists, in trial order, each with what it reports when skipped.

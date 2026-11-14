@@ -310,5 +310,13 @@ int main(void) {
     { VAEncPictureParameterBufferJPEG x = {0}; x.pic_flags.bits.huffman = 1; printf("            (\"JPEG_PIC_FLAGS.huffman\", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::HUFFMAN, 1)]), %u),\n", x.pic_flags.value); }
     { VAEncPictureParameterBufferJPEG x = {0}; x.pic_flags.bits.interleaved = 1; printf("            (\"JPEG_PIC_FLAGS.interleaved\", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::INTERLEAVED, 1)]), %u),\n", x.pic_flags.value); }
     { VAEncPictureParameterBufferJPEG x = {0}; x.pic_flags.bits.differential = 1; printf("            (\"JPEG_PIC_FLAGS.differential\", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::DIFFERENTIAL, 1)]), %u),\n", x.pic_flags.value); }
+
+    /* Constants. */
+#define K(name) printf("            (\"%s\", %s as u64, %llu),\n", #name, #name, (unsigned long long)(name))
+    K(VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK);
+    K(VA_STATUS_ERROR_TIMEDOUT);
+    K(VA_STATUS_ERROR_UNIMPLEMENTED);
+    K(VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2);
+    K(VA_FILTER_SCALING_HQ);
     return 0;
 }

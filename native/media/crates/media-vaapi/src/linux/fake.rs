@@ -48,12 +48,36 @@ impl Rendered {
 /// `(profile, entrypoint, attributes)` of each config created.
 pub type ConfigRecord = (i32, i32, Vec<(i32, u32)>);
 
+/// Driver resources still alive. All zero once every owner has dropped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Live {
+    pub configs: usize,
+    pub contexts: usize,
+    pub surfaces: usize,
+    pub buffers: usize,
+    pub images: usize,
+    pub maps: usize,
+}
+
+impl Live {
+    pub fn none() -> Self {
+        Self::default()
+    }
+}
+
 pub struct Fake {
     pub profiles: Vec<(i32, Vec<i32>)>,
     /// `(profile, entrypoint, attribute)` → value; absent ones are not supported.
     pub attributes: HashMap<(i32, i32, i32), u32>,
     pub refuse_configs: Vec<(i32, i32)>,
     pub fail_render: bool,
+    /// Every sync times out, as a hung GPU would.
+    pub hang_sync: bool,
+    pub sync_timeouts: Vec<u64>,
+    /// Status bits the "driver" reports on the coded buffer's segment.
+    pub coded_status: u32,
+    /// Segments in the coded buffer's list (the data rides on the first).
+    pub coded_segments: usize,
     pub surface_attributes: Vec<(i32, i32)>,
     /// What the "driver" writes to every coded buffer.
     pub coded: Vec<u8>,
@@ -62,15 +86,20 @@ pub struct Fake {
     pub imports: Vec<VADRMPRIMESurfaceDescriptor>,
     pub rendered: Vec<Rendered>,
     pub terminated: bool,
+    /// What was still alive when the display was terminated: leaks.
+    pub live_at_terminate: Option<Live>,
     next_id: u32,
     surfaces: HashMap<u32, Vec<u8>>,
+    live_configs: std::collections::HashSet<u32>,
+    live_contexts: std::collections::HashSet<u32>,
+    maps: HashMap<u32, usize>,
     buffers: HashMap<u32, (i32, Vec<u8>)>,
     images: HashMap<u32, u32>,
     open: Option<Rendered>,
-    segment: Box<VACodedBufferSegment>,
+    segments: Vec<VACodedBufferSegment>,
 }
 
-// SAFETY: the raw pointers in `segment` point into `buffers`, owned by the same value and
+// SAFETY: the raw pointers in `segments` point into `buffers` and `segments`, owned by the same value and
 // only touched under the Mutex.
 unsafe impl Send for Fake {}
 
@@ -81,6 +110,10 @@ impl Default for Fake {
             attributes: HashMap::new(),
             refuse_configs: Vec::new(),
             fail_render: false,
+            hang_sync: false,
+            sync_timeouts: Vec::new(),
+            coded_status: 0,
+            coded_segments: 1,
             surface_attributes: Vec::new(),
             coded: vec![0, 0, 0, 1, 0x65, 0x88, 0x84],
             configs: Vec::new(),
@@ -88,20 +121,16 @@ impl Default for Fake {
             imports: Vec::new(),
             rendered: Vec::new(),
             terminated: false,
+            live_at_terminate: None,
             next_id: 1,
             surfaces: HashMap::new(),
+            live_configs: Default::default(),
+            live_contexts: Default::default(),
+            maps: HashMap::new(),
             buffers: HashMap::new(),
             images: HashMap::new(),
             open: None,
-            segment: Box::new(VACodedBufferSegment {
-                size: 0,
-                bit_offset: 0,
-                status: 0,
-                reserved: 0,
-                buf: std::ptr::null_mut(),
-                next: std::ptr::null_mut(),
-                va_reserved: [0; 4],
-            }),
+            segments: Vec::new(),
         }
     }
 }
@@ -148,6 +177,17 @@ impl Fake {
         fake
     }
 
+    pub fn live(&self) -> Live {
+        Live {
+            configs: self.live_configs.len(),
+            contexts: self.live_contexts.len(),
+            surfaces: self.surfaces.len(),
+            buffers: self.buffers.len(),
+            images: self.images.len(),
+            maps: self.maps.values().sum(),
+        }
+    }
+
     fn id(&mut self) -> u32 {
         self.next_id += 1;
         self.next_id
@@ -173,7 +213,7 @@ fn with<R>(dpy: VADisplay, f: impl FnOnce(&mut Fake) -> R) -> R {
     // SAFETY: every display handed out is `Arc::into_raw` of a `Mutex<Fake>`, alive until
     // `terminate`.
     let m = unsafe { &*(dpy as *const Mutex<Fake>) };
-    f(&mut m.lock().unwrap())
+    f(&mut m.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 unsafe extern "C" fn get_display_drm(_fd: c_int) -> VADisplay {
@@ -189,7 +229,10 @@ unsafe extern "C" fn initialize(_: VADisplay, major: *mut c_int, minor: *mut c_i
     0
 }
 unsafe extern "C" fn terminate(dpy: VADisplay) -> VAStatus {
-    with(dpy, |f| f.terminated = true);
+    with(dpy, |f| {
+        f.terminated = true;
+        f.live_at_terminate = Some(f.live());
+    });
     // SAFETY: the pointer came from Arc::into_raw in get_display_drm.
     drop(unsafe { Arc::from_raw(dpy as *const Mutex<Fake>) });
     0
@@ -277,12 +320,15 @@ unsafe extern "C" fn create_config(
             .map(|a| (a.type_, a.value))
             .collect();
         f.configs.push((profile, entrypoint, attribs));
+        let new = f.id();
+        f.live_configs.insert(new);
         // SAFETY: out-parameter.
-        unsafe { *id = f.id() };
+        unsafe { *id = new };
         0
     })
 }
-unsafe extern "C" fn destroy_config(_: VADisplay, _: VAConfigID) -> VAStatus {
+unsafe extern "C" fn destroy_config(dpy: VADisplay, id: VAConfigID) -> VAStatus {
+    with(dpy, |f| f.live_configs.remove(&id));
     0
 }
 unsafe extern "C" fn query_surface_attributes(
@@ -355,12 +401,15 @@ unsafe extern "C" fn create_context(
     id: *mut VAContextID,
 ) -> VAStatus {
     with(dpy, |f| {
+        let new = f.id();
+        f.live_contexts.insert(new);
         // SAFETY: out-parameter.
-        unsafe { *id = f.id() };
+        unsafe { *id = new };
     });
     0
 }
-unsafe extern "C" fn destroy_context(_: VADisplay, _: VAContextID) -> VAStatus {
+unsafe extern "C" fn destroy_context(dpy: VADisplay, id: VAContextID) -> VAStatus {
+    with(dpy, |f| f.live_contexts.remove(&id));
     0
 }
 unsafe extern "C" fn create_buffer(
@@ -399,19 +448,44 @@ unsafe extern "C" fn map_buffer(dpy: VADisplay, id: VABufferID, out: *mut *mut c
         };
         let p = if *kind == buffer::ENC_CODED {
             *bytes = coded;
-            f.segment.size = bytes.len() as u32;
-            f.segment.buf = bytes.as_mut_ptr().cast();
-            (&mut *f.segment as *mut VACodedBufferSegment).cast()
+            let empty = VACodedBufferSegment {
+                size: 0,
+                bit_offset: 0,
+                status: 0,
+                reserved: 0,
+                buf: std::ptr::null_mut(),
+                next: std::ptr::null_mut(),
+                va_reserved: [0; 4],
+            };
+            f.segments = vec![empty; f.coded_segments.max(1)];
+            f.segments[0].size = bytes.len() as u32;
+            f.segments[0].buf = bytes.as_mut_ptr().cast();
+            f.segments[0].status = f.coded_status;
+            for i in 1..f.segments.len() {
+                let next: *mut VACodedBufferSegment = &mut f.segments[i];
+                f.segments[i - 1].next = next.cast();
+            }
+            f.segments.as_mut_ptr().cast()
         } else {
             bytes.as_mut_ptr().cast()
         };
+        *f.maps.entry(id).or_default() += 1;
         // SAFETY: out-parameter.
         unsafe { *out = p };
         0
     })
 }
-unsafe extern "C" fn unmap_buffer(_: VADisplay, _: VABufferID) -> VAStatus {
-    0
+unsafe extern "C" fn unmap_buffer(dpy: VADisplay, id: VABufferID) -> VAStatus {
+    with(dpy, |f| match f.maps.get_mut(&id) {
+        Some(n) if *n > 0 => {
+            *n -= 1;
+            if *n == 0 {
+                f.maps.remove(&id);
+            }
+            0
+        }
+        _ => 0x7, // unmapping a buffer that isn't mapped
+    })
 }
 unsafe extern "C" fn begin_picture(
     dpy: VADisplay,
@@ -455,6 +529,16 @@ unsafe extern "C" fn end_picture(dpy: VADisplay, _: VAContextID) -> VAStatus {
 }
 unsafe extern "C" fn sync_surface(_: VADisplay, _: VASurfaceID) -> VAStatus {
     0
+}
+unsafe extern "C" fn sync_surface2(dpy: VADisplay, _: VASurfaceID, timeout_ns: u64) -> VAStatus {
+    with(dpy, |f| {
+        f.sync_timeouts.push(timeout_ns);
+        if f.hang_sync {
+            VA_STATUS_ERROR_TIMEDOUT
+        } else {
+            0
+        }
+    })
 }
 unsafe extern "C" fn create_image(
     dpy: VADisplay,
@@ -576,6 +660,7 @@ fn api() -> Api {
         render_picture,
         end_picture,
         sync_surface,
+        sync_surface2: Some(sync_surface2),
         create_image,
         destroy_image,
         put_image,

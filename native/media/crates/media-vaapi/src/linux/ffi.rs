@@ -18,6 +18,10 @@ pub type VAEntrypoint = c_int;
 pub type VABufferType = c_int;
 
 pub const VA_STATUS_SUCCESS: VAStatus = 0;
+pub const VA_STATUS_ERROR_UNIMPLEMENTED: VAStatus = 0x14;
+pub const VA_STATUS_ERROR_TIMEDOUT: VAStatus = 0x26;
+/// In `VACodedBufferSegment::status`: the slice didn't fit the coded buffer.
+pub const VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK: u32 = 0x200;
 pub const VA_INVALID_ID: u32 = 0xffff_ffff;
 pub const VA_INVALID_SURFACE: u32 = 0xffff_ffff;
 
@@ -1124,6 +1128,19 @@ mod tests {
             ("JPEG_PIC_FLAGS.interleaved", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::INTERLEAVED, 1)]), 16),
             ("JPEG_PIC_FLAGS.differential", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::DIFFERENTIAL, 1)]), 32),
         ];
+        let constants: &[(&str, u64, u64)] = &[
+            ("VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK", VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK as u64, 512),
+            ("VA_STATUS_ERROR_TIMEDOUT", VA_STATUS_ERROR_TIMEDOUT as u64, 38),
+            ("VA_STATUS_ERROR_UNIMPLEMENTED", VA_STATUS_ERROR_UNIMPLEMENTED as u64, 20),
+            ("VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2", VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 as u64, 1073741824),
+            ("VA_FILTER_SCALING_HQ", VA_FILTER_SCALING_HQ as u64, 512),
+        ];
+        let wrong_constants: Vec<String> = constants
+            .iter()
+            .filter(|(_, rust, c)| rust != c)
+            .map(|(name, rust, c)| format!("{name}: Rust {rust:#x}, C {c:#x}"))
+            .collect();
+        assert!(wrong_constants.is_empty(), "{wrong_constants:#?}");
         let wrong_bits: Vec<String> = bits
             .iter()
             .filter(|(_, rust, c)| rust != c)

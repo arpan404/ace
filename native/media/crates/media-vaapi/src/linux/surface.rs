@@ -208,7 +208,7 @@ impl<'a> Image<'a> {
             depth,
             ..Default::default()
         };
-        let image = device.create_image(&f, size)?;
+        let image = device.take_image(&f, size)?;
         Ok(Self {
             device,
             image,
@@ -290,7 +290,7 @@ impl<'a> Image<'a> {
 
 impl Drop for Image<'_> {
     fn drop(&mut self) {
-        self.device.destroy_image(&self.image);
+        self.device.give_image(self.image);
     }
 }
 

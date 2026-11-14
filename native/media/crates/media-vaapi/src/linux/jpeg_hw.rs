@@ -4,7 +4,7 @@
 //! VA's JPEG buffers from [`crate::jpeg::parse`]; encoding gives the driver the Annex K tables
 //! already scaled to the quality, so a driver that writes its own headers and one that leaves
 //! them to us produce the same file.
-use super::device::{Buffer, Config, Context, Device};
+use super::device::{Buffer, Coded, Config, Context, Device};
 use super::ffi::*;
 use super::surface::{Surface, SurfacePool};
 use super::vpp::VaScaler;
@@ -17,9 +17,17 @@ use std::sync::Arc;
 /// A config with its context at one size.
 struct Pipe {
     size: Size,
+    // Drop order: the coded buffer, the context, then the config.
+    coded: Option<Buffer>,
+    coded_bytes: usize,
     context: Context,
     _config: Config,
-    coded: Option<Buffer>,
+}
+
+/// Coded bytes for a JPEG of `size`: 1.5 bytes per pixel, up to 4 after an overflow.
+fn jpeg_capacity(size: Size, most: bool) -> usize {
+    let pixels = size.width as usize * size.height as usize;
+    (pixels * if most { 8 } else { 3 } / 2).max(1 << 16) + 4096
 }
 
 pub struct VaJpegCodec {
@@ -76,17 +84,18 @@ impl VaJpegCodec {
             &[(attrib::RT_FORMAT, VA_RT_FORMAT_YUV420)],
         )?;
         let context = device.create_context(&config, size, targets)?;
+        let coded_bytes = jpeg_capacity(size, false);
         let coded = if entry == entrypoint::ENC_PICTURE {
-            let bytes = (size.width as usize * size.height as usize * 3 / 2).max(1 << 16) + 4096;
-            Some(device.empty(&context, buffer::ENC_CODED, bytes)?)
+            Some(device.empty(&context, buffer::ENC_CODED, coded_bytes)?)
         } else {
             None
         };
         *slot = Some(Pipe {
             size,
+            coded,
+            coded_bytes,
             context,
             _config: config,
-            coded,
         });
         Ok(())
     }
@@ -277,7 +286,17 @@ impl VaJpegCodec {
         d.submit(ctx, input, &buffers.iter().collect::<Vec<_>>())?;
         d.sync(input)?;
         let mut data = Vec::new();
-        d.read_coded(coded, &mut data)?;
+        if d.read_coded(coded, &mut data)? == Coded::Overflow {
+            let pipe = self.encode.as_mut().ok_or(CodecError::NotConfigured)?;
+            let grown = (pipe.coded_bytes * 2).min(jpeg_capacity(size, true));
+            if grown > pipe.coded_bytes {
+                pipe.coded = Some(self.device.empty(&pipe.context, buffer::ENC_CODED, grown)?);
+                pipe.coded_bytes = grown;
+            }
+            return Err(CodecError::Backend(
+                "the JPEG overflowed the coded buffer".into(),
+            ));
+        }
         Ok(complete_jpeg(data, w, h, quality))
     }
 }
@@ -313,7 +332,15 @@ impl JpegCodec for VaJpegCodec {
             return Ok(decoded.into_picture(0));
         }
         let picture = decoded.into_picture(0);
-        media_codec::Scaler::scale(self.scaler()?, &picture, width, height)
+        let scaled = media_codec::Scaler::scale(self.scaler()?, &picture, width, height)?;
+        // The decoded surface goes back to its pool only once VPP has read it.
+        if let Picture::Platform(p) = &scaled
+            && let Some(s) = Surface::of(p)
+        {
+            self.device.sync(s.id())?;
+        }
+        drop(picture);
+        Ok(scaled)
     }
 
     fn encode(&mut self, picture: &Picture, quality: u8) -> Result<Vec<u8>, CodecError> {
@@ -346,9 +373,9 @@ impl JpegCodec for VaJpegCodec {
             Some(out)
         };
         let id = nv12.as_ref().map_or(source.id(), Surface::id);
-        drop(source);
+        // The upload and the VPP output stay out of their pools until the encode has synced.
         let result = self.encode_surface(id, size, quality);
-        drop(nv12);
+        drop((nv12, source));
         result
     }
 }

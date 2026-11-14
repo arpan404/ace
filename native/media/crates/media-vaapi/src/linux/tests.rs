@@ -688,3 +688,214 @@ fn libva_loads_where_installed_and_is_missing_elsewhere() {
         Err(LoadError::Symbol(s)) => panic!("libva lacks {s}"),
     }
 }
+
+fn assert_released(shared: &fake::Shared) {
+    let f = shared.lock().unwrap();
+    assert!(f.terminated, "the display outlived its owners");
+    assert_eq!(
+        f.live_at_terminate,
+        Some(fake::Live::none()),
+        "leaked at terminate"
+    );
+}
+
+#[test]
+fn an_encoder_releases_every_driver_resource() {
+    let (device, shared) = fake::device(Fake::intel());
+    let mut enc = VaEncoder::new(&device).unwrap();
+    let s = spec(Codec::H264, RateControl::Bitrate(2_000_000));
+    enc.configure(&s).unwrap();
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    enc.encode(Picture::Cpu(bgra(s.size)), false).unwrap();
+    let mut hevc = spec(Codec::Hevc, RateControl::Quantizer(30));
+    hevc.size.width = 640;
+    enc.configure(&hevc).unwrap();
+    enc.encode(Picture::Cpu(nv12(hevc.size, 1)), false).unwrap();
+    assert_eq!(
+        shared.lock().unwrap().live().maps,
+        0,
+        "no mapping stays open"
+    );
+    drop((enc, device));
+    assert_released(&shared);
+}
+
+#[test]
+fn a_failed_submission_leaks_nothing() {
+    let (device, shared) = fake::device(Fake::intel());
+    let mut enc = VaEncoder::new(&device).unwrap();
+    let s = spec(Codec::H264, RateControl::Bitrate(2_000_000));
+    enc.configure(&s).unwrap();
+    // The first RGB picture brings up VPP and its pools; failures after it must add nothing.
+    enc.encode(Picture::Cpu(bgra(s.size)), false).unwrap();
+    let before = shared.lock().unwrap().live();
+    shared.lock().unwrap().fail_render = true;
+    for _ in 0..3 {
+        assert!(enc.encode(Picture::Cpu(bgra(s.size)), false).is_err());
+    }
+    assert_eq!(
+        shared.lock().unwrap().live(),
+        before,
+        "failures hold nothing"
+    );
+    drop((enc, device));
+    assert_released(&shared);
+}
+
+#[test]
+fn an_overflowed_picture_is_never_shipped_and_the_next_is_an_idr() {
+    let (mut enc, shared) = encoder(Fake::intel());
+    let s = spec(Codec::H264, RateControl::Bitrate(2_000_000));
+    enc.configure(&s).unwrap();
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    shared.lock().unwrap().coded_status = VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK;
+    assert!(matches!(
+        enc.encode(Picture::Cpu(nv12(s.size, 1)), false),
+        Err(CodecError::Backend(_))
+    ));
+    shared.lock().unwrap().coded_status = 0;
+    shared.lock().unwrap().coded_segments = 65;
+    assert!(
+        enc.encode(Picture::Cpu(nv12(s.size, 1)), false).is_err(),
+        "a runaway segment list"
+    );
+    shared.lock().unwrap().coded_segments = 3;
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    let keys: Vec<bool> = std::iter::from_fn(|| enc.poll()).map(|u| u.key).collect();
+    assert_eq!(
+        keys,
+        [true, true],
+        "only whole pictures come out; the one after is an IDR"
+    );
+    // The coded buffer grew for the next keyframe.
+    let f = shared.lock().unwrap();
+    let pic: VAEncPictureParameterBufferH264 = f
+        .rendered
+        .last()
+        .unwrap()
+        .get(buffer::ENC_PICTURE_PARAMETER, 0);
+    let first: VAEncPictureParameterBufferH264 =
+        f.rendered[0].get(buffer::ENC_PICTURE_PARAMETER, 0);
+    assert_ne!(pic.coded_buf, first.coded_buf);
+}
+
+#[test]
+fn an_overflowed_jpeg_is_an_error_not_a_cut_file() {
+    let mut fake = Fake::intel();
+    fake.coded_status = VA_CODED_BUF_STATUS_SLICE_OVERFLOW_MASK;
+    let (device, _) = fake::device(fake);
+    let mut codec = VaJpegCodec::new(&device).unwrap();
+    let r = codec.encode(
+        &Picture::Cpu(nv12(
+            Size {
+                width: 64,
+                height: 48,
+            },
+            1,
+        )),
+        85,
+    );
+    assert!(matches!(r, Err(CodecError::Backend(_))));
+}
+
+#[test]
+fn repeated_trials_hold_nothing_and_release_everything() {
+    let (device, shared) = fake::device(Fake::intel());
+    trial_on(&device, &|| false);
+    let after_one = shared.lock().unwrap().live();
+    for _ in 0..3 {
+        trial_on(&device, &|| false);
+    }
+    assert_eq!(
+        shared.lock().unwrap().live(),
+        after_one,
+        "trials don't accumulate"
+    );
+    assert_eq!(
+        (after_one.configs, after_one.contexts, after_one.surfaces),
+        (0, 0, 0)
+    );
+    drop(device);
+    assert_released(&shared);
+}
+
+#[test]
+fn uploads_reuse_their_images() {
+    let (device, shared) = fake::device(Fake::intel());
+    let size = Size {
+        width: 64,
+        height: 32,
+    };
+    let surface = Surface::create(&device, crate::formats::NV12, size, 1)
+        .unwrap()
+        .pop()
+        .unwrap();
+    surface.upload(&nv12(size, 1)).unwrap();
+    let images = shared.lock().unwrap().live().images;
+    for _ in 0..4 {
+        surface.upload(&nv12(size, 2)).unwrap();
+        surface.read(0).unwrap();
+    }
+    assert_eq!(shared.lock().unwrap().live().images, images);
+    drop((surface, device));
+    assert_released(&shared);
+}
+
+#[test]
+fn a_gpu_that_never_finishes_fails_the_step_within_the_bound() {
+    let mut fake = Fake::intel();
+    fake.hang_sync = true;
+    let (device, shared) = fake::device(fake);
+    let found = trial_on(&device, &|| false);
+    assert!(
+        found.iter().all(|c| c.state == TrialState::Failed),
+        "{found:?}"
+    );
+    let f = shared.lock().unwrap();
+    assert!(!f.sync_timeouts.is_empty());
+    let bound = probe_sync_bound();
+    assert!(f.sync_timeouts.iter().all(|t| *t == bound));
+    drop(f);
+    let mut enc = VaEncoder::new(&device).unwrap();
+    let s = spec(Codec::H264, RateControl::Bitrate(2_000_000));
+    enc.configure(&s).unwrap();
+    assert_eq!(
+        enc.encode(Picture::Cpu(nv12(s.size, 1)), false),
+        Err(CodecError::DeadlineExceeded)
+    );
+    drop((enc, device));
+    assert_released(&shared);
+}
+
+fn probe_sync_bound() -> u64 {
+    super::probe::TRIAL_SYNC_TIMEOUT.as_nanos() as u64
+}
+
+#[test]
+fn a_rate_that_needs_a_higher_level_restarts_at_an_idr_with_new_headers() {
+    let (mut enc, shared) = encoder(Fake::intel());
+    let mut s = spec(Codec::H264, RateControl::Bitrate(4_000_000));
+    s.fps = 30;
+    enc.configure(&s).unwrap();
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    // 720p30 High: 4 Mbit/s is level 3.1; 30 Mbit/s needs 4.1.
+    s.rate = RateControl::Bitrate(30_000_000);
+    enc.configure(&s).unwrap();
+    enc.encode(Picture::Cpu(nv12(s.size, 1)), false).unwrap();
+    let units: Vec<_> = std::iter::from_fn(|| enc.poll()).collect();
+    assert_eq!(
+        units.iter().map(|u| u.key).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    let level = |u: &media_codec::EncodedUnit| {
+        AvcConfig::parse(u.description.as_ref().unwrap())
+            .unwrap()
+            .level
+    };
+    assert_eq!((level(&units[0]), level(&units[2])), (31, 41));
+    let f = shared.lock().unwrap();
+    let seq: VAEncSequenceParameterBufferH264 =
+        f.rendered[2].get(buffer::ENC_SEQUENCE_PARAMETER, 0);
+    assert_eq!(seq.level_idc, 41);
+}
