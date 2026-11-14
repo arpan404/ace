@@ -235,7 +235,7 @@ it("a pass stopped without closing resumes from its last save", async () => {
 it("closing the store saves progress made since the last save", async () => {
   const { open, idle } = setup({ batchesPerSave: 1000 });
   const writer = await open(release("build A"));
-  const { events } = history(writer);
+  const { events } = history(writer, 10);
   await open(release("build B"));
   idle();
   const restarted = await open(release("build B"));

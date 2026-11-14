@@ -65,28 +65,55 @@ trusted.
 6. **Older rows regain trust in an idle pass.** A shape change used to leave every older row
    on the validating path for good, and the protocol changes on most releases, so on the
    owner's store 97.9% of events (below seq 9,273,457 of 9,470,234) paid Zod on every read.
-   `stored-trust-pass.ts` walks history down from the trusted boundary while the daemon is
-   idle: a tick does work only when no transaction, history write or buffered stream output is
-   in flight and the head sequence hasn't moved since the previous tick, and checks again
-   before each batch. A batch is the 512 events below the boundary plus every item, text
-   preview and history revision written at their sequences; each row is read both validated
-   and as stored, and its sequence stays trusted only when both give the same value, field
-   order and byte size. A row that differs or that validation rejects puts its sequence in
-   `stored_event_rejected`, so it keeps the lenient validating decode exactly as before. Each
-   batch commits the new boundary (`stored_event_verified`) and its rejections in the
-   transaction that read the rows, so an interrupted pass resumes where it stopped. The
-   record belongs to one shape and to the start recorded with it: a different shape, or any
-   build (old or new) recording a new start in between, drops it, and the pass simply runs
-   again. The pass stops extending trust after 10,000 rejections, since a change that alters
-   most old rows gains little and each rejection is held in memory. It also confirms the thread
-   rows still unconfirmed after open (decision 5), 64 at a time, before older events. The
-   tables are created at open, with no migration step and no schema version bump.
+   `stored-trust-pass.ts` walks history down from the trusted boundary, one batch per idle
+   tick (every 200 ms). A tick does nothing while a thread is working or waiting on its own
+   work, a transaction is open, history is being published, maintenance holds writes, live
+   output is buffered, or any event was written since the previous tick.
+
+   - **What a batch checks.** Up to 512 events below the boundary and at most 1 MiB of stored
+     JSON, counting the events and every item, text preview and history revision written at
+     their sequences (at least one event per batch). Each row is read both validated and as
+     stored, and its sequence becomes trusted only when both give the same value, field order
+     and byte size.
+   - **What stays validated.** A sequence goes into `stored_event_rejected` when any of its
+     rows differs, fails validation, isn't valid JSON, or is larger than 1 MiB (rejected
+     unchecked, so no batch exceeds its budget). Every row at a rejected sequence keeps the
+     lenient validating decode exactly as before: a rejected item also puts the event at the
+     same sequence back on the validating path. The pass stops extending trust after 100,000
+     rejections, which are held in memory.
+   - **Progress.** Widening trust never changes what a read returns, so progress is held in
+     memory and saved (`stored_event_confirmed` and the rejections) every 32 batches and at
+     close, on a plain commit that wakes no read cache, listener or WAL maintenance. A crash
+     repeats at most 32 batches.
+   - **Whose record it is.** The record belongs to one build and one write generation. The
+     build is the release version (`ACE_VERSION`) hashed with the stored decoders' code. The
+     shape can't see a changed transform, refinement or decoder, so every new build checks
+     again. A development daemon (no release version) keeps nothing across restarts. The
+     generation is a counter that SQLite triggers bump on every write to `stored_event_shape`,
+     by any build, including builds from before the pass. So a build that recorded its start
+     in between, even one that later records this shape again, invalidates the record. Every
+     batch checks the generation before it reads, and a save succeeds only while the record
+     still matches. On a mismatch the running daemon drops all stored-row trust until it
+     opens again.
+   - **At open.** The start, the reset and the rejections change in one savepoint, so an
+     interrupted open leaves the previous state whole. Trust is decided after the open-time
+     passes that rewrite stored rows.
+   - **Raw rewrites.** Any code that rewrites `events`, `items`, `item_previews` or
+     `history_item_revisions` with raw SQL, rather than from a validated value, must call
+     `forgetStoredTrust` in the same transaction, as `mapRecordedPermissionModes` does.
+   - **Other connections.** One daemon owns a data directory (`acquireLock` in
+     `local-files.ts`). The only other writer of events and items is the history publication
+     worker, a second connection in the same build that writes validated rows above the head
+     and runs no pass of its own.
+   - **Thread rows and tables.** The pass also confirms the thread rows still unconfirmed after
+     open (decision 5), 64 at a time, before older events. The tables and triggers are
+     created at open, with no migration step and no schema version bump.
 
    A cheaper rule, keeping old rows trusted across a change that only adds optional fields or
-   new variants, was considered and not adopted: the fingerprint is a JSON Schema export that
-   renders transforms and refinements as "any", so a diff of it can't prove a change additive,
-   and key order, defaults and Zod's stripping of unknown keys all make "additive" changes
-   visible in decoded rows. Every shape change re-verifies in the background instead.
+   new variants, was considered and not adopted. The fingerprint is a JSON Schema export that
+   renders transforms and refinements as "any", so a diff of it can't prove a change
+   additive. Key order, defaults and Zod's stripping of unknown keys also make "additive"
+   changes visible in decoded rows. Every new build re-verifies in the background instead.
 
 7. **Trusted casts live in one place.** `stored-decode.ts` holds the casts from trusted stored
    JSON to protocol types; other modules call its functions.
@@ -102,12 +129,21 @@ trusted.
   of CPU instead of 64 µs (`apps/daemon/bench/thread-rows.ts`). Confirming every row after an
   upgrade costs about 180 ms of CPU, which is why it is spread over opens.
 - On a 20,040-event fixture (`apps/daemon/bench/stored-trust-pass.ts`, 40 threads of 500
-  messages), with the boundary at the head after a shape change against after the pass:
-  replaying all events costs 93 ms of CPU against 32 ms (2.9×), and opening the 40 threads'
-  200-item tails 53 ms against 39 ms (1.3×). The pass costs about 21 µs of CPU per event
-  (the event and its item, preview and revision, each read both ways), about 10 ms a batch;
-  at two batches per 250 ms idle tick that is under a tenth of one core while idle, and about
-  three minutes of CPU spread over idle time for the owner's 9.27 million older events.
+  messages of about 400 bytes), with the boundary at the head after a shape change against
+  after the pass: replaying all events costs 111 ms of CPU against 38 ms (2.9×), and opening
+  the 40 threads' 200-item tails 72 ms against 51 ms (1.4×). The pass costs about 35 µs of
+  CPU per event (the event and its item, preview and revision, each read both ways), 14 ms a
+  batch at the median and 23 ms at worst. With 64 KiB messages a batch takes 25 ms at the
+  median and 33 ms at worst: the byte budget, not the event count, bounds it. At one batch per
+  200 ms idle tick that is under a tenth of one core while idle. The owner's 9.27 million
+  older events would take about five minutes of CPU, spread over about an hour of idle time,
+  once per release.
+- Checked against real protocol history (`apps/daemon/bench/stored-trust-compat.ts`): the
+  5,525 payloads of the recorded provider sessions, stored as builds from 1, 3, 10, 14 and 22
+  days earlier would have stored them, all read the same under the current schema, so the
+  pass confirms 100% of them. A deliberately added default on messages makes 4.3% of those
+  rows differ, all message items: the pass then helps less, and stops at the rejection
+  limit.
 - Trust is no longer a single boundary: a read checks the sequence against the boundary and
   the rejected set (`isTrusted` in `stored-decode.ts`).
 - Further slices follow the same rule: history revisions, entity pages, search

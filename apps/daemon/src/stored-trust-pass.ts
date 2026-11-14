@@ -47,7 +47,7 @@ export const batchesPerSave = 32;
  * The pass stops extending trust once this many sequences are rejected: a schema change that
  * alters most old rows gains little from the pass, and every rejection is held in memory.
  */
-export const rejectedLimit = 10_000;
+export const rejectedLimit = 100_000;
 
 type Row = Record<string, SQLOutputValue>;
 const everything = trustedFrom(Number.NEGATIVE_INFINITY);
