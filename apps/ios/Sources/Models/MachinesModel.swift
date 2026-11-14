@@ -283,8 +283,22 @@ import Observation
     /// machine checks its own now instead of at its next heartbeat.
     /// A machine on its account relay checks whether its direct address answers again.
     func wake() {
-        for session in inbox.sessions { session.client.wake() }
+        wakeClients()
         reconsiderRoutes()
+    }
+    /// How long the SDK gives a woken socket to answer its probe (`wakeProbeMs` in the shared
+    /// client), in milliseconds.
+    static let wakeProbe: Double = 5_000
+    @ObservationIgnored private var lastWake: Double?
+    /// Wakes every machine's client, unless a wake within the last probe window may still have
+    /// a probe outstanding: a second wake would restart that probe's deadline, so network
+    /// updates arriving under five seconds apart could keep a silent socket marked ready for as
+    /// long as they continue. That probe already settles what this wake would ask.
+    private func wakeClients() {
+        let now = clock()
+        if let lastWake, now - lastWake < Self.wakeProbe { return }
+        lastWake = now
+        for session in inbox.sessions { session.client.wake() }
     }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
@@ -295,14 +309,12 @@ import Observation
         for session in inbox.sessions { session.client.readAheadAllowed = allowed }
     }
     func network(online: Bool, interfaceChanged: Bool) {
-        for session in inbox.sessions {
-            session.client.network(online)
-            // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
-            // and a socket still ready on the old one may be dead without having closed: a ready
-            // socket must answer a ping within seconds or is replaced, and a waiting reconnect
-            // runs now (`wake`), instead of waiting for the next heartbeat.
-            if online && interfaceChanged { session.client.wake() }
-        }
+        for session in inbox.sessions { session.client.network(online) }
+        // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
+        // and a socket still ready on the old one may be dead without having closed: a ready
+        // socket must answer a ping within seconds or is replaced, and a waiting reconnect runs
+        // now (`wake`), instead of waiting for the next heartbeat.
+        if online && interfaceChanged { wakeClients() }
         if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {

@@ -126,6 +126,26 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
     }
 
+    @Test func networkUpdatesUnderFiveSecondsApartNeverPostponeAnOutstandingProbe() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let wakes = { fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count } }
+        // Wi-Fi and cellular trading places every second: only the first change probes, so
+        // that probe's five seconds run out and a silent socket is replaced on time.
+        for _ in 0..<4 {
+            fixture.model.network(online: true, interfaceChanged: true)
+            fixture.clock.advance(1_000)
+        }
+        // Coming back from the background inside the same window doesn't restart it either.
+        fixture.model.wake()
+        #expect(wakes() == [1])
+        // Once that probe has settled, the next change probes again.
+        fixture.clock.advance(1_000)
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(wakes() == [2])
+    }
+
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
         defer { fixture.cleanUp() }
