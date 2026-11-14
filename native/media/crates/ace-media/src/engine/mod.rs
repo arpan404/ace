@@ -16,7 +16,8 @@ use crate::secret::Vault;
 use egress::EgressSink;
 use grants::{Grant, Grants};
 use media_core::privacy::Decision;
-use media_wire::control::{EpochRange, FromMedia, Id, Level, ToMedia};
+use media_wire::capability::Acceleration;
+use media_wire::control::{EncodeSpec, EpochRange, FromMedia, Id, Level, ToMedia};
 use media_wire::frame::MediaFrame;
 use recorder::{RecordSpec, Recorders};
 use sources::{IngestId, Sources};
@@ -38,9 +39,66 @@ pub enum Effect {
     Shutdown {
         grace_ms: u32,
     },
+    /// A JPEG source's encoder thread (E4).
+    Encode(EncodeEffect),
     /// Bookkeeping that must never forget is full: exit, so the supervisor restarts the
     /// process and every connection ends with it.
     Fatal(&'static str),
+}
+
+/// Picture encoder threads stuck past their deadline at which ace-media exits to be restarted.
+pub const MAX_STUCK_ENCODERS: usize = 2;
+
+/// What a JPEG source's encoder thread is told.
+pub enum EncodeEffect {
+    Configure {
+        source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
+        encodes: Vec<EncodeSpec>,
+    },
+    Picture {
+        source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
+        text: Vec<u8>,
+        epoch: u32,
+        age_us: u32,
+    },
+    Key {
+        source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
+        encode: u32,
+    },
+    /// Hand over every unit still pending, then say so (`encoder_drained`).
+    Drain {
+        source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
+    },
+    Close {
+        source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
+    },
+}
+
+/// Names only: a picture's bytes are never printed.
+impl std::fmt::Debug for EncodeEffect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Configure {
+                source, encodes, ..
+            } => {
+                write!(f, "Configure({source}, {} encodes)", encodes.len())
+            }
+            Self::Picture { source, epoch, .. } => write!(f, "Picture({source}, epoch {epoch})"),
+            Self::Key { source, encode, .. } => write!(f, "Key({source}, {encode})"),
+            Self::Drain { source, .. } => write!(f, "Drain({source})"),
+            Self::Close { source, .. } => write!(f, "Close({source})"),
+        }
+    }
 }
 
 pub(crate) fn normal(out: &mut Vec<Effect>, message: FromMedia) {
@@ -163,6 +221,7 @@ impl Engine {
                     &payload,
                     vault,
                     now.mono_ms,
+                    self.egress.as_mut(),
                     out,
                 );
                 match self.sources.handle(source.get()) {
@@ -171,12 +230,23 @@ impl Engine {
                 }
             }
             ToMedia::SourcePage { .. } | ToMedia::SourceCodecs { .. } => {}
-            ToMedia::SourcePicture { source, epoch, .. } => {
+            ToMedia::SourcePicture {
+                source,
+                epoch,
+                age_ms,
+            } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
                 self.stills.picture(source.get(), &bytes);
-                self.sources
-                    .picture(source.get(), epoch, bytes, now, self.egress.as_mut(), out);
+                self.sources.picture(
+                    source.get(),
+                    epoch,
+                    age_ms,
+                    bytes,
+                    now,
+                    self.egress.as_mut(),
+                    out,
+                );
             }
             ToMedia::SourceEpoch {
                 source,
@@ -206,10 +276,20 @@ impl Engine {
                     .decide(&source, &recording, decision, now.mono_ms, out);
             }
             ToMedia::SourceClose { source } => {
-                self.sources.close_source(source.get(), vault, out);
+                self.sources.close_source(
+                    source.get(),
+                    vault,
+                    now.mono_ms,
+                    self.egress.as_mut(),
+                    out,
+                );
                 self.stills.close(source.get(), out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
+            ToMedia::SourceEncodes { source, encodes } => {
+                self.sources.encodes(&source, encodes, out)
+            }
+            ToMedia::SourceKey { source, encode } => self.sources.key(&source, encode, out),
             ToMedia::MediaTicket {
                 connection,
                 owner,
@@ -370,8 +450,50 @@ impl Engine {
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
     }
 
+    /// A unit a JPEG source's encoder thread finished.
+    pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
+        self.sources.encoded(
+            source,
+            token,
+            frame,
+            now,
+            self.egress.as_mut(),
+            &mut self.out,
+        );
+    }
+
+    /// A JPEG source's steps, as its encoder thread chose them.
+    pub fn encoder_steps(&mut self, source: &str, token: u64, acceleration: Acceleration) {
+        self.sources
+            .encoder_steps(source, token, acceleration, &mut self.out);
+    }
+
+    /// A closed JPEG source's encoder handed over its last output: the source ends cleanly.
+    pub fn encoder_drained(&mut self, source: &str, token: u64) {
+        self.sources
+            .encoder_drained(source, token, self.egress.as_mut(), &mut self.out);
+    }
+
+    /// The shell's count of picture encoder threads still alive past their deadline. They hold
+    /// their slots until they exit; two or more and ace-media exits, so the supervisor restarts
+    /// it and the OS frees what they hold (a thread can't be stopped safely from outside).
+    pub fn encoders_stuck(&mut self, stuck: usize) {
+        self.sources.encoders_stuck(stuck);
+        if stuck >= MAX_STUCK_ENCODERS {
+            self.out
+                .push(Effect::Fatal("picture encoder threads are stuck"));
+        }
+    }
+
+    /// A JPEG source's encoder could not run: the source ends, so the daemon takes it back.
+    pub fn encoder_failed(&mut self, source: &str, token: u64, reason: &str) {
+        self.sources
+            .encoder_failed(source, token, reason, self.egress.as_mut(), &mut self.out);
+    }
+
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {
-        self.sources.ingest_closed(conn, now.mono_ms, &mut self.out);
+        self.sources
+            .ingest_closed(conn, now.mono_ms, self.egress.as_mut(), &mut self.out);
     }
 
     /// A client presented a ticket on the direct listener (D1).
@@ -382,7 +504,8 @@ impl Engine {
 
     /// Periodic: barrier hold bounds and ticket expiry.
     pub fn tick(&mut self, now: Now) {
-        self.sources.tick(now.mono_ms, &mut self.out);
+        self.sources
+            .tick(now.mono_ms, self.egress.as_mut(), &mut self.out);
         self.stills.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);

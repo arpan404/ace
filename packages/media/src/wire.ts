@@ -169,6 +169,12 @@ export const ToMedia = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("source.close"), source: id }),
   z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
   z.strictObject({
+    type: z.literal("source.encodes"),
+    source: id,
+    encodes: z.array(EncodeSpec),
+  }),
+  z.strictObject({ type: z.literal("source.key"), source: id, encode: u32 }),
+  z.strictObject({
     type: z.literal("media.ticket"),
     connection: id,
     owner: Owner,

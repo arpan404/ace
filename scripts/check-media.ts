@@ -29,4 +29,11 @@ if (process.platform !== "win32") {
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
+  // E4: ace's Chrome streaming through the video extension into the binary and back on egress
+  // (skipped where no Chrome is installed).
+  execFileSync("bun", ["--bun", "x", "vitest", "run", "src/media-video.process.test.ts"], {
+    cwd: new URL("../packages/browser/", import.meta.url),
+    env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+    stdio: "inherit",
+  });
 }
