@@ -456,7 +456,8 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   page's own. A hidden `UITextField` over the focused field brings up the keyboard the field asks
   for (`KeyboardStyle`); `RemoteTyping` replays its edits as Backspace, Delete and text, and IME
   composition as marked text. Select, date, time, month, week and colour pickers open native
-  pickers and answer with `pick` (`PickerValues`, in UTC). Tooltips show over the page.
+  pickers and answer with `pick` (`PickerValues`, in UTC); a picker kind with no native control
+  takes the value typed in the page's own format. Tooltips show over the page.
 - Tests: `BrowserStreamTests` (pieces written by the daemon's encoder), `BrowserInputTests`,
   `H264DecodeTests` (real VideoToolbox frames), `BrowserLiveTests`, and
   `bunx vitest run apps/ios/bridge/browser-live.test.ts` on the fake daemon.
