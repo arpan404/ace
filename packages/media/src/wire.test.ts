@@ -8,7 +8,7 @@ import {
   encodeControl,
   decodeToMedia,
   decodeFromMedia,
-} from "./wire.ts";
+} from "@ace/media/wire";
 const directory = new URL("../../../native/media/vectors/control/", import.meta.url);
 const Fixture = z.strictObject({
   direction: z.enum(["ToMedia", "FromMedia"]),
@@ -86,4 +86,29 @@ test("control framing rejects oversized lengths, invalid UTF-8 and misplaced sec
   const bad = parts.header.slice();
   bad[8] = 255;
   expect(() => decodeToMedia(bad, "normal")).toThrow();
+});
+
+const BoundaryCases = z
+  .array(
+    z.strictObject({
+      name: z.string(),
+      direction: z.enum(["ToMedia", "FromMedia"]),
+      accept: z.boolean(),
+      json: z.string(),
+    }),
+  )
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL("../../../native/media/vectors/control-boundary/cases.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+test.each(BoundaryCases)("shared control boundary: $name", ({ direction, accept, json }) => {
+  const schema = direction === "ToMedia" ? ToMedia : FromMedia;
+  const input: unknown = JSON.parse(json);
+  const parsed = schema.safeParse(input);
+  expect(parsed.success).toBe(accept);
+  if (parsed.success) expect(parsed.data).toEqual(input);
 });

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { crc32c, decodeKeyBlock, encodeKeyBlock } from "./key-block.ts";
+import { crc32c, decodeKeyBlock, encodeKeyBlock } from "@ace/media/key-block";
 const fixture = z
   .object({ hex: z.string() })
   .parse(

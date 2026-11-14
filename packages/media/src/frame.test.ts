@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { decodeMediaFrame, encodeMediaFrame, decodeEgress, encodeEgress } from "./frame.ts";
+import { decodeMediaFrame, encodeMediaFrame, decodeEgress, encodeEgress } from "@ace/media/frame";
 const fixtures = z
   .array(z.object({ kind: z.number(), hex: z.string(), egressHex: z.string() }))
   .parse(

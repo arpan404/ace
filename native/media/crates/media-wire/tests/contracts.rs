@@ -255,3 +255,60 @@ fn key_block_reserved_bytes_and_flags_are_rejected_with_a_correct_crc()
     }
     Ok(())
 }
+
+#[derive(serde::Deserialize)]
+struct BoundaryCase {
+    name: String,
+    direction: String,
+    accept: bool,
+    json: String,
+}
+#[test]
+fn shared_optionals_and_unicode_have_identical_acceptance() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cases: Vec<BoundaryCase> =
+        serde_json::from_slice(&fs::read(root().join("control-boundary/cases.json"))?)?;
+    for case in cases {
+        let accepted = if case.direction == "ToMedia" {
+            serde_json::from_str::<ToMedia>(&case.json).is_ok()
+        } else {
+            serde_json::from_str::<FromMedia>(&case.json).is_ok()
+        };
+        assert_eq!(accepted, case.accept, "{}", case.name);
+    }
+    Ok(())
+}
+#[test]
+fn checked_control_values_always_round_trip_and_refuse_out_of_range_construction()
+-> Result<(), Box<dyn std::error::Error>> {
+    use media_wire::control::{EpochRange, Id, Loopback, Nonnegative, Protocol, Sequence};
+    fn round_trip<T>(value: T, expected: Value) -> Result<(), Box<dyn std::error::Error>>
+    where
+        T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + PartialEq,
+    {
+        assert_eq!(serde_json::to_value(&value)?, expected);
+        assert_eq!(serde_json::from_value::<T>(expected)?, value);
+        Ok(())
+    }
+    for n in [0, 9_007_199_254_740_991] {
+        round_trip(Sequence::new(n)?, json!(n))?;
+    }
+    assert!(Sequence::new(9_007_199_254_740_992).is_err());
+    assert!(Sequence::new(u64::MAX).is_err());
+    round_trip(Id::new("😀".repeat(64))?, json!("😀".repeat(64)))?;
+    assert!(Id::new("😀".repeat(65)).is_err());
+    round_trip(EpochRange::new([0, u32::MAX])?, json!([0, u32::MAX]))?;
+    assert!(EpochRange::new([2, 1]).is_err());
+    for n in [0.0, f64::MAX] {
+        round_trip(Nonnegative::new(n)?, json!(n))?;
+    }
+    for n in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert!(Nonnegative::new(n).is_err());
+    }
+    round_trip(Protocol::new(1)?, json!(1))?;
+    assert!(Protocol::new(0).is_err());
+    assert!(Protocol::new(2).is_err());
+    round_trip(Loopback::new(true)?, json!(true))?;
+    assert!(Loopback::new(false).is_err());
+    Ok(())
+}

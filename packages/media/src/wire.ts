@@ -1,5 +1,5 @@
 import { z } from "zod";
-const id = z.string().refine((value) => Array.from(value).length <= 64);
+const id = z.string().refine((value) => value.isWellFormed() && Array.from(value).length <= 64);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [

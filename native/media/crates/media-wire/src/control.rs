@@ -62,14 +62,21 @@ pub enum Level {
 }
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct Id(pub String);
+pub struct Id(String);
+impl Id {
+    pub fn new(value: String) -> Result<Self, &'static str> {
+        if value.chars().count() > 64 {
+            return Err("identifier too long");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> &str {
+        &self.0
+    }
+}
 impl<'de> Deserialize<'de> for Id {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        if s.chars().count() > 64 {
-            return Err(serde::de::Error::custom("identifier too long"));
-        }
-        Ok(Self(s))
+        Self::new(String::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -189,7 +196,12 @@ pub struct EncodeSpec {
     pub fps: u32,
     #[serde(rename = "bitrate")]
     pub bitrate: u32,
-    #[serde(rename = "quantizer", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "quantizer",
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub quantizer: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -231,7 +243,12 @@ pub struct Control {
 pub struct Listen {
     #[serde(rename = "loopbackPort")]
     pub loopback_port: u32,
-    #[serde(rename = "remotePort", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "remotePort",
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub remote_port: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -296,7 +313,12 @@ pub enum ToMedia {
     Listen {
         #[serde(rename = "loopback")]
         loopback: Loopback,
-        #[serde(rename = "remote", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "remote",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         remote: Option<Remote>,
     },
     #[serde(rename = "source.open")]
@@ -305,13 +327,33 @@ pub enum ToMedia {
         source: Id,
         #[serde(rename = "handle")]
         handle: u32,
-        #[serde(rename = "threadId", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "threadId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         thread_id: Option<Id>,
-        #[serde(rename = "tabId", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "tabId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         tab_id: Option<Id>,
-        #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "sessionId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         session_id: Option<Id>,
-        #[serde(rename = "deviceId", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "deviceId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         device_id: Option<Id>,
         #[serde(rename = "epoch")]
         epoch: u32,
@@ -472,7 +514,12 @@ pub enum ToMedia {
         issued: Sequence,
         #[serde(rename = "device")]
         device: Id,
-        #[serde(rename = "admission", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "admission",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         admission: Option<Admission>,
     },
     #[serde(rename = "record.start")]
@@ -591,9 +638,19 @@ pub enum FromMedia {
         source: Id,
         #[serde(rename = "status")]
         status: Status,
-        #[serde(rename = "reason", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "reason",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         reason: Option<String>,
-        #[serde(rename = "attempts", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "attempts",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
         attempts: Option<u32>,
     },
     #[serde(rename = "source.want")]
@@ -829,64 +886,104 @@ impl<M: Message> ControlFrame<M> {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct Sequence(pub u64);
+pub struct Sequence(u64);
+impl Sequence {
+    pub fn new(value: u64) -> Result<Self, &'static str> {
+        if value > 9_007_199_254_740_991 {
+            return Err("sequence exceeds safe integer");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> u64 {
+        self.0
+    }
+}
 impl<'de> Deserialize<'de> for Sequence {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let n = u64::deserialize(d)?;
-        if n > 9_007_199_254_740_991 {
-            return Err(serde::de::Error::custom("sequence exceeds safe integer"));
-        }
-        Ok(Self(n))
+        Self::new(u64::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct EpochRange(pub [u32; 2]);
+pub struct EpochRange([u32; 2]);
+impl EpochRange {
+    pub fn new(value: [u32; 2]) -> Result<Self, &'static str> {
+        if value[0] > value[1] {
+            return Err("reversed epoch range");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> [u32; 2] {
+        self.0
+    }
+}
 impl<'de> Deserialize<'de> for EpochRange {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let r = <[u32; 2]>::deserialize(d)?;
-        if r[0] > r[1] {
-            return Err(serde::de::Error::custom("reversed epoch range"));
-        }
-        Ok(Self(r))
+        Self::new(<[u32; 2]>::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct Nonnegative(pub f64);
+pub struct Nonnegative(f64);
+impl Nonnegative {
+    pub fn new(value: f64) -> Result<Self, &'static str> {
+        if !value.is_finite() || value < 0.0 {
+            return Err("invalid nonnegative number");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> f64 {
+        self.0
+    }
+}
 impl<'de> Deserialize<'de> for Nonnegative {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let n = f64::deserialize(d)?;
-        if !n.is_finite() || n < 0.0 {
-            return Err(serde::de::Error::custom("invalid nonnegative number"));
-        }
-        Ok(Self(n))
+        Self::new(f64::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct Protocol(pub u8);
+pub struct Protocol(u8);
+impl Protocol {
+    pub fn new(value: u8) -> Result<Self, &'static str> {
+        if value != 1 {
+            return Err("invalid protocol");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> u8 {
+        self.0
+    }
+}
 impl<'de> Deserialize<'de> for Protocol {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let n = u8::deserialize(d)?;
-        if n != 1 {
-            return Err(serde::de::Error::custom("invalid literal"));
-        }
-        Ok(Self(n))
+        Self::new(u8::deserialize(d)?).map_err(serde::de::Error::custom)
     }
 }
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct Loopback(pub bool);
+pub struct Loopback(bool);
+impl Loopback {
+    pub fn new(value: bool) -> Result<Self, &'static str> {
+        if !value {
+            return Err("loopback must be true");
+        }
+        Ok(Self(value))
+    }
+    pub fn get(&self) -> bool {
+        self.0
+    }
+}
 impl<'de> Deserialize<'de> for Loopback {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let n = bool::deserialize(d)?;
-        if !n {
-            return Err(serde::de::Error::custom("invalid literal"));
-        }
-        Ok(Self(n))
+        Self::new(bool::deserialize(d)?).map_err(serde::de::Error::custom)
     }
+}
+// Missing fields use serde's default; a present field must deserialize as T, never null.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
