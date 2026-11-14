@@ -260,10 +260,12 @@ impl LinkRate {
             return;
         }
         if self.renewing {
+            // A fresh sample can only overstate the path's round trip: the floor keeps the lower.
             self.renewing = false;
             self.smoothed = Some(rtt);
+            let floor = self.floor.front().map_or(rtt, |c| c.1).min(rtt);
             self.floor.clear();
-            self.floor.push_back((at, rtt));
+            self.floor.push_back((at, floor));
             return;
         }
         if sent_at < self.stall_sent_before && at <= self.stall_until {
@@ -334,7 +336,9 @@ impl LinkRate {
         } else {
             self.queued_since = None;
         }
-        if queueing < CALM_MS {
+        // Calm within the path's jitter: max(30 ms, a tenth of the floor).
+        let calm = CALM_MS.max(floor * 0.1);
+        if queueing < calm {
             self.calm_since.get_or_insert(at);
         } else {
             self.calm_since = None;
@@ -360,7 +364,8 @@ impl LinkRate {
         }
         let mut rate = self.rate;
         let cut = if self.dropped {
-            Some(rate.min(if delivered == 0.0 { rate } else { delivered }) * 0.6)
+            // A drop cuts to CUBIC's beta.
+            Some(rate.min(if delivered == 0.0 { rate } else { delivered }) * 0.7)
         } else if let Some(since) = self.queued_since {
             (at >= self.hold_until && at - since >= PERSIST_MS)
                 .then(|| rate.min(delivered.max(longer)) * 0.9)
@@ -389,13 +394,14 @@ impl LinkRate {
                 rate = hold;
             }
         } else if self.queued_since.is_none()
-            && queueing < CALM_MS
+            && queueing < calm
             && at >= self.hold_until
-            && at - self.last_rise >= self.smoothed.unwrap_or(0.0)
+            && at - self.last_rise >= floor
         {
+            // Rises are paced by the path's round trip (the floor), not a queue-inflated one.
             self.last_rise = at;
-            let calm = self.calm_since.unwrap_or(at);
-            let probe = at - calm >= CALM_RTTS * STEP_MS.max(self.smoothed.unwrap_or(0.0));
+            let since = self.calm_since.unwrap_or(at);
+            let probe = at - since >= CALM_RTTS * STEP_MS.max(floor);
             let factor = if self.starting {
                 1.25
             } else if probe {

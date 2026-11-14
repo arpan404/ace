@@ -45,6 +45,8 @@ const stepMs = 200;
 /** Queueing delay above this lowers the rate; below `calmMs` it may rise. */
 const queuedMs = 80;
 const calmMs = 30;
+/** ...or this share of the floor, whichever is more. */
+const calmShare = 0.1;
 /** Queueing must last this long before it cuts: one late ack is jitter, not a queue. */
 const persistMs = 400;
 /**
@@ -65,7 +67,8 @@ const startRise = 1.25;
 /** A queue lowers the rate to this share of what was delivered, but never below `deepest`. */
 const deliveredShare = 0.9;
 const deepest = 0.6;
-const dropFall = 0.6;
+/** A drop (a queue past the time bound) cuts to this share: CUBIC's beta. */
+const dropFall = 0.7;
 /** How far above the best rate it has delivered lately the rate may aim. */
 const headroom = 1.3;
 /** A delivered rate is remembered this long as proof of what the link carries. */
@@ -103,7 +106,7 @@ export class LinkRate {
   #recent = 0;
   #proven: { at: number; rate: number }[] = [];
   #lastStep = -Infinity;
-  /** The rate rises at most once a round trip: what a rise did shows a round trip later. */
+  /** The rate rises at most once a path round trip: what a rise did shows a round trip later. */
   #lastRise = -Infinity;
   /** After a cut, the queue it found needs a round trip to drain before it says anything new. */
   #holdUntil = -Infinity;
@@ -241,9 +244,12 @@ export class LinkRate {
   #sample(rtt: number, sentAt: number, at: number): void {
     if (sentAt < this.#freshFrom) return;
     if (this.#renewing) {
+      // A fresh sample can only overstate the path's round trip (another flow may be queued
+      // on it): it replaces the smoothed round trip, and the floor only if it is lower.
       this.#renewing = false;
       this.#smoothed = rtt;
-      this.#floor = [{ at, rtt }];
+      const floor = this.#floor[0]?.rtt ?? rtt;
+      this.#floor = [{ at, rtt: Math.min(floor, rtt) }];
       return;
     }
     if (sentAt < this.#stall.sentBefore && at <= this.#stall.until) return;
@@ -289,7 +295,9 @@ export class LinkRate {
     const proven = this.#provenRate(at, delivered);
     if (queueing > queuedMs) this.#queuedSince ??= at;
     else this.#queuedSince = undefined;
-    if (queueing < calmMs) this.#calmSince ??= at;
+    // Calm within the path's jitter: a long round trip jitters more than a short one.
+    const calm = Math.max(calmMs, floor * calmShare);
+    if (queueing < calm) this.#calmSince ??= at;
     else this.#calmSince = undefined;
     let rate = this.#rate;
     // Waiting for a fresh round trip: only a drop (a link that stopped carrying) moves it.
@@ -333,14 +341,11 @@ export class LinkRate {
       if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs)
         // A queue that lasts means too much: below the rate, whatever was delivered.
         cut(Math.min(rate, Math.max(delivered, rates.longer)) * deliveredShare);
-    } else if (
-      queueing < calmMs &&
-      at >= this.#holdUntil &&
-      at - this.#lastRise >= (this.#smoothed ?? 0)
-    ) {
+    } else if (queueing < calm && at >= this.#holdUntil && at - this.#lastRise >= floor) {
+      // Once a path round trip (the floor, not one a queue inflates): what a rise did shows then.
       this.#lastRise = at;
-      const calm = this.#calmSince ?? at;
-      const probe = at - calm >= calmRtts * Math.max(stepMs, this.#smoothed ?? 0);
+      const since = this.#calmSince ?? at;
+      const probe = at - since >= calmRtts * Math.max(stepMs, floor);
       rate = Math.max(
         rate,
         Math.min(
