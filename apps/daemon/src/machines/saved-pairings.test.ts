@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { DeviceId, DeviceToken } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Profiles } from "../cli/profiles.ts";
-import { SavedPairings } from "./saved-pairings.ts";
+import { SAVED_PAIRINGS_RETRY_MS, SavedPairings } from "./saved-pairings.ts";
 
 const homes: string[] = [];
 const open: SavedPairings[] = [];
@@ -18,7 +18,8 @@ function setup() {
   const home = mkdtempSync(join(tmpdir(), "ace-saved-pairings-"));
   homes.push(home);
   const logs: string[] = [];
-  const saved = new SavedPairings(home, (message) => logs.push(message));
+  const clock = { now: 0 };
+  const saved = new SavedPairings(home, (message) => logs.push(message), () => clock.now);
   open.push(saved);
   /** Changes made through another connection, as Settings or the `ace remote` CLI do. */
   const elsewhere = (change: (table: Profiles) => void) => {
@@ -39,7 +40,7 @@ function setup() {
         token: DeviceToken.parse(token.repeat(64)),
       }),
     );
-  return { home, saved, add, elsewhere, logs, file: join(home, "cli-profiles.sqlite") };
+  return { home, saved, add, elsewhere, logs, clock, file: join(home, "cli-profiles.sqlite") };
 }
 
 test("a pairing added or removed by another process is seen on the next look", () => {
@@ -97,6 +98,9 @@ test("a file another writer holds reads as unreadable, logged once, and is read 
     writer.exec("COMMIT");
     writer.close();
   }
+  // Looks in the window after a failure answer at once, without touching the file.
+  expect(h.saved.keys()).toBeUndefined();
+  h.clock.now += SAVED_PAIRINGS_RETRY_MS;
   expect(h.saved.keys()?.size).toBe(2);
   expect(h.logs).toEqual([
     "Saved pairings can't be read; calls to paired machines wait",

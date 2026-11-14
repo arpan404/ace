@@ -998,7 +998,8 @@ test("a pairings file locked by another writer fails the call as never sent, and
   writer.exec("COMMIT");
   writer.close();
   expect(blocked).toBeInstanceOf(MachineNotSent);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // The reader waits out its short window after the lock before it looks again.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   expect(crashes).toEqual([]);
   // The lock is gone: the pool was not ended for it, and the next call goes.
   await expect(
@@ -1007,5 +1008,44 @@ test("a pairings file locked by another writer fails the call as never sent, and
       { origin, call: followUp },
       { timeoutMs: 5000, connections: h.connections },
     ),
+  ).resolves.toEqual({ ok: true });
+});
+
+test("sixty-four calls while another writer holds the pairings file barely block the event loop", async () => {
+  const h = await savedPool();
+  await machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections });
+  const writer = new DatabaseSync(h.file);
+  writer.exec("BEGIN EXCLUSIVE");
+  // The longest the event loop goes without running a 5 ms timer, while the calls are made.
+  let last = performance.now();
+  let worst = 0;
+  const sampler = setInterval(() => {
+    const at = performance.now();
+    worst = Math.max(worst, at - last);
+    last = at;
+  }, 5);
+  try {
+    const calls = await Promise.all(
+      Array.from({ length: 64 }, () =>
+        machineRequest(
+          h.profile,
+          { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+          { timeoutMs: 5000, connections: h.connections },
+        ).catch((error: unknown) => error),
+      ),
+    );
+    for (const failure of calls) expect(failure).toBeInstanceOf(MachineNotSent);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } finally {
+    clearInterval(sampler);
+    writer.exec("COMMIT");
+    writer.close();
+  }
+  // At most one look per 250 ms touches the file, waiting at most 5 ms for the lock.
+  expect(worst).toBeLessThan(5 + 5 + 40);
+  // Once the window after the lock is over, calls go again.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await expect(
+    machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections }),
   ).resolves.toEqual({ ok: true });
 });
