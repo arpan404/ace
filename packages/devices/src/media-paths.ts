@@ -65,6 +65,7 @@ export function egressVideoUnit(unit: EgressUnit, codec: string): VideoUnit | un
     width: frame.width,
     height: frame.height,
     pts: BigInt(Math.round((stamp?.timestamp ?? 0) * 1000)),
+    encode: frame.encode,
   };
 }
 
@@ -131,6 +132,11 @@ export class DeviceVideoPaths {
     if (this.#closed || this.#onPath === daemonPath) return false;
     this.#source.key(0);
     return true;
+  }
+
+  /** The encodes ace-media runs for this source (a Simulator it re-encodes for a viewer). */
+  encodes(encodes: Parameters<IngestSource["encodes"]>[0]): void {
+    if (!this.#closed) this.#source.encodes(encodes);
   }
 
   /** The producer's ingest connection failed: it is on the daemon's path again already. */

@@ -47,7 +47,12 @@ if (process.platform !== "win32") {
       "run",
       "src/simulator-media.process.test.ts",
       "src/scrcpy-media.process.test.ts",
-      ...(process.platform === "darwin" ? ["src/frame-encoder-media.process.test.ts"] : []),
+      ...(process.platform === "darwin"
+        ? [
+            "src/frame-encoder-media.process.test.ts",
+            "src/simulator-transcode-media.process.test.ts",
+          ]
+        : []),
     ],
     {
       cwd: new URL("../packages/devices/", import.meta.url),

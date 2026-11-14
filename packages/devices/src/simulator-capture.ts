@@ -10,6 +10,7 @@ import { SimulatorH264 } from "./simulator-h264.ts";
 import { DeviceVideoPaths, type DeviceMedia } from "./media-paths.ts";
 import type { VideoUnit } from "./scrcpy-video.ts";
 import {
+  simulatorEncodeSpec,
   simulatorNeedsTranscode,
   startSimulatorTranscode,
   type SimulatorTranscode,
@@ -377,6 +378,27 @@ export async function simulatorCapture(options: {
     /** One H.264 unit from serve-sim, whichever way it came: published, or transcoded. */
     const deliverH264 = (unit: VideoUnit) => {
       if (stopped || !video) return;
+      // Re-encoded by ace-media at the viewer's size: published as such, leaving serve-sim's
+      // own picture (input mapping, its measured rate) alone.
+      if (unit.encode) {
+        publish(
+          {
+            version: 1,
+            sessionId: options.streamId,
+            sequence: sequence++,
+            timestamp: runtime.now(),
+            width: unit.width,
+            height: unit.height,
+            scale: native ? unit.width / native.width : 1,
+            codec: "h264",
+            keyframe: unit.keyframe,
+            ...(unit.keyframe ? { videoCodec: unit.videoCodec } : {}),
+            bytes: unit.payload.length,
+          },
+          unit.payload,
+        );
+        return;
+      }
       // The first IDR is the switch: later JPEG frames are dropped from here on.
       mode = "h264";
       Object.assign(screen, { width: unit.width, height: unit.height });
@@ -437,6 +459,8 @@ export async function simulatorCapture(options: {
     };
     /** ace-media reads serve-sim's stream itself while the route says so (E3b). */
     let fromMedia = false;
+    /** ace-media re-encodes serve-sim's stream for the viewer (`source.encodes`). */
+    let mediaTranscoding = false;
     const media = options.media;
     const routed = () =>
       (paths ??= media
@@ -454,9 +478,14 @@ export async function simulatorCapture(options: {
                 const previous = h264;
                 h264 = undefined;
                 await previous?.stop();
+                // ace-media re-encodes for this viewer from now on, not the screen helper.
+                await stopTranscode();
+                if (viewer) void follow(viewer);
                 return { ingest: "on", boundary: null, cut: true };
               }
               fromMedia = false;
+              mediaTranscoding = false;
+              if (viewer) void follow(viewer);
               if (video && !stopped)
                 await openH264()
                   .start()
@@ -503,7 +532,7 @@ export async function simulatorCapture(options: {
       (following = following.then(() => followViewer(settings)).catch(() => {}));
     const needsTranscode = (settings: ScreenStreamSettings) =>
       simulatorNeedsTranscode({
-        transcoding: transcode !== undefined,
+        transcoding: transcode !== undefined || mediaTranscoding,
         bitrate: settings.bitrate,
         box: settings,
         native,
@@ -519,9 +548,17 @@ export async function simulatorCapture(options: {
      * rate when they can't. Each switch starts from a keyframe, so a viewer's decoder can follow.
      */
     const followViewer = async (settings: ScreenStreamSettings) => {
+      if (stopped || viewer !== settings) return;
+      // While ace-media reads serve-sim, it re-encodes too: no screen helper process.
+      if (fromMedia && paths) {
+        const need = needsTranscode(settings);
+        if (need && native) paths.encodes([simulatorEncodeSpec(native, settings)]);
+        else if (!need && mediaTranscoding) paths.encodes([]);
+        mediaTranscoding = need && native !== undefined;
+        return;
+      }
       const helper = options.transcoder;
       if (!helper) return;
-      if (stopped || viewer !== settings) return;
       const need = needsTranscode(settings);
       if (need) {
         if (!transcode) {
@@ -576,6 +613,7 @@ export async function simulatorCapture(options: {
     const toJpeg = async (settings: ScreenStreamSettings): Promise<"jpeg"> => {
       const source = jpeg ?? (await startJpeg(streamUrl));
       video = false;
+      mediaTranscoding = false;
       paths?.close();
       paths = undefined;
       fromMedia = false;
