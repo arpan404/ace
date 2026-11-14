@@ -132,7 +132,7 @@ export class Connection {
    * The next ticket the last welcome handed over (ADR 0150), in memory only: the next connect
    * says hello with it instead of exchanging one. `epoch` is the attempt that used one.
    */
-  #handed: { ticket: string; expiresAt: number } | undefined;
+  #handed: { ticket: string; ttlMs: number; at: number; wallAt: number | undefined } | undefined;
   #usedHanded = -1;
   /** What each connect stage took last time it finished, and when the current one began. */
   #lastOpenMs: number | undefined;
@@ -434,13 +434,20 @@ export class Connection {
     return credential;
   }
   /**
-   * The handed-over ticket, if it still has long enough to reach the daemon; used once either
-   * way. Its life is measured on the monotonic clock, from when its welcome arrived.
+   * The handed-over ticket, if it still has long enough to reach the daemon by both clocks;
+   * used once either way. The monotonic clock catches a wall clock set back; the wall clock
+   * catches a monotonic one that stood still while the device slept (iOS uptime does).
    */
   #takeHanded(epoch: number): Promise<Credential> | undefined {
     const handed = this.#handed;
     this.#handed = undefined;
-    if (!handed || handed.expiresAt - this.#monotonic() < handedMarginMs) return undefined;
+    if (!handed) return undefined;
+    const wall = this.#options.now?.();
+    const age = Math.max(
+      this.#monotonic() - handed.at,
+      wall === undefined || handed.wallAt === undefined ? 0 : wall - handed.wallAt,
+    );
+    if (handed.ttlMs - age < handedMarginMs) return undefined;
     this.#usedHanded = epoch;
     return Promise.resolve({ ticket: handed.ticket });
   }
@@ -448,7 +455,12 @@ export class Connection {
   #keepHanded(welcome: Extract<Message, { type: "welcome" }>): Message {
     const { ticket, ...rest } = welcome;
     this.#handed = ticket
-      ? { ticket: ticket.ticket, expiresAt: this.#monotonic() + ticket.ttlMs }
+      ? {
+          ticket: ticket.ticket,
+          ttlMs: ticket.ttlMs,
+          at: this.#monotonic(),
+          wallAt: this.#options.now?.(),
+        }
       : undefined;
     return rest;
   }

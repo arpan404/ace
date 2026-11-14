@@ -15,6 +15,8 @@ const settle = async () => {
 /** A connection on manual time whose sockets open at once, with a counted ticket exchange. */
 function harness() {
   let now = 0;
+  /** How far the wall clock is ahead: the device slept and its uptime clock stood still. */
+  let slept = 0;
   const timers = new Set<{ at: number; run(): void }>();
   const sockets: { events: TransportEvents; hellos: Record<string, unknown>[] }[] = [];
   const delivered: ServerMessage[] = [];
@@ -51,7 +53,7 @@ function harness() {
       },
       random: () => 0.5,
       id: () => "id",
-      now: () => now,
+      now: () => now + slept,
       // Durations run on the monotonic clock: this test's manual time.
       monotonic: () => now,
     },
@@ -102,6 +104,8 @@ function harness() {
     settle,
     advance,
     exchanges: () => exchanges,
+    /** The device sleeps `ms`: the wall clock moves on, the uptime clock does not. */
+    sleep: (ms: number) => void (slept += ms),
   };
 }
 
@@ -198,4 +202,16 @@ test("a race, whose paths each bring their own credential, never asks for a tick
   expect(sent[0]).toMatchObject({ type: "hello", ticket: exchangedTicket });
   // No ticket is handed over that would sit unused in the daemon's per-device pool.
   expect(sent[0]).not.toHaveProperty("nextTicket");
+});
+
+test("after the device sleeps ten minutes, a handed ticket is not presented", async () => {
+  const h = harness();
+  h.connection.start();
+  await h.settle();
+  h.welcome({ ticket: handedTicket, ttlMs: 60_000 });
+  // The uptime clock stands still through the sleep; the wall clock shows ten minutes passed.
+  h.sleep(600_000);
+  await h.drop();
+  expect(h.socket().hellos[0]).toMatchObject({ ticket: exchangedTicket });
+  expect(h.exchanges()).toBe(2);
 });
