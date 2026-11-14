@@ -40,7 +40,7 @@ test.each(["content", "rows", "row deletion", "rotation", "new content"])(
         if (
           full &&
           (((refusal === "content" || refusal === "new content") &&
-            key.startsWith("ace.composer.drafts")) ||
+            key === "ace.composer.drafts") ||
             (key.startsWith("ace.preparations:") &&
               (refusal === "rows" ||
                 refusal === "rotation" ||

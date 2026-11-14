@@ -1,6 +1,6 @@
 import {
-  draftLimits,
   findDraft,
+  isEmptyDraft,
   putDraft,
   readJson,
   touchRecent,
@@ -21,10 +21,8 @@ import { stillLimit } from "@/components/image-still.ts";
 import * as z from "zod/mini";
 
 /*
- * Unsent drafts and recently mentioned files, kept on this device. Each draft is its own storage
- * key beside a small index of keys in recency order, so saving one draft never reads, parses or
- * rewrites another, and another window hears only about the draft that changed. Each write reads
- * the index again first, so two tabs editing different threads never drop each other's drafts.
+ * Unsent drafts and recently mentioned files, kept on this device. Each write reads the stored
+ * list again first, so two tabs editing different threads never drop each other's drafts.
  */
 const Token = classic.object({
   start: classic.number().int().nonnegative(),
@@ -85,17 +83,9 @@ export const ComposerDraftSchema = classic.object({
   quotes: Quotes.optional().catch(undefined),
 });
 const Entries = z.catch(z.array(z.tuple([z.string(), ComposerDraftSchema])), []);
-const Index = z.catch(z.array(z.string()), []);
 const Recent = z.catch(z.array(z.tuple([z.string(), z.array(z.string())])), []);
 
-/** Where every draft lived before each had its own key; split once, then removed. */
-const legacyKey = "ace.composer.drafts";
-const indexKey = "ace.composer.drafts.index";
-const draftPrefix = "ace.composer.drafts:";
-/** The storage key holding the draft for composer `key`. */
-export const draftStorageKey = (key: string) => draftPrefix + key;
-/** Whether a storage key belongs to the draft store (a draft, the index or the old list). */
-export const isDraftStorageKey = (storageKey: string) => storageKey.startsWith(legacyKey);
+export const draftsKey = "ace.composer.drafts";
 const recentKey = "ace.composer.recent";
 const recentPerProject = 6;
 const recentProjects = 16;
@@ -139,9 +129,7 @@ export function readDurableDraft(
   storage: KeyValueStorage | undefined,
   key: string,
 ): ComposerDraft | undefined {
-  const unsplit = migrate(storage);
-  const own = readJson(storage, draftStorageKey(key), ComposerDraftSchema.optional(), undefined);
-  return own ?? (unsplit ? findDraft(unsplit, key) : undefined);
+  return findDraft(readJson(storage, draftsKey, Entries, []), key);
 }
 
 export function writeDraft(
@@ -149,86 +137,27 @@ export function writeDraft(
   key: string,
   draft: ComposerDraft | undefined,
 ): boolean {
-  const unsplit = migrate(storage);
-  const ids = readJson(storage, indexKey, Index, []);
+  const entries: DraftEntries = readJson(storage, draftsKey, Entries, []);
   // Visible preparations are protected from the transient thread composer cache's eviction.
-  const protectedIds = ids.filter(isPreparation);
-  const transient = ids.filter((id) => !isPreparation(id));
-  const kept = findDraft(putDraft([], key, draft), key);
-  const creating = isPreparation(key) && kept !== undefined;
-  if (creating && protectedIds.length >= draftLimits.drafts && !protectedIds.includes(key))
+  const protectedDrafts = entries.filter(([id]) => isPreparation(id));
+  const transient = entries.filter(([id]) => !isPreparation(id));
+  const creating = isPreparation(key) && !isEmptyDraft(draft);
+  if (creating && protectedDrafts.length >= 50 && !protectedDrafts.some(([id]) => id === key))
     return false;
   const next = isPreparation(key)
-    ? [...transient, ...putId(protectedIds, key, kept)]
-    : [...putId(transient, key, kept), ...protectedIds];
+    ? [...transient, ...putDraft(protectedDrafts, key, draft)]
+    : [...putDraft(transient, key, draft), ...protectedDrafts];
   if (!storage || storage.durable === false) {
     retain(storage, key, draft);
     return false;
   }
   try {
-    // The index first: a draft written without it could never be evicted.
-    storage.setItem(indexKey, JSON.stringify(next));
-    if (kept) storage.setItem(draftStorageKey(key), JSON.stringify(kept));
-    else remove(storage, draftStorageKey(key));
-    for (const id of ids)
-      if (id !== key && !next.includes(id)) remove(storage, draftStorageKey(id));
-    // An unsplit old list must not bring a discarded draft back.
-    if (!kept && unsplit && findDraft(unsplit, key)) {
-      const rest = putDraft(unsplit, key, undefined);
-      storage.setItem(legacyKey, JSON.stringify(rest));
-      unsplitLists.set(storage, rest);
-    }
+    storage.setItem(draftsKey, JSON.stringify(next));
     recovery(storage)?.delete(key);
     return true;
   } catch {
     retain(storage, key, draft);
     return false;
-  }
-}
-
-/** `ids` with `key` as the most recent (or without it, for an empty draft), oldest past the limit off. */
-function putId(ids: readonly string[], key: string, kept: ComposerDraft | undefined) {
-  const rest = ids.filter((id) => id !== key);
-  return kept ? [...rest, key].slice(-draftLimits.drafts) : rest;
-}
-
-function remove(storage: KeyValueStorage, storageKey: string) {
-  if (storage.removeItem) storage.removeItem(storageKey);
-  else storage.setItem(storageKey, "");
-}
-
-/*
- * Drafts saved before each had its own key sit in one list. The first read or write on a page
- * splits it into per-draft keys and removes it; a draft already under its own key is newer and
- * kept. If the split is refused (storage full), the list stays and is returned, so its drafts
- * are still read from it; the split is tried again on the next page.
- */
-const split = new WeakSet<KeyValueStorage>();
-const unsplitLists = new WeakMap<KeyValueStorage, DraftEntries>();
-function migrate(storage: KeyValueStorage | undefined): DraftEntries | undefined {
-  if (!storage || storage.durable === false) return undefined;
-  if (split.has(storage)) return unsplitLists.get(storage);
-  split.add(storage);
-  let raw: string | null;
-  try {
-    raw = storage.getItem(legacyKey);
-  } catch {
-    return undefined;
-  }
-  if (raw === null) return undefined;
-  const entries = readJson(storage, legacyKey, Entries, []);
-  try {
-    const ids = readJson(storage, indexKey, Index, []);
-    const moved = entries.map(([id]) => id).filter((id) => !ids.includes(id));
-    for (const [id, draft] of entries)
-      if (storage.getItem(draftStorageKey(id)) === null)
-        storage.setItem(draftStorageKey(id), JSON.stringify(draft));
-    storage.setItem(indexKey, JSON.stringify([...moved, ...ids]));
-    remove(storage, legacyKey);
-    return undefined;
-  } catch {
-    unsplitLists.set(storage, entries);
-    return entries;
   }
 }
 
@@ -247,6 +176,22 @@ export function discardDraft(storage: KeyValueStorage | undefined, key: string):
   const pending = [...discards];
   for (const listener of pending) listener(storage, key);
   return true;
+}
+
+/** `writeDraft` for a draft held as JSON (the composer serialises it to notice changes). */
+export function writeDraftJson(
+  storage: KeyValueStorage | undefined,
+  key: string,
+  json: string,
+): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return false;
+  }
+  const draft = ComposerDraftSchema.safeParse(parsed);
+  return draft.success && writeDraft(storage, key, draft.data);
 }
 
 /** Files mentioned lately in a project, most recent first. */

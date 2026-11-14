@@ -6,7 +6,6 @@ import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
-import { draftStorageKey } from "./composer/draft-store.ts";
 import { resetSendStore } from "./composer/send-store.ts";
 import { resetStops } from "./composer/stop-state.ts";
 
@@ -38,7 +37,6 @@ async function open(scenario: "idle" | "busy", options: Parameters<typeof harnes
 }
 
 /** The composer's strip of messages on their way, once it shows. */
-const routerDraft = draftStorageKey("thread:thread-router");
 const onTheirWay = () => screen.findByRole("region", { name: "Messages on their way" });
 
 test("a message sent offline waits in the composer's strip and becomes the daemon's item when the connection returns", async () => {
@@ -255,9 +253,12 @@ test("typing on the page writes into the composer", async () => {
 test("a draft written in another window replaces an idle composer's, and is offered to a focused one", async () => {
   const { app, message } = await open("idle");
   const other = (text: string) => {
-    app.storage.setItem(routerDraft, JSON.stringify({ text, mentions: [], attachments: [] }));
+    app.storage.setItem(
+      "ace.composer.drafts",
+      JSON.stringify([["thread:thread-router", { text, mentions: [], attachments: [] }]]),
+    );
     act(() => {
-      dispatchEvent(new StorageEvent("storage", { key: routerDraft }));
+      dispatchEvent(new StorageEvent("storage", { key: "ace.composer.drafts" }));
     });
   };
   message.blur();
@@ -283,15 +284,16 @@ test("a draft with a file written in another window brings the file, and sends i
   const sha256 = "a".repeat(64);
   message.blur();
   app.storage.setItem(
-    routerDraft,
-    JSON.stringify({
-      text: "Look at this",
-      mentions: [],
-      attachments: [{ sha256, name: "shot.png" }],
-    }),
+    "ace.composer.drafts",
+    JSON.stringify([
+      [
+        "thread:thread-router",
+        { text: "Look at this", mentions: [], attachments: [{ sha256, name: "shot.png" }] },
+      ],
+    ]),
   );
   act(() => {
-    dispatchEvent(new StorageEvent("storage", { key: routerDraft }));
+    dispatchEvent(new StorageEvent("storage", { key: "ace.composer.drafts" }));
   });
   const chips = await screen.findByRole("list", { name: "Attachments" });
   expect(within(chips).getByText("shot.png")).toBeTruthy();
@@ -302,7 +304,7 @@ test("a draft with a file written in another window brings the file, and sends i
   act(() => {
     dispatchEvent(new Event("pagehide"));
   });
-  expect(app.storage.getItem(routerDraft)).toContain(sha256);
+  expect(app.storage.getItem("ace.composer.drafts")).toContain(sha256);
 
   await userEvent.type(composer, "{Enter}");
   await waitFor(() => expect(sent).toHaveLength(1));

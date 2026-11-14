@@ -5,7 +5,6 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { composerWords } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
-import { draftStorageKey } from "./composer/draft-store.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -45,13 +44,6 @@ function app(storage = memoryKeyValue()) {
   return made;
 }
 const message = () => screen.findByRole("combobox", { name: "Message" });
-const routerDraft = draftStorageKey("thread:thread-router");
-/** Every stored draft's text, whichever key it is under. */
-const storedDrafts = (storage: ReturnType<typeof memoryKeyValue>) =>
-  [...storage.data]
-    .filter(([key]) => key.startsWith("ace.composer.drafts"))
-    .map(([, value]) => value)
-    .join("\n");
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
 test("an unsent draft is still there after visiting another thread", async () => {
@@ -74,7 +66,7 @@ test.each(["focused", "unfocused"])(
     const storage = memoryKeyValue();
     const setItem = storage.setItem.bind(storage);
     storage.setItem = (key, value) => {
-      if (key.startsWith("ace.composer.drafts")) throw new Error("QuotaExceededError");
+      if (key === "ace.composer.drafts") throw new Error("QuotaExceededError");
       setItem(key, value);
     };
     await app(storage).open("/t/thread-router");
@@ -84,19 +76,20 @@ test.each(["focused", "unfocused"])(
     await screen.findByText("Draft not saved: storage full");
     if (focus === "unfocused") editor.blur();
     // Another browser tab's accepted write goes through the shared durable storage boundary.
-    const newer = JSON.stringify({
-      text: "Other tab's saved version",
-      mentions: [],
-      attachments: [],
-    });
-    setItem(routerDraft, newer);
-    fireEvent(window, new StorageEvent("storage", { key: routerDraft, newValue: newer }));
+    const newer = JSON.stringify([
+      [
+        "thread:thread-router",
+        { text: "Other tab's saved version", mentions: [], attachments: [] },
+      ],
+    ]);
+    setItem("ace.composer.drafts", newer);
+    fireEvent(window, new StorageEvent("storage", { key: "ace.composer.drafts", newValue: newer }));
     await screen.findByText(/Edited in another window/);
     expect(editor.textContent).toBe("My unsaved version");
     await screen.findByText("Draft not saved: storage full");
     // Another refused flush must preserve both the visible copy and the competing durable copy.
     fireEvent(window, new Event("pagehide"));
-    expect(storage.getItem(routerDraft)).toBe(newer);
+    expect(storage.getItem("ace.composer.drafts")).toBe(newer);
     await userEvent.click(screen.getByRole("button", { name: "Use that version" }));
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
@@ -111,7 +104,7 @@ test("a full draft store warns and retains the latest text across navigation unt
   const setItem = storage.setItem.bind(storage);
   let full = false;
   storage.setItem = (key, value) => {
-    if (full && key.startsWith("ace.composer.drafts")) throw new Error("QuotaExceededError");
+    if (full && key === "ace.composer.drafts") throw new Error("QuotaExceededError");
     setItem(key, value);
   };
   await app(storage).open("/t/thread-router");
@@ -122,8 +115,8 @@ test("a full draft store warns and retains the latest text across navigation unt
   await userEvent.type(await message(), "Latest unsaved version");
   fireEvent(window, new Event("pagehide"));
   await screen.findByText("Draft not saved: storage full");
-  expect(storage.getItem(routerDraft)).toContain("Previously saved");
-  expect(storage.getItem(routerDraft)).not.toContain("Latest unsaved version");
+  expect(storage.getItem("ace.composer.drafts")).toContain("Previously saved");
+  expect(storage.getItem("ace.composer.drafts")).not.toContain("Latest unsaved version");
   await userEvent.click(within(threads()).getByRole("link", { name: /Replay cursor resets/ }));
   await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
   expect((await message()).textContent).toBe("");
@@ -134,7 +127,7 @@ test("a full draft store warns and retains the latest text across navigation unt
   full = false;
   fireEvent(window, new Event("pagehide"));
   await waitFor(() => expect(screen.queryByText("Draft not saved: storage full")).toBeNull());
-  expect(storage.getItem(routerDraft)).toContain("Latest unsaved version");
+  expect(storage.getItem("ace.composer.drafts")).toContain("Latest unsaved version");
   cleanup();
   await app(storage).open("/t/thread-router");
   expect((await message()).textContent).toBe("Latest unsaved version");
@@ -210,7 +203,7 @@ test("a new-thread draft with a pasted image shows its preview after the page is
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading shot.png" })).toBeNull(),
   );
-  await waitFor(() => expect(storedDrafts(storage)).toContain(still));
+  await waitFor(() => expect(storage.getItem("ace.composer.drafts")).toContain(still));
   cleanup();
 
   // A fresh page: the file itself is gone, and a draft scope has no copy this page can read.
