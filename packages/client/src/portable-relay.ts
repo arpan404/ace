@@ -2,9 +2,12 @@ import { ClientMessage, ServerMessage } from "@ace/protocol";
 import {
   CREDIT_FLAG,
   FlowCredit,
+  FragmentAssembler,
+  LANE_CREDIT_STEP,
   MAX_MESSAGE,
   NoiseXX,
   fragmentCost,
+  fragmentKinds,
   readCredit,
   type HandshakeOptions,
   type Transport,
@@ -49,6 +52,12 @@ export interface PortableRelayOptions {
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
   schedule(callback: () => void, delayMs: number): () => void;
   signal?: AbortSignal;
+  /**
+   * This end announces lanes in its hello (`flowControl: ["credit", "lanes"]`, ADR 0110): it
+   * reads bulk-lane fragments between interactive ones and returns credit every 32 KiB. A
+   * daemon that doesn't know lanes frames as before, which this end reads all the same.
+   */
+  lanes?: boolean;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
 
@@ -84,6 +93,12 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   let pending: { resolve(data: Uint8Array): void; reject(error: Error): void } | undefined;
   let opened: { resolve(): void; reject(error: Error): void } | undefined;
   const flow = new FlowCredit();
+  if (options.lanes) flow.creditOften(LANE_CREDIT_STEP);
+  const assembler = new FragmentAssembler({
+    lanes: options.lanes === true,
+    binaryLimit: 64 * 1024 + 16,
+    logicalLimit,
+  });
   const creditWaiters: (() => void)[] = [];
   let sendCount = 0;
   let receiveCount = 0;
@@ -91,6 +106,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     if (error) return;
     error = failure;
     crypto?.destroy();
+    assembler.clear();
     for (const wake of creditWaiters.splice(0)) wake();
     queue.fill(undefined);
     head = 0;
@@ -287,39 +303,18 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     if (receiving) throw new Error("Concurrent relay read");
     receiving = true;
     try {
-      const chunks: Uint8Array[] = [];
-      let length = 0;
       // 0: JSON, 2: binary, 4: deflated JSON (only after this client's hello asked for it).
-      let kind: number | undefined;
-      while (true) {
+      let whole;
+      do {
         const plain = await next();
         sendCredit(flow.consumed(fragmentCost(plain.length)));
-        const flag = plain[0];
-        if (
-          plain.length < 2 ||
-          flag === undefined ||
-          flag > 5 ||
-          (flag % 2 === 0 && plain.length !== MAX_MESSAGE - 16)
-        )
-          throw new Error("Invalid relay fragment");
-        const fragmentKind = flag - (flag % 2);
-        if (kind !== undefined && kind !== fragmentKind)
-          throw new Error("Mixed relay fragment kinds");
-        kind = fragmentKind;
-        length += plain.length - 1;
-        if (length > (kind === 2 ? 64 * 1024 + 16 : logicalLimit))
-          throw new Error("Relay message limit");
-        chunks.push(plain.subarray(1));
-        if (flag % 2) break;
-      }
-      const payload = new Uint8Array(length);
-      let offset = 0;
-      for (const chunk of chunks) {
-        payload.set(chunk, offset);
-        offset += chunk.length;
-      }
-      if (kind === 2) return payload;
-      const json = kind === 4 ? await inflate("deflate-raw", payload, logicalLimit) : payload;
+        whole = assembler.add(plain);
+      } while (!whole);
+      if (whole.kind === fragmentKinds.binary) return whole.data;
+      const json =
+        whole.kind === fragmentKinds.deflated
+          ? await inflate("deflate-raw", whole.data, logicalLimit)
+          : whole.data;
       return new TextDecoder("utf-8", { fatal: true }).decode(json);
     } catch (failure) {
       close(failure instanceof Error ? failure : new Error("Invalid relay message"));

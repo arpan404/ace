@@ -259,8 +259,11 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       /**
        * Flow control this client takes part in on a relayed channel: `credit` lets the daemon
        * turn on credit fragments, so each end sends at most a window the other has consumed and
-       * a slow reader holds back the sender instead of filling the relay (ADR 0110). Unknown
-       * names are ignored.
+       * a slow reader holds back the sender instead of filling the relay (ADR 0110). `lanes`,
+       * with `credit` on the main channel, lets the daemon interleave an interactive message's
+       * encrypted fragments with a bulk message's (a bulk fragment's flag carries 0x10), so an
+       * approval or a delta need not wait behind a snapshot; the client then returns credit
+       * every 32 KiB it reads. Unknown names are ignored.
        */
       flowControl: z.array(z.string().max(32)).max(8).optional(),
       /**

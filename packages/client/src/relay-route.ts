@@ -80,7 +80,8 @@ export function relayRoute(options: RelayRouteOptions): {
       return {
         supportsBinary: true,
         compression: relayCompression(),
-        flowControl: ["credit"],
+        // Lanes: an interactive message from the daemon need not wait behind a snapshot.
+        flowControl: ["credit", "lanes"],
         // Several attempts on one route at once (a race and a side path) each send their own.
         async credential() {
           const credential = own;
@@ -115,6 +116,7 @@ export function relayRoute(options: RelayRouteOptions): {
               keys: options.keys ?? ephemeralRelayKeys,
               schedule: options.schedule,
               signal,
+              lanes: true,
             });
             if (stamp !== epoch) {
               opened.close();

@@ -3,7 +3,7 @@ import { WebSocket } from "ws";
 import { DeviceId } from "@ace/protocol";
 import { connectHostToRelay, startRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
-import { FLOW_WINDOW, keyPair } from "@ace/secure-channel";
+import { BULK, FLOW_WINDOW, INTERACTIVE, keyPair } from "@ace/secure-channel";
 import { connectPortableRelay } from "./portable-relay.ts";
 
 // The browser and iPhone relay client against a real relay and the daemon's own host channel.
@@ -16,7 +16,8 @@ afterEach(async () => {
 });
 const MESSAGE = 60 * 1024;
 
-async function connect(options: { flowControl: boolean }) {
+/** `olderDaemon`: the daemon ignores the lanes the client announced. */
+async function connect(options: { flowControl: boolean; lanes?: boolean; olderDaemon?: boolean }) {
   const relay = await startRelay();
   disposals.push(() => relay.close());
   const arrived = Promise.withResolvers<HostChannel>();
@@ -35,6 +36,7 @@ async function connect(options: { flowControl: boolean }) {
       const timer = setTimeout(callback, delay);
       return () => clearTimeout(timer);
     },
+    lanes: options.lanes === true,
   });
   disposals.push(() => client.close());
   const server = await arrived.promise;
@@ -43,11 +45,15 @@ async function connect(options: { flowControl: boolean }) {
     protocolVersion: 1,
     deviceId: DeviceId.parse("phone"),
     token: "t",
-    ...(options.flowControl ? { flowControl: ["credit"] } : {}),
+    ...(options.flowControl
+      ? { flowControl: options.lanes ? ["credit", "lanes"] : ["credit"] }
+      : {}),
   });
   const hello = await server.receive();
   server.authorize();
   if (hello.type === "hello" && hello.flowControl?.includes("credit")) server.flowControl?.();
+  if (hello.type === "hello" && hello.flowControl?.includes("lanes") && !options.olderDaemon)
+    server.lanes?.();
   return { server, client };
 }
 
@@ -81,4 +87,31 @@ it("without credit, a client that falls a megabyte behind is cut off", async () 
   const sent = stream(server, 96);
   await expect(sent.all).rejects.toThrow();
   await expect(client.receive()).rejects.toThrow();
+});
+
+it("with lanes, an interactive message sent behind a large bulk one reaches the reader first", async () => {
+  const { server, client } = await connect({ flowControl: true, lanes: true });
+  const snapshot = JSON.stringify({ type: "pong", pad: "s".repeat(3 * 1024 * 1024) });
+  const approval = JSON.stringify({ type: "pong", pad: "approval" });
+  const sends = [
+    server.sendText(snapshot, false, BULK),
+    server.sendText(approval, false, INTERACTIVE),
+  ];
+  // The daemon is held to its in-flight limit, so the approval goes between snapshot fragments.
+  expect(await client.receiveRaw()).toBe(approval);
+  expect(await client.receiveRaw()).toBe(snapshot);
+  await Promise.all(sends);
+});
+
+it("a client that announced lanes still reads a daemon that frames without them", async () => {
+  // Credit, but no lanes: every message goes in order, unmarked, as an older daemon sends.
+  const { server, client } = await connect({ flowControl: true, lanes: true, olderDaemon: true });
+  const texts = [
+    JSON.stringify({ type: "pong", pad: "a".repeat(200_000) }),
+    JSON.stringify({ type: "pong" }),
+  ];
+  const sends = texts.map((text) => server.sendText(text, false, BULK));
+  expect(await client.receiveRaw()).toBe(texts[0]);
+  expect(await client.receiveRaw()).toBe(texts[1]);
+  await Promise.all(sends);
 });
