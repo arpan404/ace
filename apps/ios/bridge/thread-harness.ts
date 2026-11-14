@@ -102,8 +102,9 @@ function refusal(text: string): string | undefined {
   });
 }
 
-export function fixture(): FakeDaemon {
-  return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
+/** `clock`: the daemon's time, stamped on every event it sends; the wall clock by default. */
+export function fixture(clock: () => number = Date.now): FakeDaemon {
+  return new FakeDaemon({ clock, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
 /**

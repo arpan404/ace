@@ -317,3 +317,31 @@ test("a new turn the person starts times Working from its own start", () => {
   early.at(runStarted("run-2", 2, "user", 130_000), 130_000);
   expect(early.target.live?.workingSince).toBe(130_000);
 });
+
+test("compaction is timed from when the root began compacting, and forgotten once it ends", () => {
+  const target = thread();
+  /** One root status at `at`, folded as the daemon folds it. */
+  const at = (time: number, value: Record<string, unknown>) => {
+    const change = liveMetadata(
+      target,
+      EventPayload.parse(status(value)),
+      undefined,
+      undefined,
+      undefined,
+      time,
+    );
+    if (change)
+      updateThread(
+        target,
+        Event.parse({ seq: time, id: `e${time}`, threadId: target.id, at: time, payload: change }),
+      );
+    return target.live;
+  };
+  at(1_000, { state: "working", activity: "tool" });
+  expect(at(301_000, { state: "working", activity: "compacting" })?.compactingSince).toBe(301_000);
+  // Still compacting later: the start stays where it was.
+  expect(at(330_000, { state: "working", activity: "compacting" })?.compactingSince).toBe(301_000);
+  expect(
+    at(360_000, { state: "working", activity: "starting_turn" })?.compactingSince,
+  ).toBeUndefined();
+});

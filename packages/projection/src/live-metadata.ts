@@ -129,6 +129,20 @@ function rootFacts(
 }
 
 /**
+ * `compactingSince` while the root compacts: set when it begins (at the event's time), kept
+ * while it goes on, gone once it does anything else. True when it changed.
+ */
+function stampCompaction(live: Live, status: Agent["status"], at: number | undefined): boolean {
+  const compacting = status.state === "working" && status.activity === "compacting";
+  if (compacting === (live.compactingSince !== undefined)) return false;
+  if (compacting) {
+    if (at === undefined) return false;
+    live.compactingSince = at;
+  } else delete live.compactingSince;
+  return true;
+}
+
+/**
  * Point changes only; callers supply the replaced entity, never retained history. For the root
  * agent's status, `command` is the shell command of the step it names, when it names one.
  */
@@ -284,7 +298,8 @@ function applyChange(
   } else if (payload.type === "agent.status") {
     if (payload.agentId === thread.rootAgentId) {
       const facts = rootFacts(live, payload.status, command);
-      if (facts === live) return false;
+      const compacting = stampCompaction(live, payload.status, at);
+      if (facts === live) return compacting;
       put(live, "waitingOn", facts.waitingOn);
       put(live, "step", facts.step);
     } else if (previousAgent) {

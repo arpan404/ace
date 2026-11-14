@@ -45,3 +45,31 @@ test("a compaction reads as a live Compacting context line, then as the finished
   expect(row.event.text).toBe("Context compacted");
   await until(() => !liveBlock()?.live, "the live line to go");
 });
+
+test("the compacting line counts from when compaction began, not from the work before it", async () => {
+  const minute = 60_000;
+  let now = Date.now() - 10 * minute;
+  const fake = fixture(() => now);
+  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "claude" });
+  fake.apply("long", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Keep going."),
+    facts.tool("root", "read", {
+      kind: "shell",
+      title: "Read the plan",
+      detail: { kind: "shell", command: "cat plan.md" },
+    }),
+  ]);
+  const workStarted = now;
+  now += 5 * minute;
+  const compactionStarted = now;
+  fake.apply("long", [
+    facts.toolDone("root", "read"),
+    { type: "activity", agent: "root", activity: "compacting" },
+  ]);
+  open(connect(fake), "long");
+  const live = await until(() => liveBlock()?.live ?? undefined, "the live compacting line");
+  expect(live.since).toBe(compactionStarted);
+  expect(live.since).not.toBe(workStarted);
+});
