@@ -15,6 +15,10 @@ struct UsageLedgerContext {
     let to: String
     let cost: Bool
     let provider: String?
+    /// The machines in scope, each with its connection, plus the screen's Refresh count: a level
+    /// reads again when it changes, and a new Refresh reads past the bridge's kept answers.
+    var generation: [String] = []
+    var refreshed = 0
 
     /// The scope a path of opened rows reads within (web's `ledgerScope`): each step filters its
     /// dimension, and a machine's step keeps the read to that machine.
@@ -62,9 +66,10 @@ struct UsageLedgerView: View {
                     .accessibilityIdentifier("usage.ledger.group")
                 }
             }
-            // A new grouping, range or provider starts with every row closed.
+            // A new grouping, range, provider or set of machines starts afresh with every row
+            // closed, never showing another scope's rows while it reads.
             UsageLedgerLevel(group: group, path: [], context: context) { groups = $0 }
-                .id([group, context.from, context.to, context.provider ?? ""])
+                .id([group, context.from, context.to, context.provider ?? "", context.reads.machines.map(\.hostId).joined(separator: ",")])
         }
     }
 }
@@ -77,6 +82,10 @@ private struct UsageLedgerLevel: View {
     var loaded: (([UsageLedgerReply.Group]) -> Void)? = nil
     @State private var reply: UsageLedgerReply?
     @State private var reading = true
+    /// The Refresh this level last read for, and the person's Retry presses: either reads fresh.
+    @State private var readFor: Int?
+    @State private var retries = 0
+    @State private var retriedFor = 0
     @State private var all = false
     @State private var open: Set<String> = []
 
@@ -85,7 +94,9 @@ private struct UsageLedgerLevel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let reply {
-                if reply.rows.isEmpty { quiet("None in this period") }
+                // A machine that answered the totals but not this level is named, never dropped.
+                if !reply.coverage.complete { coverage(reply.coverage.line ?? "Some machines weren't counted") }
+                if reply.rows.isEmpty, reply.coverage.complete { quiet("None in this period") }
                 let rows = all ? reply.rows : Array(reply.rows.prefix(reply.top))
                 ForEach(rows) { row in
                     Hairline()
@@ -109,10 +120,26 @@ private struct UsageLedgerLevel: View {
             } else if reading {
                 SkeletonRows(count: path.isEmpty ? 4 : 2, label: "Reading spend")
             } else {
-                quiet("Not recorded on these machines")
+                coverage("Couldn't read this breakdown")
             }
         }
-        .task { await read() }
+        // Reads again when a machine connects or drops, on Refresh and on Retry; a newer read
+        // cancels the one before it, and the rows already shown stay until it answers.
+        .task(id: context.generation + [String(context.refreshed), String(retries)]) { await read() }
+    }
+
+    private func coverage(_ line: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            Text(line).font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
+            Spacer(minLength: AceDesign.Space.related)
+            Button("Retry") { retries += 1 }
+                .font(AceDesign.Typeface.meta)
+                .disabled(reading)
+                .frame(minHeight: AceDesign.Size.tap)
+                .accessibilityIdentifier("usage.ledger.retry")
+        }
+        .padding(.leading, indent)
     }
 
     private func quiet(_ text: String) -> some View {
@@ -124,11 +151,16 @@ private struct UsageLedgerLevel: View {
 
     private func read() async {
         let scope = context.scope(path)
+        // Fresh after a Refresh this level hasn't read for yet, or on Retry.
+        let fresh = (readFor != nil && readFor != context.refreshed) || retries != retriedFor
+        readFor = context.refreshed
+        retriedFor = retries
         reading = true
-        defer { reading = false }
         let answer = await context.reads.ledger(group: group, filters: scope.filters, machine: scope.machine,
-                                                parent: path.last, from: context.from, to: context.to)
+                                                parent: path.last, from: context.from, to: context.to, fresh: fresh)
         guard !Task.isCancelled else { return }
+        reading = false
+        // Nothing read says so with Retry, rather than keeping rows that may be out of date.
         reply = answer
         if let answer { loaded?(answer.groups) }
     }

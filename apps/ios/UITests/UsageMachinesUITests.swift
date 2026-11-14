@@ -81,6 +81,14 @@ import XCTest
         let two = expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: rows)
         XCTAssertEqual(XCTWaiter().wait(for: [two], timeout: 20), .completed)
         screenshot("usage-ledger-machines")
+
+        // A machine that drops is read again without it: its row goes, and the level names it.
+        try await control(9922, online: false)
+        let one = expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: rows)
+        XCTAssertEqual(XCTWaiter().wait(for: [one], timeout: 30), .completed)
+        XCTAssertTrue(app.buttons["usage.ledger.retry"].waitForExistence(timeout: 10))
+        screenshot("usage-ledger-machine-offline")
+        try await control(9922, online: true)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {

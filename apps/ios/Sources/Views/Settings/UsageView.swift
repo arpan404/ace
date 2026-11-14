@@ -171,7 +171,8 @@ struct UsageView: View {
                 }
             } else {
                 UsageSpendView(view: view, ledger: report.from.isEmpty ? nil : UsageLedgerContext(
-                    reads: reads, from: report.from, to: report.to, cost: tab == .cost, provider: provider))
+                    reads: reads, from: report.from, to: report.to, cost: tab == .cost, provider: provider,
+                    generation: scoped.map { "\($0.hostId):\($0.client.connection)" }, refreshed: refreshed))
             }
         } else if reportLoading {
             loading("Reading usage")
