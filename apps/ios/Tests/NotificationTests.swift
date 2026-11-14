@@ -307,6 +307,71 @@ import Testing
         #expect(center.delivered.isEmpty)
     }
 
+    // MARK: Telling the bridge a live alert was handled (its ack, ADR 0106)
+
+    @Test func aLiveAlertIsReportedDeliveredOnlyOnceNotificationCenterHasIt() async throws {
+        let (coordinator, center, session) = try await connected(HeldCenter())
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        try await until("the post is under way") { center.holding }
+        for _ in 0..<20 { await Task.yield() }
+        // Suspended now, nothing would show: the daemon must still push it.
+        #expect(session.actions("notifications.delivered").isEmpty)
+        center.release()
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.delivered.count == 1)
+    }
+
+    @Test func aLiveAlertThePhonesOwnSettingsDontPostIsStillReportedDelivered() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[],"delivery":{"post":false,"interrupt":false,"banner":false}}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aLiveAlertForAMachineTurnedOffHereIsReportedDeliveredAndNotPosted() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        coordinator.setMachine("host", enabled: false)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aLiveAlertAPushAlreadyShowedIsReportedDeliveredAndPostedAgainQuietly() async throws {
+        let center = FakeCenter()
+        let sessions = Sessions()
+        let pushed = PushedAlerts(defaults: try defaults())
+        pushed.record(AlertContent.requestId("n:1", hostId: "host"))
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { _ in [] }, pushed: pushed)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target())
+        await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
+        let session = try #require(sessions.values.first)
+        session.patch(#"{"type":"connection","state":"ready"}"#)
+        try await until("the connection is ready") { model.connection == "ready" }
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.map(\.level) == [.passive])
+    }
+
+    @Test func aLiveCopyOfAnAlertCatchUpIsStillPostingIsNotReportedDeliveredUntilItLands() async throws {
+        let (coordinator, center, session) = try await connected(HeldCenter())
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.feed","cursor":1,"entries":[{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","backgroundCount":0,"actions":[]}],"retracted":[]}"#)
+        try await until("catch-up's post is under way") { center.holding }
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","backgroundCount":0,"actions":[]}}"#)
+        for _ in 0..<20 { await Task.yield() }
+        // Nothing has landed yet: suspended now, only the push would show it.
+        #expect(session.actions("notifications.delivered").isEmpty)
+        center.release()
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.delivered.count == 1)
+    }
+
     @Test func aRequestAnsweredElsewhereTakesItsNotificationWithItOnceTheRowMovesOn() async throws {
         let (coordinator, center, session) = try await connected()
         await coordinator.setEnabled(true)
@@ -314,6 +379,292 @@ import Testing
         try await until("the alert posted") { center.delivered.count == 1 }
         session.patch(#"{"type":"inbox.row","id":"thread","row":{"id":"thread","title":"Fix","state":"working","attention":null,"project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"snoozedUntil":null,"updatedAt":1,"canSteer":true,"status":{"label":"Working","token":"working"},"machineId":"host","activityAt":1,"confirmed":true,"generation":0,"look":{"level":"active","state":"working","tone":"working","muted":true,"settled":false,"subagents":0}}}"#)
         try await until("the answered request's notification goes") { center.delivered.isEmpty }
+    }
+
+    // MARK: Alerts a push showed while ace was closed (ADR 0106)
+
+    @Test func aPushedFinishGoesWhenTheSameThreadAsksForThePersonLater() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        // Reopened: catch-up brings the finish, which the push already showed.
+        await notifier.catchUp(cursor: 1, entries: [alert("n:1")], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Done"])
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func twoPushesForOneThreadWhileClosedLeaveOnlyTheNewerAfterCatchUp() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+        // Both were seen from their pushes: in place again without another sound.
+        #expect(center.posted.allSatisfy { $0.level == .passive })
+    }
+
+    @Test func anOlderAlertThatWasNeverPushedLeavesTheNewerPushedOneShown() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aNewerPushStaysShownAfterTheOlderOneLeftThePushHistory() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1", status: "agent_says"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        // Other machines' pushes push n:1 out of the bounded history.
+        for index in 0..<PushedAlerts.capacity { pushed.record("other:\(index)") }
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "agent_says"), alert("n:2", status: "needs_you", actions: true)],
+                               retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func catchUpNeverPutsAnOlderFinishOverANewerRequestThatArrivedLive() async throws {
+        let (notifier, center) = try plainNotifier()
+        // Live while catch-up's read was out: the request is newer than the finish before it.
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveAlertTheFeedDoesNotHoldYetStaysOverTheFeedsOlderOnes() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:3", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "failed")], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func catchUpShowsOnlyEachThreadsNewestMissedAlert() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "needs_you", actions: true), alert("n:2")], retracted: [])
+        #expect(center.posted.map(\.body) == ["Done"])
+    }
+
+    @Test func aMissedFinishThisPhoneDoesntPostNeverHidesTheRequestBeforeIt() async throws {
+        let (notifier, center) = try plainNotifier()
+        var finish = alert("n:2", status: "background_done")
+        finish.delivery = .init(post: false, interrupt: false, banner: false)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "needs_you", actions: true), finish], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveAlertThisPhoneDoesntPostHoldsNothingBack() async throws {
+        let (notifier, center) = try plainNotifier()
+        var finish = alert("n:3", status: "background_done")
+        finish.delivery = .init(post: false, interrupt: false, banner: false)
+        await notifier.receive(finish)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveRequestStaysOverOlderAlertsAcrossTwoCatchUps() async throws {
+        let (notifier, center) = try plainNotifier()
+        // The first feed was read before the request arrived live, and doesn't hold it.
+        await notifier.receive(alert("n:3", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 1, entries: [], retracted: [])
+        await notifier.catchUp(cursor: 3, entries: [alert("n:2", status: "background_done"), alert("n:3", status: "needs_you", actions: true)],
+                               retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveRequestNoFeedHoldsYetKeepsHoldingOlderAlertsBack() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:3", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 1, entries: [], retracted: [])
+        // Still read before the request arrived: its older finish must not cover it.
+        await notifier.catchUp(cursor: 2, entries: [alert("n:2", status: "failed")], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveAlertTheDaemonDroppedNeverHoldsBackANewerOneFromTheFeed() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:5"), 5))
+        // The daemon's inbox let n:5 go without a retraction; the feed brings a newer request.
+        await notifier.catchUp(cursor: 7, entries: [cursored(alert("n:7", status: "needs_you", actions: true), 7)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aFeedAlertWithALowerCursorNeverCoversALiveRequest() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3))
+        await notifier.catchUp(cursor: 3, entries: [cursored(alert("n:2", status: "failed"), 2)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aNewConnectionStopsHoldingBackTheLastOnesLiveAlerts() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:a", status: "needs_you", actions: true), 500))
+        // The daemon's database was rebuilt and its cursors started over.
+        notifier.connected()
+        await notifier.catchUp(cursor: 3, entries: [cursored(alert("n:b", status: "failed"), 3)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Failed"])
+    }
+
+    @Test func aReconnectMidCatchUpStillKeepsThatFeedsOlderFinishOffALiveRequest() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let request = Task { await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3)) }
+        try await until("the live request is landing") { center.holding }
+        let feed = Task {
+            await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1), cursored(alert("n:2"), 2)],
+                                   retracted: [])
+        }
+        try await until("the feed is applying") { notifier.ledger.cursor == 2 }
+        notifier.connected()
+        center.release()
+        await request.value
+        await feed.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
+    @Test func aReconnectWhileAFeedWaitsItsTurnStillKeepsItsOlderFinishOffALiveRequest() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        // An earlier feed is still posting when the request arrives live and the next feed comes.
+        let earlier = Task { await notifier.catchUp(cursor: 1, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1)], retracted: []) }
+        try await until("the earlier feed is posting") { center.holding }
+        let request = Task { await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3)) }
+        for _ in 0..<20 { await Task.yield() }
+        let queued = Task { await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:2"), 2)], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        notifier.connected()
+        center.release()
+        await earlier.value
+        await request.value
+        await queued.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
+    @Test func aLiveAlertAnEarlierFeedCoveredNeverHoldsBackAQueuedFeedsNewerRequest() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        // No cursors, as from an older daemon: the feeds' order decides.
+        let done = Task { await notifier.receive(alert("n:2")) }
+        try await until("the live finish is posting") { center.holding }
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        let later = Task { await notifier.catchUp(cursor: 3, entries: [alert("n:3", status: "needs_you", actions: true)], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        await done.value
+        await earlier.value
+        await later.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
+    @Test func aCoveredLiveAlertAlreadyReplacedStillStopsHoldingBackAQueuedFeed() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        // No cursors. Feed 1 holds live n:2 and is still posting when feed 2 queues with n:2 held.
+        let done = Task { await notifier.receive(alert("n:2")) }
+        try await until("the live finish is posting") { center.holding }
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        let later = Task {
+            await notifier.catchUp(cursor: 4, entries: [alert("n:3"), alert("n:4", status: "needs_you", actions: true)], retracted: [])
+        }
+        for _ in 0..<20 { await Task.yield() }
+        // n:3 arrives live and replaces n:2 before feed 1 finishes.
+        let replaced = Task { await notifier.receive(alert("n:3")) }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        for task in [done, earlier, later, replaced] { await task.value }
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
+    @Test func aLaterCatchUpWaitsForAnEarlierOneThatIsStillPosting() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        try await until("the first feed's first post is out") { center.holding }
+        let later = Task { await notifier.catchUp(cursor: 3, entries: [alert("n:3", status: "needs_you", actions: true)], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        await earlier.value
+        await later.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
+    @Test func aRetractionInALaterFeedWithdrawsWhatAnEarlierFeedStillHadToPost() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        try await until("the first feed's first post is out") { center.holding }
+        let later = Task { await notifier.catchUp(cursor: 3, entries: [], retracted: ["n:2"]) }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        await earlier.value
+        await later.value
+        #expect(center.delivered.values.map(\.body) == ["Failed"])
+    }
+
+
+    @Test func aFeedWhoseNewestForAThreadWasAlreadySeenLandsNothingOlderForIt() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        // A later catch-up, with no live alert pending, still holds both.
+        await notifier.catchUp(cursor: 2, entries: [alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aRetractedLiveAlertNoLongerHoldsBackTheFeed() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed")], retracted: ["n:2"])
+        #expect(center.delivered.values.map(\.body) == ["Failed"])
+    }
+
+    @Test func aCopyWaitingOnALandingIsReleasedEvenAfterTheLedgerLetItsIdGo() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let returned = Returns()
+        Task { await notifier.receive(alert("n:1")) }
+        try await until("the first copy is landing") { center.holding }
+        Task { await notifier.receive(alert("n:1")); returned.count += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        // More alerts than the ledger keeps, none posted: n:1 leaves the ledger.
+        let quiet = (0...NotificationLedger.capacity).map { index -> AlertNotification in
+            var other = alert("other:\(index)", thread: "other-\(index)")
+            other.delivery = .init(post: false, interrupt: false, banner: false)
+            return other
+        }
+        await notifier.catchUp(cursor: 1, entries: quiet, retracted: [])
+        Task { await notifier.receive(alert("n:1")); returned.count += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        try await until("both later copies return") { returned.count == 2 }
+    }
+
+    @Test func anotherThreadsPushIsLeftAlone() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1", status: "failed", thread: "other"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        #expect(center.delivered.count == 2)
     }
 
     @Test func aRetractionAlsoWithdrawsTheBareIdAnOlderBuildPosted() async throws {
@@ -491,8 +842,8 @@ import Testing
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",
                                 NotificationKeys.approve: "allow", NotificationKeys.deny: "deny"]
-    private func connected() async throws -> (NotificationCoordinator, FakeCenter, Session) {
-        let center = FakeCenter()
+    private func connected() async throws -> (NotificationCoordinator, FakeCenter, Session) { try await connected(FakeCenter()) }
+    private func connected<Center: NotificationCenterPort>(_ center: Center) async throws -> (NotificationCoordinator, Center, Session) {
         let sessions = Sessions()
         let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
                                                   sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
@@ -503,6 +854,17 @@ import Testing
         session.patch(#"{"type":"connection","state":"ready"}"#)
         try await until("the connection is ready") { model.connection == "ready" }
         return (coordinator, center, session)
+    }
+    private func cursored(_ alert: AlertNotification, _ cursor: Int) -> AlertNotification {
+        var alert = alert
+        alert.cursor = cursor
+        return alert
+    }
+    private func plainNotifier() throws -> (LocalNotifier, FakeCenter) {
+        let center = FakeCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        return (notifier, center)
     }
     private func defaults() throws -> UserDefaults { try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")) }
     private func target(_ host: String = "host") throws -> ConnectionTarget {
@@ -542,11 +904,28 @@ private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
     var withdrawn: [String] = []
     /// What Notification Center shows: a post replaces any with the same identifier.
     var delivered: [String: AlertContent] = [:]
+    /// The service extension's copies among `delivered`, by APNs identifier: the alert each is
+    /// (`pushedAlert`) and the thread it stands for (`standsFor`).
+    private var pushes: [String: (alert: String, standsFor: String)] = [:]
     func post(_ content: AlertContent) async { posted.append(content); delivered[content.identifier] = content }
     func withdraw(_ identifiers: [String]) {
         withdrawn.append(contentsOf: identifiers)
         for id in identifiers { delivered.removeValue(forKey: id) }
+        let wanted = Set(identifiers)
+        remove(pushes.filter { wanted.contains($0.value.alert) || wanted.contains($0.value.standsFor) }.keys)
     }
+    func withdrawPushed(standingFor thread: String) {
+        remove(pushes.filter { $0.value.standsFor == thread }.keys)
+    }
+    /// What `AceNotificationService` does with a push while ace is closed: shows the alert under
+    /// APNs' identifier and notes it in `PushedAlerts`.
+    func push(_ alert: AlertNotification, hostId: String, apnsId: String, pushed: PushedAlerts) {
+        let content = AlertContent(alert, hostId: hostId)
+        delivered[apnsId] = content
+        pushes[apnsId] = (content.identifier, AlertStack.thread(alert.threadId, hostId: hostId))
+        pushed.record(content.identifier)
+    }
+    private func remove(_ ids: some Sequence<String>) { for id in Array(ids) { pushes[id] = nil; delivered[id] = nil } }
 }
 /// Holds the first post open until released, as a slow Notification Center would.
 private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
@@ -565,6 +944,7 @@ private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
     }
     func release() { lock.withLock { let held = gate; gate = nil; return held }?.resume() }
     func withdraw(_ identifiers: [String]) { lock.withLock { for id in identifiers { shown.removeValue(forKey: id) } } }
+    func withdrawPushed(standingFor thread: String) {}
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }
@@ -728,3 +1108,5 @@ private final class Session: ClientSession, @unchecked Sendable {
         return #"{"type":"outside.state","access":[\#(access)],"screen":[],"opened":\#(opened),"live":\#(live)}"#
     }
 }
+/// How many waiting copies have returned.
+@MainActor private final class Returns { var count = 0 }

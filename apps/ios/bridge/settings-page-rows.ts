@@ -11,6 +11,7 @@ import {
   emulatorWindowSwitch,
   followUpChoices,
   limitPolicyChoices,
+  remotePushSwitch,
   sortByChoices,
   type LimitPolicyChoice,
 } from "@ace/ui-core";
@@ -353,6 +354,13 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
       },
     ],
   },
+  /** Whether this machine pushes its phones' alerts while the app is closed (ADR 0106). */
+  notifications: one(
+    "notifications",
+    "Notifications",
+    [toggle("notifications.remotePush", remotePushSwitch.title)],
+    remotePushSwitch.description,
+  ),
   fleet: one(
     "fleet",
     "Fleet",

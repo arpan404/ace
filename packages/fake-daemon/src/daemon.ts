@@ -5,8 +5,9 @@ import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
+import type { FakeNotificationControls } from "./notification-feed.ts";
 import type { FakeMachineUpdate } from "./machine-update-wire.ts";
-import { MachineIcon } from "@ace/protocol";
+import { EntitiesPage, ItemId, MachineIcon, type EntityCollection } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
@@ -18,8 +19,6 @@ import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { stricterOffer } from "@ace/provider-kit/access-modes";
-import { ItemId } from "@ace/protocol";
-import { EntitiesPage, type EntityCollection } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
 import {
   fakePermissionCapabilities,
@@ -407,16 +406,15 @@ export class FakeDaemon implements Host {
   get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
     return this.servicesWire.checks;
   }
-  /**
-   * Seed what a long-running daemon's services hold: decks, automations and their runs,
-   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
-   */
   /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
     this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  get notifications(): FakeNotificationControls {
+    return this.servicesWire.notificationFeed;
   }
   /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
   retractNotification(id: string): void {
@@ -480,6 +478,10 @@ export class FakeDaemon implements Host {
     this.afterChange(host, this.options.clock());
   }
 
+  /**
+   * Seed what a long-running daemon's services hold: decks, automations and their runs,
+   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
+   */
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }

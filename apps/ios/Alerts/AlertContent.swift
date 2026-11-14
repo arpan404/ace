@@ -98,6 +98,13 @@ struct AlertContent: Equatable, Sendable {
         threadIdentifier = group ?? threadId; self.threadId = threadId; category = Self.threadCategory; level = .passive
         interactionId = nil; approveOption = nil; denyOption = nil
     }
+    /// The same alert without sound or banner: posted again in place of a copy the person already
+    /// saw from a push.
+    var quieted: AlertContent {
+        var content = self
+        content.level = .passive
+        return content
+    }
     init(_ alert: AlertNotification, hostId: String? = nil) {
         self.hostId = hostId
         identifier = Self.requestId(alert.id, hostId: hostId)

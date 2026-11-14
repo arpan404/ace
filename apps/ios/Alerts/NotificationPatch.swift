@@ -15,6 +15,9 @@ struct AlertNotification: Codable, Sendable, Equatable, Identifiable {
     /// How this phone shows it, by its own preferences (bridge/notification-delivery.ts). Nil from
     /// older runtimes: posted and shown as before.
     var delivery: Delivery? = nil
+    /// Its position in this phone's catch-up feed, on a live alert or a feed entry; older daemons
+    /// send none.
+    var cursor: Int? = nil
     struct Delivery: Codable, Sendable, Equatable { let post: Bool; let interrupt: Bool; let banner: Bool }
     /// What a needs-you alert asks, read from the pending request (bridge/notification-request.ts).
     /// Nil when it couldn't be read in time, and from older runtimes: the alert posts plainly.

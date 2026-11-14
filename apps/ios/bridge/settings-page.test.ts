@@ -459,3 +459,23 @@ test("the scope control never sends a change to a machine this phone may only vi
     footer: "Saved on studio. shared is view-only from this phone.",
   });
 });
+
+test("the Notifications page shows a machine's phone push as saved, and turning it off saves it there", async () => {
+  const daemon = fixture();
+  const p = await ports(daemon);
+  const shown = await page(p, "notifications");
+  const push = row(shown, "notifications.remotePush");
+  // On until turned off, with the line that says where the push goes.
+  expect(push).toMatchObject({ title: "Push when the app is closed", value: true });
+  expect(push.control).toEqual({ kind: "toggle" });
+  expect(shown.sections[0]?.footer).toContain("sees only encrypted data");
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "notifications",
+    row: "notifications.remotePush",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(daemon.services.settings.get("notifications.remotePush")).toBe(false);
+  expect(row(await page(p, "notifications"), "notifications.remotePush").value).toBe(false);
+});

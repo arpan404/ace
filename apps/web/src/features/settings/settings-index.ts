@@ -492,6 +492,12 @@ const entries = [
     title: "Quiet hours",
     keywords: ["do not disturb", "mute", "night"],
   },
+  {
+    id: "notifications.remotePush",
+    page: "/settings/notifications",
+    title: "Push when the app is closed",
+    keywords: ["phone", "iphone", "ios", "push", "apns", "background"],
+  },
   // Keyboard
   {
     id: "keyboard.shortcuts",
