@@ -71,15 +71,19 @@ export class ChildLedger {
       .atomic((db) => db.prepare(sql).all(...values))
       .map((raw) => ChildRow.parse(raw));
   }
-  /** True while a child is unsettled or its settled result is not yet delivered. */
-  hasOpen(): boolean {
+  /** True while a child is unsettled. */
+  hasUnsettled(): boolean {
     return Boolean(
       this.store.atomic((db) =>
-        db
-          .prepare(
-            "SELECT 1 WHERE EXISTS(SELECT 1 FROM machine_children WHERE settled=0) OR EXISTS(SELECT 1 FROM machine_children WHERE settled=1 AND delivered=0)",
-          )
-          .get(),
+        db.prepare("SELECT 1 FROM machine_children WHERE settled=0 LIMIT 1").get(),
+      ),
+    );
+  }
+  /** True while a settled child's result is not yet delivered. */
+  hasUndelivered(): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db.prepare("SELECT 1 FROM machine_children WHERE settled=1 AND delivered=0 LIMIT 1").get(),
       ),
     );
   }

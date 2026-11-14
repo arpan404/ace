@@ -1,4 +1,11 @@
-import { decodeStoredItem, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
+import {
+  decodeStoredItem,
+  isTrusted,
+  storedItem,
+  storedTextChunk,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -170,30 +177,93 @@ export class ItemStore {
   private materializeRow(id: string, row: Record<string, unknown> | undefined): Item {
     return this.materialize(id, row?.item, row?.created_seq);
   }
-  /** `created` (the item's creation sequence) decides whether this build wrote the body (see `storedItem`). */
+  /**
+   * `created` (the item's creation sequence) decides whether this build wrote the body (see
+   * `storedItem`); each text chunk is trusted by its own sequence the same way.
+   */
   private materialize(id: string, body: unknown, created: unknown): Item {
-    const item = storedItem(Number(created), String(body), this.trust.from);
+    // Stream rows instead of retaining their objects.
+    return this.withChunks(
+      storedItem(Number(created), String(body), this.trust.from),
+      this.statement(
+        "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+      ).iterate(id),
+    );
+  }
+  /** `item` with its unmerged text chunks, in sequence order, applied. */
+  private withChunks(item: Item, chunks: Iterable<Record<string, unknown>>): Item {
     let field: unknown;
+    // Set from the first chunk when every chunk is trusted: the field `applyDelta` takes as is.
+    let trustedField: ReturnType<typeof storedTextChunk>["field"] | undefined;
+    let trusted = true;
     const appends: string[] = [];
-    // Stream rows instead of retaining their objects. Accepted fields share one append target.
-    for (const row of this.statement(
-      "SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
-    ).iterate(id)) {
+    // Accepted fields share one append target.
+    for (const row of chunks) {
       field ??= row.field;
-      appends.push(decodeAppend(row.append));
+      if (isTrusted(this.trust, Number(row.seq))) {
+        const chunk = storedTextChunk(row.field, row.append);
+        trustedField ??= chunk.field;
+        appends.push(chunk.append);
+      } else {
+        trusted = false;
+        appends.push(decodeAppend(row.append));
+      }
     }
-    if (appends.length) {
-      const delta = EventPayload.parse({
-        type: "item.delta",
-        itemId: item.id,
-        agentId: item.agentId,
-        field,
-        append: appends.join(""),
-      });
-      if (delta.type !== "item.delta") throw new Error("Invalid text delta");
-      applyDelta(item, delta.field, delta.append);
+    if (!appends.length) return item;
+    if (trusted && trustedField) {
+      applyDelta(item, trustedField, appends.join(""));
+      return item;
     }
+    const delta = EventPayload.parse({
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field,
+      append: appends.join(""),
+    });
+    if (delta.type !== "item.delta") throw new Error("Invalid text delta");
+    applyDelta(item, delta.field, delta.append);
     return item;
+  }
+  /**
+   * Whole items by id, each as `materialize` gives it. Bodies and their chunks come from one
+   * statement, so from one snapshot: a completion committed meanwhile (which folds the chunks
+   * into the body and deletes them) is seen whole or not at all. An id with no body throws.
+   */
+  private materializeAll(ids: readonly string[]): Map<string, Item> {
+    const bodies = new Map<string, Record<string, unknown>>();
+    const chunks = new Map<string, Record<string, unknown>[]>();
+    // Each item's body row (kind 0) comes before its chunks (kind 1), in sequence order. One
+    // snapshot is enough because a completion writes the body and deletes its chunks atomically.
+    for (const row of this.statement(
+      `SELECT j.value AS id, 0 AS kind, i.item, i.created_seq, NULL AS seq, NULL AS field, NULL AS append
+         FROM json_each(?1) j JOIN items i ON i.id = j.value
+       UNION ALL
+       SELECT j.value, 1, NULL, NULL, c.seq, c.field, c.append
+         FROM json_each(?1) j JOIN item_text_chunks c ON c.item_id = j.value
+       ORDER BY 1, 2, 5`,
+    ).iterate(JSON.stringify(ids))) {
+      const id = String(row.id);
+      if (row.kind === 0) bodies.set(id, row);
+      else {
+        const rows = chunks.get(id);
+        if (rows) rows.push(row);
+        else chunks.set(id, [row]);
+      }
+    }
+    const items = new Map<string, Item>();
+    for (const id of ids) {
+      const row = bodies.get(id);
+      if (!row) throw new Error("Missing item body");
+      items.set(
+        id,
+        this.withChunks(
+          storedItem(Number(row.created_seq), String(row.item), this.trust.from),
+          chunks.get(id) ?? [],
+        ),
+      );
+    }
+    return items;
   }
   wirePage(
     threadId: ThreadId,
@@ -222,7 +292,12 @@ export class ItemStore {
         break;
       }
       const item = this.pageItem(id, row.item_type);
-      const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
+      // A body this build wrote is read as stored and takes no text chunks, so its stored size
+      // is exactly its JSON's. Text previews and older bodies are measured.
+      const size =
+        (!preview && isTrusted(this.trust, row.created_seq)
+          ? row.size
+          : Buffer.byteLength(JSON.stringify(item))) + overhead;
       if (bytes + size > byteLimit) {
         if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
@@ -465,13 +540,9 @@ export class ItemStore {
     while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
     // A newest item larger than the whole budget still shows, as its bounded text preview.
     const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
+    const whole = preview ? undefined : this.materializeAll(tail.kept.map((entry) => entry.id));
     const kept = tail.kept.flatMap((entry) => {
-      const item = preview
-        ? this.stepItem(threadId, entry.id)
-        : this.materializeRow(
-            entry.id,
-            this.statement("SELECT item, created_seq FROM items WHERE id = ?").get(entry.id),
-          );
+      const item = whole ? whole.get(entry.id) : this.stepItem(threadId, entry.id);
       return item ? [{ item, seq: entry.seq ?? 0 }] : [];
     });
     return {

@@ -21,6 +21,7 @@ import { FileMarkerChip, MentionChip } from "@/components/mention-chip.tsx";
 import { editorCaret, editorSelection, editorText, placeEditorSelection } from "./editor-dom.ts";
 import { pointAt, readEditor } from "./editor-read.ts";
 import { editorShows, renderEditor, type Slot } from "./editor-render.ts";
+import { samePlain } from "./same-plain.ts";
 
 type Props = Omit<ComponentProps<"div">, "onChange" | "children" | "ref"> & {
   input: RefObject<HTMLDivElement | null>;
@@ -85,10 +86,7 @@ function copyShown(event: ClipboardEvent<HTMLDivElement>, slots: readonly Slot[]
 }
 
 function sameToken(a: ComposerToken, b: ComposerToken): boolean {
-  return (
-    JSON.stringify(Object.assign({}, a, { start: 0, end: 0 })) ===
-    JSON.stringify(Object.assign({}, b, { start: 0, end: 0 }))
-  );
+  return samePlain({ ...a, start: 0, end: 0 }, { ...b, start: 0, end: 0 });
 }
 
 /**

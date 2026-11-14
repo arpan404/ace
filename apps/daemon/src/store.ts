@@ -16,6 +16,7 @@ import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
 const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
+import { EventEncodings } from "./event-encodings.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
 import { spawnCheckpointWorker, type CheckpointWorkerFactory } from "./wal-worker-runtime.ts";
@@ -145,6 +146,14 @@ export class Store {
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
   private readonly readCache: ThreadReadCache;
+  /** Each published event's JSON, made once and shared by the live buffer and the server. */
+  readonly encodings = new EventEncodings();
+  /** Rows the event writer changed, each on behalf of the thread of the event it wrote. */
+  private attributedChanges = 0;
+  /** Threads the open transaction's events wrote: their cached reads end when it commits. */
+  private writtenThreads = new Set<ThreadId>();
+  /** A savepoint in the open transaction could not be undone: it must roll back whole. */
+  private doomed: unknown;
   private readonly wal: WalMaintenance;
   private transactions = 0;
   private eventRows = 0;
@@ -185,9 +194,12 @@ export class Store {
     this.db = options.database ?? new DatabaseSync(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
+      // Other connections' commits, and local rows written outside the event writer.
       version: () =>
-        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
-      inTransaction: () => this.transactionEvents !== undefined,
+        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.totalChanges() - this.attributedChanges}`,
+      // Any transaction open on the connection, including one begun outside `transaction`
+      // (history installation): its rows may still roll back, which no counter would show.
+      inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
     this.threads = new ThreadCache({
@@ -243,6 +255,7 @@ export class Store {
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
       publish: (events) => this.publish(events),
+      encodings: this.encodings,
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
     });
@@ -322,7 +335,8 @@ export class Store {
         headSeq: () => this.headSeq(),
         getThread: (id) => this.getThread(id),
         readThread: (id) => this.readThread(id),
-        inTransaction: () => this.transactionEvents !== undefined,
+        // Any transaction open on the connection, the store's own or one begun directly.
+        inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
         report: (error) => this.onError(error),
       });
       this.atomic(migrateRunClient);
@@ -557,7 +571,10 @@ export class Store {
         }
         return result;
       } catch (error) {
-        this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // SQLite may already have rolled the whole transaction back itself (SQLITE_FULL, an
+        // I/O error), or the recovery itself may fail. Either way the savepoint's rows may
+        // remain or be gone with the rest: the outer transaction must not commit.
+        if (!this.recoverSavepoint(savepoint)) this.doomed ??= error;
         this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
@@ -577,15 +594,22 @@ export class Store {
     try {
       result = run();
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
+      if (this.doomed !== undefined)
+        throw new Error("A failed step could not be undone, so the transaction rolled back", {
+          cause: this.doomed,
+        });
       events = this.transactionEvents;
       this.db.exec("COMMIT");
       this.threads.commit();
       this.transactions++;
-      this.readCache.invalidate();
+      this.readCache.evict(this.writtenThreads);
+      this.writtenThreads.clear();
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      // Always: SQLite may already have rolled back, and the outcomes must still settle.
+      this.rollBack();
+      this.writtenThreads.clear();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       this.settle(this.settlements.splice(0), "rolledBack");
@@ -593,6 +617,7 @@ export class Store {
     } finally {
       this.threads.end();
       this.transactionEvents = undefined;
+      this.doomed = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
     // subscribers have already received.
@@ -617,6 +642,36 @@ export class Store {
       }
     }
     return result;
+  }
+  /**
+   * Roll back the open transaction, if SQLite has not already done so itself (SQLITE_FULL, an
+   * I/O error). A failure to roll back is reported; the caller's own error is the one thrown.
+   */
+  /** Undo a savepoint; false when it could not be (the failure is reported, not thrown). */
+  private recoverSavepoint(savepoint: string): boolean {
+    if (!this.db.isTransaction) return false;
+    try {
+      this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+      return true;
+    } catch (error) {
+      this.reportQuietly(error);
+      return false;
+    }
+  }
+  private reportQuietly(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch {
+      /* The caller rethrows its own error. */
+    }
+  }
+  private rollBack(): void {
+    if (!this.db.isTransaction) return;
+    try {
+      this.db.exec("ROLLBACK");
+    } catch (error) {
+      this.reportQuietly(error);
+    }
   }
   private settle(
     settlements: { outcome: TransactionOutcome }[],
@@ -831,12 +886,14 @@ export class Store {
         cancelled,
       );
       this.db.exec("COMMIT");
+      this.readCache.evict(this.writtenThreads);
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      this.rollBack();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       throw error;
     } finally {
+      this.writtenThreads.clear();
       this.installingHistory = false;
     }
   }
@@ -1076,11 +1133,19 @@ export class Store {
     try {
       return read();
     } catch (error) {
-      this.db.exec(`ROLLBACK TO ${name}`);
+      // A read-only savepoint: a failure to undo it is reported, never thrown over `error`.
+      try {
+        if (this.db.isTransaction) this.db.exec(`ROLLBACK TO ${name}`);
+      } catch (rollbackError) {
+        this.reportQuietly(rollbackError);
+      }
       throw error;
     } finally {
-      this.db.exec(`RELEASE ${name}`);
-      this.committedSnapshot = outer;
+      try {
+        if (this.db.isTransaction) this.db.exec(`RELEASE ${name}`);
+      } finally {
+        this.committedSnapshot = outer;
+      }
     }
   }
   listThreads(): Thread[] {
@@ -1094,9 +1159,16 @@ export class Store {
     return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));
   }
   /** One write of the event writer, in a transaction with the write hooks. */
+  private totalChanges(): number {
+    return Number(this.statement("SELECT total_changes() AS n").get()?.n);
+  }
   private writeEvents(write: () => Event[]): Event[] {
     return this.transaction(() => {
+      // Rows the writer changes belong to the threads of its events; hooks' writes are not.
+      const before = this.totalChanges();
       const events = write();
+      this.attributedChanges += this.totalChanges() - before;
+      for (const event of events) this.writtenThreads.add(event.threadId);
       this.transactionEvents?.push(...events);
       for (const hook of this.writeHooks) hook(events);
       return events;
@@ -1163,6 +1235,21 @@ export class Store {
     }
     return events;
   }
+  /** How many of a thread's events lie in (afterSeq, throughSeq], counting at most `limit`. */
+  countThreadEvents(
+    threadId: ThreadId,
+    afterSeq: number,
+    throughSeq: number,
+    limit: number,
+  ): number {
+    this.flushLiveWrites();
+    // Index only (events_thread_seq): no payload is read.
+    return Number(
+      this.statement(
+        "SELECT count(*) AS n FROM (SELECT 1 FROM events WHERE thread_id = ? AND seq > ? AND seq <= ? LIMIT ?)",
+      ).get(threadId, afterSeq, throughSeq, limit)?.n,
+    );
+  }
   readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
     this.flushLiveWrites();
     return this.searchReplay.read(options, this.headSeq());
@@ -1205,6 +1292,7 @@ export class Store {
   acquireThread(id: ThreadId): ThreadView {
     return this.threadReads.acquireThread(id);
   }
+  /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
   snapshotThread(id: ThreadId): ThreadView {
     return this.threadReads.snapshotThread(id);
   }

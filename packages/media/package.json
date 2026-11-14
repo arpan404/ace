@@ -6,12 +6,16 @@
   "exports": {
     "./wire": "./src/wire.ts",
     "./frame": "./src/frame.ts",
-    "./key-block": "./src/key-block.ts"
+    "./key-block": "./src/key-block.ts",
+    "./lanes": "./src/lanes.ts",
+    "./supervisor": "./src/supervisor.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
+    "@ace/provider-kit": "workspace:*",
+    "@ace/service": "workspace:*",
     "zod": "^4.6.5"
   }
 }

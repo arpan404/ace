@@ -14,6 +14,17 @@ function option(name: string): string | undefined {
   return arg === name ? process.argv[index + 1] : arg?.slice(name.length + 1);
 }
 const session = option("--session-id") ?? "fake-session";
+/** ACE_FAKE_CLAUDE_READ_SKILL: each plugin directory's copy of this skill, as this process read it. */
+const readSkill = process.env["ACE_FAKE_CLAUDE_READ_SKILL"];
+const pluginSkills = readSkill
+  ? process.argv.flatMap((arg, at) => {
+      const directory = process.argv[at + 1];
+      if (arg !== "--plugin-dir" || !directory) return [];
+      return [
+        { directory, text: readFileSync(`${directory}/skills/${readSkill}/SKILL.md`, "utf8") },
+      ];
+    })
+  : undefined;
 const write = (data: unknown) => console.log(JSON.stringify(data));
 /** `get_usage`: the plan usage in the file the test names, read when asked. */
 const usageAnswer = (): unknown => {
@@ -62,6 +73,7 @@ for await (const line of lines) {
       subtype: "fake_control",
       request,
       argv: process.argv,
+      ...(pluginSkills ? { pluginSkills } : {}),
       mcpServers: mcp,
       settings: {
         permissionMode: option("--permission-mode"),

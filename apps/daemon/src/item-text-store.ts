@@ -3,10 +3,8 @@ import { z } from "zod";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Item, EventPayload, ThreadId, type TextSource } from "@ace/protocol";
-const StreamRow = z.object({
-  id: z.string(),
-  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-});
+const StreamSize = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const StreamRow = z.object({ id: z.string(), size: StreamSize });
 /** Page previews and indexed UTF-16 text streams. Delta work touches one target
  * and new bytes only; preview materialization happens on an explicit page read. */
 export class ItemTextStore {
@@ -170,15 +168,9 @@ export class ItemTextStore {
   }
   /** The stream's whole length now, which the stored descriptor may trail. */
   private size(source: TextSource): number {
-    return z
-      .number()
-      .int()
-      .nonnegative()
-      .max(Number.MAX_SAFE_INTEGER)
-      .parse(
-        this.statement("SELECT size FROM item_text_streams WHERE id = ?").get(source.streamId)
-          ?.size,
-      );
+    return StreamSize.parse(
+      this.statement("SELECT size FROM item_text_streams WHERE id = ?").get(source.streamId)?.size,
+    );
   }
   /** The text in bytes [start, end) of a stream, read from the chunks that hold it. */
   private slice(streamId: string, start: number, end: number): string {

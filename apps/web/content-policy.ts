@@ -14,10 +14,39 @@ export function hostedPolicy(html: string): string {
     .join("; ");
 }
 
+/**
+ * Inline scripts of a built page that its own policy doesn't allow by hash. A page whose inline
+ * script changed after the policy was written (a plugin that runs later) would ship with that
+ * script blocked, so the build fails on any.
+ */
+export function unhashedInlineScripts(html: string): string[] {
+  const meta = /<meta http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? "";
+  const policy = meta.replaceAll("&#39;", "'");
+  const allowed = new Set(policy.match(/'sha256-[^']+'/g) ?? []);
+  const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+    (match) => match[1] ?? "",
+  );
+  const hashes = inlineScriptHashes(html);
+  return scripts.filter((_, index) => !allowed.has(`'${hashes[index]}'`));
+}
+
 export function contentPolicy(): Plugin {
   return {
     name: "ace-content-policy",
     apply: "build",
+    // After every plugin's generateBundle, so the page checked is the one written.
+    writeBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "asset" || !output.fileName.endsWith(".html")) continue;
+        const html =
+          typeof output.source === "string" ? output.source : Buffer.from(output.source).toString();
+        const missing = unhashedInlineScripts(html);
+        if (missing.length)
+          this.error(
+            `${output.fileName} has ${missing.length} inline script(s) its Content Security Policy doesn't allow; the policy must be written after every plugin that changes them.`,
+          );
+      }
+    },
     transformIndexHtml: {
       order: "post",
       handler: (html) => ({

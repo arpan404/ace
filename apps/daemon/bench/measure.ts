@@ -17,11 +17,19 @@ import { workerPreloadVariable } from "@ace/provider-kit/worker";
 import { threadCensus } from "./threads.ts";
 import { observedWorkers, settledWorkerViolations } from "./budgets.ts";
 import { soakReader } from "./soak-reader.ts";
+import { fakeProviderClis, firstClient } from "./startup-clients.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const idleOnly = process.argv.includes("--idle-only");
+/**
+ * Times a restart as the first client sees it: the real engine discovers fake provider CLIs
+ * that take --cli-delay-ms each, and a client connecting as soon as the endpoint exists records
+ * its welcome and its first thread list. Then the daemon stops.
+ */
+const startupOnly = process.argv.includes("--startup-only");
+const cliDelayMs = z.coerce.number().int().min(0).max(5000).parse(argument("cli-delay-ms", "300"));
 const historyFixture = argument("history-instances", "");
 const historyInstances = historyFixture ? await readFile(resolve(historyFixture), "utf8") : "[]";
 const idleMs = z.coerce.number().int().min(3000).parse(argument("idle-ms", "60000"));
@@ -58,46 +66,64 @@ const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 // Beside the home, not in it: a non-empty unversioned ACE_HOME is backed up to `<home>-v0` at
 // startup (ADR 0081), which would move the telemetry directory out from under the daemon.
 const telemetry = await mkdtemp(join(tmpdir(), "ace-perf-telemetry-"));
-const started = performance.now();
-const child = fork(
-  resolve(argument("entry", join(import.meta.dirname, "entry.ts"))),
-  idleOnly ? ["start"] : [],
-  {
-    // Bun, the daemon's runtime, unless --node names another (a release's bin/node is Bun too).
-    execPath: resolve(argument("node", bunBinary())),
-    execArgv: [
-      ...(collect ? ["--expose-gc"] : []),
-      // --cpu-prof=<dir>: Bun writes the daemon's CPU profile (and a markdown summary) there on
-      // exit. The sampler adds CPU of its own, so never combine it with a budget measurement.
-      ...(cpuProfile
-        ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${resolve(cpuProfile)}`]
-        : []),
-      "--import",
-      join(import.meta.dirname, "telemetry.mjs"),
-    ],
-    env: {
-      ...process.env,
-      BUN_OPTIONS: undefined,
-      HOME: home,
-      USERPROFILE: home,
-      PATH: "",
-      ACE_HOME: home,
-      ACE_HISTORY_INSTANCES: historyInstances,
-      ACE_MODEL_INSTANCES: "[]",
-      ...(idleOnly ? { ACE_LOG_LEVEL: "silent" } : {}),
-      ACE_PORT: "0",
-      ACE_LISTEN: "local",
-      ACE_RELAY_URL: undefined,
-      ACE_WORKSPACE_ROOT: home,
-      ACE_PERF_TELEMETRY: telemetry,
-      // Bun gives a worker no preload of its parent's: ace's workers take this one by name.
-      [workerPreloadVariable]: join(import.meta.dirname, "telemetry.mjs"),
-      ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
-      ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
+const clis = startupOnly
+  ? await fakeProviderClis(await mkdtemp(join(tmpdir(), "ace-perf-clis-")), cliDelayMs)
+  : undefined;
+const daemon = (extraEnv: Record<string, string> = {}) =>
+  fork(
+    resolve(
+      argument("entry", join(import.meta.dirname, startupOnly ? "startup-entry.ts" : "entry.ts")),
+    ),
+    idleOnly ? ["start"] : [],
+    {
+      // Bun, the daemon's runtime, unless --node names another (a release's bin/node is Bun too).
+      execPath: resolve(argument("node", bunBinary())),
+      execArgv: [
+        ...(collect ? ["--expose-gc"] : []),
+        // --cpu-prof=<dir>: Bun writes the daemon's CPU profile (and a markdown summary) there on
+        // exit. The sampler adds CPU of its own, so never combine it with a budget measurement.
+        ...(cpuProfile
+          ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${resolve(cpuProfile)}`]
+          : []),
+        "--import",
+        join(import.meta.dirname, "telemetry.mjs"),
+      ],
+      env: {
+        ...process.env,
+        BUN_OPTIONS: undefined,
+        HOME: home,
+        USERPROFILE: home,
+        PATH: clis?.bin ?? "",
+        ACE_HOME: home,
+        ACE_HISTORY_INSTANCES: historyInstances,
+        ACE_MODEL_INSTANCES: "[]",
+        ...(idleOnly ? { ACE_LOG_LEVEL: "silent" } : {}),
+        ACE_PORT: "0",
+        ACE_LISTEN: "local",
+        ACE_RELAY_URL: undefined,
+        ACE_WORKSPACE_ROOT: home,
+        ACE_PERF_TELEMETRY: telemetry,
+        // Bun gives a worker no preload of its parent's: ace's workers take this one by name.
+        [workerPreloadVariable]: join(import.meta.dirname, "telemetry.mjs"),
+        ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
+        ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
+        ...extraEnv,
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-  },
-);
+  );
+if (startupOnly) {
+  // The measured start is a restart: a first launch in its own process primes the home.
+  const priming = daemon({ ACE_BENCH_PRIME: "1" });
+  priming.stdout?.resume();
+  priming.stderr?.resume();
+  const [code] = await once(priming, "exit");
+  if (code !== 0) throw new Error("Priming start failed");
+  await rm(join(home, "daemon-endpoint"), { force: true });
+  await clis?.reset();
+}
+const started = performance.now();
+const child = daemon();
 let stderr = "";
 let expectedExit = false;
 const aborted = Promise.withResolvers<never>();
@@ -235,6 +261,36 @@ async function measure() {
     if (!endpoint) await delay(10);
   }
   const startupMs = performance.now() - started;
+  if (startupOnly) {
+    mark("first client");
+    const token = await readFile(join(home, "daemon-token"), "utf8");
+    const first = await firstClient(endpoint, token, started);
+    mark("shutdown");
+    expectedExit = true;
+    const exited = once(child, "exit");
+    child.send({ op: "close" });
+    const [exitCode] = await exited;
+    if (exitCode !== 0) throw new Error(`Shutdown failed: ${stderr}`);
+    const calls = (await clis?.calls()) ?? [];
+    const repeated = calls.filter((call, index) => calls.indexOf(call) !== index);
+    const json =
+      JSON.stringify(
+        {
+          platform: `${process.platform}-${process.arch}`,
+          cliDelayMs,
+          startupMs,
+          ...first,
+          cliCalls: calls.length,
+          repeatedCliCalls: repeated,
+          calls,
+        },
+        null,
+        2,
+      ) + "\n";
+    await writeMeasurement(argument("output", ""), json);
+    process.stdout.write(json);
+    return;
+  }
   mark("idle");
   await delay(Math.min(10000, idleMs));
   const idle10 = await sample();
@@ -464,6 +520,7 @@ await measureWithCleanup(
     }
     await rm(home, { recursive: true, force: true });
     await rm(telemetry, { recursive: true, force: true });
+    if (clis) await rm(resolve(clis.bin, ".."), { recursive: true, force: true });
   },
   (marker) => writeSync(2, `${marker}\n`),
 );
