@@ -66,16 +66,18 @@ export const builtRouteCapabilities: RouteCapabilities = {
 /**
  * This build's capabilities on `platform`. On a Mac the screen helper streams into ace-media's
  * ingest too (E3): screens, and Android emulators whose picture it encodes (`--encode-frames`);
- * and ace-media reads a Simulator's serve-sim stream itself.
+ * and ace-media reads a Simulator's serve-sim stream itself. The daemon forwards an Android
+ * device's scrcpy units everywhere.
  * Screens elsewhere wait for their helpers' encoders (E1, E2).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
-  return platform === "darwin"
-    ? {
-        ...builtRouteCapabilities,
-        ingest: [...builtRouteCapabilities.ingest, "screen", "emulator-frames", "simulator"],
-      }
-    : builtRouteCapabilities;
+  // The daemon forwards an Android device's scrcpy units itself, on every platform.
+  const ingest = [...builtRouteCapabilities.ingest, "scrcpy"] as const;
+  return {
+    ...builtRouteCapabilities,
+    ingest:
+      platform === "darwin" ? [...ingest, "screen", "emulator-frames", "simulator"] : [...ingest],
+  };
 }
 
 function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {

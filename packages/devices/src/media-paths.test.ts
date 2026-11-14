@@ -13,6 +13,7 @@ function device() {
   const answers: Switched[] = [];
   /** What the producer sends while it switches (a fresh subscription's first unit, say). */
   const during: (() => void)[] = [];
+  const keyframes: string[] = [];
   let producer: IngestProducer | undefined;
   const paths = new DeviceVideoPaths({
     media: {
@@ -37,7 +38,7 @@ function device() {
       during.shift()?.();
       return answers.shift() ?? { ingest: "off", boundary: null };
     },
-    keyframe: () => {},
+    keyframe: () => void keyframes.push("key"),
     schedule: () => () => {},
   });
   const ready = () => {
@@ -79,7 +80,7 @@ function device() {
       },
     });
   const marks = () => emitted.map((unit) => unit.payload[5]);
-  return { paths, answers, during, producer: ready, daemon, egress, marks };
+  return { paths, answers, during, keyframes, producer: ready, daemon, egress, marks };
 }
 
 const address = (path: string) => ({
@@ -163,4 +164,20 @@ it("paths that carry one live stream are cut at a switch: the new path starts at
   d.egress("p1", 5);
   d.daemon(7);
   expect(d.marks()).toEqual([1, 2, 3, 4, 6, 7]);
+});
+
+it("a path that ends interrupted asks the producer for the keyframe its successor needs", async () => {
+  const d = device();
+  d.answers.push({ ingest: "on", boundary: null });
+  await d.producer().point(address("p1"));
+  d.egress("p1", 1, true);
+  // ace-media went away: its path ends cut, and the daemon's path restarts at a keyframe.
+  d.answers.push({ ingest: "off", boundary: null });
+  await d.producer().point(undefined);
+  expect(d.keyframes).toEqual([]);
+  d.producer().pathEnded?.("p1", true);
+  expect(d.keyframes).toEqual(["key"]);
+  d.daemon(2);
+  d.daemon(3, true);
+  expect(d.marks()).toEqual([1, 3]);
 });

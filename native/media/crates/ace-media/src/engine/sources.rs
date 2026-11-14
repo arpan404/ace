@@ -216,10 +216,11 @@ impl Sources {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
         let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
-        // An emulator's frame file is encoded by the screen helper's `--encode-frames`, which
-        // streams the units in over ingest like any producer and stamps its own epochs.
-        let reads_itself =
-            pictures || matches!(origin, Origin::Simulator { .. } | Origin::Scrcpy { .. });
+        // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
+        // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
+        // stream in over ingest like any producer and stamp their own epochs. A Simulator's
+        // serve-sim stream is read here.
+        let reads_itself = pictures || matches!(origin, Origin::Simulator { .. });
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
             stamper.apply(epoch, false, now);
@@ -245,14 +246,7 @@ impl Sources {
         status(out, id, Status::Starting, None, None);
         // A Simulator's serve-sim stream is read here, by a reader under an encoder token.
         if let Origin::Simulator { stream_url, .. } = origin {
-            return self.read(id, stream_url, out);
-        }
-        // scrcpy's reader lands with its own producer; until then the daemon reads it itself.
-        if matches!(origin, Origin::Scrcpy { .. }) {
-            if let Some(source) = self.by_id.get_mut(id.get()) {
-                source.status = Status::Ended;
-            }
-            status(out, id, Status::Ended, Some("reader-unavailable"), None);
+            self.read(id, stream_url, out);
         }
     }
 

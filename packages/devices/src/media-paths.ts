@@ -102,7 +102,11 @@ export class DeviceVideoPaths {
       consumers: { deliver, record: deliver, still: deliver },
       point: (address) => this.#point(address),
       keyframe: () => options.keyframe(),
-      pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
+      pathEnded: (path, interrupted) => {
+        this.#merge.ended(path, interrupted);
+        // Units may be missing: whatever comes next decodes only from a keyframe.
+        if (interrupted) options.keyframe();
+      },
     });
   }
 
@@ -136,6 +140,7 @@ export class DeviceVideoPaths {
     this.#onPath = daemonPath;
     this.#merge.switching(daemonPath);
     this.#merge.ended(lost, true);
+    this.#options.keyframe();
     this.#source.reconnect();
   }
 

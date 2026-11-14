@@ -1,0 +1,140 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it, onTestFinished } from "vitest";
+import { decodeMediaFrame, type MediaFrame } from "./frame.ts";
+import { IngestWriter } from "./ingest-writer.ts";
+
+/** ace-media's ingest socket, as far as a producer can tell: frames read whole, in order. */
+async function ingest() {
+  const directory = mkdtempSync(join(tmpdir(), "ace-ingest-"));
+  const path = join(directory, "i.sock");
+  const received: MediaFrame[] = [];
+  let ended = false;
+  let peer: Socket | undefined;
+  let buffer = Buffer.alloc(0);
+  const server = createServer((socket) => {
+    peer = socket;
+    socket.on("data", (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 12) {
+        const total = buffer.readUInt16BE(6) + buffer.readUInt32BE(8);
+        if (buffer.length < total) break;
+        received.push(decodeMediaFrame(new Uint8Array(buffer.subarray(0, total))));
+        buffer = buffer.subarray(total);
+      }
+    });
+    socket.on("end", () => void (ended = true));
+  });
+  await new Promise<void>((resolve) => server.listen(path, resolve));
+  onTestFinished(() => {
+    peer?.destroy();
+    server.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  return {
+    path,
+    received,
+    ended: () => ended,
+    pause: () => peer?.pause(),
+    resume: () => peer?.resume(),
+    drop: () => peer?.destroy(),
+    connected: () => peer !== undefined,
+  };
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  const end = performance.now() + 5_000;
+  while (!condition()) {
+    if (performance.now() > end) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+function unit(mark: number, keyframe: boolean, bytes = 16): MediaFrame {
+  return {
+    kind: 1,
+    flags: keyframe ? 1 : 0,
+    ageUs: 0,
+    width: 2,
+    height: 2,
+    displayWidth: 2,
+    displayHeight: 2,
+    scale: 1000,
+    rotation: 0,
+    codec: 1,
+    encode: 0,
+    epoch: 0,
+    codecString: "",
+    description: new Uint8Array(0),
+    extension: new Uint8Array(0),
+    payload: new Uint8Array(bytes).fill(mark),
+  };
+}
+
+it("the hello goes first, units follow in order, and a finish writes them all, then the end frame, before the connection ends", async () => {
+  const server = await ingest();
+  const token = new Uint8Array(32).fill(7);
+  const closed: string[] = [];
+  const writer = new IngestWriter({
+    socket: server.path,
+    token,
+    onClosed: () => void closed.push("closed"),
+    onKeyframe: () => {},
+  });
+  expect([...token]).toEqual(Array.from({ length: 32 }, () => 0));
+  for (const mark of [1, 2, 3]) writer.write(unit(mark, mark === 1));
+  writer.finish();
+  expect(writer.write(unit(4, false))).toBe(false);
+  await until(server.ended);
+  expect(server.received.map((frame) => frame.kind)).toEqual([5, 1, 1, 1, 4]);
+  expect([...(server.received[0]?.payload ?? [])]).toEqual(Array.from({ length: 32 }, () => 7));
+  expect(server.received.slice(1, 4).map((frame) => frame.payload[0])).toEqual([1, 2, 3]);
+  expect(closed).toEqual([]);
+});
+
+it("a reader that falls behind gets deltas dropped to the next keyframe, asked for once", async () => {
+  const server = await ingest();
+  const keyframes: string[] = [];
+  const writer = new IngestWriter({
+    socket: server.path,
+    token: new Uint8Array(32),
+    onClosed: () => {},
+    onKeyframe: () => void keyframes.push("key"),
+    limit: 64 * 1024,
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 256 * 1024));
+  // Over the limit: these deltas would decode against nothing once the backlog is cut.
+  writer.write(unit(2, false));
+  writer.write(unit(3, false));
+  // The reader catches up; the next keyframe starts the stream again.
+  server.resume();
+  await until(() => server.received.length >= 2);
+  writer.write(unit(4, true));
+  writer.write(unit(5, false));
+  writer.finish();
+  await until(server.ended);
+  expect(
+    server.received.filter((frame) => frame.kind === 1).map((frame) => frame.payload[0]),
+  ).toEqual([1, 4, 5]);
+  expect(keyframes).toEqual(["key"]);
+});
+
+it("ace-media closing the connection is reported once, and nothing more is taken", async () => {
+  const server = await ingest();
+  const closed: string[] = [];
+  const writer = new IngestWriter({
+    socket: server.path,
+    token: new Uint8Array(32),
+    onClosed: () => void closed.push("closed"),
+    onKeyframe: () => {},
+  });
+  await until(server.connected);
+  server.drop();
+  await until(() => closed.length > 0);
+  expect(writer.write(unit(1, true))).toBe(false);
+  expect(closed).toEqual(["closed"]);
+});

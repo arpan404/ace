@@ -203,7 +203,7 @@ describe("named routes", () => {
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
   });
 
-  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, with egress feeding their legacy consumers; elsewhere they stay on the daemon", () => {
+  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere, with egress feeding their legacy consumers; elsewhere they stay on the daemon", () => {
     const auto: MediaSettings = {
       encode: "auto",
       delivery: "auto",
@@ -220,7 +220,10 @@ describe("named routes", () => {
         recorder: "legacy",
         stills: "legacy",
       });
-    expect(mac.scrcpy).toMatchObject({ producer: "daemon" });
+    for (const platform of ["darwin", "linux"])
+      expect(
+        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
+      ).toMatchObject({ producer: "ace-media", egress: true });
     for (const platform of ["linux", "win32"])
       for (const kind of ["screen", "emulator-frames"] as const)
         expect(

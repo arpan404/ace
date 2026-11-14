@@ -36,8 +36,8 @@ if (process.platform !== "win32") {
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
-  // E3b: a Simulator read by the binary itself, and (on a Mac) an Android emulator's
-  // host-encoded picture, through the binary and back.
+  // E3b: a Simulator read by the binary itself, an Android device's scrcpy units forwarded by
+  // the daemon, and (on a Mac) an emulator's host-encoded picture, through the binary and back.
   execFileSync(
     "bun",
     [
@@ -46,6 +46,7 @@ if (process.platform !== "win32") {
       "vitest",
       "run",
       "src/simulator-media.process.test.ts",
+      "src/scrcpy-media.process.test.ts",
       ...(process.platform === "darwin" ? ["src/frame-encoder-media.process.test.ts"] : []),
     ],
     {
