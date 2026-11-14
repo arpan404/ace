@@ -109,18 +109,26 @@ enum HistoryMerge {
         /// failed to answer.
         case failed
     }
+    typealias Sleep = @Sendable (Duration) async throws -> Void
+
     private(set) var phase = Phase.loading
     private(set) var answers: [String: HistoryAnswer] = [:]
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var answered: String?
+    /// The query older threads were paged in for, and the machines already asked to page for it.
+    @ObservationIgnored private var pagedQuery: String?
+    @ObservationIgnored private var pagedHosts: Set<String> = []
     /// The phone's clock in ms: every machine groups and dates against the same moment.
     @ObservationIgnored private let now: () -> Double
     /// How long a first connection may take before History says it can't reach any machine.
     @ObservationIgnored private let patience: Duration
+    @ObservationIgnored private let sleep: Sleep
 
-    init(now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, patience: Duration = .seconds(10)) {
+    init(now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, patience: Duration = .seconds(10),
+         sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
         self.now = now
         self.patience = patience
+        self.sleep = sleep
     }
 
     /// What History shows with no machine ready to ask, by each paired machine's connection.
@@ -128,13 +136,22 @@ enum HistoryMerge {
         connections.contains { $0 == "connecting" || $0 == "starting" } ? .loading : .failed
     }
 
-    /// Each machine's answer, keeping the last answer to the same query from a machine that failed
-    /// this time, so one machine's blip doesn't empty its threads from the list.
-    nonisolated static func merged(found: [String: HistoryAnswer], asked: [String], previous: [String: HistoryAnswer],
+    /// Each machine's answer, keeping the last answer to the same query from every still-paired
+    /// machine that didn't answer this time (it failed, or is disconnected), so one machine's
+    /// blip doesn't empty its threads from the list.
+    nonisolated static func merged(found: [String: HistoryAnswer], paired: [String], previous: [String: HistoryAnswer],
                                    sameQuery: Bool) -> (answers: [String: HistoryAnswer], phase: Phase) {
         var answers = found
-        if sameQuery { for host in asked where found[host] == nil { answers[host] = previous[host] } }
+        if sameQuery { for host in paired where found[host] == nil { answers[host] = previous[host] } }
         return (answers, answers.isEmpty ? .failed : .ready)
+    }
+
+    /// Whether this read asks `host` to page older threads in for `query`: once per machine and
+    /// query, claimed before it is asked, so a read restarted by the paging's own arrival, or
+    /// cancelled midway, never asks again.
+    private func claimsOlder(_ host: String, query: String) -> Bool {
+        if pagedQuery != query { pagedQuery = query; pagedHosts = [] }
+        return pagedHosts.insert(host).inserted
     }
 
     func run(_ inbox: MachineInbox, query: String) async {
@@ -142,37 +159,41 @@ enum HistoryMerge {
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         // Typing settles before machines are asked.
-        if !text.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
+        if !text.isEmpty { try? await sleep(.milliseconds(150)) }
         guard !Task.isCancelled, current == generation else { return }
+        let paired = inbox.sessions.map(\.hostId)
         let sessions = inbox.sessions.filter { $0.client.connection == "ready" }
         guard !sessions.isEmpty else {
-            let waiting = Self.phaseWithoutAnswers(inbox.sessions.map(\.client.connection))
+            // No machine to ask: what is kept for this query from machines still paired stays.
+            answers = answered == text ? answers.filter { paired.contains($0.key) } : [:]
             if !answers.isEmpty { phase = .ready; return }
+            let waiting = Self.phaseWithoutAnswers(inbox.sessions.map(\.client.connection))
             phase = waiting
             // A machine still connecting gets a while; one that never gets there is out of reach.
             guard waiting == .loading else { return }
-            try? await Task.sleep(for: patience)
+            do { try await sleep(patience) } catch { return }
             if !Task.isCancelled, current == generation, answers.isEmpty { phase = .failed }
             return
         }
         let reference = now()
-        let older = answered != text
         let asks = sessions.map { session in
             let client = session.client, host = session.hostId
+            // Older threads page in once per machine and query (`claimsOlder`).
+            let request: [String: Any] = ["type": "history.query", "query": text, "now": reference,
+                                          "older": claimsOlder(host, query: text)]
             return Task { () -> (String, HistoryAnswer?) in
-                // Older threads page in for a new query only: a re-read their arrival causes doesn't page again.
-                let request: [String: Any] = ["type": "history.query", "query": text, "now": reference, "older": older]
-                return (host, try? await client.service(request, as: HistoryAnswer.self))
+                (host, try? await client.service(request, as: HistoryAnswer.self))
             }
         }
         var found: [String: HistoryAnswer] = [:]
         await withTaskCancellationHandler {
             for ask in asks { if case let (host, answer?) = await ask.value { found[host] = answer } }
         } onCancel: {
+            // Cancelling an ask cancels its service, which stops the machine's search and paging.
             for ask in asks { ask.cancel() }
         }
         guard !Task.isCancelled, current == generation else { return }
-        let result = Self.merged(found: found, asked: sessions.map(\.hostId), previous: answers, sameQuery: answered == text)
+        let result = Self.merged(found: found, paired: paired, previous: answers, sameQuery: answered == text)
         answers = result.answers
         phase = result.phase
         answered = text

@@ -115,16 +115,16 @@ import Testing
     }
 
     @Test func everyMachineFailingToAnswerIsAFailure() {
-        let result = HistoryList.merged(found: [:], asked: ["studio", "laptop"], previous: [:], sameQuery: false)
+        let result = HistoryList.merged(found: [:], paired: ["studio", "laptop"], previous: [:], sameQuery: false)
         #expect(result.phase == .failed)
         #expect(result.answers.isEmpty)
     }
 
     @Test func oneMachineFailingKeepsItsLastAnswerToTheSameQueryOnly() {
-        let kept = HistoryList.merged(found: ["laptop": one], asked: ["studio", "laptop"], previous: ["studio": one], sameQuery: true)
+        let kept = HistoryList.merged(found: ["laptop": one], paired: ["studio", "laptop"], previous: ["studio": one], sameQuery: true)
         #expect(kept.phase == .ready)
         #expect(Set(kept.answers.keys) == ["studio", "laptop"])
-        let changed = HistoryList.merged(found: ["laptop": one], asked: ["studio", "laptop"], previous: ["studio": one], sameQuery: false)
+        let changed = HistoryList.merged(found: ["laptop": one], paired: ["studio", "laptop"], previous: ["studio": one], sameQuery: false)
         #expect(Set(changed.answers.keys) == ["laptop"])
     }
 
