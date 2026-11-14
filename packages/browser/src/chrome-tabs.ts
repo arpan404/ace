@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WindowRest } from "./window-rest.ts";
 import { BrowserDialog, type BrowserTab } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import type { Schedule } from "./cdp-connection.ts";
@@ -44,7 +45,6 @@ const WindowOpen = z.object({
 });
 const Info = z.object({ targetInfo: z.object({ title: z.string(), url: z.string() }) });
 const Detached = z.object({ sessionId: z.string() });
-const TargetWindow = z.object({ windowId: z.number().int() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 const Binding = z.object({ name: z.string() });
 /** Headless Chrome shows no print dialog: `window.print()` asks ace to save a PDF instead. */
@@ -86,12 +86,8 @@ interface Tab {
   /** Idle long enough that its page was dropped; it reopens at its address on next use. */
   discarded?: boolean | undefined;
   reviving?: Promise<void> | undefined;
-  /** Asked to rest: its page is (or is about to be) hidden, drawing nothing. */
-  resting?: boolean | undefined;
-  /** Its window is minimized now. */
-  minimized?: boolean | undefined;
-  /** Rest and wake changes, one at a time, so the last one asked for wins. */
-  restQueue?: Promise<void> | undefined;
+  /** Hides and shows its page while idle; a new one with each target. */
+  windowRest?: WindowRest | undefined;
   release(): void;
   stops: (() => void)[];
 }
@@ -414,37 +410,18 @@ export class ChromeTabs {
     return this.tabs.get(id)?.discarded === true;
   }
   /**
-   * Hides an idle tab's page by minimizing its window, or shows it again. A hidden page draws no
-   * frames (no compositing, no `requestAnimationFrame`), which a frozen page still does for its
-   * CSS animations; its scripts keep running. Focus emulation, which every shown tab has, keeps
-   * a minimized page drawing, so a resting tab gives it up and gets it back when shown. Changes
-   * apply in the order asked.
+   * Hides an idle tab's page (its window minimized, focus emulation off), or shows it again
+   * (`window-rest.ts`). A hidden page draws no frames, which a frozen page still does for its CSS
+   * animations; its scripts keep running. Each call waits for the changes asked before it.
    */
   rest(id: string, resting: boolean): Promise<void> {
     const tab = this.tabs.get(id);
-    if (!tab) return Promise.resolve();
-    tab.resting = resting;
-    const run = (tab.restQueue ?? Promise.resolve()).then(async () => {
-      // A later call asked otherwise, and applies after this one.
-      if (tab.resting !== resting || !tab.target || tab.discarded) return;
-      if ((tab.minimized === true) === resting) return;
-      const binding = tab.binding;
-      const { windowId } = TargetWindow.parse(await tab.cdp.send("Browser.getWindowForTarget"));
-      if (resting) await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: false });
-      await tab.cdp.send("Browser.setWindowBounds", {
-        windowId,
-        bounds: { windowState: resting ? "minimized" : "normal" },
-      });
-      if (!resting) await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-      if (tab.binding === binding) tab.minimized = resting;
-    });
-    tab.restQueue = run.catch(() => {});
-    return run;
+    if (!tab?.target || tab.discarded || !tab.windowRest) return Promise.resolve();
+    return tab.windowRest.set(resting);
   }
-  /** Whether the tab's page is hidden by `rest`, or still minimized after a wake that failed. */
+  /** Whether the tab's page is hidden by `rest`, about to be, or partly so after a failed show. */
   resting(id: string): boolean {
-    const tab = this.tabs.get(id);
-    return tab?.resting === true || tab?.minimized === true;
+    return this.tabs.get(id)?.windowRest?.resting === true;
   }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {
@@ -700,9 +677,9 @@ export class ChromeTabs {
     if (!host || this.stopped) throw new Error("Browser closed");
     tab.target = target;
     tab.binding++;
-    // A new target opens in a new, shown window.
-    tab.resting = false;
-    tab.minimized = false;
+    // A new target opens in a new, shown window; changes queued for the old one are dropped.
+    tab.windowRest?.retire();
+    tab.windowRest = new WindowRest((method, params) => tab.cdp.send(method, params));
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       tab.popups.arrived(popup),
