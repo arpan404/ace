@@ -572,6 +572,10 @@ export class BrowserService {
           // A desktop capture that failed loses the pages as a lost view does, and recovers so.
           suspended: (reason) => {
             if (session?.state.backend === "embedded") request.lost(reason);
+            // ace's Chrome could not bring a page back: Reopen (or the next open) reopens the
+            // thread's tabs afresh, as for a lost page.
+            else if (session?.state.backend === "headless")
+              this.resumable.set(options.threadId, resume);
           },
           ...(restoredTabs.length ? { restoredTabs } : {}),
           ...(store
