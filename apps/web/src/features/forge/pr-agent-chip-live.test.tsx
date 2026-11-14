@@ -3,6 +3,7 @@ import { ForgePrDetail, WorkspaceId } from "@ace/protocol";
 import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { slowReplay } from "@/test/held-replay.ts";
 import { openPullRequest } from "./test-support.ts";
 
 await import("./pr-panel-tab.tsx");
@@ -42,8 +43,9 @@ const detail = ForgePrDetail.parse({
   relatedThreadsTruncated: false,
 });
 
-test("while reconnecting, a pull request's agent chip claims no status for its linked task", async () => {
+test("while reconnecting, and until the list has caught up, a pull request's agent chip claims no status", async () => {
   const app = harness();
+  const replay = slowReplay(app.daemon);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   app.daemon.workspace.setForgeRead(
@@ -64,5 +66,11 @@ test("while reconnecting, a pull request's agent chip claims no status for its l
 
   act(() => app.daemon.refuseConnections(false));
   act(() => app.client.reconnectNow());
+  expect(await within(panel).findByRole("button", { name: chip })).toBeTruthy();
+
+  // Connected again, but the list's replay hasn't landed: still nothing.
+  await replay.hold(app.client);
+  await waitFor(() => expect(within(panel).queryByRole("button", { name: chip })).toBeNull());
+  replay.release(app.client);
   expect(await within(panel).findByRole("button", { name: chip })).toBeTruthy();
 });
