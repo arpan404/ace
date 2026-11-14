@@ -4,8 +4,9 @@ import type { Fact } from "@ace/core";
 /*
  * Threads of message rows for the spike daemon, matching what the web's demo threads show: a
  * steered, long bubble with code, a thought with its time, a Markdown answer (headings, a list,
- * inline code, a long code block, a link), a repeated failure, a compaction and a
- * provider handoff. Facts are dated in the past. No provider process runs.
+ * inline code, a long code block, a link), a repeated failure, a compaction, a
+ * provider handoff, a brief another thread's agent sent and a message typed with exact spacing. Facts are dated in the past. No
+ * provider process runs.
  */
 
 type Details = (branch: string) => Record<string, unknown>;
@@ -57,7 +58,27 @@ const failure = (item: string): Fact =>
     raw: [],
   });
 
-function thread(daemon: FakeDaemon, details: Details, id: string, title: string): void {
+const brief = [
+  "Add a restart test for the retry budget.",
+  "Start the app server, spend two retries, then restart it.",
+  "Check the budget still reads three left.",
+  "Restart twice more and check it again.",
+  "Keep the test under a second: use the fake clock.",
+  "Report back with the test's name.",
+  // Longer than an event row carries, so Copy must hold all of what the bubble shows.
+  ...Array.from({ length: 120 }, (_, i) => `Note ${i + 1}: keep the budget across restarts.`),
+].join("\n");
+
+/** Typed with a markdown hard break, spaces inside fenced code and blank lines: Copy keeps them. */
+const typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two";
+
+function thread(
+  daemon: FakeDaemon,
+  details: Details,
+  id: string,
+  title: string,
+  startedBy?: string,
+): void {
   daemon.createThread(
     {
       hasSentMessage: true,
@@ -66,13 +87,17 @@ function thread(daemon: FakeDaemon, details: Details, id: string, title: string)
       title,
       provider: "codex",
       details: details("fix/retry-budget"),
+      ...(startedBy ? { startedBy } : {}),
     },
     20 * minute,
   );
   daemon.apply(id, [facts.rootAgent("codex"), facts.turn("root")], 18 * minute);
 }
 
-/** Three short threads, each one screen tall: the bubble and answer, a long code block, and events. */
+/**
+ * Five short threads, each one screen tall: the bubble and answer, a long code block, events, a
+ * brief another thread sent, and a message whose spacing Copy must keep.
+ */
 export function seedMessages(daemon: FakeDaemon, details: Details): void {
   thread(daemon, details, "ios-messages", "Keep the retry budget across restarts");
   daemon.apply(
@@ -143,5 +168,39 @@ export function seedMessages(daemon: FakeDaemon, details: Details): void {
       facts.endTurn("root", "failed"),
     ],
     10 * minute,
+  );
+
+  // A conversation the retry-budget thread's agent started: its brief names that thread.
+  thread(daemon, details, "ios-sent", "Test the retry budget across restarts", "ios-messages");
+  daemon.apply(
+    "ios-sent",
+    [
+      upsert("brief", {
+        type: "message",
+        role: "user",
+        complete: true,
+        synthetic: true,
+        origin: {
+          kind: "parent_agent",
+          parentThreadId: "ios-messages",
+          from: { provider: "claude" },
+        },
+        parts: [{ type: "text", text: brief }],
+      }),
+      facts.message("root", "ack", "assistant", "On it: a restart test with the fake clock."),
+      facts.endTurn("root"),
+    ],
+    9 * minute,
+  );
+
+  thread(daemon, details, "ios-copy", "Copy a message as typed");
+  daemon.apply(
+    "ios-copy",
+    [
+      facts.message("root", "ask", "user", typed),
+      facts.message("root", "ack", "assistant", "Noted."),
+      facts.endTurn("root"),
+    ],
+    8 * minute,
   );
 }

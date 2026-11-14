@@ -373,6 +373,28 @@ import Testing
         let thread = #"{"id":"\#(row.id)","title":"Thread","state":"done","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"\#(row.label)","token":"\#(row.token)"}}"#
         return #"[{"type":"connection","state":"\#(connection)"},{"type":"connection.problem","problem":\#(problem)},{"type":"inbox.reset"},{"type":"inbox.row","id":"\#(row.id)","row":\#(thread)},{"type":"inbox.sections","sections":[{"key":"\#(row.section)","label":"\#(row.label)","ids":["\#(row.id)"],"ranks":["\#(rank)"],"order":0}],"more":false,"snooze":[]}]"#
     }
+
+    @Test func aSenderOnAnotherMachineOpensOnlyWhileThatMachineIsConnected() throws {
+        let inbox = MachineInbox(defaults: try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")), now: { 0 })
+        let studio = ClientModel(now: { 0 })
+        inbox.attach("studio", name: "Studio", client: studio)
+        var opened: [String] = []
+        let remote = RemoteThreads.on(inbox) { client, host, id in
+            #expect(client === studio)
+            opened.append("\(host)/\(id)")
+        }
+        // Kept but not connected yet: the line opens nothing.
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        remote.on("studio")?("far-parent")
+        #expect(opened == ["studio/far-parent"])
+        studio.connection = "offline"
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        #expect(remote.on("studio") != nil)
+        // A machine this phone doesn't keep never opens.
+        #expect(remote.on("elsewhere") == nil)
+    }
 }
 
 private typealias Fixture = MachinesFixture

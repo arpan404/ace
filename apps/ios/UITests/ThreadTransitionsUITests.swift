@@ -1,8 +1,9 @@
 import XCTest
 
-/// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back and
-/// rendered Markdown, against the spike fixture's `ios-turns`, `ios-pi`, `ios-fork` and
-/// `ios-markdown`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
+/// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back,
+/// rendered Markdown, the person's markdown bubble, a brief another thread sent and Copy as typed,
+/// against the spike fixture's `ios-turns`, `ios-pi`, `ios-fork`, `ios-markdown`, `ios-messages`,
+/// `ios-sent` and `ios-copy`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
 /// saves the screenshots. Run on a fresh fixture: forking adds threads to it.
 @MainActor final class ThreadTransitionsUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
@@ -137,6 +138,72 @@ import XCTest
         XCTAssertEqual(app.webViews.count, 0)
         sleep(1)
         screenshot("markdown-math-code-diff")
+    }
+
+    func testSentByLineOpensTheThreadThatSentTheBrief() {
+        let app = launch()
+        open("ios-sent", in: app)
+        let line = app.buttons["message.sentBy"].firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 90))
+        app.bringToMiddle(line)
+        // The sender reads by its title in the thread list.
+        XCTAssertEqual(line.label, "Sent by Keep the retry budget across restarts")
+        // The brief shows its first four lines until it is opened.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 10))
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("sent-by")
+        line.tap()
+        let sender = app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Keep the retry budget'")).firstMatch
+        XCTAssertTrue(sender.waitForExistence(timeout: 20), "the sender's thread opens")
+        screenshot("sent-by-opened")
+    }
+
+    func testTheMarkdownBubbleFoldsAndOpensWithShowMore() {
+        let app = launch()
+        open("ios-messages", in: app)
+        // The long ask is a list with code: rendered as markdown, folded under Show more.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 90))
+        app.bringToMiddle(fold)
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("markdown-bubble-folded")
+        fold.tap()
+        XCTAssertEqual(fold.value as? String, "Expanded")
+        screenshot("markdown-bubble-open")
+    }
+
+    func testCopyGivesTheMessageAsTypedAndTheBriefWhole() {
+        let app = launch()
+        open("ios-copy", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
+        let typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two"
+        XCTAssertEqual(copyAndPaste(message("message.user.", in: app), in: app), typed)
+
+        open("ios-sent", in: app)
+        XCTAssertTrue(waitForAny(prefix: "message.sent.", in: app))
+        let brief = (["Add a restart test for the retry budget.",
+                      "Start the app server, spend two retries, then restart it.",
+                      "Check the budget still reads three left.",
+                      "Restart twice more and check it again.",
+                      "Keep the test under a second: use the fake clock.",
+                      "Report back with the test's name."]
+                     + (1...120).map { "Note \($0): keep the budget across restarts." }).joined(separator: "\n")
+        XCTAssertEqual(copyAndPaste(message("message.sent.", in: app), in: app), brief)
+    }
+
+    /// Copy from the message's own menu, then paste into the composer: what Copy put there.
+    private func copyAndPaste(_ bubble: XCUIElement, in app: XCUIApplication) -> String? {
+        openMenu(of: bubble, in: app)
+        app.buttons["Copy"].tap()
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.press(forDuration: 1.2)
+        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 10))
+        paste.tap()
+        return input.value as? String
     }
 
     private func waitForAny(prefix: String, in app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
