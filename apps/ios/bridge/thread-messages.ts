@@ -10,11 +10,14 @@ import {
   isLimitError,
   isLongMessage,
   sentByLine,
+  sentFold,
   mayBeSystemInput,
   messageOrigin,
+  personFold,
   referenceSegments,
   thoughtLabel,
   thoughtMs,
+  type BubbleFold,
   type EventView,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
@@ -44,10 +47,11 @@ function bounded<T extends { text: string }>(runs: readonly T[]): T[] {
 }
 
 /**
- * Plain words drawn as the person's bubble (a subagent's prompt from its parent): the same runs
- * of words and code, bound and fold as a message the person wrote.
+ * Plain words drawn as the person's bubble (a subagent's prompt from its parent, a brief another
+ * thread sent): the same runs of words and code, bound as a message the person wrote. `fold` is
+ * when it folds and how many lines it then shows; a brief folds sooner than the person's words.
  */
-export function textBubble(text: string) {
+export function textBubble(text: string, fold: BubbleFold = personFold) {
   return {
     segments: bounded(
       bubbleSegments(text).map((segment) => ({
@@ -57,7 +61,8 @@ export function textBubble(text: string) {
       })),
     ),
     readable: text.trim().length > 0,
-    long: isLongMessage(text),
+    long: isLongMessage(text, fold),
+    fold: fold.shown,
     origin: "",
   };
 }
@@ -182,12 +187,21 @@ function flatten(view: EventView) {
     case "quiet":
       return { ...row, text: preview(view.text, 4096) };
     case "sent":
-      // The sender's line and mark; the message's words open from it, as on the web.
+      // The person's bubble of the brief, under a line naming the thread that sent it. Swift
+      // names a local sender by the thread list's current title, as the web does.
       return {
         ...row,
         provider: view.sent.provider ?? "",
         text: sentByLine(view.sent),
         detail: preview(view.text, 4096),
+        sent: {
+          /** Empty when ace doesn't know the sender: the line then opens nothing. */
+          threadId: view.sent.threadId ?? "",
+          /** The sender's machine when it isn't this one; empty for this machine. */
+          hostId: view.sent.host?.id ?? "",
+          line: preview(sentByLine(view.sent), 512),
+          bubble: textBubble(view.text, sentFold),
+        },
       };
     default:
       return row;

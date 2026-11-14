@@ -183,6 +183,8 @@ struct BubbleLine: Codable, Sendable, Equatable {
     var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
+    /// How many lines a long bubble shows folded; absent from older bridges (ten).
+    var fold: Int? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose

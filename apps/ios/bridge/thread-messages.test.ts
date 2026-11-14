@@ -1,5 +1,6 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
+import { DelegatedFrom, MessageOrigin } from "@ace/protocol";
 import { formatMessageQuotes } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
 import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
@@ -187,4 +188,94 @@ test("a settled turn's opened log times its thought by the step after it", async
     .filter((frame) => frame.type === "thread.stepsPage")
     .flatMap((page) => page.rows as { type: string; thought: string | null }[]);
   expect(steps.find((step) => step.type === "reasoning")?.thought).toBe("Thought for 15s");
+});
+
+const sentRow = () =>
+  rows("thread.block")
+    .map((row) => row.event as Record<string, unknown> | null)
+    .find((row) => row?.kind === "sent");
+const sentMessage = (item: string, text: string, origin: Record<string, unknown>): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: {
+    type: "message",
+    role: "user",
+    complete: true,
+    synthetic: true,
+    parts: [{ type: "text", text }],
+    origin: MessageOrigin.parse(origin),
+  },
+});
+
+test("a brief another thread sent names that thread, so the phone can open it", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "sender",
+    workspaceId: "ace",
+    title: "Redesign sidebar",
+    provider: "claude",
+  });
+  fake.createThread({
+    id: "brief",
+    workspaceId: "ace",
+    title: "brief",
+    provider: "codex",
+    startedBy: "sender",
+  });
+  const brief = Array.from({ length: 8 }, (_, i) => `Step ${i + 1} of the upload fix.`).join("\n");
+  fake.apply("brief", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", brief, {
+      kind: "parent_agent",
+      parentThreadId: "sender",
+      from: { provider: "claude" },
+    }),
+  ]);
+  open(connect(fake), "brief");
+  const row = await until(sentRow, "the sent row");
+  expect(row).toMatchObject({
+    provider: "claude",
+    sent: {
+      threadId: "sender",
+      hostId: "",
+      // Its current title is the thread list's; until Swift reads it, where it came from.
+      line: "Sent from another thread",
+      // A brief folds to four lines, as the web's sent bubble does.
+      bubble: { readable: true, long: true, fold: 4 },
+    },
+  });
+  const sent = row?.sent as { bubble: { segments: { text: string }[] } } | undefined;
+  expect(sent?.bubble.segments.map((segment) => segment.text).join("")).toBe(brief);
+});
+
+test("a brief from an agent on a paired machine names that machine's thread and the machine", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "remote-child",
+    workspaceId: "ace",
+    title: "remote child",
+    provider: "codex",
+    delegatedFrom: DelegatedFrom.parse({
+      hostId: "host-studio",
+      hostName: "Studio",
+      threadId: "far-parent",
+      threadTitle: "Ship the release",
+      provider: "claude",
+    }),
+  });
+  fake.apply("remote-child", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("task", "Check the release notes.", { kind: "spawn", role: "notes" }),
+  ]);
+  open(connect(fake), "remote-child");
+
+  expect((await until(sentRow, "the sent row"))?.sent).toMatchObject({
+    threadId: "far-parent",
+    hostId: "host-studio",
+    line: "Sent by Ship the release · Studio",
+    bubble: { long: false },
+  });
 });

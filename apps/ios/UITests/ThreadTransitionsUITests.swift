@@ -1,8 +1,8 @@
 import XCTest
 
-/// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back and
-/// rendered Markdown, against the spike fixture's `ios-turns`, `ios-pi`, `ios-fork` and
-/// `ios-markdown`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
+/// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back,
+/// rendered Markdown and a brief another thread sent, against the spike fixture's `ios-turns`,
+/// `ios-pi`, `ios-fork`, `ios-markdown` and `ios-sent`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
 /// saves the screenshots. Run on a fresh fixture: forking adds threads to it.
 @MainActor final class ThreadTransitionsUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
@@ -137,6 +137,25 @@ import XCTest
         XCTAssertEqual(app.webViews.count, 0)
         sleep(1)
         screenshot("markdown-math-code-diff")
+    }
+
+    func testSentByLineOpensTheThreadThatSentTheBrief() {
+        let app = launch()
+        open("ios-sent", in: app)
+        let line = app.buttons["message.sentBy"].firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 90))
+        app.bringToMiddle(line)
+        // The sender reads by its title in the thread list.
+        XCTAssertEqual(line.label, "Sent by Keep the retry budget across restarts")
+        // The brief shows its first four lines until it is opened.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 10))
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("sent-by")
+        line.tap()
+        let sender = app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Keep the retry budget'")).firstMatch
+        XCTAssertTrue(sender.waitForExistence(timeout: 20), "the sender's thread opens")
+        screenshot("sent-by-opened")
     }
 
     private func waitForAny(prefix: String, in app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {

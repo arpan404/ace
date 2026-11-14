@@ -108,13 +108,16 @@ struct BlockView: View {
 }
 
 /// A one-item block's item, observed on its own so streaming text re-renders this row alone: the
-/// person's bubble, the agent's answer, or an event as the bridge decided it.
+/// person's bubble, a brief another thread sent, the agent's answer, or an event as the bridge
+/// decided it.
 private struct BlockItemView: View {
     @Bindable var item: ItemModel
     let block: BlockRow
     let links: TranscriptLinks
     var body: some View {
-        if let event = block.event {
+        if let event = block.event, let sent = event.sent {
+            SentMessageRow(event: event, sent: sent, row: item.row, links: links)
+        } else if let event = block.event {
             EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage)
         } else if block.kind == "user" {
             UserMessageRow(row: item.row)

@@ -33,6 +33,83 @@ struct UserMessageRow: View {
     }
 }
 
+/// A message another thread's agent sent, as the web draws it: the person's bubble of its words
+/// (without ace's frame), folded to a few lines, under a quiet line naming the sender: its
+/// provider's mark and "Sent by <title>", with " · <machine>" when the sender is on another
+/// machine. A local sender reads by its current title in the thread list. The line opens the
+/// sender: on this machine, or on its paired machine while that one is connected here; a sender
+/// ace doesn't know, or can't reach, is plain text.
+struct SentMessageRow: View {
+    let event: EventRow
+    let sent: EventRow.SentBy
+    let row: TranscriptRow
+    let links: TranscriptLinks
+    @Environment(\.remoteThreads) private var remote
+    var body: some View {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
+            senderLine
+            if sent.bubble.readable {
+                // Its words copy as written; Edit, Fork and Retry belong to the person's own messages.
+                UserBubble(text: event.detail, bubble: sent.bubble, id: row.id, caret: true)
+                    .messageMenu(event.detail, title: "Message")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("message.sent.\(row.id)")
+    }
+    /// What tapping the line does, if it can open the sender.
+    private var opener: (() -> Void)? {
+        let id = sent.threadId
+        guard !id.isEmpty else { return nil }
+        if sent.hostId.isEmpty { return { links.openThread(id) } }
+        guard let open = remote?.on(sent.hostId) else { return nil }
+        return { open(id) }
+    }
+    /// The line's words: a local sender by its current title, as the thread list has it.
+    private var words: String {
+        if sent.hostId.isEmpty, !sent.threadId.isEmpty,
+           let title = links.threadTitle?(sent.threadId)?.trimmingCharacters(in: .whitespaces), !title.isEmpty {
+            return "Sent by \(title)"
+        }
+        return sent.line
+    }
+    @ViewBuilder private var senderLine: some View {
+        let label = HStack(spacing: AceDesign.Space.tight) {
+            if !event.provider.isEmpty { ProviderMark(provider: event.provider, size: AceDesign.Size.glyphSmall) }
+            Text(words).lineLimit(1).truncationMode(.tail)
+        }
+        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        .padding(.leading, UserBubble.inset)
+        if let opener {
+            Button(action: opener) { label.foregroundStyle(AceTheme.Colours.mutedForeground) }
+                .buttonStyle(.plain)
+                .frame(minHeight: AceDesign.Space.group)
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(words)
+                .accessibilityHint("Opens the thread that sent it")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("message.sentBy")
+        } else {
+            label.foregroundStyle(AceTheme.Colours.subtleForeground)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(words)
+                .accessibilityIdentifier("message.sentBy")
+        }
+    }
+}
+
+/// Opens threads on the other paired machines: `on(hostId)` is the opener for a thread there,
+/// nil while that machine isn't connected here.
+struct RemoteThreads {
+    let on: (String) -> ((String) -> Void)?
+}
+
+extension EnvironmentValues {
+    @Entry var remoteThreads: RemoteThreads? = nil
+}
+
 /// "Steer" or "Queued": how a message reached the agent, above its bubble.
 private struct MessageEyebrow: View {
     let origin: String
@@ -50,15 +127,22 @@ private struct MessageEyebrow: View {
 
 /// A tailless bubble at the answers' reading size, at most about 80% of the column. Prose as typed,
 /// fenced code (or a paste that is plainly code) in monospace on the code surface, mentions as
-/// chips. A long message shows its first ten lines under a fade, with Show more / Show less.
+/// chips. A long message shows its first lines under a fade (the bridge's `fold`: ten of the
+/// person's words, four of a brief another thread sent), with Show more / Show less.
 struct UserBubble: View {
     /// What the bubble leaves free beside it: about a fifth of a phone's column.
     static let inset = AceDesign.Space.section * 2 + AceDesign.Space.related
     let text: String
     var bubble: BubbleLine? = nil
     var id = ""
+    /// Show more / Show less carry a caret: most of a brief another thread sent is folded away.
+    var caret = false
     @State private var open = false
-    @ScaledMetric(relativeTo: .body) private var foldHeight = AceTheme.Typography.body.lineHeight * 10
+    @ScaledMetric(relativeTo: .body) private var lineHeight = AceTheme.Typography.body.lineHeight
+    private var foldLines: Int { max(1, bubble?.fold ?? 10) }
+    private var foldHeight: CGFloat { lineHeight * CGFloat(foldLines) }
+    /// The fade covers the last folded line; a long fold of plain text fades two.
+    private var fadeFrom: CGFloat { 1 - CGFloat(foldLines > 4 ? 2 : 1) / CGFloat(foldLines) }
     var body: some View {
         let long = bubble?.long ?? false
         let folded = long && !open
@@ -75,13 +159,18 @@ struct UserBubble: View {
                             .frame(maxHeight: folded ? foldHeight : nil, alignment: .top)
                             .clipped()
                             .mask {
-                                LinearGradient(stops: [.init(color: .black, location: folded ? 0.7 : 1), .init(color: folded ? .clear : .black, location: 1)],
+                                LinearGradient(stops: [.init(color: .black, location: folded ? fadeFrom : 1), .init(color: folded ? .clear : .black, location: 1)],
                                                startPoint: .top, endPoint: .bottom)
                             }
                     }
                 }
                 if long {
-                    Button(open ? "Show less" : "Show more") { open.toggle() }
+                    Button { open.toggle() } label: {
+                        HStack(spacing: AceDesign.Space.tight) {
+                            Text(open ? "Show less" : "Show more")
+                            if caret { AceIcon(open ? .caretUp : .caretDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption) }
+                        }
+                    }
                         .buttonStyle(.plain)
                         .aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(AceDesign.Typeface.regular)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
