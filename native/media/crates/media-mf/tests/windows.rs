@@ -369,7 +369,7 @@ fn hevc_round_trips_where_the_machine_has_an_hevc_encoder() -> Result<(), CodecE
         // Pictures are pooled textures: each is checked and released before the next.
         let mut count = 0;
         for unit in &units {
-            for picture in decoder.decode(unit)? {
+            if let Some(picture) = decoder.decode(unit)? {
                 let surface = MfSurface::of(&picture).ok_or(CodecError::NotConfigured)?;
                 assert_eq!(surface.size(), SIZE);
                 count += 1;
