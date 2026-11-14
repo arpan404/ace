@@ -16,9 +16,9 @@ struct TranscriptTurnRail: View {
     let jump: (Int) -> Void
     @State private var page: TurnsPage?
     @State private var scrub: Int?
-    @State private var chosen: Int?
+    @State private var selection = TurnRail.Selection()
     private var count: Int { page?.turns.first?.ordinal ?? 0 }
-    private var current: Int { min(max(scrub ?? chosen ?? reading.place?.ordinal(of: count) ?? count, 1), max(count, 1)) }
+    private var current: Int { selection.current(scrub: scrub, place: reading.place, count: count) }
 
     var body: some View {
         GeometryReader { box in
@@ -33,9 +33,10 @@ struct TranscriptTurnRail: View {
             }
         }
         .animation(.default, value: behind)
+        .onChange(of: reading.place) { _, _ in selection.readerMoved() }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: scrub) { _, new in new != nil }
         .task(id: behind) {
-            guard behind else { chosen = nil; return }
+            guard behind else { selection.readerMoved(); return }
             page = try? await model.service(["type": "native.turns", "threadId": threadId], as: TurnsPage.self)
         }
     }
@@ -69,7 +70,7 @@ struct TranscriptTurnRail: View {
                 .onChanged { drag in scrub = TurnRail.tick(at: Double(drag.location.y), height: Double(height), ticks: ticks) }
                 .onEnded { _ in
                     guard let turn = scrub else { return }
-                    chosen = turn
+                    selection.pick(turn)
                     scrub = nil
                     jump(turn)
                 }
@@ -80,7 +81,7 @@ struct TranscriptTurnRail: View {
         .accessibilityHint("Swipe up or down to pick a turn, then double-tap to go to it")
         .accessibilityAdjustableAction { direction in
             let step = direction == .increment ? 1 : direction == .decrement ? -1 : 0
-            chosen = min(max(current + step, 1), count)
+            selection.pick(min(max(current + step, 1), count))
         }
         .accessibilityAction { jump(current) }
         .accessibilityIdentifier("transcript.turnRail")

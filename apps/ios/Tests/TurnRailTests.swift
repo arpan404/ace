@@ -31,6 +31,24 @@ import Testing
         #expect(!TurnRail.shows(turns: 40, behind: false, scrubbing: false))
         #expect(TurnRail.shows(turns: 40, behind: false, scrubbing: true))
     }
+    @Test func aJumpedTurnIsMarkedUntilTheReaderScrollsOn() {
+        var selection = TurnRail.Selection()
+        // Reading turn 7, the person jumps to turn 2: it is marked at once.
+        selection.pick(2)
+        #expect(selection.current(scrub: nil, place: .turn(7), count: 9) == 2)
+        // The jump lands on turn 2, then an ordinary scroll settles on turn 5: the rail follows it.
+        selection.readerMoved()
+        #expect(selection.current(scrub: nil, place: .turn(5), count: 9) == 5)
+        #expect(selection.current(scrub: nil, place: .beforeNewest(0), count: 9) == 9)
+    }
+    @Test func theFingerOutranksAPickedTurn() {
+        var selection = TurnRail.Selection()
+        selection.pick(2)
+        #expect(selection.current(scrub: 6, place: .turn(7), count: 9) == 6)
+        // Nothing is marked past the thread's ends.
+        #expect(TurnRail.Selection().current(scrub: nil, place: .turn(12), count: 9) == 9)
+        #expect(TurnRail.Selection().current(scrub: nil, place: nil, count: 0) == 1)
+    }
     @Test func theReadersTurnIsTheOneTheTopRowBelongsTo() {
         let rows: [TurnRail.Mark] = [.ask, .head(7), .answer, .ask, .head(8), .answer, .ask, .answer]
         // On turn 7's ask, its log and its answer.

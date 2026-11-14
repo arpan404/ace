@@ -16,6 +16,18 @@ enum TurnRail {
         turns >= minTurns && (behind || scrubbing)
     }
 
+    /// The turn the rail marks: the finger's while scrubbing, else a turn just picked (a jump,
+    /// VoiceOver's adjust) until the reader next moves, else the one the reader is in.
+    struct Selection: Equatable {
+        private var picked: Int?
+        mutating func pick(_ turn: Int) { picked = turn }
+        /// A scroll settled somewhere new: the reader's place speaks for itself again.
+        mutating func readerMoved() { picked = nil }
+        func current(scrub: Int?, place: Place?, count: Int) -> Int {
+            min(max(scrub ?? picked ?? place?.ordinal(of: count) ?? count, 1), max(count, 1))
+        }
+    }
+
     /// How many ticks fit `height` at the closest spacing.
     static func limit(height: Double) -> Int { max(2, Int(height / minSpacing) + 1) }
 
