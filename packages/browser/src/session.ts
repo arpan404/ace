@@ -44,12 +44,6 @@ function tabActor(actor: Actor): BrowserTabActor {
  * shares (open, paused, logs, recording). Each tab runs its own commands (TabRuntime); this
  * routes commands to tabs and changes the tab set.
  */
-/**
- * Failed tries in a row to bring back the tab a person watches before the browser pauses with
- * the reason (about half a minute of waits, 1 s doubling).
- */
-const watchedWakeTries = 6;
-
 export class BrowserSession {
   readonly live: LiveCapture;
   lastActivity: number;
@@ -227,22 +221,16 @@ export class BrowserSession {
     );
   }
   /**
-   * Bringing the watched, shown tab back failed: try again later, saying so. After
-   * `watchedWakeTries` failures in a row the browser pauses with the reason, as a lost page
-   * does, and the person's Reopen (or the next open) brings its tabs back afresh.
+   * Bringing the watched, shown tab back failed: try again later, saying so. It goes on being
+   * tried while anyone watches, at most a minute apart, its video status `retrying` with the
+   * reason and the tries so far. Only that tab and its video wait: the browser, its other tabs
+   * and their commands go on as before.
    */
   private watchedWakeFailed(error: unknown): void {
     const reason = `The page could not be shown: ${
       error instanceof Error ? error.message : String(error)
     }`.slice(0, 2048);
-    const attempts = (this.wakeFailure?.attempts ?? 0) + 1;
-    if (attempts >= watchedWakeTries) {
-      this.resetWakeRetries();
-      this.suspend(reason);
-      this.options.suspended?.(reason);
-      return;
-    }
-    this.wakeFailure = { reason, attempts };
+    this.wakeFailure = { reason, attempts: (this.wakeFailure?.attempts ?? 0) + 1 };
     this.emit();
     this.shownWake.schedule(() => this.wakeWatched());
   }
@@ -257,6 +245,18 @@ export class BrowserSession {
     if (!this.wakeFailure) return;
     this.wakeFailure = undefined;
     this.emit();
+  }
+  /**
+   * Wakes a tab before a command, a person's request or a recording uses it. A tab that could
+   * not be brought back fails that one use with `tab_unavailable`; the browser and its other
+   * tabs are not touched, and the next use tries again.
+   */
+  private async wakeForUse(tabId: string): Promise<void> {
+    try {
+      await this.wakeIdle(tabId);
+    } catch {
+      throw new BrowserActionError("tab_unavailable");
+    }
   }
   /**
    * A resting tab is shown, a frozen one runs again, a discarded one reopens (its page state
@@ -318,7 +318,7 @@ export class BrowserSession {
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },
-      wake: (tabId) => this.wakeIdle(tabId),
+      wake: (tabId) => this.wakeForUse(tabId),
       beginRecording: async (tabId, check, by) => {
         await this.recordings.start(check, this.recordedTab(tabId), tabActor(by));
         this.live.demand();
@@ -584,7 +584,7 @@ export class BrowserSession {
         this.options.backend.tabs,
         request,
         async () => join(this.options.dir, "chosen-files", this.options.id()),
-        () => this.wakeIdle(tab.id),
+        () => this.wakeForUse(tab.id),
       );
     } finally {
       release();
@@ -939,7 +939,7 @@ export class BrowserSession {
     const epoch = viewed.access.epoch;
     return viewed.serialize(async () => {
       // A recording captures a running, shown page: one that rested or froze unwatched wakes.
-      await this.wakeIdle(viewed.id);
+      await this.wakeForUse(viewed.id);
       await this.recordings.start(
         () => viewed.readCheck({ kind: "agent" }, epoch),
         this.recordedTab(viewed.id),
