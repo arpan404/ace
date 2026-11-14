@@ -213,3 +213,27 @@ test("every machine groups against the moment the phone sends, not its own clock
   expect(answer.threads[0]?.label).toBe("This week");
   expect((await answerHistory(ahead, ask(""))).threads[0]?.label).toBe("Last week");
 });
+
+test("a read the phone gave up on stops paging older threads", async () => {
+  const controller = new AbortController();
+  const older = Array.from({ length: olderPages }, (_, index) =>
+    entry({ id: `page-${index}`, title: `Page ${index}`, activityAt: now - (20 + index) * day }),
+  );
+  let pages = 0;
+  const { ports } = machine({
+    loaded: [],
+    older,
+    hits: ["unknown"],
+    loadOlder: async () => {
+      pages++;
+      // A newer query arrives while the first page loads.
+      controller.abort();
+    },
+  });
+  await answerHistory(ports, ask("words"), controller.signal);
+  expect(pages).toBe(1);
+  // Given up before it began, it reads no page at all.
+  pages = 0;
+  await answerHistory(ports, ask("words"), controller.signal);
+  expect(pages).toBe(0);
+});

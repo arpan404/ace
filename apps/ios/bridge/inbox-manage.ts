@@ -392,7 +392,7 @@ function historyPorts(
 ): HistoryPorts {
   return {
     entries: () => organizer.entries(),
-    search: async (text) => {
+    search: async (text, signal) => {
       const reply = await owner.request(
         {
           type: "search.query",
@@ -401,7 +401,7 @@ function historyPorts(
           scope: "threads",
           limit: 50,
         },
-        { timeoutMs: 8_000 },
+        { timeoutMs: 8_000, ...(signal ? { signal } : {}) },
       );
       return reply.type === "search.results" ? reply.hits : [];
     },
@@ -413,13 +413,17 @@ function historyPorts(
         release();
       }
     },
-    loadOlder: () => owner.threadsMore({ timeoutMs: 8_000 }),
+    loadOlder: (signal) => owner.threadsMore({ timeoutMs: 8_000, ...(signal ? { signal } : {}) }),
     now: () => clock.now(),
   };
 }
 
 /** The inbox's own requests, answered by `NativeServices`; undefined for any other request. */
-export type InboxRequests = (raw: unknown, requestId: string) => Promise<unknown> | undefined;
+export type InboxRequests = (
+  raw: unknown,
+  requestId: string,
+  signal?: AbortSignal,
+) => Promise<unknown> | undefined;
 
 export function inboxRequests(
   owner: ClientCore,
@@ -427,14 +431,14 @@ export function inboxRequests(
   clock: InboxClock,
   pump: PatchSink,
 ): InboxRequests {
-  return (raw, requestId) => {
+  return (raw, requestId, signal) => {
     const bulk = InboxBulkRequest.safeParse(raw);
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
     const palette = PaletteRequest.safeParse(raw);
     if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
     const history = HistoryRequest.safeParse(raw);
     if (history.success)
-      return answerHistory(historyPorts(owner, organizer, clock, requestId), history.data);
+      return answerHistory(historyPorts(owner, organizer, clock, requestId), history.data, signal);
     const link = AceLinkRequest.safeParse(raw);
     if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);

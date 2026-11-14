@@ -54,11 +54,11 @@ export interface HistoryAnswer {
 export interface HistoryPorts {
   entries(): readonly ThreadListEntry[];
   /** Threads the machine's own search finds for `text`. */
-  search(text: string): Promise<readonly { threadId: string }[]>;
+  search(text: string, signal: AbortSignal | undefined): Promise<readonly { threadId: string }[]>;
   /** The list still holds older threads back. */
   holdsOlder(): boolean;
   /** Pages the next older threads into the list. */
-  loadOlder(): Promise<void>;
+  loadOlder(signal: AbortSignal | undefined): Promise<void>;
   now(): number;
 }
 
@@ -117,24 +117,36 @@ export function settledHistory(
     .toSorted(newestFirst);
 }
 
-async function searched(ports: HistoryPorts, text: string): Promise<Set<string>> {
+async function searched(
+  ports: HistoryPorts,
+  text: string,
+  signal: AbortSignal | undefined,
+): Promise<Set<string>> {
   if (text.length < 2) return new Set();
   try {
-    return new Set((await ports.search(text)).map((hit) => hit.threadId));
+    return new Set((await ports.search(text, signal)).map((hit) => hit.threadId));
   } catch {
     return new Set();
   }
 }
 
-/** Pages older threads in until every hit is loaded, the list ends, or `olderPages` are read. */
-async function resolveHits(ports: HistoryPorts, hits: ReadonlySet<string>): Promise<void> {
+/**
+ * Pages older threads in until every hit is loaded, the list ends, `olderPages` are read, or the
+ * phone gives up on the read (a newer query, History closed).
+ */
+async function resolveHits(
+  ports: HistoryPorts,
+  hits: ReadonlySet<string>,
+  signal: AbortSignal | undefined,
+): Promise<void> {
   const unloaded = () => {
     const loaded = new Set<string>(ports.entries().map((entry) => entry.id));
     return [...hits].some((id) => !loaded.has(id));
   };
   for (let page = 0; page < olderPages && unloaded() && ports.holdsOlder(); page++) {
+    if (signal?.aborted) return;
     try {
-      await ports.loadOlder();
+      await ports.loadOlder(signal);
     } catch {
       return;
     }
@@ -144,10 +156,11 @@ async function resolveHits(ports: HistoryPorts, hits: ReadonlySet<string>): Prom
 export async function answerHistory(
   ports: HistoryPorts,
   request: HistoryRequest,
+  signal?: AbortSignal,
 ): Promise<HistoryAnswer> {
   const text = request.query.trim();
   const now = request.now ?? ports.now();
-  const hits = await searched(ports, text);
-  if (request.older && hits.size) await resolveHits(ports, hits);
+  const hits = await searched(ports, text, signal);
+  if (request.older && hits.size && !signal?.aborted) await resolveHits(ports, hits, signal);
   return { threads: settledHistory(ports.entries(), text, now, hits) };
 }

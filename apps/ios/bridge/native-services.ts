@@ -282,7 +282,7 @@ export class NativeServices {
         }
         return;
       }
-      const organizing = this.inbox?.(raw, id);
+      const organizing = this.inbox?.(raw, id, controller.signal);
       if (organizing) {
         this.#reply(id, true, await organizing, "");
         return;
