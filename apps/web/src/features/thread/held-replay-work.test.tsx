@@ -1,5 +1,5 @@
 import type { Fact } from "@ace/core";
-import { facts, flakyCheckout, replayCursor } from "@ace/fake-daemon";
+import { coldStartReplay, facts, flakyCheckout, replayCursor, seedPanels } from "@ace/fake-daemon";
 import type { CommandPayload } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,6 +7,7 @@ import { beforeEach, expect, test } from "vitest";
 import { slowReplay } from "@/test/held-replay.ts";
 import { harness } from "@/test/harness.tsx";
 import { openWorkCard, openWorkPanel } from "@/test/open-work.ts";
+import { terminalsOpenIn } from "@/test/terminal-place.ts";
 
 /*
  * The window after a reconnect's welcome and before its replay lands: connected, but every copy
@@ -124,6 +125,36 @@ test("connected again but not caught up: an agent shell's header says so, with n
   expect(header.textContent).not.toContain("Running");
   replay.release(app.client);
   await waitFor(() => expect(header.textContent).toContain("Running"));
+});
+
+test("connected again but not caught up: the terminal sessions menu neither counts nor calls running an agent's shell", async () => {
+  const { app, replay } = slowDaemon();
+  terminalsOpenIn(app.storage, "side");
+  app.play(coldStartReplay()).runThrough("turn-2");
+  seedPanels(app.daemon);
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Control>}`{/Control}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  // Your `tests` shell and the agent's soak relay run without a tab.
+  expect(
+    await within(panel).findByRole("button", { name: "Terminal sessions, 2 not shown" }),
+  ).toBeTruthy();
+
+  await replay.hold(app.client);
+  // Only your own shell, which this machine's terminals report live, still counts.
+  expect(
+    await within(panel).findByRole("button", { name: "Terminal sessions, 1 not shown" }),
+  ).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: /^Terminal sessions/ }));
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).getByText("Syncing…")).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+
+  replay.release(app.client);
+  expect(
+    await within(panel).findByRole("button", { name: "Terminal sessions, 2 not shown" }),
+  ).toBeTruthy();
 });
 
 /** Archive the open thread with its shortcut (this test browser is not Apple: ⌥⇧Ctrl+A). */
