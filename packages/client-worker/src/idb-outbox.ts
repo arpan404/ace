@@ -71,6 +71,13 @@ export function idbOutbox(
     });
   };
   const migrate = async () => {
+    // Carried over on an earlier start: the legacy database is never opened again (opening it
+    // would create it where it doesn't exist), so a start reads only this database.
+    const done = await transact<boolean>("readonly", (tx, finish) => {
+      const read = tx.objectStore("migrated").get(key);
+      read.addEventListener("success", () => finish(Boolean(read.result)));
+    });
+    if (done) return;
     let legacy = seed;
     const old = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = factory.open("ace", 1);
@@ -117,8 +124,12 @@ export function idbOutbox(
   const ready = () => (migrated ??= migrate());
   return {
     hostBinding: {
-      load: () =>
-        transact<string | null>("readonly", (tx, done) => {
+      load: () => {
+        // A start reads the binding and then the records; the carry-over check the records
+        // wait on doesn't depend on the binding, so it runs alongside. Its failure surfaces
+        // from `records.load`, as before.
+        void ready().catch(() => {});
+        return transact<string | null>("readonly", (tx, done) => {
           const request = tx.objectStore("migrated").get(["host", key]);
           request.addEventListener("success", () => {
             try {
@@ -127,7 +138,8 @@ export function idbOutbox(
               tx.abort();
             }
           });
-        }),
+        });
+      },
       save: (hostId) =>
         transact<void>("readwrite", (tx, done) => {
           const markers = tx.objectStore("migrated");
