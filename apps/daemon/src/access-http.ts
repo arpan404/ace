@@ -150,6 +150,8 @@ export function accessHttp({
             ...(serviceStatus ? { services: serviceStatus() } : {}),
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
             ...(providerProcesses ? { providers: providerProcesses() } : {}),
+            // The local app's health check reads admission with it, instead of a second request.
+            ...(maintenance && auth.local(token) ? { admission: maintenance.status() } : {}),
           };
         } else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");

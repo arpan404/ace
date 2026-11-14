@@ -14,16 +14,22 @@ export function accountSecrets(directory: string) {
   const path = join(directory, "ace-account.enc");
   let queue: Promise<unknown> = Promise.resolve();
   async function read() {
+    // The file first: someone who never signed in has none, and then the keychain is not touched.
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      const missing = z.object({ code: z.literal("ENOENT") }).safeParse(error);
+      if (missing.success) return {};
+      throw new Error("Couldn't read your ace account session", { cause: error });
+    }
     if (!available()) throw new Error("Secure account storage is unavailable");
     try {
-      const bytes = await readFile(path);
       const data: unknown = JSON.parse(safeStorage.decryptString(bytes));
       const saved = z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).parse(data);
       // Sessions saved under ace's former address; the next write stores them under the current one.
       return sessionsByCurrentOrigin(saved);
     } catch (error) {
-      const missing = z.object({ code: z.literal("ENOENT") }).safeParse(error);
-      if (missing.success) return {};
       throw new Error("Couldn't read your ace account session", { cause: error });
     }
   }
@@ -42,6 +48,8 @@ export function accountSecrets(directory: string) {
     },
     write(origin: string, token: string | null) {
       return serial(async () => {
+        // Never written in the clear: a first write checks the store as a read of a file does.
+        if (!available()) throw new Error("Secure account storage is unavailable");
         const entries = await read();
         if (token) entries[savedOriginKey(origin)] = token;
         else delete entries[savedOriginKey(origin)];
