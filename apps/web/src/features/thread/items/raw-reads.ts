@@ -105,11 +105,13 @@ export function stepRawReads(state: RawReads, input: RawInput): RawReads {
         ? reading({ ...state, changedWhileClosed: false }, 0, undefined)
         : { ...state, phase: "idle" };
     case "close":
-      // The read out stays out: its reply is kept, but nothing follows while closed.
+      // The read out stays out: its reply is kept, but nothing follows while closed. A refresh
+      // owed (stale, or waiting for its timer) stays owed: reopening reads again.
       return {
         ...state,
         phase: "closed",
-        changedWhileClosed: state.phase === "stale" || state.changedWhileClosed,
+        changedWhileClosed:
+          state.phase === "stale" || state.phase === "waiting" || state.changedWhileClosed,
       };
     case "reply": {
       if (state.read?.id !== input.id) return state;

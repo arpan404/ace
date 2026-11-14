@@ -97,6 +97,18 @@ describe("the Raw view's reads", () => {
       expect: { phase: "reading", read: { from: 0 } },
     },
     {
+      name: "a refresh owed when the view closed is read on reopening",
+      state: () => run(shown(true), { type: "changed", running: true }, { type: "close" }),
+      input: { type: "open" } as RawInput,
+      expect: { phase: "reading", read: { from: 0 } },
+    },
+    {
+      name: "a read that was out when the view closed is still waited for on reopening",
+      state: () => run(shown(true), { type: "more" }, { type: "close" }),
+      input: { type: "open" } as RawInput,
+      expect: { phase: "reading", read: { from: 1 }, reads: 2 },
+    },
+    {
       name: "reopening with nothing changed keeps what was read",
       state: () => run(shown(true), { type: "close" }),
       input: { type: "open" } as RawInput,
@@ -181,5 +193,75 @@ describe("the Raw view's reads", () => {
     const failed = stepRawReads(more, { type: "error", id: more.read?.id ?? 0 });
     expect(failed).toMatchObject({ phase: "idle", failed: { from: 1 } });
     expect(stepRawReads(failed, { type: "retry" }).read).toMatchObject({ from: 1, revision: "r1" });
+  });
+});
+
+/** A small seeded generator, so a failing sequence can be replayed. */
+function seeded(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+describe("the Raw view's reads, over random sequences", () => {
+  // A view showing a failure (with Retry) is the one open, idle state allowed to be behind.
+  it("whenever it is open with nothing out or scheduled, it shows the step's current version", () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const random = seeded(seed);
+      // The server: the step's version, and two pages per version.
+      let version = 1;
+      let running = true;
+      let state = initialRawReads(running);
+      /** What the read in flight was answered from: the version when it was sent. */
+      let answeredFrom: { id: number; version: number } | undefined;
+      const log: string[] = [];
+      for (let step = 0; step < 60; step++) {
+        // The hook sends each read the machine names, once.
+        if (state.read && answeredFrom?.id !== state.read.id)
+          answeredFrom = { id: state.read.id, version };
+        const choice = random();
+        let input: RawInput;
+        if (choice < 0.15) input = { type: "open" };
+        else if (choice < 0.25) input = { type: "close" };
+        else if (choice < 0.45) {
+          version++;
+          running = random() < 0.6;
+          input = { type: "changed", running };
+        } else if (choice < 0.7 && state.read && answeredFrom) {
+          const { from, revision } = state.read;
+          const at = answeredFrom.version;
+          // A continuation of a version other than the server's is answered `changed`.
+          input =
+            from > 0 && revision !== `r${at}`
+              ? {
+                  type: "reply",
+                  id: state.read.id,
+                  reply: { from, raw: [], revision: `r${at}`, changed: true },
+                }
+              : {
+                  type: "reply",
+                  id: state.read.id,
+                  reply: {
+                    from,
+                    raw: [payload(`v${at}p${from}`)],
+                    revision: `r${at}`,
+                    ...(from === 0 ? { next: 1 } : {}),
+                  },
+                };
+        } else if (choice < 0.75 && state.read) input = { type: "error", id: state.read.id };
+        else if (choice < 0.78) input = { type: "retry" };
+        else if (choice < 0.85) input = { type: "more" };
+        // The hook runs the timer only while the machine waits (and the view is open).
+        else if (choice < 0.95 && state.phase === "waiting") input = { type: "timer" };
+        else continue;
+        log.push(JSON.stringify(input));
+        state = stepRawReads(state, input);
+        const settled =
+          state.phase === "idle" && state.read === undefined && state.started && !state.failed;
+        if (settled) expect(state.revision, `seed ${seed}: ${log.join(" ")}`).toBe(`r${version}`);
+      }
+    }
   });
 });
