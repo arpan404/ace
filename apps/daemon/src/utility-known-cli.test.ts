@@ -2,6 +2,8 @@ import { expect, test } from "vitest";
 import {
   knownCliPath,
   locateKnownCli,
+  ProbeMemo,
+  probeMemoMs,
   type DiscoverCli,
   type KnownCli,
 } from "./utility-known-cli.ts";
@@ -80,4 +82,51 @@ test("a known, signed-in CLI runs without asking it anything", async () => {
   const unused = cli({ installed: false, auth: "unknown" });
   expect(await locateKnownCli(known({}), unused.discover)).toBe("/opt/bin/codex");
   expect(unused.asked).toEqual([]);
+});
+
+test("a login that stays signed out is asked about once a while, not on every run", async () => {
+  let now = 0;
+  const memo = new ProbeMemo(() => now);
+  const signedOut = cli({ installed: true, path: "/opt/bin/codex", auth: "logged_out" });
+  const out = known({ auth: "logged_out", login: '["account-a","1","logged_out"]' });
+  for (let run = 0; run < 5; run++)
+    expect(await locateKnownCli(out, signedOut.discover, memo)).toBeUndefined();
+  expect(signedOut.asked).toHaveLength(1);
+  now += probeMemoMs;
+  await locateKnownCli(out, signedOut.discover, memo);
+  expect(signedOut.asked).toHaveLength(2);
+});
+
+test("a login change ace sees asks the CLI again at once", async () => {
+  const memo = new ProbeMemo(() => 0);
+  const signedOut = cli({ installed: true, path: "/opt/bin/codex", auth: "logged_out" });
+  await locateKnownCli(
+    known({ auth: "logged_out", login: '["account-a","1","logged_out"]' }),
+    signedOut.discover,
+    memo,
+  );
+  const signedIn = cli({ installed: true, path: "/opt/bin/codex", auth: "logged_in" });
+  // The sign-in moved the login revision; the old answer no longer stands.
+  const path = await locateKnownCli(
+    known({ auth: "logged_out", login: '["account-a","2","logged_out"]' }),
+    signedIn.discover,
+    memo,
+  );
+  expect(path).toBe("/opt/bin/codex");
+  expect(signedIn.asked).toHaveLength(1);
+});
+
+test("an answer for one binary is not reused for another", async () => {
+  const memo = new ProbeMemo(() => 0);
+  const login = '["account-a","1","logged_out"]';
+  const first = cli({ installed: true, path: "/opt/bin/codex", auth: "logged_out" });
+  await locateKnownCli(known({ auth: "logged_out", login }), first.discover, memo);
+  const custom = cli({ installed: true, path: "/custom/codex", auth: "logged_in" });
+  expect(
+    await locateKnownCli(
+      known({ auth: "logged_out", login, binary: "/custom/codex" }),
+      custom.discover,
+      memo,
+    ),
+  ).toBe("/custom/codex");
 });
