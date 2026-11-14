@@ -86,6 +86,8 @@ export function FileChip(props: {
         <button
           type="button"
           aria-label={`${file.name}, ${meta}`}
+          data-part="attachment"
+          data-variant="file"
           onClick={(event) => onOpen(file, event.currentTarget)}
           className={cn(
             chip,
@@ -96,7 +98,13 @@ export function FileChip(props: {
         </button>
       ) : (
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-        <span tabIndex={0} aria-label={`${file.name}, ${meta}`} className={cn(chip, "focus-ring")}>
+        <span
+          tabIndex={0}
+          aria-label={`${file.name}, ${meta}`}
+          data-part="attachment"
+          data-variant="file"
+          className={cn(chip, "focus-ring")}
+        >
           {face}
         </span>
       )}

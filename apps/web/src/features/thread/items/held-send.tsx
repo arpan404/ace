@@ -78,7 +78,7 @@ export function HeldSend(props: { threadId: string }) {
         />
       )}
       {message && (text || shown?.quotes) && (
-        <div className={userBubble}>
+        <div data-part="message-user" className={userBubble}>
           {shown?.quotes && (
             <div className={text ? "mb-2" : undefined}>
               <QuotesCard quotes={shown.quotes} />

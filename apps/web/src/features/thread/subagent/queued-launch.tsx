@@ -30,7 +30,7 @@ export function QueuedLaunch(props: {
     <div className="col-start-1 row-start-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
       <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+2rem)]`}>
         <div className="mb-6 flex flex-col items-end">
-          <div className={userBubble}>
+          <div data-part="message-user" className={userBubble}>
             <BubbleText text={props.text} />
           </div>
         </div>
