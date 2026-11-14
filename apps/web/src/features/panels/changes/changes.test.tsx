@@ -339,9 +339,9 @@ test("a thousand rows over a few files mount only the files near the view", asyn
     await within(panel).findByRole("region", { name: paths[0] ?? "" }, { timeout: 10_000 }),
   ).toBeTruthy();
   expect(within(panel).queryByRole("region", { name: paths[9] ?? "" })).toBeNull();
-  const nodes = panel.querySelector("[data-diff-scroller]")?.querySelectorAll("*").length ?? 0;
-  // About 1,600 with the files near the view mounted; over 5,000 with all ten.
-  expect(nodes).toBeLessThan(2_500);
+  const mounted = paths.filter((path) => within(panel).queryByRole("region", { name: path }));
+  // Three of the ten mount; every one did before.
+  expect(mounted.length).toBeLessThan(6);
 });
 
 async function comment(panel: HTMLElement, path: string, line: RegExp, text: string) {
