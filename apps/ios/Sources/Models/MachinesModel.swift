@@ -41,6 +41,7 @@ import Observation
     @ObservationIgnored private let probe: (ConnectionTarget) async -> Bool
     /// Milliseconds, for the route plans' hold and cooldown.
     @ObservationIgnored private let clock: () -> Double
+    @ObservationIgnored private let wakeSchedule: RouteScheduler
     /// Account machines whose daemon said, over the relay, which paired machine it is: account
     /// host id → daemon id.
     @ObservationIgnored private var daemons: [String: String]
@@ -70,6 +71,7 @@ import Observation
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
         retries = RouteRetries(schedule: schedule)
+        wakeSchedule = schedule
         adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
@@ -286,20 +288,12 @@ import Observation
         wakeClients()
         reconsiderRoutes()
     }
-    /// How long the SDK gives a woken socket to answer its probe (`wakeProbeMs` in the shared
-    /// client), in milliseconds.
-    static let wakeProbe: Double = 5_000
-    @ObservationIgnored private var lastWake: Double?
-    /// Wakes every machine's client, unless a wake within the last probe window may still have
-    /// a probe outstanding: a second wake would restart that probe's deadline, so network
-    /// updates arriving under five seconds apart could keep a silent socket marked ready for as
-    /// long as they continue. That probe already settles what this wake would ask.
-    private func wakeClients() {
-        let now = clock()
-        if let lastWake, now - lastWake < Self.wakeProbe { return }
-        lastWake = now
-        for session in inbox.sessions { session.client.wake() }
+    /// Wakes every machine's client without ever restarting an outstanding probe (`WakeGate`).
+    @ObservationIgnored private lazy var wakes = WakeGate(now: clock, schedule: wakeSchedule) { [weak self] in
+        guard let self else { return }
+        for session in self.inbox.sessions { session.client.wake() }
     }
+    private func wakeClients() { wakes.request() }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
     /// Whether the network and power allow reading likely threads ahead, for every machine.
