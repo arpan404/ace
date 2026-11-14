@@ -49,7 +49,7 @@ const signY = new Float32Array(maxSigns);
 const signW = new Float32Array(maxSigns);
 const signH = new Float32Array(maxSigns);
 const signPhase = new Float32Array(maxSigns);
-const signColour = new Array(maxSigns).fill(magenta);
+const signColour = Array.from({ length: maxSigns }, () => magenta);
 let signs = 0;
 
 // A fixed seed keeps the city the same on every load, so a still frame never jumps.
