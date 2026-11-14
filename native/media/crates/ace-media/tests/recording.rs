@@ -12,7 +12,7 @@ mod support;
 #[path = "../../media-mp4/tests/support/reader.rs"]
 mod reader;
 
-use media_wire::control::{ControlFrame, FromMedia, Lane, Part};
+use media_wire::control::{ControlFrame, FromMedia, Lane, Part, Status};
 use media_wire::frame::MediaFrame;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -162,6 +162,18 @@ impl Run {
                 }
             }
         });
+        // A producer learns its address only once its source is open, as from the daemon.
+        let opened = messages.recv_timeout(Duration::from_secs(5));
+        assert!(
+            matches!(
+                opened,
+                Ok(FromMedia::SourceStatus {
+                    status: Status::Starting,
+                    ..
+                })
+            ),
+            "expected the source to open, got {opened:?}"
+        );
         let mut producer =
             UnixStream::connect(&ingest).unwrap_or_else(|e| panic!("ingest socket: {e}"));
         let _ = producer.write_all(&media_frame(5, 0, vec![3; 32]));
@@ -321,7 +333,7 @@ fn no_frame_captured_while_private_is_ever_written_whatever_the_arrival_order() 
     let mut id = 0u16;
     let started = Instant::now();
     while started.elapsed() < Duration::from_millis(2_400) {
-        run.produce(&video(id, id % 10 == 0, 1));
+        run.produce(&video(id, id.is_multiple_of(10), 1));
         run.produce(&audio(1));
         clear.insert(id);
         id += 1;
@@ -468,7 +480,7 @@ fn a_long_recording_rolls_into_parts_within_its_bound() {
     run.decide(0, 1, json!([[1, 1]]), json!([]));
     let mut id = 0u16;
     while id < 300 {
-        run.produce(&video(id, id % 10 == 0, 1));
+        run.produce(&video(id, id.is_multiple_of(10), 1));
         run.produce(&audio(1));
         pace();
         id += 1;

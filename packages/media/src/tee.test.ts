@@ -53,7 +53,7 @@ it("connects only once ace-media has the source, and starts at a keyframe", () =
   const out = frames();
   expect(out.map((f) => f.kind)).toEqual([5, 1]);
   expect(out[0]?.payload).toEqual(new Uint8Array(32).fill(9));
-  expect(out[1]?.flags & 1).toBe(1);
+  expect((out[1]?.flags ?? 0) & 1).toBe(1);
 });
 
 it("stamps what it reads with the private epoch for 100 ms after a resume", () => {

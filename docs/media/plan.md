@@ -299,9 +299,9 @@ table, including timed-out trials and the ranking cache.
     `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
   - **Not built yet, failing at once so the daemon falls back:** `still.take` (`still.failed`
     `stills-unavailable`, F2), `relay.dial` (`relay.failed` `relay-unavailable`, D2), and
-    `record.start` (`record.failed` `recorder-unavailable`, F1). The recorder seam is wired: a
-    recording's frames pass through `media-core::privacy` and `record.epochs` is answered with
-    `epochs.applied` either way. `listen` is accepted and its payload wiped (D1);
+    and, on Windows, `record.start` (`record.failed` `recorder-unavailable`). A recording's
+    frames pass through `media-core::privacy` and `record.epochs` is answered with
+    `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped (D1);
     `ready.listen.loopbackPort` is 0.
   - **Probe.** One trial today, M5's CPU path (`jpeg-decode`, `jpeg-encode`, `scale` on `cpu`,
     never `hardware`). Backends add a `probe::Trial`; trials run on threads of their own and
@@ -1284,3 +1284,49 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   doesn't measure CPU on Windows. Cold start there is 1.3–1.5 s and the probe trial 1.7 s, close
   to the probe's 2 s deadline, so a slower VM's first trial may time out; a late success then
   arrives as `capabilities.changed`. An x64 Windows VM and a Linux VM are still unmeasured.
+
+## F1 notes
+
+- **The recorder** (`crates/ace-media/src/record`, Unix only for now). `assemble` is pure and
+  decides parts and fragments; `files` writes them and recovers what a crash left. Video
+  `MediaFrame`s of codecs 1 to 4 are recorded without re-encoding: Annex B units become 4-byte
+  length-prefixed samples, with parameter sets and delimiters moved out and `avcC`/`hvcC` built
+  from the keyframe's own parameter sets (byte-identical to VideoToolbox's records for the
+  fixtures). Any other video codec (JPEG, PNG, VP8, VP9) fails the recording with
+  `unsupported-codec`, so the daemon keeps those on the legacy path. Opus (codec 9) is the only
+  audio; its packets are timed by their own TOC durations from where audio starts, re-anchored
+  after a gap.
+- **Time.** A sample's time is when it was captured on ace-media's monotonic clock: arrival
+  less the frame's `age`. Video uses 90 kHz and never goes backwards. Every part starts at 0.
+- **Parts.** `part-NNNN.mp4` in the recording's directory, and `part-NNNN.jsonl` for the
+  pointer track when `pointerTrack` is set. `record.start.maxBytes` bounds each part (capped at
+  512 MiB); the daemon keeps any total budget itself, from the `record.part` sizes. A part also
+  ends at `record.cut`, when the picture's configuration changes, and when audio first appears
+  in a part without an audio track. Each closed part is reported with `record.part`;
+  `record.done.parts` lists every part this process wrote.
+- **Writes.** A fragment is one unbuffered `write`, so `kill -9` keeps every earlier fragment.
+  A part is synced when it closes, not per fragment (on macOS a sync is `F_FULLFSYNC`, which
+  would stall the engine's loop).
+- **Recovery.** On `record.start` the directory's parts are scanned by box headers only
+  (`media_mp4::recovery_prefix_by`): a part a crash cut is truncated to its last whole
+  fragment, one with no fragment is removed, and every remaining part is reported with
+  `record.part` before the recording continues in the next index with one gap counted.
+- **The pointer track.** `record.meta` waits until the barrier decides its epoch
+  (`Barrier::decided`); it is written for a clear epoch and dropped for a discarded or
+  forgotten one. Lines are `{"t": ms from the part's start, "epoch", "data"}`.
+- **Decisions before their recording.** `record.epochs` rides the priority lane and can overtake
+  `source.open` and `record.start`. Up to 64 per source are kept (and answered); at
+  `record.start` only the run from seq 0 is applied, so a stopped recording's stragglers never
+  reach the next one.
+- **The daemon side** (`packages/media`): `epochs.ts` (`EpochLedger`, the decision rule, and
+  `ReadStamper`, checked against `vectors/privacy/read-stamping.json`); `tee.ts`, the frames
+  the daemon has copied into ace-media's ingest, stamped at read time and acknowledged at once,
+  connecting only once ace-media reports the source `starting`; `recordings.ts`
+  (`recordingRoute`, and `MediaRecording`, which drives one recording across restarts).
+  `recordings.process.test.ts` runs them against the real binary in `check:media`.
+- **Not wired yet.** No daemon composition root constructs a `MediaSupervisor`, and
+  `media.recordings` is not yet a stored setting, so every recording still takes the legacy
+  path (`session-recording.ts` in screen and browser, `recording-feed.ts` and `video.ts` in
+  devices). Moving each of them onto `MediaRecording` with a tee, the browser recording onto
+  the tab's video encode, the playback checks in Chrome and Windows' player, and the 1080p60
+  CPU bench remain for F1's follow-up.

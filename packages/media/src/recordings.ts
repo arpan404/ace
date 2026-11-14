@@ -70,7 +70,7 @@ export class MediaRecording {
 
   /** Every part so far, in order, across ace-media restarts. */
   get parts(): RecordedPart[] {
-    return [...this.#parts.values()].sort((a, b) => a.index - b.index);
+    return [...this.#parts.values()].toSorted((a, b) => a.index - b.index);
   }
 
   /** Sends `record.start` and begins the 100 ms epochs. False when ace-media can't take it. */

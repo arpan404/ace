@@ -229,7 +229,7 @@ it.runIf(binary)(
     // Most public frames survive: only the open group at the kill and frames read within
     // 100 ms of a resume (or before the first keyframe after one) may be missing.
     expect(written.length).toBeGreaterThan(80);
-    expect(written).toEqual([...written].sort((a, b) => a - b));
+    expect(written).toEqual(written.toSorted((a, b) => a - b));
   },
   60_000,
 );
