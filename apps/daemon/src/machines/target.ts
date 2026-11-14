@@ -14,6 +14,7 @@ import {
 import { ProviderKind as Providers } from "@ace/protocol";
 import { allows } from "../devices.ts";
 import type { Engine } from "../engine/index.ts";
+import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import type { TargetThreads } from "./target-threads.ts";
 import type { TargetBrowser } from "./target-browser.ts";
@@ -62,8 +63,10 @@ export interface MachineAnswer {
 /**
  * The target side of machine calls. Each call is allowed by the grant rules (ADR 0105): this
  * machine's switch, the calling device's grant for the capability and its pairing scope, and the
- * calling thread's ceiling. Every call, allowed or refused, is logged with the device, the machine
- * and thread that made it, and the capability.
+ * calling thread's ceiling. Calls are logged with the device, the machine and thread that made
+ * it, and the capability: every call that does work or changes something, allowed or refused,
+ * while routine reads (status polls, descriptions) are logged only when refused (once per run of
+ * the same refusal) and when they are served again.
  */
 export function createMachineTarget(deps: MachineTargetDeps) {
   async function facts(device: Device, origin: MachineCallOrigin): Promise<GrantFacts> {
@@ -242,6 +245,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         );
     }
   }
+  /** Calls each device's op is refused in a row, so a repeating poll logs once per run. */
+  const refusals = new FailureEpisodes();
   return {
     /** The levels the person chose per linked machine, for Settings › Fleet. */
     grants: deps.grants,
@@ -259,16 +264,33 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         op: "tool" in call ? call.tool : call.op,
         capability: typeof capability === "string" ? capability : "any",
       };
+      // Episodes only for the few routine ops: any other call is logged every time anyway, and
+      // its many tool names would each keep an entry.
+      const key = `${device.id}:${fields.op}`;
+      const routine = routineCall(fields.op);
       try {
         const result = await run(device, parsed.data, signal);
-        deps.log("Machine call from another device", { ...fields, outcome: "ok" });
+        const refused = routine ? refusals.succeeded(key) : 0;
+        // A remote parent polls status about once a second: routine reads that succeed are not
+        // logged per call, only when they work again after being refused.
+        if (refused > 0)
+          deps.log("Machine call from another device served again", {
+            ...fields,
+            outcome: "ok",
+            attempts: refused + 1,
+          });
+        else if (!routine)
+          deps.log("Machine call from another device", { ...fields, outcome: "ok" });
         return { status: 200, body: result };
       } catch (error) {
         const refusal = error instanceof TargetRefusal ? error : new TargetRefusal("unavailable");
-        deps.log("Machine call from another device refused", {
-          ...fields,
-          outcome: refusal.code,
-        });
+        const episode = routine ? refusals.failed(key, refusal.code) : { log: true, attempts: 1 };
+        if (episode.log)
+          deps.log("Machine call from another device refused", {
+            ...fields,
+            outcome: refusal.code,
+            ...(routine ? { attempts: episode.attempts } : {}),
+          });
         return { status: refusal.status, body: refusal.body() };
       }
     },

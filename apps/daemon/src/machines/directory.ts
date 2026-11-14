@@ -14,6 +14,7 @@ import {
   type MachineTransport,
   type MachineTransportOptions,
 } from "./transport.ts";
+import { FailureEpisodes, routineCall, routineOps } from "./failure-episodes.ts";
 
 export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
@@ -24,6 +25,8 @@ export interface DirectoryDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
   served?(): void;
+  /** A call to a machine whose calls were failing got through: loops waiting on it go now. */
+  reachable?(machine: string): void;
 }
 const MachineToolGroupNames = MachineToolGroup.options;
 /** A failure as the calling agent reads it: an authored code and a short reason. */
@@ -41,6 +44,8 @@ export class MachineDirectory {
   private deps: DirectoryDeps;
   private seen = new Map<string, MachineSummary>();
   private hosts = new Map<string, HostId>();
+  /** Calls to each machine failing in a row, so a repeating call logs once per run. */
+  private failing = new FailureEpisodes();
   constructor(deps: DirectoryDeps) {
     this.deps = deps;
   }
@@ -148,17 +153,35 @@ export class MachineDirectory {
     const profile = this.deps.profiles().find((entry) => entry.name === machine);
     const op = "tool" in call ? call.tool : call.op;
     if (!profile) {
+      // A pairing that is gone keeps no failure runs.
+      this.failing.forgetPrefix(`${machine}:`);
       this.deps.log("Machine call refused here", { machine, op, outcome: "unknown_machine" });
       throw new MachineFailure("refused", "unauthorized", `No paired machine named ${machine}.`);
     }
+    // Runs are kept per machine and routine op: other calls are logged every time, and one op
+    // failing while another works never flips a run back and forth.
+    const routine = routineCall(op);
+    const key = `${machine}:${op}`;
     try {
       const result = await this.deps.transport(profile, { origin, call }, options);
-      this.deps.log("Machine call to another device", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: "ok",
-      });
+      // Any call getting through means the machine is reachable: loops waiting on it go now.
+      if (routineOps.some((each) => this.failing.failing(`${machine}:${each}`)))
+        this.deps.reachable?.(machine);
+      const failures = routine ? this.failing.succeeded(key) : 0;
+      if (failures > 0)
+        this.deps.log("Machine calls to another device work again", {
+          machine,
+          op,
+          attempts: failures + 1,
+        });
+      // Routine reads (status polls, descriptions) succeed quietly; work and changes are logged.
+      else if (!routine)
+        this.deps.log("Machine call to another device", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome: "ok",
+        });
       return result;
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
@@ -167,12 +190,17 @@ export class MachineDirectory {
         this.seen.delete(machine);
         if (this.groups() !== before) this.deps.served?.();
       }
-      this.deps.log("Machine call to another device failed", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: failure.refusal ?? failure.kind,
-      });
+      const outcome = failure.refusal ?? failure.kind;
+      const episode = routine ? this.failing.failed(key, outcome) : undefined;
+      // A routine read failing again the same way is the same failure, already logged.
+      if (!episode || episode.log)
+        this.deps.log("Machine call to another device failed", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome,
+          ...(episode ? { attempts: episode.attempts } : {}),
+        });
       throw failure;
     }
   }

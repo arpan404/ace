@@ -38,6 +38,7 @@ import {
 } from "./child-views.ts";
 import { statusBatches, unsettledPage } from "./child-paging.ts";
 import { LostChildren } from "./child-lost.ts";
+import { RetryBackoff } from "./retry-backoff.ts";
 import { ChildLiveness, type ChildLivenessDeps } from "./child-liveness.ts";
 
 export interface ChildrenDeps {
@@ -63,6 +64,7 @@ export interface ChildrenDeps {
   /** The machine's host id when known, so the parent's row can name where the child lives. */
   host?(machine: string): HostId | undefined;
   deliver: ChildResultsDeps["deliver"];
+  held?: ChildResultsDeps["held"] | undefined;
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
@@ -75,6 +77,9 @@ export interface ChildrenDeps {
   device(machine: string): string | undefined;
   log(message: string, fields: Record<string, unknown>): void;
 }
+
+/** At most this long between status calls to a machine that keeps failing them. */
+const UNREACHABLE_RETRY_CAP_MS = 30_000;
 
 /** The person stopped tracking this lost child: it stays settled for good (ADR 0099). */
 const abandoned = (row: ChildRow) => row.settled === 1 && row.lost_at !== null;
@@ -92,9 +97,23 @@ export class MachineChildren implements RemoteChildren {
   /** Why a message to the child is still unanswered, until it is answered. */
   private held = new Map<string, string>();
   private cancelTimer: (() => void) | undefined;
+  /** When the scheduled poll runs, by the injected clock. */
+  private dueAt = 0;
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
+  /** The next poll is set for when settled children are due a re-check, so it re-checks them. */
+  private recheckPoll = false;
+  /**
+   * When settled children were last re-checked, by the injected clock: the next re-check is due
+   * one re-check interval after it, however many polls come in between.
+   */
+  private lastRecheckAt: number;
+  /**
+   * Machines whose status calls fail, each asked again later after every failure and at once
+   * when another call to it gets through; logged when that starts and when it ends.
+   */
+  private reach: RetryBackoff;
   /** The last re-check turn handed out; each machine's least recently checked go next. */
   private turn: number;
   /** The last polling turn handed out; machines served longest ago go next. */
@@ -108,7 +127,9 @@ export class MachineChildren implements RemoteChildren {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
     this.turn = this.ledger.lastRecheckTurn();
+    this.lastRecheckAt = deps.now();
     this.served = this.ledger.lastServedTurn();
+    this.reach = new RetryBackoff(deps.pollMs, UNREACHABLE_RETRY_CAP_MS);
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
     this.lost = new LostChildren({
       ...deps,
@@ -337,28 +358,67 @@ export class MachineChildren implements RemoteChildren {
     return () => this.listeners.delete(listener);
   }
   /**
-   * Polls only while a child is unsettled or a result is undelivered. A failed poll or ledger
-   * read, such as a busy store, is logged and polled again.
+   * Polls while a child is unsettled or a message is open; while a result is owed, when it may
+   * be deliverable (failed deliveries back off, a stopped parent's wait for resumed()); and at
+   * the slow re-check pace while settled children are watched. A failed poll or ledger read,
+   * such as a busy store, is logged and polled again.
    */
   private arm() {
-    if (this.closed || this.cancelTimer) return;
-    let due = true;
-    let watchingSettled = false;
+    if (this.closed) return;
+    const slow = this.deps.pollMs * RECHECK_POLLS;
+    const now = this.deps.now();
+    // The re-check's own deadline, never pushed back by polls that come sooner.
+    const recheckAt = this.lastRecheckAt + slow;
+    let delay: number | undefined = this.deps.pollMs;
     try {
-      due = this.ledger.hasOpen() || this.results.hasUnsent() || this.ledger.anyMessages();
-      watchingSettled = !due && this.ledger.hasRecentlySettled(this.deps.now() - RECHECK_WINDOW_MS);
+      if (!this.ledger.hasUnsettled() && !this.ledger.anyMessages()) {
+        const wake = this.results.wakeAt(now);
+        const waits: number[] = [];
+        if (wake !== undefined) waits.push(Math.max(this.deps.pollMs, wake - now));
+        if (this.ledger.hasRecentlySettled(now - RECHECK_WINDOW_MS))
+          waits.push(Math.max(this.deps.pollMs, recheckAt - now));
+        delay = waits.length ? Math.min(...waits) : undefined;
+      }
     } catch (error) {
       this.deps.log("Machine children poll failed", { error });
     }
-    if (!due && !watchingSettled) return;
-    // With only settled children to re-check, the poll comes at the slower re-check pace.
-    const delay = due ? this.deps.pollMs : this.deps.pollMs * RECHECK_POLLS;
+    if (delay === undefined) return;
+    // A poll already due as soon stays; new work that needs an earlier one replaces it.
+    if (this.cancelTimer && this.dueAt <= now + delay) return;
+    this.cancelTimer?.();
+    // A poll that runs at or past the re-check deadline re-checks settled children.
+    this.recheckPoll = now + delay >= recheckAt;
+    this.dueAt = now + delay;
     this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
       void this.poll()
         .catch((error: unknown) => this.deps.log("Machine children poll failed", { error }))
         .finally(() => this.arm());
     });
+  }
+  /**
+   * Something happened on this thread (new input, say): results waiting for it as a stopped
+   * parent are asked about on the next poll, at most `pollMs` away. A poll already set sooner
+   * stays, so a parent streaming events never pushes the poll back.
+   */
+  threadChanged(thread: string): void {
+    if (this.closed || !this.results.resumed(thread)) return;
+    this.arm();
+  }
+  /** Another call to the machine got through: status calls to it go on the next poll. */
+  machineReachable(machine: string): void {
+    this.reach.retryNow(machine);
+  }
+  /** A status call to the machine got through: its failure episode, if any, ends. */
+  private reached(machine: string) {
+    const failures = this.reach.succeeded(machine);
+    if (failures > 0)
+      this.deps.log("Machine children reachable again", { machine, attempts: failures + 1 });
+  }
+  /** A status call to the machine failed: it is asked again later, logged once per episode. */
+  private unreached(machine: string, error: unknown) {
+    if (this.reach.failed(machine, this.deps.now()) === 1)
+      this.deps.log("Machine children unreachable", { machine, error: String(error) });
   }
   async poll(): Promise<void> {
     if (this.polling || this.closed) return;
@@ -382,13 +442,16 @@ export class MachineChildren implements RemoteChildren {
         }
         return rows.filter((row) => !lost(row));
       });
+      const now = this.deps.now();
       await Promise.all([
         ...statusBatches(page).map(async ([machine, rows]) => {
           const ids = rows.map((row) => row.id);
           const first = rows[0];
-          if (!first) return;
+          // A machine failing its calls is asked again once its wait is over.
+          if (!first || !this.reach.due(machine, now)) return;
           try {
             const views = await this.deps.status(machine, first.parent_thread, ids);
+            this.reached(machine);
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.update(row, view);
@@ -396,12 +459,13 @@ export class MachineChildren implements RemoteChildren {
             // A slow sibling machine must not hold a result already received from this one.
             if (!this.closed) this.results.drain();
           } catch (error) {
+            this.unreached(machine, error);
             const reason = unreadReason(this.deps.label(machine), error);
             for (const id of ids) this.unreachable.set(id, reason);
             this.emit(ids);
           }
         }),
-        ...this.recheckDue(page.length > 0).map(async ([machine, rows]) => {
+        ...this.recheckDue(now).map(async ([machine, rows]) => {
           const first = rows[0];
           if (!first) return;
           try {
@@ -410,14 +474,15 @@ export class MachineChildren implements RemoteChildren {
               first.parent_thread,
               rows.map((row) => row.id),
             );
+            this.reached(machine);
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.recheck(row, view);
             }
           } catch (error) {
-            // A settled child stays settled while its machine can't be asked; the next
-            // re-check tries again.
-            this.deps.log("Machine children re-check failed", { error });
+            // A settled child stays settled while its machine can't be asked; a later
+            // re-check tries again, later after each failure.
+            this.unreached(machine, error);
           }
         }),
       ]);
@@ -431,17 +496,23 @@ export class MachineChildren implements RemoteChildren {
     }
   }
   /**
-   * Settled children due a re-check, grouped by machine: every `RECHECK_POLLS` polls while
-   * others are watched, and on every poll once only settled ones are, as those polls already
-   * come at the slower pace.
+   * Settled children due a re-check, grouped by machine: once a re-check interval has passed
+   * since the last one by the clock (or the poll was set for that deadline), and at least every
+   * `RECHECK_POLLS` polls. A machine failing its calls is left out until its wait is over.
    */
-  private recheckDue(watchingUnsettled: boolean): [string, ChildRow[]][] {
-    if (watchingUnsettled && ++this.sinceRecheck < RECHECK_POLLS) return [];
+  private recheckDue(now: number): [string, ChildRow[]][] {
+    const due =
+      this.recheckPoll ||
+      now >= this.lastRecheckAt + this.deps.pollMs * RECHECK_POLLS ||
+      ++this.sinceRecheck >= RECHECK_POLLS;
+    if (!due) return [];
     this.sinceRecheck = 0;
-    const since = this.deps.now() - RECHECK_WINDOW_MS;
+    this.lastRecheckAt = now;
+    const since = now - RECHECK_WINDOW_MS;
     const turn = ++this.turn;
     // Every machine, and on each the children checked longest ago: all are checked in turn.
     return this.ledger.recheckMachines(since).flatMap((machine) => {
+      if (!this.reach.due(machine, now)) return [];
       const rows = this.ledger.recheckTurn(machine, since, RECHECK_PER_MACHINE);
       this.ledger.markRechecked(
         rows.map((row) => row.id),
