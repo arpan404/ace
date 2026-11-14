@@ -273,8 +273,8 @@ export interface UsageLedgerRow {
 export interface UsageLedgerReply {
   type: "usage.ledger";
   group: LedgerGroup;
-  /** What a row opens to; null when a row is as deep as the ledger goes. */
-  next: { group: LedgerGroup; label: string } | null;
+  /** What a row opens to, shaped as `groups`' entries; null when a row is as deep as it goes. */
+  next: { value: LedgerGroup; label: string } | null;
   /** Every grouping, for the Group by menu. */
   groups: { value: LedgerGroup; label: string }[];
   /** Most cost first; the phone shows the first `top` and "Show all". */
@@ -344,7 +344,7 @@ export function combineLedger(request: UsageLedgerCombineRequest): UsageLedgerRe
   return {
     type: "usage.ledger",
     group,
-    next: next ? { group: next, label: groupLabel(next) } : null,
+    next: next ? { value: next, label: groupLabel(next) } : null,
     groups: ledgerGroups.map((each) => ({ value: each.value, label: each.label })),
     rows: lines.map((line) => ({
       key: line.key,

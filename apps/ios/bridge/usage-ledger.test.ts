@@ -101,7 +101,7 @@ test("two machines' spend sums per provider, largest first, each with its share 
   expect(claude?.cost.figure).toMatch(/^\$/);
   expect(claude?.trend.tokens).toHaveLength(7);
   // A provider opens to its accounts.
-  expect(ledger.next).toEqual({ group: "account", label: "Account" });
+  expect(ledger.next).toEqual({ value: "account", label: "Account" });
   expect(ledger.groups.map((each) => each.label)).toContain("Project");
 });
 
@@ -121,7 +121,7 @@ test("a provider opened to its accounts names each account without the provider'
   });
   expect(ledger.rows.map((row) => row.key)).toEqual(["claude-personal", "claude-work"]);
   expect(ledger.rows.map((row) => row.name)).toEqual(["Personal", "Work"]);
-  expect(ledger.next).toEqual({ group: "workspace", label: "Project" });
+  expect(ledger.next).toEqual({ value: "workspace", label: "Project" });
 });
 
 test("grouped by machine, each machine is one row under its own name; an offline one is named", async () => {
