@@ -34,13 +34,8 @@ const DEFLATE_THRESHOLD = 1024;
  * per MiB there); smaller ones stay synchronous, where the hop would cost more than the work.
  */
 const ASYNC_DEFLATE_FROM = 256 * 1024;
-/**
- * Uncompressed bytes a channel deflates off the event loop at once. Past it, a message is
- * deflated on the event loop as it always was, so this budget never refuses a send.
- */
-const ASYNC_DEFLATE_BUDGET = 16 * 1024 * 1024;
-/** A control message (the goodbye) is never refused for room; it is at most this long. */
-const CONTROL_LIMIT = 1024;
+/** The goodbye is never refused for room; it is at most this long. */
+const GOODBYE_LIMIT = 1024;
 
 /** A message's bytes as they go out: JSON, deflated JSON or binary. */
 interface Prepared {
@@ -173,10 +168,11 @@ export interface MessageChannel<Incoming extends WireMessage, Outgoing extends W
    */
   sendText(json: string, compress?: boolean): Promise<void>;
   /**
-   * Send a short control message (a goodbye), never deflated and never refused for room, in
-   * order after everything sent before it. At most 1 KiB.
+   * Send the channel's goodbye (at most 1 KiB): never deflated and never refused for room, in
+   * order after everything sent before it. Only the first call sends; any later one returns
+   * the first one's promise.
    */
-  sendControl(json: string): Promise<void>;
+  sendGoodbye(json: string): Promise<void>;
   /**
    * The next message as received: JSON text (inflated, valid UTF-8, not schema-checked) or
    * binary bytes. The caller parses the text, as a direct socket's handler would.
@@ -246,6 +242,11 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   const wakeSenders = () => {
     for (const wake of creditWaiters.splice(0)) wake();
   };
+  /** Rejects once the channel ends, so nothing waits on it afterwards. */
+  const { promise: channelEnded, reject: refuseSends } = Promise.withResolvers<never>();
+  channelEnded.catch(() => {});
+  /** Each queued send's bytes counted as ready, until it has gone or the channel ends. */
+  const unsent = new Set<{ counted: number }>();
   const end = (error?: Error) => {
     if (ended) return;
     ended = true;
@@ -258,6 +259,11 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     plainWaiter = undefined;
     pumpWaiter?.();
     wakeSenders();
+    // Every queued and in-flight send is refused at once; a deflate that finishes later is
+    // discarded (its bytes zeroed) and counts for nothing.
+    refuseSends(new Error("Channel closed"));
+    unsent.clear();
+    readyBytes = 0;
     resolveClosed(error);
   };
   /** Encrypt the next outgoing fragment; rekeys right after the frame that reaches the interval. */
@@ -326,8 +332,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   );
   socket.once("error", end);
   let compressible: ((message: Outgoing) => boolean) | undefined;
-  /** Uncompressed bytes of messages being deflated off the event loop right now. */
-  let deflating = 0;
+  /** The goodbye, once sent: there is only ever one. */
+  let goodbye: Promise<void> | undefined;
   /**
    * Refuse a message that can't be queued: the channel ended, or `size` more bytes ready to
    * send would pass the 16 MiB limit (the same check, on the same bytes, as before deflates
@@ -339,26 +345,31 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       throw new Error("Logical message or send queue too large");
   };
   /**
-   * Queue an admitted message. `counted`: its bytes already counted as ready (a message whose
-   * final size was known at once); a message still being deflated is counted when it is done.
+   * Queue an admitted message, counted as `counted` ready bytes: its final size, or for one
+   * still being deflated its uncompressed size, recounted at its deflated size once known.
    * Messages go strictly in the order they were queued: one still being deflated holds back
-   * every message behind it (and a close), as a slow synchronous deflate would, without
-   * blocking the event loop meanwhile.
+   * every message behind it (and the goodbye), as a slow synchronous deflate would, without
+   * blocking the event loop meanwhile. If the channel ends first, the send is refused at once.
    */
-  const sendData = async (prepared: Prepared | Promise<Prepared>, counted = 0): Promise<void> => {
-    let gone = false;
+  const sendData = async (
+    prepared: Prepared | Promise<Prepared>,
+    counted: number,
+  ): Promise<void> => {
+    const record = { counted };
+    unsent.add(record);
     const ready =
       prepared instanceof Promise
         ? prepared.then((message) => {
-            if (!gone) {
-              readyBytes += message.data.length;
-              counted = message.data.length;
+            if (unsent.has(record)) {
+              readyBytes += message.data.length - record.counted;
+              record.counted = message.data.length;
             }
             return message;
           })
         : prepared;
     const task = sending.then(async () => {
-      const { data, kind } = await ready;
+      if (ended) throw new Error("Channel closed");
+      const { data, kind } = await Promise.race([ready, channelEnded]);
       const chunkSize = MAX_MESSAGE - 17;
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const chunk = data.subarray(offset, offset + chunkSize);
@@ -379,23 +390,21 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     });
     sending = task.catch(() => {});
     try {
-      await task;
+      await Promise.race([task, channelEnded]);
     } catch (error) {
       end(error instanceof Error ? error : new Error("Send failed"));
       throw error;
     } finally {
-      gone = true;
-      readyBytes -= counted;
+      if (unsent.delete(record)) readyBytes -= record.counted;
       // Never rejects: a failed deflate already fell back to the message as it was.
       void Promise.resolve(prepared).then(release);
     }
   };
   /**
    * Queue JSON bytes, deflated first when asked and when that makes them smaller. A large one
-   * is deflated off the event loop while the async budget has room, held at its full size until
-   * its deflate finishes; any other is deflated at once, as before. A send that can't fit is
-   * refused before it is deflated, except one past the async budget that might still fit once
-   * deflated: that one is deflated first and refused only if it doesn't, as before.
+   * is deflated off the event loop when the ready limit has room for it undeflated, held at that
+   * size until its deflate finishes; any other is deflated at once and then checked, as before.
+   * A send that can't fit even at deflate's best ratio is refused before it is deflated.
    */
   const sendJson = (json: Uint8Array, compress: boolean): Promise<void> => {
     let queued: Promise<void>;
@@ -419,11 +428,13 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     }
     // One that can't fit even at deflate's best ratio is refused before any deflate.
     fits(leastDeflated(size));
-    if (size >= ASYNC_DEFLATE_FROM && deflating + size <= ASYNC_DEFLATE_BUDGET) {
-      deflating += size;
-      return sendData(prepareLater(json, deflate, options.log).finally(() => (deflating -= size)));
+    if (size >= ASYNC_DEFLATE_FROM && readyBytes + size <= LOGICAL_MESSAGE_LIMIT) {
+      // Off the event loop, holding room for its largest outcome (sent as it is) until done.
+      readyBytes += size;
+      return sendData(prepareLater(json, deflate, options.log), size);
     }
-    // Small, or past the async budget: on the event loop, then checked, as a channel always did.
+    // Small, or too big to hold room for undeflated: on the event loop, then checked, as a
+    // channel always did.
     const now = prepareNow(json, true, options.log);
     try {
       if (now.data.length > LOGICAL_MESSAGE_LIMIT)
@@ -499,7 +510,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       sendCredit(flow.start());
     },
     get bufferedBytes() {
-      return readyBytes + deflating + socket.bufferedAmount;
+      return readyBytes + socket.bufferedAmount;
     },
     close() {
       locallyClosed = true;
@@ -513,12 +524,15 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     compress(allowed) {
       compressible = allowed;
     },
-    async sendControl(text) {
-      const json = new TextEncoder().encode(text);
-      if (ended) throw new Error("Channel closed");
-      if (json.length > CONTROL_LIMIT) throw new Error("Control message too long");
-      readyBytes += json.length;
-      return sendData({ data: json, kind: fragmentKinds.json }, json.length);
+    sendGoodbye(text) {
+      goodbye ??= (async () => {
+        const json = new TextEncoder().encode(text);
+        if (ended) throw new Error("Channel closed");
+        if (json.length > GOODBYE_LIMIT) throw new Error("Goodbye too long");
+        readyBytes += json.length;
+        return sendData({ data: json, kind: fragmentKinds.json }, json.length);
+      })();
+      return goodbye;
     },
     async sendText(text, compress = false) {
       return sendJson(new TextEncoder().encode(text), compress);

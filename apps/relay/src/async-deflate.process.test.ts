@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
@@ -183,4 +184,83 @@ it("a closed channel refuses a large send without deflating it", async () => {
     "Channel closed",
   );
   expect(deflates).toBe(0);
+});
+
+/** JSON text of exactly `bytes` bytes that won't deflate. */
+function incompressible(bytes: number): string {
+  const head = '{"type":"pong","data":"';
+  return `${head}${randomBytes(bytes)
+    .toString("base64")
+    .slice(0, bytes - head.length - 2)}"}`;
+}
+
+it("a slow deflate holds room for its whole message, so ready bytes never pass 16 MiB", async () => {
+  const release = Promise.withResolvers<void>();
+  const { server } = await connected(
+    async (json) => {
+      await release.promise;
+      return deflateRawSync(json);
+    },
+    { flowControl: true },
+  );
+  // The reader never reads. 16 MiB that won't deflate, held in its deflate…
+  const first = server.sendText(incompressible(LOGICAL_MESSAGE_LIMIT), true).catch(() => {});
+  // …leaves no room behind it, as when it was deflated at once.
+  for (let index = 0; index < 4; index++)
+    await expect(server.sendText(exactly(4 * 1024 * 1024), false)).rejects.toThrow(
+      "send queue too large",
+    );
+  expect(server.bufferedBytes).toBeLessThanOrEqual(LOGICAL_MESSAGE_LIMIT);
+  release.resolve();
+  await sleep(300);
+  expect(server.bufferedBytes).toBeLessThanOrEqual(LOGICAL_MESSAGE_LIMIT);
+  server.close();
+  await first;
+}, 20_000);
+
+it("ending the channel while a deflate is held refuses every pending send at once", async () => {
+  const release = Promise.withResolvers<void>();
+  let finished = false;
+  const { server } = await connected(async (json) => {
+    await release.promise;
+    finished = true;
+    return deflateRawSync(json);
+  });
+  const outcomes: string[] = [];
+  const settle = (name: string, sent: Promise<void>) =>
+    sent.then(
+      () => outcomes.push(`${name} sent`),
+      (error: Error) => outcomes.push(`${name} ${error.message}`),
+    );
+  const sends = [
+    settle("held", server.sendText(compressible("held", 2 * 1024 * 1024), true)),
+    settle("behind", server.sendText(exactly(4096), false)),
+    settle("goodbye", server.sendGoodbye('{"type":"channel.close","code":1000,"reason":""}')),
+  ];
+  await sleep(50);
+  expect(server.bufferedBytes).toBeGreaterThan(2 * 1024 * 1024);
+  server.close();
+  await Promise.all(sends);
+  expect(outcomes).toEqual([
+    "held Channel closed",
+    "behind Channel closed",
+    "goodbye Channel closed",
+  ]);
+  expect(server.bufferedBytes).toBe(0);
+  // A deflate that finishes afterwards is discarded and counts for nothing.
+  release.resolve();
+  await sleep(50);
+  expect(finished).toBe(true);
+  expect(server.bufferedBytes).toBe(0);
+});
+
+it("the goodbye is sent once: a second one returns the first", async () => {
+  const { client, server } = await connected();
+  const goodbye = '{"type":"channel.close","code":1000,"reason":"first"}';
+  const first = server.sendGoodbye(goodbye);
+  expect(server.sendGoodbye('{"type":"channel.close","code":1000,"reason":"second"}')).toBe(first);
+  const after = bulky("after", 100);
+  await Promise.all([first, server.sendText(after, false)]);
+  expect(await client.receiveRaw()).toBe(goodbye);
+  expect(await client.receiveRaw()).toBe(after);
 });
