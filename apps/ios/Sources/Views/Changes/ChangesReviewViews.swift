@@ -280,7 +280,7 @@ struct ReviewRepliesSheet: View {
 }
 
 /// The bar at the sheet's foot: the picked lines with Comment, or the review's state with its
-/// comments, Send, Approve and Request changes.
+/// comments, how many files are viewed, and Send.
 struct ReviewBar: View {
     @Bindable var model: ClientModel
     @Binding var selection: LineSelection?
@@ -288,6 +288,11 @@ struct ReviewBar: View {
     let list: () -> Void
 
     private var review: ChangesReview? { model.sheets.review }
+    /// Files viewed of the scope's, once there are files to view.
+    private var progress: ChangesSummary.Progress? {
+        model.sheets.changes?.progress.flatMap { $0.files > 0 ? $0 : nil }
+    }
+    private var reviewing: Bool { review.map { !$0.drafts.isEmpty || $0.session != nil } ?? false }
     @Environment(\.threadPage) private var inPage
     /// A line to show when there is no pick and no review yet: why comments can't go here, or
     /// why the phone can't keep them.
@@ -315,16 +320,22 @@ struct ReviewBar: View {
                         .disabled(!model.canOperate)
                         .accessibilityIdentifier("review.compose")
                 }
-            } else if let review, !review.drafts.isEmpty || review.session != nil {
+            } else if reviewing || progress != nil {
                 HStack(spacing: AceTheme.Spacing.md) {
-                    Button(action: list) {
-                        Text(summary(review)).lineLimit(1)
-                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-                            .contentShape(Rectangle())
+                    if let review, reviewing {
+                        Button(action: list) {
+                            Text(summary(review)).lineLimit(1)
+                                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("review.list")
                     }
-                    .accessibilityIdentifier("review.list")
+                    if let progress {
+                        ReviewProgress(progress: progress)
+                            .frame(maxWidth: reviewing ? nil : .infinity, alignment: .leading)
+                    }
                     // As a page the composer sits below with the comments on its chip; Send is there.
-                    if review.pending > 0, !inPage {
+                    if let review, review.pending > 0, !inPage {
                         Button("Send \(review.pending)") {
                             model.reviewAction("review.send")
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -343,7 +354,7 @@ struct ReviewBar: View {
         .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
-        .opacity(selection == nil && note == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
+        .opacity(selection == nil && note == nil && !reviewing && progress == nil ? 0 : 1)
         .animation(.default, value: selection)
     }
 
@@ -354,6 +365,35 @@ struct ReviewBar: View {
         parts.append(count == 0 ? "Review" : "\(count) \(count == 1 ? "comment" : "comments")")
         if inPage, review.pending > 0 { parts.append("\(review.pending) on your next message") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// How far through the scope's files the review has got: a ring that fills as files are marked
+/// viewed, and "2 of 5 viewed". The marks are kept on this phone, so it reads the same when the
+/// sheet or the thread is opened again.
+struct ReviewProgress: View {
+    let progress: ChangesSummary.Progress
+    private var done: Bool { progress.files > 0 && progress.viewed >= progress.files }
+
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            ZStack {
+                Circle().stroke(AceTheme.Colours.mutedForeground.opacity(0.25), lineWidth: 2)
+                Circle().trim(from: 0, to: progress.fraction)
+                    .stroke(done ? AceTheme.StatusText.done : AceTheme.Colours.foreground,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 14, height: 14)
+            .animation(.default, value: progress.viewed)
+            Text("\(progress.viewed) of \(progress.files) viewed")
+                .monospacedDigit().lineLimit(1)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(progress.viewed) of \(progress.files) \(progress.files == 1 ? "file" : "files") viewed")
+        .accessibilityIdentifier("review.progress")
     }
 }
 
