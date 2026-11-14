@@ -25,22 +25,39 @@ picture decoding and exact-size JPEG transcoding. `CpuJpegCodec` implements both
 
 ## CPU path
 
-- zune-jpeg 0.5 decodes with runtime-selected NEON/AVX2 support. Full decodes use
-  reusable RGBA storage, avoiding intermediate RGB packing before SIMD resize.
-- Where both requested sides fit a reduced DCT, jpeg-decoder uses 1/2, 1/4 or 1/8
-  output. Reduced RGB storage stays RGB. The 1206×2622 to 722×1568 case exceeds
-  half-size output, so it retains full decode resolution rather than upscaling.
-- fast_image_resize 5 uses its detected CPU extensions and bilinear convolution.
-  `CpuScaler::scale_reusing` recycles output storage and the resizer's scratch.
-- libjpeg-turbo-rs 0.9.0 provides MIT/Apache-2.0 JPEG encoding with default integer
-  DCT, runtime NEON/AVX2 dispatch and 4:2:0 output. The version is pinned. No C codec
-  is linked. This replaces jpeg-encoder; the workspace license policy is unchanged.
+The still path stays in YCbCr from decode to encode: no colour conversion, no
+chroma upsampling or downsampling, no intermediate RGB copy.
 
-`CpuJpegCodec::transcode_into` retains decode/resize scratch and caller-owned JPEG
-capacity. Alpha is discarded during JPEG encoding. NV12 and platform surfaces need
-backend colour conversion/readback. JPEG input is limited to 8192 per side and
-32 Mi pixels before decoded allocation; EXIF orientation is not applied. Quality
-accepts 1 through 100.
+- **Decode.** A baseline/extended-sequential Huffman decoder (1 or 3 components,
+  any 1–4 sampling factors, restart intervals) writes Y, Cb and Cr planes directly.
+  It picks the smallest of 1/8, 1/4 and 1/2 DCT output that still covers the target
+  on both axes (`dct_scaled_size`), otherwise full size, so it never upscales. Full
+  blocks use libjpeg-turbo-rs's runtime-selected NEON/AVX2 IDCT; reduced blocks use
+  an N-point IDCT of the low-frequency coefficients. Progressive, arithmetic,
+  12-bit, CMYK and multi-scan streams go to zune-jpeg instead (that fallback
+  allocates). Malformed entropy data never panics; restarts resynchronise.
+- **Resample.** Each plane is resampled separately with a triangle filter whose
+  support widens with the scale. Taps are 14-bit fixed point, sum exactly to one
+  and are rebuilt only when geometry changes. The vertical pass runs over whole
+  rows, the horizontal pass over at most eight taps per sample. Chroma is mapped by
+  its true extent, so odd sizes stay co-sited. On aarch64 the loops compile to NEON;
+  on x86_64 they run in an AVX2 build when the CPU has it (`SimdKernel`).
+- **Encode.** Baseline 4:2:0 (or grayscale) with the Annex K tables at the IJG
+  quality scaling. Forward DCT and quantisation use libjpeg-turbo-rs's NEON/AVX2
+  kernel with reciprocal divisors; the entropy coder writes into the caller's
+  buffer. Tables are rebuilt only when quality changes. `jpeg_capacity` is the
+  output bound the worker pool sizes its slabs with.
+
+libjpeg-turbo-rs 0.9.0 is MIT OR Apache-2.0, pure Rust, no C linked; only its
+public SIMD kernels, tables and marker writers are used, pinned at that version.
+zune-jpeg is MIT OR Apache-2.0 OR Zlib. The workspace license policy is unchanged.
+
+`CpuJpegCodec::encode_into` takes RGB, RGBA or BGRA pictures (alpha discarded),
+converts them with full-range JFIF coefficients and averages each 2×2 block for
+chroma. NV12 and platform surfaces need backend colour conversion/readback.
+`CpuScaler` resamples packed pictures with the same filter; BGRA comes out as RGB.
+JPEG input is limited to 8192 per side and 32 Mi pixels before any plane is sized;
+EXIF orientation is not applied. Quality accepts 1 through 100.
 
 `fit_size` uses nearest-even rounding (ties up, minimum two), no enlargement except
 one pixel of rounding, and both side bounds. `fit_size_with_max_pixels` also honors
@@ -72,7 +89,7 @@ The isolated unsafe boundary documents its lifetimes and exclusive mutable-buffe
 Send implementation. This is not a hardware/GPU claim. Hardware JPEG belongs to F2.
 The measured native path is slower here, so it is not the default CPU fallback.
 
-## Benchmarks and remaining gate
+## Benchmarks
 
 From native/media:
 
@@ -84,26 +101,17 @@ cargo run --release -p media-codec --example alloc
 
 Both CPU benches use the same fixed 1206×2622 gradient JPEG as the original M5
 measurement, output 722×1568 at q80, five warmups per worker and 50 samples. They
-run on the fixed worker pool, count all Rust alloc/realloc calls across threads,
-and fail on nonzero allocations or p95 above 20 ms on macOS (30 ms elsewhere).
-The still bench additionally reports the native macOS comparison. The counting
-allocator lives only in bench code; it cannot see mallocs inside OS frameworks.
+run on the fixed worker pool, count every Rust alloc/realloc across threads, and
+fail on any allocation after warm-up, on p95 above 20 ms on macOS (30 ms
+elsewhere), or on scalar resampling where AVX2 exists. The still bench also runs
+the native macOS comparison. The counting allocator lives only in bench code.
 
-Latest Mac16,5 result, eight workers, NEON resize and SIMD JPEG enabled:
+Mac16,5, eight workers, NEON, host load average about 70:
 
-| Path | Median | p95 | Mean decode / scale / encode |
-| --- | --- | --- | --- |
-| CPU | 12.676 ms | 19.509 ms | 6.978 / 3.794 / 2.332 ms |
-| ImageIO | 29.139 ms | 76.782 ms | 12.025 / 18.142 / 5.315 ms |
+| Path | Median | p95 | Decode p50/p95 | Scale p50/p95 | Encode p50/p95 |
+| --- | --- | --- | --- | --- | --- |
+| CPU | 5.357 ms | 6.226 ms | 1.871 / 2.054 | 1.665 / 1.856 | 1.810 / 2.081 ms |
+| ImageIO | 16.581 ms | 18.254 ms | 6.024 mean | 7.671 mean | 3.179 mean |
 
-The host was heavily contended (load averages above 600 on 16 logical cores), so
-these are not quiet-host measurements. CPU p95 passes the revised 20 ms target;
-the old 6 ms target was not met. F2's GPU target is not measured here.
-
-**The zero-allocation acceptance gate still fails.** There are 2325 Rust allocations
-per CPU frame after warm-up: 17 in decode, 2297 in resize, 11 in encode, zero outside
-those stages. Frame slabs and inline plane metadata are reused, but the codec and
-resize libraries still allocate internally. Output reuse alone cannot make this
-pipeline allocation-free. A reusable decoder/encoder workspace and cached resize
-plans (or replacement implementations with those public APIs) remain necessary.
-`check:media` passes; that does not substitute for the failing allocation bench.
+**Allocations: 0 per frame after warm-up** in every stage (decode, scale, encode)
+and in the worker queues. The previous library-based path made 2325 per frame.
