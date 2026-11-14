@@ -237,6 +237,17 @@ impl Coordinator {
         Ok(())
     }
 
+    /// The source closed: what a re-encode still holds goes out before the drain is reported.
+    fn flush(&mut self, out: &mut Vec<Output>) {
+        #[cfg(target_os = "macos")]
+        if let Some(transcode) = &mut self.transcode {
+            let mut frames = Vec::new();
+            let _ = transcode.flush(&mut frames);
+            out.extend(frames.into_iter().map(Output::Unit));
+        }
+        let _ = out;
+    }
+
     /// Units a re-encode finished between records.
     fn poll(&mut self, out: &mut Vec<Output>) -> Result<(), String> {
         #[cfg(target_os = "macos")]
@@ -358,7 +369,9 @@ fn run(
                 }
             }
             Ok(Message::Drain) => {
-                let _ = send(Output::Drained);
+                let mut held = Vec::new();
+                coordinator.flush(&mut held);
+                let _ = held.into_iter().all(&send) && send(Output::Drained);
                 break;
             }
             Ok(Message::Close) | Err(RecvTimeoutError::Disconnected) => break,

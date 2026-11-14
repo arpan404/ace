@@ -388,6 +388,19 @@ impl Sources {
                 id,
             );
         };
+        // A source ace-media reads itself (a Simulator) re-encodes for the viewer in its reader,
+        // under the reader's own token; no encodes means passing its stream through.
+        if !source.pictures
+            && source.stamper.is_some()
+            && let Some(token) = source.encoder
+            && !matches!(source.status, Status::Ended)
+        {
+            return out.push(Effect::Encode(EncodeEffect::Configure {
+                source: id.get().to_owned(),
+                token,
+                encodes,
+            }));
+        }
         if !source.pictures || matches!(source.status, Status::Ended) {
             return log(
                 out,

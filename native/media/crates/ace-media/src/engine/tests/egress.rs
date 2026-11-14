@@ -445,6 +445,10 @@ fn a_simulators_encodes_go_to_its_reader_which_re_encodes_for_the_viewer() {
         }
         _ => None,
     });
-    assert_eq!(sent, reader.map(|token| (token, 1)), "the reader's own token, no new encoder");
+    assert_eq!(
+        sent,
+        reader.map(|token| (token, 1)),
+        "the reader's own token, no new encoder"
+    );
     assert_eq!(statuses(&configured), []);
 }

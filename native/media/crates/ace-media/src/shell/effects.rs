@@ -93,6 +93,9 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
                 let readers = &mut *outputs.readers;
                 let now_ms = outputs.now_ms;
                 match command {
+                    EncodeEffect::Configure { token, encodes, .. } if readers.has(token) => {
+                        readers.configure(token, encodes)
+                    }
                     EncodeEffect::Configure {
                         source,
                         token,

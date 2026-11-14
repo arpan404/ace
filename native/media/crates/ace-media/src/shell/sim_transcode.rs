@@ -96,6 +96,12 @@ impl Transcode {
         Ok(())
     }
 
+    /// Finishes what the encoder holds (the stream is ending).
+    pub fn flush(&mut self, frames: &mut Vec<MediaFrame>) -> Result<(), CodecError> {
+        self.inner.encoder().flush()?;
+        self.poll(frames)
+    }
+
     /// The steps it runs, as the source reports them: decode, scale and encode in hardware when
     /// VideoToolbox says so, and no picture-sized copy on the way.
     pub fn acceleration(&self) -> Acceleration {
@@ -119,3 +125,7 @@ impl Transcode {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sim_transcode_tests.rs"]
+mod tests;
