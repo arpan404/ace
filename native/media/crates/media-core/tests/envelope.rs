@@ -152,3 +152,26 @@ fn completed_fragmented_messages_reuse_warmed_storage() -> Result<(), Box<dyn st
     }
     Ok(())
 }
+
+#[test]
+fn legacy_pieces_fill_64_kib_and_reassemble() -> Result<(), Box<dyn std::error::Error>> {
+    let payload = vec![9; 200_000];
+    let mut assembler = Assembler::new();
+    let mut sizes = Vec::new();
+    let mut whole = None;
+    for piece in Pieces::legacy(5, 7, &[3], &payload)? {
+        let bytes = wire(&piece);
+        sizes.push(bytes.len());
+        if let Some(message) = assembler.push(&bytes)? {
+            whole = Some(message.payload.to_vec());
+        }
+    }
+    assert!(sizes.iter().all(|&size| size <= LEGACY_PIECE_BYTES));
+    assert!(
+        sizes[..sizes.len() - 1]
+            .iter()
+            .all(|&size| size == LEGACY_PIECE_BYTES)
+    );
+    assert_eq!(whole.as_deref(), Some(payload.as_slice()));
+    Ok(())
+}
