@@ -106,8 +106,13 @@ import XCTest
         screenshot("chat-ready")
         app.buttons["newThread.start"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.staticTexts["Chat"].waitForExistence(timeout: 15))
         screenshot("chat-started")
+        // The header shows the model alone; the title menu's first row says where it runs: "Chat · <machine>".
+        app.threadTitle().tap()
+        let place = app.titleMenuItem("thread.title.work", label: "Chat")
+        XCTAssertTrue(place.waitForExistence(timeout: 10))
+        XCTAssertTrue(place.label.hasPrefix("Chat"), place.label)
+        screenshot("chat-place")
     }
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
