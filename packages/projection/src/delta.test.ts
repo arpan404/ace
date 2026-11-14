@@ -198,6 +198,48 @@ it.each([
     4101,
     true,
   ],
+  // The decoder drops one U+FEFF wherever a decoded run starts; the tail always has.
+  ["a leading byte-order mark is dropped", "\ufeffx", undefined, "x", 4, true],
+  [
+    "only the first of repeated byte-order marks is dropped",
+    "\ufeff\ufeffx",
+    undefined,
+    "x",
+    7,
+    true,
+  ],
+  [
+    "a byte-order mark that starts the kept tail is dropped",
+    "\ufeff" + "x".repeat(4093),
+    undefined,
+    "x".repeat(4093),
+    4096,
+    true,
+  ],
+  [
+    "a byte-order mark just past the cut stays cut",
+    "\ufeff" + "x".repeat(4094),
+    undefined,
+    "x".repeat(4094),
+    4097,
+    true,
+  ],
+  [
+    "a byte-order mark inside an append to a tail is kept",
+    "y\ufeffz",
+    summary("ab", 4),
+    "aby\ufeffz",
+    9,
+    true,
+  ],
+  [
+    "a byte-order mark leading an append to a tail is dropped",
+    "\ufeffz",
+    summary("ab", 4),
+    "abz",
+    8,
+    true,
+  ],
 ] as const)("output tail: %s", (_name, append, previous, tail, bytes, truncated) => {
   expect(summarizeOutput("i", append, previous)).toEqual({
     streamId: previous ? "s" : "output:i",
@@ -210,6 +252,9 @@ it("output that fits one delta is sent whole; longer output splits at whole char
   expect([...outputDeltas("")]).toEqual([""]);
   expect([...outputDeltas("line\n")]).toEqual(["line\n"]);
   expect([...outputDeltas("a\ud800")]).toEqual(["a\ufffd"]);
+  expect([...outputDeltas("\ufeffx")]).toEqual(["x"]);
+  expect([...outputDeltas("\ufeff\ufeff")]).toEqual(["\ufeff"]);
+  expect([...outputDeltas("a\ufeffb")]).toEqual(["a\ufeffb"]);
   expect([...outputDeltas("x".repeat(4095) + "😀")]).toEqual(["x".repeat(4095), "😀"]);
   expect([...outputDeltas("\n".repeat(2049))]).toEqual(["\n".repeat(2048), "\n"]);
 });

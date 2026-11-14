@@ -1,7 +1,9 @@
 import type { Item, OutputSummary, TextSource } from "@ace/protocol";
 
 const encoder = new TextEncoder();
+// `ignoreBOM` is off: every decode drops one leading U+FEFF, which the fast paths reproduce.
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const bom = 0xfeff;
 /** Decode a byte suffix, dropping only an incomplete leading UTF-8 character. */
 export function utf8Tail(bytes: Uint8Array, limit: number): string {
   let start = Math.max(0, bytes.length - limit);
@@ -68,8 +70,9 @@ function utf8Length(text: string): number {
 }
 /**
  * The longest suffix of whole characters within the 4 KiB transport budget, and its UTF-8 size,
- * read off the string without encoding it. Undefined when a lone surrogate falls inside it: the
- * encoder would replace that, so the caller takes the encoding path.
+ * read off the string without encoding it. Undefined when a lone surrogate or a U+FEFF falls
+ * inside it: the encoder replaces the first and the decoder drops the second wherever it starts
+ * a decoded run, so the caller takes the encoding path, which does both.
  */
 function scanTail(text: string): { tail: string; bytes: number } | undefined {
   let start = text.length;
@@ -87,14 +90,19 @@ function scanTail(text: string): { tail: string; bytes: number } | undefined {
     } else if (isHigh(unit) || isLow(unit)) return undefined;
     else cost = 3;
     if (size + cost > 4096) break;
+    if (unit === bom) return undefined;
     size += cost;
     bytes += unit < 0x80 ? 1 : cost;
     start -= width;
   }
   return { tail: start === 0 ? text : text.slice(start), bytes };
 }
-/** Whether well-formed text fits one delta's 4 KiB transport budget whole. */
+/**
+ * Whether well-formed text fits one delta's 4 KiB transport budget whole, and decodes back to
+ * itself: a leading U+FEFF would be dropped by the decoder.
+ */
 function fitsOneDelta(text: string): boolean {
+  if (text.charCodeAt(0) === bom) return false;
   let size = 0;
   for (let i = 0; i < text.length; i++) {
     const unit = text.charCodeAt(i);
