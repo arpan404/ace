@@ -664,21 +664,142 @@ pub struct VAQMatrixBufferJPEG {
     pub va_reserved: [u32; 4],
 }
 
-/// Packs C bitfields LSB first, as GCC and Clang lay them out on little-endian Linux:
-/// `(value, width)` pairs in declaration order.
-pub fn bitfields(fields: &[(u32, u32)]) -> u32 {
+/// Packs a bitfield union: GCC and Clang lay fields out from the low bit on little-endian
+/// Linux. `values` are `(field index, value)`; unnamed fields stay zero.
+pub fn pack(layout: &[u32], values: &[(usize, u32)]) -> u32 {
     let mut out = 0u32;
-    let mut shift = 0;
-    for &(value, width) in fields {
+    for &(index, value) in values {
+        let shift: u32 = layout[..index].iter().sum();
+        let width = layout[index];
         let mask = if width >= 32 {
             u32::MAX
         } else {
             (1 << width) - 1
         };
         out |= (value & mask) << shift;
-        shift += width;
     }
     out
+}
+
+/// Bitfield unions, as `(width)` lists in declaration order with an index per field.
+/// `VAEncSequenceParameterBufferH264::seq_fields`.
+pub mod h264_seq {
+    pub const LAYOUT: &[u32] = &[2, 1, 1, 1, 1, 4, 2, 4, 1];
+    pub const CHROMA_FORMAT_IDC: usize = 0;
+    pub const FRAME_MBS_ONLY_FLAG: usize = 1;
+    pub const MB_ADAPTIVE_FRAME_FIELD_FLAG: usize = 2;
+    pub const SEQ_SCALING_MATRIX_PRESENT_FLAG: usize = 3;
+    pub const DIRECT_8X8_INFERENCE_FLAG: usize = 4;
+    pub const LOG2_MAX_FRAME_NUM_MINUS4: usize = 5;
+    pub const PIC_ORDER_CNT_TYPE: usize = 6;
+    pub const LOG2_MAX_PIC_ORDER_CNT_LSB_MINUS4: usize = 7;
+    pub const DELTA_PIC_ORDER_ALWAYS_ZERO_FLAG: usize = 8;
+}
+/// `VAEncSequenceParameterBufferH264::vui_fields`.
+pub mod h264_vui {
+    pub const LAYOUT: &[u32] = &[1, 1, 1, 5, 5, 1, 1, 1];
+    pub const ASPECT_RATIO_INFO_PRESENT_FLAG: usize = 0;
+    pub const TIMING_INFO_PRESENT_FLAG: usize = 1;
+    pub const BITSTREAM_RESTRICTION_FLAG: usize = 2;
+    pub const LOG2_MAX_MV_LENGTH_HORIZONTAL: usize = 3;
+    pub const LOG2_MAX_MV_LENGTH_VERTICAL: usize = 4;
+    pub const FIXED_FRAME_RATE_FLAG: usize = 5;
+    pub const LOW_DELAY_HRD_FLAG: usize = 6;
+    pub const MOTION_VECTORS_OVER_PIC_BOUNDARIES_FLAG: usize = 7;
+}
+/// `VAEncPictureParameterBufferH264::pic_fields`.
+pub mod h264_pic {
+    pub const LAYOUT: &[u32] = &[1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1];
+    pub const IDR_PIC_FLAG: usize = 0;
+    pub const REFERENCE_PIC_FLAG: usize = 1;
+    pub const ENTROPY_CODING_MODE_FLAG: usize = 2;
+    pub const WEIGHTED_PRED_FLAG: usize = 3;
+    pub const WEIGHTED_BIPRED_IDC: usize = 4;
+    pub const CONSTRAINED_INTRA_PRED_FLAG: usize = 5;
+    pub const TRANSFORM_8X8_MODE_FLAG: usize = 6;
+    pub const DEBLOCKING_FILTER_CONTROL_PRESENT_FLAG: usize = 7;
+    pub const REDUNDANT_PIC_CNT_PRESENT_FLAG: usize = 8;
+    pub const PIC_ORDER_PRESENT_FLAG: usize = 9;
+    pub const PIC_SCALING_MATRIX_PRESENT_FLAG: usize = 10;
+}
+/// `VAEncSequenceParameterBufferHEVC::seq_fields`.
+pub mod hevc_seq {
+    pub const LAYOUT: &[u32] = &[2, 1, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+    pub const CHROMA_FORMAT_IDC: usize = 0;
+    pub const SEPARATE_COLOUR_PLANE_FLAG: usize = 1;
+    pub const BIT_DEPTH_LUMA_MINUS8: usize = 2;
+    pub const BIT_DEPTH_CHROMA_MINUS8: usize = 3;
+    pub const SCALING_LIST_ENABLED_FLAG: usize = 4;
+    pub const STRONG_INTRA_SMOOTHING_ENABLED_FLAG: usize = 5;
+    pub const AMP_ENABLED_FLAG: usize = 6;
+    pub const SAMPLE_ADAPTIVE_OFFSET_ENABLED_FLAG: usize = 7;
+    pub const PCM_ENABLED_FLAG: usize = 8;
+    pub const PCM_LOOP_FILTER_DISABLED_FLAG: usize = 9;
+    pub const SPS_TEMPORAL_MVP_ENABLED_FLAG: usize = 10;
+    pub const LOW_DELAY_SEQ: usize = 11;
+    pub const HIERACHICAL_FLAG: usize = 12;
+}
+/// `VAEncSequenceParameterBufferHEVC::vui_fields`.
+pub mod hevc_vui {
+    pub const LAYOUT: &[u32] = &[1, 1, 1, 1, 1, 1, 1, 1, 5, 5];
+    pub const ASPECT_RATIO_INFO_PRESENT_FLAG: usize = 0;
+    pub const NEUTRAL_CHROMA_INDICATION_FLAG: usize = 1;
+    pub const FIELD_SEQ_FLAG: usize = 2;
+    pub const VUI_TIMING_INFO_PRESENT_FLAG: usize = 3;
+    pub const BITSTREAM_RESTRICTION_FLAG: usize = 4;
+    pub const TILES_FIXED_STRUCTURE_FLAG: usize = 5;
+    pub const MOTION_VECTORS_OVER_PIC_BOUNDARIES_FLAG: usize = 6;
+    pub const RESTRICTED_REF_PIC_LISTS_FLAG: usize = 7;
+    pub const LOG2_MAX_MV_LENGTH_HORIZONTAL: usize = 8;
+    pub const LOG2_MAX_MV_LENGTH_VERTICAL: usize = 9;
+}
+/// `VAEncPictureParameterBufferHEVC::pic_fields`.
+pub mod hevc_pic {
+    pub const LAYOUT: &[u32] = &[1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+    pub const IDR_PIC_FLAG: usize = 0;
+    pub const CODING_TYPE: usize = 1;
+    pub const REFERENCE_PIC_FLAG: usize = 2;
+    pub const DEPENDENT_SLICE_SEGMENTS_ENABLED_FLAG: usize = 3;
+    pub const SIGN_DATA_HIDING_ENABLED_FLAG: usize = 4;
+    pub const CONSTRAINED_INTRA_PRED_FLAG: usize = 5;
+    pub const TRANSFORM_SKIP_ENABLED_FLAG: usize = 6;
+    pub const CU_QP_DELTA_ENABLED_FLAG: usize = 7;
+    pub const WEIGHTED_PRED_FLAG: usize = 8;
+    pub const WEIGHTED_BIPRED_FLAG: usize = 9;
+    pub const TRANSQUANT_BYPASS_ENABLED_FLAG: usize = 10;
+    pub const TILES_ENABLED_FLAG: usize = 11;
+    pub const ENTROPY_CODING_SYNC_ENABLED_FLAG: usize = 12;
+    pub const LOOP_FILTER_ACROSS_TILES_ENABLED_FLAG: usize = 13;
+    pub const PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED_FLAG: usize = 14;
+    pub const SCALING_LIST_DATA_PRESENT_FLAG: usize = 15;
+    pub const SCREEN_CONTENT_FLAG: usize = 16;
+    pub const ENABLE_GPU_WEIGHTED_PREDICTION: usize = 17;
+    pub const NO_OUTPUT_OF_PRIOR_PICS_FLAG: usize = 18;
+}
+/// `VAEncSliceParameterBufferHEVC::slice_fields`.
+pub mod hevc_slice {
+    pub const LAYOUT: &[u32] = &[1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, 1];
+    pub const LAST_SLICE_OF_PIC_FLAG: usize = 0;
+    pub const DEPENDENT_SLICE_SEGMENT_FLAG: usize = 1;
+    pub const COLOUR_PLANE_ID: usize = 2;
+    pub const SLICE_TEMPORAL_MVP_ENABLED_FLAG: usize = 3;
+    pub const SLICE_SAO_LUMA_FLAG: usize = 4;
+    pub const SLICE_SAO_CHROMA_FLAG: usize = 5;
+    pub const NUM_REF_IDX_ACTIVE_OVERRIDE_FLAG: usize = 6;
+    pub const MVD_L1_ZERO_FLAG: usize = 7;
+    pub const CABAC_INIT_FLAG: usize = 8;
+    pub const SLICE_DEBLOCKING_FILTER_DISABLED_FLAG: usize = 9;
+    pub const SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED_FLAG: usize = 10;
+    pub const COLLOCATED_FROM_L0_FLAG: usize = 11;
+}
+/// `VAEncPictureParameterBufferJPEG::pic_flags`.
+pub mod jpeg_pic {
+    pub const LAYOUT: &[u32] = &[2, 1, 1, 1, 1];
+    pub const PROFILE: usize = 0;
+    pub const PROGRESSIVE: usize = 1;
+    pub const HUFFMAN: usize = 2;
+    pub const INTERLEAVED: usize = 3;
+    pub const DIFFERENTIAL: usize = 4;
 }
 
 /// A plain-data VA struct, zeroed: every field is an integer, array or nullable pointer.
@@ -697,9 +818,9 @@ mod tests {
     use std::mem::{offset_of, size_of};
 
     #[test]
-    fn bitfields_pack_from_the_low_bit() {
-        assert_eq!(bitfields(&[(1, 2), (1, 1), (0, 1), (1, 1)]), 0b10101);
-        assert_eq!(bitfields(&[(0xff, 4), (1, 1)]), 0b11111);
+    fn bitfields_pack_from_the_low_bit_and_mask_to_width() {
+        assert_eq!(pack(&[2, 1, 1, 1], &[(0, 1), (1, 1), (3, 1)]), 0b10101);
+        assert_eq!(pack(&[4, 1], &[(0, 0xff), (1, 1)]), 0b11111);
     }
 
     /// Sizes and offsets printed by `tests/abi/va_layout.c` against libva 2.17's headers
@@ -913,6 +1034,102 @@ mod tests {
             ("VAQMatrixBufferJPEG.lum_quantiser_matrix", offset_of!(VAQMatrixBufferJPEG, lum_quantiser_matrix), 8),
             ("VAQMatrixBufferJPEG.chroma_quantiser_matrix", offset_of!(VAQMatrixBufferJPEG, chroma_quantiser_matrix), 72),
         ];
+        // Each bitfield set to 1 alone, as the union's value.
+        let bits: &[(&str, u32, u32)] = &[
+            ("H264_SEQ_FIELDS.chroma_format_idc", pack(h264_seq::LAYOUT, &[(h264_seq::CHROMA_FORMAT_IDC, 1)]), 1),
+            ("H264_SEQ_FIELDS.frame_mbs_only_flag", pack(h264_seq::LAYOUT, &[(h264_seq::FRAME_MBS_ONLY_FLAG, 1)]), 4),
+            ("H264_SEQ_FIELDS.mb_adaptive_frame_field_flag", pack(h264_seq::LAYOUT, &[(h264_seq::MB_ADAPTIVE_FRAME_FIELD_FLAG, 1)]), 8),
+            ("H264_SEQ_FIELDS.seq_scaling_matrix_present_flag", pack(h264_seq::LAYOUT, &[(h264_seq::SEQ_SCALING_MATRIX_PRESENT_FLAG, 1)]), 16),
+            ("H264_SEQ_FIELDS.direct_8x8_inference_flag", pack(h264_seq::LAYOUT, &[(h264_seq::DIRECT_8X8_INFERENCE_FLAG, 1)]), 32),
+            ("H264_SEQ_FIELDS.log2_max_frame_num_minus4", pack(h264_seq::LAYOUT, &[(h264_seq::LOG2_MAX_FRAME_NUM_MINUS4, 1)]), 64),
+            ("H264_SEQ_FIELDS.pic_order_cnt_type", pack(h264_seq::LAYOUT, &[(h264_seq::PIC_ORDER_CNT_TYPE, 1)]), 1024),
+            ("H264_SEQ_FIELDS.log2_max_pic_order_cnt_lsb_minus4", pack(h264_seq::LAYOUT, &[(h264_seq::LOG2_MAX_PIC_ORDER_CNT_LSB_MINUS4, 1)]), 4096),
+            ("H264_SEQ_FIELDS.delta_pic_order_always_zero_flag", pack(h264_seq::LAYOUT, &[(h264_seq::DELTA_PIC_ORDER_ALWAYS_ZERO_FLAG, 1)]), 65536),
+            ("H264_VUI_FIELDS.aspect_ratio_info_present_flag", pack(h264_vui::LAYOUT, &[(h264_vui::ASPECT_RATIO_INFO_PRESENT_FLAG, 1)]), 1),
+            ("H264_VUI_FIELDS.timing_info_present_flag", pack(h264_vui::LAYOUT, &[(h264_vui::TIMING_INFO_PRESENT_FLAG, 1)]), 2),
+            ("H264_VUI_FIELDS.bitstream_restriction_flag", pack(h264_vui::LAYOUT, &[(h264_vui::BITSTREAM_RESTRICTION_FLAG, 1)]), 4),
+            ("H264_VUI_FIELDS.log2_max_mv_length_horizontal", pack(h264_vui::LAYOUT, &[(h264_vui::LOG2_MAX_MV_LENGTH_HORIZONTAL, 1)]), 8),
+            ("H264_VUI_FIELDS.log2_max_mv_length_vertical", pack(h264_vui::LAYOUT, &[(h264_vui::LOG2_MAX_MV_LENGTH_VERTICAL, 1)]), 256),
+            ("H264_VUI_FIELDS.fixed_frame_rate_flag", pack(h264_vui::LAYOUT, &[(h264_vui::FIXED_FRAME_RATE_FLAG, 1)]), 8192),
+            ("H264_VUI_FIELDS.low_delay_hrd_flag", pack(h264_vui::LAYOUT, &[(h264_vui::LOW_DELAY_HRD_FLAG, 1)]), 16384),
+            ("H264_VUI_FIELDS.motion_vectors_over_pic_boundaries_flag", pack(h264_vui::LAYOUT, &[(h264_vui::MOTION_VECTORS_OVER_PIC_BOUNDARIES_FLAG, 1)]), 32768),
+            ("H264_PIC_FIELDS.idr_pic_flag", pack(h264_pic::LAYOUT, &[(h264_pic::IDR_PIC_FLAG, 1)]), 1),
+            ("H264_PIC_FIELDS.reference_pic_flag", pack(h264_pic::LAYOUT, &[(h264_pic::REFERENCE_PIC_FLAG, 1)]), 2),
+            ("H264_PIC_FIELDS.entropy_coding_mode_flag", pack(h264_pic::LAYOUT, &[(h264_pic::ENTROPY_CODING_MODE_FLAG, 1)]), 8),
+            ("H264_PIC_FIELDS.weighted_pred_flag", pack(h264_pic::LAYOUT, &[(h264_pic::WEIGHTED_PRED_FLAG, 1)]), 16),
+            ("H264_PIC_FIELDS.weighted_bipred_idc", pack(h264_pic::LAYOUT, &[(h264_pic::WEIGHTED_BIPRED_IDC, 1)]), 32),
+            ("H264_PIC_FIELDS.constrained_intra_pred_flag", pack(h264_pic::LAYOUT, &[(h264_pic::CONSTRAINED_INTRA_PRED_FLAG, 1)]), 128),
+            ("H264_PIC_FIELDS.transform_8x8_mode_flag", pack(h264_pic::LAYOUT, &[(h264_pic::TRANSFORM_8X8_MODE_FLAG, 1)]), 256),
+            ("H264_PIC_FIELDS.deblocking_filter_control_present_flag", pack(h264_pic::LAYOUT, &[(h264_pic::DEBLOCKING_FILTER_CONTROL_PRESENT_FLAG, 1)]), 512),
+            ("H264_PIC_FIELDS.redundant_pic_cnt_present_flag", pack(h264_pic::LAYOUT, &[(h264_pic::REDUNDANT_PIC_CNT_PRESENT_FLAG, 1)]), 1024),
+            ("H264_PIC_FIELDS.pic_order_present_flag", pack(h264_pic::LAYOUT, &[(h264_pic::PIC_ORDER_PRESENT_FLAG, 1)]), 2048),
+            ("H264_PIC_FIELDS.pic_scaling_matrix_present_flag", pack(h264_pic::LAYOUT, &[(h264_pic::PIC_SCALING_MATRIX_PRESENT_FLAG, 1)]), 4096),
+            ("HEVC_SEQ_FIELDS.chroma_format_idc", pack(hevc_seq::LAYOUT, &[(hevc_seq::CHROMA_FORMAT_IDC, 1)]), 1),
+            ("HEVC_SEQ_FIELDS.separate_colour_plane_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::SEPARATE_COLOUR_PLANE_FLAG, 1)]), 4),
+            ("HEVC_SEQ_FIELDS.bit_depth_luma_minus8", pack(hevc_seq::LAYOUT, &[(hevc_seq::BIT_DEPTH_LUMA_MINUS8, 1)]), 8),
+            ("HEVC_SEQ_FIELDS.bit_depth_chroma_minus8", pack(hevc_seq::LAYOUT, &[(hevc_seq::BIT_DEPTH_CHROMA_MINUS8, 1)]), 64),
+            ("HEVC_SEQ_FIELDS.scaling_list_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::SCALING_LIST_ENABLED_FLAG, 1)]), 512),
+            ("HEVC_SEQ_FIELDS.strong_intra_smoothing_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::STRONG_INTRA_SMOOTHING_ENABLED_FLAG, 1)]), 1024),
+            ("HEVC_SEQ_FIELDS.amp_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::AMP_ENABLED_FLAG, 1)]), 2048),
+            ("HEVC_SEQ_FIELDS.sample_adaptive_offset_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::SAMPLE_ADAPTIVE_OFFSET_ENABLED_FLAG, 1)]), 4096),
+            ("HEVC_SEQ_FIELDS.pcm_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::PCM_ENABLED_FLAG, 1)]), 8192),
+            ("HEVC_SEQ_FIELDS.pcm_loop_filter_disabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::PCM_LOOP_FILTER_DISABLED_FLAG, 1)]), 16384),
+            ("HEVC_SEQ_FIELDS.sps_temporal_mvp_enabled_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::SPS_TEMPORAL_MVP_ENABLED_FLAG, 1)]), 32768),
+            ("HEVC_SEQ_FIELDS.low_delay_seq", pack(hevc_seq::LAYOUT, &[(hevc_seq::LOW_DELAY_SEQ, 1)]), 65536),
+            ("HEVC_SEQ_FIELDS.hierachical_flag", pack(hevc_seq::LAYOUT, &[(hevc_seq::HIERACHICAL_FLAG, 1)]), 131072),
+            ("HEVC_VUI_FIELDS.aspect_ratio_info_present_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::ASPECT_RATIO_INFO_PRESENT_FLAG, 1)]), 1),
+            ("HEVC_VUI_FIELDS.neutral_chroma_indication_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::NEUTRAL_CHROMA_INDICATION_FLAG, 1)]), 2),
+            ("HEVC_VUI_FIELDS.field_seq_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::FIELD_SEQ_FLAG, 1)]), 4),
+            ("HEVC_VUI_FIELDS.vui_timing_info_present_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::VUI_TIMING_INFO_PRESENT_FLAG, 1)]), 8),
+            ("HEVC_VUI_FIELDS.bitstream_restriction_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::BITSTREAM_RESTRICTION_FLAG, 1)]), 16),
+            ("HEVC_VUI_FIELDS.tiles_fixed_structure_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::TILES_FIXED_STRUCTURE_FLAG, 1)]), 32),
+            ("HEVC_VUI_FIELDS.motion_vectors_over_pic_boundaries_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::MOTION_VECTORS_OVER_PIC_BOUNDARIES_FLAG, 1)]), 64),
+            ("HEVC_VUI_FIELDS.restricted_ref_pic_lists_flag", pack(hevc_vui::LAYOUT, &[(hevc_vui::RESTRICTED_REF_PIC_LISTS_FLAG, 1)]), 128),
+            ("HEVC_VUI_FIELDS.log2_max_mv_length_horizontal", pack(hevc_vui::LAYOUT, &[(hevc_vui::LOG2_MAX_MV_LENGTH_HORIZONTAL, 1)]), 256),
+            ("HEVC_VUI_FIELDS.log2_max_mv_length_vertical", pack(hevc_vui::LAYOUT, &[(hevc_vui::LOG2_MAX_MV_LENGTH_VERTICAL, 1)]), 8192),
+            ("HEVC_PIC_FIELDS.idr_pic_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::IDR_PIC_FLAG, 1)]), 1),
+            ("HEVC_PIC_FIELDS.coding_type", pack(hevc_pic::LAYOUT, &[(hevc_pic::CODING_TYPE, 1)]), 2),
+            ("HEVC_PIC_FIELDS.reference_pic_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::REFERENCE_PIC_FLAG, 1)]), 16),
+            ("HEVC_PIC_FIELDS.dependent_slice_segments_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::DEPENDENT_SLICE_SEGMENTS_ENABLED_FLAG, 1)]), 32),
+            ("HEVC_PIC_FIELDS.sign_data_hiding_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::SIGN_DATA_HIDING_ENABLED_FLAG, 1)]), 64),
+            ("HEVC_PIC_FIELDS.constrained_intra_pred_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::CONSTRAINED_INTRA_PRED_FLAG, 1)]), 128),
+            ("HEVC_PIC_FIELDS.transform_skip_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::TRANSFORM_SKIP_ENABLED_FLAG, 1)]), 256),
+            ("HEVC_PIC_FIELDS.cu_qp_delta_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::CU_QP_DELTA_ENABLED_FLAG, 1)]), 512),
+            ("HEVC_PIC_FIELDS.weighted_pred_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::WEIGHTED_PRED_FLAG, 1)]), 1024),
+            ("HEVC_PIC_FIELDS.weighted_bipred_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::WEIGHTED_BIPRED_FLAG, 1)]), 2048),
+            ("HEVC_PIC_FIELDS.transquant_bypass_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::TRANSQUANT_BYPASS_ENABLED_FLAG, 1)]), 4096),
+            ("HEVC_PIC_FIELDS.tiles_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::TILES_ENABLED_FLAG, 1)]), 8192),
+            ("HEVC_PIC_FIELDS.entropy_coding_sync_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::ENTROPY_CODING_SYNC_ENABLED_FLAG, 1)]), 16384),
+            ("HEVC_PIC_FIELDS.loop_filter_across_tiles_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::LOOP_FILTER_ACROSS_TILES_ENABLED_FLAG, 1)]), 32768),
+            ("HEVC_PIC_FIELDS.pps_loop_filter_across_slices_enabled_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED_FLAG, 1)]), 65536),
+            ("HEVC_PIC_FIELDS.scaling_list_data_present_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::SCALING_LIST_DATA_PRESENT_FLAG, 1)]), 131072),
+            ("HEVC_PIC_FIELDS.screen_content_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::SCREEN_CONTENT_FLAG, 1)]), 262144),
+            ("HEVC_PIC_FIELDS.enable_gpu_weighted_prediction", pack(hevc_pic::LAYOUT, &[(hevc_pic::ENABLE_GPU_WEIGHTED_PREDICTION, 1)]), 524288),
+            ("HEVC_PIC_FIELDS.no_output_of_prior_pics_flag", pack(hevc_pic::LAYOUT, &[(hevc_pic::NO_OUTPUT_OF_PRIOR_PICS_FLAG, 1)]), 1048576),
+            ("HEVC_SLICE_FIELDS.last_slice_of_pic_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::LAST_SLICE_OF_PIC_FLAG, 1)]), 1),
+            ("HEVC_SLICE_FIELDS.dependent_slice_segment_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::DEPENDENT_SLICE_SEGMENT_FLAG, 1)]), 2),
+            ("HEVC_SLICE_FIELDS.colour_plane_id", pack(hevc_slice::LAYOUT, &[(hevc_slice::COLOUR_PLANE_ID, 1)]), 4),
+            ("HEVC_SLICE_FIELDS.slice_temporal_mvp_enabled_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::SLICE_TEMPORAL_MVP_ENABLED_FLAG, 1)]), 16),
+            ("HEVC_SLICE_FIELDS.slice_sao_luma_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::SLICE_SAO_LUMA_FLAG, 1)]), 32),
+            ("HEVC_SLICE_FIELDS.slice_sao_chroma_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::SLICE_SAO_CHROMA_FLAG, 1)]), 64),
+            ("HEVC_SLICE_FIELDS.num_ref_idx_active_override_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::NUM_REF_IDX_ACTIVE_OVERRIDE_FLAG, 1)]), 128),
+            ("HEVC_SLICE_FIELDS.mvd_l1_zero_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::MVD_L1_ZERO_FLAG, 1)]), 256),
+            ("HEVC_SLICE_FIELDS.cabac_init_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::CABAC_INIT_FLAG, 1)]), 512),
+            ("HEVC_SLICE_FIELDS.slice_deblocking_filter_disabled_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::SLICE_DEBLOCKING_FILTER_DISABLED_FLAG, 1)]), 1024),
+            ("HEVC_SLICE_FIELDS.slice_loop_filter_across_slices_enabled_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED_FLAG, 1)]), 4096),
+            ("HEVC_SLICE_FIELDS.collocated_from_l0_flag", pack(hevc_slice::LAYOUT, &[(hevc_slice::COLLOCATED_FROM_L0_FLAG, 1)]), 8192),
+            ("JPEG_PIC_FLAGS.profile", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::PROFILE, 1)]), 1),
+            ("JPEG_PIC_FLAGS.progressive", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::PROGRESSIVE, 1)]), 4),
+            ("JPEG_PIC_FLAGS.huffman", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::HUFFMAN, 1)]), 8),
+            ("JPEG_PIC_FLAGS.interleaved", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::INTERLEAVED, 1)]), 16),
+            ("JPEG_PIC_FLAGS.differential", pack(jpeg_pic::LAYOUT, &[(jpeg_pic::DIFFERENTIAL, 1)]), 32),
+        ];
+        let wrong_bits: Vec<String> = bits
+            .iter()
+            .filter(|(_, rust, c)| rust != c)
+            .map(|(name, rust, c)| format!("{name}: Rust {rust:#x}, C {c:#x}"))
+            .collect();
+        assert!(wrong_bits.is_empty(), "{wrong_bits:#?}");
         let wrong: Vec<String> = checks
             .iter()
             .filter(|(_, rust, c)| rust != c)
