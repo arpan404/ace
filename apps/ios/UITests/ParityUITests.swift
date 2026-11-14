@@ -85,11 +85,14 @@ import XCTest
         XCTAssertFalse(app.staticTexts["Couldn't load this visualization"].exists)
         let composer = app.textViews["composer.input"]
         XCTAssertFalse(composer.exists && composer.isHittable, "it covers the thread")
-        let copy = app.buttons["visualization.copy"]
-        XCTAssertTrue(copy.waitForExistence(timeout: 10)); copy.tap()
-        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        // Copy is enabled once the page and its source are read; it then says Copied for a while.
+        let copy = app.buttons["visualization.copy"].firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 10))
+        wait(for: [expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: copy)], timeout: 15)
+        copy.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copy)], timeout: 5)
         capture("canvas")
-        app.buttons["Close"].tap()
+        app.buttons["visualization.close"].firstMatch.tap()
         XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
     }
     /// An answer's maths reaches VoiceOver whole and its Mermaid fence draws as a diagram whose
@@ -109,14 +112,19 @@ import XCTest
         XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Phone --> Daemon", "Phone --> Daemon")).firstMatch.exists,
                        "the drawn diagram replaces its code")
         capture("answer-maths-diagram")
-        app.buttons["answer.diagram.source"].tap()
+        let showSource = app.buttons["answer.diagram.source"].firstMatch
+        XCTAssertTrue(showSource.waitForExistence(timeout: 10))
+        if showSource.isHittable { showSource.tap() }
+        // Over a picture XCUITest may not find a hit point; the button still takes a real touch.
+        else { showSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         let source = app.staticTexts["diagram.source"]
         XCTAssertTrue(source.waitForExistence(timeout: 10))
         XCTAssertTrue(source.label.contains("Phone --> Daemon"))
-        app.buttons["diagram.copy"].tap()
-        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        let copySource = app.buttons["diagram.copy"].firstMatch
+        copySource.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copySource)], timeout: 5)
         capture("answer-diagram-source")
-        app.buttons["Close"].tap()
+        app.buttons["diagram.close"].firstMatch.tap()
         XCTAssertTrue(source.waitForNonExistence(timeout: 10))
     }
     func testPublishedImageOpensAsNativePixels() {

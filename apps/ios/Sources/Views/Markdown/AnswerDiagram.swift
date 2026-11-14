@@ -66,7 +66,9 @@ final class AnswerDiagramView: UIView, UIContextMenuInteractionDelegate {
         addSubview(sourceButton)
 
         addInteraction(UIContextMenuInteraction(delegate: self))
-        accessibilityElements = [picture, sourceButton]
+        // The button first: the picture fills the whole view, and an element found at a point is
+        // the first that holds it, so listed after the picture the button could never be reached.
+        accessibilityElements = [sourceButton, picture]
         _ = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: AnswerDiagramView, _: UITraitCollection) in
             view.followAppearance()
         }
@@ -160,7 +162,9 @@ struct DiagramSourceSheet: View {
             .escapeCloses(close)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: close) { AceIcon(.x) }.accessibilityLabel("Close")
+                    Button(action: close) { AceIcon(.x) }
+                        .accessibilityLabel("Close")
+                        .accessibilityIdentifier("diagram.close")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button(copied ? "Copied" : "Copy") {

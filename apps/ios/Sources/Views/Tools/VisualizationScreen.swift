@@ -65,7 +65,7 @@ struct VisualizationScreen: View {
         .sensoryFeedback(.success, trigger: copied) { _, now in now }
         .task(id: copied) {
             guard copied else { return }
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled { copied = false }
         }
         .task(id: "\(itemId)|\(scheme == .dark ? "dark" : "light")|\(attempt)|\(source != nil)") { await load() }
@@ -94,9 +94,16 @@ struct VisualizationScreen: View {
 /// Full screen it closes from its own bar; as a panel tab the tab strip closes it.
 private struct CloseOutsidePanel: ViewModifier {
     @Environment(\.panelHost) private var panelHost
+    @Environment(\.dismiss) private var dismiss
     func body(content: Content) -> some View {
         if panelHost == nil {
-            content.toolbar { SheetClose() }
+            content.toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { AceIcon(.x) }
+                        .accessibilityLabel("Close")
+                        .accessibilityIdentifier("visualization.close")
+                }
+            }
         } else {
             content
         }
