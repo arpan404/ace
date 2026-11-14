@@ -35,6 +35,8 @@ export interface PathConnection {
   onWrongHost(refused: (() => void) | undefined): void;
   /** This manager pings the active path: the connection's own heartbeat stands down. */
   pingedElsewhere?(on: boolean): void;
+  /** A wake probe waits the active path's pong deadline, from this manager's estimate. */
+  probeDeadline?(deadline: (() => number | undefined) | undefined): void;
 }
 
 /** The active path's measured round trip (`Multipath.linkEstimate`). */
@@ -181,6 +183,10 @@ export class Multipath {
       if (this.#racing) this.#refuse(this.#racing);
     });
     connection.pingedElsewhere?.(true);
+    connection.probeDeadline?.(() => {
+      const estimate = this.linkEstimate();
+      return estimate && pongDeadline(estimate.rttMs);
+    });
     this.#stopState = state.subscribe(() => this.#changed());
     this.#stopNetwork ??= this.#options.watchNetwork?.(() => this.networkChanged());
     this.#changed();
@@ -202,6 +208,7 @@ export class Multipath {
     this.#connection?.setStandby(undefined);
     this.#connection?.onWrongHost(undefined);
     this.#connection?.pingedElsewhere?.(false);
+    this.#connection?.probeDeadline?.(undefined);
   }
 
   /** The paths the platform offers, less any that reached another daemon. */

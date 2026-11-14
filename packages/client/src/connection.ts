@@ -64,7 +64,10 @@ interface Draining {
 
 /** A server frame this build's schemas reject: the daemon is another version. */
 const heartbeatMissed = "Heartbeat missed";
-/** How long a woken app waits for the daemon to answer before it treats the socket as dead. */
+/**
+ * How long a woken app waits for the daemon to answer before it treats the socket as dead,
+ * when nothing has measured the link yet; once measured, the path's own pong deadline.
+ */
 const wakeProbeMs = 5000;
 /** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
 const handedMarginMs = 15_000;
@@ -115,6 +118,8 @@ export class Connection {
   /** The epoch whose hello went out: its socket takes read subscribes before the welcome. */
   #greeted = -1;
   #greeting: (() => void) | undefined;
+  /** The active path's pong deadline, from the path manager's link estimate, when it has one. */
+  #probeDeadline: (() => number | undefined) | undefined;
   /**
    * The next ticket the last welcome handed over (ADR 0150), in memory only: the next connect
    * says hello with it instead of exchanging one. `epoch` is the attempt that used one.
@@ -217,7 +222,7 @@ export class Connection {
    */
   wake(): void {
     if (!this.#active) return;
-    if (this.state === "ready") this.#heartbeat.probe(wakeProbeMs);
+    if (this.state === "ready") this.#heartbeat.probe(this.#probeDeadline?.() ?? wakeProbeMs);
     else this.reconnectNow();
   }
   info(): ConnectionInfo {
@@ -740,6 +745,13 @@ export class Connection {
    */
   pingedElsewhere(on: boolean): void {
     this.#heartbeat.quiet(on);
+  }
+  /**
+   * How long a wake probe waits on this link: the path manager's pong deadline for the active
+   * path (`pongDeadline`), or undefined until it has measured one; then 5 s.
+   */
+  probeDeadline(deadline: (() => number | undefined) | undefined): void {
+    this.#probeDeadline = deadline;
   }
   /** Frames heard on the active path so far: a ping that hears anything was not missed. */
   get heard(): number {

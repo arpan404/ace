@@ -1,7 +1,7 @@
 import { DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { Connection } from "./connection.ts";
-import { connected, pass, settle } from "./path-switch.fixture.ts";
+import { connected, pass, settle, type Clock } from "./path-switch.fixture.ts";
 import { defaultLimits, type TransportEvents } from "./types.ts";
 import { WireCodec } from "./wire-codec.ts";
 
@@ -145,4 +145,44 @@ test("a standby's own late pong does not answer a wake probe after the standby i
   clock.advance(200);
   await settle();
   expect(promoted.closed).toBe(true);
+});
+
+/** Let `ms` pass in `step` ms steps, letting pings and pongs (microtasks) run after each. */
+async function wait(clock: Clock, ms: number, step = 100): Promise<void> {
+  for (let left = ms; left > 0; left -= step) {
+    clock.advance(Math.min(step, left));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  }
+}
+
+/** A relay-only connection whose pings have taught it a 1.9 s round trip: a 7.6 s deadline. */
+async function slowLink() {
+  const setup = await connected("relay", ["relay"]);
+  const relay = setup.path("relay");
+  relay.pongAfter = (deliver) => setup.clock.set(1_900, deliver);
+  await wait(setup.clock, 7_000);
+  expect(setup.client.linkEstimate()?.rttMs).toBe(1_900);
+  return { ...setup, relay };
+}
+
+test("on a slow link a wake waits the link's own deadline: a 6 s pong keeps the socket", async () => {
+  const h = await slowLink();
+  h.relay.pongAfter = (deliver) => h.clock.set(6_000, deliver);
+  const socket = h.relay.last;
+  h.client.wake();
+  await wait(h.clock, 7_000);
+  expect(socket.closed).toBe(false);
+  expect(h.client.state).toBe("ready");
+});
+
+test("on a slow link a silent socket is dropped at its scaled probe deadline", async () => {
+  const h = await slowLink();
+  h.relay.answers = false;
+  const socket = h.relay.last;
+  h.client.wake();
+  // Four round trips of 1.9 s: the probe gives up at 7.6 s.
+  await wait(h.clock, 7_500);
+  expect(socket.closed).toBe(false);
+  await wait(h.clock, 200);
+  expect(socket.closed).toBe(true);
 });
