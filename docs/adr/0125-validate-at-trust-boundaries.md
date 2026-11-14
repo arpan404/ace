@@ -70,31 +70,44 @@ trusted.
    work, a transaction is open, history is being published, maintenance holds writes, live
    output is buffered, or any event was written since the previous tick.
 
-   - **What a batch checks.** Up to 512 events below the boundary and at most 1 MiB of stored
-     JSON, counting the events and every item, text preview and history revision written at
-     their sequences (at least one event per batch). Each row is read both validated and as
-     stored, and its sequence becomes trusted only when both give the same value, field order
-     and byte size.
+   - **What a batch checks** (`stored-trust-batch.ts`). Up to 512 events below the boundary,
+     with the event and every item, text preview and history revision written at each one's
+     sequence. Each row is read both validated and as stored, and its sequence becomes
+     trusted only when both give the same value, field order and byte size.
+   - **What a batch costs.** Every body's size is read from SQLite's record header
+     (`octet_length`, which loads no content) before the body is loaded or any JSON function
+     runs on it. Every load is charged to a 1 MiB budget, so a batch loads at most 1 MiB of
+     stored JSON. SQLite parses at most that much again, to find which revisions an event's
+     payload names.
    - **What stays validated.** A sequence goes into `stored_event_rejected` when any of its
-     rows differs, fails validation, isn't valid JSON, or is larger than 1 MiB (rejected
-     unchecked, so no batch exceeds its budget). Every row at a rejected sequence keeps the
+     rows differs, fails validation or isn't valid JSON. It is also rejected unchecked when
+     its rows together exceed the budget, and when an item is written at it whose event is
+     gone. Every row at a rejected sequence keeps the
      lenient validating decode exactly as before: a rejected item also puts the event at the
      same sequence back on the validating path. The pass stops extending trust after 100,000
      rejections, which are held in memory.
    - **Progress.** Widening trust never changes what a read returns, so progress is held in
      memory and saved (`stored_event_confirmed` and the rejections) every 32 batches and at
-     close, on a plain commit that wakes no read cache, listener or WAL maintenance. A crash
+     close. The save is a write the store declares changes no thread read
+     (`writeOutsideThreadReads`): it wakes no listener or WAL maintenance, and the read cache
+     carries its entries over it unless another connection committed meanwhile. A crash
      repeats at most 32 batches.
    - **Whose record it is.** The record belongs to one build and one write generation. The
-     build is the release version (`ACE_VERSION`) hashed with the stored decoders' code. The
-     shape can't see a changed transform, refinement or decoder, so every new build checks
-     again. A development daemon (no release version) keeps nothing across restarts. The
+     build key is the release version (`ACE_VERSION`) hashed with the bytes of the bundled
+     entry the daemon runs from (`ace.mjs`). The release bundles the daemon with
+     content-hashed chunks whose names the entry holds, so any change to the shipped code
+     changes the key. That includes a protocol transform, refinement or decoder, which the
+     shape can't see, and a local rebuild of the same version with different code. A
+     rebuild of identical code keeps the key. A daemon run from source keeps nothing across
+     restarts. The history publication worker is handed the daemon's own key. The
      generation is a counter that SQLite triggers bump on every write to `stored_event_shape`,
      by any build, including builds from before the pass. So a build that recorded its start
      in between, even one that later records this shape again, invalidates the record. Every
      batch checks the generation before it reads, and a save succeeds only while the record
      still matches. On a mismatch the running daemon drops all stored-row trust until it
-     opens again.
+     opens again. Once the pass finishes, nothing watches the generation. This is safe only
+     because one daemon owns a data directory (`acquireLock`), so another build writing
+     while this one runs is unsupported.
    - **At open.** The start, the reset and the rejections change in one savepoint, so an
      interrupted open leaves the previous state whole. Trust is decided after the open-time
      passes that rewrite stored rows.
@@ -144,6 +157,10 @@ trusted.
   pass confirms 100% of them. A deliberately added default on messages makes 4.3% of those
   rows differ, all message items: the pass then helps less, and stops at the rejection
   limit.
+- Not detected: a build that drops or recreates `stored_event_shape`'s triggers, or rewrites
+  rows without writing `stored_event_shape`, leaves the generation unchanged. Builds with
+  the current schema version all record their start (older ones are refused by
+  `migrate`), but none of them removes the triggers.
 - Trust is no longer a single boundary: a read checks the sequence against the boundary and
   the rejected set (`isTrusted` in `stored-decode.ts`).
 - Further slices follow the same rule: history revisions, entity pages, search

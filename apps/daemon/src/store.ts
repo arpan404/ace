@@ -193,11 +193,11 @@ export class Store {
     options: StoreOptions = {},
   ) {
     this.onError = onError;
+    this.storedTrustBuild = options.storedTrustBuild;
     this.db = options.database ?? new DatabaseSync(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
-      version: () =>
-        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
+      version: () => this.readGeneration(),
       inTransaction: () => this.transactionEvents !== undefined,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
@@ -439,7 +439,7 @@ export class Store {
       rejectedLimit: options.trustPass?.rejectedLimit,
       batchesPerSave: options.trustPass?.batchesPerSave,
       db: this.db,
-      commit: plainCommit(this.db),
+      commit: (run) => this.writeOutsideThreadReads(run),
       shape: eventShape,
       opened,
       trust: this.trust,
@@ -455,6 +455,24 @@ export class Store {
     });
   }
   private readonly trustPass: { close(): void };
+  /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
+  readonly storedTrustBuild: string | undefined;
+  /** The committed generation thread reads are cached under: other connections' and own commits. */
+  private readGeneration(): string {
+    return `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`;
+  }
+  /**
+   * Commit `run`, outside any transaction, as a write declared to change nothing any thread read
+   * returns (the idle trust pass's progress and thread-row stamps), so the read cache keeps its
+   * entries. If another connection committed meanwhile the cache invalidates as usual.
+   */
+  private writeOutsideThreadReads<T>(run: (db: DatabaseSync) => T): T {
+    const before = this.readGeneration();
+    const result = plainCommit(this.db)(run);
+    const after = this.readGeneration();
+    if (before.split(":")[0] === after.split(":")[0]) this.readCache.carryOver(before, after);
+    return result;
+  }
   private onError: (error: unknown) => void;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {

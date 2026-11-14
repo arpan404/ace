@@ -26,6 +26,13 @@ export class ThreadReadCache {
     bytes: 0,
     staleServes: 0,
   };
+  /**
+   * A committed write declared to change nothing any thread read returns moved the generation
+   * from `before` to `after`: entries cached at `before` stay usable at `after`.
+   */
+  carryOver(before: string, after: string): void {
+    if (this.version === before) this.version = after;
+  }
   invalidate(): void {
     this.entries.clear();
     this.metrics.bytes = 0;

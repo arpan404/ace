@@ -7,7 +7,7 @@ import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message, shell } from "./payload-test-support.ts";
 import { Store } from "./store.ts";
-import { eventsPerBatch } from "./stored-trust-pass.ts";
+import { eventsPerBatch } from "./stored-trust-batch.ts";
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -423,4 +423,21 @@ it("an error that isn't contention stops the pass and is reported once", async (
   idle(5);
   expect(errors).toHaveLength(1);
   expect(state.finished).toBe(true);
+});
+
+it("a cached thread read stays cached across the pass's progress saves", async () => {
+  const { open, openBeside, idle } = setup({ batchesPerSave: 1 });
+  const writer = await open(release("build A"));
+  const { thread, events } = history(writer);
+  const reader = await open(release("build B"));
+  const page = reader.readItems(thread, Number.MAX_SAFE_INTEGER, 50);
+  const before = reader.streamingMetrics().reads;
+
+  idle();
+  expectSame(reader.readItems(thread, Number.MAX_SAFE_INTEGER, 50), page);
+  const after = reader.streamingMetrics().reads;
+  expect(after.hits).toBe(before.hits + 1);
+  expect(after.invalidations).toBe(before.invalidations);
+  // The batch was saved: a store opened beside it trusts what it confirmed.
+  expect(readAsStored(openBeside(release("build B")), seqs(events).newest)).toBe(true);
 });
