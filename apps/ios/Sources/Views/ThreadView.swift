@@ -146,6 +146,13 @@ struct ThreadView: View {
         pager.modifier(ThreadHeaderBar(shown: headerStatus != nil) { header })
     }
 
+    /// The bar's widths: Chat and Changes beside ⋯ only on a phone, and only while the title keeps
+    /// its room; at accessibility text sizes they move into ⋯.
+    private func barLayout(pageWidth: CGFloat) -> ThreadBarLayout {
+        ThreadBarLayout(pageWidth: pageWidth, leadingTitle: sizeClass == .compact, panel: panelPlace != .none,
+                        pages: panelPlace == .none ? pages.kinds.count : 0, largeText: typeSize.isAccessibilitySize)
+    }
+
     private func content(pageWidth: CGFloat) -> some View {
         headed
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
@@ -155,10 +162,11 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(heading: heading, pageWidth: pageWidth,
+                let bar = barLayout(pageWidth: pageWidth)
+                ThreadToolbar(heading: heading, layout: bar,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived,
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
-                                               leave: leave),
+                                               shownPage: shownPage, switchInBar: bar.switchInBar, leave: leave),
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
                               pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil,
                               leadingTitle: sizeClass == .compact)

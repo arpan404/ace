@@ -34,8 +34,6 @@ struct ThreadPageSwitch {
     let select: (ThreadPageKind) -> Void
     /// It shows only when there is a page to switch to.
     var shows: Bool { pages.kinds.count > 1 }
-    /// The width it takes in the bar: a glyph per page and the glass's inset around them.
-    var width: CGFloat { shows ? CGFloat(pages.kinds.count) * (AceDesign.Size.pill + 2) + AceDesign.Space.related : 0 }
 }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
@@ -48,7 +46,8 @@ struct ThreadPageSwitch {
 struct ThreadToolbar: ToolbarContent {
     /// The title and the line under it; its width is the toolbar's to give.
     let heading: ThreadTitleMenu
-    let pageWidth: CGFloat
+    /// How the bar shares its width: the title's, and whether Chat and Changes fit beside ⋯.
+    let layout: ThreadBarLayout
     let menu: ThreadMenu
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
@@ -58,23 +57,10 @@ struct ThreadToolbar: ToolbarContent {
     /// A compact width: the title leads, beside the back button, instead of being centred.
     var leadingTitle = false
 
-    /// The trailing buttons' width: ⋯, the page switch with the inset of the glass that groups
-    /// it with ⋯, and the panel's toggle.
-    private var trailingWidth: CGFloat {
-        let switchWidth = pages.map { $0.shows ? $0.width + AceDesign.Space.related : 0 } ?? 0
-        return CGFloat(1 + (panel == nil ? 0 : 1)) * AceDesign.Size.tap + switchWidth
-    }
-    /// Leading, the title takes everything between the one leading button and the trailing
-    /// buttons, a gap from each. Centred, it gets the width between the wider side's buttons,
-    /// mirrored, and no more than five buttons' worth.
-    private var headingWidth: CGFloat {
-        let margins = 2 * AceDesign.Space.margin
-        if leadingTitle {
-            // The bar insets a leading item from the back button and from the trailing group;
-            // wider, it folds the trailing buttons into its own overflow menu.
-            return max(0, pageWidth - margins - AceDesign.Size.tap - trailingWidth - 4 * AceDesign.Space.related)
-        }
-        return max(0, min(AceDesign.Size.tap * 5, pageWidth - 2 * trailingWidth - margins))
+    /// The page switch when it has a place in the bar; otherwise its pages are in ⋯.
+    private var shownSwitch: ThreadPageSwitch? {
+        guard let pages, pages.shows, layout.switchInBar else { return nil }
+        return pages
     }
 
     var body: some ToolbarContent {
@@ -85,7 +71,7 @@ struct ThreadToolbar: ToolbarContent {
                 ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
             }
             // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
-            if let pages, pages.shows {
+            if let pages = shownSwitch {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
                     .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
             }
@@ -93,7 +79,7 @@ struct ThreadToolbar: ToolbarContent {
                 .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
             ToolbarItem(placement: leadingTitle ? .topBarLeading : .principal) { title }
-            if let pages, pages.shows {
+            if let pages = shownSwitch {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
             }
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
@@ -101,6 +87,7 @@ struct ThreadToolbar: ToolbarContent {
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: panel.toggle) { Image(systemName: "sidebar.right") }
+                    .barGlyph()
                     .accessibilityLabel(panel.shown ? "Hide panel" : "Show panel")
                     .accessibilityIdentifier("thread.panel")
             }
@@ -108,18 +95,20 @@ struct ThreadToolbar: ToolbarContent {
     }
     private var title: some View {
         var heading = heading
-        heading.width = headingWidth
+        heading.width = layout.headingWidth
         heading.leading = leadingTitle
         return EquatableView(content: heading).clipped()
     }
     private func pageButtons(_ pages: ThreadPageSwitch) -> some View {
         ThreadPageButtons(pages: pages.pages, shown: pages.shown, select: pages.select)
+            .barGlyph()
             .opacity(coveredByDrawer ? 0 : 1)
             .allowsHitTesting(!coveredByDrawer)
             .accessibilityHidden(coveredByDrawer)
     }
     private var displayedMenu: some View {
         EquatableView(content: menu)
+            .barGlyph()
             .opacity(coveredByDrawer ? 0 : 1)
             .allowsHitTesting(!coveredByDrawer)
             .accessibilityHidden(coveredByDrawer)
@@ -155,6 +144,10 @@ struct ThreadMenu: View, Equatable {
     var opensInPanel = false
     /// The thread's pages on a phone; nil beside the side panel.
     var pages: ThreadPages? = nil
+    /// The page showing, and whether Chat and Changes are in the bar; when they aren't, ⋯ offers
+    /// the page not showing.
+    var shownPage: ThreadPageKind = .chat
+    var switchInBar = true
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
     @State private var showing = false
@@ -171,12 +164,17 @@ struct ThreadMenu: View, Equatable {
                 .contentShape(Rectangle())
         }
         .buttonBorderShape(.circle)
+        .accessibilityShowsLargeContentViewer {
+            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+            Text("Thread options")
+        }
         // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
         .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
-                            open: { picked = $0 }, leave: leave, pages: pages)
+                            open: { picked = $0 }, leave: leave, pages: pages, shownPage: shownPage,
+                            switchInBar: switchInBar)
                 .onDisappear {
                     guard let destination = picked else { return }
                     picked = nil
@@ -192,11 +190,19 @@ struct ThreadMenu: View, Equatable {
     nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
         lhs.model === rhs.model && lhs.thread === rhs.thread && lhs.title == rhs.title
             && lhs.archived == rhs.archived && lhs.opensInPanel == rhs.opensInPanel
-            && lhs.pages == rhs.pages
+            && lhs.pages == rhs.pages && lhs.shownPage == rhs.shownPage && lhs.switchInBar == rhs.switchInBar
     }
 }
 
 extension View {
+    /// A bar button's glyph at its default size whatever the text size, as the system's bar
+    /// buttons are: a glyph grown with the text widens the bar's trailing group past the room the
+    /// title leaves it (`ThreadBarLayout`), and UIKit folds the group into "More". Large text
+    /// shows the button in the Large Content Viewer on a long press instead.
+    func barGlyph() -> some View {
+        dynamicTypeSize(...DynamicTypeSize.large)
+    }
+
     /// The thread's title and its "project · branch" line, as the system draws them on iOS 26.
     @ViewBuilder func threadTitle(_ title: String, subtitle: String) -> some View {
         if #available(iOS 26, *) {

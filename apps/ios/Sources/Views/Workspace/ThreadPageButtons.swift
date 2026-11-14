@@ -43,6 +43,10 @@ struct ThreadPageButtons: View {
                 .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer {
+            AceIcon(kind.icon, size: AceDesign.Size.navGlyph + 1)
+            Text(kind.title)
+        }
         .accessibilityLabel(pages.label(of: kind))
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("thread.page.\(kind.rawValue)")
