@@ -43,7 +43,8 @@ struct MachineManageSection: View {
         .alert("Rename \(name)", isPresented: $renaming) {
             TextField("Name", text: $newName).accessibilityIdentifier("machine.rename.field")
             Button("Cancel", role: .cancel) {}
-            Button("Save") { Task { await rename() } }.accessibilityIdentifier("machine.rename.save")
+            // No identifier: an alert's buttons expose it twice, nested; tests find Save by its label.
+            Button("Save") { Task { await rename() } }
         } message: { Text("Every device shows this name.") }
         .confirmationDialog(confirmTitle, isPresented: $removing, titleVisibility: .visible) {
             Button(removeTitle, role: .destructive) { Task { await remove() } }
