@@ -67,6 +67,19 @@ enum ComposerIntake {
         return result
     }
 
+    /// A long paste staged as the text file the web makes of it (`LargePaste`); nil for a paste
+    /// short enough to go in as words, or one that couldn't be written.
+    static func stage(paste text: String, into staging: AttachmentStaging) -> StagedAttachment? {
+        guard let file = LargePaste.file(for: text) else { return nil }
+        return try? staging.stage(data: Data(text.utf8), name: file.name, mimeType: "text/plain")
+    }
+
+    /// A staged paste's words, to put back in the message as text.
+    static func pastedText(_ localId: String, in staging: AttachmentStaging) -> String? {
+        guard let url = staging.file(localId), let data = try? Data(contentsOf: url) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     static let folderNote = "Attached the first \(folderFiles) files. A folder adds up to \(folderFiles); hidden files are skipped."
 
     /// Whether a paste carries something other than words (an image, a file). Reads only the
