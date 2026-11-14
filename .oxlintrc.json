@@ -76,6 +76,13 @@
   },
   "overrides": [
     {
+      "files": ["apps/web/src/**/*.{ts,tsx}"],
+      "jsPlugins": ["./tools/lint/ace-live-actions.mjs"],
+      "rules": {
+        "ace/live-actions": "error"
+      }
+    },
+    {
       "files": ["apps/web/src/**/*.{ts,tsx}", "packages/client-react/src/**/*.{ts,tsx}"],
       "jsPlugins": [
         {
