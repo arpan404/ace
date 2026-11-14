@@ -260,6 +260,20 @@ import XCTest
         XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
     }
 
+    func testCodeReviewWithNoComputerPairedOffersPairing() {
+        let app = XCUIApplication()
+        // No fixture machine: the phone has nothing paired.
+        app.launchArguments = ["--spike", "--spike-machines", "none"]
+        app.launch()
+        defer { app.terminate() }
+        let review = app.tabBars.firstMatch.buttons["Code review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30))
+        review.tap()
+        // Never skeletons forever: the way to pair a computer.
+        XCTAssertTrue(app.buttons["inbox.empty.pair"].waitForExistence(timeout: 20))
+        capture("code-review-unpaired")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]

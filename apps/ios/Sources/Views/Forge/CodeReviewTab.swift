@@ -7,6 +7,8 @@ struct CodeReviewTab: View {
     let openThread: (InboxKey) -> Void
     let startThread: () -> Void
     let openMachines: () -> Void
+    /// Opens pairing while no computer is paired; nil while that isn't known yet.
+    var pair: (() -> Void)?
     @State private var path: [ForgeRoute] = []
     @State private var machine = ""
     @State private var project = ""
@@ -17,7 +19,7 @@ struct CodeReviewTab: View {
         NavigationStack(path: $path) {
             ForgeHome(inbox: inbox, machine: $machine, project: $project, query: query, kind: $kind,
                       actions: ForgeTabActions(open: { path.append($0) }, openThread: openThread, startThread: startThread),
-                      openMachines: openMachines)
+                      openMachines: openMachines, pair: pair)
                 .searchable(text: $query, prompt: Text(kind == .pulls ? "Search pull requests" : kind == .issues ? "Search issues" : "Search notifications"))
                 .modifier(ProjectDefaultsHook(inbox: inbox))
                 .navigationDestination(for: ForgeRoute.self) { route in

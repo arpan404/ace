@@ -195,7 +195,7 @@ struct InboxView: View {
     /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
     private var review: some View {
         CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
-                      openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) })
+                      openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
             }
