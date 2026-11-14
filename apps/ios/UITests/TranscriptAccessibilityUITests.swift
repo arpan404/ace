@@ -42,7 +42,9 @@ import XCTest
         waitForExpectations(timeout: 15)
     }
     /// Finished turns whose work logs list edited files lay out chips in every log row: swiping
-    /// through them with an accessibility client attached must stay responsive too.
+    /// through them with an accessibility client attached must stay responsive too. The fixture's
+    /// `ios-log-long` thread has six finished turns, each an ask ("Keep relay cursors, part N."),
+    /// one "Worked for" log and an answer.
     func testSwipingThroughFinishedWorkLogsStaysResponsive() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
@@ -50,12 +52,26 @@ import XCTest
         app.revealRow("thread.ios-log-long").tap()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        // The last turn's finished log is on screen before any swipe: an empty transcript or one
+        // stuck on its placeholder fails here, not on the timing.
+        let shown = NSPredicate(format: "exists == true AND hittable == true")
+        let logs = app.buttons.matching(identifier: "work.toggle")
+        expectation(for: shown, evaluatedWith: logs.firstMatch)
+        waitForExpectations(timeout: 25)
+        XCTAssertTrue(message("Keep relay cursors, part 6.", in: app).exists, "the last turn isn't the one open")
         var slowest: TimeInterval = 0
+        var earlier = false
         for direction in [false, false, false, false, true, true, true, true] {
             let started = Date()
             if direction { transcript.swipeUp(velocity: .fast) } else { transcript.swipeDown(velocity: .fast) }
             slowest = max(slowest, Date().timeIntervalSince(started))
+            // Back through the history, an earlier turn's finished log comes on screen.
+            if !direction, !earlier {
+                earlier = (1...5).contains { message("Keep relay cursors, part \($0).", in: app).exists }
+                    && logs.allElementsBoundByIndex.contains { $0.isHittable }
+            }
         }
+        XCTAssertTrue(earlier, "the swipes up never showed an earlier turn's finished log")
         // A settled swipe takes about three seconds, its fling included.
         XCTAssertLessThan(slowest, 15, "a swipe through the finished work logs didn't settle")
     }
