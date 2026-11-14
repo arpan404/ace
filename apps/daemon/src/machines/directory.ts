@@ -36,11 +36,19 @@ export interface DirectoryDeps {
   now?(): number;
 }
 /**
- * Short reads whose timeout follows how long the machine takes to answer, up to this many times
- * the caller's own: a describe's 4 s up to 20 s, a status read's 10 s up to 50 s.
+ * Short reads that measure how long the machine takes to answer. Their own timeouts never
+ * stretch: status and job reads are made by polling, whose pace and lost-contact timing stay
+ * exactly as they are.
  */
-const timedOps: ReadonlySet<string> = new Set(["describe", "status", "command.jobs"]);
+const measuredOps: ReadonlySet<string> = new Set(["describe", "status", "command.jobs"]);
+/**
+ * Calls a person or an agent waits on, given longer on a slow link: up to this many times their
+ * own timeout, and never past `STRETCH_CAP_MS` (a describe's 4 s up to 20 s, a message's 15 s up
+ * to 60 s, a delegate's 30 s up to 60 s).
+ */
+const stretchedOps: ReadonlySet<string> = new Set(["describe", "message", "delegate"]);
 const TIMEOUT_STRETCH = 5;
+const STRETCH_CAP_MS = 60_000;
 /** A machine that answered within this long is slow, not offline, when a read times out. */
 const RECENT_ANSWER_MS = 2 * 60 * 1000;
 const MachineToolGroupNames = MachineToolGroup.options;
@@ -191,10 +199,18 @@ export class MachineDirectory {
     const routine = routineCall(op);
     const key = `${machine}:${op}`;
     const clock = this.deps.now;
-    const timed = clock !== undefined && timedOps.has(op);
-    const timeoutMs = timed
-      ? this.timing.timeout(machine, options.timeoutMs, options.timeoutMs * TIMEOUT_STRETCH)
-      : options.timeoutMs;
+    const timed = clock !== undefined && measuredOps.has(op);
+    const timeoutMs =
+      clock !== undefined && stretchedOps.has(op)
+        ? this.timing.timeout(
+            machine,
+            options.timeoutMs,
+            Math.max(
+              options.timeoutMs,
+              Math.min(STRETCH_CAP_MS, options.timeoutMs * TIMEOUT_STRETCH),
+            ),
+          )
+        : options.timeoutMs;
     const started = clock?.();
     try {
       const { connections } = this.deps;
@@ -228,7 +244,6 @@ export class MachineDirectory {
       return result;
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
-      if (timed && failure instanceof MachineTimeout) this.timing.timedOut(machine, timeoutMs);
       if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status") {
         const before = this.groups();
         this.seen.delete(machine);

@@ -17,15 +17,6 @@ test("a machine on a slow link gets a longer timeout, within the cap", () => {
   expect(timing.timeout("satellite", 4000, 20_000)).toBe(20_000);
 });
 
-test("a call that timed out makes the next timeout longer", () => {
-  const timing = new LinkTiming();
-  timing.answered("studio", 900, 1);
-  const before = timing.timeout("studio", 4000, 20_000);
-  timing.timedOut("studio", 4000);
-  expect(timing.timeout("studio", 4000, 20_000)).toBeGreaterThan(before);
-  expect(timing.answeredAt("studio")).toBe(1);
-});
-
 test("a machine never timed keeps the base timeout and has no last answer", () => {
   const timing = new LinkTiming();
   expect(timing.timeout("studio", 10_000, 40_000)).toBe(10_000);

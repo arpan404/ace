@@ -15,6 +15,12 @@ export type ConnectionLane = "shared" | "urgent";
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
   agent: Agent;
+  /**
+   * Aborts when this pairing's connections end (unpaired, re-paired, a new pin or token, or the
+   * pool closing): a call still waiting for a connection fails as never sent, and one in flight
+   * fails as on a dropped connection. Absent for a connection of the call's own.
+   */
+  ended?: AbortSignal;
   /** Given back with the answer's headers, when an answer came. */
   release(answer?: AnswerHeaders): void;
 }
@@ -49,6 +55,7 @@ interface Lane {
 
 interface Entry {
   lanes: Record<ConnectionLane, Lane>;
+  ended: AbortController;
   sessions: PinnedSessions;
   idleMs: number;
 }
@@ -85,10 +92,13 @@ export class MachineConnections {
       let session: Buffer | undefined;
       entry = {
         lanes: { shared: lane(), urgent: lane() },
+        ended: new AbortController(),
         sessions: { get: () => session, set: (next) => void (session = next) },
         idleMs: IDLE_DEFAULT_MS,
       };
-      if (!this.closed) this.entries.set(key, entry);
+      // A closed pool hands out nothing: the call fails as never sent.
+      if (this.closed) return endedLease(profile);
+      this.entries.set(key, entry);
     }
     const held = entry;
     const at = held.lanes[use];
@@ -101,17 +111,13 @@ export class MachineConnections {
     let released = false;
     return {
       agent,
+      ended: held.ended.signal,
       release: (answer) => {
         if (released) return;
         released = true;
         at.inflight--;
         if (answer) held.idleMs = idleMs(answer.keepAlive) ?? held.idleMs;
-        if (at.inflight > 0) return;
-        if (this.closed || this.entries.get(key) !== held) {
-          agent.destroy();
-          if (at.agent === agent) at.agent = undefined;
-          return;
-        }
+        if (at.inflight > 0 || held.ended.signal.aborted) return;
         at.cancelIdle?.();
         at.cancelIdle = this.deps.schedule(held.idleMs, () => {
           at.cancelIdle = undefined;
@@ -138,16 +144,27 @@ export class MachineConnections {
   }
 }
 
-/** Idle sockets close now; one still answering a request closes when it is given back. */
+/**
+ * This pairing's connections end now: calls waiting for one fail as never sent, every socket is
+ * destroyed (calls in flight fail as on a dropped connection), and no timer is left.
+ */
 function drop(entry: Entry) {
+  entry.ended.abort();
   for (const at of Object.values(entry.lanes)) {
     at.cancelIdle?.();
     at.cancelIdle = undefined;
-    if (at.inflight === 0) {
-      at.agent?.destroy();
-      at.agent = undefined;
-    }
+    at.agent?.destroy();
+    at.agent = undefined;
   }
+}
+
+/** A lease from a pool that has closed: nothing is ever sent through it. */
+function endedLease(profile: ConnectionProfile): ConnectionLease {
+  const ended = new AbortController();
+  ended.abort();
+  const agent = pinnedKeepAliveAgent(profile.fingerprint, { get: () => undefined, set() {} }, 1);
+  agent.destroy();
+  return { agent, ended: ended.signal, release: () => {} };
 }
 
 function connectionKey(profile: ConnectionProfile): string {
