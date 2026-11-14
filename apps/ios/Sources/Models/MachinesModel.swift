@@ -297,8 +297,11 @@ import Observation
     func network(online: Bool, interfaceChanged: Bool) {
         for session in inbox.sessions {
             session.client.network(online)
-            // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't.
-            if online && interfaceChanged { session.client.retry() }
+            // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
+            // and a socket still ready on the old one may be dead without having closed: a ready
+            // socket must answer a ping within seconds or is replaced, and a waiting reconnect
+            // runs now (`wake`), instead of waiting for the next heartbeat.
+            if online && interfaceChanged { session.client.wake() }
         }
         if online && interfaceChanged { reconsiderRoutes() }
     }

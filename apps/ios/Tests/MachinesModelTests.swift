@@ -114,6 +114,18 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
     }
 
+    @Test func aNewNetworkInterfaceAsksEveryMachineToCheckItsSocketNow() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        // The same network coming back says only that it is online.
+        fixture.model.network(online: true, interfaceChanged: false)
+        #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
+        // Wi-Fi to cellular: a socket still marked ready on Wi-Fi must prove itself now.
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
         defer { fixture.cleanUp() }
