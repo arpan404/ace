@@ -67,6 +67,34 @@ describe.skipIf(!executablePath)("an unwatched browser in ace's Chrome", () => {
     expect(await f.evaluate("document.hasFocus()")).toBe(true);
   }, 60_000);
 
+  it("a screenshot taken as the first command after a rest is the full page, drawn", async () => {
+    const { f, idleFor } = await idleBrowser();
+    await f.navigate();
+    await f.evaluate("document.body.style.background = 'rgb(255, 0, 0)'");
+    /** The picture's size and its middle pixel, decoded by the page itself. */
+    const look = async (bytes: Uint8Array) =>
+      f.evaluate(`(async () => {
+        const bytes = Uint8Array.from(atob(${JSON.stringify(Buffer.from(bytes).toString("base64"))}), (c) => c.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes]));
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        const [r, g, b] = context.getImageData(image.width >> 1, image.height >> 1, 1, 1).data;
+        return [image.width, image.height, r, g, b];
+      })()`);
+    const before = await look(await f.service.screenshot("thread"));
+    await idleFor(defaultTabLifecycle.restAfterMs);
+    await idleFor(defaultTabLifecycle.freezeAfterMs);
+    // Rested and frozen; the screenshot is the first thing to touch the page again.
+    const after = await look(await f.service.screenshot("thread"));
+    expect(after).toEqual(before);
+    // The page's red (give or take the picture's compression), not a blank or empty frame.
+    const [width, height, r, g, b] = after as number[];
+    expect(width).toBeGreaterThan(1000);
+    expect(height).toBeGreaterThan(500);
+    expect([r > 240, (g ?? 255) < 16, (b ?? 255) < 16]).toEqual([true, true, true]);
+  }, 60_000);
+
   it("the shown tab nobody watches freezes when idle, and runs again for the agent", async () => {
     const { f, idleFor, shown } = await idleBrowser();
     await f.navigate();
