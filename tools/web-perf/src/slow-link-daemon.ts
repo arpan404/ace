@@ -20,6 +20,7 @@ const Ready = z.object({
   endpoint: z.string(),
   token: z.string(),
   remoteUrl: z.string(),
+  fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   threads: z.object({ typical: z.object({ id: z.string() }) }),
 });
 const Pairing = z.object({ url: z.string() });
@@ -31,6 +32,12 @@ export interface DaemonApp {
   pair(context: BrowserContext, address: string): Promise<void>;
   /** The recorded typical thread's route. */
   threadPath: string;
+  /**
+   * Chromium's arguments to trust the daemon's own key, the pin a native client checks. Not
+   * `--ignore-certificate-errors`: Chromium keeps nothing from a certificate-error connection
+   * in its HTTP cache, which would make every warm visit cold.
+   */
+  browserArgs: string[];
 }
 
 export async function withDaemonApp<T>(run: (app: DaemonApp) => Promise<T>): Promise<T> {
@@ -50,6 +57,9 @@ export async function withDaemonApp<T>(run: (app: DaemonApp) => Promise<T>): Pro
     return await run({
       origin: { host: remote.hostname, port: Number(remote.port) },
       threadPath: `/t/${ready.threads.typical.id}`,
+      browserArgs: [
+        `--ignore-certificate-errors-spki-list=${Buffer.from(ready.fingerprint, "hex").toString("base64")}`,
+      ],
       async pair(context, address) {
         const local = ready.endpoint.replace("ws:", "http:");
         const response = await fetch(new URL("/v1/pairings", local), {

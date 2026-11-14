@@ -274,16 +274,11 @@ const results =
     ? await withPerfApp(async ({ browser, origin }) =>
         run(browser, `${origin}/t/thread-soak?rate=20`, { emulated: true }),
       )
-    : await withDaemonApp(async ({ origin: upstream, pair, threadPath }) => {
+    : await withDaemonApp(async ({ origin: upstream, pair, threadPath, browserArgs }) => {
         const shaper = await startLinkShaper({ target: upstream, profile });
-        // The daemon's certificate is its own, pinned by native clients; a browser has no pin, and
-        // the client worker's socket ignores the context's certificate override.
-        const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] });
+        const browser = await chromium.launch({ args: browserArgs });
         try {
-          const context = await browser.newContext({
-            viewport: { width: 1440, height: 900 },
-            ignoreHTTPSErrors: true,
-          });
+          const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
           await pair(context, shaper.address);
           return await run(browser, `https://${shaper.address}${threadPath}`, {
             emulated: false,

@@ -123,20 +123,30 @@ async function measure(profileName: string) {
       };
     };
     const running = await window();
+    // Times below are the source's own clock: performance.now() differs between processes.
+    const finishedAt = Calls.parse(await source.request({ op: "calls" })).now;
     await target.request({ op: "finish", thread: threadId });
-    // The source hears the child finished on a later poll.
-    const settleFrom = performance.now();
     let seen = "";
-    for (let tries = 0; tries < 600; tries++) {
+    let firstStatusAfterFinishMs: number | null = null;
+    for (let tries = 0; tries < 600 && firstStatusAfterFinishMs === null; tries++) {
       seen = State.parse(await target.request({ op: "state", thread: threadId })).state;
-      const calls = Calls.parse(await source.request({ op: "calls" }));
-      const heard = calls.calls.some((entry) => entry.op === "status" && entry.at > settleFrom);
-      if (seen === "done" && heard) break;
-      await sleep(250);
+      const next = Calls.parse(await source.request({ op: "calls" })).calls.find(
+        (entry) => entry.op === "status" && entry.at > finishedAt,
+      );
+      if (seen === "done" && next)
+        firstStatusAfterFinishMs = Math.round(next.at + next.ms - finishedAt);
+      else await sleep(250);
     }
-    const settledMs = Math.round(performance.now() - settleFrom);
     const settled = await window();
-    return { profile: profile.name, childState: seen, delegate, settledMs, running, settled };
+    return {
+      profile: profile.name,
+      childState: seen,
+      delegate,
+      /** From the child finishing to the source's first status answer after it. */
+      firstStatusAfterFinishMs,
+      running,
+      settled,
+    };
   } finally {
     await shaper.close();
     await source.close();
@@ -154,6 +164,19 @@ function link(counts: LinkCounts) {
   };
 }
 
+function summary(run: Awaited<ReturnType<typeof measure>>): string {
+  const phase = (label: string, value: typeof run.running) =>
+    `  ${label.padEnd(16)} ${String(value.statusPerMinute).padStart(5)} status/min ` +
+    `${String(value.callsPerMinute).padStart(5)} calls/min, per call ` +
+    `${value.perCall ? `${value.perCall.medianMs} ms ${value.perCall.roundTrips} RT ` + `${(value.perCall.downBytes / 1024).toFixed(1)} KiB down ${(value.perCall.upBytes / 1024).toFixed(1)} KiB up` : "none"}`;
+  return [
+    `${run.profile}: delegate ${run.delegate.ms} ms ${run.delegate.roundTrips} RT, ` +
+      `first status after the child finished ${run.firstStatusAfterFinishMs ?? "never"} ms`,
+    phase("child running", run.running),
+    phase("child settled", run.settled),
+  ].join("\n");
+}
+
 const startedAt = new Date().toISOString();
 const loadBefore = loadavg();
 const runs = [];
@@ -161,7 +184,7 @@ for (const profile of profiles) {
   process.stderr.write(`machine-link: ${profile.name}\n`);
   const run = await measure(profile.name);
   runs.push(run);
-  process.stderr.write(`${JSON.stringify(run)}\n`);
+  process.stderr.write(`${summary(run)}\n`);
 }
 const result = {
   bench: "machine-link",

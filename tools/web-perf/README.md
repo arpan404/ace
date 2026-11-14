@@ -104,3 +104,24 @@ build from live and after historical navigation, asserting both visibility and v
 intersection. It synchronizes on results and the actual hit, without a timing-only barrier.
 Filtered searches can validly return no hits. Their empty listbox has zero height, so the
 journey acknowledges its attachment and asserts the visible empty-result explanation.
+
+## Slow-link navigation
+
+`src/slow-link.ts` reports, without a budget, how a remote device's first visit to a thread
+loads over a slow link: time to the thread's first message, requests and sequential round trips
+before it, and bytes. `--profile` takes a named link from `@ace/perf-kit/link` (`3g-slow`,
+`3g-fast`, the default and the profile this run always had, or `lan`); `--cache=cold,warm` runs a
+cold visit and then the same thread again with the HTTP cache and the client's kept snapshots.
+
+- `--target=preview` (default): the perf build under `vite preview`, its thread fed by the endless
+  agent, the link emulated by Chromium (latency and rates; no loss).
+- `--target=daemon`: the production build (`apps/web/dist`, built when missing) served by a real
+  daemon from this checkout over its TLS listener, in a temporary home with recorded threads
+  (`apps/daemon/bench/slow-link-daemon.ts`). The browser pairs as a phone does, through the TCP
+  link shaper, which also models loss and counts WebSocket traffic, reported as `link` lines.
+
+```sh
+node tools/web-perf/src/slow-link.ts --target=daemon --profile=3g-slow --cache=cold,warm
+```
+
+Baselines are in `apps/daemon/bench/slow-link-REPORT.md`.
