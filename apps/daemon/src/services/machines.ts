@@ -215,6 +215,7 @@ export function startMachines(context: ServiceContext): void {
     transferBase(profile, route, { ...callOptions, connections });
   const directory = new MachineDirectory({
     connections,
+    now,
     reachable: (machine) => machineReachable?.(machine),
     // Read again only when the pairings file changes, not on every call and poll.
     profiles: cachedProfiles({

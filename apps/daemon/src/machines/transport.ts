@@ -31,6 +31,12 @@ export class MachineFailure extends Error {
   }
 }
 
+/**
+ * No answer came within the call's timeout: the machine may be up but slow to answer over this
+ * link. Its `kind` says, as for any lost call, whether the request may have reached it.
+ */
+export class MachineTimeout extends MachineFailure {}
+
 /** True when `error`, or what it wraps, is the machine saying it has no such record. */
 export function refusedNotFound(error: unknown): boolean {
   for (let at: unknown = error, depth = 0; at instanceof Error && depth < 4; depth++) {
@@ -158,7 +164,11 @@ function pinnedOnce(
       request.destroy();
       finish(lost());
     };
-    const deadline = setTimeout(abort, options.timeoutMs);
+    const deadline = setTimeout(() => {
+      request.destroy();
+      const kind = connected ? "disconnected" : "offline";
+      finish(new MachineTimeout(kind, undefined, "Machine answer timed out"));
+    }, options.timeoutMs);
     deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
     request.on("socket", (socket) => {
