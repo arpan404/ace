@@ -93,7 +93,10 @@ function reachable(detail: SuitDetail, channel: SuitChannel): SuitDetail {
  * The daemon's channel for this client, over its socket (`suitRequest`, `suitsChanged`,
  * `suitActive`). `origin` is the daemon's HTTP origin when this page may dial it directly.
  */
-export function daemonSuitChannel(client: ClientApi, origin: string | undefined): SuitChannel {
+export function daemonSuitChannel(
+  client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration">,
+  origin: string | undefined,
+): SuitChannel {
   return {
     async request(request, signal) {
       const reply = await client.request(

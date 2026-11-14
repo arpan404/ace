@@ -137,11 +137,12 @@ export function SuitLibraryProvider(props: {
   }, [wanted, pickedKey, details, socket]);
 
   // Reads over an older socket are dropped as they land; their URLs are dead.
+  const readsOver = useRef(socket);
   useEffect(() => {
-    reading.current = new Set();
-  }, [socket]);
-
-  useEffect(() => {
+    if (readsOver.current !== socket) {
+      readsOver.current = socket;
+      reading.current = new Set();
+    }
     if (!transport || !summaries) return;
     for (const key of toRead) {
       const summary = summaries.find((entry) => versionKey(entry) === key);

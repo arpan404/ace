@@ -4,19 +4,81 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { z } from "zod";
-import { ServerMessage } from "@ace/protocol";
+import { AgentId, ServerMessage, ThreadId, type McpAttribution } from "@ace/protocol";
+import { SuitPreviews } from "@ace/mcp-server";
+import { seedBuiltinSuits } from "@ace/plugins";
 import { SuitServerMessage } from "@ace/protocol/suits";
 import { expect, test } from "vitest";
 import { setup } from "./remote-test-support.ts";
 import { SuitLibrary } from "./suits/library.ts";
+import { SuitLooks } from "./suits/looks.ts";
+import { daemonSuitPort } from "./suits/port.ts";
 import { nodeSuitSchedule, nodeSuitWatch } from "./suits/watch.ts";
 
 /*
- * A real paired-device socket: scope checks and the change push are wiring a unit test of the
- * library can't reach.
+ * Real paired-device sockets: scope checks, the change push and which devices hear an agent's
+ * `suit_apply` are wiring a unit test of the library or the hub can't reach.
  */
 const frame = z.union([ServerMessage, SuitServerMessage]);
 type Frame = z.infer<typeof frame>;
+
+type Fixture = Awaited<ReturnType<typeof setup>>;
+
+/** A paired device's socket, welcomed, with its frames to wait on and its Suit requests. */
+async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
+  const device = await f.pair(scopes);
+  const ticket = await f.ticket(device.token);
+  const socket = new WebSocket(f.server.url);
+  sockets.push(socket);
+  const frames: Frame[] = [];
+  const waiters: (() => void)[] = [];
+  socket.on("message", (data) => {
+    frames.push(frame.parse(JSON.parse(String(data))));
+    for (const wake of waiters.splice(0)) wake();
+  });
+  const next = async (match: (message: Frame) => boolean): Promise<Frame> => {
+    for (;;) {
+      const found = frames.findIndex(match);
+      if (found >= 0) return frames.splice(found, 1)[0]!;
+      await new Promise<void>((resolve) => waiters.push(resolve));
+    }
+  };
+  await once(socket, "open");
+  socket.send(
+    JSON.stringify({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: device.device.id,
+      ticket: ticket.ticket,
+    }),
+  );
+  await next((message) => message.type === "welcome");
+  const request = (requestId: string, body: unknown) => {
+    socket.send(JSON.stringify({ type: "suitRequest", requestId, request: body }));
+    return next((message) => "requestId" in message && message.requestId === requestId);
+  };
+  /** The next look the daemon sends this device. */
+  const active = async () => {
+    const message = await next((candidate) => candidate.type === "suitActive");
+    return message.type === "suitActive" ? message.active : undefined;
+  };
+  /** Nothing more for this device after a round trip the socket answers in order. */
+  const quiet = async (requestId: string) => {
+    await request(requestId, { op: "list" });
+    return frames.filter((message) => message.type === "suitActive");
+  };
+  return { id: device.device.id, request, next, active, quiet };
+}
+
+function library(root: string) {
+  return new SuitLibrary({
+    root,
+    key: new Uint8Array(32),
+    watch: nodeSuitWatch,
+    schedule: nodeSuitSchedule,
+    settleMs: 20,
+  });
+}
 
 test("a read device lists Suits and hears removals, but only an admin device removes one", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-suit-scopes-")));
@@ -26,53 +88,14 @@ test("a read device lists Suits and hears removals, but only an admin device rem
     join(root, "neon", "suit.json"),
     JSON.stringify({ format: 1, id: "neon", name: "Neon", dark: {} }),
   );
-  const library = new SuitLibrary({
-    root,
-    key: new Uint8Array(32),
-    watch: nodeSuitWatch,
-    schedule: nodeSuitSchedule,
-    settleMs: 20,
-  });
-  await library.start();
+  const suits = library(root);
+  await suits.start();
   const sockets: WebSocket[] = [];
   try {
-    const f = await setup({ suits: library });
-    const connect = async (scopes: string[]) => {
-      const device = await f.pair(scopes);
-      const ticket = await f.ticket(device.token);
-      const socket = new WebSocket(f.server.url);
-      sockets.push(socket);
-      const frames: Frame[] = [];
-      const waiters: (() => void)[] = [];
-      socket.on("message", (data) => {
-        frames.push(frame.parse(JSON.parse(String(data))));
-        for (const wake of waiters.splice(0)) wake();
-      });
-      const next = async (match: (message: Frame) => boolean): Promise<Frame> => {
-        for (;;) {
-          const found = frames.findIndex(match);
-          if (found >= 0) return frames.splice(found, 1)[0]!;
-          await new Promise<void>((resolve) => waiters.push(resolve));
-        }
-      };
-      await once(socket, "open");
-      socket.send(
-        JSON.stringify({
-          type: "hello",
-          protocolVersion: 1,
-          deviceId: device.device.id,
-          ticket: ticket.ticket,
-        }),
-      );
-      await next((message) => message.type === "welcome");
-      const request = (requestId: string, body: unknown) => {
-        socket.send(JSON.stringify({ type: "suitRequest", requestId, request: body }));
-        return next((message) => "requestId" in message && message.requestId === requestId);
-      };
-      return { request, next };
-    };
+    const f = await setup({ suits });
+    const connectAs = (scopes: string[]) => connect(f, sockets, scopes);
 
-    const reader = await connect(["read"]);
+    const reader = await connectAs(["read"]);
     expect(await reader.request("list", { op: "list" })).toMatchObject({
       type: "suitResult",
       response: { op: "list", suits: [{ id: "neon", problems: [] }] },
@@ -82,7 +105,7 @@ test("a read device lists Suits and hears removals, but only an admin device rem
     });
     expect((await stat(join(root, "neon"))).isDirectory()).toBe(true);
 
-    const admin = await connect(["admin"]);
+    const admin = await connectAs(["admin"]);
     expect(await admin.request("remove", { op: "remove", id: "neon" })).toMatchObject({
       response: { op: "remove", removed: true },
     });
@@ -92,7 +115,71 @@ test("a read device lists Suits and hears removals, but only an admin device rem
     });
   } finally {
     for (const socket of sockets) socket.terminate();
-    library.close();
+    suits.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("an agent's preview reaches the person's sockets only; keep and revert follow it there", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "ace-suit-looks-")));
+  const suits = library(join(home, "suits"));
+  await seedBuiltinSuits(join(home, "suits"));
+  await suits.start();
+  const looks = new SuitLooks(() => "keep-1");
+  const thread = ThreadId.parse("thread-agent");
+  // Only the person's own devices may read the agent's thread.
+  const readers = new Set<string>();
+  const sockets: WebSocket[] = [];
+  try {
+    const f = await setup({
+      suits,
+      suitLooks: looks,
+      canReadThread: (device, id) => id !== thread || readers.has(device),
+    });
+    const laptop = await connect(f, sockets, ["read"]);
+    readers.add(laptop.id);
+    const stranger = await connect(f, sockets, ["read"]);
+    expect(await stranger.active()).toEqual({ kind: "none" });
+
+    // Each socket hears the state when it is welcomed: no preview yet.
+    expect(await laptop.active()).toEqual({ kind: "none" });
+    const previews = new SuitPreviews(
+      daemonSuitPort(
+        () => suits,
+        () => looks,
+      ),
+    );
+    const caller: McpAttribution = {
+      sessionId: "session-1",
+      threadId: thread,
+      agentId: AgentId.parse("agent-1"),
+    };
+    const signal = new AbortController().signal;
+
+    expect(await previews.preview(caller, "starfield", signal)).toMatchObject({
+      status: "previewing",
+    });
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "starfield" });
+
+    expect(await previews.keep(caller, undefined, signal)).toMatchObject({ status: "kept" });
+    expect(await laptop.active()).toEqual({
+      kind: "keep",
+      suitId: "starfield",
+      keepId: "keep-1",
+    });
+
+    expect(await previews.revert(caller)).toMatchObject({ status: "reverted" });
+    expect(await laptop.active()).toEqual({ kind: "restore", keepId: "keep-1" });
+    expect(await stranger.quiet("after")).toEqual([]);
+
+    // A turn's end takes its preview down on the devices that saw it.
+    await previews.preview(caller, "warm-paper", signal);
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "warm-paper" });
+    await previews.turnEnded(thread);
+    expect(await laptop.active()).toEqual({ kind: "none" });
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    suits.close();
     await rm(home, { recursive: true, force: true });
   }
 });

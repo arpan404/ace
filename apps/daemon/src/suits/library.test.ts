@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { SuitResponse, SuitSummary } from "@ace/protocol/suits";
+import { seedBuiltinSuits } from "@ace/plugins";
+import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
 import { suitsHttp, sceneCsp } from "./http.ts";
 import { SuitLibrary } from "./library.ts";
 import { nodeSuitSchedule, nodeSuitWatch } from "./watch.ts";
@@ -84,7 +86,16 @@ test("a read hands out the scene page and assets, served with the sandbox policy
   expect(page.status).toBe(200);
   expect(page.headers.get("content-security-policy")).toBe(sceneCsp);
   expect(page.headers.get("set-cookie")).toBeNull();
-  expect(await page.text()).toContain('<script src="scene.js"></script>');
+  // ace's runtime first, then the Suit's scene, both same-origin as `script-src 'self'` allows.
+  const scripts = [...(await page.text()).matchAll(/<script src="([^"]+)"><\/script>/g)].map(
+    (match) => match[1],
+  );
+  expect(scripts).toEqual(["scene-runtime.js", "scene.js"]);
+  expect(sceneCsp).toContain("script-src 'self'");
+  expect(sceneCsp).toContain("sandbox allow-scripts");
+  const runtime = await fetch(new URL("scene-runtime.js", origin + suitDetail.sceneUrl));
+  expect(runtime.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+  expect(await runtime.text()).toBe(sceneRuntimeScript);
   const script = await fetch(new URL("scene.js", origin + suitDetail.sceneUrl));
   expect(await script.text()).toBe("postMessage({ type: 'ready' }, '*')");
   const font = await fetch(origin + suitDetail.assets["assets/ui.woff2"], {
@@ -149,4 +160,30 @@ test("an edit on disk is announced once it settles, with the new list", async ()
   });
   await writeFile(join(root, "neon", "suit.json"), manifest("neon", { name: "Neon Night" }));
   await vi.waitFor(() => expect(heard.at(-1)?.[0]?.name).toBe("Neon Night"), { timeout: 3000 });
+});
+
+test("both Suits ace ships pass every check the daemon runs before one applies", async () => {
+  await rm(root, { recursive: true, force: true });
+  const seeded = await seedBuiltinSuits(root);
+  expect(seeded).toEqual(["starfield", "warm-paper"]);
+  for (const id of seeded) {
+    const checked = await library.validate(id);
+    expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
+  }
+  // The scene Suit is served with its scene; the colours-only one has none.
+  expect(detail(await library.read("starfield")).sceneUrl).toMatch(/scene\.html$/);
+  expect(detail(await library.read("warm-paper")).sceneUrl).toBeNull();
+});
+
+test("a Suit without a scene serves no scene page and no runtime", async () => {
+  await suit("plain", { "suit.json": manifest("plain") });
+  await suit("neon", { "suit.json": manifest("neon"), "scene.js": "one()" });
+  const neon = detail(await library.read("neon")).sceneUrl ?? "";
+  // The same grant shape for a Suit with no scene.js: nothing to serve.
+  const plain = await library.read("plain");
+  expect(detail(plain).sceneUrl).toBeNull();
+  const base = library.urls.base("plain", detail(plain).summary.contentHash);
+  expect((await fetch(origin + base + "scene.html")).status).toBe(404);
+  expect((await fetch(origin + base + "scene-runtime.js")).status).toBe(404);
+  expect((await fetch(new URL("scene-runtime.js", origin + neon))).status).toBe(200);
 });

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { fakeSuit, fakeSuitLibrary } from "@/test/fake-suits.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { themeDeclarations } from "@/theme/css.ts";
 
 const root = document.documentElement;
 afterEach(() => {
@@ -128,4 +129,23 @@ test("reverting a keep puts back this device's own look, unless the person chang
   await waitFor(() => expect(setting()).toBeNull());
   act(() => library.active({ kind: "restore", keepId: "k2" }));
   expect(setting()).toBeNull();
+});
+
+test("a Suit that tries to set status colours still renders ace's own status tokens", async () => {
+  const loud = fakeSuit({
+    id: "loud",
+    base: "midnight",
+    // Not fields a Suit may set: kept as raw data by the schema, never applied.
+    dark: { canvas: "#1a0b2e", working: "#00ff00", failed: "#00ff00", waiting: "#00ff00" },
+  });
+  const storage = memoryKeyValue();
+  storage.setItem("ace.appearance", JSON.stringify({ suit: "loud" }));
+  await openAppearance({ storage, suits: fakeSuitLibrary([loud]).transport });
+  await waitFor(() => expect(root.getAttribute("data-suit")).toBe("loud"));
+  const sheet = document.getElementById("ace-suit")?.textContent ?? "";
+  expect(sheet).toContain("--background:#1a0b2e");
+  expect(sheet).not.toContain("#00ff00");
+  const midnight = themeDeclarations("midnight", "dark");
+  for (const name of ["--status-working", "--status-failed", "--status-waiting", "--danger"])
+    expect(sheet).toContain(`${name}:${midnight[name]}`);
 });
