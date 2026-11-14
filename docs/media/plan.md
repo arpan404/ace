@@ -1399,23 +1399,52 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   opens `ws://127.0.0.1:<port>/ingest`, sends the hello and then one binary `MediaFrame` per
   chunk (`video-extension/ingest.ts`), stamped by a read-time `ReadStamper`; until the socket is
   open, and after it fails, chunks go to the daemon as before. Each chunk goes one way only, and
-  every switch asks each encode for a keyframe. `ace.video.ingest` carries the target to the
-  desktop; its encoder page's CSP admits `connect-src ws://127.0.0.1:*`. Encode specs carry
-  `id`, the encode id in the frames.
-- **Daemon** (`packages/media/src/{sources,runtime}.ts`, `packages/browser/src/media-video.ts`,
-  `apps/daemon/src/services/media.ts`). `MediaSources` opens each source with a fresh token and
-  egress handle while its kind's route says so, reopens every source after a restart (and on
-  `retrying`), and points producers back at the daemon at once when the route or ace-media goes.
-  A source sent back keeps its egress until its producer's end frame arrives, plus 250 ms (the
-  egress lane can be overtaken by `source.status`), or 2 s at most, so a flip drops no unit.
-  `mediaVideoHost` wraps a backend's `VideoHost` by its `mediaKind`: tab and embedded captures
-  keep their encoder and stream; screencast captures (`tab-pictures`, `user-tab`) send
-  `source.picture` and `source.encodes` and never start the encoder Chrome. A screencast
-  capture opened while ace-media is still starting uses the encoder Chrome and holds a source
-  that brings ace-media up, then ends so the next capture goes there. Codecs ace-media can't
-  encode, or a source ace-media ends, keep that host on the encoder Chrome. `media.encode` is
-  a global-only setting, default `legacy`; the daemon builds its `MediaRuntime` the first time
-  it is `auto` and the binary is found.
+  every switch asks each encode for a keyframe. The sink owns the token bytes and zeroes them
+  once the hello is sent and on every earlier end (a failed connect, a close before `open`, a
+  failed send, the capture leaving). On the daemon's path the producer says `moved` (`ingest`
+  or `daemon`), ordered with its chunks there: the last thing before its chunks leave, the
+  first thing after they come back, and also when a socket that never opened is dropped.
+  Encode specs carry `id`, the encode id in the frames.
+- **Desktop encoder page.** Its policy admits `connect-src` to ace-media's current endpoint
+  only (`encoder-policy.ts`), and its partition lets through only its own files and that
+  endpoint's `/ingest`. The page is made for the endpoint it was loaded with; `ace.video.reach`
+  (sent before a capture opens) and each `ace.video.ingest` name the current one, and a page
+  made for another endpoint goes, its captures with it, so the daemon reopens them on a page
+  that can reach ace-media.
+- **The egress end marker** (`media_wire::frame::egress_end`, `encodeEgressEnd`, vectors in
+  `vectors/frame/egress-end.json`). A kind-4 `MediaFrame` on egress after a handle's last unit,
+  with the next sequence, flag 8 (`interrupted`) when the stream was cut. ace-media sends it
+  when a producer's end frame arrives, when its connection drops (interrupted), when the daemon
+  closes a source that still streams or that ace-media encodes, and when a JPEG source's
+  encoder fails (interrupted). It is queued past the lane's bound, so a full egress never loses
+  it. The router hands it to the source's consumers whatever the route says now, and a gap
+  before it makes it interrupted.
+- **Shared sources** (`packages/media/src/ingest-sources.ts`, `IngestSources`, for every
+  producer kind: E3's helper and devices move onto it). Each open gets a fresh ace-media id
+  (the path's name), single-use token and egress handle; the producer is pointed once
+  ace-media reports the source `starting`, with `{url, socket, token, epoch, path}`. A route
+  change, `retrying`, a refusal or ace-media leaving points the producer back first; then the
+  old path keeps delivering, under the route it was opened with, until its end marker. Only
+  then is its handle closed and `source.close` sent (at once for the sources ace-media reads
+  itself, whose pictures share the close's lane). A marker that never comes within 2 s, or
+  ace-media exiting, reports the path `interrupted`, never clean. Reconnects stop after three
+  in a row until the route changes; a source ended with a reason stays on the daemon.
+- **Path merge** (`packages/media/src/path-merge.ts`, used by both producer kinds). A switch
+  holds the new path's units until the old path's ordered end: ace-media's end marker, or the
+  producer's `moved` on the daemon's path. A clean end releases them in order; an interrupted
+  end, or none within 1 s, starts each encode at its next keyframe and drops what the old path
+  still sends. A switch abandoned before the old path ended keeps the old path. The screen
+  helper's sequence boundary maps to `ended` once its boundary unit has been handed on.
+- **Daemon wiring** (`packages/media/src/runtime.ts`, `packages/browser/src/media-video.ts`,
+  `apps/daemon/src/services/media.ts`). `mediaVideoHost` wraps a backend's `VideoHost` by its
+  `mediaKind`: tab and embedded captures keep their encoder and stream, both paths through one
+  merge; screencast captures (`tab-pictures`, `user-tab`) send `source.picture` and
+  `source.encodes` and never start the encoder Chrome. A screencast capture opened while
+  ace-media is still starting uses the encoder Chrome and holds a source that brings ace-media
+  up, then ends so the next capture goes there. Codecs ace-media can't encode, or a source
+  ace-media ends, keep that host on the encoder Chrome. `media.encode` is a global-only setting,
+  default `legacy`; the daemon builds its `MediaRuntime` the first time it is `auto` and the
+  binary is found.
 - **ace-media** (`crates/ace-media/src/encode`, `trials.rs`, `shell/pictures.rs`). A JPEG
   source with encodes gets a thread of its own: base64 decoded, JPEG decoded at each encode's
   size, encoded, units out on egress with their picture's epoch and age, and the source's steps
@@ -1430,7 +1459,8 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   encoder or stay legacy. The `packages/browser-extension` native host still hands "Use my
   Chrome" pictures to the daemon, which forwards them as `source.picture`. The daemon issues no
   epochs to browser producers beyond the one at open (recordings stay legacy until F1's
-  follow-up). A flip of a screencast source reopens its capture, a short gap at a keyframe.
+  follow-up). A flip of a screencast source reopens its capture (it has one path at a time),
+  a short gap that resumes at a keyframe.
 
 ## F1 notes
 
