@@ -342,3 +342,89 @@ test("a tapped sign-in past its time says it ended, even while the machine still
   watch.open(tap("r1"));
   expect(state()?.opened).toEqual({ n: 2, requestId: "r1", ended: null });
 });
+
+interface AddressRow {
+  path: string;
+  title: string;
+  url: string | null;
+  state: string | null;
+  problem: boolean;
+  note: string | null;
+  on: boolean | null;
+  ownUrl: string | null;
+}
+const outside = (
+  client: Parameters<typeof answerOutside>[0],
+  request: Parameters<typeof answerOutside>[1]["request"],
+) => answerOutside(client, { type: "native.outside", machine: "studio", request }, () => 1_000);
+async function addresses(client: Parameters<typeof answerOutside>[0]) {
+  return (await outside(client, { op: "addresses" })) as {
+    ok: boolean;
+    rows: AddressRow[];
+    enroll: string;
+  };
+}
+
+test("Connect an app lists the four addresses with what each can copy and why one can't serve", async () => {
+  const { daemon, client } = await connected();
+  daemon.outside.endpoints = [
+    { path: "relay", url: null, on: true, problem: "Sign in to ace to use the relay" },
+    { path: "local", url: "http://127.0.0.1:47811/mcp", on: true },
+    { path: "tailscale", url: "https://studio.tail.ts.net/mcp", on: true },
+  ];
+  const answer = await addresses(client);
+  expect(answer.ok).toBe(true);
+  expect(answer.enroll).toBe("ace mcp enroll");
+  expect(answer.rows.map((row) => [row.path, row.title, row.url, row.state])).toEqual([
+    ["local", "This computer", "http://127.0.0.1:47811/mcp", "http://127.0.0.1:47811/mcp"],
+    ["tailscale", "Tailscale", "https://studio.tail.ts.net/mcp", "https://studio.tail.ts.net/mcp"],
+    ["relay", "ace's relay", null, "Sign in to ace to use the relay"],
+    ["custom", "Your own URL", null, null],
+  ]);
+  expect(answer.rows.find((row) => row.path === "relay")).toMatchObject({
+    problem: true,
+    note: "ace cloud can read what passes through it; it keeps none of it.",
+  });
+  expect(answer.rows.find((row) => row.path === "local")?.on).toBeNull();
+});
+
+test("the relay and Tailscale switches save on the machine and read back", async () => {
+  const { client } = await connected();
+  const before = await addresses(client);
+  expect(before.rows.find((row) => row.path === "relay")?.on).toBe(false);
+  expect(await outside(client, { op: "setPath", path: "relay", on: true })).toEqual({ ok: true });
+  expect(await outside(client, { op: "setPath", path: "tailscale", on: true })).toEqual({
+    ok: true,
+  });
+  const after = await addresses(client);
+  expect(after.rows.find((row) => row.path === "relay")?.on).toBe(true);
+  expect(after.rows.find((row) => row.path === "tailscale")?.on).toBe(true);
+  await outside(client, { op: "setPath", path: "relay", on: false });
+  expect((await addresses(client)).rows.find((row) => row.path === "relay")?.on).toBe(false);
+});
+
+test("your own URL takes an https origin, is refused in words otherwise, and can be removed", async () => {
+  const { client } = await connected();
+  const custom = async () => (await addresses(client)).rows.find((row) => row.path === "custom");
+  expect((await custom())?.ownUrl).toBeNull();
+  expect(await outside(client, { op: "setPublicUrl", url: " https://ace.example.com " })).toEqual({
+    ok: true,
+  });
+  expect((await custom())?.ownUrl).toBe("https://ace.example.com");
+  expect(await outside(client, { op: "setPublicUrl", url: "http://ace.example.com/mcp" })).toEqual({
+    ok: false,
+    code: "invalid",
+    message: "Use an https origin without a path, such as https://ace.example.com",
+  });
+  expect((await custom())?.ownUrl).toBe("https://ace.example.com");
+  await outside(client, { op: "setPublicUrl", url: null });
+  expect((await custom())?.ownUrl).toBeNull();
+});
+
+test("a phone that isn't the machine's administrator can't switch an address", async () => {
+  const { client } = await connected(["read", "operate"]);
+  expect(await outside(client, { op: "setPath", path: "relay", on: true })).toMatchObject({
+    ok: false,
+    message: "Only an administrator of studio can manage connected apps.",
+  });
+});
