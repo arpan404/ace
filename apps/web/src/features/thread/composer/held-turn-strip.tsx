@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useThread, useThreadMeta } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
 import type { AgentError } from "@ace/protocol";
 import {
   carryingTurn,
@@ -19,7 +19,7 @@ import type { QueueControls } from "./use-queue.ts";
 
 /** The root agent's failure while it is the newest thing that happened to it. */
 function useRootFailure(threadId: string): AgentError | undefined {
-  const rootId = useThreadMeta(threadId)?.rootAgentId ?? "";
+  const rootId = useThread(threadId, ["thread"], readRootId) ?? "";
   const read = useCallback(
     (reader: ThreadReader) => {
       const status = reader.agent(rootId)?.status;
@@ -35,7 +35,7 @@ function useRootFailure(threadId: string): AgentError | undefined {
  * paused), else the newest turn that ended on a limit with nothing run since.
  */
 export function useHeldTurn(threadId: string, held: HeldQueue | undefined): HeldTurn | undefined {
-  const provider = useThreadMeta(threadId)?.provider;
+  const provider = useThread(threadId, ["thread"], readProvider);
   const failure = useRootFailure(threadId);
   const running = !!useActiveRootRun(threadId);
   const now = useNow();
@@ -65,7 +65,7 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
  */
 export function useLeavesLimit(threadId: string): boolean {
   const chosen = useChosenModel(threadId);
-  const queued = useThreadMeta(threadId)?.switch?.state === "queued";
+  const queued = useThread(threadId, ["thread"], readSwitchQueued) === true;
   return chosen ? !chosen.exhausted : queued;
 }
 
@@ -180,3 +180,8 @@ export function HeldTurnStrip(props: {
     </section>
   );
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readRootId = (reader: ThreadReader) => reader.thread?.rootAgentId;
+const readProvider = (reader: ThreadReader) => reader.thread?.provider;
+const readSwitchQueued = (reader: ThreadReader) => reader.thread?.switch?.state === "queued";
