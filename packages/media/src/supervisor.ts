@@ -305,7 +305,8 @@ export class MediaSupervisor {
   /**
    * Revokes on the priority lane at once, whatever the normal lane holds, and drops queued grants
    * it covers. Resolves when ace-media answers, or when the process is gone: with no answer
-   * within 250 ms, or no priority lane, the process is killed.
+   * within 250 ms the process is killed, as it is whenever the priority lane drops. Before the
+   * lanes are up no grant has been sent, so there is nothing to revoke (`not-running`).
    */
   revoke(message: Revocation): Promise<RevocationResult> {
     const run = this.#run;
