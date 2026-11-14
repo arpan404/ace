@@ -104,9 +104,21 @@ struct LargeFileView: View {
                 .disabled(search.found == 0 || searching).accessibilityLabel("Previous match").accessibilityIdentifier("file.large.previous")
             Button { Task { await step(forward: true) } } label: { Image(systemName: "chevron.down") }
                 .disabled(query.isEmpty || searching).accessibilityLabel("Next match").accessibilityIdentifier("file.large.next")
+            // The match's part header is often scrolled off once find centres the match; its
+            // Edit stays here, beside the match it opens on.
+            if editable, let part = matchPart {
+                Button("Edit") { editingPart = part }
+                    .buttonStyle(.textAction())
+                    .accessibilityLabel("Edit lines \(part.firstLine + 1) to \(part.firstLine + max(part.lines.count, 1))")
+                    .accessibilityIdentifier("file.large.find.edit")
+            }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
+    }
+    /// The part holding the match shown, when it is held.
+    private var matchPart: LargeFileText.Part? {
+        shown.flatMap { hit in reading.parts.first { $0.offset == hit.page } }
     }
     /// A row's place: its part and its line within the part. A long line cut across parts shows
     /// as a row in each, under the same line number, so the number alone isn't unique.

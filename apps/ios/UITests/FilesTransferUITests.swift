@@ -68,10 +68,10 @@ import XCTest
         wait(for: [expectation(for: NSPredicate(format: "label BEGINSWITH '1 of 1'"), evaluatedWith: count)], timeout: 60)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '010000 replay'")).firstMatch.waitForExistence(timeout: 10))
         capture("large-find")
-        app.buttons["file.large.find"].tap()
 
-        // The part in view (the match's) opens on its own and saves into the file.
-        let edit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.large.edit.'")).firstMatch
+        // The match's part opens on its own from the find bar (its header is scrolled off by
+        // the centred match) and saves into the file.
+        let edit = app.buttons["file.large.find.edit"]
         XCTAssertTrue(edit.waitForExistence(timeout: 10)); edit.tap()
         let save = app.buttons["file.part.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 10))
@@ -82,7 +82,11 @@ import XCTest
         save.tap()
         // The file reads again from its start; find reaches the saved edit wherever it is.
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'read in parts'")).firstMatch.waitForExistence(timeout: 30))
-        app.buttons["file.large.find"].tap()
+        // Find stays open with the old query: Done clears it, Find opens it empty.
+        let find = app.buttons["file.large.find"]
+        find.tap()
+        wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: query)], timeout: 5)
+        find.tap()
         XCTAssertTrue(query.waitForExistence(timeout: 5))
         query.typeText("PHONEEDIT")
         app.buttons["file.large.next"].tap()
