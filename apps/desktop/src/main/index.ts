@@ -282,6 +282,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     log: logger("quit"),
   });
+  const daemonRunning = new Promise<void>((resolve) => {
+    if (runtime.current().state === "running") return resolve();
+    const stop = runtime.onStatus((status) => {
+      if (status.state !== "running") return;
+      stop();
+      resolve();
+    });
+  });
   const updates = appUpdates({
     version: info.version,
     packaged: app.isPackaged,
@@ -292,6 +300,11 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     random: Math.random,
     now: Date.now,
+    // Checks back off while nobody sees the app or it runs on battery (update-schedule.ts).
+    active: () =>
+      Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()) &&
+      !powerMonitor.isOnBatteryPower(),
+    daemonRunning,
     report: (status) => {
       emit(contents(), "updates.status", status);
       updateReport.status(status);
@@ -387,8 +400,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
-    // Opening the app (launch, reopening its window, showing it again) asks for an update.
+    // Opening the app (reopening its window, showing or focusing it again) asks for an update
+    // once the last check is a while ago.
     window.on("show", () => updates.opened());
+    window.on("focus", () => updates.opened());
     const closing = window;
     // Browser views move to the parking window before the window (and its views) go.
     closing.on("close", () => background.windowClosing(closing));
@@ -713,6 +728,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     powerMonitor.on("shutdown", () => {
       systemShutdown = true;
     });
+    // Plugged in again: checks leave their battery back-off.
+    powerMonitor.on("on-ac", () => updates.opened());
     powerMonitor.on("resume", () => {
       background.wake();
       // Timers stall while the Mac sleeps; a wake is an opening too.
