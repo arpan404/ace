@@ -3,9 +3,11 @@ import { digestFromCounters } from "@ace/projection";
 import type { Counters, LongThreadDatabase } from "./database.ts";
 
 // Index rows hold protocol values written by whichever build indexed them (the index has no
-// build fingerprint), so the JSON commands and the paths are validated as they are read.
+// build fingerprint), so every digest value is validated as it is read: each command and file
+// entry with its schema, and the counts and flags once the digest is built from them.
 const Command = TurnDigest.shape.commands.element;
-const Path = TurnDigest.shape.files.element.shape.path;
+const File = TurnDigest.shape.files.element;
+const Scalars = TurnDigest.omit({ files: true, commands: true });
 
 /** A whole turn's digest key: a thread and a turn ordinal (0 is the whole thread). */
 export type TurnKey = readonly [thread: string, ordinal: number];
@@ -42,23 +44,26 @@ function counters(rows: readonly Record<string, unknown>[]): Counters {
   return Object.fromEntries(rows.map((row) => [String(row.key), Number(row.value)]));
 }
 type FileEntry = TurnDigest["files"][number];
-/** A `long_files` row: line counts are unknown once any change to the path had none. */
+/**
+ * A `long_files` row: line counts are unknown once any change to the path had none. Counts
+ * below zero read as zero; anything else outside the protocol's counts fails the read.
+ */
 const turnFile = (row: Record<string, unknown>): FileEntry => {
   const unknown = Number(row.unknown) > 0;
-  return {
-    path: Path.parse(row.path),
+  return File.parse({
+    path: row.path,
     added: unknown ? null : Math.max(0, Number(row.added)),
     removed: unknown ? null : Math.max(0, Number(row.removed)),
-  };
+  });
 };
-/** A `long_agent_files` row, read as an agent's share always was. */
+/** A `long_agent_files` row, read as an agent's share always was: any invalid count fails. */
 const agentFile = (row: Record<string, unknown>): FileEntry => {
   const unknown = Number(row.unknown) !== 0;
-  return {
-    path: Path.parse(row.path),
+  return File.parse({
+    path: row.path,
     added: unknown ? null : Number(row.added),
     removed: unknown ? null : Number(row.removed),
-  };
+  });
 };
 /** The digest's bounded details: at most 64 files and commands, truncated if there were more. */
 function details(
@@ -70,6 +75,8 @@ function details(
   digest.files = files.slice(0, 64).map(file);
   digest.commands = commands.slice(0, 64).map((row) => Command.parse(JSON.parse(String(row.data))));
   digest.truncated = files.length > 64 || commands.length > 64;
+  // Counters come from index rows too: a count outside the protocol's range fails the read.
+  Scalars.parse(digest);
   return digest;
 }
 
