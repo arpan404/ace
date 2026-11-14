@@ -114,7 +114,16 @@ settle, and the caller must notice so the parent never reads done while it runs.
     for a working child whose pairing went: pair the machine again to keep watching it, or stop
     watching it, when it keeps the result it ended with;
   - a child its machine says it doesn't hold (`not_found`, which refuses the whole call) is read
-    alone from then on, so the rest of its call are read; that is the machine's answer for it.
+    alone from then on, so the rest of its call are read; that is the machine's answer for it;
+  - no child starves: a round asks every child once, those it has not asked yet always ahead of
+    children whose reads failed (past-24-hour children first only as a tie-break), and children
+    whose reads failed go in a call of their own, so they never take down another's read;
+  - a child whose own reads keep failing while its machine answers others backs off on its own,
+    doubling to the same 30 s cap, and is asked at the base pace again once it answers; the
+    machine itself backs off only when nothing asked of it in a poll answered.
+    A child that would answer is asked within `ceil(n / 16)` turns of its round starting, n being
+    the children tracked on its machine, however many others keep failing; turns are 10 s apart
+    during a round, or the machine's failure wait (at most 30 s) when nothing it was asked answered.
     Work started again on a settled child is read within one wait plus one round: at most
     5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
     and after a restart within `ceil(n / 16)` × 10 s. On each machine

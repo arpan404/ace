@@ -84,7 +84,8 @@ async function parentWith(idList: readonly string[]) {
     device: () => (studio.paired ? "device-studio" : undefined),
     log: () => {},
   });
-  for (const id of idList) {
+  /** A child delegated to Studio from the parent, working there until told otherwise. */
+  const add = (id: string) => {
     ledger.add({
       id: ThreadId.parse(id),
       requestKey: `parent:${id}`,
@@ -97,7 +98,8 @@ async function parentWith(idList: readonly string[]) {
       device: "device-studio",
     });
     studio.views.set(id, view(id, "working"));
-  }
+  };
+  for (const id of idList) add(id);
   await f.engine.flush();
   /** Lets `ms` pass in steps of `step`, the children's own timers and a poll at each. */
   const pass = async (ms: number, step = 10_000) => {
@@ -114,7 +116,7 @@ async function parentWith(idList: readonly string[]) {
     Object.values(f.store.snapshotThread(parent.threadId).interactions).filter(
       (interaction) => interaction.state === "pending",
     );
-  return { f, parent, studio, ledger, pass, state, asks };
+  return { f, parent, studio, ledger, pass, state, asks, add };
 }
 
 it("a settled child on a machine unpaired across its 24 h mark is read again once paired back", async () => {
@@ -251,4 +253,37 @@ it("a call of sixteen that fails never discards what another call in the same po
   await h.pass(2_000);
   expect(h.state("child-00")).toBe("done");
   expect(h.state("child-16")).toBe("working");
+});
+
+it("sixteen children past their 24 h mark whose reads keep failing never keep another from being read", async () => {
+  const expired = Array.from({ length: 16 }, (_, index) => `old-${String(index).padStart(2, "0")}`);
+  const h = await parentWith(expired);
+  for (const id of expired) h.studio.views.set(id, view(id, "done", "Done."));
+  await h.pass(2_000);
+  // From an hour before their 24 h mark, every read naming one of them loses its connection.
+  await h.pass(RECHECK_WINDOW_MS - HOUR, 60_000);
+  for (const id of expired) h.studio.cutWith.add(id);
+  await h.pass(2 * HOUR, 60_000);
+  // A seventeenth child settles there now, then starts again.
+  h.add("fresh");
+  h.studio.views.set("fresh", view("fresh", "done", "Done."));
+  // Read as a working child is, once the machine's own failure wait (at most 30 s) is over.
+  await h.pass(40_000, 1_000);
+  expect(h.state("fresh")).toBe("done");
+  h.studio.views.set("fresh", view("fresh", "working"));
+  // Read within two batches of its round, each at most the 30 s failure wait apart.
+  await h.pass(70_000, 1_000);
+  expect(h.state("fresh")).toBe("working");
+});
+
+it("children that keep failing are asked at the capped pace, not every poll", async () => {
+  const h = await parentWith(["child-a", "child-b"]);
+  // One its machine doesn't hold, and one whose reads keep losing their connection.
+  h.studio.unknown.add("child-a");
+  h.studio.cut.add("child-b");
+  await h.pass(3 * 60_000, 1_000);
+  const before = h.studio.calls.length;
+  await h.pass(60_000, 1_000);
+  // At the 30 s cap each is asked about twice a minute; every poll would be 120 calls or more.
+  expect(h.studio.calls.length - before).toBeLessThanOrEqual(8);
 });

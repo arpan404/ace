@@ -68,24 +68,43 @@ export class RecheckSchedule {
   private start: number;
   private last = new Map<string, number>();
   private polls = new Map<string, number>();
-  /** Per machine, the children the current round has not read yet; absent before the first. */
+  /** Per machine, the children the current round has not asked yet; absent before the first. */
   private rounds = new Map<string, Set<string>>();
+  /** Per machine, the children asked whose read has not been answered yet. */
+  private owed = new Map<string, Set<string>>();
   constructor(pollMs: number, start: number) {
     this.pollMs = pollMs;
     this.start = start;
   }
   /**
    * A turn on `machine` is about to be taken; `tracked` is every child tracked there now. A new
-   * round begins when the last one is done; children no longer tracked leave the current one.
-   * Returns the children the round still has to read.
+   * round begins when the last one has asked every child; children no longer tracked leave it.
+   * Returns the children the round has not asked yet, and those asked but still unanswered.
    */
-  turn(machine: string, tracked: readonly string[]): string[] {
-    const round = this.rounds.get(machine);
+  turn(machine: string, tracked: readonly string[]): { pending: string[]; owed: string[] } {
     const now = new Set(tracked);
-    const next =
+    const round = this.rounds.get(machine);
+    const pending =
       round && round.size > 0 ? new Set([...round].filter((id) => now.has(id))) : new Set(now);
-    this.rounds.set(machine, next);
-    return [...next];
+    const owed = new Set([...(this.owed.get(machine) ?? [])].filter((id) => now.has(id)));
+    this.rounds.set(machine, pending);
+    this.owed.set(machine, owed);
+    return { pending: [...pending], owed: [...owed] };
+  }
+  /**
+   * The turn at `now` asks `ids`: they leave the round, and each is owed an answer until one
+   * comes. The machine's next turn is timed from this one.
+   */
+  picked(machine: string, ids: readonly string[], now: number): void {
+    this.last.set(machine, now);
+    this.polls.set(machine, 0);
+    const round = this.rounds.get(machine);
+    const owed = this.owed.get(machine) ?? new Set<string>();
+    for (const id of ids) {
+      round?.delete(id);
+      owed.add(id);
+    }
+    this.owed.set(machine, owed);
   }
   /**
    * `ids` on `machine` answered a re-check at `now`. Returns those it read at or after their
@@ -96,12 +115,12 @@ export class RecheckSchedule {
     ids: readonly { id: string; settledAt: number | null }[],
     now: number,
   ): { id: string; settledAt: number }[] {
-    this.last.set(machine, now);
-    this.polls.set(machine, 0);
     const round = this.rounds.get(machine);
+    const owed = this.owed.get(machine);
     const ended: { id: string; settledAt: number }[] = [];
     for (const { id, settledAt } of ids) {
       round?.delete(id);
+      owed?.delete(id);
       if (settledAt !== null && now - settledAt >= RECHECK_WINDOW_MS) ended.push({ id, settledAt });
     }
     return ended;
@@ -122,32 +141,51 @@ export class RecheckSchedule {
   }
   /** Machines with no settled child to re-check keep no schedule. */
   retain(machines: ReadonlySet<string>): void {
-    for (const map of [this.last, this.polls, this.rounds])
+    for (const map of [this.last, this.polls, this.rounds, this.owed])
       for (const machine of map.keys()) if (!machines.has(machine)) map.delete(machine);
   }
   private everyPolls(machine: string, facts: RecheckFacts, now: number): number {
     const round = this.rounds.get(machine);
-    // The first round after start, the rest of a round, a child owed its last check, or a stop
-    // still unconfirmed: the fast pace.
-    if (!round || round.size > 0 || facts.expired || facts.unconfirmed) return RECHECK_POLLS;
+    // The first round after start, the rest of a round, a child asked but not yet answered, a
+    // child owed its last check, or a stop still unconfirmed: the fast pace.
+    if (
+      !round ||
+      round.size > 0 ||
+      (this.owed.get(machine)?.size ?? 0) > 0 ||
+      facts.expired ||
+      facts.unconfirmed
+    )
+      return RECHECK_POLLS;
     const age = facts.latest === null ? undefined : Math.max(0, now - facts.latest) / this.pollMs;
     return recheckEveryPolls(age);
   }
 }
 /**
- * The children one re-check turn asks about, at most `limit`: those past the window first, then
- * those the round has not read yet (`unread`), then those checked longest ago.
+ * The children one re-check turn asks about, at most `limit`, in round-robin order so none
+ * starves: those the round has not asked yet first, then those asked whose read failed. Among
+ * each, children past their 24 h mark go first, then those checked longest ago. A child whose
+ * reads keep failing waits out its own backoff (`due`); when it is due it takes its place by
+ * these rules, never ahead of a child the round has not asked yet. A child the round has asked
+ * and that answered is not asked again until the next round.
  */
 export function recheckPicks<
   T extends { id: string; settled_at: number | null; rechecked: number },
->(rows: readonly T[], expiry: number, unread: readonly string[], limit: number): T[] {
-  const due = new Set(unread);
+>(
+  rows: readonly T[],
+  expiry: number,
+  turn: { pending: readonly string[]; owed: readonly string[] },
+  due: (id: string) => boolean,
+  limit: number,
+): T[] {
+  const pending = new Set(turn.pending);
+  const owed = new Set(turn.owed);
   const rank = (row: T) => [
+    pending.has(row.id) ? 0 : 1,
     row.settled_at !== null && row.settled_at < expiry ? 0 : 1,
-    due.has(row.id) ? 0 : 1,
     row.rechecked,
   ];
-  return [...rows]
+  return rows
+    .filter((row) => (pending.has(row.id) || owed.has(row.id)) && due(row.id))
     .toSorted((a, b) => {
       const [x, y] = [rank(a), rank(b)];
       for (let index = 0; index < x.length; index++)
