@@ -26,6 +26,8 @@ pub const MAX_HANDLES: usize = 65_536;
 const CODEC_JPEG: u8 = 7;
 /// `record.meta` messages waiting for their epoch's decision; past this the oldest are dropped.
 pub const MAX_PENDING_META: usize = 1_024;
+/// Decisions kept for a source that isn't recording yet, and sources they are kept for.
+pub const MAX_EARLY_DECISIONS: usize = 64;
 
 /// A frame with when it was captured on ace-media's clock: its arrival less the producer's age.
 pub struct Timed {
@@ -69,6 +71,9 @@ pub struct Sources {
     handles: HashSet<u32>,
     bindings: HashMap<IngestId, String>,
     events: Vec<Event<Timed>>,
+    /// `record.epochs` that overtook their `record.start` (or `source.open`): the priority lane
+    /// is read first, so a recording's first decisions can arrive before it exists.
+    early: HashMap<String, Vec<Decision>>,
 }
 
 fn status(
@@ -168,6 +173,12 @@ impl Sources {
         }
     }
 
+    /// `source.close`: the source and anything kept for its next recording.
+    pub fn close_source(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+        self.early.remove(id);
+        self.close(id, vault, out);
+    }
+
     pub fn close(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
         let Some(mut source) = self.by_id.remove(id) else {
             return;
@@ -261,6 +272,13 @@ impl Sources {
             .get_mut(id.get())
             .and_then(|s| s.recording.as_mut());
         let Some(recording) = recording else {
+            let early = self.early.len() < MAX_SOURCES || self.early.contains_key(id.get());
+            if early {
+                let kept = self.early.entry(id.get().to_owned()).or_default();
+                if kept.len() < MAX_EARLY_DECISIONS {
+                    kept.push(decision.clone());
+                }
+            }
             return priority(
                 out,
                 FromMedia::EpochsApplied {
@@ -473,8 +491,10 @@ impl Sources {
         spec: &RecordSpec<'_>,
         recording: &Id,
         recorders: &mut dyn Recorders,
+        now: u64,
         out: &mut Vec<Effect>,
     ) {
+        let early = self.early.remove(spec.source).unwrap_or_default();
         let fail = |out: &mut Vec<Effect>, reason: &str| {
             normal(
                 out,
@@ -501,12 +521,30 @@ impl Sources {
                 if source.stamper.is_some() {
                     barrier.issued(source.epoch);
                 }
+                // Only a run from seq 0 is this recording's: later ones may be a previous
+                // recording's, still in flight when it stopped. They were answered already.
+                let mut early = early;
+                early.sort_by_key(|d| d.seq);
+                let mut applied = Vec::new();
+                for (expected, decision) in early.into_iter().enumerate() {
+                    if decision.seq != expected as u64 {
+                        break;
+                    }
+                    barrier.decide(decision, now, &mut applied);
+                }
+                self.events.extend(
+                    applied
+                        .into_iter()
+                        .filter(|e| !matches!(e, Event::Applied { .. })),
+                );
                 source.recording = Some(Recording {
                     id: recording.clone(),
                     barrier,
                     recorder,
                     meta: VecDeque::new(),
                 });
+                let source = spec.source.to_owned();
+                self.release(&source, out);
             }
         }
     }

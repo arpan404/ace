@@ -378,3 +378,30 @@ fn pointer_metadata_is_written_only_for_epochs_decided_clear() {
     decide(&mut engine, 1, 3, json!([[3, 3]]), json!([]), NOW);
     assert_eq!(written(&log), ["meta 1 {\"x\":10}", "meta 3 {\"x\":30}"]);
 }
+
+#[test]
+fn decisions_that_overtake_their_record_start_still_apply_and_stale_ones_never_do() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    // A previous recording's decision, in flight past its stop, and this recording's first
+    // two, all on the priority lane ahead of record.start and even of source.open.
+    decide(&mut engine, 7, 9, json!([[1, 9]]), json!([]), NOW);
+    decide(&mut engine, 1, 2, json!([]), json!([[2, 2]]), NOW);
+    decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW);
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    send(
+        &mut engine,
+        json!({ "type": "record.start", "recording": "r1", "source": "s1", "directory": "/tmp/r",
+                "maxBytes": 1_000_000, "pointerTrack": false }),
+        &[],
+        NOW,
+    );
+    for (epoch, key) in [(1, true), (1, false), (2, true), (3, true)] {
+        ingest(&mut engine, 1, unit(epoch, key), NOW);
+    }
+    // Epoch 1 written, 2 discarded, 3 undecided: the stale seq 7 clearing 1..9 never applied.
+    assert_eq!(written(&log), ["write 1 1", "write 1 0"]);
+    decide(&mut engine, 2, 3, json!([[3, 3]]), json!([]), NOW);
+    assert_eq!(written(&log), ["write 1 1", "write 1 0", "write 3 1"]);
+}

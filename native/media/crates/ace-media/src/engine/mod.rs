@@ -168,7 +168,7 @@ impl Engine {
                 };
                 self.sources.decide(&source, decision, now.mono_ms, out);
             }
-            ToMedia::SourceClose { source } => self.sources.close(source.get(), vault, out),
+            ToMedia::SourceClose { source } => self.sources.close_source(source.get(), vault, out),
             ToMedia::MediaTicket {
                 connection,
                 owner,
@@ -268,8 +268,13 @@ impl Engine {
                     max_bytes: max_bytes.get(),
                     pointer_track,
                 };
-                self.sources
-                    .record_start(&spec, &recording, self.recorders.as_mut(), out);
+                self.sources.record_start(
+                    &spec,
+                    &recording,
+                    self.recorders.as_mut(),
+                    now.mono_ms,
+                    out,
+                );
             }
             ToMedia::RecordCut { recording, .. } => self.sources.record_cut(recording.get()),
             ToMedia::RecordMeta {
