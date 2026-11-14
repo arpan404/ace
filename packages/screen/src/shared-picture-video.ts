@@ -8,6 +8,7 @@ export class SharedPictureVideos {
     string,
     {
       video: PicturesToVideo;
+      settings: ScreenStreamSettings;
       viewers: Set<(frame: Frame) => void>;
       push(frame: Frame): void;
     }
@@ -38,6 +39,23 @@ export class SharedPictureVideos {
           settings.bitrate,
         ]);
         if (next === key) return true;
+        const current = key === undefined ? undefined : this.#groups.get(key);
+        if (
+          current &&
+          current.viewers.size === 1 &&
+          !this.#groups.has(next) &&
+          current.settings.codec === settings.codec &&
+          current.settings.maxWidth === settings.maxWidth &&
+          current.settings.maxHeight === settings.maxHeight &&
+          current.settings.fps === settings.fps
+        ) {
+          this.#groups.delete(key ?? "");
+          key = next;
+          current.settings = settings;
+          this.#groups.set(next, current);
+          current.video.want(settings);
+          return true;
+        }
         stop();
         key = next;
         let group = this.#groups.get(next);
@@ -58,6 +76,7 @@ export class SharedPictureVideos {
           let previous: Frame | undefined;
           group = {
             video,
+            settings,
             viewers,
             push(frame) {
               if (frame === previous) return;

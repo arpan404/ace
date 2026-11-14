@@ -230,25 +230,157 @@ test("equal session settings share one encode and leaving one viewer keeps the o
   b.close();
 });
 
-test("different bitrates use separate encodes and a viewer can rejoin the shared settings", async () => {
-  const fake = encoder();
+/** Models a live encoder boundary: closed lanes stop producing; bitrate controls bytes/frame. */
+function adaptiveEncoder() {
+  type Spec = { key: string; width: number; height: number; fps: number; bitrate: number };
+  const lanes: (() => void)[] = [];
+  const host: VideoHost = {
+    supported: async () => ["avc1.42E033"],
+    open: async () => {
+      throw new Error("no tabs");
+    },
+    encodePictures: async (_width, _height, events) => {
+      let spec: Spec | undefined;
+      let closed = false,
+        key = true;
+      lanes.push(() => {
+        if (closed || !spec) return;
+        const bytes = Buffer.alloc(Math.ceil(spec.bitrate / (8 * spec.fps)));
+        bytes.writeUInt32BE(bytes.length - 4);
+        bytes[4] = key ? 0x25 : 0x21;
+        events.chunk({
+          encode: spec.key,
+          key,
+          codec: "avc1.42E033",
+          codedWidth: spec.width,
+          codedHeight: spec.height,
+          ...(key ? { description } : {}),
+          bytes,
+        });
+        key = false;
+      });
+      return {
+        encodes: (next) => {
+          const first = next[0];
+          if (first?.key !== spec?.key) key = true;
+          spec = first;
+        },
+        keyframe: () => {
+          key = true;
+        },
+        pictures: { width: 1280, height: 800, push: () => {} },
+        close: () => {
+          closed = true;
+        },
+      };
+    },
+  };
+  return { host, advance: (index: number) => lanes[index]?.() };
+}
+
+test("a lone viewer's bitrate change keeps its running stream and delivers the new rate without a keyframe", async () => {
+  const fake = adaptiveEncoder();
   const pool = new SharedPictureVideos();
-  const open = () =>
-    pool.open({ host: () => fake.host, sessionId: "session-1", now: () => 5, frame: () => {} });
-  const a = open(),
-    b = open();
+  const frames: Frame[] = [];
+  const view = pool.open({
+    host: () => fake.host,
+    sessionId: "session-1",
+    now: () => 5,
+    frame: (frame) => frames.push(frame),
+  });
+  view.want(settings);
+  view.push(jpeg(1));
+  await settle();
+  fake.advance(0);
+  view.want({ ...settings, bitrate: 900_000 });
+  view.push(jpeg(2));
+  await settle();
+  fake.advance(0);
+  expect(frames.map((frame) => [frame.header.sequence, frame.header.keyframe])).toEqual([
+    [0, true],
+    [1, false],
+  ]);
+  expect(frames[1]?.header).toMatchObject({
+    width: 640,
+    height: 400,
+    captureGeneration: frames[0]?.header.captureGeneration,
+  });
+  expect(frames[1]?.payload.length).toBe(Math.ceil(900_000 / (8 * 60)));
+  view.close();
+});
+
+test("a viewer splits for its own dimensions and rate, rejoins, and keeps playing after its peer leaves", async () => {
+  const fake = adaptiveEncoder();
+  const pool = new SharedPictureVideos();
+  const first: Frame[] = [],
+    second: Frame[] = [];
+  const open = (frames: Frame[]) =>
+    pool.open({
+      host: () => fake.host,
+      sessionId: "session-1",
+      now: () => 5,
+      frame: (frame) => frames.push(frame),
+    });
+  const a = open(first),
+    b = open(second);
   a.want(settings);
-  b.want({ ...settings, bitrate: 900_000 });
+  b.want(settings);
   const input = jpeg(1);
   a.push(input);
   b.push(input);
   await settle();
-  expect(fake.encodes.map((specs) => specs[0]?.bitrate)).toEqual([2_000_000, 900_000]);
-  b.want(settings);
-  a.push(jpeg(2));
+  fake.advance(0);
+  b.want({ ...settings, maxWidth: 320, bitrate: 900_000 });
   await settle();
-  // Rejoining an existing group opens no encoder; it follows that group's output.
-  expect(fake.encodes).toHaveLength(2);
+  fake.advance(1);
+  fake.advance(1);
+  fake.advance(0);
+  expect(first.at(-1)?.header).toMatchObject({ width: 640, height: 400, keyframe: false });
+  expect(first.at(-1)?.payload.length).toBe(Math.ceil(settings.bitrate / (8 * settings.fps)));
+  expect(second.at(-1)?.header).toMatchObject({ width: 320, height: 200, keyframe: false });
+  expect(second.at(-1)?.payload.length).toBe(Math.ceil(900_000 / (8 * 60)));
+  b.want(settings);
+  fake.advance(0);
+  fake.advance(0);
+  expect(second.at(-1)).toBe(first.at(-1));
+  expect(second.at(-1)?.header).toMatchObject({ width: 640, height: 400, keyframe: false });
+  expect(second.at(-1)?.payload.length).toBe(Math.ceil(settings.bitrate / (8 * settings.fps)));
+  const count = second.length;
+  fake.advance(1);
+  expect(second).toHaveLength(count);
   a.close();
+  fake.advance(0);
+  expect(second).toHaveLength(count + 1);
+  expect(second.at(-1)?.header.sequence).toBe((first.at(-1)?.header.sequence ?? -1) + 1);
   b.close();
+});
+
+test("a bitrate change while the sole encode opens reaches its first delivered pictures", async () => {
+  const fake = adaptiveEncoder();
+  const supported = Promise.withResolvers<string[]>();
+  fake.host.supported = () => supported.promise;
+  const frames: Frame[] = [];
+  const pool = new SharedPictureVideos();
+  const view = pool.open({
+    host: () => fake.host,
+    sessionId: "session-1",
+    now: () => 5,
+    frame: (frame) => frames.push(frame),
+  });
+  view.want(settings);
+  view.push(jpeg(1));
+  view.want({ ...settings, bitrate: 900_000 });
+  supported.resolve(["avc1.42E033"]);
+  await settle();
+  fake.advance(0);
+  fake.advance(0);
+  expect(frames).toHaveLength(2);
+  expect(frames[1]?.header).toMatchObject({
+    sequence: 1,
+    keyframe: false,
+    width: 640,
+    height: 400,
+  });
+  expect(frames[1]?.payload.length).toBe(Math.ceil(900_000 / (8 * 60)));
+  view.close();
 });
