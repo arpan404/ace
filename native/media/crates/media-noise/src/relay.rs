@@ -55,18 +55,27 @@ impl<'a> Fragments<'a> {
         Ok(Self { data, kind })
     }
 }
+impl Fragments<'_> {
+    /// Writes the next fragment plaintext into `out`, replacing its contents, with
+    /// room for the tag so `seal_in_place` does not reallocate. False when done.
+    pub fn next_into(&mut self, out: &mut Vec<u8>) -> bool {
+        if self.data.is_empty() {
+            return false;
+        }
+        let n = self.data.len().min(CHUNK);
+        out.clear();
+        out.reserve(n + 17);
+        out.push(self.kind as u8 + u8::from(n == self.data.len()));
+        out.extend_from_slice(&self.data[..n]);
+        self.data = &self.data[n..];
+        true
+    }
+}
 impl Iterator for Fragments<'_> {
     type Item = Zeroizing<Vec<u8>>;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.data.is_empty() {
-            return None;
-        }
-        let n = self.data.len().min(CHUNK);
-        let mut plain = Zeroizing::new(Vec::with_capacity(n + 1));
-        plain.push(self.kind as u8 + u8::from(n == self.data.len()));
-        plain.extend_from_slice(&self.data[..n]);
-        self.data = &self.data[n..];
-        Some(plain)
+        let mut plain = Zeroizing::new(Vec::new());
+        self.next_into(&mut plain).then_some(plain)
     }
 }
 /// Cipher framing only; the caller owns authorization, scheduling, queues and credit accounting.
@@ -97,17 +106,31 @@ impl<const INTERVAL: u64> Transport<INTERVAL> {
         })
     }
     pub fn seal(&mut self, plain: &[u8]) -> Result<Vec<u8>, Error> {
-        let result = self.send.encrypt(plain, &[])?;
+        let mut out = Vec::with_capacity(plain.len() + 16);
+        out.extend_from_slice(plain);
+        self.seal_in_place(&mut out)?;
+        Ok(out)
+    }
+    /// Seals `buffer` in place, appending the tag; the plaintext is overwritten.
+    pub fn seal_in_place(&mut self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        self.send.encrypt_in_place(buffer, &[])?;
         self.sent = self.sent.wrapping_add(1);
         if self.sent.is_multiple_of(INTERVAL) {
             self.send.rekey()?;
         }
-        Ok(result)
+        Ok(())
     }
     pub fn open(&mut self, sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
-        let result = self.receive.decrypt(sealed, &[]);
-        let plain = match result {
-            Ok(p) => p,
+        let mut out = Zeroizing::new(sealed.to_vec());
+        let length = self.open_in_place(&mut out)?.len();
+        out.truncate(length);
+        Ok(out)
+    }
+    /// Opens `buffer` in place and returns the plaintext prefix. Any failure closes
+    /// the stream. The caller owns wiping the buffer.
+    pub fn open_in_place<'a>(&mut self, buffer: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
+        let plain = match self.receive.decrypt_in_place(buffer, &[]) {
+            Ok(plain) => plain,
             Err(e) => {
                 self.close();
                 return Err(e);

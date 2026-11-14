@@ -30,37 +30,54 @@ impl CipherState {
         }
         Ok(())
     }
+    /// Copying wrapper over `encrypt_in_place`.
     pub fn encrypt(&mut self, plain: &[u8], ad: &[u8]) -> Result<Vec<u8>, Error> {
-        self.check(plain.len().saturating_add(16))?;
-        let key = self.key.as_ref().ok_or(Error::Closed)?;
         let mut out = Vec::with_capacity(plain.len() + 16);
         out.extend_from_slice(plain);
+        self.encrypt_in_place(&mut out, ad)?;
+        Ok(out)
+    }
+    /// Encrypts `buffer` in place and appends the tag. No allocation when the buffer
+    /// has 16 bytes of spare capacity; no plaintext remains in it afterwards.
+    pub fn encrypt_in_place(&mut self, buffer: &mut Vec<u8>, ad: &[u8]) -> Result<(), Error> {
+        self.check(buffer.len().saturating_add(16))?;
+        let key = self.key.as_ref().ok_or(Error::Closed)?;
         key.cipher()
             .seal_in_place_append_tag(
                 Nonce::assume_unique_for_key(nonce_bytes(self.nonce)),
                 Aad::from(ad),
-                &mut out,
+                buffer,
             )
             .map_err(|_| Error::Authentication)?;
         self.nonce += 1;
+        Ok(())
+    }
+    /// Copying wrapper over `decrypt_in_place`; the result is wiped on drop.
+    pub fn decrypt(&mut self, sealed: &[u8], ad: &[u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
+        let mut out = Zeroizing::new(sealed.to_vec());
+        let length = self.decrypt_in_place(&mut out, ad)?.len();
+        out.truncate(length);
         Ok(out)
     }
-    pub fn decrypt(&mut self, sealed: &[u8], ad: &[u8]) -> Result<Zeroizing<Vec<u8>>, Error> {
-        self.check(sealed.len())?;
+    /// Decrypts `buffer` (ciphertext and tag) in place and returns the plaintext
+    /// prefix. The caller owns wiping the buffer.
+    pub fn decrypt_in_place<'a>(
+        &mut self,
+        buffer: &'a mut [u8],
+        ad: &[u8],
+    ) -> Result<&'a mut [u8], Error> {
+        self.check(buffer.len())?;
         let key = self.key.as_ref().ok_or(Error::Closed)?;
-        let mut out = Zeroizing::new(sealed.to_vec());
-        let length = key
+        let plain = key
             .cipher()
             .open_in_place(
                 Nonce::assume_unique_for_key(nonce_bytes(self.nonce)),
                 Aad::from(ad),
-                &mut out,
+                buffer,
             )
-            .map_err(|_| Error::Authentication)?
-            .len();
-        out.truncate(length);
+            .map_err(|_| Error::Authentication)?;
         self.nonce += 1;
-        Ok(out)
+        Ok(plain)
     }
     /// Noise REKEY uses the reserved nonce and does not reset the next nonce.
     pub fn rekey(&mut self) -> Result<(), Error> {

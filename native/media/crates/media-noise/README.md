@@ -48,13 +48,20 @@ From `native/media`, run:
 cargo run --release -p media-noise --example seal
 ```
 
-This is bench/seal, located in the M4-owned crate. Each result is a JSON line with
-frame size, throughput, per-frame wall time and starting host load. It compares ring
-0.17.14 with RustCrypto chacha20poly1305 0.11.0 (benchmark dependency only), then measures
-the public cipher's allocating encryption and wipe-on-drop decryption paths. The
-transport encryption measurement includes retaining ciphertexts; raw AEAD measurements
-reuse a buffer and discard detached tags. Both implementations use their SIMD backends
-on this arm64 Mac. Both pass the workspace license/source policy.
+This is bench/seal, located in the M4-owned crate. Each result is a JSON line per path
+and frame size with the median of three runs: wall throughput, per-frame wall time,
+throughput per second of thread CPU time, and the host load before each run. It
+compares ring 0.17.14 with RustCrypto chacha20poly1305 0.11.0 (benchmark dependency
+only), then measures the production transport paths: `Fragments::next_into` plus
+`RelayStream::seal_in_place` into one reused buffer, and a frame copied into one reused
+buffer and opened with `open_in_place`. Key blocks are parsed once per stream, outside
+the timed loops. Both implementations use their SIMD backends on this arm64 Mac. Both
+pass the workspace license/source policy.
+
+Senders should keep one buffer per stream: `next_into` writes the fragment with room
+for the tag and `seal_in_place` overwrites the plaintext with ciphertext, so a frame
+costs no allocation and leaves no plaintext to wipe. `seal` and `open` are copying
+wrappers over the same code.
 
 The benchmark fails below 1,500 MB/s for full-size transport encryption, unless
 `ACE_MEDIA_BENCH_REPORT_ONLY=1` or the starting load exceeds twice the CPU count.

@@ -51,6 +51,41 @@ fn ts_ciphertext_and_decryption_match_across_two_rekeys() -> Result {
     Ok(())
 }
 #[test]
+fn in_place_seal_and_open_in_one_reused_buffer_match_ts_transcript_across_rekeys() -> Result {
+    let v: Value = serde_json::from_str(include_str!("../../../vectors/noise/scenarios.json"))?;
+    let n = v["initialNonce"].as_str().ok_or("nonce")?.parse()?;
+    let mut stream = RelayStream::<16>::import(block(&v["key"], n, 0)?)?;
+    let mut buffer = Zeroizing::new(Vec::new());
+    for step in v["steps"].as_array().ok_or("steps")? {
+        let plain = bytes(&step["plain"])?;
+        buffer.clear();
+        buffer.extend_from_slice(&plain);
+        stream.seal_in_place(&mut buffer)?;
+        assert_eq!(*buffer, bytes(&step["sealed"])?);
+        assert_eq!(
+            stream.open_in_place(&mut buffer)?,
+            &bytes(&step["opened"])?[..]
+        );
+    }
+    Ok(())
+}
+#[test]
+fn fragments_written_into_a_reused_buffer_equal_the_allocating_iterator() -> Result {
+    let data: Vec<u8> = (0..150_000_u32).map(|i| i as u8).collect();
+    let expected: Vec<_> = Fragments::new(&data, FragmentKind::Json)?.collect();
+    let mut fragments = Fragments::new(&data, FragmentKind::Json)?;
+    let mut buffer = Vec::new();
+    let mut seen = 0;
+    while fragments.next_into(&mut buffer) {
+        assert_eq!(buffer, *expected[seen]);
+        assert!(buffer.capacity() >= buffer.len() + 16);
+        seen += 1;
+    }
+    assert_eq!(seen, expected.len());
+    assert_eq!(seen, 3);
+    Ok(())
+}
+#[test]
 fn handover_resumes_ts_nonces_and_frame_counts_at_production_rekey() -> Result {
     let v: Value = serde_json::from_str(include_str!("../../../vectors/noise/scenarios.json"))?;
     // TS transcript frames 15 and 16 straddle rekey; align that boundary to production's.
