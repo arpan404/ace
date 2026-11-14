@@ -1,4 +1,9 @@
-import { RECHECK_POLLS, RECHECK_WINDOW_MS, recheckEveryPolls } from "./child-recheck.ts";
+import {
+  RECHECK_POLLS,
+  RECHECK_SLOWEST_POLLS,
+  RECHECK_WINDOW_MS,
+  recheckEveryPolls,
+} from "./child-recheck.ts";
 
 /*
  * Which of one machine's children are read in each turn, in which calls, and what each call's
@@ -118,9 +123,10 @@ export function dueAt(
     (rec.lastAnsweredAt === undefined || rec.lastAnsweredAt < rec.implicatedAt)
   )
     return rec.implicatedAt;
-  // A working child is read on every turn (there is one turn a poll); one with a call on its way
-  // is skipped above.
-  if (!child.settled) return config.start;
+  // A working child is read one poll after it was last asked; one with a call on its way is
+  // skipped above.
+  if (!child.settled)
+    return rec.lastAskedAt === undefined ? config.start : rec.lastAskedAt + config.pollMs;
   const fast = RECHECK_POLLS * config.pollMs;
   if (rec.lastAnsweredAt === undefined) return config.start + fast;
   const expired = child.settledAt !== null && now - child.settledAt >= RECHECK_WINDOW_MS;
@@ -139,8 +145,10 @@ export interface TurnPlan {
 }
 
 /**
- * This turn's calls for one machine: due children earliest due first (ties by id); a suspect
- * child alone in its call, the rest sixteen to a call; at most `callsPerTurn` calls.
+ * This turn's calls for one machine: due children earliest due first, then those asked longest
+ * ago, then by id; a suspect child alone in its call, the rest sixteen to a call; at most
+ * `callsPerTurn` calls. More due than fits waits for the next turn, first in line then: every due
+ * child is asked within `ceil(n / callsPerTurn)` turns of coming due, n being the children there.
  */
 export function planTurn(
   children: readonly ScheduleChild[],
@@ -165,7 +173,12 @@ export function planTurn(
       (entry): entry is { child: ScheduleChild; at: number; limit: number } =>
         entry.at !== undefined && entry.at <= entry.limit,
     )
-    .toSorted((a, b) => a.at - b.at || (a.child.id < b.child.id ? -1 : 1));
+    .toSorted((a, b) => {
+      if (a.at !== b.at) return a.at - b.at;
+      const asked = (entry: { child: ScheduleChild }) =>
+        records.get(entry.child.id)?.lastAskedAt ?? Number.NEGATIVE_INFINITY;
+      return asked(a) - asked(b) || (a.child.id < b.child.id ? -1 : 1);
+    });
   const calls: string[][] = [];
   let open: string[] | undefined;
   for (const { child } of due) {
@@ -198,7 +211,12 @@ export function planTurn(
   return { calls, records: next, unpairedExpired };
 }
 
-/** The earliest time any of the machine's children is due, or undefined when none will be. */
+/**
+ * The earliest time anything owed on the machine is due, or undefined when nothing is: a child's
+ * next read, or for a settled child whose machine is unpaired the next look at its pairing (one
+ * slowest interval away at most) or its 24 h mark, when the person is asked. Undefined only while
+ * every child it could ask has a call on its way.
+ */
 export function nextDue(
   children: readonly ScheduleChild[],
   records: Records,
@@ -206,9 +224,16 @@ export function nextDue(
   config: ScheduleConfig,
 ): number | undefined {
   let next: number | undefined;
+  const take = (at: number) => {
+    if (next === undefined || at < next) next = at;
+  };
   for (const child of children) {
     const at = dueAt(child, records.get(child.id), now, config);
-    if (at !== undefined && (next === undefined || at < next)) next = at;
+    if (at !== undefined) take(at);
+    else if (!child.paired) {
+      take(now + RECHECK_SLOWEST_POLLS * config.pollMs);
+      if (child.settled && child.settledAt !== null) take(child.settledAt + RECHECK_WINDOW_MS);
+    }
   }
   return next;
 }
@@ -290,13 +315,4 @@ export function foldCall(
     }
   }
   return { records: next, ended };
-}
-
-/** Another call to the machine got through: children waiting out a failure are due now. */
-export function retryNow(records: Records, now: number): Map<string, ChildRecord> {
-  const next = new Map(records);
-  for (const [id, rec] of records)
-    if (rec.failures > 0 && rec.retryAt !== undefined && rec.retryAt > now)
-      next.set(id, { ...rec, retryAt: now });
-  return next;
 }

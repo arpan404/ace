@@ -5,6 +5,7 @@ import {
   defaultScheduleConfig,
   restored,
   foldCall,
+  nextDue,
   planTurn,
   type CallOutcome,
   type ChildRecord,
@@ -57,15 +58,29 @@ const kinds: Behaviour["kind"][] = [
 ];
 
 /** A machine of `count` children, mixed: working and settled of various ages, some unpaired. */
-function generate(seed: number, count: number, start: number): SimChild[] {
+/** How a machine's children are split between working and settled. */
+type Population = "mixed" | "working" | "settled";
+
+function generate(
+  seed: number,
+  count: number,
+  start: number,
+  population: Population = "mixed",
+  failing = 1,
+): SimChild[] {
   const next = random(seed);
   return Array.from({ length: count }, (_, index) => {
     const pick = next();
-    const kind = index === 0 ? "healthy" : (kinds[Math.floor(pick * kinds.length)] ?? "healthy");
-    const settled = next() < 0.6;
+    // `failing` scales how many children fail in some way: 1 is about five in six, 0 none.
+    const kind =
+      index === 0 || next() >= failing
+        ? "healthy"
+        : (kinds[Math.floor(pick * kinds.length)] ?? "healthy");
+    const split = next();
+    const settled = population === "settled" || (population === "mixed" && split < 0.6);
     const age = Math.floor(next() * 2 * RECHECK_WINDOW_MS);
     return {
-      id: `child-${String(index).padStart(3, "0")}`,
+      id: `child-${String(index).padStart(4, "0")}`,
       settled,
       settledAt: settled ? start - age : null,
       unconfirmed: settled && next() < 0.1,
@@ -190,6 +205,33 @@ function bound(child: ScheduleChild, n: number, now: number) {
 }
 
 const seeds = Array.from({ length: 12 }, (_, index) => index + 1);
+
+test("a. holds on machines of up to 1,000 children, all working, all settled or mixed", () => {
+  for (const [count, population, failing] of [
+    [256, "working", 0],
+    [1000, "working", 0],
+    [1000, "working", 0.2],
+    [1000, "settled", 0.2],
+    [1000, "mixed", 0.2],
+  ] as const) {
+    const children = generate(7, count, 0, population, failing);
+    const trace = simulate(children, 4 * MINUTE);
+    for (const child of children) {
+      if (child.behaviour.kind !== "healthy" || !child.paired || trace.ended.has(child.id))
+        continue;
+      // Working children are due every poll, so each is read within the bound throughout;
+      // settled ones at least once within the bound of start.
+      const asked = trace.asked.get(child.id) ?? [];
+      expect(asked.length, `${count} ${population} ${child.id}`).toBeGreaterThan(0);
+      const worst = child.settled
+        ? (asked[0] ?? Infinity)
+        : Math.max(...gaps(asked), asked[0] ?? 0);
+      expect(worst, `${count} ${population} ${child.id}`).toBeLessThanOrEqual(
+        bound(child, children.length, 4 * MINUTE),
+      );
+    }
+  }
+}, 30_000);
 
 test("a. any child that answers when asked alone is asked within the bound, whatever the others do", () => {
   for (const seed of seeds) {
@@ -337,5 +379,24 @@ test("a restart mid-run reads every saved child again within the bound of start"
     expect((after ?? Infinity) - restartAt, child.id).toBeLessThanOrEqual(
       RECHECK_POLLS * POLL + (Math.ceil(50 / 16) + 1) * POLL + TIMEOUT_MS + POLL,
     );
+  }
+});
+
+test("for any tracked set, something owed always has a time: nextDue is defined", () => {
+  for (const seed of seeds) {
+    for (const population of ["mixed", "working", "settled"] as const) {
+      // Every child unpaired, every one paired, and the generated mix.
+      for (const paired of [undefined, true, false]) {
+        const children = generate(seed, 40, 0, population).map((child) =>
+          paired === undefined ? child : Object.assign({}, child, { paired }),
+        );
+        const config = defaultScheduleConfig(POLL, 0);
+        const at = nextDue(children, new Map(), 0, config);
+        // Every child here is owed something: a read, or a look at its pairing and its 24 h mark.
+        expect(at, `seed ${seed} ${population} ${String(paired)}`).toBeDefined();
+        // And never further than the slowest interval away.
+        expect(at ?? Infinity).toBeLessThanOrEqual(RECHECK_SLOWEST_POLLS * POLL);
+      }
+    }
   }
 });
