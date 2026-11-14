@@ -36,15 +36,15 @@ const capabilityTable: [string, RouteCapabilities][] = [
 
 const consumers = (route: SourceRoute) => [route.deliverer, route.recorder, route.stills];
 
-describe("every setting combination × health × capabilities is a complete route", () => {
-  for (const settings of settingsTable)
-    for (const health of healths)
-      for (const [capabilityName, capabilities] of capabilityTable)
-        it(`${JSON.stringify(settings)}, ${health}, ${capabilityName}`, () => {
+describe("every setting combination × capabilities is a complete route", () => {
+  for (const health of healths)
+    it(`while ace-media is ${health}`, () => {
+      for (const settings of settingsTable)
+        for (const [capabilityName, capabilities] of capabilityTable) {
           const routes = mediaRoutes(settings, health, capabilities);
           for (const kind of sourceKinds) {
             const route = routes[kind];
-            const where = `${kind}: ${JSON.stringify(route)}`;
+            const where = `${JSON.stringify(settings)}, ${capabilityName}, ${kind}: ${JSON.stringify(route)}`;
             // Every consumer has an input: frames in the daemon for a legacy one, in ace-media
             // for ace-media's.
             for (const consumer of consumers(route)) {
@@ -52,13 +52,6 @@ describe("every setting combination × health × capabilities is a complete rout
               const inMedia = route.producer === "ace-media" || route.tee;
               expect(consumer === "legacy" ? inDaemon : inMedia, where).toBe(true);
             }
-            // Tee and egress exactly when the table says, never both.
-            expect(route.tee, where).toBe(
-              route.producer === "daemon" && consumers(route).includes("ace-media"),
-            );
-            expect(route.egress, where).toBe(
-              route.producer === "ace-media" && consumers(route).includes("legacy"),
-            );
             expect(route.tee && route.egress, where).toBe(false);
             // Nothing runs in ace-media unless it is healthy and asked for.
             if (health !== "healthy") {
@@ -78,7 +71,50 @@ describe("every setting combination × health × capabilities is a complete rout
               expect(capabilities.ingest, where).toContain(kind);
             }
           }
-        });
+        }
+    });
+});
+
+it("tee and egress follow the plan's table (healthy, every capability)", () => {
+  // [encode, delivery, recordings, stills] → [producer, tee, egress]
+  const rows: [MediaSettings, [SourceRoute["producer"], boolean, boolean]][] = [
+    [
+      { encode: "legacy", delivery: "legacy", recordings: "legacy", stills: "legacy" },
+      ["daemon", false, false],
+    ],
+    [
+      { encode: "legacy", delivery: "auto", recordings: "legacy", stills: "legacy" },
+      ["daemon", true, false],
+    ],
+    [
+      { encode: "legacy", delivery: "legacy", recordings: "legacy", stills: "auto" },
+      ["daemon", true, false],
+    ],
+    [
+      { encode: "legacy", delivery: "auto", recordings: "auto", stills: "auto" },
+      ["daemon", true, false],
+    ],
+    [
+      { encode: "auto", delivery: "legacy", recordings: "legacy", stills: "legacy" },
+      ["ace-media", false, true],
+    ],
+    [
+      { encode: "auto", delivery: "auto", recordings: "legacy", stills: "auto" },
+      ["ace-media", false, true],
+    ],
+    [
+      { encode: "auto", delivery: "auto", recordings: "auto", stills: "legacy" },
+      ["ace-media", false, true],
+    ],
+    [
+      { encode: "auto", delivery: "auto", recordings: "auto", stills: "auto" },
+      ["ace-media", false, false],
+    ],
+  ];
+  for (const [settings, expected] of rows) {
+    const route = mediaRoutes(settings, "healthy", everything).tab;
+    expect([route.producer, route.tee, route.egress], JSON.stringify(settings)).toEqual(expected);
+  }
 });
 
 function healthy(settings: MediaSettings, capabilities = everything): SourceRoute {

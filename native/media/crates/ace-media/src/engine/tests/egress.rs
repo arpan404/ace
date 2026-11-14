@@ -213,3 +213,50 @@ fn audio_and_pictures_go_out_without_waiting_for_a_keyframe() {
     ingest(&mut engine, 1, picture, NOW);
     assert_eq!(sent(&lane.drain()), [(9, 0, 1), (9, 1, 2)]);
 }
+
+#[test]
+fn a_picture_never_reopens_a_video_gate_closed_by_a_full_egress() {
+    let lane = Lane::new(1);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "s1", 4, 1);
+    egress(&mut engine, "s1", true);
+    ingest(&mut engine, 1, marked(true, 1), NOW);
+    // Full: the delta closes encode 7's gate.
+    ingest(&mut engine, 1, marked(false, 2), NOW);
+    lane.set_room(100);
+    // A picture under the same encode id goes out, and deltas still wait for a keyframe.
+    let mut picture = frame(3, 0, 1, vec![3; 4]);
+    picture.codec = 7;
+    ingest(&mut engine, 1, picture, NOW);
+    ingest(&mut engine, 1, marked(false, 4), NOW);
+    ingest(&mut engine, 1, marked(true, 5), NOW);
+    assert_eq!(sent(&lane.drain()), [(4, 0, 1), (4, 2, 3), (4, 4, 5)]);
+}
+
+#[test]
+fn an_encode_past_the_gate_bound_is_logged_and_its_successor_starts_at_a_keyframe() {
+    let lane = Lane::new(1000);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "s1", 6, 1);
+    egress(&mut engine, "s1", true);
+    let mut logged = Vec::new();
+    for encode in 0..17u32 {
+        let mut unit = marked(true, encode as u8);
+        unit.encode = encode;
+        logged.extend(ingest(&mut engine, 1, unit, NOW));
+    }
+    let warnings = logged
+        .iter()
+        .filter(|e| matches!(e, Effect::Normal(FromMedia::Log { message, .. }) if message.contains("gate")))
+        .count();
+    assert_eq!(warnings, 1);
+    // Encode 0 was forgotten: its next delta waits for a keyframe again.
+    let mut delta = marked(false, 99);
+    delta.encode = 0;
+    let effects = ingest(&mut engine, 1, delta, NOW);
+    assert_eq!(
+        keyframe_requests(&effects),
+        [("s1".into(), 0, KeyReason::Resume)]
+    );
+    assert_eq!(lane.drain().len(), 17);
+}

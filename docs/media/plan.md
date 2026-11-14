@@ -716,15 +716,20 @@ ace-media.
     `onChange` lists, so a producer routed to a dead ace-media is pointed back at the daemon at
     once.
   - **Writer.** Each unit of a source with egress on takes the next sequence, sent or dropped.
-    Video goes through one `ChunkGate` per encode id; the first unit of an encode after egress
-    turns on must be a keyframe (else `source.keyframe` `resume`), and a refused send asks for
-    one with `drop`. Audio and pictures are never gated. An empty lane always takes one frame,
-    so a keyframe larger than 4 MiB still passes once the lane drains. A full egress never ends
-    the process; a dropped or failed egress lane does.
-  - **Router.** `EgressRouter` mints handles (from 1, never reused while the daemon lives),
-    dispatches each unit to the consumers the source's route keeps in the daemon, marks a
-    unit after a sequence gap, and counts invalid frames, unknown and closed handles, gaps, and
-    frames for a source whose route no longer has egress.
+    Video goes through one `ChunkGate` per encode id (at most 16 per source; a forgotten one is
+    logged and starts again at a keyframe), and a unit is copied into its egress bytes only once
+    its gate lets it through. The first unit of an encode after egress turns on must be a
+    keyframe (else `source.keyframe` `resume`), and a refused send asks for one with `drop`.
+    Audio and pictures are never gated and never open a video gate. An empty lane always takes
+    one frame, so a keyframe larger than 4 MiB still passes once the lane drains. A full egress
+    never ends the process; a dropped or failed egress lane does.
+  - **Router.** `EgressRouter` mints handles (from 1, never reused while the daemon lives) and
+    keeps each handle's source kind. For every unit it reads the kind's live route through the
+    callback it was built with (`RouteWatch.routes()[kind]`), so it holds no copy that can
+    drift: once the route moves the producer back to the daemon, units ace-media sent before
+    it heard `source.egress` off are dropped, never delivered twice. It dispatches to the
+    consumers the route keeps in the daemon, marks a unit after a sequence gap, and counts
+    invalid frames, unknown and closed handles, gaps, and those unrouted units.
 
 ### Supervision (`@ace/media` `MediaSupervisor`)
 

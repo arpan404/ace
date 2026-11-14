@@ -6,9 +6,9 @@
 //!
 //! The lane is bounded. A unit the lane can't take is dropped, and `media-core::gate` keeps each
 //! encode decodable: deltas are dropped to the next keyframe and the producer is asked for one.
-use super::{Effect, normal};
+use super::{Effect, log, normal};
 use media_core::gate::ChunkGate;
-use media_wire::control::{FromMedia, Id, KeyReason};
+use media_wire::control::{FromMedia, Id, KeyReason, Level};
 use media_wire::frame::{MediaFrame, encode_egress};
 
 /// Where egress frames go: the shell's egress lane, or a fake in tests.
@@ -28,7 +28,6 @@ impl EgressSink for NoEgress {
 }
 
 const KIND_VIDEO: u8 = 1;
-const KIND_AUDIO: u8 = 2;
 const FLAG_KEYFRAME: u32 = 1;
 /// Encodes one source keeps a gate for; past this the oldest is forgotten.
 const MAX_ENCODES: usize = 16;
@@ -53,7 +52,8 @@ impl SourceEgress {
         self.on = on;
     }
 
-    /// Offers one unit of `source` (whose handle is `handle`) to the egress lane.
+    /// Offers one unit of `source` (whose handle is `handle`) to the egress lane. The frame is
+    /// copied into its egress bytes only once the gate lets it through.
     pub fn unit(
         &mut self,
         source: &Id,
@@ -67,32 +67,28 @@ impl SourceEgress {
         }
         let sequence = self.sequence;
         self.sequence = self.sequence.wrapping_add(1);
-        let Ok(bytes) = encode_egress(handle, sequence, frame) else {
-            return;
+        let send = |sink: &mut dyn EgressSink| {
+            encode_egress(handle, sequence, frame).is_ok_and(|bytes| sink.offer(bytes))
         };
-        if frame.kind == KIND_AUDIO {
-            // Every audio packet decodes on its own: nothing to gate.
-            sink.offer(bytes);
+        if frame.kind != KIND_VIDEO {
+            // Audio packets and pictures each decode on their own: nothing to gate, and they
+            // never open a video encode's gate.
+            send(sink);
             return;
         }
-        let key = frame.kind != KIND_VIDEO || frame.flags & FLAG_KEYFRAME != 0;
-        let gate = self.gate(frame.encode);
-        let (outcome, reason) = match gate {
-            Some(gate) => (gate.offer(key, || sink.offer(bytes)), KeyReason::Drop),
+        let key = frame.flags & FLAG_KEYFRAME != 0;
+        let (outcome, reason) = match self.gate(frame.encode) {
+            Some(gate) => (gate.offer(key, || send(sink)), KeyReason::Drop),
             None => {
                 // The encode's first unit since egress turned on, and not a keyframe: the gate
                 // starts closed, as after a refused send, until a keyframe comes.
                 let mut gate = ChunkGate::default();
-                let outcome = if key {
-                    gate.offer(true, || sink.offer(bytes))
-                } else {
-                    gate.offer(false, || false)
-                };
-                self.remember(frame.encode, gate);
+                let outcome = gate.offer(key, || key && send(sink));
+                self.remember(frame.encode, gate, source, out);
                 (outcome, KeyReason::Resume)
             }
         };
-        if outcome.keyframe && frame.kind == KIND_VIDEO {
+        if outcome.keyframe {
             normal(
                 out,
                 FromMedia::SourceKeyframe {
@@ -111,9 +107,11 @@ impl SourceEgress {
             .map(|(_, gate)| gate)
     }
 
-    fn remember(&mut self, encode: u32, gate: ChunkGate) {
+    fn remember(&mut self, encode: u32, gate: ChunkGate, source: &Id, out: &mut Vec<Effect>) {
         if self.gates.len() >= MAX_ENCODES {
+            // Its next unit starts it again at a keyframe.
             self.gates.remove(0);
+            log(out, Level::Warn, "egress forgot an encode's gate", source);
         }
         self.gates.push((encode, gate));
     }

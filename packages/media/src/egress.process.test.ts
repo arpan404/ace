@@ -103,7 +103,7 @@ it.runIf(real)(
       stills: false,
       delivery: false,
     };
-    const router = new EgressRouter();
+    const router = new EgressRouter((kind) => watch.routes()[kind]);
     const sources = { a: legacy(), b: legacy() };
     const handles = new Map<string, number>();
     const tokens = new Map<string, Uint8Array>();
@@ -123,7 +123,7 @@ it.runIf(real)(
         watch.update();
         const route = watch.routes().tab;
         for (const [id, { sinks }] of Object.entries(sources)) {
-          const handle = router.open(id, sinks, route);
+          const handle = router.open(id, "tab", sinks);
           const token = new Uint8Array(randomBytes(32));
           handles.set(id, handle);
           tokens.set(id, token);
