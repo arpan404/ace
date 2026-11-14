@@ -144,6 +144,39 @@ import XCTest
         XCTAssertTrue(row.isHittable)
     }
 
+    func testHistorySearchSaysWhenNothingSettledMatches() {
+        let app = launch()
+        app.openSearch()
+        app.buttons["search.place.history"].tap()
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["history.project"].exists)
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("zzqx nothing like it")
+        XCTAssertTrue(app.staticTexts["Nothing settled matches “zzqx nothing like it”"].waitForExistence(timeout: 15))
+        capture("history-no-match")
+    }
+
+    func testChatsFilterNarrowsTheListAndClearingBringsItBack() {
+        let app = launch()
+        app.tabBars.firstMatch.buttons["Chats"].tap()
+        let chat = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        let identifier = chat.identifier
+        // The filter field waits under the title until the list is pulled down.
+        let field = app.searchFields["Filter chats"]
+        if !field.exists { app.swipeDown() }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("zzqx")
+        XCTAssertTrue(app.staticTexts["No results for “zzqx”"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons[identifier].exists)
+        capture("chats-filtered")
+        field.buttons["Clear text"].tap()
+        XCTAssertTrue(app.buttons[identifier].waitForExistence(timeout: 10))
+    }
+
     func testTypingInSearchFindsSettingsPagesAndThreads() {
         let app = launch()
         app.openSearch()
