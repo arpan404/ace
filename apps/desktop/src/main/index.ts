@@ -16,6 +16,7 @@ import {
   nativeTheme,
   Notification,
   powerMonitor,
+  session,
   shell,
   type WebContents,
 } from "electron";
@@ -70,6 +71,7 @@ import { shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
+import { spellcheckLanguages } from "./window/spellcheck.ts";
 import {
   disableDnsPrefetching,
   isolateVisualizationSession,
@@ -491,6 +493,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
     if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
     installDaemonNetwork(network);
+    // Windows and Linux load a dictionary per language: only the person's own (spellcheck.ts).
+    if (process.platform !== "darwin")
+      session.defaultSession.setSpellCheckerLanguages(
+        spellcheckLanguages(
+          app.getPreferredSystemLanguages(),
+          session.defaultSession.availableSpellCheckerLanguages,
+        ),
+      );
     await isolateVisualizationSession();
     const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
     if (devUrl && !app.isPackaged) {
