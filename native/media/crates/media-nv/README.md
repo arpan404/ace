@@ -6,9 +6,26 @@ NVIDIA hardware video for ace-media (ADR 0148): NVENC encode and NVDEC decode of
 HEVC behind `media-codec`'s `Encoder` and `Decoder`. Linux and Windows only; on macOS the
 crate is empty.
 
+## Off by default: unverified layout
+
+The 12.0 layouts below are our own declaration and have not yet been checked against NVIDIA's
+headers or run on an NVIDIA GPU. A wrong offset under a structure version the driver accepts
+could corrupt memory, so `media-nv` never opens the driver by default. `probe()` reports
+`NvProbe::Unavailable("unverified layout")` and `NvRuntime::load()` returns
+`Unsupported("unverified layout")`, without loading any library.
+
+The development opt-in is exactly `ACE_MEDIA_NV=1`. Nothing in a release build sets it.
+Turning the backend on for everyone, by removing the gate, needs both of these first:
+
+1. one run of the `ACE_NV_HEADERS` layout check below, passing against the SDK headers for the
+   pinned version;
+2. B5's acceptance on real NVIDIA hardware (docs/media/plan.md, wave table): the encode →
+   decode round trip from a DMA-BUF GL texture with no CPU copy, NVDEC stills at the requested
+   size, and a missing or too-old driver giving no backend and no crash.
+
 ## The driver, at run time
 
-Nothing is linked. `NvRuntime::load` opens the driver's own libraries with `libloading`:
+Nothing is linked. With the opt-in set, `NvRuntime::load` opens the driver's own libraries with `libloading`:
 
 | Part  | Linux                   | Windows             |
 | ----- | ----------------------- | ------------------- |
@@ -89,6 +106,10 @@ Everything except the driver itself runs anywhere Linux runs: a fake driver at t
 does, and counts handles, so the call sequence, keyframes, rate changes, registration, readback
 offsets, teardown and error mapping are tested through the real FFI code. Layout tests pin the
 offsets and sizes of every member the driver touches on 64-bit Linux.
+
+Without the opt-in, the probe's output shows that the driver loader never ran (a fake loader
+that would have produced a working backend is passed in and the result is still
+`Unavailable`).
 
 Not covered without NVIDIA hardware: that a real driver accepts these layouts and versions, the
 GL texture → NVENC zero-copy path, NVDEC output scaling on a real stream, and the latency and

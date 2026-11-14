@@ -34,7 +34,7 @@ mod tests;
 
 pub use decoder::NvDecoder;
 pub use encoder::{NvEncoder, Preset};
-pub use load::NvRuntime;
+pub use load::{NvRuntime, OPT_IN_VAR, UNVERIFIED_LAYOUT};
 pub use probe::{NvProbe, ProbeEntry, ProbeOutcome, ProbeStep, probe};
 pub use surface::{D3d11Texture, GlTexture};
 

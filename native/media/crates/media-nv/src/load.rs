@@ -81,6 +81,23 @@ impl CuvidApi {
     }
 }
 
+/// The development opt-in. Nothing in a release build sets it.
+pub const OPT_IN_VAR: &str = "ACE_MEDIA_NV";
+/// Why the backend is off by default: the 12.0 layouts are our own declaration and have not
+/// yet been checked against NVIDIA's headers (`ACE_NV_HEADERS`) or a real GPU. A wrong offset
+/// under a version the driver accepts could corrupt memory, so the driver is never opened
+/// until that check and B5's acceptance have passed on NVIDIA hardware.
+pub const UNVERIFIED_LAYOUT: &str = "unverified layout";
+
+/// Exactly `ACE_MEDIA_NV=1` turns the backend on.
+pub fn opted_in(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|v| v == "1")
+}
+
+pub(crate) fn opted_in_env() -> bool {
+    opted_in(std::env::var_os(OPT_IN_VAR).as_deref())
+}
+
 /// The driver's libraries, as far as this machine has them.
 #[derive(Clone, Default)]
 pub struct NvRuntime {
@@ -92,9 +109,16 @@ pub struct NvRuntime {
 }
 
 impl NvRuntime {
-    /// Opens whatever of NVENC, CUDA and NVDEC the driver provides. Never fails: a part that
-    /// can't be opened is absent and its reason is kept.
-    pub fn load() -> Self {
+    /// Opens whatever of NVENC, CUDA and NVDEC the driver provides, only with the development
+    /// opt-in (`ACE_MEDIA_NV=1`). Without it nothing is opened and the error is
+    /// `Unsupported("unverified layout")`. With it, a part that can't be opened is absent and
+    /// its reason is kept.
+    pub fn load() -> Result<Self, CodecError> {
+        gate(opted_in_env(), Self::load_driver)
+    }
+
+    /// Opens the driver's libraries, ungated.
+    pub(crate) fn load_driver() -> Self {
         let mut runtime = Self::default();
         match load_encode() {
             Ok(api) => runtime.encode = Some(Arc::new(api)),
@@ -121,6 +145,15 @@ impl NvRuntime {
     /// Why parts are absent: library not found, or a driver older than the pinned version.
     pub fn missing(&self) -> &[String] {
         &self.missing
+    }
+}
+
+/// Runs `load` only with the opt-in.
+pub(crate) fn gate<T>(opted_in: bool, load: impl FnOnce() -> T) -> Result<T, CodecError> {
+    if opted_in {
+        Ok(load())
+    } else {
+        Err(CodecError::Unsupported(UNVERIFIED_LAYOUT.into()))
     }
 }
 
@@ -216,6 +249,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_exactly_one_turns_the_backend_on() {
+        use std::ffi::OsStr;
+        assert!(opted_in(Some(OsStr::new("1"))));
+        for off in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("true"),
+            Some("yes"),
+            Some(" 1"),
+        ] {
+            assert!(!opted_in(off.map(OsStr::new)), "{off:?}");
+        }
+    }
+
+    #[test]
+    fn without_the_opt_in_nothing_is_loaded() {
+        let mut loaded = false;
+        let result = gate(false, || loaded = true);
+        assert_eq!(
+            result,
+            Err(CodecError::Unsupported(UNVERIFIED_LAYOUT.into()))
+        );
+        assert!(!loaded);
+        assert_eq!(gate(true, || 7), Ok(7));
+    }
+
+    #[test]
     fn a_driver_older_than_the_pinned_version_is_refused() {
         assert!(version_supported(12 << 4));
         assert!(version_supported((13 << 4) | 1));
@@ -225,7 +286,7 @@ mod tests {
     #[test]
     fn a_machine_without_the_driver_has_no_backend_and_says_why() {
         // The build containers and CI have no NVIDIA driver.
-        let runtime = NvRuntime::load();
+        let runtime = NvRuntime::load_driver();
         if runtime.has_encode() || runtime.has_decode() {
             return; // a real NVIDIA host
         }

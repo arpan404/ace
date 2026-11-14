@@ -2,7 +2,7 @@
 use crate::enc_abi::CODEC_H264;
 use crate::fake::{self, dec, enc};
 use crate::load::NvRuntime;
-use crate::probe::{NvProbe, ProbeEntry, ProbeOutcome, ProbeStep, probe_with};
+use crate::probe::{NvProbe, ProbeEntry, ProbeOutcome, ProbeStep, probe_gated, probe_with};
 use media_codec::{Codec, Size};
 use std::cell::Cell;
 
@@ -90,4 +90,30 @@ fn a_trial_stopped_by_its_deadline_is_cancelled_and_leaves_nothing_open() {
     assert_eq!(enc(|e| e.live.sessions), 0);
     assert_eq!(dec(|d| d.contexts), 0);
     assert!(enc(|e| e.calls.contains(&"open")), "it had started");
+}
+
+#[test]
+fn without_the_opt_in_the_probe_reports_unverified_layout_and_never_opens_the_driver() {
+    // The fake loader stands for dlopen: had it run, the working fake driver would make the
+    // probe report a present backend with encode and decode entries.
+    let opened = Cell::new(false);
+    let probe = probe_gated(
+        false,
+        || {
+            opened.set(true);
+            fake::runtime()
+        },
+        &|| false,
+    );
+    assert_eq!(probe, NvProbe::Unavailable("unverified layout".into()));
+    assert!(!opened.get());
+}
+
+#[test]
+fn with_the_opt_in_the_probe_opens_the_driver_and_runs_the_trial() {
+    let probe = probe_gated(true, fake::runtime, &|| false);
+    assert!(matches!(
+        outcome(&probe, ProbeStep::Encode, Codec::H264),
+        ProbeOutcome::Ok { .. }
+    ));
 }

@@ -1062,6 +1062,18 @@ because it consumes their hellos and the backends' probes.
 | **E4** Browser producers to ingest        | B1–B5, G1            | `packages/browser/video-extension/offscreen.ts` (MediaFrame over loopback WS, epochs), `apps/desktop/src/main/browser/video-encoder.ts` + preload, `chrome-video.ts` (start arguments carry the ingest URL, token and epoch), private-context `source.picture` forwarding, the `packages/browser-extension` native host → ingest, JPEG-source encode in ace-media with hardware JPEG decode straight into encoder surfaces; setting `media.encode`                                                                                                             | tab, embedded, private-context and "Use my Chrome" tabs stream through ace-media and egress; ingest refused for a wrong origin or a reused token; JPEG sources report `hardware` exactly where the probe observed a hardware JPEG decoder, and otherwise the C path of the expectations with one upload                                                                                                                                                                                                                                                                         | `video-link.ts` unchanged or better over egress (median 60, p10 ≥ 59); "Use my Chrome" numbers in "Acceleration acceptance", with no encoder Chrome running |
 | **A1** Capabilities and fallback state    | K2, M7, B1–B5, E1–E4 | `native/media/crates/ace-media/src/{probe,rank,acceleration}.rs` (bounded trials with deadlines and cancellation, `capabilities.changed`, the ranking benchmark and its cache, per-source steps and `degraded`); `packages/media/src/acceleration.ts` (the daemon's store of capabilities and per-source acceleration); the state field only in `packages/browser/src/live-video.ts` (`status()`), `packages/screen/src/bridge.ts` and `packages/devices/src/bridge.ts`; `apps/daemon/src/doctor/media.ts`, registered in `apps/daemon/src/doctor/features.ts` | each backend faked absent in turn → the expected `cpu` or `chrome` step, and `degraded` only where the rule says (NVIDIA CPU JPEG is not degraded; a hardware-listed step on the CPU is); a fake backend that lists a codec but fails its trial frame → no hardware; a trial that hangs → `timed-out` within 2 s, `ready` within 3 s, and a late success arrives as `capabilities.changed`; the ranking runs only while no source is open, is cancelled when one opens, is cached per adapter, driver and settings, and falls back to the deterministic choice without a result | probe ≤ 3 s at worst, ≤ 500 ms on a warm machine; ranking ≤ 20 s total, once per key                                                                        |
 
+**B5 notes.** `media-nv`'s NVENC 12.0 layouts are ace's own declaration, not yet checked against
+NVIDIA's headers or a real GPU, and a wrong offset under a version the driver accepts could
+corrupt memory. Until both checks below have passed, the backend is off by default. Its probe
+reports `unavailable` with the reason "unverified layout" and never opens the driver. Only the
+development opt-in `ACE_MEDIA_NV=1` turns it on, and nothing in a release build sets it. To turn
+it on by default, remove the gate after:
+
+1. one passing run of the developer-only `ACE_NV_HEADERS` layout check;
+2. B5's acceptance above on real NVIDIA hardware.
+
+Until then, NVIDIA Linux machines take the last-resort encoder, and the machine says so.
+
 ### Wave 6: phase 3
 
 D1 is accepted with a standalone protocol test client

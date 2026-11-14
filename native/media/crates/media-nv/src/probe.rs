@@ -49,12 +49,27 @@ pub struct ProbeEntry {
 pub enum NvProbe {
     /// No NVIDIA driver, or one older than the pinned NVENC version: no backend, and why.
     Absent(Vec<String>),
+    /// Off by default: the reason is `"unverified layout"` until the layouts are checked and the
+    /// development opt-in `ACE_MEDIA_NV=1` is set. The driver was not opened.
+    Unavailable(String),
     Present(Vec<ProbeEntry>),
 }
 
-/// Loads the driver and runs the trial.
+/// With the opt-in, loads the driver and runs the trial; without it, `Unavailable` and the
+/// driver is never opened.
 pub fn probe(stop: &dyn Fn() -> bool) -> NvProbe {
-    probe_with(&NvRuntime::load(), stop)
+    probe_gated(crate::load::opted_in_env(), NvRuntime::load_driver, stop)
+}
+
+pub(crate) fn probe_gated(
+    opted_in: bool,
+    load: impl FnOnce() -> NvRuntime,
+    stop: &dyn Fn() -> bool,
+) -> NvProbe {
+    match crate::load::gate(opted_in, load) {
+        Ok(runtime) => probe_with(&runtime, stop),
+        Err(_) => NvProbe::Unavailable(crate::load::UNVERIFIED_LAYOUT.into()),
+    }
 }
 
 pub(crate) fn probe_with(runtime: &NvRuntime, stop: &dyn Fn() -> bool) -> NvProbe {
