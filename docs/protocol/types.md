@@ -5689,6 +5689,8 @@ Example:
 | nativeShown | no | boolean |  |
 | cursor | no | object | {"properties":{"fill":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"outline":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["fill","outline"]} |
 | audio | no | boolean |  |
+| paused | no | boolean |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
 | devicePixelRatio | yes | number | {"minimum":1,"maximum":4} |
@@ -5698,8 +5700,9 @@ Example:
 ```json
 {
   "devicePixelRatio": 3,
-  "height": 102,
-  "width": 100
+  "height": 105,
+  "paused": true,
+  "width": 106
 }
 ```
 
@@ -6029,9 +6032,13 @@ Example:
       "fill": "#24CF32",
       "outline": "#33FA6E"
     },
-    "devicePixelRatio": 2,
-    "height": 102,
-    "width": 108
+    "devicePixelRatio": 3,
+    "height": 108,
+    "link": {
+      "constrained": false,
+      "effectiveType": "example"
+    },
+    "width": 102
   }
 }
 ```
@@ -11993,6 +12000,7 @@ Example:
 | --- | --- | --- | --- |
 | op | yes | `"subscribe"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 
 Example:
 
@@ -19747,6 +19755,28 @@ Example:
   "state": "example",
   "step": "example",
   "zeroCopy": false
+}
+```
+
+## MediaLinkHint
+
+[JSON Schema](schema/MediaLinkHint.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| effectiveType | no | string | {"minLength":1,"maxLength":16} |
+| downlinkKbps | no | integer | {"minimum":0,"maximum":10000000} |
+| rttMs | no | integer | {"minimum":0,"maximum":60000} |
+| saveData | no | boolean |  |
+| expensive | no | boolean |  |
+| constrained | no | boolean |  |
+
+Example:
+
+```json
+{
+  "downlinkKbps": 2,
+  "saveData": false
 }
 ```
 
@@ -29389,6 +29419,7 @@ Example:
 | --- | --- | --- | --- |
 | op | yes | `"subscribe"` |  |
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 
 Example:
 

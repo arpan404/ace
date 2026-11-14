@@ -3083,9 +3083,16 @@ Example:
   "viewport": {
     "audio": false,
     "devicePixelRatio": 1,
-    "height": 101,
+    "height": 102,
+    "link": {
+      "downlinkKbps": 2,
+      "effectiveType": "example",
+      "expensive": true,
+      "rttMs": 5
+    },
     "nativeShown": true,
-    "width": 102
+    "paused": true,
+    "width": 100
   }
 }
 ```

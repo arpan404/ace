@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaLinkHint.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "constrained": {
+      "type": "boolean"
+    },
+    "downlinkKbps": {
+      "maximum": 10000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "effectiveType": {
+      "maxLength": 16,
+      "minLength": 1,
+      "type": "string"
+    },
+    "expensive": {
+      "type": "boolean"
+    },
+    "rttMs": {
+      "maximum": 60000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "saveData": {
+      "type": "boolean"
+    }
+  },
+  "type": "object"
+}

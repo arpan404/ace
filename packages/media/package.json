@@ -11,7 +11,8 @@
     "./supervisor": "./src/supervisor.ts",
     "./routes": "./src/routes.ts",
     "./route-watch": "./src/route-watch.ts",
-    "./egress": "./src/egress.ts"
+    "./egress": "./src/egress.ts",
+    "./session-link": "./src/session-link.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
