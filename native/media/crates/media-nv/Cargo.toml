@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "media-nv"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+media-codec = { path = "../media-codec" }
+
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
+libloading = "0.8"
