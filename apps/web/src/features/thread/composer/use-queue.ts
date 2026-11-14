@@ -21,6 +21,7 @@ import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
 
@@ -147,12 +148,14 @@ export interface QueueControls {
  * on its own pill, with that pill waiting for its command; the others stay usable. Commands are
  * durable and carry the revision they were decided on: when another device got there first the
  * daemon answers `queue_conflict`, the change is taken back, the toast says so, and the page is
- * read again.
+ * read again. While the thread's copy isn't confirmed no change goes at all: the page may be one
+ * kept from before, and a queue-wide action is refused the same way (it reads the queue first).
  */
 export function useQueue(threadId: string): QueueControls {
   const client = useClient();
   const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
+  const { fresh } = useThreadFreshness(threadId);
   const { storage } = useLayout();
   const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
@@ -180,6 +183,13 @@ export function useQueue(threadId: string): QueueControls {
     quiet: (error: unknown) => boolean = () => false,
   ) => {
     if (!payload || inFlight.current.has(id)) return false;
+    if (!fresh) {
+      toast.add({
+        title: `Couldn't ${failure}`,
+        description: "The queue may have changed. Try again once it's confirmed.",
+      });
+      return false;
+    }
     inFlight.current.add(id);
     put(id, edit);
     return runCommand(client, payload, crypto.randomUUID())
