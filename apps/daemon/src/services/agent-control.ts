@@ -1,3 +1,4 @@
+import { freshLimitsWaitMs } from "../account-management.ts";
 import { logError } from "@ace/diagnostics";
 import type { RunRole } from "@ace/protocol";
 import { runRoles } from "@ace/settings/roles";
@@ -28,6 +29,8 @@ export function startAgentControl(context: ServiceContext): void {
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(services.modelsReady ? { modelsReady: services.modelsReady } : {}),
+    freshLimits: () =>
+      services.accountManagement?.limits.fresh(freshLimitsWaitMs) ?? Promise.resolve(),
     // A model the person set in Settings → Roles for this provider covers an invalid agent
     // guess; the role the child's name suggests is tried first.
     async configuredModel(_caller, request) {

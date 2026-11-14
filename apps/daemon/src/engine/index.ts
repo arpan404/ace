@@ -1195,10 +1195,13 @@ export class Engine {
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
   }
-  /** Whether account limits must stay fresh: a thread waits on one, or provider work runs. */
+  /**
+   * Whether account limits must stay fresh: a thread waits on one, or work runs or is about to
+   * (a session opening, an admitted send, queued input, a delegated child working). An idle
+   * session left open after its turn doesn't count.
+   */
   limitsMatter(): boolean {
     for (const actor of this.actors.values()) {
-      if (!actor.session) continue;
       const live = this.liveness.live(actor.id);
       if (live.agentsRunning || live.operationsRunning || this.liveness.providerWork(actor.id))
         return true;

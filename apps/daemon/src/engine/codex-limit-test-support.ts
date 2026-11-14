@@ -11,7 +11,7 @@ import { fixture, restart, sends } from "./recovery-test-support.ts";
 import { scriptFrames } from "./test-support.ts";
 import { recoveryPorts } from "../services/recovery.ts";
 import { recoverOnFreshReadings } from "../services/limit-recovery.ts";
-import { AccountManagement } from "../account-management.ts";
+import { AccountManagement, freshLimitsWaitMs } from "../account-management.ts";
 import type { ReadCliUsage } from "../account-limits.ts";
 import type { RecoveryPorts } from "./recovery.ts";
 
@@ -97,13 +97,15 @@ function encoded(context: SessionContext): SessionContext {
 
 /**
  * A Codex thread on account "Sa" (`account-a`), with `others` as further signed-in accounts;
- * each provider session after the first runs `later`.
+ * each provider session after the first runs `later`. `unpinned`: no account is named, so the
+ * session picks one by quota, as a thread with no account chosen does.
  */
 export async function codexThread(
   steps: ScriptedStep[],
   later: ScriptedStep[] = [],
   policy: "manual" | "resume_at_reset" = "manual",
   others: string[] = [],
+  unpinned = false,
 ) {
   const ports: RecoveryPorts = {};
   const createTranslator = createCodexAdapter().createTranslator;
@@ -134,7 +136,14 @@ export async function codexThread(
       timeZone: "UTC",
     });
   }
-  const accounts = new AccountService({ registry, now: h.clock.now, timeZone: "UTC", env: {} });
+  let management: AccountManagement | undefined;
+  const accounts = new AccountService({
+    registry,
+    now: h.clock.now,
+    timeZone: "UTC",
+    env: {},
+    freshen: (signal) => management?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
+  });
   const native = {
     ...first,
     openSession: (context: SessionContext) => {
@@ -144,7 +153,7 @@ export async function codexThread(
   };
   h.registry.register(
     accounts.bindAdapter({ ...first, create: () => native }, () => ({
-      instanceId: "account-a",
+      ...(unpinned ? {} : { instanceId: "account-a" }),
       role: "worker",
       estimatedLoad: 1,
     })),
@@ -167,7 +176,6 @@ export async function codexThread(
     recovered: (id) => engine.accountRecovered(id),
     now: h.clock.now,
   });
-  let management: AccountManagement | undefined;
   return {
     h,
     registry,
@@ -203,6 +211,7 @@ export async function codexThread(
         discovery: { overrides: { codex: executable } },
         readCodexUsage: read,
         limitsBusy: () => engine.limitsMatter(),
+        after: (ms, run) => h.clock.setTimer(run, ms),
       });
       return management;
     },

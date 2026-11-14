@@ -1,8 +1,11 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { ThreadId } from "@ace/protocol";
 import type { ReadCliUsage } from "../account-limits.ts";
-import { limitsRefreshMs } from "../account-management.ts";
-import { cleanupRecovery, dispatch, sends } from "./recovery-test-support.ts";
+import { freshLimitsWaitMs, limitsRefreshMs } from "../account-management.ts";
+import { LimitsSchedule } from "../account-limits-schedule.ts";
+import type { Fact } from "@ace/core";
+import { cleanupRecovery, dispatch, fixture, sends } from "./recovery-test-support.ts";
+import { end, scriptFrames, start, task } from "./test-support.ts";
 import {
   clearedThen,
   codexThread,
@@ -66,7 +69,7 @@ async function heldThread(
 
 /** One tick of the daemon's limits timer, `limitsRefreshMs` after the last. */
 async function tick(held: Awaited<ReturnType<typeof heldThread>>) {
-  held.h.clock.advance(limitsRefreshMs);
+  held.h.clock.advance(held.h.clock.now() + limitsRefreshMs);
   await held.management.limits.tick();
   await held.engine().flush();
 }
@@ -204,11 +207,161 @@ test("limits are read on every tick while a turn runs, with nothing held and no 
     const codex = fakeCodex(thread.h.clock.now);
     const management = await thread.management(codex.read);
     for (let index = 0; index < 3; index++) {
-      thread.h.clock.advance(limitsRefreshMs);
+      thread.h.clock.advance(thread.h.clock.now() + limitsRefreshMs);
       await management.limits.tick();
     }
     expect(codex.reads()).toBe(3);
   } finally {
     await thread.close();
   }
+});
+
+/** A new thread with no account named, on accounts a and b, after `idle` with no tick at all. */
+async function pickAfterIdle(read: ReadCliUsage) {
+  const thread = await codexThread(
+    [{ on: "send", frames: [started, ...turn("A", "completed")] }],
+    [],
+    "manual",
+    ["account-b"],
+    true,
+  );
+  const management = await thread.management(read);
+  return { ...thread, management };
+}
+
+test("after a long idle stretch, a new turn reads limits again and takes the account that recovered", async () => {
+  const used = new Map<string, number>();
+  let reads = 0;
+  // Both accounts' windows reset together, so the one with more room is the better pick.
+  const reset = 1_000 + 600 * minute;
+  const read: ReadCliUsage = async ({ env }) => {
+    reads++;
+    return reading(used.get(env.CODEX_HOME ?? "") ?? 100, reset);
+  };
+  const thread = await pickAfterIdle(read);
+  try {
+    const a = thread.registry.get("account-a")?.instance.homeDir ?? "";
+    const b = thread.registry.get("account-b")?.instance.homeDir ?? "";
+    used.set(a, 100);
+    used.set(b, 70);
+    await thread.management.limits.refresh();
+    expect(thread.registry.summary("account-a", thread.h.clock.now())?.availability).toBe(
+      "exhausted",
+    );
+    // Twenty idle minutes: nothing held, nothing running, no client, no reset crossed. Account a
+    // recovered meanwhile; its stored reading still says it is spent.
+    thread.h.clock.advance(thread.h.clock.now() + 20 * minute);
+    used.set(a, 5);
+    expect(thread.registry.summary("account-a", thread.h.clock.now())?.availability).toBe(
+      "exhausted",
+    );
+    const id = await thread.h.create();
+    expect(thread.engine().sessionMetadata(id).instanceId).toBe("account-a");
+    expect(reads).toBe(4);
+    expect(thread.providerSends()).toBe(1);
+  } finally {
+    await thread.close();
+  }
+});
+
+test("a limits read that hangs holds a new turn's send no longer than the cap", async () => {
+  let reads = 0;
+  let hang = false;
+  const answers: (() => void)[] = [];
+  const answer = reading(50, 1_000 + 600 * minute);
+  const read: ReadCliUsage = () => {
+    reads++;
+    // After startup the CLI doesn't answer until the test is over.
+    return hang
+      ? new Promise((resolve) => answers.push(() => resolve(answer)))
+      : Promise.resolve(answer);
+  };
+  const thread = await pickAfterIdle(read);
+  try {
+    await thread.management.limits.refresh();
+    hang = true;
+    thread.h.clock.advance(thread.h.clock.now() + 20 * minute);
+    const waiting = thread.h.clock.waitForDelay(freshLimitsWaitMs);
+    const creating = thread.h.create();
+    await waiting;
+    // Both accounts' reads are under way and unanswered; the turn hasn't gone out.
+    await vi.waitFor(() => expect(reads).toBe(4));
+    expect(thread.providerSends()).toBe(0);
+    thread.h.clock.advance(thread.h.clock.now() + freshLimitsWaitMs);
+    await creating;
+    // At the cap the turn goes ahead on the readings it has; the reads go on in the background.
+    expect(answers).toHaveLength(2);
+    expect(thread.providerSends()).toBe(1);
+  } finally {
+    for (const release of answers) release();
+    await thread.close();
+  }
+});
+
+/** Counts the reads the limits schedule makes, told by `engine` whether limits matter. */
+async function gate(h: Awaited<ReturnType<typeof fixture>>) {
+  let reads = 0;
+  const schedule = new LimitsSchedule({
+    intervalMs: limitsRefreshMs,
+    now: h.clock.now,
+    read: async () => {
+      reads++;
+    },
+    busy: () => h.engine.limitsMatter(),
+    quotas: () => [],
+    after: (ms, run) => h.clock.setTimer(run, ms),
+  });
+  // The startup reading, not counted.
+  await schedule.refresh();
+  reads = 0;
+  return {
+    reads: () => reads,
+    async ticks(count: number) {
+      for (let index = 0; index < count; index++) {
+        h.clock.advance(h.clock.now() + limitsRefreshMs);
+        await schedule.tick();
+      }
+    },
+  };
+}
+
+async function scripted(...facts: Fact[]) {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(...facts)] }], frames);
+  await h.create();
+  await h.engine.flush();
+  return gate(h);
+}
+
+const child: Fact = {
+  type: "agent.seen",
+  agent: "child",
+  parent: "root",
+  origin: "provider_subagent",
+  fidelity: "full",
+  cwd: "/repo",
+  native: { provider: "codex" },
+};
+
+test("an idle session left open after its turn is not a reason to read limits", async () => {
+  const limits = await scripted(start, end);
+  await limits.ticks(4);
+  expect(limits.reads()).toBe(0);
+});
+
+test("a background task running under an idle root keeps limits read on every tick", async () => {
+  const limits = await scripted(start, task, end);
+  await limits.ticks(3);
+  expect(limits.reads()).toBe(3);
+});
+
+test("a subagent working under a root whose own turn ended keeps limits read on every tick", async () => {
+  const limits = await scripted(
+    start,
+    child,
+    { type: "turn.started", agent: "child", trigger: "spawn" },
+    end,
+  );
+  await limits.ticks(3);
+  expect(limits.reads()).toBe(3);
 });
