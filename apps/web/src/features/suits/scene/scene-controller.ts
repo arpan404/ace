@@ -1,8 +1,4 @@
-import {
-  SceneMessage,
-  type SceneHostMessage,
-  type SceneSignal,
-} from "@ace/protocol/suits";
+import { SceneMessage, type SceneHostMessage, type SceneSignal } from "@ace/protocol/suits";
 
 /**
  * What decides a scene's frames (ADR 0150, "Scenes"). ace owns the clock: this sends `init`,

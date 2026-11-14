@@ -25,7 +25,8 @@ function manualTime() {
       const end = now + ms;
       for (;;) {
         let due: [number, { at: number; run: () => void }] | undefined;
-        for (const entry of timers) if (entry[1].at <= end && (!due || entry[1].at < due[1].at)) due = entry;
+        for (const entry of timers)
+          if (entry[1].at <= end && (!due || entry[1].at < due[1].at)) due = entry;
         if (!due) break;
         timers.delete(due[0]);
         now = due[1].at;
@@ -128,7 +129,7 @@ test("hiding the page pauses the scene and showing it resumes from the same scen
 });
 
 test("a window blurred for 10 s pauses the scene; a shorter blur does not", () => {
-  const { controller, time, types, play } = scene();
+  const { controller, types, play } = scene();
   controller.start();
   controller.receive({ type: "ready" });
   controller.setFocused(false);

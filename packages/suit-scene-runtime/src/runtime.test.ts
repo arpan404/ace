@@ -84,7 +84,10 @@ test("a scene is ready once it is defined and the host has sent init, in either 
 test("init hands the scene a canvas sized in device pixels and the host's facts", () => {
   const page = sandbox();
   let seen: { canvas: unknown; info: unknown } | undefined;
-  page.ace.scene({ init: (canvas: unknown, info: unknown) => (seen = { canvas, info }), frame() {} });
+  page.ace.scene({
+    init: (canvas: unknown, info: unknown) => (seen = { canvas, info }),
+    frame() {},
+  });
   page.send(init);
   expect(seen?.canvas).toBe(page.canvas());
   expect(seen?.info).toEqual({
@@ -189,5 +192,7 @@ test("a definition without frame, or a second definition, is an error", () => {
   const twice = sandbox();
   twice.ace.scene({ frame() {} });
   twice.ace.scene({ frame() {} });
-  expect(twice.replies).toEqual([{ type: "error", message: "ace.scene was called more than once" }]);
+  expect(twice.replies).toEqual([
+    { type: "error", message: "ace.scene was called more than once" },
+  ]);
 });
