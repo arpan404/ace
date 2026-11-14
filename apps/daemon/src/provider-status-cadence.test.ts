@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
+import type { ProviderStatus } from "@ace/protocol";
 import { ProviderStatuses } from "./provider-status.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -9,19 +10,40 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-/** Statuses on a PATH with no CLIs, a clock the test moves and timers it fires. */
-async function statuses() {
+/**
+ * Statuses with a clock the test moves and timers it fires. With `codexVersion`, PATH holds a
+ * `codex` whose probes answer with that version (read at each probe) and a signed-in login;
+ * otherwise PATH has no CLIs.
+ */
+async function statuses(codexVersion?: { current: string }) {
   const home = await mkdtemp(join(tmpdir(), "ace-provider-cadence-"));
+  const bin = join(home, "bin");
+  if (codexVersion) {
+    await mkdir(bin);
+    await writeFile(join(bin, "codex"), "");
+    await chmod(join(bin, "codex"), 0o755);
+  }
+  const checked: ProviderStatus[][] = [];
   const clock = { now: 1_000 };
   const timers = new Map<() => void, number>();
   let checks = 0;
   const subject = new ProviderStatuses(
     {
-      env: { HOME: home, PATH: "" },
+      env: { HOME: home, PATH: codexVersion ? bin : "" },
+      // The CLI is never run: the probe answers as an installed codex would.
+      probe: async (_command, args) => ({
+        code: 0,
+        stderr: "",
+        stdout:
+          args[0] === "--version"
+            ? `codex-cli ${codexVersion?.current}`
+            : "Logged in using ChatGPT",
+      }),
       cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
       antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
-      checked: () => {
+      checked: (rows) => {
         checks++;
+        checked.push([...rows]);
       },
     },
     {
@@ -46,6 +68,8 @@ async function statuses() {
     clock,
     timers,
     checks: () => checks,
+    /** The codex row each check reported to the daemon (which feeds the model catalog). */
+    codex: () => checked.at(-1)?.find((row) => row.provider === "codex"),
     settle,
     fire() {
       const pending = [...timers.keys()];
@@ -94,4 +118,29 @@ test("a stale read with nobody listening answers at once and checks again behind
   expect(status.checks()).toBe(2);
   expect(status.subject.list().every((row) => !row.stale)).toBe(true);
   expect([...status.timers.values()]).toEqual([]);
+});
+
+test("an outdated CLI keeps being checked with no client, so an update outside ace is seen", async () => {
+  const codex = { current: "0.100.0" };
+  const status = await statuses(codex);
+  expect(status.codex()).toMatchObject({ version: "0.100.0", versionCheck: { status: "too_old" } });
+  // Nobody listens, yet the next check is due: a scheduled or remote run is waiting on it.
+  expect([...status.timers.values()]).toEqual([300_000]);
+  codex.current = "0.170.0";
+  status.clock.now += 300_000;
+  status.fire();
+  await status.settle();
+  expect(status.codex()).toMatchObject({ version: "0.170.0", versionCheck: { status: "ok" } });
+  expect(status.subject.installations()).toContainEqual(
+    expect.objectContaining({ provider: "codex", version: "0.170.0" }),
+  );
+  // Supported now and nobody listening: no more checks on a timer.
+  expect([...status.timers.values()]).toEqual([]);
+});
+
+test("the last client leaving keeps the timer while a CLI is outdated", async () => {
+  const status = await statuses({ current: "0.100.0" });
+  const stop = status.subject.listen(() => {});
+  stop();
+  expect([...status.timers.values()]).toEqual([300_000]);
 });

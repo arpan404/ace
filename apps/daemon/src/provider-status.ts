@@ -69,19 +69,32 @@ export class ProviderStatuses {
   private followup: Promise<void> | undefined;
   private listeners = new Set<(rows: Status[]) => void>();
   /**
-   * A client watching the rows keeps them fresh: checks repeat every five minutes while one
-   * listens, and one that attaches after a longer gap gets a check at once. With nobody
-   * listening no CLI runs on a timer; a stale read starts its own check instead.
+   * Checks repeat every five minutes while the rows matter right now: while a client listens
+   * (every main socket with read access: desktop, web, iPhone, LAN and relay clients), or
+   * while an installed CLI fails its version check, since the person may update it outside
+   * ace and scheduled or remote runs only learn the new version from a check. A client that
+   * attaches after a longer gap gets a check at once. Otherwise no CLI runs on a timer: a
+   * stale read (outside MCP clients, the CLI's own requests) answers from the cache and starts
+   * a check behind it.
    */
   listen(listener: (rows: Status[]) => void): () => void {
     this.listeners.add(listener);
     if (this.listeners.size === 1) this.watch();
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size) return;
+      if (this.listeners.size || this.blocked()) return;
       this.cancelTimer?.();
       this.cancelTimer = undefined;
     };
+  }
+  /** An installed CLI too old or unreadable to run: model admission waits on its next check. */
+  private blocked(): boolean {
+    return this.rows.some(
+      (row) =>
+        row.installed === true &&
+        row.versionCheck !== undefined &&
+        row.versionCheck.status !== "ok",
+    );
   }
   private watch(): void {
     if (this.flight || this.cancelTimer || this.controller.signal.aborted) return;
@@ -344,7 +357,7 @@ export class ProviderStatuses {
         this.flight = undefined;
         if (!this.controller.signal.aborted) {
           this.lastChecked = this.runtime.now();
-          if (this.listeners.size) this.watch();
+          if (this.listeners.size || this.blocked()) this.watch();
           this.publish();
         }
       });
