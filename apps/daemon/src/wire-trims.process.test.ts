@@ -140,6 +140,7 @@ test("trimmed and whole clients of one thread each get their own encoding of the
     requestId: "r",
     threadId: f.thread.id,
     itemId: reply.id,
+    revision: expect.any(String),
     from: 0,
     raw,
   });
@@ -289,6 +290,7 @@ test("raw payloads beyond one reply are read page by page, every one exactly onc
   ]);
   const read: unknown[] = [];
   let from: number | undefined = 0;
+  let revision: string | undefined;
   let pages = 0;
   while (from !== undefined) {
     client.send({
@@ -297,6 +299,7 @@ test("raw payloads beyond one reply are read page by page, every one exactly onc
       threadId: f.thread.id,
       itemId: reply.id,
       from,
+      ...(revision ? { revision } : {}),
     });
     const answer = ServerMessage.parse(
       JSON.parse(await client.until((text) => text.includes(`"requestId":"p${pages}"`))),
@@ -305,6 +308,7 @@ test("raw payloads beyond one reply are read page by page, every one exactly onc
     expect(answer.from).toBe(from);
     expect(answer.raw.length).toBeGreaterThan(0);
     read.push(...answer.raw);
+    revision = answer.revision;
     from = answer.next;
     pages++;
   }
@@ -360,4 +364,103 @@ test("a client that reconnects asking for another trim gets that encoding, not t
   const wholeText = await whole.until((text) => text.includes('"resume-whole"'));
   expect(wholeText).toContain(JSON.stringify(raw));
   expect(wholeText).not.toContain('"d":[');
+});
+
+/** Ask for one page of an item's raw payloads and return the reply's text. */
+async function readRaw(
+  client: Awaited<ReturnType<Awaited<ReturnType<typeof setup>>["join"]>>,
+  threadId: ThreadId,
+  request: { requestId: string; from: number; revision?: string },
+) {
+  client.send({ type: "item.raw", threadId, itemId: reply.id, ...request } as ClientMessage);
+  return client.until((text) => text.includes(`"requestId":"${request.requestId}"`));
+}
+
+const pageOf = (text: string) => {
+  const answer = ServerMessage.parse(JSON.parse(text));
+  if (answer.type !== "item.raw") throw new Error(`Unexpected ${answer.type}`);
+  return answer;
+};
+
+test("a cursor issued before the item's raw changed answers 'changed', never a mixed list", async () => {
+  const { f, join } = await setup();
+  const client = await join({ trims: [wireTrims.rawOnDemand] });
+  const revision = (tag: string) =>
+    Array.from({ length: 30 }, (_, index) => ({
+      type: "assistant",
+      data: { tag, index, text: "x".repeat(60_000) },
+    }));
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: Item.parse({ ...reply, raw: revision("old") }) },
+  ]);
+  const first = pageOf(await readRaw(client, f.thread.id, { requestId: "one", from: 0 }));
+  expect(first.next).toBeDefined();
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.updated", item: Item.parse({ ...reply, raw: revision("new") }) },
+  ]);
+  const stale = pageOf(
+    await readRaw(client, f.thread.id, {
+      requestId: "two",
+      from: first.next ?? 0,
+      revision: first.revision,
+    }),
+  );
+  expect(stale).toMatchObject({ changed: true, raw: [] });
+  expect(stale.revision).not.toBe(first.revision);
+  // Starting again reads the replacement whole, and only it.
+  const read: unknown[] = [];
+  let from: number | undefined = 0;
+  let pageRevision: string | undefined;
+  for (let request = 0; from !== undefined; request++) {
+    const page = pageOf(
+      await readRaw(client, f.thread.id, {
+        requestId: `again-${request}`,
+        from,
+        ...(pageRevision ? { revision: pageRevision } : {}),
+      }),
+    );
+    expect(page.changed).toBeUndefined();
+    read.push(...page.raw);
+    pageRevision = page.revision;
+    from = page.next;
+  }
+  expect(read).toEqual(revision("new"));
+});
+
+test("an entry with an oversized name or type answers within the page limit and the socket stays", async () => {
+  const { f, join } = await setup();
+  const client = await join({ trims: [wireTrims.rawOnDemand] });
+  const huge = "n".repeat(2.5 * 1024 * 1024);
+  f.store.appendEvents(f.thread.id, [
+    {
+      type: "item.created",
+      item: Item.parse({
+        ...reply,
+        raw: [
+          { type: "assistant", name: huge, data: { ok: 1 } },
+          { type: huge, data: { ok: 2 } },
+        ],
+      }),
+    },
+  ]);
+  const read: { type: string; name?: string | undefined }[] = [];
+  let from: number | undefined = 0;
+  let revision: string | undefined;
+  for (let request = 0; from !== undefined; request++) {
+    const text = await readRaw(client, f.thread.id, {
+      requestId: `big-${request}`,
+      from,
+      ...(revision ? { revision } : {}),
+    });
+    expect(Buffer.byteLength(text)).toBeLessThan(1024 * 1024 + 1024);
+    const page = pageOf(text);
+    read.push(...page.raw);
+    revision = page.revision;
+    from = page.next;
+  }
+  expect(read).toHaveLength(2);
+  expect(read[0]?.name).toMatch(new RegExp(`cut: ${huge.length} bytes`));
+  expect(read[1]?.type).toMatch(new RegExp(`cut: ${huge.length} bytes`));
+  // The socket is still up: another read is answered.
+  expect(pageOf(await readRaw(client, f.thread.id, { requestId: "after", from: 0 })).from).toBe(0);
 });

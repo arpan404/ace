@@ -1,13 +1,52 @@
+import { createHash } from "node:crypto";
 import type { RawPayload } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** The most raw JSON one `item.raw` reply carries; the rest comes in later pages. */
 export const itemRawReplyBytes = 1024 * 1024;
+/** The most one entry takes in a reply; a larger one has its long fields cut. */
+const entryBytes = 256 * 1024;
+/** What a cut field keeps of itself. */
+const keptBytes = 4 * 1024;
+
+const json = (value: unknown) => Buffer.byteLength(JSON.stringify(value) ?? "");
+
+/** `text` cut to its first `keptBytes`, saying it was cut and how long it was. */
+function cut(text: string): string {
+  const bytes = Buffer.byteLength(text);
+  if (bytes <= keptBytes) return text;
+  // A whole-character prefix: cut by bytes, drop a broken last character.
+  const kept = Buffer.from(text).subarray(0, keptBytes).toString("utf8").replace(/�$/, "");
+  return `${kept}… [cut: ${bytes} bytes]`;
+}
 
 /**
- * The payloads from `from` that fit `limit` bytes of JSON, at least one while any remain (a
- * stored entry is at most 64 KiB inline, larger ones are blob references), and where the next
- * page starts.
+ * `payload` as one reply may carry it: whole when it fits `entryBytes`, else with `type`,
+ * `name` and any preview cut, and inline data larger than `keptBytes` replaced by the start of
+ * its JSON, cut the same way. The stored entry is never changed.
+ */
+function bounded(payload: RawPayload): RawPayload {
+  if (json(payload) <= entryBytes) return payload;
+  const name = payload.name === undefined ? {} : { name: cut(payload.name) };
+  if (!("data" in payload))
+    return {
+      ...payload,
+      type: cut(payload.type),
+      ...name,
+      ...(payload.preview === undefined ? {} : { preview: cut(payload.preview) }),
+    };
+  const data = json(payload.data) <= keptBytes ? payload.data : cut(JSON.stringify(payload.data));
+  return { type: cut(payload.type), ...name, data };
+}
+
+/** Names one version of an item's payloads: any change to them gives another. */
+function revisionOf(raw: readonly RawPayload[]): string {
+  return createHash("sha256").update(JSON.stringify(raw)).digest("base64url").slice(0, 22);
+}
+
+/**
+ * The payloads from `from` that fit `limit` bytes of JSON, each bounded, at least one while any
+ * remain, and where the next page starts.
  */
 function page(raw: readonly RawPayload[], from: number, limit: number) {
   const kept: RawPayload[] = [];
@@ -16,9 +55,10 @@ function page(raw: readonly RawPayload[], from: number, limit: number) {
   for (; index < raw.length; index++) {
     const payload = raw[index];
     if (payload === undefined) break;
-    bytes += Buffer.byteLength(JSON.stringify(payload)) + 1;
+    const sent = bounded(payload);
+    bytes += json(sent) + 1;
     if (kept.length && bytes > limit) break;
-    kept.push(payload);
+    kept.push(sent);
   }
   return { raw: kept, next: index < raw.length ? index : undefined };
 }
@@ -26,7 +66,7 @@ function page(raw: readonly RawPayload[], from: number, limit: number) {
 /**
  * `item.raw`: one item's verbatim provider payloads, which a client on the `raw-on-demand` trim
  * got the item without. Read under the same checks as the item itself: read scope, and a
- * thread this device may read.
+ * thread this device may read. A page continues only the version of the payloads it began.
  */
 export function createItemRawSession(context: SocketContext): SocketService {
   return {
@@ -48,16 +88,22 @@ export function createItemRawSession(context: SocketContext): SocketService {
         context.fail("item_not_found", "No such item in this thread", false, scope);
         return true;
       }
-      const { raw, next } = page(stored, message.from, itemRawReplyBytes);
-      context.send({
-        type: "item.raw",
+      const revision = revisionOf(stored);
+      const reply = {
+        type: "item.raw" as const,
         requestId: message.requestId,
         threadId: message.threadId,
         itemId: message.itemId,
+        revision,
         from: message.from,
-        raw,
-        ...(next === undefined ? {} : { next }),
-      });
+      };
+      // A continuation of another version, or one with no version at all, starts again.
+      if (message.from > 0 && message.revision !== revision) {
+        context.send({ ...reply, changed: true, raw: [] });
+        return true;
+      }
+      const { raw, next } = page(stored, message.from, itemRawReplyBytes);
+      context.send({ ...reply, raw, ...(next === undefined ? {} : { next }) });
       return true;
     },
   };

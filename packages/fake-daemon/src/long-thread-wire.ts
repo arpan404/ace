@@ -18,6 +18,13 @@ import { fakeTurnSteps } from "./turn-steps-wire.ts";
 /** Payloads per `item.raw` page in the fake. */
 export const rawPageSize = 50;
 
+/** A version name for an item's payloads (FNV-1a of their JSON): any change gives another. */
+function rawRevision(raw: unknown): string {
+  let hash = 0x811c9dc5;
+  for (const char of JSON.stringify(raw)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193);
+  return `r${(hash >>> 0).toString(36)}`;
+}
+
 interface LongThreadHost {
   head(): number;
   thread(id: string): ThreadHost | undefined;
@@ -107,15 +114,23 @@ export class FakeLongThreadWire {
         const raw = item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
         // Pages by count, not by the daemon's 1 MiB, so a test reaches a second page cheaply.
         const next = message.from + rawPageSize;
-        send({
-          type: "item.raw",
+        const revision = rawRevision(raw);
+        const reply = {
+          type: "item.raw" as const,
           requestId: message.requestId,
           threadId: message.threadId,
           itemId: message.itemId,
+          revision,
           from: message.from,
-          raw: structuredClone(raw.slice(message.from, next)),
-          ...(next < raw.length ? { next } : {}),
-        });
+        };
+        if (message.from > 0 && message.revision !== revision)
+          send({ ...reply, changed: true, raw: [] });
+        else
+          send({
+            ...reply,
+            raw: structuredClone(raw.slice(message.from, next)),
+            ...(next < raw.length ? { next } : {}),
+          });
         return true;
       }
       case "turn.steps":
