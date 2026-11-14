@@ -1,12 +1,12 @@
 import CoreGraphics
 
-/// How the thread's bar shares its width. UIKit measures the title at the width it's given and
-/// can't shrink it, so when the title and the trailing buttons together are wider than the bar,
-/// UIKit folds the trailing buttons, ⋯ with them, into its "More" button. To avoid that, the
-/// title takes only what is left after every trailing button, a few points held back, and Chat
-/// and Changes stay beside ⋯ only while the title keeps a readable width. Otherwise they move
-/// into ⋯ (`ThreadDestination.menuScreens`). The bar's glyphs keep their default size at every
-/// text size (`barGlyph()`), so these widths hold at every text size.
+/// How the thread's bar shares its width. The title is the bar's title view, which UIKit narrows
+/// to the room its buttons leave; as a bar item it was folded into "More" with ⋯ (#2023). Its
+/// ideal width is what is left after every trailing button, a few points held back, so it
+/// sits from the back button up to them. Chat and Changes stay beside ⋯ only while the title
+/// keeps a readable width; otherwise they move into ⋯ (`ThreadDestination.menuScreens`). The
+/// bar's glyphs keep their default size at every text size (`barGlyph()`), so these widths hold
+/// at every text size.
 struct ThreadBarLayout: Equatable {
     /// The narrowest title kept beside Chat and Changes: two and a half buttons' worth, which
     /// the smallest iPhone (375 pt) clears with room to spare.

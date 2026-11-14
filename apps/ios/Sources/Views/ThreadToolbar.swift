@@ -40,8 +40,9 @@ struct ThreadPageSwitch {
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title
 /// with the model and its effort under it, both one menu (`ThreadTitleMenu`), then on a phone with
 /// changes Chat and Changes, then ⋯, one glass group. In a compact width the title leads, beside
-/// the back button, as the system's own apps place it next to trailing buttons, so it gets every
-/// point between the two; in a regular width it is centred. The thread's other screens
+/// the back button, as the system's own apps place it next to trailing buttons: it is the bar's
+/// title view, as wide as the room between the two and its words at its leading edge. In a
+/// regular width it is centred. The thread's other screens
 /// (Files, Terminal, Browser, Agents) are entries in ⋯, never their own controls.
 struct ThreadToolbar: ToolbarContent {
     /// The title and the line under it; its width is the toolbar's to give.
@@ -65,11 +66,10 @@ struct ThreadToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            if leadingTitle {
-                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
-            }
+            // Always the bar's title view, never a leading bar item: UIKit folds bar items that
+            // don't fit, the title among them, into "More", taking ⋯ with them (#2023). It
+            // fits the title view into the room the bar's buttons leave instead.
+            ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
             // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
             if let pages = shownSwitch {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
@@ -78,7 +78,7 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
                 .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
-            ToolbarItem(placement: leadingTitle ? .topBarLeading : .principal) { title }
+            ToolbarItem(placement: .principal) { title }
             if let pages = shownSwitch {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
             }
