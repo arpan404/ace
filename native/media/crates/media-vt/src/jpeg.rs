@@ -4,14 +4,14 @@
 //! with one upload (decode) or one readback (encode), and the path says so.
 #![allow(unsafe_code)]
 use crate::Copies;
-use crate::cf::{boolean, dictionary, float};
+use crate::cf::{flag_dictionary, float};
 use crate::decoder::{DecompressionSession, compressed_sample, format_description};
 use crate::encoder::CompressionSession;
 use crate::output::Shared;
 use crate::surface::{PixelPool, VtFormat, VtSurface, read_back_into};
 use crate::transfer::VtScaler;
 use media_codec::*;
-use objc2_core_foundation::{CFDictionary, CFRetained};
+use objc2_core_foundation::CFRetained;
 use objc2_core_media::{CMFormatDescription, kCMVideoCodecType_JPEG};
 use objc2_video_toolbox::*;
 use std::sync::Arc;
@@ -88,17 +88,25 @@ impl VtJpeg {
         if stale {
             self.decode = None;
             let format = format_description(kCMVideoCodecType_JPEG, source, None)?;
-            // SAFETY: Reading an immutable framework key constant.
-            let specification = dictionary(&[(
-                unsafe { kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder },
-                boolean(true).as_ref(),
-            )]);
-            let session = DecompressionSession::open(
-                &format,
-                Some(&specification),
-                Some(target),
-                self.output,
-            )?;
+            // Hardware required first: JPEG sessions don't report the hardware
+            // property, so a session that opens under the requirement is the
+            // answer. Otherwise a session that may use hardware, reported as not.
+            // SAFETY: Reading immutable framework key constants.
+            let (require, enable) = unsafe {
+                (
+                    kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
+                    kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder,
+                )
+            };
+            let open = |key| {
+                DecompressionSession::open(
+                    &format,
+                    Some(&flag_dictionary(key)),
+                    Some(target),
+                    self.output,
+                )
+            };
+            let session = open(require).or_else(|_| open(enable))?;
             let hardware = session.hardware();
             self.decode = Some(DecodeStream {
                 source,
@@ -114,18 +122,23 @@ impl VtJpeg {
         if self.encode.as_ref().is_none_or(|s| s.size != size) {
             self.encode = None;
             let shared = Arc::new(Shared::default());
-            // SAFETY: Reading an immutable framework key constant.
-            let specification: CFRetained<CFDictionary> = dictionary(&[(
-                unsafe { kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder },
-                boolean(true).as_ref(),
-            )]);
-            let session = CompressionSession::open(
-                kCMVideoCodecType_JPEG,
-                size,
-                &specification,
-                None,
-                &shared,
-            )?;
+            // SAFETY: Reading immutable framework key constants.
+            let (require, enable) = unsafe {
+                (
+                    kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
+                    kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
+                )
+            };
+            let open = |key| {
+                CompressionSession::open(
+                    kCMVideoCodecType_JPEG,
+                    size,
+                    &flag_dictionary(key),
+                    None,
+                    &shared,
+                )
+            };
+            let session = open(require).or_else(|_| open(enable))?;
             let hardware = session.hardware();
             shared.reserve(2, jpeg_capacity(size));
             self.encode = Some(EncodeStream {
@@ -165,8 +178,7 @@ impl VtJpeg {
         let surface = match picture {
             Picture::Cpu(cpu) => {
                 self.path = JpegPath::default();
-                *out = StillCodec::encode(&mut self.cpu, cpu, quality)?;
-                return Ok(());
+                return self.cpu.encode_into(cpu, quality, out);
             }
             Picture::Platform(_) => VtSurface::of(picture)
                 .ok_or_else(|| CodecError::InvalidInput("not a CVPixelBuffer picture".into()))?,
@@ -216,11 +228,11 @@ impl VtJpeg {
             &converted
         };
         let cpu = read_back_into(source, std::mem::take(&mut self.scratch))?;
-        let result = StillCodec::encode(&mut self.cpu, &cpu, quality);
+        let result = self.cpu.encode_into(&cpu, quality, out);
         if let Ok(plane) = cpu.into_packed_plane() {
             self.scratch = plane.data;
         }
-        *out = result?;
+        result?;
         self.path = JpegPath {
             hardware: false,
             copies: Copies {

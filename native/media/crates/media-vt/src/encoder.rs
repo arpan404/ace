@@ -63,16 +63,10 @@ impl CompressionSession {
                 .err()
                 .unwrap_or_else(|| CodecError::Backend("no compression session".into())));
         };
-        // SAFETY: Reading an immutable framework key constant (+0 lookup).
-        let required_hardware = unsafe {
-            let key = kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder;
-            let value = specification.value((key as *const CFString).cast());
-            value
-                .cast::<CFType>()
-                .as_ref()
-                .and_then(|v| v.downcast_ref::<objc2_core_foundation::CFBoolean>())
-                .is_some_and(objc2_core_foundation::CFBoolean::as_bool)
-        };
+        // SAFETY: Reading an immutable framework key constant.
+        let required_hardware = cf::flag(specification, unsafe {
+            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder
+        });
         Ok(Self {
             // SAFETY: Create rule: we own the returned reference.
             raw: unsafe { CFRetained::from_raw(raw) },
@@ -86,9 +80,9 @@ impl CompressionSession {
     pub(crate) fn set(&self, key: &CFString, value: &CFType, what: &str) -> Result<(), CodecError> {
         cf::set(self.session(), key, value, what)
     }
-    /// The session's `UsingHardwareAcceleratedVideoEncoder`. Low-latency
-    /// sessions don't report it (`kVTPropertyNotSupportedErr`); for those, a
-    /// session opened with hardware *required* is the session's own answer.
+    /// The session's `UsingHardwareAcceleratedVideoEncoder`. Low-latency and
+    /// JPEG sessions don't report it (`kVTPropertyNotSupportedErr`); for those,
+    /// a session that opened with hardware *required* is the session's answer.
     pub(crate) fn hardware(&self) -> bool {
         // SAFETY: Reading an immutable framework key constant.
         cf::copy_bool(self.session(), unsafe {

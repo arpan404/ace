@@ -43,6 +43,24 @@ pub(crate) fn dictionary(entries: &[(&CFString, &CFType)]) -> CFRetained<CFDicti
     unsafe { CFRetained::cast_unchecked(typed) }
 }
 
+/// A dictionary of one `key: true` entry, e.g. a hardware specification.
+pub(crate) fn flag_dictionary(key: &CFString) -> CFRetained<CFDictionary> {
+    dictionary(&[(key, boolean(true).as_ref())])
+}
+
+/// Whether `dictionary[key]` is `kCFBooleanTrue`.
+pub(crate) fn flag(dictionary: &CFDictionary, key: &CFString) -> bool {
+    // SAFETY: A +0 lookup with a CFString key; the value is borrowed only here.
+    unsafe {
+        let value = dictionary.value((key as *const CFString).cast());
+        value
+            .cast::<CFType>()
+            .as_ref()
+            .and_then(|v| v.downcast_ref::<CFBoolean>())
+            .is_some_and(CFBoolean::as_bool)
+    }
+}
+
 pub(crate) fn set(
     session: &VTSession,
     key: &CFString,

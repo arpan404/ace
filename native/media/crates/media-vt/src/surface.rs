@@ -332,7 +332,7 @@ pub fn read_back(picture: &Picture) -> Result<CpuPicture, CodecError> {
 }
 
 /// As [`read_back`], reusing `storage` for the first plane.
-pub fn read_back_into(picture: &Picture, mut storage: Vec<u8>) -> Result<CpuPicture, CodecError> {
+pub fn read_back_into(picture: &Picture, storage: Vec<u8>) -> Result<CpuPicture, CodecError> {
     let surface = VtSurface::of(picture)
         .ok_or_else(|| CodecError::InvalidInput("not a VideoToolbox picture".into()))?;
     let format = surface
@@ -345,15 +345,8 @@ pub fn read_back_into(picture: &Picture, mut storage: Vec<u8>) -> Result<CpuPict
         VtFormat::Nv12 => width,
         VtFormat::Bgra => width * 4,
     };
-    let mut planes = Vec::with_capacity(2);
-    let count = if format == VtFormat::Nv12 { 2 } else { 1 };
-    for index in 0..count {
+    let copy_plane = |index: usize, mut data: Vec<u8>| -> Result<Plane, CodecError> {
         let (base, stride, rows) = locked.plane(index)?;
-        let mut data = if index == 0 {
-            std::mem::take(&mut storage)
-        } else {
-            Vec::new()
-        };
         data.clear();
         data.reserve(row_bytes * rows);
         for row in 0..rows {
@@ -361,11 +354,24 @@ pub fn read_back_into(picture: &Picture, mut storage: Vec<u8>) -> Result<CpuPict
             let from = unsafe { std::slice::from_raw_parts(base.add(row * stride), row_bytes) };
             data.extend_from_slice(from);
         }
-        planes.push(Plane {
+        Ok(Plane {
             data,
             stride: row_bytes,
-        });
-    }
+        })
+    };
+    let first = copy_plane(0, storage)?;
+    let picture = match format {
+        VtFormat::Bgra => CpuPicture::new(size, format.pixel_format(), [first], picture.pts_us()),
+        VtFormat::Nv12 => {
+            let second = copy_plane(1, Vec::new())?;
+            CpuPicture::new(
+                size,
+                format.pixel_format(),
+                [first, second],
+                picture.pts_us(),
+            )
+        }
+    };
     drop(locked);
-    CpuPicture::new(size, format.pixel_format(), planes, picture.pts_us())
+    picture
 }

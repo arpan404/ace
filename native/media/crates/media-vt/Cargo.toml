@@ -62,3 +62,22 @@ objc2-video-toolbox = { version = "0.3", default-features = false, features = [
   "objc2-core-media",
   "objc2-core-video",
 ] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[example]]
+name = "vt_probe"
+path = "bench/vt_probe.rs"
+
+[[example]]
+name = "encode"
+path = "bench/encode.rs"
+
+[[example]]
+name = "vt_still"
+path = "bench/vt_still.rs"
+
+[[example]]
+name = "vt_alloc"
+path = "bench/vt_alloc.rs"

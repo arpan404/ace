@@ -30,6 +30,7 @@ pub(crate) struct DecompressionSession {
     raw: CFRetained<VTDecompressionSession>,
     refcon: *const DecodeSlot,
     slot: Arc<DecodeSlot>,
+    required_hardware: bool,
 }
 // SAFETY: The session is used one call at a time through &mut owners; the
 // callback only touches the Mutex-guarded slot. `refcon` is an owned Arc
@@ -69,19 +70,28 @@ impl DecompressionSession {
                 .err()
                 .unwrap_or_else(|| CodecError::Backend("no decompression session".into())));
         };
+        // SAFETY: Reading an immutable framework key constant.
+        let required_hardware = specification.is_some_and(|spec| {
+            cf::flag(spec, unsafe {
+                kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder
+            })
+        });
         Ok(Self {
             // SAFETY: Create rule.
             raw: unsafe { CFRetained::from_raw(raw) },
             refcon,
             slot,
+            required_hardware,
         })
     }
+    /// The session's `UsingHardwareAcceleratedVideoDecoder`; where a session
+    /// doesn't report it (JPEG), one that opened with hardware required.
     pub(crate) fn hardware(&self) -> bool {
         // SAFETY: Reading an immutable framework key constant.
         cf::copy_bool(&self.raw, unsafe {
             kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder
         })
-        .unwrap_or(false)
+        .unwrap_or(self.required_hardware)
     }
     /// Decodes one sample synchronously; `None` when the decoder held it back.
     pub(crate) fn decode(
