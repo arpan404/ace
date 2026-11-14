@@ -1,7 +1,7 @@
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { useCallback, useMemo } from "react";
+import { useCallback, useDeferredValue, useMemo } from "react";
 import { useNow } from "@/lib/time.ts";
 import {
   activityOf,
@@ -122,7 +122,7 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
  * The daemon's tabs (`threadTabs`) across every project and device the filter lets through.
  * Filters only narrow what comes in; the order is the daemon's. Chats (ADR 0099) are the Chats
  * panel's: they stay out of the Threads panel and History, as the Chats panel holds its own.
- * `query` narrows it to the threads whose title, project, branch or pull request match
+ * `typed` (deferred) narrows it to the threads whose title, project, branch or pull request match
  * (`threadMatches`, forgiving typos), and to those the daemon's search `found` in their messages.
  * Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
@@ -130,9 +130,13 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
  */
 export function useHomeList(
   others: readonly ThreadListEntry[] = noOthers,
-  query = "",
+  typed = "",
   found: ReadonlyMap<string, unknown> = noFound,
 ): HomeList {
+  // The search box stays instant; the list filters in a later, interruptible render, so a fast
+  // typist's keystrokes don't each wait on a pass over every thread.
+  const query = useDeferredValue(typed);
+  const keepTabs = useMemo(tabsKeeper, []);
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
@@ -163,7 +167,7 @@ export function useHomeList(
           : work;
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       // A saved list's statuses may be stale: its live bands claim nothing (its rows say Syncing).
-      const panel = threadTabs(entries, reader.unconfirmed ? syncing : placed);
+      const panel = keepTabs(entries, reader.unconfirmed ? syncing : placed);
       const pinned = new Set(panel.pinned);
       const listed = panel.inbox.filter((id) => !pinned.has(id));
       const needsYou = reader.unconfirmed
@@ -190,9 +194,47 @@ export function useHomeList(
       placed,
       syncing,
       isChatThread,
+      keepTabs,
     ],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
+}
+
+/**
+ * `threadTabs` that keeps its last panel while the same threads, in the same order, keep the same
+ * places: a step or a status change that moves no thread (most of them), or the minute ticking
+ * over, then costs one place read per thread and no sort. Pure but for the one panel it holds.
+ */
+export function tabsKeeper() {
+  let last:
+    | { ids: readonly string[]; places: readonly (ThreadPlace | undefined)[]; panel: ThreadsPanel }
+    | undefined;
+  return (
+    entries: readonly ThreadListEntry[],
+    place: (entry: ThreadListEntry) => ThreadPlace | undefined,
+  ): ThreadsPanel => {
+    const places = entries.map(place);
+    const held = last;
+    if (
+      held &&
+      held.ids.length === entries.length &&
+      entries.every(
+        (entry, index) =>
+          entry.id === held.ids[index] && samePlace(places[index], held.places[index]),
+      )
+    )
+      return held.panel;
+    const byId = new Map(entries.map((entry, index) => [entry.id, places[index]]));
+    const panel = threadTabs(entries, (entry) => byId.get(entry.id));
+    last = { ids: entries.map((entry) => entry.id), places, panel };
+    return panel;
+  };
+}
+
+function samePlace(a: ThreadPlace | undefined, b: ThreadPlace | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.tab !== b.tab || a.band !== b.band) return false;
+  return arrayEqual(a.rank, b.rank);
 }
 
 /** The top of the Home list: the Inbox's first thread, else the newest settled one. */
