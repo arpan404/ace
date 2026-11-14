@@ -216,8 +216,10 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   status `retrying` meanwhile rather than the browser paused; a frozen or dropped page is
   captured afresh once it runs. A tab the person switches to while watching is restored the
   same way: only a capture or backend failure after a successful restore pauses the browser.
-  After six failed tries in a row (about half a minute) the browser pauses with the reason, and
-  Reopen (or the next open) brings the thread's tabs back afresh, as for a lost page. A wake
+  A failed restore never pauses the browser: it is contained to that tab and its video. The
+  tab goes on being retried at most a minute apart while watched, its video `retrying` with the
+  reason and the tries so far; a command on it fails with `tab_unavailable` (and tries again
+  next time), while the other tabs and their commands go on untouched. A wake
   that ends after the viewer left or another tab was shown changes nothing.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
