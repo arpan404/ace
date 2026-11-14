@@ -109,12 +109,15 @@ import XCTest
         let before = viewedCount(progress.label)
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.' AND NOT (value CONTAINS 'Viewed')"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
-        // The list is lazy and long: swipe a row that is on screen, or bring the first one there.
-        let unviewed = rows.allElementsBoundByIndex.first { $0.isHittable } ?? rows.firstMatch
-        let id = unviewed.identifier
-        let row = app.buttons[id]
-        if !row.isHittable { app.bringToMiddle(row) }
-        XCTAssertTrue(row.isHittable, "\(id) is on screen to mark")
+        // The list is lazy and long, and a row scrolled under the pinned bar still reads as
+        // hittable: press only a row clear of both bars, bringing one into the open if none is.
+        var picked = clearRow(app, in: rows)
+        for _ in 0..<3 where picked == nil {
+            app.bringToMiddle(rows.firstMatch)
+            picked = clearRow(app, in: rows)
+        }
+        guard let row = picked else { return XCTFail("no unviewed file row clear of the bars to press") }
+        let id = row.identifier
         row.press(forDuration: 1.0)
         let mark = app.buttons.matching(NSPredicate(format: "label == 'Mark as viewed'")).firstMatch
         XCTAssertTrue(mark.waitForExistence(timeout: 5)); mark.tap()
@@ -194,6 +197,17 @@ import XCTest
         Int(label.split(separator: " ").first ?? "") ?? -1
     }
 
+    /// The first of `rows` drawn wholly between the pinned top bar (the scope and Collapse all)
+    /// and the review bar at the foot, where a press lands on the row itself.
+    private func clearRow(_ app: XCUIApplication, in rows: XCUIElementQuery) -> XCUIElement? {
+        let pinned = [app.buttons["changes.scope"], expandAll(app)].filter(\.exists).map(\.frame.maxY).max() ?? 0
+        let progress = app.descendants(matching: .any)["review.progress"]
+        let foot = progress.exists ? progress.frame.minY : app.frame.maxY * 0.85
+        return rows.allElementsBoundByIndex.first { row in
+            let frame = row.frame
+            return row.isHittable && frame.minY > pinned + 4 && frame.maxY < foot - 4
+        }
+    }
     /// Tap a control once it is hittable; a control drawn on screen whose hit point XCTest
     /// can't work out (a bar pinned over a scrolled page) is tapped at its frame instead.
     private func tapInPlace(_ app: XCUIApplication, _ element: XCUIElement) {
