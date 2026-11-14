@@ -233,7 +233,8 @@ export class ItemStore {
   private materializeAll(ids: readonly string[]): Map<string, Item> {
     const bodies = new Map<string, Record<string, unknown>>();
     const chunks = new Map<string, Record<string, unknown>[]>();
-    // Each item's body row (kind 0) comes before its chunks (kind 1), in sequence order.
+    // Each item's body row (kind 0) comes before its chunks (kind 1), in sequence order. One
+    // snapshot is enough because a completion writes the body and deletes its chunks atomically.
     for (const row of this.statement(
       `SELECT j.value AS id, 0 AS kind, i.item, i.created_seq, NULL AS seq, NULL AS field, NULL AS append
          FROM json_each(?1) j JOIN items i ON i.id = j.value
