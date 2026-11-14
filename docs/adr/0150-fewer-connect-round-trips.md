@@ -87,7 +87,14 @@ fixed 150 ms race stagger dialed every path every time.
    probe deadline of that wake (at most 10.3 s; 5.3 s before any measurement), however many
    wakes follow. The regular idle beat still counts any frame as liveness. This logic is a pure
    state machine (`heartbeat-machine.ts`) with `Heartbeat` as its shell, checked by properties
-   over random wakes, pong delays and death times.
+   over random wakes, pong delays and death times. The shell always runs on a monotonic clock
+   (`ClientOptions.monotonic`: `performance.now()` in the web app, the host's uptime clock on
+   iOS, `performance.now()` by default where the connection is composed), never the wall
+   clock; and whatever a host passes in, time it reads never goes backwards: a source that
+   jumps back carries on from where it was, as if no time passed in the jump. Its one timer is
+   armed for the machine's next deadline and kept as it is while an input leaves that deadline
+   unchanged, so frames never move the regular beat's cadence, and a timer that fires late
+   reads the time it fired at.
 
 The client keeps one link estimate, the active path's smoothed round trip, readable through
 `ClientApi.linkEstimate()` for other features.
