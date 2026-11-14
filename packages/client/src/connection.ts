@@ -696,7 +696,7 @@ export class Connection {
   }
   #startHeartbeat(): void {
     this.#heartbeat.start({
-      ping: () => this.#ping(() => {}) && this.state === "ready",
+      ping: (answered) => this.#ping(answered ?? (() => {})) && this.state === "ready",
       missed: () => this.#lost(1006, heartbeatMissed),
     });
   }

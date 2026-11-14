@@ -1,8 +1,12 @@
 import type { Scheduler } from "./types.ts";
 
 interface HeartbeatEvents {
-  /** Send a ping; false if it couldn't go out, which ends the beat. */
-  ping(): boolean;
+  /**
+   * Send a ping; false if it couldn't go out, which ends the beat. `answered` runs when the pong
+   * for this very ping arrives: the daemon answers a socket's pings in order, so the nth pong
+   * answers the nth ping.
+   */
+  ping(answered?: () => void): boolean;
   /** A ping went a whole interval without the daemon sending anything. */
   missed(): void;
 }
@@ -31,9 +35,11 @@ export class Heartbeat {
     this.#beat(events);
   }
   /**
-   * Check now instead of at the next beat: ping at once and give the daemon `withinMs` to send
-   * anything. Silence ends the beat as a miss; an answer resumes the regular beat. A no-op
-   * unless a beat is running.
+   * Check now instead of at the next beat: ping at once and give the daemon `withinMs` to answer
+   * that ping. Only the pong for the probe's own ping counts: a frame or a pong already on its
+   * way before the probe (sent before the network changed under the socket) proves nothing
+   * about the socket now. Silence ends the beat as a miss; the answer resumes the regular beat.
+   * A no-op unless a beat is running.
    */
   probe(withinMs: number): void {
     const events = this.#events;
@@ -41,13 +47,15 @@ export class Heartbeat {
     this.#cancel?.();
     this.#cancel = undefined;
     this.#awaiting = true;
-    if (!events.ping()) return;
+    let answered = false;
+    if (!events.ping(() => (answered = true))) return;
     this.#cancel = this.#scheduler.set(withinMs, () => {
       this.#cancel = undefined;
-      if (this.#awaiting) {
+      if (!answered) {
         events.missed();
         return;
       }
+      this.#awaiting = false;
       this.#beat(events);
     });
   }
