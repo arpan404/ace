@@ -15,6 +15,9 @@ pub struct ChromeSearch {
     pub env_path: Option<PathBuf>,
     /// `PATH`, split.
     pub path: Vec<PathBuf>,
+    /// Windows: `PROGRAMFILES`, `PROGRAMFILES(X86)` and `LOCALAPPDATA`, where Chrome and Edge
+    /// install.
+    pub program_roots: Vec<PathBuf>,
     /// ace's data directory, holding `chromium/`.
     pub data_dir: Option<PathBuf>,
 }
@@ -28,6 +31,11 @@ impl ChromeSearch {
             path: std::env::var_os("PATH")
                 .map(|path| std::env::split_paths(&path).collect())
                 .unwrap_or_default(),
+            program_roots: ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]
+                .into_iter()
+                .filter_map(std::env::var_os)
+                .map(PathBuf::from)
+                .collect(),
             data_dir,
         }
     }
@@ -59,6 +67,14 @@ pub fn candidates(search: &ChromeSearch) -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         out.push("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
         out.push("/Applications/Chromium.app/Contents/MacOS/Chromium".into());
+    }
+    if cfg!(windows) {
+        for app in [
+            "Google/Chrome/Application/chrome.exe",
+            "Microsoft/Edge/Application/msedge.exe",
+        ] {
+            out.extend(search.program_roots.iter().map(|root| root.join(app)));
+        }
     }
     let names: &[&str] = if cfg!(windows) {
         &["chrome.exe", "chromium.exe", "msedge.exe"]
@@ -157,6 +173,7 @@ mod tests {
             explicit: Some("/x/explicit".into()),
             env_path: Some("/x/env".into()),
             path: vec!["/x/bin".into()],
+            program_roots: vec!["/x/programs".into()],
             data_dir: Some(data.clone()),
         };
         let found = candidates(&search);
@@ -175,8 +192,16 @@ mod tests {
             ]
         );
         let first_download = found.iter().position(|p| p.starts_with(&data));
+        let first_path = found.iter().position(|p| p.starts_with("/x/bin"));
         let last_path = found.iter().rposition(|p| p.starts_with("/x/bin"));
         assert!(last_path < first_download);
+        // Windows installs come before PATH, as in the daemon; elsewhere they aren't looked at.
+        let installed = found.iter().rposition(|p| p.starts_with("/x/programs"));
+        if cfg!(windows) {
+            assert!(installed.is_some_and(|at| Some(at) < first_path));
+        } else {
+            assert!(installed.is_none());
+        }
         std::fs::remove_dir_all(&data)
     }
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Through a real headless Chrome, found the way the daemon finds it. Each test is skipped,
 //! saying so, on a machine with no Chrome.
-#![cfg(unix)]
 
 use media_chrome::{ChromeEncoder, ChromeOptions, ChromeSearch, find_chrome, jpeg_picture};
 use media_codec::{
@@ -12,7 +11,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 fn chrome() -> Option<PathBuf> {
-    let data_dir = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ace"));
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let data_dir = home.map(|home| PathBuf::from(home).join(".ace"));
     let found = find_chrome(&ChromeSearch::from_env(data_dir));
     match &found {
         Some(path) => eprintln!("media-chrome: using {}", path.display()),
@@ -174,10 +174,17 @@ fn a_killed_chrome_is_restarted_and_encoding_resumes_at_a_keyframe() -> Result<(
         next_unit(&mut encoder)?;
     }
     let pid = encoder.browser_pid().ok_or(CodecError::NotConfigured)?;
-    let killed = std::process::Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .status()
-        .map_err(|e| CodecError::Backend(e.to_string()))?;
+    let killed = if cfg!(windows) {
+        std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .status()
+    } else {
+        std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status()
+    }
+    .map_err(|e| CodecError::Backend(e.to_string()))?;
     assert!(killed.success());
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut index = 3u64;
@@ -241,6 +248,7 @@ fn the_probe_trial_reports_a_working_software_encoder() {
 }
 
 /// Processes in a process group, from `pgrep -g`.
+#[cfg(unix)]
 fn group_members(group: u32) -> usize {
     std::process::Command::new("pgrep")
         .args(["-g", &group.to_string()])
@@ -249,6 +257,7 @@ fn group_members(group: u32) -> usize {
         .unwrap_or(0)
 }
 
+#[cfg(unix)]
 #[test]
 fn dropping_the_encoder_ends_every_chrome_process() -> Result<(), CodecError> {
     let Some((mut encoder, profiles)) = encoder("tree") else {
@@ -286,6 +295,34 @@ fn chrome_owner_entry() -> Result<(), CodecError> {
     Ok(())
 }
 
+/// The browser's process is still running.
+fn running(pid: u32) -> bool {
+    if cfg!(windows) {
+        std::process::Command::new("tasklist")
+            .args(["/NH", "/FI", &format!("PID eq {pid}")])
+            .output()
+            .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(&pid.to_string()))
+    } else {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+}
+
+/// Unix: every process of the browser's group. Windows: the browser (its job ends the rest).
+fn browser_left(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        group_members(pid) > 0
+    }
+    #[cfg(not(unix))]
+    {
+        running(pid)
+    }
+}
+
 #[test]
 fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), CodecError> {
     if chrome().is_none() {
@@ -318,14 +355,14 @@ fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), Codec
         assert!(Instant::now() < deadline, "the owner never started Chrome");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert!(group_members(group) > 0);
+    assert!(running(group) && browser_left(group));
     owner.kill().map_err(io)?;
     owner.wait().map_err(io)?;
     let deadline = Instant::now() + Duration::from_secs(10);
-    while group_members(group) > 0 && Instant::now() < deadline {
+    while browser_left(group) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(group_members(group), 0, "Chrome outlived its owner");
+    assert!(!browser_left(group), "Chrome outlived its owner");
     let _ = std::fs::remove_dir_all(dir);
     Ok(())
 }
