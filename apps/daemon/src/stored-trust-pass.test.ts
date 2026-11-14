@@ -7,6 +7,7 @@ import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message, shell } from "./payload-test-support.ts";
 import { Store } from "./store.ts";
+import { storedTrustBuild } from "./stored-shape.ts";
 import { eventsPerBatch } from "./stored-trust-batch.ts";
 
 const cleanup: (() => unknown)[] = [];
@@ -73,7 +74,17 @@ function setup(pass: { rejectedLimit?: number; batchesPerSave?: number } = {}) {
       db.close();
     }
   };
-  return { open, openBeside, idle, finish, raw, errors, state };
+  /** A second connection that reads the daemon's trust record and writes none. */
+  const openReader = ({ shape, build }: Build) => {
+    const store = new Store(path, (error) => errors.push(error), {
+      eventShape: shape,
+      storedTrustBuild: build,
+      storedTrustReader: true,
+    });
+    stores.push(store);
+    return store;
+  };
+  return { open, openBeside, openReader, idle, finish, raw, errors, state };
 }
 
 /** A thread with more messages than one batch checks, so the pass takes several batches. */
@@ -440,4 +451,45 @@ it("a cached thread read stays cached across the pass's progress saves", async (
   expect(after.invalidations).toBe(before.invalidations);
   // The batch was saved: a store opened beside it trusts what it confirmed.
   expect(readAsStored(openBeside(release("build B")), seqs(events).newest)).toBe(true);
+});
+
+/** Two builds of one version whose code differs only where the schema fingerprint can't see. */
+const builtFrom = (digit: string): Build => ({
+  shape: "unchanged schema",
+  build: storedTrustBuild("1.0.0", digit.repeat(64)),
+});
+
+it("a build whose code changed under an unchanged schema trusts no row it didn't write itself", async () => {
+  const { open } = setup();
+  const before = await open(builtFrom("a"));
+  const { thread, events } = history(before, 10);
+  const { newest } = seqs(events);
+  expect(readAsStored(before, newest)).toBe(true);
+
+  const patched = await open(builtFrom("b"));
+  expect(readAsStored(patched, newest)).toBe(false);
+  const [own] = patched.appendEvents(thread, [{ type: "item.created", item: message("own") }]);
+  if (!own) throw new Error("nothing appended");
+  expect(readAsStored(patched, own.seq)).toBe(true);
+});
+
+it("an identical rebuild keeps the trusted boundary", async () => {
+  const { open } = setup();
+  const before = await open(builtFrom("a"));
+  const { newest } = seqs(history(before, 10).events);
+  const rebuilt = await open(builtFrom("a"));
+  expect(readAsStored(rebuilt, newest)).toBe(true);
+});
+
+it("a second connection reads the daemon's trust, or none for another build, and leaves it alone", async () => {
+  const { open, openReader, finish } = setup();
+  const writer = await open(release("build A"));
+  const { oldest } = seqs(history(writer, 10).events);
+  const daemon = await open(release("build B", "1.0.0"));
+  finish();
+
+  expect(readAsStored(openReader(release("build B", "1.0.0")), oldest)).toBe(true);
+  expect(readAsStored(openReader(release("build B", "1.0.1")), oldest)).toBe(false);
+  expect(readAsStored(daemon, oldest)).toBe(true);
+  expect(readAsStored(await open(release("build B", "1.0.0")), oldest)).toBe(true);
 });

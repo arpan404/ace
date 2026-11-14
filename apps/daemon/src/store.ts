@@ -1,6 +1,11 @@
 import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
-import { openStoredTrust, storedEventShape, type OpenedTrust } from "./stored-shape.ts";
+import {
+  openStoredTrust,
+  readStoredTrust,
+  storedEventShape,
+  type OpenedTrust,
+} from "./stored-shape.ts";
 import {
   plainCommit,
   runInProgress,
@@ -10,6 +15,7 @@ import {
 } from "./stored-trust-pass.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
+import { threadReadNeutral } from "./thread-read-neutral.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
 import { CommandReceipts } from "./command-receipts.ts";
@@ -109,8 +115,13 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   checkpointWorker?: CheckpointWorkerFactory;
   /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
   eventShape?: string;
-  /** What the idle pass confirms is kept under (`storedTrustBuild`); none keeps it in memory. */
+  /** The identity stored-row trust is kept under (`storedTrustBuild`); none keeps nothing. */
   storedTrustBuild?: string | undefined;
+  /**
+   * A second connection of the daemon's own build, such as the history publication worker:
+   * it reads the daemon's trust record, never writes one, and runs no idle pass.
+   */
+  storedTrustReader?: boolean;
   /** Ticks of the idle pass that confirms older rows (`stored-trust-pass.ts`), for tests. */
   trustPass?: { scheduler: TrustPassScheduler; rejectedLimit?: number; batchesPerSave?: number };
   /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
@@ -265,7 +276,7 @@ export class Store {
     );
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     const eventShape = options.eventShape ?? storedEventShape(schemaVersion);
-    let opened: OpenedTrust;
+    let opened: OpenedTrust | undefined = undefined;
     try {
       this.db.exec(
         // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
@@ -345,7 +356,9 @@ export class Store {
       // After the passes above that rewrite threads rows; the writer keeps stamps current.
       this.atomic((db) => confirmThreadRows(db));
       // After every open-time pass that rewrites stored rows, before the first append.
-      opened = openStoredTrust(this.db, eventShape, options.storedTrustBuild, this.trust);
+      if (options.storedTrustReader)
+        readStoredTrust(this.db, eventShape, options.storedTrustBuild, this.trust);
+      else opened = openStoredTrust(this.db, eventShape, options.storedTrustBuild, this.trust);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -434,25 +447,27 @@ export class Store {
       })
       .catch(this.onError);
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
-    this.trustPass = startStoredTrustPass({
-      scheduler: options.trustPass?.scheduler ?? scheduleTrustPass,
-      rejectedLimit: options.trustPass?.rejectedLimit,
-      batchesPerSave: options.trustPass?.batchesPerSave,
-      db: this.db,
-      commit: (run) => this.writeOutsideThreadReads(run),
-      shape: eventShape,
-      opened,
-      trust: this.trust,
-      busy: () =>
-        this.db.isTransaction ||
-        !!this.transactionEvents ||
-        this.historyWriting ||
-        this.writes.isHeld() ||
-        this.streaming.buffer.bytes > 0 ||
-        runInProgress(this.db),
-      headSeq: () => this.headSeq(),
-      report: (error) => this.onError(error),
-    });
+    this.trustPass = !opened
+      ? { close: () => {} }
+      : startStoredTrustPass({
+          scheduler: options.trustPass?.scheduler ?? scheduleTrustPass,
+          rejectedLimit: options.trustPass?.rejectedLimit,
+          batchesPerSave: options.trustPass?.batchesPerSave,
+          db: this.db,
+          commit: (run) => this.writeOutsideThreadReads(run),
+          shape: eventShape,
+          opened,
+          trust: this.trust,
+          busy: () =>
+            this.db.isTransaction ||
+            !!this.transactionEvents ||
+            this.historyWriting ||
+            this.writes.isHeld() ||
+            this.streaming.buffer.bytes > 0 ||
+            runInProgress(this.db),
+          headSeq: () => this.headSeq(),
+          report: (error) => this.onError(error),
+        });
   }
   private readonly trustPass: { close(): void };
   /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
@@ -464,11 +479,13 @@ export class Store {
   /**
    * Commit `run`, outside any transaction, as a write declared to change nothing any thread read
    * returns (the idle trust pass's progress and thread-row stamps), so the read cache keeps its
-   * entries. If another connection committed meanwhile the cache invalidates as usual.
+   * entries. If another connection committed meanwhile the cache invalidates as usual. Nothing
+   * proves a write neutral; `run` may only write the tables in `threadReadNeutralTables`, and a
+   * statement writing any other throws before it runs.
    */
   private writeOutsideThreadReads<T>(run: (db: DatabaseSync) => T): T {
     const before = this.readGeneration();
-    const result = plainCommit(this.db)(run);
+    const result = plainCommit(this.db)((db) => run(threadReadNeutral(db)));
     const after = this.readGeneration();
     if (before.split(":")[0] === after.split(":")[0]) this.readCache.carryOver(before, after);
     return result;

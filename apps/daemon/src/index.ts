@@ -33,7 +33,7 @@ import { homedir } from "node:os";
 import { randomBytes, randomUUID } from "node:crypto";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
 import { installFatalLogFlush, installRejectionGuard } from "./fatal-log.ts";
 import { isStoreRetry } from "./store-busy.ts";
@@ -48,7 +48,7 @@ import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
-import { runningBundle, storedTrustBuild } from "./stored-shape.ts";
+import { runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
 import { spawn } from "node:child_process";
@@ -344,7 +344,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
       {
         now,
         lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
-        storedTrustBuild: storedTrustBuild(process.env.ACE_VERSION, runningBundle(process.argv[1])),
+        storedTrustBuild: storedTrustBuild(
+          process.env.ACE_VERSION,
+          process.argv[1] === undefined ? undefined : runningBuildId(dirname(process.argv[1])),
+        ),
       },
     );
     // One admission gate for the server and the engine, closed before any service starts when

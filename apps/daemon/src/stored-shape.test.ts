@@ -6,7 +6,7 @@ import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message } from "./payload-test-support.ts";
 import { Store } from "./store.ts";
-import { runningBundle, storedTrustBuild } from "./stored-shape.ts";
+import { buildIdFile, runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -133,28 +133,34 @@ it("thread items this build created read back as they were appended", () => {
   expect(page.items).toContainEqual(message("new item"));
 });
 
-/** The trust build key of a release running from `entry`. */
-const key = (entry: string, version = "1.2.3") => storedTrustBuild(version, runningBundle(entry));
+/** A release directory holding a daemon build id, as the bundle step writes it. */
+function releaseDirectory(name: string, id: string | undefined) {
+  const directory = join(mkdtempSync(join(tmpdir(), "ace-trust-build-")), name);
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(directory);
+  if (id !== undefined) writeFileSync(join(directory, buildIdFile), `${id}\n`);
+  return directory;
+}
+const id = (digit: string) => digit.repeat(64);
+/** The trust identity of a release whose files sit in `directory`. */
+const key = (directory: string, version = "1.2.3") =>
+  storedTrustBuild(version, runningBuildId(directory));
 
-it("builds of one version with different code keep what the trust pass confirmed apart", () => {
-  const home = mkdtempSync(join(tmpdir(), "ace-trust-build-"));
-  cleanup.push(() => rmSync(home, { recursive: true, force: true }));
-  const release = (name: string, code: string) => {
-    mkdirSync(join(home, name));
-    const entry = join(home, name, "ace.mjs");
-    writeFileSync(entry, code);
-    return entry;
-  };
-  const first = release("first", 'import "./chunk-AAAA.mjs";');
-  const rebuilt = release("rebuilt", 'import "./chunk-AAAA.mjs";');
-  const patched = release("patched", 'import "./chunk-BBBB.mjs";');
+it("the trust identity follows the build id beside the daemon, not just its version", () => {
+  const first = releaseDirectory("first", id("a"));
+  const rebuilt = releaseDirectory("rebuilt", id("a"));
+  const patched = releaseDirectory("patched", id("b"));
 
   expect(key(first)).toBeDefined();
   expect(key(rebuilt)).toBe(key(first));
   expect(key(patched)).not.toBe(key(first));
   expect(key(first, "1.2.4")).not.toBe(key(first));
   expect(key(first, "development")).toBeUndefined();
-  expect(
-    storedTrustBuild("1.2.3", runningBundle(join(import.meta.dirname, "index.ts"))),
-  ).toBeUndefined();
+});
+
+it("a daemon without a readable build id keeps no trust identity", () => {
+  expect(runningBuildId(releaseDirectory("missing", undefined))).toBeUndefined();
+  expect(runningBuildId(releaseDirectory("malformed", "not a digest"))).toBeUndefined();
+  expect(runningBuildId(import.meta.dirname)).toBeUndefined();
+  expect(storedTrustBuild("1.2.3", undefined)).toBeUndefined();
 });

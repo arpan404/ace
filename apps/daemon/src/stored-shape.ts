@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { Event } from "@ace/protocol";
 import { z } from "zod";
@@ -10,16 +10,16 @@ import type { StoredTrust } from "./stored-decode.ts";
  * Which stored rows this build may read back without validating them again (ADR 0125).
  *
  * The writer validates every event before it stores it, so a row this build wrote is already
- * in this build's shape. A row an older build wrote may not be: a newer schema can add a field
- * with a default, or rename a variant. The shape is a fingerprint of the event schema and the
- * migration version. When it differs from the one recorded, the first sequence this build
- * writes is recorded with it; rows from there on are trusted. Rows before it are decoded as
- * before until the idle pass (`stored-trust-pass.ts`) confirms them.
+ * in this build's shape. A row another build wrote may not be: a newer schema can add a field
+ * with a default, rename a variant, or change a transform the shape can't show. The shape is a
+ * fingerprint of the event schema and the migration version; the build (`storedTrustBuild`) is
+ * the release's identity. When either differs from what is recorded, the first sequence this
+ * build writes is recorded; rows from there on are trusted. Rows before it are decoded as before
+ * until the idle pass (`stored-trust-pass.ts`) confirms them, newest first. So after every
+ * update older history reads validated until the pass has re-confirmed it. A daemon run from
+ * source has no build identity and records a new start at every open.
  *
- * What the pass confirmed belongs to one build and one write generation.
- * - The build (`storedTrustBuild`) is the release version together with the bundled code it
- *   runs: the shape can't see a changed transform or decoder, so every new build checks again.
- *   A daemon run from source never keeps what it confirmed.
+ * The start and what the pass confirmed belong to one build and one write generation.
  * - The generation is a counter that triggers in the database bump on every write to
  *   `stored_event_shape`, by any build, including builds from before the pass, so a build that
  *   recorded its own start in between invalidates the record.
@@ -34,25 +34,32 @@ export function storedEventShape(schemaVersion: number): string {
 }
 
 /**
- * The build key what the pass confirmed is kept under: the release version (`ACE_VERSION`) and
- * the bytes of the bundled daemon entry it runs from (`runningBundle`). The release bundles the
- * daemon as `ace.mjs` with content-hashed chunks whose names the entry holds, so any change to
- * the shipped code, a protocol transform included, changes the key, while a rebuild of the same
- * code keeps it. Undefined for a daemon run from source, so nothing it confirms outlives it.
+ * The identity stored-row trust is kept under: the release version (`ACE_VERSION`) and the
+ * build id the release bundle step wrote beside the daemon (`runningBuildId`), a digest of every
+ * daemon file it shipped, helpers and native assets included. Any change to the shipped code, a
+ * protocol transform included, changes it, while a rebuild of identical files keeps it.
+ * Undefined for a daemon run from source or a release without a readable id, so nothing it
+ * trusted outlives it.
  */
 export function storedTrustBuild(
   version: string | undefined,
-  bundle: Uint8Array | undefined,
+  buildId: string | undefined,
 ): string | undefined {
-  if (!version || version === "development" || !bundle) return undefined;
-  return createHash("sha256").update(`${version}\n`).update(bundle).digest("hex");
+  if (!version || version === "development" || !buildId) return undefined;
+  return createHash("sha256").update(`${version}\n${buildId}`).digest("hex");
 }
 
-/** The bundled daemon entry this process runs from (`ace.mjs`), or undefined from source. */
-export function runningBundle(entry: string | undefined): Uint8Array | undefined {
-  if (!entry || basename(entry) !== "ace.mjs") return undefined;
+/** The file the release bundle step writes beside `ace.mjs` (`tools/release/src/build-id.ts`). */
+export const buildIdFile = "build-id";
+const BuildId = z.string().regex(/^[0-9a-f]{64}$/);
+
+/**
+ * The build id of the release whose files sit in `directory`: the daemon's entry passes its
+ * own directory, a bundled worker its own, which is the same one. Undefined from source.
+ */
+export function runningBuildId(directory: string): string | undefined {
   try {
-    return readFileSync(entry);
+    return BuildId.safeParse(readFileSync(join(directory, buildIdFile), "utf8").trim()).data;
   } catch {
     return undefined;
   }
@@ -89,18 +96,8 @@ export function storedWriteGeneration(db: DatabaseSync): number {
   );
 }
 
-/**
- * Record `shape`'s start when it differs from the recorded one: the first sequence written in
- * it. Items keep the sequence they were created at, so the same boundary applies to them.
- */
-function sequenceStart(db: DatabaseSync, shape: string): { start: number; kept: boolean } {
-  createTables(db);
-  const recorded = Recorded.safeParse(
-    db.prepare("SELECT shape, first_seq FROM stored_event_shape WHERE id = 1").get(),
-  );
-  if (recorded.success && recorded.data.shape === shape)
-    return { start: recorded.data.first_seq, kept: true };
-  const head = z
+const head = (db: DatabaseSync) =>
+  z
     .number()
     .int()
     .nonnegative()
@@ -111,10 +108,49 @@ function sequenceStart(db: DatabaseSync, shape: string): { start: number; kept: 
         )
         .get()?.head,
     );
+/**
+ * Record a start for `shape`: the first sequence this build will write. Items keep the sequence
+ * they were created at, so the same boundary applies to them. Bumps the write generation.
+ */
+function recordStart(db: DatabaseSync, shape: string): number {
+  const start = head(db) + 1;
   db.prepare(
     "INSERT INTO stored_event_shape VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET shape = excluded.shape, first_seq = excluded.first_seq",
-  ).run(shape, head + 1);
-  return { start: head + 1, kept: false };
+  ).run(shape, start);
+  return start;
+}
+
+/** What is recorded now, when it is this build's own: its start and what the pass confirmed. */
+function ownRecord(
+  db: DatabaseSync,
+  shape: string,
+  build: string | undefined,
+): { generation: number; from: number } | undefined {
+  createTables(db);
+  if (build === undefined) return undefined;
+  const recorded = Recorded.safeParse(
+    db.prepare("SELECT shape, first_seq FROM stored_event_shape WHERE id = 1").get(),
+  );
+  const generation = storedWriteGeneration(db);
+  const record = db
+    .prepare("SELECT build, shape, generation, from_seq FROM stored_event_confirmed WHERE id = 1")
+    .get();
+  if (
+    !recorded.success ||
+    recorded.data.shape !== shape ||
+    record?.build !== build ||
+    record.shape !== shape ||
+    record.generation !== generation ||
+    Number(record.from_seq) > recorded.data.first_seq
+  )
+    return undefined;
+  // Trusted: rows this module wrote.
+  return { generation, from: Number(record.from_seq) };
+}
+function loadRejected(db: DatabaseSync, trust: StoredTrust): void {
+  // Trusted: rows this module wrote.
+  for (const row of db.prepare("SELECT seq FROM stored_event_rejected").all())
+    trust.rejected.add(Number(row.seq));
 }
 
 /** Where `trust` stands after open, and what the pass must match to extend it. */
@@ -127,8 +163,9 @@ export interface OpenedTrust {
 /**
  * Set `trust` for `shape` at open. Run after migrations and every open-time pass that rewrites
  * stored rows, and before the first append. Trusted: rows from the first sequence written in
- * this shape on, and the older rows the idle pass confirmed in this build and generation, minus
- * those it rejected. Anything else recorded is dropped, so a change only means the pass runs
+ * this shape and build on, and the older rows the idle pass confirmed in this build and
+ * generation, minus those it rejected. Any other shape or build records a new start above the
+ * head. Anything else recorded is dropped, so a change only means the pass runs
  * again; it never blocks the open. The start, the reset and the rejections change in one
  * savepoint, so an interrupted open leaves the previous state whole.
  */
@@ -158,25 +195,16 @@ function openInSavepoint(
   build: string | undefined,
   trust: StoredTrust,
 ): OpenedTrust {
-  const { start, kept } = sequenceStart(db, shape);
-  const generation = storedWriteGeneration(db);
-  const record = db
-    .prepare("SELECT build, shape, generation, from_seq FROM stored_event_confirmed WHERE id = 1")
-    .get();
-  const keep =
-    kept &&
-    build !== undefined &&
-    record?.build === build &&
-    record.shape === shape &&
-    record.generation === generation &&
-    Number(record.from_seq) <= start;
-  if (keep) {
-    // Trusted: rows this module wrote.
-    trust.from = Number(record.from_seq);
-    for (const row of db.prepare("SELECT seq FROM stored_event_rejected").all())
-      trust.rejected.add(Number(row.seq));
-    return { generation, build };
+  const own = ownRecord(db, shape, build);
+  if (own) {
+    trust.from = own.from;
+    loadRejected(db, trust);
+    return { generation: own.generation, build };
   }
+  // Another shape or another build: even rows written above the old start may read
+  // differently under this build's code, so trust starts above the head again.
+  const start = recordStart(db, shape);
+  const generation = storedWriteGeneration(db);
   db.exec("DELETE FROM stored_event_rejected; DELETE FROM stored_event_confirmed");
   if (build !== undefined)
     db.prepare("INSERT INTO stored_event_confirmed VALUES (1, ?, ?, ?, ?)").run(
@@ -187,6 +215,25 @@ function openInSavepoint(
     );
   trust.from = start;
   return { generation, build };
+}
+
+/**
+ * Set `trust` for a second connection of the same build that writes no trust record, such as
+ * the history publication worker: what the daemon's own open recorded for this build, or
+ * nothing at all.
+ */
+export function readStoredTrust(
+  db: DatabaseSync,
+  shape: string,
+  build: string | undefined,
+  trust: StoredTrust,
+): void {
+  trust.from = Number.POSITIVE_INFINITY;
+  trust.rejected.clear();
+  const own = ownRecord(db, shape, build);
+  if (!own) return;
+  trust.from = own.from;
+  loadRejected(db, trust);
 }
 
 /**
