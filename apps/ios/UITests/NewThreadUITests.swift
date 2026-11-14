@@ -94,7 +94,8 @@ import XCTest
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         screenshot("chat-picker")
         app.buttons["project.chat"].tap()
-        XCTAssertTrue(app.buttons["Project, none"].waitForExistence(timeout: 10))
+        // The pill reads "Project" with what's chosen as its value: VoiceOver says "Project, No project".
+        XCTAssertTrue(projectPill(app, "No project").waitForExistence(timeout: 10))
         // A chat runs in its own folder: no worktree strip, no project files to mention.
         XCTAssertFalse(app.buttons["newThread.worktree"].exists)
         let message = element(app, "newThread.message")
@@ -218,7 +219,7 @@ import XCTest
         screenshot("addproject-search")
         app.buttons["folder.notes"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "newThread.project", "notes")).firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(projectPill(app, "notes").waitForExistence(timeout: 15))
         screenshot("addproject-selected")
     }
 
@@ -291,6 +292,10 @@ import XCTest
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+    /// The project pill once it shows `project`: its label stays "Project", the choice is its value.
+    private func projectPill(_ app: XCUIApplication, _ project: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ AND value == %@", "newThread.project", project)).firstMatch
+    }
     private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
