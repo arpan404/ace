@@ -11,9 +11,6 @@
   "apps/web/src/components/inline-markdown.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/markdown/markdown.tsx": {
-    "text-size": 3
-  },
   "apps/web/src/components/ui/command.tsx": {
     "text-size": 1,
     "bare-outline": 1
@@ -62,9 +59,6 @@
     "bare-outline": 1
   },
   "apps/web/src/features/shell/workspace/tab-content.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/shell/workspace/tab-item.tsx": {
     "bare-outline": 1
   },
   "apps/web/src/features/thread/composer/composer.tsx": {
