@@ -7,6 +7,7 @@ import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
 import { systemClock } from "../engine/actor.ts";
+import { providerFacts } from "../agent-control/provider-facts.ts";
 import type { ServiceContext } from "./types.ts";
 import { createWorkspaceDelegations } from "../agent-control/workspaces.ts";
 import { createConversationStarts } from "../agent-control/conversations.ts";
@@ -49,6 +50,13 @@ export function startAgentControl(context: ServiceContext): void {
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     maxRunningChildren: () => services.childLimit?.current(),
     admitsWork: () => maintenance?.admit() ?? false,
+    refreshProvider: providerFacts(
+      {
+        // Read at each delegation: provider status may be published after agent control.
+        fresh: () => services.providerStatuses?.fresh() ?? Promise.resolve(),
+      },
+      engine,
+    ),
     onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());

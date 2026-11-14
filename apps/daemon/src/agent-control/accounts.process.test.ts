@@ -10,6 +10,7 @@ import {
   antigravityIdentity,
   createAntigravityInstance,
   createInstance,
+  createAcpInstance,
   createManagedAcpInstance,
 } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -17,7 +18,10 @@ import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { setup } from "./test-support.ts";
 import { AgentControlOperation, type ThreadId } from "@ace/protocol";
 import { createAgentControlPort } from "./tools.ts";
-import { scriptedModelInstance } from "../testing/models.ts";
+import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
+import { ProviderStatuses } from "../provider-status.ts";
+import { refreshAcpAgentAuth } from "../acp-agent-status.ts";
+import { providerFacts } from "./provider-facts.ts";
 
 test("explicit exhausted or mismatched accounts are rejected without creating children and eligible accounts are retained", async () => {
   const db = new DatabaseSync(":memory:"),
@@ -440,5 +444,151 @@ test("an agent names an added Antigravity account by its label and a loose model
     await h.close();
     db.close();
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+/** A delegation admitted with no client attached: an automation's agent or another machine. */
+test("a delegation to a CLI installed after startup is admitted with no client attached", async () => {
+  let installed = false;
+  const h = setup(
+    {},
+    undefined,
+    false,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    {
+      // Rediscovery finds the CLI once it is installed, as the daemon's discovery would.
+      waitForProvider: async (provider) => {
+        if (provider !== "opencode" || !installed || h.registry.has("opencode")) return;
+        const adapter = createScriptedAdapter({
+          provider: "opencode",
+          capabilities: h.registry.get("codex").capabilities,
+          createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+          steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+        });
+        h.registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
+      },
+      refreshProvider: (engine) => providerFacts(undefined, engine),
+    },
+  );
+  h.catalog.registerInstance(scriptedModelInstance("opencode", h.home));
+  const parent = await h.parent();
+  const request = {
+    requestId: "opencode-late",
+    provider: "opencode" as const,
+    task: "work",
+    role: "late-install-check",
+    wait: false,
+    estimatedLoad: 0,
+  };
+  await expect(h.service.prepareModels(parent, request)).rejects.toThrow(
+    /No installed provider adapter for opencode/,
+  );
+  // The person installs OpenCode outside ace; nothing else asks about it.
+  installed = true;
+  await h.service.prepareModels(parent, request);
+  const child = h.service.delegate(parent, request);
+  await h.engine.flush();
+  expect(h.store.getThread(child.childId)).toMatchObject({ provider: "opencode" });
+});
+
+test("a delegation to an ACP agent signed in again outside ace is admitted with no client attached", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "ace-acp-login-")));
+  const db = new DatabaseSync(":memory:");
+  const accounts = new AccountRegistry(db, home);
+  const identity = {
+    acpAgentId: "official:cursor",
+    installationId: "cursor-install",
+    instanceId: "cursor-install:default",
+  };
+  await accounts.register(createAcpInstance({ identity, label: "Cursor agent", userHome: home }));
+  // What `cursor-agent status --format json` reports; the CLI itself never runs.
+  let signedIn = false;
+  let now = 1000;
+  const statuses = new ProviderStatuses(
+    {
+      env: { HOME: home, PATH: "" },
+      cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+      antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
+      // As the daemon wires it: each check also reads ACP agents' own login.
+      checked: () =>
+        refreshAcpAgentAuth({
+          registry: accounts,
+          installed: [{ metadata: identity, command: join(home, "cursor-agent") }],
+          env: { HOME: home, PATH: "" },
+          now: () => now,
+          probe: async () => ({
+            code: 0,
+            stderr: "",
+            stdout: JSON.stringify({ isAuthenticated: signedIn }),
+          }),
+        }),
+    },
+    { now: () => now, schedule: () => () => {} },
+  );
+  const h = setup(
+    {},
+    undefined,
+    false,
+    undefined,
+    false,
+    accounts,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    { refreshProvider: (engine) => providerFacts(statuses, engine) },
+  );
+  try {
+    await statuses.fresh();
+    expect(accounts.get(identity.instanceId)?.quota.auth).toBe("logged_out");
+    const adapter = createScriptedAdapter({
+      provider: "acp",
+      capabilities: h.registry.get("claude").capabilities,
+      createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+      steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+    });
+    h.registry.register(
+      { ...adapter, acceptsIdentity: (selected) => selected.installationId === "cursor-install" },
+      { installed: true, auth: "unknown", loginHint: "unused" },
+    );
+    await seedScriptedModels(h.catalog, {
+      ...scriptedModelInstance("acp", h.home, "acp-cursor-catalog"),
+      ...identity,
+    });
+    const parent = await h.parent();
+    const request = {
+      requestId: "acp-login",
+      provider: "acp" as const,
+      ...identity,
+      accountId: identity.instanceId,
+      task: "work",
+      role: "acp-login-check",
+      wait: false,
+      estimatedLoad: 0,
+    };
+    // The person signs the agent in in a terminal, and later an automation delegates to it.
+    signedIn = true;
+    now += 300_000;
+    await h.service.prepareModels(parent, request);
+    const child = h.service.delegate(parent, request);
+    await h.engine.flush();
+    expect(h.store.getThread(child.childId)).toMatchObject({ provider: "acp", ...identity });
+  } finally {
+    await h.close();
+    await statuses.close();
+    db.close();
+    rmSync(home, { recursive: true, force: true });
   }
 });

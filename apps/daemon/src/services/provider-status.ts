@@ -152,14 +152,15 @@ export function startProviderStatuses(context: ServiceContext): void {
             : (registry?.selectedProvider(row.provider) ?? `${row.provider}-cli-default`);
         return registry?.summary(selected, context.now())?.availability === "exhausted";
       },
-      checked(rows) {
+      async checked(rows) {
         context.options.providerStatus?.checked?.(rows);
         if (context.services.models) applyInstallations(context.services.models, rows);
         // ACP agents whose own command reports its login (Cursor) are read on the same check.
         const accounts = context.services.accountRegistry;
         const agents = context.services.agentRegistry;
+        // The check publishes without waiting for this; `fresh` waits for it.
         if (accounts && agents)
-          void refreshAcpAgentAuth({
+          await refreshAcpAgentAuth({
             registry: accounts,
             installed: agents.inventory.all(),
             env: context.options.providerStatus?.env ?? process.env,

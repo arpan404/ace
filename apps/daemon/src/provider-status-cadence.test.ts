@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { ProviderStatus } from "@ace/protocol";
+import { ModelCatalog, openModelStorage } from "@ace/models";
 import { ProviderStatuses } from "./provider-status.ts";
+import { applyInstallations } from "./installation-gate.ts";
+import { scriptedModelDiscovery, scriptedModelInstance } from "./testing/models.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -15,7 +18,11 @@ afterEach(async () => {
  * `codex` whose probes answer with that version (read at each probe) and a signed-in login;
  * otherwise PATH has no CLIs.
  */
-async function statuses(codexVersion?: { current: string }) {
+async function statuses(
+  codexVersion?: { current: string },
+  /** What the daemon does with each check's rows; the model catalog's installations here. */
+  onChecked?: (rows: readonly ProviderStatus[]) => void,
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-provider-cadence-"));
   const bin = join(home, "bin");
   if (codexVersion) {
@@ -44,6 +51,7 @@ async function statuses(codexVersion?: { current: string }) {
       checked: (rows) => {
         checks++;
         checked.push([...rows]);
+        onChecked?.(rows);
       },
     },
     {
@@ -143,4 +151,50 @@ test("the last client leaving keeps the timer while a CLI is outdated", async ()
   const stop = status.subject.listen(() => {});
   stop();
   expect([...status.timers.values()]).toEqual([300_000]);
+});
+
+test("a status check that sees an updated CLI lifts the model catalog's too-old hold", async () => {
+  const codex = { current: "0.100.0" };
+  let catalog: ModelCatalog | undefined;
+  const status = await statuses(codex, (rows) => {
+    if (catalog) applyInstallations(catalog, rows);
+  });
+  const home = await mkdtemp(join(tmpdir(), "ace-provider-cadence-catalog-"));
+  catalog = new ModelCatalog({
+    storage: openModelStorage(join(home, "models.sqlite")),
+    instances: [scriptedModelInstance("codex", home)],
+    discover: scriptedModelDiscovery(),
+    now: () => status.clock.now,
+    deadline: () => () => {},
+  });
+  cleanups.push(async () => {
+    await catalog?.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  // The startup check's version, as the daemon hands it over.
+  applyInstallations(catalog, status.subject.installations());
+  await expect.poll(() => catalog?.list().instances[0]?.errorDetail?.code).toBe("cli_too_old");
+  // Its own retries wait hours on an unchanged too-old version.
+  status.clock.now += 300_000;
+  catalog.revalidate();
+  expect(catalog.list().models).toEqual([]);
+  // Updated outside ace, with no client attached: the next status check carries it over.
+  codex.current = "0.170.0";
+  status.fire();
+  await status.settle();
+  await expect
+    .poll(() => catalog?.list().models.map((model) => model.id))
+    .toEqual(["chosen-model"]);
+  expect(catalog.list().instances[0]?.errorDetail).toBeUndefined();
+});
+
+test("admission's freshness check runs a CLI check only when the facts are five minutes old", async () => {
+  const status = await statuses();
+  status.clock.now += 299_000;
+  await status.subject.fresh();
+  expect(status.checks()).toBe(1);
+  status.clock.now += 1_000;
+  await Promise.all([status.subject.fresh(), status.subject.fresh()]);
+  // Two delegations at once share one check.
+  expect(status.checks()).toBe(2);
 });

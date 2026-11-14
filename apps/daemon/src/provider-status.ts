@@ -40,7 +40,8 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
   ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
   /** Drops cached update answers (registries, agent catalog) before the person's own Refresh. */
   forgetVersions?(): Promise<void>;
-  checked?(rows: readonly Status[]): void;
+  /** What the daemon derives from a check; a returned promise is awaited by `fresh`. */
+  checked?(rows: readonly Status[]): void | Promise<void>;
   modelsAvailable?(provider: Status["provider"]): boolean;
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
   /** `observedRevision` is the account login revision current when auth was read. */
@@ -125,12 +126,26 @@ export class ProviderStatuses {
   private flight: Promise<void> | undefined;
   private cancelTimer: (() => void) | undefined;
   private lastChecked: number | undefined;
+  private derived: Promise<void> | undefined;
   private readonly first: Promise<void>;
   constructor(options: ProviderStatusOptions, runtime: ProviderStatusRuntime) {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
     this.runtime = runtime;
     this.first = this.refresh().catch(() => {});
+  }
+  /**
+   * Settles once the facts are at most five minutes old, including what the daemon derives
+   * from a check (ACP agents' logins). Work admitted with no client watching (delegations
+   * from automations or other machines) reads these facts: an older answer is checked again
+   * first, so an install or login changed outside ace counts. One check serves every caller.
+   */
+  async fresh(): Promise<void> {
+    await this.first;
+    if (this.flight) await this.flight.catch(() => {});
+    else if (this.lastChecked === undefined || this.runtime.now() - this.lastChecked >= refreshMs)
+      await this.refresh().catch(() => {});
+    await this.derived;
   }
   /** The installed versions the latest check reported, without starting a check. */
   installations(): Pick<Status, "provider" | "runtime" | "version">[] {
@@ -350,7 +365,8 @@ export class ProviderStatuses {
           );
           for (const [provider, selection] of selections)
             this.observations.set(provider, selection.key);
-          this.options.checked?.(admitted);
+          const derived = this.options.checked?.(admitted);
+          if (derived) this.derived = derived.catch(() => {});
         }
       })
       .finally(() => {
