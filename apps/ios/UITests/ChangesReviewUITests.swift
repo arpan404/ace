@@ -57,8 +57,10 @@ import XCTest
         sleep(3)
         capture("paged-more")
 
-        // A comment on a line of the first file, sent to the agent.
-        expandAll(app).tap() // collapse all
+        // A comment on a line of the first file, sent to the agent. Deep in the paged diff the
+        // pinned bar's Collapse all is still on screen; tap it where it is drawn.
+        tapInPlace(app, expandAll(app))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Expand all'")).firstMatch.waitForExistence(timeout: 10), "every file closed")
         let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.apps/server/src/replay/window.ts'")).firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 10)); first.tap()
         let line = app.buttons.matching(identifier: "diff.line").element(boundBy: 2)
@@ -108,10 +110,15 @@ import XCTest
         let progress = app.descendants(matching: .any)["review.progress"]
         XCTAssertTrue(progress.waitForExistence(timeout: 10))
         let before = viewedCount(progress.label)
-        let unviewed = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.' AND NOT (value CONTAINS 'Viewed')")).firstMatch
-        XCTAssertTrue(unviewed.waitForExistence(timeout: 10))
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.' AND NOT (value CONTAINS 'Viewed')"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        // The list is lazy and long: swipe a row that is on screen, or bring the first one there.
+        let unviewed = rows.allElementsBoundByIndex.first { $0.isHittable } ?? rows.firstMatch
         let id = unviewed.identifier
-        unviewed.swipeLeft()
+        let row = app.buttons[id]
+        if !row.isHittable { app.bringToMiddle(row) }
+        XCTAssertTrue(row.isHittable, "\(id) is on screen to swipe")
+        row.swipeLeft()
         let viewed = expectation(for: NSPredicate(format: "value CONTAINS 'Viewed'"), evaluatedWith: app.buttons[id])
         wait(for: [viewed], timeout: 10)
         // The review bar counts it.
@@ -152,6 +159,17 @@ import XCTest
         Int(label.split(separator: " ").first ?? "") ?? -1
     }
 
+    /// Tap a control once it is hittable; a control drawn on screen whose hit point XCTest
+    /// can't work out (a bar pinned over a scrolled page) is tapped at its frame instead.
+    private func tapInPlace(_ app: XCUIApplication, _ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10))
+        let hittable = expectation(for: NSPredicate(format: "hittable == true"), evaluatedWith: element)
+        if XCTWaiter.wait(for: [hittable], timeout: 5) == .completed { element.tap(); return }
+        let frame = element.frame
+        XCTAssertFalse(frame.isEmpty, "\(element.identifier) is drawn")
+        XCTAssertTrue(app.frame.contains(CGPoint(x: frame.midX, y: frame.midY)), "\(element.identifier) is on screen: \(frame)")
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
     /// Expand all or Collapse all, whichever the row shows.
     private func expandAll(_ app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == 'changes.expand' OR label == 'Expand all' OR label == 'Collapse all'")).firstMatch
