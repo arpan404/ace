@@ -2152,5 +2152,79 @@
         "expect": ["write v2"]
       }
     ]
+  },
+  {
+    "name": "an input whose time went back counts as the latest time seen",
+    "start": 1,
+    "steps": [
+      {
+        "at": 5000,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 1000,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "tick": 1500,
+        "expect": []
+      },
+      {
+        "tick": 6500,
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "at": 6500,
+        "expect": ["write v1", "write v2", "applied 0 2 0"]
+      },
+      {
+        "at": 7500,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 2,
+          "clear": [[2, 2]],
+          "discard": []
+        },
+        "at": 0,
+        "expect": ["applied 1 0 0"]
+      },
+      {
+        "tick": 9600,
+        "expect": ["drop v3 overflow", "gap", "keyframe"]
+      }
+    ]
   }
 ]

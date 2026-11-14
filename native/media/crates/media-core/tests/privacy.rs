@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The recording privacy barrier against the shared vectors in `vectors/privacy/`, an
 //! exhaustive table of single-frame cases, and randomized arrival orders against a simulated
-//! daemon and producer.
+//! daemon and producer, where every frame's outcome is compared with a reference model that
+//! keeps the whole history.
 
 use media_core::privacy::{
     Barrier, Decision, DropReason, Epoch, Event, Frame, Limits, ReadStamper, Track,
 };
 use serde_json::Value;
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::PathBuf,
+};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -293,87 +298,233 @@ fn expected_read_stamp(read: u64, applied: &[u64], private_before: &[bool]) -> O
     })
 }
 
-/// What the plan allows to be written, kept apart from the barrier: a fragment starts at a
-/// video keyframe that arrived after the last break, and a frame of either track belongs to
-/// it while no discarded epoch and no break lie between them.
-struct Oracle<'a> {
-    seed: u64,
-    frames: &'a [Captured],
-    discarded: &'a [bool],
-    fragment: Option<(Epoch, u64)>,
-    breaks: Vec<u64>,
-    restart: u64,
-    last_written: [Epoch; 2],
-    next_applied: u64,
-    /// When each delivered frame arrived, by ordinal.
-    arrived: Vec<u64>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outcome {
+    Write,
+    Drop(DropReason),
 }
 
-impl Oracle<'_> {
-    fn belongs(&self, epoch: Epoch, ordinal: u64) -> bool {
+struct ModelFrame {
+    arrival: u64,
+    track: Track,
+    epoch: u64,
+    keyframe: bool,
+    bytes: usize,
+    at: u64,
+    ordinal: u64,
+}
+
+/// The plan's barrier written as a plain reference, from inputs, time and limits alone: it
+/// keeps every break and every verdict, scans instead of caching, and never compacts, so the
+/// barrier's compacted state is checked against the whole history.
+struct Model {
+    limits: Limits,
+    start: u64,
+    now: u64,
+    held: Vec<ModelFrame>,
+    seen: [u64; 2],
+    next_ordinal: u64,
+    next_seq: u64,
+    pending: BTreeMap<u64, Decision>,
+    undecided: u64,
+    clear: BTreeMap<u64, bool>,
+    breaks: Vec<u64>,
+    fragment: Option<(u64, u64)>,
+    video_last: Option<u64>,
+    outcomes: Vec<(u64, Outcome)>,
+}
+
+impl Model {
+    fn new(start: Epoch, limits: Limits) -> Self {
+        let start = u64::from(start);
+        Self {
+            limits,
+            start,
+            now: 0,
+            held: Vec::new(),
+            seen: [start; 2],
+            next_ordinal: 0,
+            next_seq: 0,
+            pending: BTreeMap::new(),
+            undecided: start,
+            clear: BTreeMap::new(),
+            breaks: Vec::new(),
+            fragment: None,
+            video_last: None,
+            outcomes: Vec::new(),
+        }
+    }
+
+    fn time(&mut self, at: u64) {
+        self.now = self.now.max(at);
+        // Overflow: the oldest held frame goes while any is too old or all are too big.
+        while let Some(oldest) = self.held.iter().min_by_key(|f| f.ordinal) {
+            let bytes: usize = self.held.iter().map(|f| f.bytes).sum();
+            if self.now - oldest.at <= self.limits.hold_ms && bytes <= self.limits.hold_bytes {
+                break;
+            }
+            let ordinal = oldest.ordinal;
+            let f = self.take(ordinal);
+            self.breaks.push(ordinal + 1);
+            self.outcomes
+                .push((f.arrival, Outcome::Drop(DropReason::Overflow)));
+        }
+    }
+
+    fn take(&mut self, ordinal: u64) -> ModelFrame {
+        let i = self
+            .held
+            .iter()
+            .position(|f| f.ordinal == ordinal)
+            .unwrap_or(0);
+        self.held.remove(i)
+    }
+
+    fn verdict(&self, epoch: u64) -> Option<bool> {
+        (epoch < self.undecided).then(|| self.clear.get(&epoch).copied().unwrap_or(false))
+    }
+
+    fn belongs(&self, epoch: u64, ordinal: u64) -> bool {
         self.fragment.is_some_and(|(fe, fo)| {
             let (lo, hi) = (ordinal.min(fo), ordinal.max(fo));
             epoch >= fe
-                && !(fe..=epoch).any(|k| self.discarded[k as usize - 1])
+                && (fe..=epoch).all(|e| self.verdict(e) != Some(false))
                 && !self.breaks.iter().any(|&m| lo < m && m <= hi)
         })
     }
 
-    fn add_break(&mut self, at: u64) {
-        self.breaks.push(at);
-        self.restart = self.restart.max(at);
+    fn frame(
+        &mut self,
+        arrival: u64,
+        track: Track,
+        epoch: Epoch,
+        keyframe: bool,
+        bytes: usize,
+        at: u64,
+    ) {
+        self.time(at);
+        let epoch = u64::from(epoch);
+        let l = usize::from(track == Track::Audio);
+        if epoch < self.seen[l] || epoch < self.start {
+            self.outcomes
+                .push((arrival, Outcome::Drop(DropReason::Stale)));
+            return;
+        }
+        self.seen[l] = epoch;
+        let ordinal = self.next_ordinal;
+        self.next_ordinal += 1;
+        self.held.push(ModelFrame {
+            arrival,
+            track,
+            epoch,
+            keyframe,
+            bytes,
+            at: self.now,
+            ordinal,
+        });
+        self.time(at);
+        self.release();
     }
 
-    fn observe(&mut self, events: &[Event<(usize, u64)>], now: u64) {
-        let seed = self.seed;
-        for e in events {
-            match e {
-                Event::Write(f) => {
-                    let (idx, ordinal) = f.payload;
-                    let c = &self.frames[idx];
-                    let held = now - self.arrived[ordinal as usize];
-                    assert!(held <= 2_000, "seed {seed}: wrote a frame held {held} ms");
-                    assert!(
-                        !c.private,
-                        "seed {seed}: wrote a frame captured while private"
-                    );
-                    assert!(
-                        !self.discarded[c.epoch as usize - 1],
-                        "seed {seed}: wrote a discarded epoch"
-                    );
-                    let l = usize::from(c.track == Track::Audio);
-                    assert!(
-                        c.epoch >= self.last_written[l],
-                        "seed {seed}: written out of epoch order"
-                    );
-                    self.last_written[l] = c.epoch;
-                    if self.belongs(c.epoch, ordinal) {
-                        continue;
-                    }
-                    assert_eq!(
-                        c.track,
-                        Track::Video,
-                        "seed {seed}: audio written outside a fragment"
-                    );
-                    assert!(c.keyframe, "seed {seed}: a fragment started on a delta");
-                    assert!(
-                        ordinal >= self.restart,
-                        "seed {seed}: a fragment started on a keyframe from before a break"
-                    );
-                    self.fragment = Some((c.epoch, ordinal));
-                }
-                Event::Drop(f, DropReason::Overflow) => self.add_break(f.payload.1 + 1),
-                Event::Applied { seq, .. } => {
-                    assert_eq!(
-                        *seq, self.next_applied,
-                        "seed {seed}: decisions applied in seq order"
-                    );
-                    self.next_applied += 1;
-                }
-                Event::Drop(..) | Event::Gap | Event::Keyframe => {}
+    fn decide(&mut self, d: Decision, at: u64) {
+        self.time(at);
+        if d.seq < self.next_seq {
+            return;
+        }
+        self.pending.entry(d.seq).or_insert(d);
+        while let Some(d) = self.pending.remove(&self.next_seq) {
+            self.next_seq += 1;
+            let decided = u64::from(d.decided);
+            for e in self.undecided..=decided {
+                let named = d
+                    .clear
+                    .iter()
+                    .any(|&(a, b)| (u64::from(a)..=u64::from(b)).contains(&e));
+                self.clear.insert(e, named);
             }
+            self.undecided = self.undecided.max(decided + 1);
+            for &(a, b) in &d.discard {
+                for e in u64::from(a).max(self.start)..=u64::from(b).min(self.undecided - 1) {
+                    self.clear.insert(e, false);
+                }
+            }
+            self.release();
         }
     }
+
+    fn interrupt(&mut self, at: u64) {
+        self.time(at);
+        self.breaks.push(self.next_ordinal);
+        self.release();
+    }
+
+    fn tick(&mut self, at: u64) {
+        self.time(at);
+        self.release();
+    }
+
+    fn release(&mut self) {
+        loop {
+            let first = |t: Track| {
+                self.held
+                    .iter()
+                    .filter(|f| f.track == t)
+                    .min_by_key(|f| f.ordinal)
+            };
+            let video = first(Track::Video).filter(|f| self.verdict(f.epoch).is_some());
+            let audio = first(Track::Audio).filter(|f| match self.verdict(f.epoch) {
+                None => false,
+                Some(false) => true,
+                Some(true) => {
+                    self.belongs(f.epoch, f.ordinal)
+                        || self.fragment.is_some_and(|(fe, _)| f.epoch < fe)
+                        || self.video_last.is_some_and(|v| v > f.ordinal)
+                }
+            });
+            let next = match (video, audio) {
+                (Some(v), Some(a)) => v.ordinal.min(a.ordinal),
+                (Some(v), None) => v.ordinal,
+                (None, Some(a)) => a.ordinal,
+                (None, None) => return,
+            };
+            let f = self.take(next);
+            let clear = self.verdict(f.epoch) == Some(true);
+            let outcome = match f.track {
+                Track::Video => {
+                    self.video_last = Some(f.ordinal);
+                    let restart = self.breaks.iter().copied().max().unwrap_or(0);
+                    if !clear {
+                        self.fragment = None;
+                        Outcome::Drop(DropReason::Discarded)
+                    } else if self.belongs(f.epoch, f.ordinal) {
+                        Outcome::Write
+                    } else if f.keyframe && f.ordinal >= restart {
+                        self.fragment = Some((f.epoch, f.ordinal));
+                        Outcome::Write
+                    } else {
+                        self.fragment = None;
+                        Outcome::Drop(DropReason::AwaitingKeyframe)
+                    }
+                }
+                Track::Audio if !clear => Outcome::Drop(DropReason::Discarded),
+                Track::Audio if self.belongs(f.epoch, f.ordinal) => Outcome::Write,
+                Track::Audio => Outcome::Drop(DropReason::AwaitingVideo),
+            };
+            self.outcomes.push((f.arrival, outcome));
+        }
+    }
+}
+
+/// The barrier's frame outcomes, in order, keyed by delivery number.
+fn outcomes(events: &[Event<(usize, u64)>]) -> Vec<(u64, Outcome)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Write(f) => Some((f.payload.1, Outcome::Write)),
+            Event::Drop(f, r) => Some((f.payload.1, Outcome::Drop(*r))),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A daemon, a producer and two lanes with random delays: the daemon decides epoch k clear
@@ -423,6 +574,19 @@ fn simulate(seed: u64) {
     // moment each epoch was applied; the rest stamp at read time through `ReadStamper`, after a
     // capture queue of up to three frames, checked against the rule computed from the history.
     let read_time = rng.below(2) == 0;
+    // Capture pauses (a still screen, silence): some stop video only, some both tracks, so
+    // epochs pass with no frames of their own and decisions land after a silence.
+    let pauses: Vec<(u64, u64, bool)> = (0..rng.below(4))
+        .map(|_| {
+            let from = rng.below(end);
+            (from, from + 100 + rng.below(2_900), rng.below(2) == 0)
+        })
+        .collect();
+    let paused = |track: Track, ms: u64| {
+        pauses
+            .iter()
+            .any(|&(a, b, both)| (a..b).contains(&ms) && (both || track == Track::Video))
+    };
     let mut frames = Vec::new();
     let mut captured_at = Vec::new();
     for (track, period) in [(Track::Video, 16), (Track::Audio, 20)] {
@@ -452,7 +616,7 @@ fn simulate(seed: u64) {
                     .rposition(|&a| a <= ms)
                     .map(|k| k as Epoch + 1)
             };
-            if let Some(epoch) = stamped {
+            if let Some(epoch) = stamped.filter(|_| !paused(track, ms)) {
                 frames.push(Captured {
                     track,
                     epoch,
@@ -503,7 +667,7 @@ fn simulate(seed: u64) {
     // Shuffle arrivals: each frame lane keeps its order, the priority lane may be late by
     // seconds and reorder; some old keyframes arrive again much later; the stream is
     // sometimes interrupted.
-    let lane_delay = if rng.below(4) == 0 { 2_500 } else { 300 };
+    let lane_delay = [300, 2_500, 4_000][rng.below(3) as usize];
     let mut arrivals: Vec<(u64, u64, Arrival)> = Vec::new();
     let mut last = [0u64; 2];
     for (idx, f) in frames.iter().enumerate() {
@@ -523,48 +687,101 @@ fn simulate(seed: u64) {
     }
     arrivals.sort_by_key(|a| (a.0, a.1));
 
-    let mut oracle = Oracle {
-        seed,
-        frames: &frames,
-        discarded: &discarded,
-        fragment: None,
-        breaks: Vec::new(),
-        restart: 0,
-        last_written: [0; 2],
-        next_applied: 0,
-        arrived: Vec::new(),
-    };
+    let mut model = Model::new(1, Limits::default());
     let mut barrier = Barrier::new(1, Limits::default());
-    let mut ordinal = 0;
+    let mut delivery = 0u64;
+    let mut delivered = Vec::new();
+    let mut last_written = [0 as Epoch; 2];
+    let mut next_applied = 0;
     let mut out = Vec::new();
     for (at, _, arrival) in arrivals {
-        out.clear();
-        match arrival {
-            Arrival::Frame(idx) => {
-                let f = &frames[idx];
-                let frame = Frame {
-                    track: f.track,
-                    epoch: f.epoch,
-                    keyframe: f.keyframe,
-                    bytes: 30_000,
-                    payload: (idx, ordinal),
-                };
-                ordinal += 1;
-                oracle.arrived.push(at);
-                barrier.frame(frame, at, &mut out);
+        // Some inputs carry a time earlier than one already seen: it counts as the latest.
+        let at = if rng.below(5) == 0 {
+            at.saturating_sub(rng.below(400))
+        } else {
+            at
+        };
+        // Each input, then sometimes a later tick, checked one at a time.
+        for step in 0..2 {
+            out.clear();
+            model.outcomes.clear();
+            if step == 0 {
+                match &arrival {
+                    Arrival::Frame(idx) => {
+                        let f = &frames[*idx];
+                        let frame = Frame {
+                            track: f.track,
+                            epoch: f.epoch,
+                            keyframe: f.keyframe,
+                            bytes: 30_000,
+                            payload: (*idx, delivery),
+                        };
+                        model.frame(delivery, f.track, f.epoch, f.keyframe, 30_000, at);
+                        barrier.frame(frame, at, &mut out);
+                        delivered.push((*idx, model.now));
+                        delivery += 1;
+                    }
+                    Arrival::Decision(d) => {
+                        model.decide(d.clone(), at);
+                        barrier.decide(d.clone(), at, &mut out);
+                    }
+                    Arrival::Interrupt => {
+                        model.interrupt(at);
+                        barrier.interrupt(at, &mut out);
+                    }
+                }
+            } else if rng.below(12) == 0 {
+                let later = at + rng.below(2_500);
+                model.tick(later);
+                barrier.tick(later, &mut out);
+            } else {
+                continue;
             }
-            Arrival::Decision(d) => barrier.decide(d, at, &mut out),
-            Arrival::Interrupt => {
-                // Frames delivered before still drain into the fragment; the break sits after.
-                oracle.add_break(ordinal);
-                barrier.interrupt(at, &mut out);
+            assert_eq!(
+                outcomes(&out),
+                model.outcomes,
+                "seed {seed}: frame outcomes differ from the model"
+            );
+            for e in &out {
+                match e {
+                    Event::Write(f) => {
+                        let c = &frames[f.payload.0];
+                        assert!(
+                            !c.private,
+                            "seed {seed}: wrote a frame captured while private"
+                        );
+                        assert!(
+                            !discarded[c.epoch as usize - 1],
+                            "seed {seed}: wrote a discarded epoch"
+                        );
+                        let held = model.now - delivered[f.payload.1 as usize].1;
+                        assert!(held <= 2_000, "seed {seed}: wrote a frame held {held} ms");
+                        let l = usize::from(c.track == Track::Audio);
+                        assert!(
+                            c.epoch >= last_written[l],
+                            "seed {seed}: written out of epoch order"
+                        );
+                        last_written[l] = c.epoch;
+                    }
+                    Event::Applied { seq, .. } => {
+                        assert_eq!(
+                            *seq, next_applied,
+                            "seed {seed}: decisions applied in seq order"
+                        );
+                        next_applied += 1;
+                    }
+                    _ => {}
+                }
             }
         }
-        oracle.observe(&out, at);
     }
     assert_eq!(
-        oracle.next_applied, seq,
+        next_applied, seq,
         "seed {seed}: every decision applied once"
+    );
+    assert!(
+        barrier.retained() < 4_000,
+        "seed {seed}: retained state stays bounded"
     );
 }
 
@@ -613,4 +830,59 @@ fn with_prompt_decisions_and_no_private_time_every_frame_after_the_first_keyfram
         out.clear();
     }
     assert_eq!(written, 50 * 7);
+}
+
+#[test]
+fn an_hour_of_stalled_decisions_keeps_the_barrier_bounded_and_resumes_at_a_keyframe() {
+    let mut b = Barrier::new(1, Limits::default());
+    let mut out = Vec::new();
+    let clear = |seq, e| Decision {
+        seq,
+        decided: e,
+        clear: vec![(e, e)],
+        discard: vec![],
+    };
+    b.decide(clear(0, 1), 0, &mut out);
+    let key = Frame {
+        track: Track::Video,
+        epoch: 1,
+        keyframe: true,
+        bytes: 40_000,
+        payload: 0u64,
+    };
+    b.frame(key, 0, &mut out);
+    assert!(matches!(out[..], [_, Event::Write(_)]));
+    // An hour at 60 fps of epoch 2 with no decision: everything ages out as gaps.
+    let mut peak = 0;
+    for n in 1..=216_000u64 {
+        out.clear();
+        let f = Frame {
+            track: if n % 3 == 0 {
+                Track::Audio
+            } else {
+                Track::Video
+            },
+            epoch: 2,
+            keyframe: n % 60 == 1,
+            bytes: 40_000,
+            payload: n,
+        };
+        b.frame(f, n * 1_000 / 60, &mut out);
+        assert!(!out.iter().any(|e| matches!(e, Event::Write(_))));
+        peak = peak.max(b.retained());
+    }
+    assert!(
+        peak <= 130,
+        "two seconds of frames and a few ranges, got {peak}"
+    );
+    out.clear();
+    b.decide(clear(1, 2), 216_000 * 1_000 / 60, &mut out);
+    let first = out.iter().find_map(|e| match e {
+        Event::Write(f) => Some(f),
+        _ => None,
+    });
+    assert!(
+        first.is_some_and(|f| f.keyframe),
+        "resumes at a keyframe: {first:?}"
+    );
 }
