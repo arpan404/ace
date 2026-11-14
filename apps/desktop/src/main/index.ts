@@ -66,6 +66,7 @@ import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { QuitGate } from "./os/quit-gate.ts";
+import { shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
@@ -265,10 +266,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const quitGate = new QuitGate({
     shutDown: async () => {
       globalShortcut.unregisterAll();
-      // Before the daemon stops or the app goes: no client should keep showing this app's update.
-      await updateReport.withdraw();
-      await background.stop();
-      await runtime.stop();
+      // Before the daemon stops or the app goes: no client should keep showing this app's update,
+      // and the browser backend tells the daemon it is going. Both at once, then the daemon.
+      await shutDownBeforeQuit({
+        beforeDaemon: [() => updateReport.withdraw(), () => background.stop()],
+        daemon: () => runtime.stop(),
+      });
     },
     quit: () => {
       if (relaunch) relaunchAfterExit(relaunch);
