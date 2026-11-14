@@ -240,3 +240,45 @@ test("a turned-off provider offers Turn on only to an administrator phone", asyn
   expect(claude.off).toBe(true);
   expect(claude.fix).toBeNull();
 });
+
+test("Codex's tool folder shows the folder it reads, saves another and says why it adds nothing", async () => {
+  const phone = await open();
+  expect((await phone.page("codex")).toolSource).toEqual({
+    path: "/Users/ada/.codex",
+    reason: null,
+    chosen: false,
+  });
+  expect(await phone.edit("codex", { kind: "toolSource", path: " /Users/ada/empty " })).toEqual({
+    ok: true,
+  });
+  expect((await phone.page("codex")).toolSource).toEqual({
+    path: "/Users/ada/empty",
+    reason: "No config.toml in this folder",
+    chosen: true,
+  });
+  await phone.edit("codex", { kind: "toolSource", path: null });
+  expect((await phone.page("codex")).toolSource).toMatchObject({
+    path: "/Users/ada/.codex",
+    chosen: false,
+  });
+});
+
+test("a tool folder that isn't a full path is refused in words and the saved one stays", async () => {
+  const phone = await open();
+  await phone.edit("codex", { kind: "toolSource", path: "/Users/ada/ace-tools" });
+  expect(await phone.edit("codex", { kind: "toolSource", path: "ace-tools" })).toEqual({
+    ok: false,
+    message: "Use the folder's full path.",
+  });
+  expect((await phone.page("codex")).toolSource?.path).toBe("/Users/ada/ace-tools");
+  expect((await phone.page("claude")).toolSource).toBeNull();
+});
+
+test("a phone that isn't an administrator can't change Codex's tool folder", async () => {
+  const phone = await open(operateOnly(), false);
+  expect(await phone.edit("codex", { kind: "toolSource", path: "/Users/ada/ace-tools" })).toEqual({
+    ok: false,
+    message: "Change this in ace on studio.",
+  });
+  expect((await phone.page("codex")).toolSource?.path).toBe("/Users/ada/.codex");
+});
