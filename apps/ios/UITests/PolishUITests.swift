@@ -32,6 +32,26 @@ import XCTest
         screenshot("settings-licences")
     }
 
+    func testProfileLinksToTheTermsAndPrivacyPagesWebUses() throws {
+        let app = launch()
+        app.openBrowseDestination("inbox.settings")
+        let profile = app.buttons["settings.account"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.tap()
+        let privacy = app.descendants(matching: .any)["account.legal.privacy"].firstMatch
+        for _ in 0..<8 where !privacy.isHittable { app.swipeUp() }
+        XCTAssertTrue(privacy.waitForExistence(timeout: 10))
+        XCTAssertEqual(privacy.label, "Privacy policy")
+        let terms = app.descendants(matching: .any)["account.legal.terms"].firstMatch
+        XCTAssertTrue(terms.exists)
+        XCTAssertEqual(terms.label, "Terms of service")
+        screenshot("profile-legal")
+        privacy.tap()
+        // A Link hands the page to Safari, which leaves ace in the background.
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10), "Privacy policy opens in the browser")
+        app.activate()
+    }
+
     func testArchivePagesOlderThreadsAndOpensOneReadOnly() throws {
         let app = launch()
         app.openBrowseDestination("inbox.settings")
