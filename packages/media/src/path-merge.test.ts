@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { PathMerge } from "./path-merge.ts";
 
-type Unit = { stream: string; key: boolean; mark: string };
+type Unit = { stream: string; key: boolean; mark: string; size: number };
 
-const unit = (mark: string, key = false, stream = "a"): Unit => ({ stream, key, mark });
+const unit = (mark: string, key = false, stream = "a", size = 10): Unit => ({
+  stream,
+  key,
+  mark,
+  size,
+});
 
-function merge(holdMs = 1_000) {
+function merge(holdMs = 1_000, maxHeldBytes?: number) {
   const emitted: string[] = [];
   const timers: { run: () => void; cancelled: boolean; ms: number }[] = [];
   const m = new PathMerge<Unit>("daemon", {
     emit: (u) => void emitted.push(u.mark),
     stream: (u) => u.stream,
     key: (u) => u.key,
+    bytes: (u) => u.size,
+    ...(maxHeldBytes === undefined ? {} : { maxHeldBytes }),
     schedule: (run, ms) => {
       const timer = { run, cancelled: false, ms };
       timers.push(timer);
@@ -120,5 +127,21 @@ describe("PathMerge", () => {
     m.deliver("daemon", unit("d-3"));
     m.deliver("media:7", unit("m-x"));
     expect(emitted).toEqual(["d-1", "d-2", "d-3"]);
+  });
+
+  it("a hold past its byte budget gives up on the old path: each stream starts at its keyframe, nothing waits on", () => {
+    const { m, emitted, timers } = merge(1_000, 100);
+    m.switching("media:8");
+    m.deliver("media:8", unit("delta-a", false, "a", 40));
+    m.deliver("media:8", unit("key-b", true, "b", 40));
+    expect(emitted).toEqual([]);
+    // Past 100 bytes held: no more is kept for an end that may never come.
+    m.deliver("media:8", unit("key-a", true, "a", 40));
+    expect(emitted).toEqual(["key-b", "key-a"]);
+    m.deliver("daemon", unit("late"));
+    m.deliver("media:8", unit("next-a", false, "a"));
+    expect(emitted).toEqual(["key-b", "key-a", "next-a"]);
+    expect(m.stale).toBe(2);
+    expect(timers.every((t) => t.cancelled)).toBe(true);
   });
 });

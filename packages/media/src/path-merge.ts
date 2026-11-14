@@ -18,14 +18,22 @@ export type PathMergeOptions<U> = {
   /** The encode a unit belongs to: each starts again at its own keyframe. */
   stream: (unit: U) => string | number;
   key: (unit: U) => boolean;
+  /** A unit's size, for the hold's budget. */
+  bytes: (unit: U) => number;
+  /**
+   * Most bytes a switch holds while it waits. Past it the old path is given up on, as on a
+   * timeout: each stream starts at its next keyframe.
+   */
+  maxHeldBytes?: number;
   schedule: (callback: () => void, milliseconds: number) => () => void;
   /** Longest the new path waits for the old path's end. */
   holdMs?: number;
 };
 
 export const defaultHoldMs = 1_000;
+export const defaultMaxHeldBytes = 32 * 1024 * 1024;
 
-type Pending<U> = { from: string; to: string; held: U[]; cancel: () => void };
+type Pending<U> = { from: string; to: string; held: U[]; bytes: number; cancel: () => void };
 
 export class PathMerge<U> {
   readonly #options: PathMergeOptions<U>;
@@ -51,6 +59,8 @@ export class PathMerge<U> {
     const pending = this.#pending;
     if (pending && path === pending.to) {
       pending.held.push(unit);
+      pending.bytes += this.#options.bytes(unit);
+      if (pending.bytes > (this.#options.maxHeldBytes ?? defaultMaxHeldBytes)) this.#settle(true);
       return;
     }
     if (path !== this.#current || this.#closed.has(path)) {
@@ -81,6 +91,7 @@ export class PathMerge<U> {
       from: this.#current,
       to,
       held: [],
+      bytes: 0,
       cancel: () => {},
     };
     next.cancel = this.#options.schedule(() => {

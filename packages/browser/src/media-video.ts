@@ -185,6 +185,7 @@ async function streamed(
     },
     stream: (unit) => ("chunk" in unit ? unit.chunk.encode : "audio"),
     key: (unit) => !("chunk" in unit) || unit.chunk.key,
+    bytes: (unit) => ("chunk" in unit ? unit.chunk.bytes.length : unit.audio.bytes.length),
     schedule: (callback, ms) => {
       const timer = setTimeout(callback, ms);
       return () => clearTimeout(timer);
