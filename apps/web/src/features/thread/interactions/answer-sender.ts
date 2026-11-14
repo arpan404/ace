@@ -8,7 +8,9 @@ import { answerStore, pendingAnswers } from "./answers.ts";
 import { questionDrafts } from "./question-drafts.ts";
 
 const failures: Record<string, string> = {
-  already_resolved: "Already answered on another device.",
+  // Also what the daemon answers for a request withdrawn or replaced while this one was away.
+  already_resolved: "Already answered or closed.",
+  interaction_expired: "This request expired before your answer arrived.",
   not_found: "This request no longer exists.",
   permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
   read_only_mutation_denied: "Read only mode can't approve a change.",
