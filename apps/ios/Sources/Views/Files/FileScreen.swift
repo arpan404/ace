@@ -5,7 +5,8 @@ import UIKit
 /// web's colours and change bars (Markdown rendered, with its source a tap away), an image, or a
 /// plain sentence saying why it can't be shown. Find uses the system find navigator. A thread's
 /// text files up to 1 MB can be edited and saved over the version that was opened; a file that
-/// changed meanwhile is only replaced when the person says so.
+/// changed meanwhile is only replaced when the person says so. A larger one is read and edited a
+/// part at a time (`LargeFileView`), with its own find.
 struct FileScreen: View {
     let model: ClientModel
     let scope: FilesScope
@@ -22,6 +23,8 @@ struct FileScreen: View {
     @State private var failure: String?
     @State private var source = false
     @State private var editing = false
+    /// A text file too large to edit whole, shown in parts so one can be edited.
+    @State private var inParts = false
     @State private var editSession = 0
     @State private var dirty = false
     @State private var saving = false
@@ -52,6 +55,7 @@ struct FileScreen: View {
     private var text: String? { content?.kind == "text" ? content?.text : nil }
     private var markdownPreview: Bool { content?.markdown == true && !source && !editing }
     private var canEdit: Bool { actions.canChange && content?.kind == "text" && content?.editable == true }
+    private var canEditParts: Bool { actions.canChange && content?.parts == true }
     private var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
 
     var body: some View {
@@ -93,7 +97,7 @@ struct FileScreen: View {
     /// The switcher picked another open file: show it here, as a tab switch would.
     private func switchTo(_ picked: String) {
         guard picked != path, !editing else { return }
-        content = nil; image = nil; failure = nil; source = false
+        content = nil; image = nil; failure = nil; source = false; inParts = false
         path = picked
     }
 
@@ -108,7 +112,7 @@ struct FileScreen: View {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                LargeFileView(model: model, scope: scope, path: path, size: content.size)
+                LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts)
             case "binary":
                 EmptyState(systemImage: "doc", title: "Binary file",
                            line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
@@ -125,7 +129,11 @@ struct FileScreen: View {
                     .padding(AceDesign.Space.margin)
                 }
             default:
-                textBody(content)
+                if inParts {
+                    LargeFileView(model: model, scope: scope, path: path, size: content.size, editable: canEditParts)
+                } else {
+                    textBody(content)
+                }
             }
         } else if let failure {
             EmptyState(icon: nil, title: "Couldn't open \(name)", line: failure, failed: true) {
@@ -187,11 +195,15 @@ struct FileScreen: View {
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
-            if text != nil, !markdownPreview {
+            if text != nil, !markdownPreview, !inParts {
                 Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }
             if canEdit {
                 Button("Edit", systemImage: "pencil") { editing = true }.accessibilityIdentifier("file.edit")
+            } else if canEditParts, content?.kind == "text" {
+                // Over 1 MB: shown in parts, each with its own Edit.
+                Button(inParts ? "Done" : "Edit in parts", systemImage: inParts ? "checkmark" : "pencil") { inParts.toggle() }
+                    .accessibilityIdentifier("file.editParts")
             }
             Menu { fileMenu } label: { Label("File options", systemImage: "ellipsis") }
                 .accessibilityIdentifier("file.menu")

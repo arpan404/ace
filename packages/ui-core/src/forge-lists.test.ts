@@ -1,6 +1,13 @@
 import { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { groupIssues, issueQuery, issueSourceText, prQuery, sortPrs } from "./forge-lists.ts";
+import {
+  groupIssues,
+  issueQuery,
+  issueSourceText,
+  prQuery,
+  prSourceText,
+  sortPrs,
+} from "./forge-lists.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 const row = (number: number, patch: Partial<ForgePrRow>): ForgePrRow =>
@@ -85,5 +92,20 @@ test("a thread started from an issue opens with what to work on, its link and it
     issueSourceText({ ...issue(12, { title: "Crash on start" }), body: "Steps to reproduce" }),
   ).toBe(
     "Work on GitHub issue #12: Crash on start\nhttps://github.com/acme/ace/issues/12\n\nSteps to reproduce",
+  );
+});
+
+test("a thread started from a pull request opens with what to work on, its link, its branches and body", () => {
+  expect(
+    prSourceText({
+      number: 233,
+      title: "Draft per project",
+      url: "https://github.com/acme/ace/pull/233",
+      headBranch: "fix/draft-per-project",
+      baseBranch: "main",
+      body: "Keeps one draft per project.",
+    }),
+  ).toBe(
+    "Work on GitHub PR #233: Draft per project\nhttps://github.com/acme/ace/pull/233\n\nfix/draft-per-project → main\n\nKeeps one draft per project.",
   );
 });

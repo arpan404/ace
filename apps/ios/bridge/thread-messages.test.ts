@@ -1,5 +1,6 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
+import { formatMessageQuotes } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
 import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
 
@@ -93,6 +94,36 @@ test("the person's bubble carries its fenced code as its own run", async () => {
     readable: true,
     long: false,
   });
+});
+
+test("a reply's quoted passages sit above its words, never in them", async () => {
+  const fake = start("reply");
+  const block = formatMessageQuotes([
+    { id: "q", text: "double as the guard", before: "It can ", after: "." },
+  ]);
+  fake.apply("reply", [facts.message("root", "ask", "user", `${block}\n\nYes, do that`)]);
+  open(connect(fake), "reply");
+  const row = await until(
+    () => rows("thread.item").find((item) => item.role === "user"),
+    "the bubble",
+  );
+  expect(row.bubble).toMatchObject({
+    segments: [{ kind: "text", text: "Yes, do that" }],
+    quotes: [{ text: "double as the guard" }],
+    readable: true,
+  });
+});
+
+test("a bubble of only quotes has no words, and still its passages", async () => {
+  const fake = start("bare");
+  const block = formatMessageQuotes([{ id: "q", text: "the scripts", before: "", after: "" }]);
+  fake.apply("bare", [facts.message("root", "ask", "user", block ?? "")]);
+  open(connect(fake), "bare");
+  const row = await until(
+    () => rows("thread.item").find((item) => item.role === "user"),
+    "the bubble",
+  );
+  expect(row.bubble).toMatchObject({ readable: false, quotes: [{ text: "the scripts" }] });
 });
 
 test("a bubble with half an emoji pair reaches native repaired, as its row text does", async () => {

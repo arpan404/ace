@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import type { MobileRow } from "@ace/ui-core/mobile";
 import { fileHeader, filePages, openChanges } from "./changes-fixture.ts";
-import type { RecordingSink } from "./sheet-fixture.ts";
+import { Sheets } from "./sheets.ts";
+import { plainPreview, RecordingSink, until } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -14,6 +15,10 @@ async function opened() {
   return sheet;
 }
 const summary = (sink: RecordingSink) => sink.read("changes:summary");
+const scopeId = (sink: RecordingSink) => {
+  const scope = summary(sink)?.scope;
+  return typeof scope === "object" && scope !== null && "id" in scope ? scope.id : undefined;
+};
 const paths = (sink: RecordingSink) =>
   ((summary(sink)?.files ?? []) as { path: string }[]).map((file) => file.path);
 const changed = (sink: RecordingSink, path: string) =>
@@ -21,6 +26,16 @@ const changed = (sink: RecordingSink, path: string) =>
     .flatMap((page) => page.lines as MobileRow[])
     .filter((row) => row.kind === "add" || row.kind === "del")
     .map((row) => `${row.kind} ${row.text}`);
+
+/** Sheets over the fixture's thread, as the phone's thread screen drives them. */
+async function threadSheets() {
+  const { client, owner } = await opened();
+  const sink = new RecordingSink();
+  const sheets = new Sheets(sink, plainPreview);
+  closers.push(async () => sheets.close());
+  const thread = { owner, store: client.thread("changes").store, threadId: "changes", epoch: 1 };
+  return { sink, sheets, thread };
+}
 
 describe("Changes sheet scopes", () => {
   test("a thread whose turns edited files opens on its last turn and offers every turn", async () => {
@@ -121,5 +136,34 @@ describe("Changes sheet scopes", () => {
     expect(again.sink.read("changes:summary")?.files).toEqual([
       expect.objectContaining({ viewed: true }),
     ]);
+  });
+
+  test("Changes opened with a scope opens on it, and the next plain open is on the last turn", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    // The Summary's files changed count the whole thread, so its row opens This thread.
+    expect(sheets.action(thread, { kind: "changes", open: true, scope: "all" })).toBe(true);
+    await until(() => scopeId(sink) === "all", "This thread");
+    expect(summary(sink)?.scope).toMatchObject({ label: "This thread" });
+    sheets.action(thread, { kind: "changes", open: false });
+    sheets.action(thread, { kind: "changes", open: true });
+    await until(() => scopeId(sink) === "last", "Last turn");
+  });
+
+  test("a scope asked for while Changes is closed never reaches another thread's Changes", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    expect(sheets.action(thread, { kind: "changes.scope", scope: "all" })).toBe(false);
+    // The person moves to another thread, and that thread's Changes opens on its last turn.
+    sheets.close();
+    const other = { ...thread, epoch: 2 };
+    sheets.follow(other);
+    expect(sheets.action(other, { kind: "changes", open: true })).toBe(true);
+    await until(() => scopeId(sink) === "last", "Last turn");
+  });
+
+  test("Changes the person opens themselves is on the last turn, whatever was asked while closed", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    sheets.action(thread, { kind: "changes.scope", scope: "all" });
+    expect(sheets.action(thread, { kind: "changes", open: true })).toBe(true);
+    await until(() => scopeId(sink) === "last", "Last turn");
   });
 });

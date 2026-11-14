@@ -192,13 +192,16 @@ export class PatchPump {
   }
   #blocked(task: Task): boolean {
     // Rows may join behind an already queued fence while a snapshot streams.
-    // Readiness describes the current store, so every queued content patch in
-    // its scope must be acknowledged before that fence can describe native.
+    // Readiness describes the current store, so every queued patch in its scope,
+    // status (metadata, interactions) as well as content, must be acknowledged
+    // before that fence can describe native. Status leads each frame only up to
+    // its share, so a full inbox would otherwise let the fence pass the thread's
+    // own status and native would commit the snapshot without it.
     if (task.key === "thread:ready" || task.key === "reading:settled") {
       const prefix = task.key.startsWith("thread:") ? "thread:" : "reading:";
-      for (const sibling of this.#queues[2].values()) {
-        if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
-      }
+      for (const queue of [this.#queues[1], this.#queues[2]])
+        for (const sibling of queue.values())
+          if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
     }
     // A delayed reset must not erase already-confirmed rows from its own scope.
     // A warm begin likewise precedes its rows.

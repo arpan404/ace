@@ -1,50 +1,16 @@
 import { UsageQuery, type UsageDimension, type UsageRow } from "@ace/protocol";
-import { usageDay } from "@ace/ui-core";
+import { profileActivity, usageDay, type ProfileActivity as Activity } from "@ace/ui-core";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
-import { profileStats, shares, type ProfileStats, type Share } from "./stats.ts";
 
-/** Provider accounts ranked by tokens, the top four, each with its share of all of them. */
-function accountShares(
-  rows: readonly { provider: string; account: string; tokens: number }[],
-): AccountShare[] {
-  const byKey = new Map(rows.map((row) => [`${row.provider}\n${row.account}`, row]));
-  return shares(
-    rows
-      .filter((row) => row.provider)
-      .map((row) => ({
-        key: `${row.provider}\n${row.account}`,
-        tokens: row.tokens,
-      })),
-    4,
-  ).map((share) =>
-    Object.assign(share, {
-      provider: byKey.get(share.key)?.provider ?? "",
-      account: byKey.get(share.key)?.account ?? "",
-    }),
-  );
-}
+export type { AccountShare } from "@ace/ui-core";
 
 /** Tokens a row spent: what went in and what came out, as the rail's Usage bars count them. */
 const spent = (row: UsageRow) => row.totals.inputTokens + row.totals.outputTokens;
 
-/** A provider account's share: `key` is the provider and account together. */
-export interface AccountShare extends Share {
-  provider: string;
-  /** The account's id; empty for usage recorded before accounts were. */
-  account: string;
-}
-
-export interface ProfileActivity {
-  stats: ProfileStats;
-  /** The most used provider accounts, each on its own. */
-  providers: AccountShare[];
-  models: Share[];
-  skills: { used: number; top: Share | undefined };
-  /** Percent of tokens subagents and child threads spent. */
-  delegatedPercent: number;
+export interface ProfileActivity extends Activity {
   /** Until the first read answers. */
   loading: boolean;
 }
@@ -93,24 +59,24 @@ export function useProfileActivity(): ProfileActivity {
     },
   });
   const data = query.data;
-  return useMemo(() => {
-    const days = (data?.days ?? []).map((row) => ({ day: row.key, tokens: row.tokens }));
-    const skillRows = (data?.skills ?? []).filter((row) => row.key && row.tokens > 0);
-    const roles = data?.roles ?? [];
-    const roleTotal = roles.reduce((sum, row) => sum + row.tokens, 0);
-    const delegated = roles
-      .filter((row) => row.key === "subagent" || row.key === "delegated")
-      .reduce((sum, row) => sum + row.tokens, 0);
-    return {
-      stats: profileStats(days, today),
-      providers: accountShares(data?.providers ?? []),
-      models: shares(
-        (data?.models ?? []).filter((row) => row.key),
-        3,
+  return useMemo(
+    () => ({
+      ...profileActivity(
+        data
+          ? [
+              {
+                days: data.days,
+                providers: data.providers,
+                models: data.models,
+                skills: data.skills,
+                roles: data.roles,
+              },
+            ]
+          : [],
+        today,
       ),
-      skills: { used: skillRows.length, top: shares(skillRows, 1)[0] },
-      delegatedPercent: roleTotal > 0 ? Math.round((delegated / roleTotal) * 100) : 0,
       loading: !data,
-    };
-  }, [data, today]);
+    }),
+    [data, today],
+  );
 }

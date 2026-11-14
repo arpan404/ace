@@ -15,12 +15,16 @@ struct ForgePage: View {
         content.modifier(ProjectDefaultsHook(inbox: inbox))
     }
 
+    private var fixer: ForgeFixer {
+        ForgeFixer(machineId: route.machineId, project: route.project, openThread: openThread, startThread: startThread)
+    }
+
     @ViewBuilder private var content: some View {
         if let client = inbox.client(route.machineId) {
             switch route.kind {
             case .pull: ForgePullPageView(client: client, route: route, open: open, openThread: openThread, startThread: startThread)
-            case .timeline: ForgeTimelineView(client: client, route: route)
-            case .file: ForgeFileView(client: client, route: route)
+            case .timeline: ForgeTimelineView(client: client, route: route, fixer: fixer)
+            case .file: ForgeFileView(client: client, route: route, fixer: fixer)
             case .files: ForgeFilesView(client: client, route: route, open: open)
             case .check: ForgeCheckPageView(client: client, route: route, openThread: openThread, startThread: startThread)
             case .conflicts: ForgeConflictsPageView(client: client, route: route, openThread: openThread)

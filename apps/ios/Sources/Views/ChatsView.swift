@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// The Chats filter's words: a chat shows when every word typed is in its title, ignoring case
+/// and accents.
+enum ChatsFilter {
+    static func matches(_ title: String, query: String) -> Bool {
+        let fold = { (text: String) in text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        let haystack = fold(title)
+        return fold(query).split(whereSeparator: \.isWhitespace).allSatisfy { haystack.contains($0) }
+    }
+}
+
 /// What the Chats tab's rows and empty state ask of the inbox.
 struct ChatsActions {
     let open: (InboxKey) -> Void
@@ -24,12 +34,18 @@ struct ChatsList: View {
     /// What the tab says with nothing to list and no scope.
     let empty: String
     let searching: Bool
+    /// The filter typed over the list; empty shows every chat in the scope.
+    var query = ""
     let actions: ChatsActions
     @Environment(\.threadOrganizer) private var organizer
 
     var body: some View {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let sections = inbox.mergedChats.sections.compactMap { section in
-            section.scoped(includes, whole: whole)
+            // Filtering counts only the chats it can read: unloaded ones never hold a section open.
+            text.isEmpty ? section.scoped(includes, whole: whole)
+                : section.scoped({ key in includes(key) && ChatsFilter.matches(inbox.row(key)?.title ?? "", query: text) },
+                                 whole: { _ in false })
         }
         Group {
             if sections.isEmpty {
@@ -99,8 +115,8 @@ struct ChatsList: View {
 
     /// Nothing to list: the shared empty state, worded as the web's Chats panel, or the search's.
     @ViewBuilder private var emptyState: some View {
-        if searching {
-            EmptyState.search("")
+        if searching || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyState.search(query)
         } else if !inbox.anyLoaded {
             SkeletonRows(count: 4, label: "Loading chats")
                 .frame(maxHeight: .infinity, alignment: .top)

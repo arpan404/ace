@@ -133,7 +133,11 @@ export class FakeAutomationStore {
       .filter(
         ({ run, seq }) =>
           (request.before === undefined || seq < request.before) &&
-          (request.automationId === undefined || run.automationId === request.automationId),
+          (request.automationId === undefined || run.automationId === request.automationId) &&
+          // As the daemon: runs still going stay in.
+          (request.finishedAfter === undefined ||
+            run.finishedAt === undefined ||
+            run.finishedAt > request.finishedAfter),
       )
       .toSorted((a, b) => b.seq - a.seq);
     const page = rows.slice(0, request.limit);

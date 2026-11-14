@@ -1,5 +1,6 @@
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { SubagentRetries } from "./subagent-retries.ts";
+import { QuoteShelf } from "./thread-quotes.ts";
 import type { CatalogEntry } from "@ace/protocol";
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
 import type { ChatCacheHost } from "./chat-cache.ts";
@@ -7,6 +8,7 @@ import { LedgerShelf } from "./native-ledger.ts";
 import { followThread, type PatchPump } from "./patches.ts";
 import { nativeChunks, type AttachmentTray, type ChunkReader } from "./thread-attachments.ts";
 import { ThreadSession } from "./thread-session.ts";
+import type { ThreadLinger } from "./thread-linger.ts";
 
 /*
  * The thread open on the phone: its lease, what follows it to native, its session and its
@@ -38,6 +40,11 @@ export class ThreadVisit {
    * 4 Mi UTF-16 units go too, the oldest first.
    */
   readonly #ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
+  /** Each thread's quotes for its next message, kept across visits. */
+  readonly #quotes = new QuoteShelf();
+  /** Keeps threads the person just left followed a while (ADR 0146); none in tests that skip it. */
+  readonly #linger: ThreadLinger | undefined;
+  #client: ClientCore | undefined;
   #lease: Lease<ThreadSource> | undefined;
   #stop: (() => void) | undefined;
   #session: ThreadSession | undefined;
@@ -50,7 +57,9 @@ export class ThreadVisit {
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
     chunks: ChunkReader = nativeChunks,
     retries: SubagentRetries = new SubagentRetries(),
+    linger?: ThreadLinger,
   ) {
+    this.#linger = linger;
     this.#retries = retries;
     this.#pump = pump;
     this.#hooks = hooks;
@@ -75,9 +84,13 @@ export class ThreadVisit {
   open(client: ClientCore, threadId: string, warm: boolean, kept?: AttachmentTray): void {
     this.#hooks.leaving();
     this.#stop?.();
-    this.#lease?.release();
-    this.#threadId = threadId;
+    // The new thread is held before the old one is let go, so neither drops its subscription in
+    // between: one reopened from the linger stays followed, and the one left starts lingering.
     const lease = client.thread(threadId);
+    this.#linger?.drop(threadId);
+    this.#letGo(client, threadId);
+    this.#client = client;
+    this.#threadId = threadId;
     this.#lease = lease;
     this.#session?.dispose();
     const ledger = this.#ledgers.open(threadId, warm);
@@ -95,8 +108,14 @@ export class ThreadVisit {
       kept,
       this.#retries,
       this.#hooks.keptSteps?.(),
+      this.#quotes,
     );
     this.#hooks.opened(threadId, this.#epoch, lease.store);
+  }
+
+  /** Let every lingering thread go, as clearing the phone's cached chats does. */
+  forgetLingering(): void {
+    this.#linger?.clear();
   }
 
   /** Native went back: no thread is open under the next generation. */
@@ -107,15 +126,19 @@ export class ThreadVisit {
   }
 
   /** The reload hooks `chat-cache.ts` drives for this phone's open thread. */
-  reloads(client: ClientCore): Pick<ChatCacheHost, "openThread" | "leave" | "reopen"> {
+  reloads(client: ClientCore): Pick<ChatCacheHost, "openThread" | "leave" | "reopen" | "letGo"> {
     let kept: AttachmentTray | undefined;
     let reloadEpoch = this.#epoch;
     return {
       openThread: () => this.#threadId,
+      letGo: (threadId) => this.#linger?.drop(threadId),
       leave: () => {
         // The message's files stay on it while the transcript is read again.
         kept = this.#session?.keepTray();
-        this.#leave();
+        // Read afresh: nothing of it stays followed.
+        const threadId = this.#threadId;
+        if (threadId) this.#linger?.drop(threadId);
+        this.#leave(false);
         reloadEpoch = this.#epoch;
       },
       reopen: (threadId) => {
@@ -127,16 +150,31 @@ export class ThreadVisit {
     };
   }
 
-  /** Stop following the open thread and let its lease go; the caller moves the generation. */
-  #leave(): void {
+  /**
+   * Stop showing the open thread and let its lease go, lingering unless `linger` is false; the
+   * caller moves the generation.
+   */
+  #leave(linger = true): void {
     this.#hooks.leaving();
     this.#ledgers.trim();
     this.#session?.dispose();
     this.#session = undefined;
     this.#stop?.();
     this.#stop = undefined;
-    this.#lease?.release();
+    if (linger && this.#client) this.#letGo(this.#client, undefined);
+    else this.#lease?.release();
     this.#lease = undefined;
     this.#threadId = undefined;
+  }
+
+  /**
+   * Release the open thread's lease. Left for another thread (or none) on the same client, it
+   * lingers first through an optional hold.
+   */
+  #letGo(client: ClientCore, next: string | undefined): void {
+    const left = this.#threadId;
+    if (left && left !== next && client === this.#client)
+      this.#linger?.keep(left, client.thread(left, { optional: true }));
+    this.#lease?.release();
   }
 }

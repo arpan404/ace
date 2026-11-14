@@ -60,7 +60,7 @@ struct ThreadPages: Equatable, Sendable {
 
 /// A thread screen a phone pushes over the thread from its ⋯ menu.
 enum ThreadPushedTool: String, Identifiable, Sendable {
-    case files, terminal, browser, agents
+    case files, terminal, browser, agents, summary
     var id: String { rawValue }
 }
 
@@ -75,6 +75,7 @@ extension ThreadDestination {
         case .terminal: .terminal
         case .browser: .browser
         case .agents: .agents
+        case .summary: .summary
         default: nil
         }
     }

@@ -1373,6 +1373,11 @@
     },
     {
       "properties": {
+        "databaseId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "grantTtlMs": {
           "maximum": 9007199254740991,
           "minimum": 0,

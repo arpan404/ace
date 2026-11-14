@@ -24,6 +24,9 @@ import XCTest
         app.openBrowseDestination("library.computer")
         let locked = app.switches["computer.locked.switch"]
         XCTAssertTrue(locked.waitForExistence(timeout: 20))
+        // Every screen helper permission is listed for review, granted or not.
+        let permission = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'screen.permission.'")).firstMatch
+        XCTAssertTrue(permission.waitForExistence(timeout: 10))
         screenshot("computer-1-off")
         locked.tap()
         let state = app.staticTexts["computer.locked.state"]

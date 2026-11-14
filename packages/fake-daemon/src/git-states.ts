@@ -29,6 +29,7 @@ export class FakeGitStates {
   private diverged = new Map<string, string>();
   private hooksSkipped = new Set<string>();
   private defaults = new Map<string, string>();
+  private extraBranches = new Map<string, readonly string[]>();
 
   /**
    * The remote branch has commits the thread's checkout lacks (after a rebase or amend): a plain
@@ -74,6 +75,10 @@ export class FakeGitStates {
   setDefaultBranch(workspaceId: string, name: string): void {
     this.defaults.set(workspaceId, name);
   }
+  /** More local branches the project lists after main and develop (a long branch list). */
+  addBranches(workspaceId: string, names: readonly string[]): void {
+    this.extraBranches.set(workspaceId, names);
+  }
   /** Every worktree start in the project fails its setup script with `output`, or no longer. */
   failSetup(workspaceId: string, output: readonly string[] | undefined): void {
     if (output) this.setups.set(workspaceId, output);
@@ -101,7 +106,7 @@ export class FakeGitStates {
       return { kind: "branches", branches: [], truncated: false, refs: [], unbornHead: false };
     return {
       kind: "branches",
-      branches: ["main", "develop"],
+      branches: ["main", "develop", ...(this.extraBranches.get(workspaceId) ?? [])],
       truncated: false,
       refs: [...fakeBranchRefs],
       defaultBranch: this.defaults.get(workspaceId) ?? "main",

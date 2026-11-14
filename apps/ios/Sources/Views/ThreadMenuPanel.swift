@@ -188,6 +188,7 @@ struct ThreadMenuPanel: View {
 
     /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
     @ViewBuilder private var tools: some View {
+        MenuRow(title: "Summary", icon: .listChecks, identifier: "thread.summary") { open(.summary); dismiss() }
         // On a phone the agent tree is in the grid above.
         if pages == nil {
             MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
