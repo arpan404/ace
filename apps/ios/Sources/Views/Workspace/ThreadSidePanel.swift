@@ -113,7 +113,7 @@ private struct PanelSide: View {
             PanelTabStrip(view: view) { op in withAnimation(motion) { model.panel(threadId, op) } }
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
             if let tab = view.shown, let tool = tab.tool {
-                PanelContent(tool: tool, model: model, thread: thread, title: row?.title ?? "", subtitle: subtitle, openThread: openThread,
+                PanelContent(tab: tab, tool: tool, model: model, thread: thread, title: row?.title ?? "", subtitle: subtitle, openThread: openThread,
                              changesScope: $changesScope,
                              mention: model.canOperate ? { model.panels.mention(threadId, $0) } : nil)
                     .environment(\.panelHost, PanelHost { withAnimation(motion) { model.panel(threadId, ["op": "panel", "open": false]) } })

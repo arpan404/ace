@@ -732,7 +732,7 @@ jobs:
       - name: Smoke the archive (ConPTY, daemon start, status, stop)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 5
-        run: node tools/release/src/smoke.ts tools/release/dist/win32-${{ matrix.arch }}
+        run: node tools/release/src/smoke.ts tools/release/dist/win32-${{ matrix.arch }} --unsigned-archive
 
       - name: install.ps1 end to end
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

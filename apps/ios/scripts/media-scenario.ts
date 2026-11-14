@@ -111,3 +111,50 @@ export function seedMessageAttachments(daemon: FakeDaemon): void {
     attachmentTexts: [{ threadId, sha256: notesSha, text: notes, name: "timings.txt" }],
   });
 }
+
+/**
+ * An answer with inline and display maths and a Mermaid diagram, drawn in the transcript. Three
+ * hours old, so it sorts below the threads other tests find near the top of the inbox.
+ */
+export function seedRichAnswer(daemon: FakeDaemon): void {
+  const threadId = "ios-rich-answer";
+  const ago = 3 * 60 * 60 * 1000;
+  daemon.createThread(
+    {
+      id: threadId,
+      workspaceId: "ace",
+      provider: "codex",
+      title: "Maths and a diagram",
+      hasSentMessage: true,
+    },
+    ago,
+  );
+  daemon.apply(
+    threadId,
+    [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.message("root", "ask", "user", "Explain the hypotenuse and sketch the request flow."),
+      facts.message(
+        "root",
+        "answer",
+        "assistant",
+        [
+          "The hypotenuse follows from $a^2 + b^2 = c^2$, so",
+          "",
+          "$$c = \\sqrt{a^2 + b^2}$$",
+          "",
+          "The request flow:",
+          "",
+          "```mermaid",
+          "graph TD",
+          "  Phone --> Daemon",
+          "  Daemon --> Agent",
+          "```",
+        ].join("\n"),
+      ),
+      facts.endTurn("root"),
+    ],
+    ago,
+  );
+}
