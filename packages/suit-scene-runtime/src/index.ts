@@ -7,16 +7,17 @@
  * A scene author writes:
  *
  *   ace.scene({
- *     init(canvas, info) {},   // info: { width, height, pixelRatio, scheme, reduceMotion }
- *     frame(time) {},          // one call per host tick; time in ms of running scene time
+ *     init(view) {},           // view: { canvas, width, height, pixelRatio, scheme, reduceMotion }
+ *     frame(time, view) {},    // one call per host tick; time in ms of running scene time
  *     signal(name) {},         // "working" | "waiting" | "done" | "failed" | "pr-merged"
- *     resize(width, height) {},
+ *     resize(view) {},         // new width, height or pixelRatio
  *     scheme(scheme) {},       // "light" | "dark"
  *     motion(reduceMotion) {}, // optional
  *   });
  *
- * Only `frame` is required. The canvas is sized in device pixels; `width`/`height` are CSS
- * pixels. The scene never schedules its own frames: ace owns the clock.
+ * This is the contract the make-a-suit skill teaches. Only `frame` is required. `view` is one
+ * object kept current in place (no allocation per frame); the canvas is sized in device pixels,
+ * `width`/`height` are CSS pixels. The scene never schedules its own frames: ace owns the clock.
  *
  * The daemon serves this string as a same-origin script of the sandbox page (the page's CSP is
  * `script-src 'self'`), ahead of `scene.js`.
@@ -27,6 +28,7 @@ export const sceneRuntimeScript = `(function (g) {
   var doc = g.document;
   var definition = null;
   var info = null;
+  var view = null;
   var started = false;
   var failed = false;
   var canvas = doc.createElement('canvas');
@@ -67,8 +69,9 @@ export const sceneRuntimeScript = `(function (g) {
     place();
     size(info.width, info.height, info.pixelRatio);
     started = true;
+    view = { canvas: canvas, width: info.width, height: info.height, pixelRatio: info.pixelRatio, scheme: info.scheme, reduceMotion: info.reduceMotion };
     try {
-      if (typeof definition.init === 'function') definition.init(canvas, Object.freeze(Object.assign({}, info)));
+      if (typeof definition.init === 'function') definition.init(view);
     } catch (error) { fail(error); return; }
     if (!failed) reply({ type: 'ready' });
   }
@@ -100,16 +103,20 @@ export const sceneRuntimeScript = `(function (g) {
       case 'resize':
         if (!info || !finite(data.width) || !finite(data.height) || !finite(data.pixelRatio)) return;
         info.width = data.width; info.height = data.height; info.pixelRatio = data.pixelRatio;
-        if (started) size(data.width, data.height, data.pixelRatio);
-        call('resize', [data.width, data.height]);
+        if (!started) return;
+        size(data.width, data.height, data.pixelRatio);
+        view.width = data.width; view.height = data.height; view.pixelRatio = data.pixelRatio;
+        call('resize', [view]);
         return;
       case 'scheme':
         if (data.scheme !== 'light' && data.scheme !== 'dark') return;
         if (info) info.scheme = data.scheme;
+        if (view) view.scheme = data.scheme;
         call('scheme', [data.scheme]);
         return;
       case 'motion':
         if (info) info.reduceMotion = data.reduceMotion === true;
+        if (view) view.reduceMotion = data.reduceMotion === true;
         call('motion', [data.reduceMotion === true]);
         return;
       case 'signal':
@@ -122,7 +129,7 @@ export const sceneRuntimeScript = `(function (g) {
       case 'tick': {
         if (!started || !finite(data.time)) return;
         var time = data.time;
-        var drawn = call('frame', [time]);
+        var drawn = call('frame', [time, view]);
         if (failed) return;
         if (drawn && typeof drawn.then === 'function')
           drawn.then(function () { if (!failed) reply({ type: 'drawn', time: time }); }, fail);

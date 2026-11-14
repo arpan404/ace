@@ -8,7 +8,7 @@
  * with the same top hairline.
  */
 export const canvasClass =
-  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-suit-scene]_&]:bg-background/85";
+  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-suit-scene]_&]:bg-background/70";
 
 /**
  * The sidebar's panel as the start of the canvas, with its rounded corner: darker than

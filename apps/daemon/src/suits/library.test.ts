@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { SuitResponse, SuitSummary } from "@ace/protocol/suits";
 import { seedBuiltinSuits } from "@ace/plugins";
 import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
-import { suitsHttp, sceneCsp } from "./http.ts";
+import { sceneCsp, sceneRuntimeFile, suitsHttp } from "./http.ts";
 import { SuitLibrary } from "./library.ts";
 import { nodeSuitSchedule, nodeSuitWatch } from "./watch.ts";
 
@@ -90,10 +90,11 @@ test("a read hands out the scene page and assets, served with the sandbox policy
   const scripts = [...(await page.text()).matchAll(/<script src="([^"]+)"><\/script>/g)].map(
     (match) => match[1],
   );
-  expect(scripts).toEqual(["scene-runtime.js", "scene.js"]);
+  expect(scripts).toEqual([sceneRuntimeFile, "scene.js"]);
+  expect(sceneRuntimeFile).toMatch(/^scene-runtime-[a-f0-9]{16}\.js$/);
   expect(sceneCsp).toContain("script-src 'self'");
   expect(sceneCsp).toContain("sandbox allow-scripts");
-  const runtime = await fetch(new URL("scene-runtime.js", origin + suitDetail.sceneUrl));
+  const runtime = await fetch(new URL(sceneRuntimeFile, origin + suitDetail.sceneUrl));
   expect(runtime.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
   expect(await runtime.text()).toBe(sceneRuntimeScript);
   const script = await fetch(new URL("scene.js", origin + suitDetail.sceneUrl));
@@ -184,6 +185,6 @@ test("a Suit without a scene serves no scene page and no runtime", async () => {
   expect(detail(plain).sceneUrl).toBeNull();
   const base = library.urls.base("plain", detail(plain).summary.contentHash);
   expect((await fetch(origin + base + "scene.html")).status).toBe(404);
-  expect((await fetch(origin + base + "scene-runtime.js")).status).toBe(404);
-  expect((await fetch(new URL("scene-runtime.js", origin + neon))).status).toBe(200);
+  expect((await fetch(origin + base + sceneRuntimeFile)).status).toBe(404);
+  expect((await fetch(new URL(sceneRuntimeFile, origin + neon))).status).toBe(200);
 });

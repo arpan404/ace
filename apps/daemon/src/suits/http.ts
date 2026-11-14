@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
@@ -17,12 +18,13 @@ export const sceneCsp =
 /** Files are data: an SVG or HTML among the assets can't run anything. */
 const fileCsp = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox";
 
+const runtimeBytes = Buffer.from(sceneRuntimeScript);
 /**
  * ace's scene runtime, served beside every Suit's scene.js under the same grant. A Suit's own
- * files are only scene.js and assets/, so this name never shadows one of them.
+ * files are only scene.js and assets/, so this name never shadows one of them. Its name carries
+ * its own hash: the Suit's URL is cached as immutable, and the runtime changes with ace.
  */
-export const sceneRuntimeFile = "scene-runtime.js";
-const runtimeBytes = Buffer.from(sceneRuntimeScript);
+export const sceneRuntimeFile = `scene-runtime-${createHash("sha256").update(runtimeBytes).digest("hex").slice(0, 16)}.js`;
 
 /**
  * The scene's page: the runtime first (it makes the one canvas and speaks to ace), then the

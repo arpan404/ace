@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { sceneRuntimeScript } from "./index.ts";
 
@@ -7,7 +8,14 @@ interface FakeCanvas {
   style: Record<string, string>;
   parentNode: unknown;
   setAttribute(name: string, value: string): void;
+  getContext(kind: string): unknown;
 }
+
+/** A 2D context that takes every call and draws nothing. */
+const silentContext: unknown = new Proxy(
+  {},
+  { get: () => () => ({ addColorStop() {} }), set: () => true },
+);
 
 /** The sandbox page's globals, as far as the runtime reaches for them. */
 function sandbox() {
@@ -34,6 +42,7 @@ function sandbox() {
           style: {},
           parentNode: null,
           setAttribute() {},
+          getContext: () => silentContext,
         };
         canvases.push(canvas);
         return canvas;
@@ -81,16 +90,16 @@ test("a scene is ready once it is defined and the host has sent init, in either 
   expect(late.replies).toEqual([{ type: "ready" }]);
 });
 
-test("init hands the scene a canvas sized in device pixels and the host's facts", () => {
+test("init hands the scene a view: its canvas sized in device pixels and the host's facts", () => {
   const page = sandbox();
-  let seen: { canvas: unknown; info: unknown } | undefined;
+  let seen: unknown;
   page.ace.scene({
-    init: (canvas: unknown, info: unknown) => (seen = { canvas, info }),
+    init: (view: unknown) => (seen = { ...(view as object) }),
     frame() {},
   });
   page.send(init);
-  expect(seen?.canvas).toBe(page.canvas());
-  expect(seen?.info).toEqual({
+  expect(seen).toEqual({
+    canvas: page.canvas(),
     width: 800,
     height: 600,
     pixelRatio: 2,
@@ -133,7 +142,8 @@ test("signals, scheme and size reach the scene; resize resizes the canvas", () =
     frame() {},
     signal: (name: string) => heard.push(["signal", name]),
     scheme: (scheme: string) => heard.push(["scheme", scheme]),
-    resize: (width: number, height: number) => heard.push(["resize", width, height]),
+    resize: (view: { width: number; height: number }) =>
+      heard.push(["resize", view.width, view.height]),
   });
   page.send(init);
   page.send({ type: "signal", signal: "pr-merged" });
@@ -194,5 +204,26 @@ test("a definition without frame, or a second definition, is an error", () => {
   twice.ace.scene({ frame() {} });
   expect(twice.replies).toEqual([
     { type: "error", message: "ace.scene was called more than once" },
+  ]);
+});
+
+test("the shipped Starfield scene starts clean and draws under the runtime", () => {
+  const source = readFileSync(
+    new URL("../../plugins/builtin-suits/starfield/scene.js", import.meta.url),
+    "utf8",
+  );
+  const page = sandbox();
+  new Function("ace", source)(page.ace);
+  page.send(init);
+  page.send({ type: "tick", time: 0 });
+  page.send({ type: "signal", signal: "pr-merged" });
+  page.send({ type: "tick", time: 33 });
+  page.send({ type: "resize", width: 400, height: 300, pixelRatio: 1 });
+  page.send({ type: "tick", time: 66 });
+  expect(page.replies).toEqual([
+    { type: "ready" },
+    { type: "drawn", time: 0 },
+    { type: "drawn", time: 33 },
+    { type: "drawn", time: 66 },
   ]);
 });

@@ -30,7 +30,10 @@ export function AppliedSuitBackdrop(props: {
 
   if (!sceneUrl || !version) return null;
   const onStopped = (stop: SceneStop) => {
-    console.warn(`[suits] ${suit?.summary.id ?? "a Suit"}'s scene was stopped: ${stop.reason}`);
+    const detail = stop.reason === "error" ? `: ${stop.message}` : "";
+    console.warn(
+      `[suits] ${suit?.summary.id ?? "a Suit"}'s scene was stopped (${stop.reason}${detail})`,
+    );
     setStopped((known) => new Set(known).add(version));
   };
   return (
@@ -42,7 +45,7 @@ export function AppliedSuitBackdrop(props: {
         onStopped={onStopped}
       />
       {/* The frame's colour over the scene, so the sidebar's text keeps its contrast. */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 bg-sidebar/55" />
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 bg-sidebar/35" />
     </>
   );
 }
