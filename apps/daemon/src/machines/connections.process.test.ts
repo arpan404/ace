@@ -1,3 +1,4 @@
+import { createConnection, createServer, type Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
 import { DeviceId, HostId, MachineCallRequest, ThreadId, type MachineCall } from "@ace/protocol";
@@ -211,4 +212,96 @@ test("a call waiting for a free connection is timed from when it is sent, not wh
     ),
   ).resolves.toEqual({ ok: true });
   await Promise.all(long);
+});
+
+/**
+ * A TCP proxy to `port` that can cut its open connections the way an expired NAT entry does: the
+ * caller still holds them open, and the first bytes it sends are answered with a reset.
+ */
+async function cuttingProxy(port: number) {
+  const open = new Set<Socket>();
+  const state = { cut: false, connections: 0 };
+  const server = createServer((client) => {
+    state.connections++;
+    const upstream = createConnection({ host: "127.0.0.1", port });
+    const pair = { client, upstream, cut: false };
+    for (const socket of [client, upstream]) {
+      open.add(socket);
+      socket.on("error", () => {});
+      socket.once("close", () => open.delete(socket));
+    }
+    client.on("data", (chunk: Buffer) => {
+      if (pair.cut) {
+        client.resetAndDestroy();
+        upstream.destroy();
+      } else upstream.write(chunk);
+    });
+    upstream.on("data", (chunk: Buffer) => client.write(chunk));
+    cuts.add(pair);
+  });
+  const cuts = new Set<{ client: Socket; upstream: Socket; cut: boolean }>();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Proxy not listening");
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve) => {
+        for (const socket of open) socket.destroy();
+        server.close(() => resolve());
+      }),
+  );
+  return {
+    origin: `https://127.0.0.1:${address.port}/`,
+    state,
+    /** Every connection open now is dropped on the network side; new ones work. */
+    cutAll() {
+      for (const pair of cuts) pair.cut = true;
+    },
+  };
+}
+
+test("a status read on a kept-open connection the network dropped goes again on a fresh one", async () => {
+  const target = await busyMachine(0);
+  const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port));
+  const profile = { ...target.profile, origin: proxy.origin };
+  const connections = pool();
+  const read = { origin, call: { op: "status" as const, threadIds: [ThreadId.parse("child-1")] } };
+  await machineRequest(profile, read, { timeoutMs: 5000, connections });
+  proxy.cutAll();
+  await expect(machineRequest(profile, read, { timeoutMs: 5000, connections })).resolves.toEqual({
+    ok: true,
+  });
+  expect(proxy.state.connections).toBe(2);
+});
+
+test("work sent on a dropped connection is never sent again on its own", async () => {
+  const target = await busyMachine(0);
+  const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port));
+  const profile = { ...target.profile, origin: proxy.origin };
+  const connections = pool();
+  await machineRequest(
+    profile,
+    { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+    { timeoutMs: 5000, connections },
+  );
+  proxy.cutAll();
+  const failure = await machineRequest(
+    profile,
+    {
+      origin,
+      call: {
+        op: "message",
+        threadId: ThreadId.parse("child-1"),
+        requestId: "follow-up",
+        text: "Run the tests again",
+        delivery: "queue",
+      },
+    },
+    { timeoutMs: 5000, connections },
+  ).catch((error: unknown) => error);
+  // The caller hears the connection was lost; its own retry rules decide what happens next.
+  expect(failure).toBeInstanceOf(MachineFailure);
+  expect((failure as MachineFailure).kind).toBe("disconnected");
+  expect(target.arrived.map((entry) => entry.op)).toEqual(["status"]);
+  expect(proxy.state.connections).toBe(1);
 });

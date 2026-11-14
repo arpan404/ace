@@ -79,7 +79,19 @@ export interface PinnedRequest {
   compressible?: boolean;
   /** `urgent` takes connections long calls can never fill; see ConnectionLane. */
   lane?: ConnectionLane;
+  /**
+   * The call only reads, so sending it twice changes nothing there: one lost on a kept-open
+   * connection the network had dropped goes once more on a fresh connection.
+   */
+  rereadable?: boolean;
 }
+
+/**
+ * Reads that change nothing on the machine. Work is never sent twice by the transport: `delegate`
+ * and `message` are deduplicated there by their request id and retried by their callers under
+ * it; a cancel, an answer, a tool call or a transfer is never replayed here.
+ */
+const rereadableOps: ReadonlySet<string> = new Set(["status", "describe", "command.jobs"]);
 
 /**
  * Calls that must reach the machine even while long tool calls hold every shared connection:
@@ -105,6 +117,7 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
       contentType: "application/json",
       compressible: compressibleOp(body.call.op),
       lane: laneOf(body.call),
+      rereadable: rereadableOps.has(body.call.op),
     },
     options,
   );
@@ -121,6 +134,18 @@ function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
  */
 class CodingRefused extends MachineFailure {}
 
+/**
+ * A kept-open connection failed before any answer came on it (reset, or closed by the other
+ * side or the network while idle). To every caller it is a lost connection, as before.
+ */
+class StaleConnection extends MachineFailure {}
+
+interface Attempt {
+  mayCompress: boolean;
+  /** On a connection of its own, not one kept open. */
+  fresh: boolean;
+}
+
 /** A JSON answer from a paired machine's listener; refusals keep their authored words. */
 export async function pinnedRequest(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
@@ -128,10 +153,15 @@ export async function pinnedRequest(
   options: MachineTransportOptions,
 ): Promise<unknown> {
   try {
-    return await pinnedOnce(profile, route, options, true);
+    return await pinnedOnce(profile, route, options, { mayCompress: true, fresh: false });
   } catch (error) {
-    if (!(error instanceof CodingRefused)) throw error;
-    return pinnedOnce(profile, route, options, false);
+    // A downgraded machine refused a compressed read: once more as it is.
+    if (error instanceof CodingRefused)
+      return pinnedOnce(profile, route, options, { mayCompress: false, fresh: false });
+    // A read lost on a dropped kept-open connection: once more on a fresh one.
+    if (error instanceof StaleConnection && route.rereadable)
+      return pinnedOnce(profile, route, options, { mayCompress: false, fresh: true });
+    throw error;
   }
 }
 
@@ -139,11 +169,11 @@ function pinnedOnce(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
   route: PinnedRequest,
   options: MachineTransportOptions,
-  mayCompress: boolean,
+  { mayCompress, fresh }: Attempt,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
-  const lease: ConnectionLease =
-    options.connections?.lease(profile, route.lane ?? "shared") ?? oneShot(profile);
+  const pooled = fresh ? undefined : options.connections?.lease(profile, route.lane ?? "shared");
+  const lease: ConnectionLease = pooled ?? oneShot(profile);
   const agent = lease.agent;
   const plain = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
   const coding =
@@ -207,7 +237,13 @@ function pinnedOnce(
     request.on("finish", () => {
       if (request.socket && !request.socket.connecting) connected = true;
     });
-    request.on("error", () => finish(lost()));
+    request.on("error", () =>
+      finish(
+        request.reusedSocket && answer === undefined
+          ? new StaleConnection("disconnected")
+          : lost(),
+      ),
+    );
     // After the error listener: destroying an aborted request reports through it.
     if (options.signal?.aborted) {
       abort();
