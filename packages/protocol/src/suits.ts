@@ -29,8 +29,8 @@ export const SuitAssetPath = z
   .regex(/^assets\/[A-Za-z0-9._/-]+$/)
   .refine((path) => !path.split("/").includes(".."), "must stay inside assets/");
 
-/** Built-in themes a Suit may start from; unset palette fields come from it. */
-export const SuitBase = z.enum(["graphite", "midnight", "paper", "slate", "contrast", "aurora"]);
+/** Built-in themes a Suit may start from (`themeIds` in @ace/themes); unset palette fields come from it. */
+export const SuitBase = z.enum(["ace", "paper", "midnight", "grove", "harbor", "dusk"]);
 export type SuitBase = z.infer<typeof SuitBase>;
 
 /** The colours a Suit may set for one scheme. Every field is optional; the base fills the rest. */
@@ -92,7 +92,7 @@ export const SuitManifest = z.looseObject({
   description: z.string().max(280).default(""),
   /** Display only; trust binds the content hash. */
   version: z.string().max(40).default("1"),
-  base: SuitBase.default("graphite"),
+  base: SuitBase.default("ace"),
   /** At least one scheme. A Suit with one runs only in that scheme. */
   light: SuitPalette.optional(),
   dark: SuitPalette.optional(),
