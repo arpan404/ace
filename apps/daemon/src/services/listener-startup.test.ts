@@ -170,7 +170,7 @@ function lateModule() {
     runtime,
     definition,
     expire: () => {
-      for (const expire of [...timers]) expire();
+      for (const expire of timers) expire();
     },
     armed: () => timers.size,
     load: () => loaded.resolve(),
