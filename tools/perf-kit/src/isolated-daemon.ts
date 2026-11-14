@@ -1,5 +1,5 @@
 /**
- * Starts a bench daemon entry as its own Bun process in a fresh temporary home, with nothing of
+ * Starts a bench daemon entry (such as apps/daemon/bench/slow-link-daemon.ts) as its own process in a fresh temporary home, with nothing of
  * the person's environment: HOME, every provider's config home and ACE_HOME point inside it,
  * PATH is empty so no provider CLI can be found, and the TLS listener for paired devices binds
  * with 127.0.0.1 as its advertised address. Requests go over IPC; the first message is the
@@ -9,7 +9,6 @@ import { fork } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bunBinary } from "../../../scripts/runtimes.ts";
 
 export interface BenchDaemon<Ready> {
   home: string;
@@ -18,14 +17,22 @@ export interface BenchDaemon<Ready> {
   close(): Promise<void>;
 }
 
+export interface BenchDaemonOptions<Ready> {
+  entry: string;
+  /** The runtime: the daemon's Bun (`bunBinary()` in scripts/runtimes.ts). */
+  execPath: string;
+  parse: (ready: unknown) => Ready;
+  /** Added to, or replacing, the isolated environment. */
+  env?: Record<string, string>;
+}
+
 export async function startBenchDaemon<Ready>(
-  entry: string,
-  parse: (ready: unknown) => Ready,
-  env: Record<string, string> = {},
+  options: BenchDaemonOptions<Ready>,
 ): Promise<BenchDaemon<Ready>> {
+  const { entry, execPath, parse, env = {} } = options;
   const home = await mkdtemp(join(tmpdir(), "ace-slow-link-"));
   const child = fork(entry, [], {
-    execPath: bunBinary(),
+    execPath,
     cwd: home,
     env: {
       HOME: home,

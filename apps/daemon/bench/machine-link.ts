@@ -17,7 +17,8 @@ import { z } from "zod";
 import { accessRequest, redeemPairing } from "@ace/daemon/client-access";
 import { PairingResponse } from "@ace/protocol";
 import { countsSince, linkProfile, startLinkShaper, type LinkCounts } from "@ace/perf-kit/link";
-import { startBenchDaemon } from "./slow-link-host.ts";
+import { startBenchDaemon } from "@ace/perf-kit/daemon";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 import { writeMeasurement } from "./output.ts";
 
 const argument = (name: string, fallback: string) =>
@@ -49,12 +50,18 @@ const median = (values: number[]) => {
 
 async function measure(profileName: string) {
   const profile = linkProfile(profileName);
-  const target = await startBenchDaemon(entry, (ready) => Ready.parse(ready), {
-    MACHINE_LINK_ROLE: "target",
+  const execPath = bunBinary();
+  const target = await startBenchDaemon({
+    entry,
+    execPath,
+    parse: (ready) => Ready.parse(ready),
+    env: { MACHINE_LINK_ROLE: "target" },
   });
-  const source = await startBenchDaemon(entry, (ready) => SourceReady.parse(ready), {
-    MACHINE_LINK_ROLE: "source",
-    ACE_LISTEN: "local",
+  const source = await startBenchDaemon({
+    entry,
+    execPath,
+    parse: (ready) => SourceReady.parse(ready),
+    env: { MACHINE_LINK_ROLE: "source", ACE_LISTEN: "local" },
   });
   const upstream = new URL(target.ready.remoteUrl);
   const shaper = await startLinkShaper({

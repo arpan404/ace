@@ -20,7 +20,8 @@ import { accessRequest, redeemPairing } from "@ace/daemon/client-access";
 import { PairingResponse } from "@ace/protocol";
 import { linkProfile, startLinkShaper, type LinkShaper } from "@ace/perf-kit/link";
 import type { Client, ThreadSource } from "@ace/client";
-import { startBenchDaemon } from "./slow-link-host.ts";
+import { startBenchDaemon } from "@ace/perf-kit/daemon";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 import {
   FileSnapshots,
   mark,
@@ -66,11 +67,12 @@ const hasContent = (reader: ThreadSource) => reader.thread !== undefined && read
 async function measure(path: LinkPath, profileName: string) {
   const profile = linkProfile(profileName);
   const relay = path === "relay" ? await startRelay({ port: 0, bind: "127.0.0.1" }) : undefined;
-  const daemon = await startBenchDaemon(
-    join(import.meta.dirname, "slow-link-daemon.ts"),
-    (ready) => Ready.parse(ready),
-    relay ? { ACE_RELAY_URL: relay.url } : {},
-  );
+  const daemon = await startBenchDaemon({
+    entry: join(import.meta.dirname, "slow-link-daemon.ts"),
+    execPath: bunBinary(),
+    parse: (ready) => Ready.parse(ready),
+    env: relay ? { ACE_RELAY_URL: relay.url } : {},
+  });
   let shaper: LinkShaper | undefined;
   const clients: Client[] = [];
   try {

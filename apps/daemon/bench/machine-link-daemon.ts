@@ -1,5 +1,5 @@
 /**
- * One side of machine-link.ts, run as its own Bun process in a temporary home (slow-link-host.ts).
+ * One side of machine-link.ts, run as its own Bun process in a temporary home (startBenchDaemon, @ace/perf-kit/daemon).
  * MACHINE_LINK_ROLE=target hosts the remote child: it listens for paired devices over TLS and
  * lets paired machines' agents operate it. MACHINE_LINK_ROLE=source is the machine whose agent
  * delegates there; its calls to the target go through a wrapper that records each one. Both run
