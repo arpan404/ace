@@ -1,5 +1,5 @@
-import { flakyCheckout } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { facts, flakyCheckout, type Scenario } from "@ace/fake-daemon";
+import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
@@ -50,4 +50,99 @@ test("connected again but not caught up: the approval waits, the palette offers 
       optionId: "allow",
     }),
   );
+});
+
+test("an approval clicked in the instant the connection drops, before the screen redraws, sends nothing", async () => {
+  const { app } = slowDaemon();
+  app.play(flakyCheckout()).runThrough("approval-requested");
+  await app.open("/t/thread-checkout");
+  const allow = await screen.findByRole<HTMLButtonElement>("button", { name: "Allow once" });
+  // The client goes stale, and in that same moment, before React redraws, the still-enabled
+  // button is pressed.
+  let enabledWhenPressed = false;
+  await act(
+    () =>
+      new Promise<void>((resolve) => {
+        const connection = app.client.connectionState();
+        const stop = connection.subscribe(() => {
+          if (connection.getSnapshot() === "ready") return;
+          stop();
+          enabledWhenPressed = !allow.disabled;
+          fireEvent.click(allow);
+          resolve();
+        });
+        app.daemon.refuseConnections(true);
+      }),
+  );
+  expect(enabledWhenPressed).toBe(true);
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Allow once" }).disabled).toBe(
+      true,
+    ),
+  );
+  expect(app.daemon.isPending("thread-checkout", "approve-clear-cache")).toBe(true);
+  act(() => app.daemon.refuseConnections(false));
+  act(() => app.client.reconnectNow());
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  expect(app.daemon.isPending("thread-checkout", "approve-clear-cache")).toBe(true);
+});
+
+/** A Codex thread whose agent asks one question that takes typed words, and waits. */
+function asksIndentation(): Scenario {
+  return {
+    thread: { id: "thread-indent", workspaceId: "relay", title: "Indentation", provider: "codex" },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("codex"),
+          facts.turn("root"),
+          {
+            type: "interaction.opened",
+            agent: "root",
+            interaction: "indent",
+            blocking: true,
+            request: {
+              kind: "question",
+              questions: [
+                {
+                  id: "style",
+                  header: "Indentation",
+                  text: "Tabs or Spaces?",
+                  multiSelect: false,
+                  allowOther: true,
+                  secret: false,
+                  options: [
+                    { id: "tabs", label: "Tabs" },
+                    { id: "spaces", label: "Spaces" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { kind: "await", interaction: "indent" },
+    ],
+  };
+}
+
+test("words sent as a reply in the instant the connection drops never become the answer", async () => {
+  const { app } = slowDaemon();
+  app.play(asksIndentation()).runUntilBlocked();
+  await app.open("/t/thread-indent");
+  await screen.findByRole("article", { name: "Tabs or Spaces?" });
+  const message = screen.getByRole("combobox", { name: "Message" });
+  await userEvent.type(message, "Two spaces");
+  // Enter starts the reply (its sender loads while it waits); the connection drops meanwhile.
+  act(() => {
+    fireEvent.keyDown(message, { key: "Enter" });
+    app.daemon.refuseConnections(true);
+  });
+  expect(await screen.findByText("Reply not sent")).toBeTruthy();
+  await waitFor(() => expect(message.textContent).toBe("Two spaces"));
+  act(() => app.daemon.refuseConnections(false));
+  act(() => app.client.reconnectNow());
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  expect(app.daemon.isPending("thread-indent", "indent")).toBe(true);
 });

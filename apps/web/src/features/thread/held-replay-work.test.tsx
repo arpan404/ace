@@ -102,6 +102,30 @@ test("connected again but not caught up: a background command's Stop in the Summ
   await waitFor(() => expect(stop().disabled).toBe(false));
 });
 
+test("connected again but not caught up: an agent shell's header says so, with no state and no ticking age", async () => {
+  const { app, replay } = slowDaemon();
+  app.play(flakyCheckout()).runThrough("watcher-started");
+  await app.open("/t/thread-checkout");
+  await screen.findByRole("combobox", { name: "Message" });
+  const work = await openWorkPanel();
+  await userEvent.click(
+    await within(work).findByRole("treeitem", { name: /^\$ bun run test --watch checkout: / }),
+  );
+  // The shell's header: the row around its command.
+  const command = (await screen.findAllByTitle("bun run test --watch checkout")).find(
+    (element) => element.tagName === "CODE",
+  );
+  const header = command?.parentElement;
+  if (!header) throw new Error("No shell header");
+  await waitFor(() => expect(header.textContent).toContain("Running"));
+
+  await replay.hold(app.client);
+  await waitFor(() => expect(header.textContent).toContain("Syncing…"));
+  expect(header.textContent).not.toContain("Running");
+  replay.release(app.client);
+  await waitFor(() => expect(header.textContent).toContain("Running"));
+});
+
 /** Archive the open thread with its shortcut (this test browser is not Apple: ⌥⇧Ctrl+A). */
 const archiveKey = () => userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
 
