@@ -41,7 +41,7 @@ import Observation
     @ObservationIgnored private let probe: (ConnectionTarget) async -> Bool
     /// Milliseconds, for the route plans' hold and cooldown.
     @ObservationIgnored private let clock: () -> Double
-    @ObservationIgnored private let wakeSchedule: RouteScheduler
+    @ObservationIgnored private let wakeSchedule: WakeGate.Schedule
     /// Account machines whose daemon said, over the relay, which paired machine it is: account
     /// host id → daemon id.
     @ObservationIgnored private var daemons: [String: String]
@@ -66,12 +66,13 @@ import Observation
          itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
          schedule: @escaping RouteScheduler = RouteRetries.sleeping,
+         wakeSchedule: @escaping WakeGate.Schedule = WakeGate.sleeping,
          moveSends: @escaping SendAdoptions.Move = SendAdoptions.durable,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
         retries = RouteRetries(schedule: schedule)
-        wakeSchedule = schedule
+        self.wakeSchedule = wakeSchedule
         adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
@@ -138,7 +139,10 @@ import Observation
     private func adopt(account listing: AccountListing) async {
         switch listing {
         case .listed(let listed): accountMachines = listed; accountSignedIn = true
-        case .signedOut: accountMachines = []; accountSignedIn = false
+        case .signedOut:
+            accountMachines = []; accountSignedIn = false
+            // The account's machines go; a check they were owed goes with them.
+            wakes.cancel()
         case .unavailable: break
         }
         await follow(merged())
@@ -312,6 +316,7 @@ import Observation
         if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {
+        wakes.cancel()
         for session in inbox.sessions { await session.client.disconnectAndWait() }
     }
     /// An account machine leaves the account's list (it returns if it signs in again); a paired

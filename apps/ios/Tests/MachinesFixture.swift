@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import Ace
 
@@ -30,7 +31,8 @@ import Testing
         self.scheduler = scheduler
         model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { clock.now },
                               installId: "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b", probe: probe,
-                              schedule: { scheduler.schedule($0, $1) }, moveSends: moveSends,
+                              schedule: { scheduler.schedule($0, $1) }, wakeSchedule: { scheduler.cancellable($0, $1) },
+                              moveSends: moveSends,
                               makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
     func cleanUp() {
@@ -58,6 +60,18 @@ final class TestClock: @unchecked Sendable {
         let id = issued
         jobs.append((id, clock.now + delay, work))
         return { [weak self] in self?.jobs.removeAll { $0.id == id } }
+    }
+    /// Jobs whose handle (`cancellable`) was called from any thread; they never run.
+    nonisolated let cancelled = OSAllocatedUnfairLock<Set<Int>>(initialState: [])
+    /// Jobs still to run, not counting cancelled ones.
+    var live: Int { let gone = cancelled.withLock { $0 }; return jobs.filter { !gone.contains($0.id) }.count }
+    /// As `schedule`, with a handle that cancels from any thread (`WakeGate.Schedule`).
+    func cancellable(_ delay: Double, _ work: @escaping @MainActor () -> Void) -> @Sendable () -> Void {
+        issued += 1
+        let id = issued
+        let cancelled = cancelled
+        jobs.append((id, clock.now + delay, { if !cancelled.withLock({ $0.contains(id) }) { work() } }))
+        return { cancelled.withLock { _ = $0.insert(id) } }
     }
     /// Moves the clock and runs what has come due.
     func advance(_ ms: Double) {

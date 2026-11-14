@@ -150,6 +150,24 @@ import Testing
         #expect(wakes() == [2])
     }
 
+    @Test func signingOutOfTheAccountDropsACheckStillWaiting() async throws {
+        let studio = String(repeating: "S", count: 52)
+        let account = FakeAccount([AceMachine(hostId: studio, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try Fixture(machines: [machine(studio, device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        fixture.model.network(online: true, interfaceChanged: true)
+        fixture.scheduler.advance(1_000)
+        fixture.model.network(online: true, interfaceChanged: true)
+        let waiting = fixture.scheduler.live
+        account.signOut()
+        await fixture.model.refreshAccount()
+        #expect(fixture.scheduler.live == waiting - 1, "the trailing wake is cancelled, not left to fire")
+        let wakes = fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count }.reduce(0, +)
+        fixture.scheduler.advance(WakeGate.bound)
+        #expect(fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count }.reduce(0, +) == wakes)
+    }
+
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
         defer { fixture.cleanUp() }
