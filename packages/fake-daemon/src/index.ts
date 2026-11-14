@@ -37,6 +37,7 @@ export {
   multiDayShape,
   multiDayTurn,
   multiDayPrelude,
+  checkpointAnswer,
 } from "./scenarios/multi-day-thread.ts";
 export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/multi-day-thread.ts";
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";

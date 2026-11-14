@@ -83,6 +83,22 @@ export function multiDayItemsBefore(shape: MultiDayShape, ordinal: number): numb
 }
 
 /** The thread and its root agent, before any turn. */
+/**
+ * A turn's closing answer. Every hundredth runs to several blocks with a code fence, as real
+ * answers often do (and as tools/web-perf's remount probe needs: its plain text is far taller
+ * than its drawing).
+ */
+export function checkpointAnswer(ordinal: number): string {
+  const line = `Checkpoint ${ordinal} completed. Migration paths validated; ${ordinal % 11 === 0 ? "one command failed and was retried" : "all commands passed"}.`;
+  if (ordinal % 100 !== 0) return line;
+  return [
+    line,
+    "The step that now runs before each shard:",
+    '```ts\nconst shard = await openShard(checkpoint);\nawait shard.verify({ permissions: "retain" });\nawait shard.commit();\n```',
+    "Nothing else in the migration path changed.",
+  ].join("\n\n");
+}
+
 export function* multiDayPrelude(shape: MultiDayShape): Generator<SyntheticThreadEvent> {
   const { id, workspaceId, startedAt } = shape;
   const thread: Thread = {
@@ -229,7 +245,7 @@ export function* multiDayTurn(
         parts: [
           {
             type: "text",
-            text: `Checkpoint ${ordinal} completed. Migration paths validated; ${ordinal % 11 === 0 ? "one command failed and was retried" : "all commands passed"}.`,
+            text: checkpointAnswer(ordinal),
           },
         ],
       };
