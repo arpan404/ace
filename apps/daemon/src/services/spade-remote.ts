@@ -4,7 +4,10 @@ import type { SocketContext, SocketService } from "./socket.ts";
 import { featureOff } from "./feature-off.ts";
 
 type SpadeRemoteSocket = Pick<SocketContext, "authorize" | "connected" | "send" | "tasks"> & {
-  options: { spadeRemote?: Pick<SpadeRemote, "machines" | "send"> | undefined };
+  options: {
+    spadeRemote?: Pick<SpadeRemote, "machines" | "send"> | undefined;
+    serviceStatus?: SocketContext["options"]["serviceStatus"];
+  };
 };
 
 const forbidden: SpadeRemoteOutcome = {
