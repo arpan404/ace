@@ -9,6 +9,8 @@ struct EventRowView: View {
     @Bindable var item: ItemModel
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
+    /// Where a row naming another thread opens it, and that thread's title.
+    var links: TranscriptLinks? = nil
     var body: some View {
         switch event.kind {
         case "none": EmptyView()
@@ -23,6 +25,8 @@ struct EventRowView: View {
         case "notSent": NotSentLine(reason: event.note, fenced: event.fenced == true)
         case "notice": NoticeLine(event: event)
         case "quiet": QuietText(text: event.text)
+        case "task": TaskCardRow(event: event, links: links)
+        case "merged": MergedLine(event: event, links: links)
         default: ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage)
         }
     }

@@ -115,7 +115,7 @@ private struct BlockItemView: View {
     let links: TranscriptLinks
     var body: some View {
         if let event = block.event {
-            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage)
+            EventRowView(event: event, item: item, openMedia: links.openMedia, openMessage: links.openMessage, links: links)
         } else if block.kind == "user" {
             UserMessageRow(row: item.row)
         } else if block.kind == "message" {

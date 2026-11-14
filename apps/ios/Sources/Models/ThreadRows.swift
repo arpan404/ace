@@ -198,7 +198,7 @@ struct BlockRow: Codable, Sendable, Equatable {
 /// Something that happened to the thread rather than in the conversation, flattened by the bridge
 /// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
 /// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
-/// "handoff", "user", "none"; others draw the item as it is.
+/// "handoff", "task", "merged", "user", "none"; others draw the item as it is.
 struct EventRow: Codable, Sendable, Equatable {
     let kind: String
     let icon: String
@@ -214,6 +214,9 @@ struct EventRow: Codable, Sendable, Equatable {
     let count: Int
     /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
     var fenced: Bool? = nil
+    /// "task" and "merged": the thread the row's chip opens (a handoff's source, the merged
+    /// fork); empty or nil when there is none.
+    var threadId: String? = nil
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
