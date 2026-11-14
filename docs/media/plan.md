@@ -1680,6 +1680,9 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     path until phase 2's deletion.
 - **Not built or measured yet.** A run on a real Android device (scrcpy is tested against the
   fake device only); the Simulator 59 fps bench (no window with the shared Mac's load under
-  24); epochs beyond each source's opening one until F1's wiring issues them; the screen
-  helper's switch away from ace-media sends no end frame, so its marker is interrupted and the
-  merge restarts at the helper's switch keyframe.
+  24); epochs beyond each source's opening one until F1's wiring issues them.
+- **Clean handoffs.** A writer the helper's `IngestRoute` retires (the Mac screen and
+  `--encode-frames`) writes its queue, then the end-of-source frame, then closes, so ace-media's
+  marker for that path is clean and a planned switch hands over without a forced keyframe.
+  Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
+  without one.

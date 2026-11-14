@@ -22,6 +22,7 @@ struct MediaFrameFields {
 
 enum MediaFrameKind {
     static let video: UInt8 = 1
+    static let end: UInt8 = 4
     static let hello: UInt8 = 5
 }
 enum MediaFrameCodec { static let h264AnnexB: UInt8 = 1 }
@@ -147,12 +148,20 @@ final class IngestWriter {
 
     /// No more units: what is queued is still written, then the connection closes and `done`
     /// runs on the writer's queue (also when the connection fails or `close()` comes first).
+    ///
+    /// The end-of-source frame goes after the last queued unit, so ace-media ends this path
+    /// cleanly: a planned switch is a clean handoff. A writer that is closed instead (failure, the
+    /// drain limit, eviction) sends none, and ace-media sees that path cut.
     func finish(done: @escaping () -> Void = {}) {
         lock.lock(); defer { lock.unlock() }
         guard !closed else { queue.async(execute: done); return }
         finished = done
+        guard !finishing else { return }
         finishing = true
-        if head == pending.count { shut() }
+        if let end = mediaFrameHeader(MediaFrameFields(kind: MediaFrameKind.end), payloadBytes: 0) {
+            pending.append(end); queuedBytes += end.count
+            if suspended { suspended = false; writable.resume() }
+        } else if head == pending.count { shut() }
     }
     private var finished: (() -> Void)?
 

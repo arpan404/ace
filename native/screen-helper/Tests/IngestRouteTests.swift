@@ -30,7 +30,8 @@ final class IngestRouteTests: XCTestCase {
         XCTAssertTrue(ended)
         var expected = 44 + 32
         for unit in units { expected += 44 + 28 + unit.payloadBytes + (unit.keyframe ? 11 : 0) }
-        XCTAssertEqual(received.count, expected, "the replaced writer drained before it closed")
+        XCTAssertEqual(received.count, expected + 44, "the replaced writer drained before it closed")
+        XCTAssertTrue(isEndFrame(received.suffix(44)), "a planned switch is a clean end: nothing lost")
     }
 
     func testAReplacedWriterThatFailsLeavesItsSuccessorAlone() throws {
@@ -70,6 +71,7 @@ final class IngestRouteTests: XCTestCase {
         let (received, ended) = listener.readToEnd()
         XCTAssertTrue(ended)
         XCTAssertLessThan(received.count, 3 << 20)
+        XCTAssertFalse(isEndFrame(received.suffix(44)), "a writer closed at the limit ends interrupted")
     }
 
     /// Timers the test fires itself.

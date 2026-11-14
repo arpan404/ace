@@ -78,6 +78,8 @@ it.runIf(process.platform === "darwin" && !!binary)(
     // Each picture's `ts` is its number, so a unit's `pts` names it whichever way it came.
     const handed: { number: number; at: number; egress: boolean; keyframe: boolean }[] = [];
     const viaEgress = new Set<number>();
+    /** How each ace-media path ended: clean (its end frame came) or interrupted. */
+    const ended: { at: number; interrupted: boolean }[] = [];
     let paths: DeviceVideoPaths | undefined;
     const encoder = startFrameEncoder({
       encoder: join(helper, "build/ace-screen-helper"),
@@ -95,6 +97,10 @@ it.runIf(process.platform === "darwin" && !!binary)(
         attach: (producer) =>
           runtime.sources.add({
             ...producer,
+            pathEnded: (path, interrupted) => {
+              ended.push({ at: performance.now(), interrupted });
+              producer.pathEnded?.(path, interrupted);
+            },
             consumers: {
               ...producer.consumers,
               deliver: (unit) => {
@@ -168,6 +174,9 @@ it.runIf(process.platform === "darwin" && !!binary)(
     const numbers = [...new Set(handed.slice(firstSwitch).map((entry) => entry.number))];
     const first = numbers[0] ?? 0;
     expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, index) => first + index));
+    // Each planned move off ace-media wrote its queue and an end frame: a clean end, no cut.
+    expect(ended.length).toBeGreaterThanOrEqual(2);
+    expect(ended.every((end) => !end.interrupted)).toBe(true);
 
     const pid = runtime.supervisor.snapshot().pid ?? 0;
     expect(pid).toBeGreaterThan(0);
@@ -179,5 +188,7 @@ it.runIf(process.platform === "darwin" && !!binary)(
     const before = egressed().length;
     await until(() => egressed().length > before + 10, 20_000);
     expect(runtime.supervisor.snapshot().pid).not.toBe(pid);
+    // The killed process's path ended in failure: interrupted.
+    expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
   },
 );
