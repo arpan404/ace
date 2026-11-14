@@ -32,7 +32,7 @@ function timers() {
       return () => pending.delete(callback);
     },
     expire(milliseconds: number) {
-      for (const [callback, delay] of [...pending])
+      for (const [callback, delay] of pending)
         if (delay === milliseconds) {
           pending.delete(callback);
           callback();

@@ -124,6 +124,6 @@ export function startupProbes(
 function key(command: string, args: readonly string[], options: ProbeOptions): string {
   const env = Object.entries(options.env ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
   return JSON.stringify([command, args, env, options.maxBytes ?? null]);
 }
