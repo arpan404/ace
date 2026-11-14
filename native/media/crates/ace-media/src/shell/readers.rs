@@ -81,6 +81,64 @@ impl Admission {
     }
 }
 
+/// Which subscription dropped records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Active,
+    Next,
+}
+
+/// What the coordinator does about a replacement subscription.
+#[derive(Debug, PartialEq, Eq)]
+enum Retry {
+    No,
+    /// Open a replacement, if none is open.
+    Open,
+    /// End the open replacement and open another.
+    Replace,
+}
+
+/// Getting back to a usable IDR after records were dropped. The active subscription asks once,
+/// then drops until a replacement takes over, so the request stays open until one does: a
+/// replacement that drops its own IDR, times out or ends is followed by another.
+#[derive(Default)]
+struct Recovery {
+    open: bool,
+}
+
+impl Recovery {
+    fn gap(&mut self, origin: Origin) -> Retry {
+        match (origin, self.open) {
+            (Origin::Next, _) => {
+                self.open = true;
+                Retry::Replace
+            }
+            (Origin::Active, true) => Retry::No,
+            (Origin::Active, false) => {
+                self.open = true;
+                Retry::Open
+            }
+        }
+    }
+
+    /// The open replacement timed out or ended before its IDR.
+    fn next_failed(&self) -> Retry {
+        if self.open { Retry::Open } else { Retry::No }
+    }
+
+    /// A replacement's IDR went out: the stream is whole again.
+    fn started(&mut self) {
+        self.open = false;
+    }
+
+    fn open(&self) -> bool {
+        self.open
+    }
+}
+
+/// Least time between attempts to open a replacement while recovering.
+const RETRY_EVERY: Duration = Duration::from_millis(250);
+
 /// The coordinator's two queues: control (keyframes, encodes, drain, close) is always taken
 /// before records, so a close never waits behind queued video.
 struct Mailbox {
@@ -223,6 +281,9 @@ struct Coordinator {
     streams: HashMap<u32, TcpStream>,
     /// Each subscription's decoder configuration: each opens with its own description.
     translators: HashMap<u32, Translator>,
+    recovery: Recovery,
+    /// When a replacement was last tried while recovering.
+    tried: Option<Instant>,
     #[cfg(target_os = "macos")]
     transcode: Option<super::sim_transcode::Transcode>,
     reported: Option<media_wire::capability::Acceleration>,
@@ -241,6 +302,8 @@ impl Coordinator {
             next: None,
             streams: HashMap::new(),
             translators: HashMap::new(),
+            recovery: Recovery::default(),
+            tried: None,
             #[cfg(target_os = "macos")]
             transcode: None,
             reported: None,
@@ -286,6 +349,7 @@ impl Coordinator {
                 self.end(previous);
             }
             self.next = None;
+            self.recovery.started();
         }
         let translator = self.translators.entry(id).or_default();
         if self.active != Some(id) {
@@ -388,6 +452,31 @@ impl Coordinator {
         }
     }
 
+    /// Acts on what recovery decided.
+    fn retry(&mut self, retry: Retry) {
+        match retry {
+            Retry::No => return,
+            Retry::Replace => {
+                if let Some((id, _)) = self.next.take() {
+                    self.end(id);
+                }
+            }
+            Retry::Open => {}
+        }
+        if self.next.is_none() {
+            self.tried = Some(Instant::now());
+            let _ = self.subscribe();
+        }
+    }
+
+    /// The subscription `id` gave up before its IDR (timed out or ended).
+    fn next_failed(&mut self, id: u32) {
+        self.next = None;
+        self.end(id);
+        let retry = self.recovery.next_failed();
+        self.retry(retry);
+    }
+
     fn end(&mut self, id: u32) {
         self.translators.remove(&id);
         if let Some(stream) = self.streams.remove(&id) {
@@ -419,12 +508,9 @@ fn run(
         return;
     }
     loop {
-        // The first subscription must start in time, or the daemon reads serve-sim again.
-        if coordinator.active.is_none()
-            && coordinator
-                .next
-                .is_some_and(|(_, opened)| opened.elapsed() >= FIRST_KEY_DEADLINE)
-        {
+        // The source must start in time, or the daemon reads serve-sim again; replacements
+        // opened before the first IDR don't move the deadline.
+        if coordinator.active.is_none() && coordinator.started.elapsed() >= FIRST_KEY_DEADLINE {
             let _ = send(Output::Failed(
                 "reader-stalled: serve-sim sent no keyframe in time".into(),
             ));
@@ -435,8 +521,16 @@ fn run(
             && opened.elapsed() >= KEY_DEADLINE
             && coordinator.active.is_some()
         {
-            coordinator.end(id);
-            coordinator.next = None;
+            coordinator.next_failed(id);
+        }
+        // Recovering with no replacement open (one couldn't connect): try again, not too often.
+        if coordinator.recovery.open()
+            && coordinator.next.is_none()
+            && coordinator
+                .tried
+                .is_none_or(|tried| tried.elapsed() >= RETRY_EVERY)
+        {
+            coordinator.retry(Retry::Open);
         }
         // While re-encoding, the encoder's own threads finish units between records.
         let wait = if coordinator.transcoding() {
@@ -454,8 +548,16 @@ fn run(
             }
             Ok(Message::Gap(id)) => {
                 // Records were dropped: start again from a fresh subscription's IDR.
-                if coordinator.active == Some(id) && coordinator.next.is_none() {
-                    let _ = coordinator.subscribe();
+                let origin = if coordinator.active == Some(id) {
+                    Some(Origin::Active)
+                } else if coordinator.next.is_some_and(|(next, _)| next == id) {
+                    Some(Origin::Next)
+                } else {
+                    None
+                };
+                if let Some(origin) = origin {
+                    let retry = coordinator.recovery.gap(origin);
+                    coordinator.retry(retry);
                 }
                 Ok(())
             }
@@ -471,9 +573,10 @@ fn run(
                     Err(format!("ended: {reason}"))
                 } else {
                     if coordinator.next.is_some_and(|(next, _)| next == id) {
-                        coordinator.next = None;
+                        coordinator.next_failed(id);
+                    } else {
+                        coordinator.end(id);
                     }
-                    coordinator.end(id);
                     Ok(())
                 }
             }

@@ -86,3 +86,23 @@ fn a_close_or_drain_is_taken_before_video_already_queued() {
         Ok(Message::Record(..))
     ));
 }
+
+#[test]
+fn recovery_from_dropped_records_stays_open_until_a_replacement_starts() {
+    let mut recovery = Recovery::default();
+    // Nothing dropped: a replacement that times out is simply given up.
+    assert_eq!(recovery.next_failed(), Retry::No);
+    // The active subscription dropped records: a replacement is opened.
+    assert_eq!(recovery.gap(Origin::Active), Retry::Open);
+    // Its first IDR didn't fit either: it is replaced in turn, not ignored.
+    assert_eq!(recovery.gap(Origin::Next), Retry::Replace);
+    // The replacement never sent an IDR in time, or ended: another one is opened.
+    assert_eq!(recovery.next_failed(), Retry::Open);
+    assert_eq!(recovery.next_failed(), Retry::Open);
+    // A further gap from the active one while a replacement is open changes nothing.
+    assert_eq!(recovery.gap(Origin::Active), Retry::No);
+    // A replacement started: recovery is over.
+    recovery.started();
+    assert_eq!(recovery.next_failed(), Retry::No);
+    assert_eq!(recovery.gap(Origin::Active), Retry::Open);
+}
