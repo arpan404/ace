@@ -89,4 +89,50 @@ private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.tex
         }
         #expect(reply == "\u{1b}[1;3R")
     }
+
+    @Test func theRawLogKeepsOutputWithItsEscapesOnceThroughAReplayAndEmptiesOnClear() throws {
+        let model = TerminalScreenModel(); model.start("raw")
+        let red = "\u{1b}[31mfail\u{1b}[0m\r\n"
+        model.receive(try frame("raw", 0, red))
+        // A reconnect replays from an earlier offset: only the bytes not yet kept are added.
+        model.receive(try frame("raw", 0, red + "$ "))
+        #expect(model.rawLog == red + "$ ")
+        model.clear()
+        #expect(model.rawLog.isEmpty)
+        model.receive(try frame("raw", red.utf8.count + 2, "next"))
+        #expect(model.rawLog == "next")
+        model.start("other")
+        #expect(model.rawLog.isEmpty)
+    }
+
+    @Test func theRawLogSaysWhereOutputWasLost() throws {
+        let model = TerminalScreenModel(); model.start("lost")
+        model.receive(try frame("lost", 0, "first"))
+        model.receive(try frame("lost", 40, "later", truncatedBefore: true))
+        let log = model.rawLog
+        #expect(log.hasPrefix("first") && log.hasSuffix("later"))
+        #expect(log.contains("[Earlier output unavailable]"))
+    }
+}
+
+/// A terminal's raw output as kept for exporting: bounded, the oldest whole chunks going first,
+/// and saved as a `.log` file to share.
+@Suite struct TerminalRawLogTests {
+    @Test func theOldestWholeChunksGoOncePastTheLimitButOneLongChunkStays() {
+        var log = TerminalRawLog(limit: 10)
+        log.append("aaaa"); log.append("bbbb"); log.append("cccc")
+        #expect(log.text == "bbbbcccc")
+        log.append(String(repeating: "z", count: 25))
+        #expect(log.text == String(repeating: "z", count: 25))
+    }
+
+    @Test func exportingWritesTheRawBytesToALogFileNamedForTheTerminal() throws {
+        var log = TerminalRawLog()
+        log.append("\u{1b}[1mbuild\u{1b}[0m ok\r\n")
+        let url = try log.export(named: "dev server: web/2")
+        #expect(url.pathExtension == "log")
+        // Characters a file name can't hold become dashes.
+        #expect(url.lastPathComponent == "dev server- web-2.log")
+        #expect(try String(contentsOf: url, encoding: .utf8) == "\u{1b}[1mbuild\u{1b}[0m ok\r\n")
+    }
 }

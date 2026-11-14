@@ -15,7 +15,7 @@ private struct TerminalReply: Decodable {
 
 /// A thread's terminals on the phone: the full emulator surface (colours, cursor addressing,
 /// full-screen programs, scrollback), the sessions menu in the title, Find, and a ⋯ menu with
-/// Rename, Clear, Copy, Select text, text size, New terminal and End session.
+/// Rename, Clear, Copy, Select text, Share raw log, text size, New terminal and End session.
 struct TerminalView: View {
     let model: ClientModel
     let threadId: String
@@ -41,6 +41,8 @@ struct TerminalView: View {
     @State private var newName = ""
     @State private var ending = false
     @State private var selecting = false
+    /// The raw log written out for the share sheet.
+    @State private var sharedLog: SharedFile?
     @State private var namesVersion = 0
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
     private var output: TerminalScreenModel { model.terminal }
@@ -103,6 +105,9 @@ struct TerminalView: View {
             Button("Cancel", role: .cancel) {}
         } message: { Text("The shell and anything running in it stop.") }
         .sheet(isPresented: $selecting) { TerminalTextSheet(text: output.text) }
+        .sheet(item: $sharedLog) { file in
+            ShareSheet(url: file.url) { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        }
     }
 
     private var surface: some View {
@@ -178,6 +183,8 @@ struct TerminalView: View {
                 Button("Clear terminal", systemImage: "eraser") { output.clear(); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
                 Button("Copy all output", systemImage: "doc.on.doc") { UIPasteboard.general.string = output.text }
                 Button("Select text", systemImage: "text.cursor") { selecting = true }
+                Button("Share raw log", systemImage: "square.and.arrow.up") { shareRawLog() }
+                    .accessibilityIdentifier("terminal.shareLog")
                 Divider()
                 Button("Larger text", systemImage: "textformat.size.larger") { fontSize = min(20, fontSize + 1) }.disabled(fontSize >= 20)
                 Button("Smaller text", systemImage: "textformat.size.smaller") { fontSize = max(9, fontSize - 1) }.disabled(fontSize <= 9)
@@ -188,6 +195,15 @@ struct TerminalView: View {
                 .accessibilityLabel("Terminal actions").accessibilityIdentifier("terminal.more")
                 .disabled(selected == nil)
         }
+    }
+
+    // MARK: Raw log
+
+    /// The output as it arrived, escapes and all, as `<name>.log` for the share sheet.
+    private func shareRawLog() {
+        guard !output.raw.isEmpty else { problem = "Nothing to share yet: this terminal hasn't printed anything."; return }
+        do { sharedLog = SharedFile(url: try output.raw.export(named: currentName)) }
+        catch { problem = "Couldn't save the log to share. \(error.localizedDescription)" }
     }
 
     // MARK: Names

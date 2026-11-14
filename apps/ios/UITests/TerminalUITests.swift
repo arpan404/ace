@@ -1,8 +1,8 @@
 import XCTest
 
 /// The thread's terminal against the fixture shell (`packages/fake-daemon` terminal programs):
-/// a colour chart, a full-screen program driven by keys, a fast flood of output with Find, and
-/// ending the session. `ACE_IOS_SHOTS` (a folder) keeps each screen as a PNG.
+/// a colour chart, a full-screen program driven by keys, a fast flood of output with Find,
+/// sharing the raw log, and ending the session. `ACE_IOS_SHOTS` (a folder) keeps each screen as a PNG.
 @MainActor final class TerminalUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
@@ -43,6 +43,18 @@ import XCTest
         wait(for: [expectation(for: NSPredicate(format: "label == '1 of 1'"), evaluatedWith: count)], timeout: 10)
         capture("find")
         app.buttons["terminal.find.done"].tap()
+
+        // The raw log, escapes and all, goes to the share sheet as a .log file.
+        app.buttons["terminal.more"].tap()
+        let shareLog = app.buttons["terminal.shareLog"]
+        XCTAssertTrue(shareLog.waitForExistence(timeout: 5))
+        shareLog.tap()
+        let sheet = app.otherElements["ActivityListView"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the share sheet opens with the log")
+        capture("share-log")
+        let close = app.buttons.matching(NSPredicate(format: "label == 'Close'")).firstMatch
+        if close.waitForExistence(timeout: 3) { close.tap() } else { sheet.swipeDown(velocity: .fast) }
+        XCTAssertTrue(app.buttons["terminal.more"].waitForExistence(timeout: 10))
 
         app.buttons["terminal.more"].tap()
         XCTAssertTrue(app.buttons["End session"].waitForExistence(timeout: 5))
