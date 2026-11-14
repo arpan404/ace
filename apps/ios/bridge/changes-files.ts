@@ -28,14 +28,18 @@ export interface OpenFilesLimits extends PageLimits {
   open: number;
   /** Code units of a whole line asked for on its own. */
   wholeLine: number;
-  /** Code units of one file's patch held from the daemon's pages. */
+  /**
+   * Code units of one file's patch held from the daemon's pages, per part. Rows cost the
+   * bridge about 3 bytes of heap per code unit (4 Mi ≈ 12 MB, measured in Bun on a JSONL
+   * patch), and the phone holds about as much again once a whole part is shown.
+   */
   heldText: number;
 }
 export const openFilesLimits: OpenFilesLimits = {
   ...mobilePageLimits,
   open: 30,
   wholeLine: 100_000,
-  heldText: 16 * 1024 * 1024,
+  heldText: 4 * 1024 * 1024,
 };
 
 /** One page of one file's patch from the daemon (`git.diff` with `path`). */
