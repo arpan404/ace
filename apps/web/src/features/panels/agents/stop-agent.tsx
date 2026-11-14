@@ -48,7 +48,7 @@ export function StopAgent(props: {
 }) {
   const stop = useStopIntent();
   const toast = useToast();
-  const { fresh } = useThreadFreshness(props.threadId);
+  const { fresh, isFresh } = useThreadFreshness(props.threadId);
   const store = useThreadStore(props.threadId);
   // Read when the Stop is first pressed: the run the person chose to stop, even if they confirm later.
   const [fence, setFence] = useState<StopFence>();
@@ -73,6 +73,7 @@ export function StopAgent(props: {
   const pressed = () => (store ? agentStopFence(store, props.agent.id) : undefined);
   const send = (named = fence) => {
     setAsking(false);
+    if (!isFresh()) return;
     void stop.send({
       type: "thread.interrupt",
       threadId: ThreadId.parse(props.threadId),

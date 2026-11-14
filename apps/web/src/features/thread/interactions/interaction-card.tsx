@@ -84,6 +84,8 @@ export function InteractionCard(props: {
   });
   const { failed } = sender;
   const answer: Answer = (resolution) => {
+    // Disabled while not fresh; an answer given just as the copy went stale doesn't go either.
+    if (!live.isFresh()) return;
     props.onControlsChange?.();
     setReopened(false);
     sender.answer(resolution);

@@ -26,7 +26,7 @@ const plainWords = (draft: Draft) =>
  */
 export function useQuestionReply(threadId: string) {
   const client = useClient();
-  const { fresh } = useThreadLiveState(threadId);
+  const { isFresh } = useThreadLiveState(threadId);
   const asking = useInteraction(threadId, useInteractions(threadId, pendingQuestion)?.[0] ?? "");
   // The request on the strip by default: the oldest one still open.
   const first = useInteraction(threadId, useInteractions(threadId)?.[0] ?? "");
@@ -35,7 +35,7 @@ export function useQuestionReply(threadId: string) {
     if (first?.request.kind !== "question" || !plainWords(draft)) return undefined;
     const resolution = composerReply(first, questionDrafts.get(first.id), draft.text);
     if (!resolution) return undefined;
-    if (!fresh) return "held";
+    if (!isFresh()) return "held";
     const { sendAnswer } = await import("../interactions/answer-sender.ts");
     const sent = sendAnswer(
       client,

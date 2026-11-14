@@ -155,7 +155,7 @@ export function useQueue(threadId: string): QueueControls {
   const client = useClient();
   const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
-  const { fresh } = useThreadFreshness(threadId);
+  const { isFresh } = useThreadFreshness(threadId);
   const { storage } = useLayout();
   const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
@@ -183,7 +183,7 @@ export function useQueue(threadId: string): QueueControls {
     quiet: (error: unknown) => boolean = () => false,
   ) => {
     if (!payload || inFlight.current.has(id)) return false;
-    if (!fresh) {
+    if (!isFresh()) {
       toast.add({
         title: `Couldn't ${failure}`,
         description: "The queue may have changed. Try again once it's confirmed.",
