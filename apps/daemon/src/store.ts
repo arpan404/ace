@@ -152,6 +152,8 @@ export class Store {
   private attributedChanges = 0;
   /** Threads the open transaction's events wrote: their cached reads end when it commits. */
   private writtenThreads = new Set<ThreadId>();
+  /** A savepoint in the open transaction could not be undone: it must roll back whole. */
+  private doomed: unknown;
   private readonly wal: WalMaintenance;
   private transactions = 0;
   private eventRows = 0;
@@ -570,8 +572,9 @@ export class Store {
         return result;
       } catch (error) {
         // SQLite may already have rolled the whole transaction back itself (SQLITE_FULL, an
-        // I/O error): then no savepoint is left, and the outermost catch settles the rest.
-        if (this.db.isTransaction) this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // I/O error), or the recovery itself may fail. Either way the savepoint's rows may
+        // remain or be gone with the rest: the outer transaction must not commit.
+        if (!this.recoverSavepoint(savepoint)) this.doomed ??= error;
         this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
@@ -591,6 +594,10 @@ export class Store {
     try {
       result = run();
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
+      if (this.doomed !== undefined)
+        throw new Error("A failed step could not be undone, so the transaction rolled back", {
+          cause: this.doomed,
+        });
       events = this.transactionEvents;
       this.db.exec("COMMIT");
       this.threads.commit();
@@ -610,6 +617,7 @@ export class Store {
     } finally {
       this.threads.end();
       this.transactionEvents = undefined;
+      this.doomed = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
     // subscribers have already received.
@@ -639,16 +647,30 @@ export class Store {
    * Roll back the open transaction, if SQLite has not already done so itself (SQLITE_FULL, an
    * I/O error). A failure to roll back is reported; the caller's own error is the one thrown.
    */
+  /** Undo a savepoint; false when it could not be (the failure is reported, not thrown). */
+  private recoverSavepoint(savepoint: string): boolean {
+    if (!this.db.isTransaction) return false;
+    try {
+      this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+      return true;
+    } catch (error) {
+      this.reportQuietly(error);
+      return false;
+    }
+  }
+  private reportQuietly(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch {
+      /* The caller rethrows its own error. */
+    }
+  }
   private rollBack(): void {
     if (!this.db.isTransaction) return;
     try {
       this.db.exec("ROLLBACK");
     } catch (error) {
-      try {
-        this.onError(error);
-      } catch {
-        /* The caller rethrows its own error. */
-      }
+      this.reportQuietly(error);
     }
   }
   private settle(
@@ -1111,11 +1133,19 @@ export class Store {
     try {
       return read();
     } catch (error) {
-      this.db.exec(`ROLLBACK TO ${name}`);
+      // A read-only savepoint: a failure to undo it is reported, never thrown over `error`.
+      try {
+        if (this.db.isTransaction) this.db.exec(`ROLLBACK TO ${name}`);
+      } catch (rollbackError) {
+        this.reportQuietly(rollbackError);
+      }
       throw error;
     } finally {
-      this.db.exec(`RELEASE ${name}`);
-      this.committedSnapshot = outer;
+      try {
+        if (this.db.isTransaction) this.db.exec(`RELEASE ${name}`);
+      } finally {
+        this.committedSnapshot = outer;
+      }
     }
   }
   listThreads(): Thread[] {

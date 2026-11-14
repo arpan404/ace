@@ -57,3 +57,43 @@ it("the store's own error surfaces after SQLite rolled back by itself, and write
   store.appendEvents(a.id, [{ type: "thread.updated", title: "after" }]);
   expect(store.getThread(a.id)?.title).toBe("after");
 });
+
+it("a savepoint that cannot be recovered rolls the whole transaction back", () => {
+  const { store, a, b } = setup();
+  const published: string[] = [];
+  const stop = store.subscribe((events) => {
+    for (const event of events)
+      if (event.payload.type === "thread.updated") published.push(event.payload.title ?? "");
+  });
+  cleanup.push(stop);
+  const committed: string[] = [];
+  let caught: unknown;
+  expect(() =>
+    store.atomic(() => {
+      try {
+        store.atomic((db) => {
+          store.prepareLiveWrite(100);
+          store.bufferLiveWrite(a.id, [{ type: "thread.updated", title: "live" }], 1000, {
+            persist() {},
+            committed: () => committed.push(store.getThread(a.id)?.title ?? "missing"),
+          });
+          store.appendEvents(b.id, [{ type: "thread.updated", title: "rejected" }]);
+          // Releasing its own savepoint makes the store's recovery (ROLLBACK TO) fail.
+          db.exec("RELEASE nested_1");
+          throw new Error("original");
+        });
+      } catch (error) {
+        // The caller carries on, as code that tolerates a failed step does.
+        caught = error;
+      }
+    }),
+  ).toThrow();
+  expect(caught).toMatchObject({ message: "original" });
+  expect(store.getThread(b.id)?.title).not.toBe("rejected");
+  expect(published).not.toContain("rejected");
+  for (const title of committed) expect(title).toBe("live");
+  // The live batch was not lost: the next flush writes it and only then reports it.
+  store.flushLiveWrites();
+  expect(store.getThread(a.id)?.title).toBe("live");
+  expect(committed).toEqual(["live"]);
+});
