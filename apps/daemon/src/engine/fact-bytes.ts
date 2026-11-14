@@ -30,13 +30,10 @@ export function streamedFactsBytes(facts: readonly object[]): number {
     let fields = 0;
     bytes += 2;
     for (const [key, value] of Object.entries(fact)) {
-      const size =
-        typeof value === "string"
-          ? jsonStringBytes(value)
-          : value === undefined || typeof value === "function" || typeof value === "symbol"
-            ? 0
-            : Buffer.byteLength(JSON.stringify(value));
-      if (!size) continue;
+      // `JSON.stringify` gives undefined for exactly the values it leaves out of an object.
+      const json = typeof value === "string" ? undefined : JSON.stringify(value);
+      if (typeof value !== "string" && json === undefined) continue;
+      const size = json === undefined ? jsonStringBytes(String(value)) : Buffer.byteLength(json);
       bytes += (fields++ ? 1 : 0) + jsonStringBytes(key) + 1 + size;
     }
   }
