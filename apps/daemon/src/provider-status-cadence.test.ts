@@ -187,14 +187,3 @@ test("a status check that sees an updated CLI lifts the model catalog's too-old 
     .toEqual(["chosen-model"]);
   expect(catalog.list().instances[0]?.errorDetail).toBeUndefined();
 });
-
-test("admission's freshness check runs a CLI check only when the facts are five minutes old", async () => {
-  const status = await statuses();
-  status.clock.now += 299_000;
-  await status.subject.fresh();
-  expect(status.checks()).toBe(1);
-  status.clock.now += 1_000;
-  await Promise.all([status.subject.fresh(), status.subject.fresh()]);
-  // Two delegations at once share one check.
-  expect(status.checks()).toBe(2);
-});

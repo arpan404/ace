@@ -83,7 +83,7 @@ export interface DelegationDependencies {
    * Brings the provider's installation and login facts up to date before admission reads
    * them (`provider-facts.ts`): no client may be watching to have refreshed them.
    */
-  refreshProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
+  refreshProvider?(provider: import("@ace/protocol").ProviderKind, account?: string): Promise<void>;
 }
 /** Durable execution owner shared by agent tools and host callers, independent of MCP transport. */
 export class DelegationService {
@@ -482,7 +482,7 @@ export class DelegationService {
     budget: ModelLoadBudget,
   ) {
     const request = delegationRequest(value);
-    await this.deps.refreshProvider?.(request.provider);
+    await this.deps.refreshProvider?.(request.provider, request.accountId ?? request.instanceId);
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
     const accountId = namedAccountId(this.deps, request);

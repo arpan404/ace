@@ -19,7 +19,6 @@ import { setup } from "./test-support.ts";
 import { AgentControlOperation, type ThreadId } from "@ace/protocol";
 import { createAgentControlPort } from "./tools.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
-import { ProviderStatuses } from "../provider-status.ts";
 import { refreshAcpAgentAuth } from "../acp-agent-status.ts";
 import { providerFacts } from "./provider-facts.ts";
 
@@ -476,7 +475,12 @@ test("a delegation to a CLI installed after startup is admitted with no client a
         });
         h.registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
       },
-      refreshProvider: (engine) => providerFacts(undefined, engine),
+      refreshProvider: (engine) =>
+        providerFacts({
+          ensureProvider: (provider) => engine.ensureProvider(provider),
+          now: () => h.clock.now(),
+          schedule: (run, milliseconds) => h.clock.setTimer(run, milliseconds),
+        }),
     },
   );
   h.catalog.registerInstance(scriptedModelInstance("opencode", h.home));
@@ -500,39 +504,24 @@ test("a delegation to a CLI installed after startup is admitted with no client a
   expect(h.store.getThread(child.childId)).toMatchObject({ provider: "opencode" });
 });
 
-test("a delegation to an ACP agent signed in again outside ace is admitted with no client attached", async () => {
+const cursorAgent = {
+  acpAgentId: "official:cursor",
+  installationId: "cursor-install",
+  instanceId: "cursor-install:default",
+};
+
+/**
+ * An ACP account on Cursor's `cursor-agent`, whose own status command reports its login, and the
+ * daemon's admission refresh over it. `status` answers each login read; the CLI never runs.
+ */
+async function cursorAgentDelegations(
+  status: (signal: AbortSignal) => Promise<{ isAuthenticated: boolean }>,
+) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "ace-acp-login-")));
   const db = new DatabaseSync(":memory:");
   const accounts = new AccountRegistry(db, home);
-  const identity = {
-    acpAgentId: "official:cursor",
-    installationId: "cursor-install",
-    instanceId: "cursor-install:default",
-  };
-  await accounts.register(createAcpInstance({ identity, label: "Cursor agent", userHome: home }));
-  // What `cursor-agent status --format json` reports; the CLI itself never runs.
-  let signedIn = false;
-  let now = 1000;
-  const statuses = new ProviderStatuses(
-    {
-      env: { HOME: home, PATH: "" },
-      cursorSdk: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
-      antigravity: async () => ({ installed: false, auth: "unknown", loginHint: "unused" }),
-      // As the daemon wires it: each check also reads ACP agents' own login.
-      checked: () =>
-        refreshAcpAgentAuth({
-          registry: accounts,
-          installed: [{ metadata: identity, command: join(home, "cursor-agent") }],
-          env: { HOME: home, PATH: "" },
-          now: () => now,
-          probe: async () => ({
-            code: 0,
-            stderr: "",
-            stdout: JSON.stringify({ isAuthenticated: signedIn }),
-          }),
-        }),
-    },
-    { now: () => now, schedule: () => () => {} },
+  await accounts.register(
+    createAcpInstance({ identity: cursorAgent, label: "Cursor agent", userHome: home }),
   );
   const h = setup(
     {},
@@ -548,47 +537,121 @@ test("a delegation to an ACP agent signed in again outside ace is admitted with 
     false,
     undefined,
     undefined,
-    { refreshProvider: (engine) => providerFacts(statuses, engine) },
+    {
+      refreshProvider: (engine) =>
+        providerFacts({
+          ensureProvider: (provider) => engine.ensureProvider(provider),
+          // As the daemon wires it: this account's own login, read with the admission's signal.
+          acpLogin: (instanceId, signal) =>
+            refreshAcpAgentAuth({
+              registry: accounts,
+              installed: [{ metadata: cursorAgent, command: join(home, "cursor-agent") }],
+              env: { HOME: home, PATH: "" },
+              now: () => h.clock.now(),
+              signal,
+              only: instanceId,
+              probe: async (_command, _args, options) => ({
+                code: 0,
+                stderr: "",
+                stdout: JSON.stringify(await status(options?.signal ?? signal)),
+              }),
+            }),
+          now: () => h.clock.now(),
+          schedule: (run, milliseconds) => h.clock.setTimer(run, milliseconds),
+        }),
+    },
+  );
+  const adapter = createScriptedAdapter({
+    provider: "acp",
+    capabilities: h.registry.get("claude").capabilities,
+    createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+    steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+  });
+  h.registry.register(
+    { ...adapter, acceptsIdentity: (selected) => selected.installationId === "cursor-install" },
+    { installed: true, auth: "unknown", loginHint: "unused" },
+  );
+  await seedScriptedModels(h.catalog, {
+    ...scriptedModelInstance("acp", h.home, "acp-cursor-catalog"),
+    ...cursorAgent,
+  });
+  const request = {
+    requestId: "acp-login",
+    provider: "acp" as const,
+    ...cursorAgent,
+    accountId: cursorAgent.instanceId,
+    task: "work",
+    role: "acp-login-check",
+    wait: false,
+    estimatedLoad: 0,
+  };
+  return {
+    h,
+    accounts,
+    request,
+    async close() {
+      await h.close();
+      db.close();
+      rmSync(home, { recursive: true, force: true });
+    },
+  };
+}
+
+test("a delegation to an ACP agent signed in again outside ace is admitted with no client attached", async () => {
+  let signedIn = false;
+  const f = await cursorAgentDelegations(async () => ({ isAuthenticated: signedIn }));
+  try {
+    f.accounts.recordAcpAuth(cursorAgent.instanceId, "logged_out", f.h.clock.now());
+    const parent = await f.h.parent();
+    // The person signs the agent in in a terminal, and later an automation delegates to it.
+    signedIn = true;
+    await f.h.service.prepareModels(parent, f.request);
+    const child = f.h.service.delegate(parent, f.request);
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(child.childId)).toMatchObject({ provider: "acp", ...cursorAgent });
+  } finally {
+    await f.close();
+  }
+});
+
+test("a slow login read never holds up another provider's delegation, and stops at its deadline", async () => {
+  const reads: AbortSignal[] = [];
+  // The agent's status command hangs until it is stopped.
+  const f = await cursorAgentDelegations(
+    (signal) =>
+      new Promise((_resolve, reject) => {
+        reads.push(signal);
+        signal.addEventListener("abort", () => reject(new Error("stopped")), { once: true });
+      }),
   );
   try {
-    await statuses.fresh();
-    expect(accounts.get(identity.instanceId)?.quota.auth).toBe("logged_out");
-    const adapter = createScriptedAdapter({
-      provider: "acp",
-      capabilities: h.registry.get("claude").capabilities,
-      createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
-      steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+    f.accounts.recordAcpAuth(cursorAgent.instanceId, "logged_in", f.h.clock.now());
+    const parent = await f.h.parent();
+    let acpAdmitted = false;
+    const acp = f.h.service.prepareModels(parent, f.request).then(() => {
+      acpAdmitted = true;
     });
-    h.registry.register(
-      { ...adapter, acceptsIdentity: (selected) => selected.installationId === "cursor-install" },
-      { installed: true, auth: "unknown", loginHint: "unused" },
-    );
-    await seedScriptedModels(h.catalog, {
-      ...scriptedModelInstance("acp", h.home, "acp-cursor-catalog"),
-      ...identity,
-    });
-    const parent = await h.parent();
-    const request = {
-      requestId: "acp-login",
-      provider: "acp" as const,
-      ...identity,
-      accountId: identity.instanceId,
+    await expect.poll(() => reads.length).toBe(1);
+    // A Claude delegation meanwhile reads nothing of Cursor's and is admitted at once.
+    const claude = {
+      requestId: "claude-meanwhile",
+      provider: "claude" as const,
       task: "work",
-      role: "acp-login-check",
+      role: "claude-meanwhile-check",
       wait: false,
       estimatedLoad: 0,
     };
-    // The person signs the agent in in a terminal, and later an automation delegates to it.
-    signedIn = true;
-    now += 300_000;
-    await h.service.prepareModels(parent, request);
-    const child = h.service.delegate(parent, request);
-    await h.engine.flush();
-    expect(h.store.getThread(child.childId)).toMatchObject({ provider: "acp", ...identity });
+    await f.h.service.prepareModels(parent, claude);
+    f.h.service.delegate(parent, claude);
+    expect(acpAdmitted).toBe(false);
+    // At the deadline the read stops, and admission goes ahead on the login it already had.
+    f.h.clock.advance(f.h.clock.now() + 3_000);
+    await acp;
+    expect(reads[0]?.aborted).toBe(true);
+    const child = f.h.service.delegate(parent, f.request);
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(child.childId)).toMatchObject({ provider: "acp" });
   } finally {
-    await h.close();
-    await statuses.close();
-    db.close();
-    rmSync(home, { recursive: true, force: true });
+    await f.close();
   }
 });
