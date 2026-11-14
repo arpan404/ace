@@ -117,6 +117,25 @@ import XCTest
         screenshot("machine-software-updated")
     }
 
+    func testBrowserSettingsReadInTheWebsWordsAndSaveOnTheMachine() throws {
+        let app = launchIntoMachine()
+        open(app, "machine.settings.Browser")
+        let profile = element(app, "setting.browser.profile")
+        XCTAssertTrue(profile.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["When the desktop app goes away"].exists)
+        XCTAssertTrue(element(app, "setting.browser.downloadDir.note").exists, "the downloads folder says where empty saves")
+        screenshot("browser-settings")
+        let fresh = app.buttons["Private"]
+        XCTAssertTrue(fresh.waitForExistence(timeout: 10))
+        fresh.tap()
+        XCTAssertTrue(fresh.wait(for: \.isSelected, toEqual: true, timeout: 10))
+        // Read again from the machine: the choice was saved there.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        open(app, "machine.settings.Browser")
+        XCTAssertTrue(app.buttons["Private"].wait(for: \.isSelected, toEqual: true, timeout: 15))
+        app.buttons["Keep sign-ins"].tap()
+    }
+
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
