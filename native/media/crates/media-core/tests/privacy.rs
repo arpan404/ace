@@ -106,13 +106,13 @@ fn every_barrier_scenario_produces_its_events_and_never_writes_a_private_frame()
                     clear: ranges(&d["clear"])?,
                     discard: ranges(&d["discard"])?,
                 };
-                barrier.decide(decision, &mut out);
+                barrier.decide(decision, uint(step, "at")?, &mut out);
             } else if let Some(at) = step.get("tick") {
                 barrier.tick(at.as_u64().ok_or("tick")?, &mut out);
             } else if let Some(e) = step.get("issued") {
                 barrier.issued(Epoch::try_from(e.as_u64().ok_or("issued")?)?);
             } else if step.get("interrupt").is_some() {
-                barrier.interrupt(&mut out);
+                barrier.interrupt(uint(step, "at")?, &mut out);
             } else if let Some(r) = step.get("restart") {
                 barrier = Barrier::new(epoch(r, "start")?, limits);
             } else {
@@ -177,7 +177,7 @@ fn a_single_frame_is_written_only_when_its_epoch_is_clear_and_its_fragment_can_h
                         let mut out = Vec::new();
                         let mut seq = 0;
                         if running {
-                            b.decide(clear(1), &mut out);
+                            b.decide(clear(1), 0, &mut out);
                             seq = 1;
                             let k = Frame {
                                 track: Track::Video,
@@ -203,12 +203,12 @@ fn a_single_frame_is_written_only_when_its_epoch_is_clear_and_its_fragment_can_h
                         };
                         out.clear();
                         if decided_first {
-                            b.decide(decision, &mut out);
+                            b.decide(decision, 0, &mut out);
                             b.frame(frame, 0, &mut out);
                         } else {
                             b.frame(frame, 0, &mut out);
                             assert!(!out.iter().any(|e| matches!(e, Event::Write(_))), "held");
-                            b.decide(decision, &mut out);
+                            b.decide(decision, 0, &mut out);
                         }
                         let written = out
                             .iter()
@@ -275,11 +275,110 @@ struct Captured {
 enum Arrival {
     Frame(usize),
     Decision(Decision),
+    Interrupt,
 }
 
-/// A daemon, a producer that stamps by capture time and two lanes with random delays: the
-/// daemon decides epoch k clear only if the source was public from sending k to receiving the
-/// acknowledgement of k+1, and everything reaches the barrier in a shuffled order.
+/// The epoch a read-time producer must give a frame read at `read`, straight from the plan's
+/// rule over the apply history: the latest applied epoch, unless an epoch that followed a
+/// private one was applied less than 100 ms earlier, in which case the newest such private one.
+fn expected_read_stamp(read: u64, applied: &[u64], private_before: &[bool]) -> Option<Epoch> {
+    let latest = applied.iter().rposition(|&a| a <= read)?;
+    let held = (1..=latest)
+        .filter(|&j| private_before[j] && applied[j] <= read && read < applied[j] + 100)
+        .max();
+    // Epoch numbers start at 1, so applies[j] is epoch j + 1 and its predecessor is epoch j.
+    Some(match held {
+        Some(j) => j as Epoch,
+        None => latest as Epoch + 1,
+    })
+}
+
+/// What the plan allows to be written, kept apart from the barrier: a fragment starts at a
+/// video keyframe that arrived after the last break, and a frame of either track belongs to
+/// it while no discarded epoch and no break lie between them.
+struct Oracle<'a> {
+    seed: u64,
+    frames: &'a [Captured],
+    discarded: &'a [bool],
+    fragment: Option<(Epoch, u64)>,
+    breaks: Vec<u64>,
+    restart: u64,
+    last_written: [Epoch; 2],
+    next_applied: u64,
+    /// When each delivered frame arrived, by ordinal.
+    arrived: Vec<u64>,
+}
+
+impl Oracle<'_> {
+    fn belongs(&self, epoch: Epoch, ordinal: u64) -> bool {
+        self.fragment.is_some_and(|(fe, fo)| {
+            let (lo, hi) = (ordinal.min(fo), ordinal.max(fo));
+            epoch >= fe
+                && !(fe..=epoch).any(|k| self.discarded[k as usize - 1])
+                && !self.breaks.iter().any(|&m| lo < m && m <= hi)
+        })
+    }
+
+    fn add_break(&mut self, at: u64) {
+        self.breaks.push(at);
+        self.restart = self.restart.max(at);
+    }
+
+    fn observe(&mut self, events: &[Event<(usize, u64)>], now: u64) {
+        let seed = self.seed;
+        for e in events {
+            match e {
+                Event::Write(f) => {
+                    let (idx, ordinal) = f.payload;
+                    let c = &self.frames[idx];
+                    let held = now - self.arrived[ordinal as usize];
+                    assert!(held <= 2_000, "seed {seed}: wrote a frame held {held} ms");
+                    assert!(
+                        !c.private,
+                        "seed {seed}: wrote a frame captured while private"
+                    );
+                    assert!(
+                        !self.discarded[c.epoch as usize - 1],
+                        "seed {seed}: wrote a discarded epoch"
+                    );
+                    let l = usize::from(c.track == Track::Audio);
+                    assert!(
+                        c.epoch >= self.last_written[l],
+                        "seed {seed}: written out of epoch order"
+                    );
+                    self.last_written[l] = c.epoch;
+                    if self.belongs(c.epoch, ordinal) {
+                        continue;
+                    }
+                    assert_eq!(
+                        c.track,
+                        Track::Video,
+                        "seed {seed}: audio written outside a fragment"
+                    );
+                    assert!(c.keyframe, "seed {seed}: a fragment started on a delta");
+                    assert!(
+                        ordinal >= self.restart,
+                        "seed {seed}: a fragment started on a keyframe from before a break"
+                    );
+                    self.fragment = Some((c.epoch, ordinal));
+                }
+                Event::Drop(f, DropReason::Overflow) => self.add_break(f.payload.1 + 1),
+                Event::Applied { seq, .. } => {
+                    assert_eq!(
+                        *seq, self.next_applied,
+                        "seed {seed}: decisions applied in seq order"
+                    );
+                    self.next_applied += 1;
+                }
+                Event::Drop(..) | Event::Gap | Event::Keyframe => {}
+            }
+        }
+    }
+}
+
+/// A daemon, a producer and two lanes with random delays: the daemon decides epoch k clear
+/// only if the source was public from sending k to receiving the acknowledgement of k+1, and
+/// everything reaches the barrier in a shuffled order, with interruptions.
 fn simulate(seed: u64) {
     let mut rng = Rng(seed | 1);
     let end = 4_000u64;
@@ -303,6 +402,9 @@ fn simulate(seed: u64) {
             sent.push(ms);
         }
     }
+    let private_before: Vec<bool> = (0..sent.len())
+        .map(|j| j > 0 && private_at[sent[j - 1] as usize])
+        .collect();
     let slow_acks = rng.below(3) == 0;
     let mut applied = Vec::new();
     let mut acked = Vec::new();
@@ -317,10 +419,9 @@ fn simulate(seed: u64) {
         applied.push(a);
         acked.push(k);
     }
-    let epoch_at = |ms: u64| applied.iter().rposition(|&a| a <= ms);
-    // Captured frames, epochs numbered from 1. Half the runs stamp by capture time against
-    // the moment each epoch was applied; the rest stamp at read time, after a capture queue of
-    // up to three frames, through the read-time rule.
+    // Captured frames, epochs numbered from 1. Half the runs stamp by capture time against the
+    // moment each epoch was applied; the rest stamp at read time through `ReadStamper`, after a
+    // capture queue of up to three frames, checked against the rule computed from the history.
     let read_time = rng.below(2) == 0;
     let mut frames = Vec::new();
     let mut captured_at = Vec::new();
@@ -334,17 +435,22 @@ fn simulate(seed: u64) {
             let stamped = if read_time {
                 read = (ms + rng.below(3 * period + 1)).max(read);
                 while next_apply < applied.len() && applied[next_apply] <= read {
-                    let follows_private = private_at[sent[next_apply - 1] as usize];
                     stamper.apply(
                         next_apply as Epoch + 1,
-                        follows_private,
+                        private_before[next_apply],
                         applied[next_apply],
                     );
                     next_apply += 1;
                 }
-                (applied[0] <= read).then(|| stamper.stamp(read))
+                let expected = expected_read_stamp(read, &applied, &private_before);
+                let stamped = (applied[0] <= read).then(|| stamper.stamp(read));
+                assert_eq!(stamped, expected, "seed {seed}: read-time stamp at {read}");
+                stamped
             } else {
-                epoch_at(ms).map(|k| k as Epoch + 1)
+                applied
+                    .iter()
+                    .rposition(|&a| a <= ms)
+                    .map(|k| k as Epoch + 1)
             };
             if let Some(epoch) = stamped {
                 frames.push(Captured {
@@ -395,7 +501,8 @@ fn simulate(seed: u64) {
         i = j + 1;
     }
     // Shuffle arrivals: each frame lane keeps its order, the priority lane may be late by
-    // seconds and reorder; some old keyframes arrive again much later.
+    // seconds and reorder; some old keyframes arrive again much later; the stream is
+    // sometimes interrupted.
     let lane_delay = if rng.below(4) == 0 { 2_500 } else { 300 };
     let mut arrivals: Vec<(u64, u64, Arrival)> = Vec::new();
     let mut last = [0u64; 2];
@@ -411,12 +518,27 @@ fn simulate(seed: u64) {
     for (at, d) in decisions {
         arrivals.push((at + rng.below(lane_delay), rng.next(), Arrival::Decision(d)));
     }
+    for _ in 0..rng.below(4) {
+        arrivals.push((rng.below(end), rng.next(), Arrival::Interrupt));
+    }
     arrivals.sort_by_key(|a| (a.0, a.1));
 
+    let mut oracle = Oracle {
+        seed,
+        frames: &frames,
+        discarded: &discarded,
+        fragment: None,
+        breaks: Vec::new(),
+        restart: 0,
+        last_written: [0; 2],
+        next_applied: 0,
+        arrived: Vec::new(),
+    };
     let mut barrier = Barrier::new(1, Limits::default());
+    let mut ordinal = 0;
     let mut out = Vec::new();
     for (at, _, arrival) in arrivals {
-        barrier.tick(at, &mut out);
+        out.clear();
         match arrival {
             Arrival::Frame(idx) => {
                 let f = &frames[idx];
@@ -425,69 +547,29 @@ fn simulate(seed: u64) {
                     epoch: f.epoch,
                     keyframe: f.keyframe,
                     bytes: 30_000,
-                    payload: idx,
+                    payload: (idx, ordinal),
                 };
+                ordinal += 1;
+                oracle.arrived.push(at);
                 barrier.frame(frame, at, &mut out);
             }
-            Arrival::Decision(d) => barrier.decide(d, &mut out),
-        }
-    }
-
-    let mut need_key = true;
-    let mut last_written = [0 as Epoch; 2];
-    let mut next_applied = 0;
-    for e in &out {
-        match e {
-            Event::Write(f) => {
-                let c = &frames[f.payload];
-                assert!(
-                    !c.private,
-                    "seed {seed}: wrote a frame captured while private"
-                );
-                assert!(
-                    !discarded[c.epoch as usize - 1],
-                    "seed {seed}: wrote a discarded epoch"
-                );
-                let l = usize::from(c.track == Track::Audio);
-                assert!(
-                    c.epoch >= last_written[l],
-                    "seed {seed}: written out of epoch order"
-                );
-                if c.track == Track::Video {
-                    let crossed =
-                        (last_written[0].max(1)..c.epoch).any(|k| discarded[k as usize - 1]);
-                    if need_key || (last_written[0] > 0 && crossed) {
-                        assert!(c.keyframe, "seed {seed}: a fragment started on a delta");
-                    }
-                    need_key = false;
-                }
-                last_written[l] = c.epoch;
-            }
-            Event::Drop(f, r) => {
-                let in_stream = !matches!(r, DropReason::Stale | DropReason::NotIssued);
-                if f.track == Track::Video && in_stream {
-                    need_key = true;
-                }
-            }
-            Event::Gap => need_key = true,
-            Event::Keyframe => {}
-            Event::Applied { seq, .. } => {
-                assert_eq!(
-                    *seq, next_applied,
-                    "seed {seed}: decisions applied in seq order"
-                );
-                next_applied += 1;
+            Arrival::Decision(d) => barrier.decide(d, at, &mut out),
+            Arrival::Interrupt => {
+                // Frames delivered before still drain into the fragment; the break sits after.
+                oracle.add_break(ordinal);
+                barrier.interrupt(at, &mut out);
             }
         }
+        oracle.observe(&out, at);
     }
     assert_eq!(
-        next_applied, seq,
+        oracle.next_applied, seq,
         "seed {seed}: every decision applied once"
     );
 }
 
 #[test]
-fn shuffled_frames_and_decisions_never_write_a_private_frame_or_start_on_a_delta() {
+fn shuffled_frames_decisions_and_interruptions_never_write_private_or_outside_a_fragment() {
     for seed in 1..=300u64 {
         simulate(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15));
     }
@@ -524,6 +606,7 @@ fn with_prompt_decisions_and_no_private_time_every_frame_after_the_first_keyfram
                 clear: vec![(k, k)],
                 discard: vec![],
             },
+            u64::from(k) * 100,
             &mut out,
         );
         written += out.iter().filter(|e| matches!(e, Event::Write(_))).count();
