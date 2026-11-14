@@ -140,7 +140,19 @@ struct SentMessageRow: View {
 /// Opens threads on the other paired machines: `on(hostId)` is the opener for a thread there,
 /// nil while that machine isn't connected here.
 struct RemoteThreads {
-    let on: (String) -> ((String) -> Void)?
+    let on: @MainActor (String) -> ((String) -> Void)?
+}
+
+extension RemoteThreads {
+    /// The inbox's machines, each offered only while it is connected here: a machine the phone
+    /// keeps but can't reach opens nothing. Reading the connection in a view's body redraws the
+    /// line when the machine drops or comes back. `open` gets the machine's client and the thread.
+    @MainActor static func on(_ inbox: MachineInbox, open: @escaping @MainActor (_ client: ClientModel, _ hostId: String, _ threadId: String) -> Void) -> RemoteThreads {
+        RemoteThreads { host in
+            guard let client = inbox.client(host), client.connection == "ready" else { return nil }
+            return { id in open(client, host, id) }
+        }
+    }
 }
 
 extension EnvironmentValues {
