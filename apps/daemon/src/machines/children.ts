@@ -472,17 +472,27 @@ export class MachineChildren implements RemoteChildren {
           // A machine failing its calls is asked again once its wait is over.
           if (!first || !this.reach.due(machine, now)) return;
           try {
-            const { views, unknown } = await this.reads.read(machine, first.parent_thread, ids);
-            this.reached(machine);
+            const { views, unknown, failed } = await this.reads.read(
+              machine,
+              first.parent_thread,
+              ids,
+            );
+            // Every view answered is applied at once, whatever happened to the other reads.
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.update(row, view);
             }
-            // One its machine says it doesn't hold stays as last seen, saying why, as when its
-            // machine can't be read; it never settles for want of an answer.
-            for (const { id, error } of unknown)
-              this.unreachable.set(id, unreadReason(this.deps.label(machine), error));
-            if (unknown.length) this.emit(unknown.map((entry) => entry.id));
+            // One its machine says it doesn't hold, or whose read failed, stays as last seen,
+            // saying why; it never settles for want of an answer.
+            const label = this.deps.label(machine);
+            for (const { id, error } of [...unknown, ...failed])
+              this.unreachable.set(id, unreadReason(label, error));
+            if (unknown.length || failed.length)
+              this.emit([...unknown, ...failed].map((entry) => entry.id));
+            // Nothing answered at all is the machine failing; anything answered means it is there.
+            const [failure] = failed;
+            if (failure && failed.length === ids.length) this.unreached(machine, failure.error);
+            else this.reached(machine);
             // A slow sibling machine must not hold a result already received from this one.
             if (!this.closed) this.results.drain();
           } catch (error) {
@@ -498,19 +508,28 @@ export class MachineChildren implements RemoteChildren {
           try {
             // A settled child its machine says it doesn't hold can't have started again there
             // for this machine: that is the machine's answer for it.
-            const { views } = await this.reads.read(
+            const { views, failed } = await this.reads.read(
               machine,
               first.parent_thread,
               rows.map((row) => row.id),
             );
-            this.reached(machine);
+            // Every view answered is applied at once, whatever happened to the other reads.
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.recheck(row, view);
             }
+            const [failure] = failed;
+            if (failure && failed.length === rows.length) {
+              this.unreached(machine, failure.error);
+              return;
+            }
+            this.reached(machine);
             // Only an answered re-check counts: it sets the next one's time, and those read at or
-            // after their 24 h mark leave tracking now, never before.
-            this.ledger.endRecheck(this.rechecks.answered(machine, rows.map(recheckedRow), now));
+            // after their 24 h mark leave tracking now, never before. A child whose read failed
+            // is not checked: the round still owes it, so it goes first next time.
+            const missed = new Set(failed.map((entry) => entry.id));
+            const answered = rows.filter((row) => !missed.has(row.id)).map(recheckedRow);
+            this.ledger.endRecheck(this.rechecks.answered(machine, answered, now));
           } catch (error) {
             // A settled child stays settled while its machine can't be asked. This was no
             // check: the machine stays due and is asked again once its failure wait is over.

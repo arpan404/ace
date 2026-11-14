@@ -22,6 +22,10 @@ interface Studio {
   paired: boolean;
   /** Ids it holds no record of from this machine: a status call naming one is refused. */
   unknown: Set<string>;
+  /** Ids whose read loses its connection when asked alone. */
+  cut: Set<string>;
+  /** Ids whose call, whatever else it asks, loses its connection. */
+  cutWith: Set<string>;
   calls: string[][];
 }
 
@@ -38,7 +42,14 @@ const view = (id: string, state: "working" | "done", result?: string): MachineTh
 async function parentWith(idList: readonly string[]) {
   const f = setup();
   const parent = await f.parent();
-  const studio: Studio = { views: new Map(), paired: true, unknown: new Set(), calls: [] };
+  const studio: Studio = {
+    views: new Map(),
+    paired: true,
+    unknown: new Set(),
+    cut: new Set(),
+    cutWith: new Set(),
+    calls: [],
+  };
   const ledger = new MachineChildren({
     store: f.store,
     engine: () => f.engine,
@@ -49,6 +60,9 @@ async function parentWith(idList: readonly string[]) {
       studio.calls.push([...wanted]);
       if (wanted.some((id) => studio.unknown.has(id)))
         throw new MachineFailure("refused", "not_found", "No such thread from that machine.");
+      if (wanted.length === 1 && wanted.some((id) => studio.cut.has(id)))
+        throw new MachineFailure("disconnected");
+      if (wanted.some((id) => studio.cutWith.has(id))) throw new MachineFailure("disconnected");
       return wanted.flatMap((id) => {
         const found = studio.views.get(id);
         return found ? [found] : [];
@@ -192,4 +206,49 @@ it("a settled child its machine no longer holds is read and let go, never asked 
   const before = h.studio.calls.filter((call) => call.includes("child-b")).length;
   await h.pass(HOUR, 60_000);
   expect(h.studio.calls.filter((call) => call.includes("child-b")).length).toBe(before);
+});
+
+it("a child read alone that answers it started again is applied, whatever happens to the next read", async () => {
+  const h = await parentWith(["child-a", "child-b", "child-c"]);
+  for (const id of ["child-a", "child-b", "child-c"])
+    h.studio.views.set(id, view(id, "done", `Done ${id}.`));
+  await h.pass(2_000);
+  expect(h.f.store.getThread(h.parent.threadId)?.status.state).not.toBe("working");
+  // One child it no longer holds splits the call; the first read alone answers that child-a
+  // started again, and the read of child-b then loses its connection.
+  h.studio.unknown.add("child-c");
+  h.studio.views.set("child-a", view("child-a", "working"));
+  h.studio.cut.add("child-b");
+  await h.pass(30_000);
+  expect(h.state("child-a")).toBe("working");
+  await h.f.engine.flush();
+  expect(["working", "waiting", "needs_you"]).toContain(
+    h.f.store.getThread(h.parent.threadId)?.status.state,
+  );
+  // The child whose read failed is read first once its machine answers again.
+  h.studio.cut.delete("child-b");
+  h.studio.views.set("child-b", view("child-b", "working"));
+  await h.pass(30_000);
+  expect(h.state("child-b")).toBe("working");
+});
+
+it("a working child read alone is applied even when the next read alone fails", async () => {
+  const h = await parentWith(["child-a", "child-b", "child-c"]);
+  h.studio.unknown.add("child-c");
+  h.studio.cut.add("child-b");
+  h.studio.views.set("child-a", view("child-a", "done", "Done."));
+  await h.pass(5_000);
+  expect(h.state("child-a")).toBe("done");
+  expect(h.state("child-b")).toBe("working");
+});
+
+it("a call of sixteen that fails never discards what another call in the same poll answered", async () => {
+  const ids = Array.from({ length: 17 }, (_, index) => `child-${String(index).padStart(2, "0")}`);
+  const h = await parentWith(ids);
+  // The second call of the poll loses its connection; the first one's answers still count.
+  h.studio.cutWith.add("child-16");
+  h.studio.views.set("child-00", view("child-00", "done", "Done."));
+  await h.pass(2_000);
+  expect(h.state("child-00")).toBe("done");
+  expect(h.state("child-16")).toBe("working");
 });
