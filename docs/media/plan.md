@@ -356,6 +356,8 @@ table, including timed-out trials and the ranking cache.
 | `record.epochs`    | priority | `source, recording, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order, for that recording only)                                                                                                                                                                                         | —                                                                         |
 | `source.close`     | normal   | `source`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
 | `source.egress`    | normal   | `source, on` (G1: send this source's units back on the egress lane; off until sent)                                                                                                                                                                                                                                                                          | —                                                                         |
+| `source.encodes`   | normal   | `source, encodes: EncodeSpec[]` (E4: the encodes ace-media runs for a JPEG source it encodes itself, `tab-pictures` or `user-tab`, while the daemon still plans them; replaces the list, empty stops)                                                                                                                                                        | —                                                                         |
+| `source.key`       | normal   | `source, encode` (E4: that encode's next unit is a keyframe)                                                                                                                                                                                                                                                                                                 | —                                                                         |
 | `media.ticket`     | normal   | `connection, owner, issued, expiresAt` (single use, 30 s)                                                                                                                                                                                                                                                                                                    | the 32-byte ticket                                                        |
 | `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio, link?` (K3: `link` is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`, the client's word; it only picks the starting step)                                                                                         | —                                                                         |
 | `viewer.configure` | normal   | `viewer, viewport, audio`                                                                                                                                                                                                                                                                                                                                    | —                                                                         |
@@ -1388,6 +1390,47 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   doesn't measure CPU on Windows. Cold start there is 1.3–1.5 s and the probe trial 1.7 s, close
   to the probe's 2 s deadline, so a slower VM's first trial may time out; a late success then
   arrives as `capabilities.changed`. An x64 Windows VM and a Linux VM are still unmeasured.
+
+## E4 notes
+
+- **Producers.** The video extension's offscreen document (and the desktop's
+  `app://video-encoder` page, which runs the same bundle) gets `aceVideo.ingest(capture, {url,
+token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. With a target it
+  opens `ws://127.0.0.1:<port>/ingest`, sends the hello and then one binary `MediaFrame` per
+  chunk (`video-extension/ingest.ts`), stamped by a read-time `ReadStamper`; until the socket is
+  open, and after it fails, chunks go to the daemon as before. Each chunk goes one way only, and
+  every switch asks each encode for a keyframe. `ace.video.ingest` carries the target to the
+  desktop; its encoder page's CSP admits `connect-src ws://127.0.0.1:*`. Encode specs carry
+  `id`, the encode id in the frames.
+- **Daemon** (`packages/media/src/{sources,runtime}.ts`, `packages/browser/src/media-video.ts`,
+  `apps/daemon/src/services/media.ts`). `MediaSources` opens each source with a fresh token and
+  egress handle while its kind's route says so, reopens every source after a restart (and on
+  `retrying`), and points producers back at the daemon at once when the route or ace-media goes.
+  A source sent back keeps its egress until its producer's end frame arrives, plus 250 ms (the
+  egress lane can be overtaken by `source.status`), or 2 s at most, so a flip drops no unit.
+  `mediaVideoHost` wraps a backend's `VideoHost` by its `mediaKind`: tab and embedded captures
+  keep their encoder and stream; screencast captures (`tab-pictures`, `user-tab`) send
+  `source.picture` and `source.encodes` and never start the encoder Chrome. A screencast
+  capture opened while ace-media is still starting uses the encoder Chrome and holds a source
+  that brings ace-media up, then ends so the next capture goes there. Codecs ace-media can't
+  encode, or a source ace-media ends, keep that host on the encoder Chrome. `media.encode` is
+  a global-only setting, default `legacy`; the daemon builds its `MediaRuntime` the first time
+  it is `auto` and the binary is found.
+- **ace-media** (`crates/ace-media/src/encode`, `trials.rs`, `shell/pictures.rs`). A JPEG
+  source with encodes gets a thread of its own: base64 decoded, JPEG decoded at each encode's
+  size, encoded, units out on egress with their picture's epoch and age, and the source's steps
+  on `source.status.acceleration`. The backend comes from the probe (`encode::select`): a
+  hardware encoder whose trial worked, else the last-resort Chrome encoder for H.264 only,
+  never a software encoder of ace-media's own. The probe now runs VideoToolbox's trial on macOS;
+  B4's trial runs after `ready` only when `last_resort_needed`, its result arriving as
+  `capabilities.changed`. On this Mac (M4 Max) the JPEG decode is VideoToolbox's hardware
+  session into the encoder's surfaces, 0 readbacks and 0 uploads.
+- **Not built here.** Media Foundation, VA-API and NVENC are not wired into the JPEG encoder
+  yet (their probes aren't in the binary either; A1), so Windows and Linux use the last-resort
+  encoder or stay legacy. The `packages/browser-extension` native host still hands "Use my
+  Chrome" pictures to the daemon, which forwards them as `source.picture`. The daemon issues no
+  epochs to browser producers beyond the one at open (recordings stay legacy until F1's
+  follow-up). A flip of a screencast source reopens its capture, a short gap at a keyframe.
 
 ## F1 notes
 
