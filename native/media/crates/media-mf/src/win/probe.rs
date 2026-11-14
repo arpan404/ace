@@ -308,7 +308,12 @@ fn decode_trial(
         return unfinished(Step::Decode, name, TrialState::Failed);
     };
     let mut decoder = MfDecoder::new(device.cloned(), DecodeOutput::Surface);
-    match decoder.decode(unit) {
+    // A decoder that holds the one trial picture back gives it up on drain.
+    let decoded = decoder.decode(unit).and_then(|picture| match picture {
+        Some(picture) => Ok(Some(picture)),
+        None => Ok(decoder.drain()?.into_iter().next()),
+    });
+    match decoded {
         Ok(Some(picture)) if picture.size() == unit.size => Capability {
             step: Step::Decode,
             codec: Some(

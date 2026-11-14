@@ -4,7 +4,7 @@
 use super::com::{Ctx, enter};
 use super::device::MfDevice;
 use super::mft::{Listed, Output, Transform, list, memory_sample, unpack, video_type};
-use super::session::subtype;
+use super::session::{Settings, subtype};
 use super::surface::{MfFormat, Ring, Staging, read_back_with, upload_into};
 use crate::Copies;
 use crate::nal::{ParameterSets, annexb_with_sets, sample_to_annexb, sets_from_record};
@@ -235,6 +235,7 @@ fn open_one(
     device: Option<&MfDevice>,
 ) -> Result<Open, CodecError> {
     let mut transform = Transform::open(listed, device, true)?;
+    Settings::of(&transform).low_latency();
     // SAFETY: Type negotiation on the MFT we just opened.
     unsafe {
         let input = video_type(subtype(codec)?, size, 0)?;
@@ -347,6 +348,35 @@ impl Decoder for MfDecoder {
 }
 
 impl MfDecoder {
+    /// Ends the stream and returns the pictures the decoder still held (some decoders keep
+    /// one back even in low-latency mode). The next unit must be a keyframe.
+    pub fn drain(&mut self) -> Result<Vec<Picture>, CodecError> {
+        enter();
+        let mut out = Vec::new();
+        let Some(open) = &mut self.open else {
+            return Ok(out);
+        };
+        open.transform.drain()?;
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if let Some(picture) = self.next()? {
+                out.push(picture);
+                continue;
+            }
+            let Some(open) = &self.open else {
+                break;
+            };
+            if !open.transform.is_async()
+                || open.transform.drained()
+                || std::time::Instant::now() >= until
+            {
+                break;
+            }
+        }
+        self.open = None;
+        Ok(out)
+    }
+
     fn next(&mut self) -> Result<Option<Picture>, CodecError> {
         for _ in 0..4 {
             let Some(open) = &mut self.open else {

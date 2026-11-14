@@ -37,6 +37,13 @@ pub(crate) fn encoders(codec: Codec, adapter: Option<Vendor>) -> Result<Vec<List
 
 pub(crate) struct Settings(Option<ICodecAPI>);
 impl Settings {
+    pub fn of(transform: &Transform) -> Self {
+        Self(transform.mft.cast::<ICodecAPI>().ok())
+    }
+    /// `CODECAPI_AVLowLatencyMode`: one picture out per picture in, where the codec can.
+    pub fn low_latency(&self) -> bool {
+        self.set(&CODECAPI_AVLowLatencyMode, &variant::bool(true))
+    }
     fn set(&self, key: &GUID, value: &VARIANT) -> bool {
         // SAFETY: A plain-value VARIANT; the codec copies it.
         self.0
@@ -103,9 +110,9 @@ impl Session {
         device: Option<&MfDevice>,
     ) -> Result<Self, CodecError> {
         let mut transform = Transform::open(listed, device, false)?;
-        let settings = Settings(transform.mft.cast::<ICodecAPI>().ok());
+        let settings = Settings::of(&transform);
         // Before the types: some encoders fix these when the output type is set.
-        settings.set(&CODECAPI_AVLowLatencyMode, &variant::bool(true));
+        settings.low_latency();
         settings.set(&CODECAPI_AVEncMPVDefaultBPictureCount, &variant::u32(0));
         settings.set(
             &CODECAPI_AVEncMPVGOPSize,
