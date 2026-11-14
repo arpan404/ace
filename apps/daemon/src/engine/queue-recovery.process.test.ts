@@ -148,6 +148,52 @@ test("the configured steer default reaches a live capable provider while an expl
   expect(h.engine.queue(id).messages[0]?.delivery).toBe("queue");
 });
 
+test("a steer aimed at a run that has ended queues instead of joining the run that started since", async () => {
+  const frames = scriptFrames();
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start)] },
+      { on: "send" },
+    ],
+    frames,
+    { steer: true },
+  );
+  const id = await h.create();
+  const runs = () => Object.values(h.store.snapshotThread(id).runs);
+  const ended = runs()[0]?.id;
+  h.command({ type: "thread.send", threadId: id, input: text("second turn") });
+  await h.engine.flush();
+  const active = runs().find((run) => run.state === "active")?.id;
+  expect(active).toBeDefined();
+  expect(active).not.toBe(ended);
+  // Aimed at the run that runs now: it steers in.
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: text("current"),
+    delivery: "steer",
+    runId: active,
+  });
+  await h.engine.flush();
+  expect(h.adapter.commands.at(-1)).toEqual({
+    type: "send",
+    input: text("current"),
+    delivery: "steer",
+  });
+  // Aimed at the run that ended while its sender was away: it waits for the next turn.
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: text("stale"),
+    delivery: "steer",
+    runId: ended,
+  });
+  await h.engine.flush();
+  expect(sends(h.adapter)).toHaveLength(3);
+  expect(h.engine.queue(id).messages).toMatchObject([{ input: text("stale"), delivery: "queue" }]);
+});
+
 test("claiming a message before provider startup makes a concurrent edit fail", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames);

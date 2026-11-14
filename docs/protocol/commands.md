@@ -2083,6 +2083,7 @@ Example:
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
 | context | no | [MessageContext.json](schema/MessageContext.json) |  |
 | delivery | no | [FollowUpBehavior.json](schema/FollowUpBehavior.json) |  |
+| runId | no | [RunId.json](schema/RunId.json) |  |
 
 Example:
 

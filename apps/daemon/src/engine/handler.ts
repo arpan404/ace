@@ -13,7 +13,7 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import { admitSteer, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -463,7 +463,7 @@ export function engineHandler(
           if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
             return fail("provider_input_queue_full");
         }
-        const resolved = recovery.admit(deliveryCommand, threadId);
+        const resolved = recovery.admit(fenceSteer(repo, deliveryCommand, threadId), threadId);
         if (!resolved) return fail("queue_capacity_exceeded");
         const steer = admitSteer(repo, resolved, threadId);
         const admitted = steer.send;

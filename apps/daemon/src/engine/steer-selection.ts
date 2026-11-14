@@ -10,6 +10,26 @@ export interface SteerAdmission {
 }
 
 /**
+ * A steer aimed at one root run (`runId`) joins only that run. Once it has ended, or another has
+ * begun (the sender was offline and its outbox replays now), the message queues instead: it
+ * starts the next turn when nothing runs, and never lands in work its sender didn't see. The
+ * run named is not kept on the admitted send.
+ */
+export function fenceSteer(repo: EngineRepository, command: Command, id: ThreadId): Command {
+  const p = command.payload;
+  if (p.type !== "thread.send" || p.runId === undefined) return command;
+  const { runId, ...payload } = p;
+  const state = repo.requireState(id);
+  const current =
+    state.agents[state.rootKey ?? ""]?.activeRun === runId && state.runs[runId]?.state === "active";
+  const delivery = p.delivery === "steer" && !current ? "queue" : p.delivery;
+  return Command.parse({
+    ...command,
+    payload: { ...payload, ...(delivery === undefined ? {} : { delivery }) },
+  });
+}
+
+/**
  * A person's steer always steers. A model or options change on it can't apply inside the work
  * that is running: switching may reconfigure or reopen the session. So while the tree works, the
  * text steers now and the change becomes the thread's pending `thread.switch`, applied at the

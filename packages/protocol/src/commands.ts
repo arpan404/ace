@@ -114,6 +114,12 @@ export const CommandPayload = z.discriminatedUnion("type", [
      * for background commands or subagents. Unsupported steer falls back to queue.
      */
     delivery: FollowUpBehavior.optional(),
+    /**
+     * The root run a `steer` was aimed at. When that run is no longer the root's active run
+     * (it ended, or another began while the sender was away), the message queues instead of
+     * joining whatever runs now. Omitted: steers into the current run, as before.
+     */
+    runId: RunId.optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),
