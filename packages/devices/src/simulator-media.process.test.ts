@@ -128,10 +128,12 @@ it.runIf(!!binary)(
     });
     onTestFinished(() => capture.stop());
     expect(
+      // A viewer box the Simulator fits: serve-sim's stream passes through (re-encoding for a
+      // smaller one is simulator-transcode-media's).
       await capture.configure?.({
         codec: "h264",
-        maxWidth: 800,
-        maxHeight: 1600,
+        maxWidth: 1600,
+        maxHeight: 3200,
         fps: 60,
         bitrate: 12_000_000,
       }),
