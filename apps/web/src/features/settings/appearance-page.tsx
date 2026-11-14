@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react";
 import { AccentPicker } from "./accent-picker.tsx";
 import { ModePicker } from "./mode-picker.tsx";
+import { SuitsSection } from "./suits-section.tsx";
 import { ThemeChooser } from "./theme-chooser.tsx";
 import {
   SettingRow,
@@ -90,7 +91,7 @@ function TranslucencyRow(props: {
   );
 }
 
-/** Mode, theme, translucency, motion, density and transcript size. Every change applies at once. */
+/** Mode, theme, Suits, translucency, motion, density and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
   const { appearance, update, resolved, systemReducesTransparency, softwareRendering } = useTheme();
   return (
@@ -101,6 +102,7 @@ export function AppearanceSettings() {
       <PickerGroup id="appearance.theme">
         <ThemeChooser />
       </PickerGroup>
+      <SuitsSection />
       <PickerGroup id="appearance.accent">
         <AccentPicker />
       </PickerGroup>

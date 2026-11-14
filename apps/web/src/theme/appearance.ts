@@ -11,6 +11,8 @@ import {
   type Scheme,
   type ThemeId,
 } from "@ace/themes";
+import { SuitId, type SuitDetail } from "@ace/protocol/suits";
+import { suitPalette, suitSchemeFor } from "./suits/suit-css.ts";
 import { defaultTranslucency, snapTranslucency, translucencyMax } from "./translucency.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);
@@ -39,6 +41,8 @@ export const Appearance = z.object({
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
   transcriptSize: z.catch(TranscriptSize, "default"),
+  /** The Suit on this device (ADR 0150); it replaces the theme's palette while it can apply. */
+  suit: z.catch(z.nullable(SuitId), null),
 });
 export type Appearance = z.infer<typeof Appearance>;
 
@@ -51,6 +55,7 @@ export const defaultAppearance: Appearance = {
   reduceMotion: "system",
   density: "comfortable",
   transcriptSize: "default",
+  suit: null,
 };
 
 export { transcriptSizes } from "@ace/themes";
@@ -88,6 +93,8 @@ export interface SystemPreferences {
 /** What the page actually shows once "system" and the OS's accessibility settings are applied. */
 export interface ResolvedAppearance {
   theme: ThemeId;
+  /** The Suit on screen, or null when the theme shows (`suits/applied-suit.ts`). */
+  suit: SuitId | null;
   scheme: Scheme;
   /**
    * Solid at translucency 0, while the OS reduces transparency, and in a theme whose layers are
@@ -104,19 +111,26 @@ export function themeHasGlass(theme: ThemeId, scheme: Scheme): boolean {
   return themes[theme][scheme].material.glass !== null;
 }
 
+/**
+ * `suit` is the Suit that applies (`appliedSuit`), or null for the theme. A Suit with one scheme
+ * runs only in that scheme, whatever the mode asks for.
+ */
 export function resolveAppearance(
   appearance: Appearance,
   system: SystemPreferences,
+  suit: SuitDetail | null = null,
 ): ResolvedAppearance {
-  const scheme = appearance.mode === "system" ? (system.dark ? "dark" : "light") : appearance.mode;
+  const asked = appearance.mode === "system" ? (system.dark ? "dark" : "light") : appearance.mode;
+  const scheme = suit ? suitSchemeFor(suit.manifest, asked) : asked;
   const translucency = snapTranslucency(appearance.translucency);
+  const glass = suit
+    ? suitPalette(suit.manifest, scheme).material.glass !== null
+    : themeHasGlass(appearance.theme, scheme);
   const solid =
-    translucency === 0 ||
-    system.reducedTransparency ||
-    system.softwareRendering ||
-    !themeHasGlass(appearance.theme, scheme);
+    translucency === 0 || system.reducedTransparency || system.softwareRendering || !glass;
   return {
     theme: appearance.theme,
+    suit: suit?.summary.id ?? null,
     scheme,
     surface: solid ? "solid" : "translucent",
     translucency: solid ? 0 : translucency,
@@ -134,11 +148,21 @@ export function resolveAppearance(
  */
 export interface BootAppearance {
   theme: ThemeId;
+  /**
+   * The Suit applied last, whose rules `css` carries after the theme's; `index.html` sets
+   * `data-suit` from it unless Suits are off this session. The app holds it until the daemon
+   * has answered, so a reload keeps the look.
+   */
+  suit?: SuitDetail | undefined;
   mode: Mode;
   surface: SurfaceSetting;
   translucency: number;
   reduceMotion: ReduceMotion;
   density: Density;
+  /** The Suit's one scheme, for a Suit that has only one; it stands in for `mode`. */
+  suitScheme?: Scheme | undefined;
+  /** The Suit's own density, over `density` while it is on. */
+  suitDensity?: Density | undefined;
   transcriptPx: number;
   css: string;
 }

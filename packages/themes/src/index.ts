@@ -9,6 +9,7 @@ export * from "./backdrops.ts";
 export * from "./chart.ts";
 export * from "./colour.ts";
 export * from "./contrast.ts";
+export * from "./custom-palette.ts";
 export * from "./glass-floor.ts";
 export * from "./palettes.ts";
 export * from "./projects.ts";

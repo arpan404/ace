@@ -40,6 +40,7 @@ import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
+import { SuitBackdrop } from "@/theme/suits/suit-backdrop.tsx";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -79,6 +80,8 @@ export function AppShell() {
                   "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
                 )}
               >
+                {/* A Suit's scene, behind the sidebar and the transcript. */}
+                <SuitBackdrop />
                 <a
                   href="#main"
                   // The desktop's macOS traffic lights cover the window's top-left corner.
