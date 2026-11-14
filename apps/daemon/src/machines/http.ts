@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { maxMessageBytes, maxSpadeRequestBytes, type Device } from "@ace/protocol";
 import type { MachineTarget } from "./target.ts";
+import { keepTrusted } from "../sni-listener.ts";
 import {
   CALL_ENCODINGS,
   COMPRESS_MIN_BYTES,
@@ -97,6 +98,8 @@ export function machineCallsHttp(
       reply(401, { error: "unauthorized" });
       return;
     }
+    // An authenticated paired machine keeps its connection open for its next call.
+    keepTrusted(request, response);
     if (!owner) {
       request.resume();
       reply(503, { error: "unavailable" });

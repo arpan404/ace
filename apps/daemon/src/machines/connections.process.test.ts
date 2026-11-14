@@ -1,4 +1,5 @@
 import { createConnection, createServer, type Socket } from "node:net";
+import { request as httpsRequest } from "node:https";
 import type { TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
 import { DeviceId, HostId, MachineCallRequest, ThreadId, type MachineCall } from "@ace/protocol";
@@ -6,6 +7,7 @@ import { systemDeliveryRuntime } from "../delivery-runtime.ts";
 import { tlsFixtureHome } from "../process-test-support.ts";
 import { sniListener, type SniLimits } from "../sni-listener.ts";
 import { loadIdentity } from "../tls-identity.ts";
+import { pinnedKeepAliveAgent } from "../client-access.ts";
 import { MachineConnections } from "./connections.ts";
 import { MachineFailure, machineRequest, pinnedRequest } from "./transport.ts";
 import { machineCallsHttp } from "./http.ts";
@@ -304,4 +306,83 @@ test("work sent on a dropped connection is never sent again on its own", async (
   expect((failure as MachineFailure).kind).toBe("disconnected");
   expect(target.arrived.map((entry) => entry.op)).toEqual(["status"]);
   expect(proxy.state.connections).toBe(1);
+});
+
+/** This build's machine-calls listener with the given limits, answering every call at once. */
+async function limitedMachine(limits: Partial<SniLimits>) {
+  const sockets: TLSSocket[] = [];
+  const handler = machineCallsHttp(
+    () => ({ handle: async () => ({ status: 200, body: { ok: true } }) }),
+    (presented) =>
+      presented === token("a")
+        ? {
+            id: DeviceId.parse("device-1"),
+            name: "MacBook",
+            scopes: ["read", "operate"],
+            createdAt: 0,
+            lastSeenAt: 0,
+            revokedAt: null,
+          }
+        : undefined,
+    (_request, response) => response.writeHead(404).end(),
+  );
+  const listener = sniListener({
+    tls: identity,
+    requests: (request, response) => {
+      const socket = request.socket as TLSSocket;
+      if (!sockets.includes(socket)) sockets.push(socket);
+      handler(request, response);
+    },
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+    limits,
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  return { sockets, origin: `https://127.0.0.1:${port}/` };
+}
+
+/** One request on a connection of its own that the caller keeps open as long as it is allowed. */
+function rawCall(origin: string, bearer: string) {
+  return new Promise<{ status: number; keepAlive: string | undefined }>((resolve, reject) => {
+    const agent = pinnedKeepAliveAgent(identity.fingerprint, { get: () => undefined, set() {} }, 1);
+    cleanups.push(() => agent.destroy());
+    const request = httpsRequest(
+      new URL("/v1/machine-calls", origin),
+      { method: "POST", agent, headers: { authorization: `Bearer ${bearer}` } },
+      (response) => {
+        response.resume();
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode ?? 0,
+            keepAlive: typeof response.headers["keep-alive"] === "string"
+              ? response.headers["keep-alive"]
+              : undefined,
+          }),
+        );
+      },
+    );
+    request.on("error", reject);
+    request.end(JSON.stringify({ origin, call: { op: "describe" } }));
+  });
+}
+
+test("a connection that never authenticated keeps the short keep-alive, and says so", async () => {
+  const target = await limitedMachine({});
+  const answer = await rawCall(target.origin, "f".repeat(64));
+  expect(answer).toEqual({ status: 401, keepAlive: "timeout=5" });
+});
+
+test("a connection whose call authenticated is kept open longer, and says so", async () => {
+  const target = await limitedMachine({ keepAlive: 300, trustedKeepAlive: 60_000 });
+  const answer = await rawCall(target.origin, token("a"));
+  expect(answer.keepAlive).toBe("timeout=60");
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  expect(target.sockets[0]?.destroyed).toBe(false);
+});
+
+test("an unauthenticated connection is closed after the short limit", async () => {
+  const target = await limitedMachine({ keepAlive: 300, trustedKeepAlive: 60_000 });
+  await rawCall(target.origin, "f".repeat(64));
+  await expect.poll(() => target.sockets[0]?.destroyed, { timeout: 1500 }).toBe(true);
 });
