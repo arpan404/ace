@@ -19,6 +19,22 @@ export interface ServiceDefinition {
   essential?: boolean;
   start(context: ServiceContext): void | Promise<void>;
 }
+/**
+ * A listener-phase service that only the service list names loads its module when it starts,
+ * after the daemon listens, so its code is not on the path to the first client's welcome.
+ * A start that timed out, or a daemon stopping, while the module loaded never runs it: its
+ * resources are already closed, and anything it installed would outlive them.
+ */
+export function loadOnStart<Name extends string>(
+  load: () => Promise<Record<Name, ServiceDefinition["start"]>>,
+  name: Name,
+): ServiceDefinition["start"] {
+  return async (context) => {
+    const loaded = await load();
+    context.signal.throwIfAborted();
+    return loaded[name](context);
+  };
+}
 /** An essential service failed to start; the daemon must not listen without it. */
 export class EssentialServiceError extends Error {
   readonly service: string;

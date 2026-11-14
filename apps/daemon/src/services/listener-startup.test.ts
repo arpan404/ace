@@ -4,7 +4,13 @@ import { Store } from "../store.ts";
 import { readConfig } from "../config.ts";
 import type { startServer } from "../server.ts";
 import { Resources } from "./resources.ts";
-import { ServiceStartup, type ServiceDefinition } from "./startup.ts";
+import {
+  loadOnStart,
+  ServiceStartup,
+  type ServiceDefinition,
+  type StartupRuntime,
+} from "./startup.ts";
+import type { Services } from "./types.ts";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 const server = {} as Server;
@@ -13,7 +19,7 @@ afterEach(async () => {
   for (const close of open.splice(0)) await close();
 });
 
-function startup() {
+function startup(runtime?: StartupRuntime, services: Partial<Services> = {}) {
   const resources = new Resources();
   const store = new Store(":memory:");
   const log = createLogger({
@@ -27,7 +33,7 @@ function startup() {
     await store.close();
     await log.close();
   });
-  return new ServiceStartup({
+  const context = {
     resources,
     store,
     log,
@@ -36,9 +42,11 @@ function startup() {
     signal: new AbortController().signal,
     now: () => 0,
     id: () => "id",
-    services: {},
+    services,
     onListen: [],
-  });
+  };
+  const subject = runtime ? new ServiceStartup(context, runtime) : new ServiceStartup(context);
+  return Object.assign(subject, { resources });
 }
 
 const core: ServiceDefinition = {
@@ -131,4 +139,72 @@ test("a failed listener service still degrades and skips the services that requi
     },
     { name: "review", state: "ready" },
   ]);
+});
+
+/** A startup deadline the test expires, and a service module that loads when told to. */
+function lateModule() {
+  const timers = new Set<() => void>();
+  const runtime: StartupRuntime = {
+    timeoutMs: 15_000,
+    schedule(_name, expire) {
+      timers.add(expire);
+      return () => timers.delete(expire);
+    },
+  };
+  const loaded = Promise.withResolvers<void>();
+  let entered = false;
+  const definition = listener(
+    "agentControl",
+    loadOnStart(async () => {
+      await loaded.promise;
+      return {
+        startAgentControl: (context: Parameters<ServiceDefinition["start"]>[0]) => {
+          entered = true;
+          // What the real service installs on the live engine and registry.
+          context.services.agentControl = {} as NonNullable<Services["agentControl"]>;
+        },
+      };
+    }, "startAgentControl"),
+  );
+  return {
+    runtime,
+    definition,
+    expire: () => {
+      for (const expire of [...timers]) expire();
+    },
+    armed: () => timers.size,
+    load: () => loaded.resolve(),
+    entered: () => entered,
+  };
+}
+
+test("a service whose module loads after its start timed out is never started", async () => {
+  const late = lateModule();
+  const services: Partial<Services> = {};
+  const subject = startup(late.runtime, services);
+  await subject.start([core, late.definition]);
+  const listening = subject.listening(server);
+  await expect.poll(late.armed).toBe(1);
+  late.expire();
+  await listening;
+  expect(state(subject, "agentControl")).toBe("degraded");
+  late.load();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(late.entered()).toBe(false);
+  expect(services.agentControl).toBeUndefined();
+});
+
+test("a service whose module loads after shutdown began is never started", async () => {
+  const late = lateModule();
+  const services: Partial<Services> = {};
+  const subject = startup(late.runtime, services);
+  await subject.start([core, late.definition]);
+  const listening = subject.listening(server).catch(() => {});
+  await expect.poll(late.armed).toBe(1);
+  const closing = subject.resources.close().catch(() => {});
+  late.load();
+  await listening;
+  await closing;
+  expect(late.entered()).toBe(false);
+  expect(services.agentControl).toBeUndefined();
 });
