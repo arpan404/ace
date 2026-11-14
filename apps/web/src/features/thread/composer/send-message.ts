@@ -19,6 +19,8 @@ export interface SendRequest {
   commandId: string;
   draft: Draft;
   delivery: "steer" | "queue" | undefined;
+  /** The root run a steer is aimed at (`thread.send`'s `runId`). */
+  runId?: string | undefined;
   options: TurnOptions | undefined;
   notify(title: string, description: string): void;
 }
@@ -65,6 +67,7 @@ function heldMessage(request: SendRequest): Omit<StagedSend, "attachments"> {
     context: { mentions: draft.mentions, attachments: [], items: draft.threadRefs },
     ...(request.options ? { options: request.options } : {}),
     ...(request.delivery ? { delivery: request.delivery } : {}),
+    ...(request.delivery === "steer" && request.runId ? { runId: request.runId } : {}),
   };
 }
 

@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import {
   ContentPart,
   MessageContext,
+  RunId,
   ThreadId,
   TurnOptions,
   type CommandPayload,
@@ -66,6 +67,7 @@ const Stored = z.object({
   attachments: z.array(StoredFile),
   options: TurnOptions.optional(),
   delivery: z.enum(["steer", "queue"]).optional(),
+  runId: RunId.optional(),
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed: z.string().optional(),
 });
@@ -450,6 +452,7 @@ async function enqueueReady(client: ClientApi, commandId: string): Promise<boole
       attachments: sentFiles(send.attachments),
     },
     ...(send.delivery ? { delivery: send.delivery } : {}),
+    ...(send.delivery === "steer" && send.runId ? { runId: RunId.parse(send.runId) } : {}),
     ...(send.options ? { options: send.options } : {}),
   };
   const local = withPreviews(send);
