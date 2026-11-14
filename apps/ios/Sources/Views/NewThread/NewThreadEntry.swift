@@ -20,10 +20,13 @@ struct NewThreadEntry: ViewModifier {
     @State private var sent: NewThreadDraft?
     /// The refused start's machine and command, for Edit in New thread.
     @State private var refusedStart: (machineId: String, commandId: String)?
+    /// New thread's sheet is on screen, until it has finished going: a second sheet presented
+    /// while it still animates away collides with it, and taps land on the sheet left behind.
+    @State private var composerShown = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $composing) {
+            .sheet(isPresented: $composing, onDismiss: { composerShown = false }) {
                 NewThreadSheetHost(inbox: inbox, saved: { machineId, commandId, draft in
                     awaiting = (machineId, commandId)
                     sent = draft
@@ -50,7 +53,7 @@ struct NewThreadEntry: ViewModifier {
                         refused = message
                         break waiting
                     case .wait:
-                        if worktree?.card != nil, shownCard != id, !composing {
+                        if worktree?.card != nil, shownCard != id, !composing, !composerShown {
                             shownCard = id
                             inbox.startCard = InboxKey(machineId: awaiting.machineId, id: id)
                         }
@@ -80,6 +83,7 @@ struct NewThreadEntry: ViewModifier {
                 takeHandoff()
             }
             .onChange(of: catalogueKey) { _, _ in writeCatalogue() }
+            .onChange(of: composing) { _, now in if now { composerShown = true } }
     }
 
     /// A refused start's draft back in New thread, under a new command id, and out of Unsent.

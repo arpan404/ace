@@ -726,3 +726,28 @@ test("Back to New thread forgets the stopped start on the daemon and its card go
   const asked = sent.filter((text) => text.includes('"action":"dismiss"'));
   expect(asked).toHaveLength(1);
 });
+
+test("after a failed setup script Retry runs the worktree again, and Continue starts the thread", async () => {
+  const daemon = fixture();
+  daemon.workspace.git.failSetup("ace", ["$ bun install", "error: lockfile had changes"]);
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0006");
+  const failed = await until(() => {
+    const shown = worktreeCard("draft-tree-0006");
+    return shown?.actions.some((action) => action.id === "continue") && shown;
+  });
+  expect(failed.actions.map((action) => action.label)).toEqual([
+    "Don't use worktree",
+    "Retry",
+    "Continue without setup",
+  ]);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0006", action: "retry" });
+  await until(() => worktreeCard("draft-tree-0006")?.running);
+  await until(() =>
+    worktreeCard("draft-tree-0006")?.actions.some((action) => action.id === "continue"),
+  );
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0006", action: "continue" });
+  const made = await until(() => latest("compose.worktree", "draft-tree-0006")?.made);
+  expect(typeof made).toBe("string");
+  expect(worktreeCard("draft-tree-0006")).toBeNull();
+});

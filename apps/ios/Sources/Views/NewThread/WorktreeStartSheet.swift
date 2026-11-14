@@ -45,7 +45,14 @@ private struct WorktreeStartPage: View {
                 }
             }
             .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
-            .toolbar { SheetClose() }
+            .toolbar {
+                // Puts the card away; the start goes on and its Unsent row opens it again.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { inbox.startCard = nil } label: { AceIcon(.x) }
+                        .accessibilityLabel("Close")
+                        .accessibilityIdentifier("worktree.close")
+                }
+            }
         }
         // The thread made in it opens once the thread list has it.
         .task(id: read?.made) {

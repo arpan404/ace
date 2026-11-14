@@ -34,6 +34,22 @@ struct WorktreeStartView: View {
                     words("Clear the stale Git lock in ace on your computer, then Retry.", tone: AceTheme.Colours.mutedForeground)
                 }
                 if !card.refused.isEmpty { words(card.refused, tone: AceTheme.Status.failed) }
+                // The way on sits under the steps, before the log and its toggle: the log can run long.
+                if !card.actions.isEmpty {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: AceDesign.Space.related) { actionButtons }
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) { actionButtons }
+                    }
+                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                }
+                if let back {
+                    Button("Back to New thread", action: back)
+                        .buttonStyle(.borderless)
+                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                        .frame(minHeight: AceDesign.Size.tap)
+                        .accessibilityHint("Puts your message back in New thread and forgets this start")
+                        .accessibilityIdentifier("worktree.back")
+                }
                 Button { withAnimation { details = !open } } label: {
                     HStack(spacing: AceDesign.Space.tight) {
                         AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
@@ -58,30 +74,19 @@ struct WorktreeStartView: View {
                         .background(AceDesign.Surface.fill, in: AceShape.block)
                         .accessibilityLabel("Worktree details")
                 }
-                if !card.actions.isEmpty {
-                    HStack(spacing: AceDesign.Space.related) {
-                        ForEach(card.actions) { action in
-                            Button(action.label) { act(action.id) }
-                                .buttonStyle(.bordered)
-                                .disabled(!card.sending.isEmpty)
-                                .accessibilityIdentifier("worktree.\(action.id)")
-                        }
-                    }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                }
-                if let back {
-                    Button("Back to New thread", action: back)
-                        .buttonStyle(.borderless)
-                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .accessibilityHint("Puts your message back in New thread and forgets this start")
-                        .accessibilityIdentifier("worktree.back")
-                }
             }
             .padding(AceDesign.Space.feedSide)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("worktree.card")
+    }
+    private var actionButtons: some View {
+        ForEach(card.actions) { action in
+            Button(action.label) { act(action.id) }
+                .buttonStyle(.bordered)
+                .disabled(!card.sending.isEmpty)
+                .accessibilityIdentifier("worktree.\(action.id)")
+        }
     }
     private func words(_ text: String, tone: Color) -> some View {
         Text(text).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).foregroundStyle(tone)
