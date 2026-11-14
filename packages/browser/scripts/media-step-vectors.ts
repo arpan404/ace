@@ -49,6 +49,31 @@ export function scaleSteps() {
     ...descending.map((link) => ladder(`readable at ${link}`, [input(link, 0, false, 60, 2560)])),
     ladder("a portrait phone already near readable", [input(1.2e6, 0, false, 60, 1170)]),
     ladder("a 30 fps view, readable", [input(1.2e6, 0, false, 30, 2560)]),
+    // Frame-only recovery waits 1 s, not a size step's 3 s.
+    ladder(
+      "more frames at the same size after 1 s",
+      [
+        [900e3, 0],
+        [2e6, 100],
+        [2e6, 1_099],
+        [2e6, 1_100],
+      ].map(([link, now]) => ({
+        link: link ?? 0,
+        pixels: 1_000_000,
+        fps: 60,
+        now: now ?? 0,
+        probing: false,
+      })),
+    ),
+    // A higher target restarts the timer: a spike doesn't inherit a smaller step's wait.
+    ladder("a spike waits its own time", [
+      input(1.2e6, 0, false),
+      input(2.2e6, 100, false),
+      input(2.2e6, 3_099, false),
+      input(16e6, 3_100, false),
+      input(16e6, 6_099, false),
+      input(16e6, 6_100, false),
+    ]),
     ladder("a view that asks for 30 fps", [input(16e6, 0, false, 30), input(1e6, 0, false, 30)]),
   ];
 }

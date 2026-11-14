@@ -101,3 +101,29 @@ describe("the picture and frame rate a link carries", () => {
     expect(thin.fps).toBeLessThan(30);
   });
 });
+
+describe("stepping back up", () => {
+  const megapixel = (link: number, now: number) => ({ link, pixels: 1_000_000, fps: 60, now });
+
+  it("more frames at the same size come back after 1 s, not the size step's 3 s", () => {
+    const scale = new PictureScale();
+    expect(scale.update(megapixel(900e3, 0))).toEqual({ scale: 1, fps: 30 });
+    expect(scale.update(megapixel(2e6, 100))).toEqual({ scale: 1, fps: 30 });
+    expect(scale.update(megapixel(2e6, 1_099))).toEqual({ scale: 1, fps: 30 });
+    expect(scale.update(megapixel(2e6, 1_100))).toEqual({ scale: 1, fps: 60 });
+  });
+
+  it("a higher target waits its own time: a spike doesn't inherit a smaller step's timer", () => {
+    const scale = new PictureScale();
+    const at = (link: number, now: number) => ({ link, pixels, fps: 60, now });
+    const low = scale.update(at(1.2e6, 0));
+    expect(low.scale).toBeLessThan(1);
+    // A modest step up qualifies from 100 ms and is pending...
+    expect(scale.update(at(2.2e6, 100))).toEqual(low);
+    expect(scale.update(at(2.2e6, 3_099))).toEqual(low);
+    // ...then the link spikes: full size at 60 fps is a new target, with a fresh 3 s.
+    expect(scale.update(at(16e6, 3_100))).toEqual(low);
+    expect(scale.update(at(16e6, 6_099))).not.toEqual({ scale: 1, fps: 60 });
+    expect(scale.update(at(16e6, 6_100))).toEqual({ scale: 1, fps: 60 });
+  });
+});

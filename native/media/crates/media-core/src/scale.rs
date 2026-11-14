@@ -103,7 +103,10 @@ impl Ladder {
 pub struct PictureScale {
     level: usize,
     ladder: Option<(f64, bool, usize, Ladder)>,
-    up_since: Option<f64>,
+    /// A larger picture the link carried with spare (level, since): its own timer.
+    size_up: Option<(usize, f64)>,
+    /// More frames at this size the link carried with spare (level, since).
+    frames_up: Option<(usize, f64)>,
     down_since: Option<f64>,
 }
 impl PictureScale {
@@ -127,14 +130,16 @@ impl PictureScale {
                 let ladder = Ladder::new(input.fps, input.probing, readable);
                 self.ladder = Some((input.fps, input.probing, readable, ladder));
                 self.level = fitting(&ladder, 1.0);
-                self.up_since = None;
+                self.size_up = None;
+                self.frames_up = None;
                 self.down_since = None;
                 return ladder.steps[self.level];
             }
         };
         let now = input.now;
         if self.level < ladder.len - 1 && !carries(ladder.steps[self.level], 1.0) {
-            self.up_since = None;
+            self.size_up = None;
+            self.frames_up = None;
             let since = *self.down_since.get_or_insert(now);
             if now - since >= 1000.0 {
                 self.level = fitting(&ladder, 1.0);
@@ -143,26 +148,30 @@ impl PictureScale {
             return ladder.steps[self.level];
         }
         self.down_since = None;
-        let roomy = fitting(&ladder, 1.5);
-        // Frames alone step up sooner (no new encode, no keyframe): 1.2x spare for 1 s.
+        // A larger picture (3 s at 1.5x spare) and more frames at this size (1 s at 1.2x) are
+        // judged apart; each timer restarts when its target changes.
         let scale = ladder.steps[self.level].scale;
+        let pending = |held: Option<(usize, f64)>, level: usize| match held {
+            Some((l, since)) if l == level => (l, since),
+            _ => (level, now),
+        };
+        let roomy = fitting(&ladder, 1.5);
+        self.size_up = (roomy < self.level && ladder.steps[roomy].scale != scale)
+            .then(|| pending(self.size_up, roomy));
         let mut frames = fitting(&ladder, 1.2);
         while frames < self.level && ladder.steps[frames].scale != scale {
             frames += 1;
         }
-        let (target, after) = if roomy < self.level {
-            (roomy, 3000.0)
-        } else {
-            (frames, 1000.0)
+        self.frames_up = (frames < self.level).then(|| pending(self.frames_up, frames));
+        let climb = match (self.size_up, self.frames_up) {
+            (Some((level, since)), _) if now - since >= 3000.0 => Some(level),
+            (_, Some((level, since))) if now - since >= 1000.0 => Some(level),
+            _ => None,
         };
-        if target < self.level {
-            let since = *self.up_since.get_or_insert(now);
-            if now - since >= after {
-                self.level = target;
-                self.up_since = None;
-            }
-        } else {
-            self.up_since = None;
+        if let Some(level) = climb {
+            self.level = level;
+            self.size_up = None;
+            self.frames_up = None;
         }
         ladder.steps[self.level]
     }

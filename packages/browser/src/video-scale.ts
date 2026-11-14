@@ -114,11 +114,23 @@ export function pictureLadder(fps: number, probing: boolean, readable = 0): Pict
   ];
 }
 
+/** A pending step up to `level`: kept while the target holds, restarted when it changes. */
+function since(
+  pending: { level: number; since: number } | undefined,
+  level: number,
+  now: number,
+): { level: number; since: number } {
+  return pending?.level === level ? pending : { level, since: now };
+}
+
 export class PictureScale {
   #level = 0;
   #ladder: PictureStep[] | undefined;
   #key = "";
-  #upSince: number | undefined;
+  /** A larger picture the link has carried with spare, and since when: its own timer. */
+  #sizeUp: { level: number; since: number } | undefined;
+  /** More frames at this size the link has carried with spare, and since when. */
+  #framesUp: { level: number; since: number } | undefined;
   #downSince: number | undefined;
   /** The step for the link now. */
   update(input: PictureLink): PictureStep {
@@ -139,14 +151,16 @@ export class PictureScale {
       this.#ladder = pictureLadder(input.fps, probing, readable);
       this.#key = key;
       this.#level = fitting(this.#ladder);
-      this.#upSince = undefined;
+      this.#sizeUp = undefined;
+      this.#framesUp = undefined;
       this.#downSince = undefined;
       return this.#step();
     }
     const ladder = this.#ladder;
     const last = ladder.length - 1;
     if (this.#level < last && !carries(this.#step())) {
-      this.#upSince = undefined;
+      this.#sizeUp = undefined;
+      this.#framesUp = undefined;
       this.#downSince ??= now;
       if (now - this.#downSince >= downAfterMs) {
         this.#level = fitting(ladder);
@@ -156,22 +170,25 @@ export class PictureScale {
     }
     this.#downSince = undefined;
     // Up only after the link has carried a larger step with spare for a while, and then
-    // straight to the largest it carries.
-    const roomy = fitting(ladder, upSpare);
-    // Short of a larger picture, the frames at this size may still step up.
+    // straight to the largest it carries. A larger picture (a new encode and a keyframe) and
+    // more frames at this size (in place) are judged apart, each with its own target and timer:
+    // a timer restarts whenever its target changes, so a higher target waits its own time.
     const scale = this.#step().scale;
+    const roomy = fitting(ladder, upSpare);
+    const larger = roomy < this.#level && (ladder[roomy]?.scale ?? scale) !== scale;
+    this.#sizeUp = larger ? since(this.#sizeUp, roomy, now) : undefined;
     let frames = fitting(ladder, framesUpSpare);
     while (frames < this.#level && (ladder[frames]?.scale ?? scale) !== scale) frames++;
-    const target = roomy < this.#level ? roomy : frames < this.#level ? frames : this.#level;
-    if (target < this.#level) {
-      const after = roomy < this.#level ? upAfterMs : framesUpAfterMs;
-      this.#upSince ??= now;
-      if (now - this.#upSince >= after) {
-        this.#level = target;
-        this.#upSince = undefined;
-      }
-    } else this.#upSince = undefined;
+    this.#framesUp = frames < this.#level ? since(this.#framesUp, frames, now) : undefined;
+    if (this.#sizeUp && now - this.#sizeUp.since >= upAfterMs) this.#climb(this.#sizeUp.level);
+    else if (this.#framesUp && now - this.#framesUp.since >= framesUpAfterMs)
+      this.#climb(this.#framesUp.level);
     return this.#step();
+  }
+  #climb(level: number): void {
+    this.#level = level;
+    this.#sizeUp = undefined;
+    this.#framesUp = undefined;
   }
   #step(): PictureStep {
     return this.#ladder?.[this.#level] ?? { scale: 1, fps: frameRates[0] };

@@ -741,6 +741,146 @@
     ]
   },
   {
+    "name": "more frames at the same size after 1 s",
+    "steps": [
+      {
+        "input": {
+          "link": 900000,
+          "pixels": 1000000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 1000000,
+          "fps": 60,
+          "now": 100,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 1000000,
+          "fps": 60,
+          "now": 1099,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 1000000,
+          "fps": 60,
+          "now": 1100,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "a spike waits its own time",
+    "steps": [
+      {
+        "input": {
+          "link": 1200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 2200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 100,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 2200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 3099,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 3100,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 6099,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 6100,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
     "name": "a view that asks for 30 fps",
     "steps": [
       {
