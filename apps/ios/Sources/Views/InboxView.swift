@@ -192,7 +192,8 @@ struct InboxView: View {
     private var sheets: some View {
         tabs
             .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
-                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }))
+                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
+                                           openUnlisted: { openThread($0, listed: false) }))
             .sheet(isPresented: $pairing) {
                 if let machines {
                     NavigationStack {

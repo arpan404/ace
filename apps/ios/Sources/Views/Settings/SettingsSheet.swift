@@ -7,7 +7,7 @@ enum SettingsRoute: Hashable {
     case account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
-    case archive, profiles, cache, thread(machine: String, id: String)
+    case archive, history, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case automation(machine: String, id: String)
     case licences
@@ -18,6 +18,8 @@ enum SettingsRoute: Hashable {
 struct MorePlaces {
     let openThread: (InboxKey) -> Void
     let startThread: () -> Void
+    /// A thread its machine's list doesn't hold yet (an older settled one History found).
+    var openUnlisted: (InboxKey) -> Void = { _ in }
 }
 
 /// More, opened from the inbox header: the app's secondary places as a grouped list. Settings
@@ -132,6 +134,7 @@ struct SettingsSheet: View {
                 } header: { InsetHeader("Interface") }
                 .insetRowBackground()
                 Section {
+                    link(.history, "History", "clock.arrow.circlepath", id: "settings.history")
                     link(.archive, "Archived", "archivebox", id: "settings.archive")
                     link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
                     link(.cache, "Cached chats", "internaldrive", id: "settings.cache")
@@ -199,6 +202,11 @@ struct SettingsSheet: View {
             ArchiveView(inbox: inbox, following: $following) { machine, id in
                 inbox.client(machine)?.open(id)
                 path.append(.thread(machine: machine, id: id))
+            }
+        case .history:
+            HistoryView(inbox: inbox) { key, listed in
+                dismiss()
+                if listed { places?.openThread(key) } else { places?.openUnlisted(key) }
             }
         case .profiles: TaskProfilesView(store: TaskProfileStore(defaults: .standard))
         case .cache: CachedChatsView(inbox: inbox)

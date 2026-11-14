@@ -56,6 +56,7 @@ extension SettingsRoute {
         case "notifications": [.notifications]
         case "appearance", "general": [.appearance]
         case "archive", "archived": [.archive]
+        case "history": [.history]
         case "profiles": [.profiles]
         case "licences", "licenses", "about": [.licences]
         default: []

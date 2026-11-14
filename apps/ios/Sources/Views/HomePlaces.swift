@@ -16,6 +16,8 @@ struct PlaceSheet: Identifiable {
         case .issues: return PlaceSheet(id: id, root: .pulls, forge: .issues)
         case .machines: return PlaceSheet(id: id, root: .machines)
         case .settings: return PlaceSheet(id: id, root: .settings)
+        case .history: return PlaceSheet(id: id, root: .history)
+        case .archived: return PlaceSheet(id: id, root: .archive)
         case .automations, .skills, .usage:
             guard let machine, let tool = place.tool else { return nil }
             return PlaceSheet(id: id, root: .tool(tool, machine: machine))

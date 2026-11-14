@@ -52,7 +52,7 @@ import XCTest
     func testSearchListsThePlacesAndOpensOne() {
         let app = launch()
         app.openSearch()
-        for place in ["pulls", "issues", "automations", "skills", "usage", "machines", "settings"] {
+        for place in ["pulls", "issues", "automations", "skills", "usage", "history", "archived", "machines", "settings"] {
             XCTAssertTrue(app.buttons["search.place.\(place)"].waitForExistence(timeout: 10), "\(place) is missing from Places")
         }
         XCTAssertFalse(app.buttons["search.place.spade"].exists)
@@ -63,6 +63,25 @@ import XCTest
         for _ in 0..<4 where !app.buttons["library.projects"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["library.projects"].exists)
         capture("settings")
+    }
+
+    func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
+        let app = launch()
+        for (place, title) in [("usage", "Usage"), ("automations", "Automations"), ("history", "History"), ("archived", "Archived")] {
+            app.openSearch()
+            let capsule = app.buttons["search.place.\(place)"]
+            XCTAssertTrue(capsule.waitForExistence(timeout: 10), "\(place) is missing from Places")
+            capsule.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10), "\(title) didn't open from home")
+            capture("place-\(place)")
+            app.buttons["settings.close"].tap()
+            XCTAssertTrue(app.buttons["search.place.settings"].waitForExistence(timeout: 10))
+        }
+        // Settings keeps its own way to History and Archived.
+        app.buttons["search.place.settings"].tap()
+        for _ in 0..<4 where !app.buttons["settings.history"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["settings.history"].exists)
+        XCTAssertTrue(app.buttons["settings.archive"].exists)
     }
 
     func testTypingInSearchFindsSettingsPagesAndThreads() {
