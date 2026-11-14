@@ -58,13 +58,8 @@ async function connect() {
     );
   const whole = async () => {
     const parts: Uint8Array[] = [];
-    for await (const bytes of downloadFile(owner, {
-      threadId: ThreadId.parse(thread),
-      op: "download",
-      path,
-      offset: 0,
-    }))
-      parts.push(bytes);
+    const input = { threadId: ThreadId.parse(thread), op: "download", path, offset: 0 } as const;
+    for await (const bytes of downloadFile(owner, input, { timeoutMs: 30_000 })) parts.push(bytes);
     return new TextDecoder().decode(Buffer.concat(parts));
   };
   return { ask, whole };
@@ -104,6 +99,7 @@ test("a part of a file too large to edit whole saves into the file, leaving the 
   const second = await ask({ op: "page", path, offset: first.nextOffset, version: first.version });
   const length = (second.nextOffset as number) - (second.offset as number);
   const text = second.text as string;
+  const before = first.text as string;
   const edited = text.replace(/^event (\d+) /m, "EDITED $1 ");
   const saved = await ask({
     op: "part.write",
@@ -116,9 +112,7 @@ test("a part of a file too large to edit whole saves into the file, leaving the 
   expect(saved).toMatchObject({ ok: true, version: expect.any(String) });
   expect(saved.version).not.toBe(first.version);
   const after = await whole();
-  expect(after).toBe(
-    big.slice(0, first.text.length) + edited + big.slice(first.text.length + text.length),
-  );
+  expect(after).toBe(big.slice(0, before.length) + edited + big.slice(before.length + text.length));
 });
 
 test("a part saved after the file changed names the newer version and writes nothing", async () => {
