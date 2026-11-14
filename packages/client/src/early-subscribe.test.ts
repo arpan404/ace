@@ -45,6 +45,8 @@ function harness(credential: () => Promise<Credential> = async () => "a".repeat(
     random: () => 0.5,
     id: () => `id-${++id}`,
     now: () => now,
+    // Durations run on the monotonic clock: this test's manual time.
+    monotonic: () => now,
     limits: defaultLimits,
   });
   const advance = async (ms: number) => {

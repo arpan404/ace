@@ -2,6 +2,7 @@ import { parseCredential, relayGrant, type Credential } from "./credentials.ts";
 import { handshakePath, type PathRoute, type WelcomedPath } from "./path-handshake.ts";
 import { pathTiming } from "./path-plan.ts";
 import { stageDeadline } from "./handshake-deadline.ts";
+import { defaultMonotonic } from "./monotonic.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
@@ -69,14 +70,6 @@ const heartbeatMissed = "Heartbeat missed";
  * when nothing has measured the link yet; once measured, the path's own pong deadline.
  */
 const wakeProbeMs = 5000;
-/**
- * The monotonic clock for liveness when the app passes none (`ClientOptions.monotonic`): this
- * is the composition boundary, the only place the client reaches for one itself. A runtime
- * without `performance` falls back to the wall clock, which the heartbeat keeps from going
- * backwards.
- */
-const defaultMonotonic: () => number =
-  typeof performance === "undefined" ? () => Date.now() : () => performance.now();
 /** Pings a socket may owe pongs for; past this, no more go out on it. */
 const maxUnansweredPings = 64;
 /** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
@@ -107,6 +100,11 @@ export class Connection {
   #lastReadyAt: number | undefined;
   #lastClose: ConnectionClose | undefined;
   #heartbeat: Heartbeat;
+  /** Every duration this connection measures runs on this clock; `options.now` only stamps
+   * moments it shows or keeps (`since`, `lastReadyAt`, a close's `at`, `nextRetryAt`). */
+  #monotonic: () => number;
+  /** When the last close happened, on the monotonic clock: how long the connection was down. */
+  #lostAt: number | undefined;
   #healthy: (() => void) | undefined;
   #codec: WireCodec;
   #binary: ((bytes: Uint8Array) => void) | undefined;
@@ -163,11 +161,8 @@ export class Connection {
     this.#deliver = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
-    this.#heartbeat = new Heartbeat(
-      options.scheduler,
-      limits.heartbeatMs,
-      options.monotonic ?? defaultMonotonic,
-    );
+    this.#monotonic = options.monotonic ?? defaultMonotonic;
+    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs, this.#monotonic);
     this.#held = new HeldFrames(limits.frameBytes * 4);
     this.#fragments = new FragmentAssembly(
       limits.fragmentBytes,
@@ -302,6 +297,7 @@ export class Connection {
     this.#helloGrant = undefined;
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
+    this.#lostAt = this.#monotonic();
     const decision = disconnectDecision(this.#active, this.#online, code, reason);
     const closed = {
       code,
@@ -417,17 +413,18 @@ export class Connection {
    */
   #stage(lastMs: number | undefined, deadlineMs?: number): void {
     this.#cancel?.();
-    this.#stageAt = this.#options.now?.();
+    this.#stageAt = this.#monotonic();
     const limit =
       deadlineMs ?? stageDeadline(this.#limits.handshakeStageMs, this.#limits.handshakeMs, lastMs);
     this.#cancel = this.#options.scheduler.set(limit, () =>
       this.#lost(1006, "Handshake timed out"),
     );
   }
-  /** How long the current stage has run, when there is a clock. */
+  /** How long the current stage has run; nothing for a reading that went backwards. */
   #elapsed(): number | undefined {
-    const now = this.#options.now?.();
-    return now === undefined || this.#stageAt === undefined ? undefined : now - this.#stageAt;
+    if (this.#stageAt === undefined) return undefined;
+    const elapsed = this.#monotonic() - this.#stageAt;
+    return elapsed >= 0 ? elapsed : undefined;
   }
   /** The route's credential, asked for now; a failure is read once the socket opens. */
   #prefetch(): Promise<Credential> {
@@ -438,24 +435,21 @@ export class Connection {
   }
   /**
    * The handed-over ticket, if it still has long enough to reach the daemon; used once either
-   * way. Needs a clock: without one no ticket is asked for or kept.
+   * way. Its life is measured on the monotonic clock, from when its welcome arrived.
    */
   #takeHanded(epoch: number): Promise<Credential> | undefined {
     const handed = this.#handed;
     this.#handed = undefined;
-    const now = this.#options.now?.();
-    if (!handed || now === undefined || handed.expiresAt - now < handedMarginMs) return undefined;
+    if (!handed || handed.expiresAt - this.#monotonic() < handedMarginMs) return undefined;
     this.#usedHanded = epoch;
     return Promise.resolve({ ticket: handed.ticket });
   }
   /** Keep the welcome's next ticket, in memory only, and pass the welcome on without it. */
   #keepHanded(welcome: Extract<Message, { type: "welcome" }>): Message {
     const { ticket, ...rest } = welcome;
-    const now = this.#options.now?.();
-    this.#handed =
-      ticket && now !== undefined
-        ? { ticket: ticket.ticket, expiresAt: now + ticket.ttlMs }
-        : undefined;
+    this.#handed = ticket
+      ? { ticket: ticket.ticket, expiresAt: this.#monotonic() + ticket.ttlMs }
+      : undefined;
     return rest;
   }
   #hello(transport: Transport, credential: Credential, main = false): ClientMessage {
@@ -464,11 +458,7 @@ export class Connection {
     // on a transport without a credential of its own (not a relay attempt or a path race,
     // whose winner's route picks the credential). Otherwise the daemon's per-device pool would
     // hold a ticket nobody uses.
-    const ask =
-      main &&
-      "ticket" in parsed &&
-      transport.credential === undefined &&
-      this.#options.now !== undefined;
+    const ask = main && "ticket" in parsed && transport.credential === undefined;
     return {
       type: "hello",
       protocolVersion: 1,
@@ -632,10 +622,8 @@ export class Connection {
         this.#since = this.#lastReadyAt = this.#options.now?.();
         this.state = "ready";
         if (this.#lastClose) {
-          const down =
-            this.#since !== undefined && this.#lastClose.at !== undefined
-              ? this.#since - this.#lastClose.at
-              : undefined;
+          // A duration: on the monotonic clock, whatever the wall clock did meanwhile.
+          const down = this.#lostAt === undefined ? undefined : this.#monotonic() - this.#lostAt;
           this.#report("connection.recovered", {
             attempts: this.#attempt,
             ...(down === undefined ? {} : { downMs: down }),

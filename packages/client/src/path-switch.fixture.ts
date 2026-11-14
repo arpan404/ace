@@ -174,6 +174,8 @@ export async function connected(
     ready?: boolean;
     /** Whether the app is in front (`MultipathOptions.visible`); always, when absent. */
     visible?(): boolean;
+    /** The wall clock, when a test moves it apart from the manual time; that time otherwise. */
+    wall?(): number;
   } = {},
 ) {
   const clock = new Clock();
@@ -189,7 +191,9 @@ export async function connected(
   const multipath = new Multipath({
     routes: () => routes,
     scheduler: clock,
-    now: () => clock.now,
+    now: options.wall ?? (() => clock.now),
+    // Every duration runs on the fixture's manual time, whatever the wall clock does.
+    monotonic: () => clock.now,
     lastWinner: first,
     mismatch: (planned) => mismatched.push(planned.kind),
     ...(options.visible ? { visible: options.visible } : {}),

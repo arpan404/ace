@@ -104,6 +104,17 @@ export function resting(health: PathHealth | undefined, now: number): boolean {
   return health !== undefined && health.restUntil > now;
 }
 
+/** A round-trip sample longer than this is taken for a clock fault, not a link. */
+const absurdRttMs = 60_000;
+/**
+ * The round trip a ping sent at `sentAt` and answered at `at` measured, both on the monotonic
+ * clock; undefined for a reading no link gives (negative, not finite, or over a minute), which
+ * is left out of the estimate rather than dragging it.
+ */
+export function rttSample(sentAt: number, at: number): number | undefined {
+  const sample = at - sentAt;
+  return Number.isFinite(sample) && sample >= 0 && sample <= absurdRttMs ? sample : undefined;
+}
 /** The smoothed round trip after one more sample. */
 export function smoothRtt(previous: number | undefined, sampleMs: number): number {
   const sample = Math.max(0, sampleMs);

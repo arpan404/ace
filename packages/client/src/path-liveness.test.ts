@@ -119,3 +119,36 @@ test("a hidden mapping that expires after 30 s idle survives a slow link's pongs
   expect(relay.answers).toBe(true);
   expect(relay.sockets).toHaveLength(1);
 });
+
+test("a wall clock set back during a ping changes neither the round trip nor the probe deadline", async () => {
+  // The wall clock starts with the manual time and is set back by 10 s at one moment.
+  let skew = 0;
+  let manual: Clock | undefined;
+  const { clock, client, path } = await connected("relay", ["relay"], {
+    wall: () => (manual?.now ?? 0) + skew,
+  });
+  manual = clock;
+  const relay = path("relay");
+  relay.pongAfter = (deliver) => clock.set(1_900, deliver);
+  await wait(clock, 7_000, 100);
+  expect(client.linkEstimate()?.rttMs).toBe(1_900);
+  // On the next ping, the device's time is set back by 10 s just before its pong lands.
+  let jumped = false;
+  relay.pongAfter = (deliver) =>
+    clock.set(1_900, () => {
+      if (!jumped) skew -= 10_000;
+      jumped = true;
+      deliver();
+    });
+  await wait(clock, 7_000, 100);
+  expect(jumped).toBe(true);
+  expect(client.linkEstimate()?.rttMs).toBe(1_900);
+  // The probe deadline is still four round trips: a silent socket is dropped at 7.6 s.
+  relay.answers = false;
+  const socket = relay.last;
+  client.wake();
+  await wait(clock, 7_500, 100);
+  expect(socket.closed).toBe(false);
+  await wait(clock, 200, 100);
+  expect(socket.closed).toBe(true);
+});

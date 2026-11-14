@@ -726,9 +726,12 @@ export class MachinePool {
     const paths = new Multipath({
       routes,
       scheduler,
-      // The shell's clock; an app that injects none gets the wall clock here, at the boundary.
+      // The shell's wall clock, only for moments shown; an app that injects none gets the wall
+      // clock here, at the boundary.
       now: this.options.remote.now ?? Date.now,
-      ...(account.clock ? { clock: account.clock } : {}),
+      // Every liveness duration runs on the monotonic clock (ADR 0150); the path manager's own
+      // default when the app gives none.
+      ...(account.clock ? { clock: account.clock, monotonic: account.clock } : {}),
       // A hidden window pings its machine less often.
       ...(visibility ? { visible: () => visibility.visible() } : {}),
       ...(account.watchNetwork ? { watchNetwork: account.watchNetwork } : {}),

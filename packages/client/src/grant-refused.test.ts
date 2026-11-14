@@ -51,6 +51,8 @@ async function welcomed() {
       random: () => 0.5,
       id: () => `refresh-id-${++ids}`,
       now: () => now,
+      // Durations run on the monotonic clock: this test's manual time.
+      monotonic: () => now,
     },
     new WireCodec(),
     defaultLimits,
