@@ -112,7 +112,9 @@ it("a phone's live alert carries its catch-up cursor, the same on every retry", 
     await f.service.drain();
   }
   const cursor = f.service.feed(f.phone, 0).entries[0]?.cursor;
-  const sent = f.deliveries.filter((d) => d.device.id === f.phone).map((d) => d.notification.cursor);
+  const sent = f.deliveries
+    .filter((d) => d.device.id === f.phone)
+    .map((d) => d.notification.cursor);
   expect(sent.length).toBeGreaterThan(1);
   expect(new Set(sent)).toEqual(new Set([cursor]));
   expect(f.deliveries.find((d) => d.device.id === f.desktop)?.notification.cursor).toBeUndefined();
