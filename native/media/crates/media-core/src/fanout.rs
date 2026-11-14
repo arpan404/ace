@@ -126,6 +126,13 @@ impl Viewer {
                     .checked_add(piece.bytes)
                     .is_some_and(|total| total <= self.bytes()))
     }
+    fn fits_window(&self, piece: Piece) -> bool {
+        self.inflight.len() < self.window.frames
+            && self
+                .inflight_bytes
+                .checked_add(piece.bytes)
+                .is_some_and(|total| total <= self.window.bytes)
+    }
     pub fn publish(
         &mut self,
         encode: u64,
@@ -149,7 +156,9 @@ impl Viewer {
             let allowance = self
                 .bytes()
                 .saturating_add(self.queue.front().filter(|p| p.key).map_or(0, |p| p.bytes));
-            if !self.queue.is_empty()
+            // A delta only the time bound holds back (the window would take it) waits too.
+            let waits = !self.queue.is_empty() || self.fits_window(piece);
+            if waits
                 && self.queue.len() < self.window.frames
                 && self
                     .queued_bytes

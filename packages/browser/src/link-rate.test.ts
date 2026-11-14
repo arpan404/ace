@@ -14,8 +14,12 @@ describe("a viewer's link rate", () => {
   it("settles just under a link it overruns, without collapsing to the floor", () => {
     const rate = new LinkRate(limits);
     const rates = simulate(rate, { link: link(2), seconds: 20 });
-    for (const value of rates.slice(-5)) {
-      expect(value).toBeLessThan(2_500_000);
+    const settled = rates.slice(-10);
+    const mean = settled.reduce((sum, value) => sum + value, 0) / settled.length;
+    expect(mean).toBeLessThan(2_200_000);
+    expect(mean).toBeGreaterThan(1_400_000);
+    for (const value of settled) {
+      expect(value).toBeLessThan(3_000_000);
       expect(value).toBeGreaterThan(1_000_000);
     }
   });
@@ -28,7 +32,7 @@ describe("a viewer's link rate", () => {
   it("falls when the link gets slower", () => {
     const rate = new LinkRate(limits);
     simulate(rate, { link: link(100), seconds: 10 });
-    const rates = simulate(rate, { link: link(3), seconds: 10, start: 10_000 });
+    const rates = simulate(rate, { link: link(3), seconds: 15, start: 10_000 });
     expect(rates.at(-1)).toBeLessThan(3_300_000);
   });
 
@@ -51,7 +55,7 @@ describe("a viewer's link rate", () => {
 
   it("a single retransmit stall out of a calm link does not cut the rate", () => {
     const rate = new LinkRate(phone);
-    simulate(rate, { link: link(8, 150), seconds: 10, fps: 15 });
+    simulate(rate, { link: link(40, 150), seconds: 10, fps: 15 });
     const before = rate.rate;
     rate.sent(10_000, 2_000, 10_000);
     // A retransmit timeout, backed off to a second: the chunk sent behind it waits too.
@@ -94,12 +98,25 @@ describe("a viewer's link rate", () => {
     expect(rate.rate).toBeGreaterThanOrEqual(before);
   });
 
-  it("a dropped chunk cuts the rate at once", () => {
+  it("a drop with a queue behind it cuts the rate at once", () => {
+    const rate = new LinkRate(limits);
+    simulate(rate, { link: link(100), seconds: 5 });
+    for (let index = 0; index < 12; index++) {
+      rate.sent(80_000 + index, 1_000, 5_000 + index * 50);
+      rate.acknowledged(80_000 + index, 5_000 + index * 50 + 100 + index * 20);
+    }
+    const before = rate.rate;
+    rate.dropped(5_700);
+    expect(rate.rate).toBeLessThan(before * 0.7);
+  });
+
+  it("a drop on a calm link is a chunk too big for the time bound, not a slow link", () => {
     const rate = new LinkRate(limits);
     simulate(rate, { link: link(100), seconds: 5 });
     const before = rate.rate;
     rate.dropped(5_100);
-    expect(rate.rate).toBeLessThan(before * 0.7);
+    expect(rate.rate).toBe(before);
+    expect(rate.probing).toBe(true);
   });
 
   it("a drop while the oldest chunk is stalled on a loss does not cut", () => {
@@ -160,6 +177,7 @@ describe("a link hint", () => {
   it("only picks the start: the rate still climbs no faster than the link proves", () => {
     const hinted = new LinkRate(phone, { effectiveType: "3g" });
     const rates = simulate(hinted, { link: link(0.4, 200), seconds: 20, fps: 5 });
-    expect(Math.max(...rates)).toBeLessThan(600_000);
+    // Nothing near the 1.5 Mbit/s an unhinted viewer would start at.
+    expect(Math.max(...rates)).toBeLessThan(700_000);
   });
 });

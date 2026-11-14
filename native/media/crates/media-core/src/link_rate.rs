@@ -185,8 +185,11 @@ impl LinkRate {
         self.delivered.push_back((at, bytes));
         self.delivered_bytes = self.delivered_bytes.saturating_add(bytes);
         self.cut_bytes = self.cut_bytes.saturating_add(bytes);
+        // Own send time only takes away queueing: never below the floor (see link-rate.ts).
+        let rtt = at - sent_at;
         let own = own_bytes as f64 * 8000.0 / self.rate;
-        self.sample((at - sent_at - own).max(0.0), sent_at, at);
+        let floor = self.floor.front().map_or(rtt, |c| c.1);
+        self.sample(rtt.min(floor.max(rtt - own)).max(0.0), sent_at, at);
         self.step(at, false);
     }
     /// A chunk didn't fit the viewer's window. One cut a round trip; none during a stall.
@@ -198,6 +201,12 @@ impl LinkRate {
             if self.stalls(age, at, false) {
                 let floor = self.floor.front().map_or(0.0, |c| c.1);
                 self.stalled(at, STALL_MS.max(floor));
+                return;
+            }
+        }
+        // A drop on a calm link is a chunk too big for the time bound, not a slow link.
+        if let Some(floor) = self.floor.front().map(|c| c.1) {
+            if self.smoothed.unwrap_or(floor) - floor < QUEUED_MS {
                 return;
             }
         }
@@ -292,7 +301,8 @@ impl LinkRate {
         let cut = if self.dropped {
             Some(rate.min(if delivered == 0.0 { rate } else { delivered }) * 0.6)
         } else if let Some(since) = self.queued_since {
-            (at >= self.hold_until && at - since >= PERSIST_MS).then(|| delivered.max(longer) * 0.9)
+            (at >= self.hold_until && at - since >= PERSIST_MS)
+                .then(|| rate.min(delivered.max(longer)) * 0.9)
         } else {
             None
         };

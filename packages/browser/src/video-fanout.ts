@@ -141,8 +141,10 @@ export class VideoFanout<C extends VideoPiece> {
         const head = viewer.queue[0];
         // The waiting keyframe may be bigger than the window on its own; deltas get the window.
         const allowance = this.bytes(viewer) + (head?.key ? head.bytes.length : 0);
+        // A delta only the time bound holds back (the window would take it) waits its turn too.
+        const waits = head !== undefined || this.fitsWindow(viewer, chunk);
         if (
-          head &&
+          waits &&
           viewer.queue.length < this.window.frames &&
           viewer.queuedBytes + chunk.bytes.length <= allowance
         ) {
@@ -196,6 +198,12 @@ export class VideoFanout<C extends VideoPiece> {
     return (
       viewer.inflight.length < this.window.frames &&
       viewer.inflightBytes + chunk.bytes.length <= this.bytes(viewer)
+    );
+  }
+  private fitsWindow(viewer: Viewer<C>, chunk: C): boolean {
+    return (
+      viewer.inflight.length < this.window.frames &&
+      viewer.inflightBytes + chunk.bytes.length <= this.window.bytes
     );
   }
   private drop(viewer: Viewer<C>, encode: string): void {

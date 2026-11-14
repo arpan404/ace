@@ -194,8 +194,12 @@ export class LinkRate {
     if (!newest) return;
     this.#inflight.splice(0, count);
     // The chunk's own time on the wire is not queueing: a keyframe on a thin link takes long.
+    // It is judged at the target rate, which may be far below a fast link's, so it only ever
+    // takes away queueing: never below the floor, or a fast link's floor would fall to nothing.
+    const rtt = at - newest.at;
     const own = (newest.bytes * 8000) / this.#rate;
-    this.#sample(Math.max(0, at - newest.at - own), newest.at, at);
+    const floor = this.#floor[0]?.rtt ?? rtt;
+    this.#sample(Math.max(0, Math.min(rtt, Math.max(floor, rtt - own))), newest.at, at);
     this.#step(at);
   }
   /**
@@ -211,6 +215,10 @@ export class LinkRate {
       this.#stalled(at, Math.max(stallMs, this.#floor[0]?.rtt ?? 0));
       return;
     }
+    // The window is bounded in time, so a chunk the encoder made too big is dropped on a calm
+    // link too: only a drop with a queue behind it says the link is too slow.
+    const floor = this.#floor[0]?.rtt;
+    if (floor !== undefined && (this.#smoothed ?? floor) - floor < queuedMs) return;
     this.#dropped = true;
     this.#step(at, true);
     this.#dropHoldUntil = at + (this.#smoothed ?? 0) + stepMs;
@@ -295,7 +303,8 @@ export class LinkRate {
     if (this.#dropped) cut(Math.min(rate, delivered || rate) * dropFall);
     else if (this.#queuedSince !== undefined) {
       if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs)
-        cut(Math.max(delivered, rates.longer) * deliveredShare);
+        // A queue that lasts means too much: below the rate, whatever was delivered.
+        cut(Math.min(rate, Math.max(delivered, rates.longer)) * deliveredShare);
     } else if (
       queueing < calmMs &&
       at >= this.#holdUntil &&

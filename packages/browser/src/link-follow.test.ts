@@ -134,8 +134,8 @@ test("a device viewer whose acks come back slower and slower reads as a thinner 
   await run(1, 60, () => 20);
   const calm = view.rate() ?? 0;
   expect(calm).toBeGreaterThan(pictureLinkLimits.initial);
-  // Then a queue builds: every ack comes back later than the one before.
-  await run(61, 180, (sequence) => 20 + (sequence - 60) * 8);
+  // Then a queue builds and stays: acks come back later and later, up to 400 ms late.
+  await run(61, 240, (sequence) => 20 + Math.min(400, (sequence - 60) * 8));
   expect(view.rate()).toBeLessThan(calm);
   view.close();
 });
