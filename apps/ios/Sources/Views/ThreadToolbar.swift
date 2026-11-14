@@ -88,6 +88,10 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: panel.toggle) { Image(systemName: "sidebar.right") }
                     .barGlyph()
+                    .accessibilityShowsLargeContentViewer {
+                        Image(systemName: "sidebar.right")
+                        Text(panel.shown ? "Hide panel" : "Show panel")
+                    }
                     .accessibilityLabel(panel.shown ? "Hide panel" : "Show panel")
                     .accessibilityIdentifier("thread.panel")
             }
