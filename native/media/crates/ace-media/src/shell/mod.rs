@@ -5,17 +5,18 @@
 //! carries out the engine's effects in order. Exits within 1 s of stdin closing.
 mod budget;
 mod effects;
+mod egress;
 mod ingest;
 mod lanes;
 mod writer;
 
-use crate::engine::recorder::NoRecorders;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
-use crate::probe::{CpuTrial, TRIAL_DEADLINE, probe};
+use crate::probe::{TRIAL_DEADLINE, probe, trials};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
+use egress::EgressLane;
 use ingest::{Ingest, IngestEvent};
 use media_wire::control::{
     Control, ControlFrame, FromMedia, Ingest as IngestAddress, Lane, Listen, Protocol, ToMedia,
@@ -27,7 +28,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{mpsc, oneshot};
-use writer::{NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
+use writer::{EGRESS_LIMIT, NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
 
 /// Exit codes the supervisor reads: 2 stops restarts until the daemon restarts.
 pub const EXIT_OK: i32 = 0;
@@ -61,8 +62,10 @@ impl Clock {
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
+        let mono = self.0.elapsed();
         Now {
-            mono_ms: self.0.elapsed().as_millis() as u64,
+            mono_ms: mono.as_millis() as u64,
+            mono_us: mono.as_micros() as u64,
             wall_ms: wall,
         }
     }
@@ -144,8 +147,7 @@ async fn serve(
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
 
-    let probed =
-        tokio::task::spawn_blocking(|| probe(vec![Box::new(CpuTrial)], TRIAL_DEADLINE)).await;
+    let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
     let Ok((mut capabilities, late)) = probed else {
         return fail("probe");
     };
@@ -198,13 +200,31 @@ async fn serve(
         }
     });
 
-    let mut engine = Engine::new(Box::new(NoRecorders));
+    let egress_lane = EgressLane::default();
+    let mut engine = Engine::new(
+        Box::new(crate::record::Mp4Recorders),
+        Box::new(egress_lane.clone()),
+    );
+    let (still_tx, mut still_rx) = mpsc::unbounded_channel();
+    let started = clock.0;
+    let threads = crate::stills::StillThreads::probed(
+        crate::stills::thread_count(std::thread::available_parallelism().map_or(1, |n| n.get())),
+        &capabilities.list(),
+        Arc::new(move || started.elapsed().as_micros() as u64),
+        Arc::new(move |outcome| {
+            let _ = still_tx.send(outcome);
+        }),
+    );
+    if let Ok(threads) = threads {
+        engine = engine.with_stills(Box::new(threads));
+    }
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
     let mut priority_out: Option<Writer> = None;
     let mut priority_failed: Option<oneshot::Receiver<()>> = None;
     let mut egress_closed: Option<oneshot::Receiver<()>> = None;
+    let mut egress_failed: Option<oneshot::Receiver<()>> = None;
     let mut tick = tokio::time::interval(TICK);
     let mut lanes_pending = true;
 
@@ -221,6 +241,7 @@ async fn serve(
             _ = fired(&mut priority_failed) => break fail("the priority lane failed"),
             _ = &mut stdout.failed => break fail("stdout failed"),
             _ = fired(&mut egress_closed) => break fail("the egress lane closed"),
+            _ = fired(&mut egress_failed) => break fail("the egress lane failed"),
             up = &mut lanes, if lanes_pending => {
                 lanes_pending = false;
                 let Ok(up) = up else { break fail("lane authentication") };
@@ -243,11 +264,14 @@ async fn serve(
                 });
                 let (closed_tx, closed_rx) = oneshot::channel();
                 egress_closed = Some(closed_rx);
-                let mut egress = up.egress;
+                let (mut egress_read, egress_write) = up.egress.into_split();
+                let mut writer = Writer::spawn(egress_write, EGRESS_LIMIT);
+                egress_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
+                egress_lane.connect(writer);
                 tokio::spawn(async move {
-                    // Egress carries frames out only (G1); reading tells us when it drops.
+                    // Egress carries frames out only; reading tells us when it drops.
                     let mut byte = [0u8; 1];
-                    while matches!(egress.read(&mut byte).await, Ok(n) if n > 0) {}
+                    while matches!(egress_read.read(&mut byte).await, Ok(n) if n > 0) {}
                     let _ = closed_tx.send(());
                 });
             }
@@ -287,13 +311,16 @@ async fn serve(
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
-                let changed = FromMedia::CapabilitiesChanged { capabilities: capabilities.list() };
+                let list = capabilities.list();
+                engine.capabilities_changed(&list);
+                let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()
                 {
                     break fail("stdout is backed up past its bound");
                 }
             }
+            Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
             _ = tick.tick() => engine.tick(clock.now()),
         }
         let mut outputs = Outputs {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
@@ -150,7 +151,12 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     threadId: ScreenAgentScope.shape.threadId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
-  z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
+  z.object({
+    op: z.literal("subscribe"),
+    sessionId: ScreenId,
+    /** What the client knows of its link (ADR 0149); it only lowers where the stream starts. */
+    link: MediaLinkHint.optional(),
+  }),
   /**
    * A watching view's live stream: H.264 at the size, rate and bit rate it can show, where the
    * Mac's helper encodes it; JPEG otherwise. The last view leaving returns the session to stills.

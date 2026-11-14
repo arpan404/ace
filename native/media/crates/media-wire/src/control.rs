@@ -1,4 +1,5 @@
 pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
+pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Setting {
@@ -384,6 +385,8 @@ pub enum ToMedia {
     RecordEpochs {
         #[serde(rename = "source")]
         source: Id,
+        #[serde(rename = "recording")]
+        recording: Id,
         #[serde(rename = "seq")]
         seq: Sequence,
         #[serde(rename = "decided")]
@@ -397,6 +400,15 @@ pub enum ToMedia {
     SourceClose {
         #[serde(rename = "source")]
         source: Id,
+    },
+    /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
+    /// the daemon turns it on.
+    #[serde(rename = "source.egress")]
+    SourceEgress {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "on")]
+        on: bool,
     },
     #[serde(rename = "media.ticket")]
     MediaTicket {
@@ -429,6 +441,14 @@ pub enum ToMedia {
         local: bool,
         #[serde(rename = "audio")]
         audio: bool,
+        /// What the client says about its link; it only picks the starting step (K3).
+        #[serde(
+            rename = "link",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        link: Option<LinkHint>,
     },
     #[serde(rename = "viewer.configure")]
     ViewerConfigure {
@@ -443,6 +463,29 @@ pub enum ToMedia {
     ViewerClose {
         #[serde(rename = "viewer")]
         viewer: Id,
+    },
+    /// The client hid or backgrounded the view: nothing is sent to it until `viewer.resume`.
+    #[serde(rename = "viewer.pause")]
+    ViewerPause {
+        #[serde(rename = "viewer")]
+        viewer: Id,
+    },
+    /// The view shows again; its first picture is a keyframe.
+    #[serde(rename = "viewer.resume")]
+    ViewerResume {
+        #[serde(rename = "viewer")]
+        viewer: Id,
+    },
+    /// The main session's link, every 500 ms while it has a media connection: its smoothed
+    /// round trip and the bytes queued to it, so video yields as soon as the session slows.
+    #[serde(rename = "session.link")]
+    SessionLink {
+        #[serde(rename = "session")]
+        session: Id,
+        #[serde(rename = "rttMs")]
+        rtt_ms: u32,
+        #[serde(rename = "backlogBytes")]
+        backlog_bytes: Sequence,
     },
     #[serde(rename = "relay.dial")]
     RelayDial {
@@ -772,6 +815,10 @@ pub enum FromMedia {
         width: u32,
         #[serde(rename = "height")]
         height: u32,
+        /// The path the still took: decode (or JPEG decode), scale and JPEG encode, each with
+        /// its backend, whether it ran on hardware, and its picture-sized copies.
+        #[serde(rename = "steps")]
+        steps: Vec<SourceStep>,
     },
     #[serde(rename = "still.failed")]
     StillFailed {

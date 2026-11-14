@@ -3,7 +3,7 @@
 use super::writer::Writer;
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, Engine};
-use crate::framing::encode;
+use crate::framing::{encode, encode_with};
 use media_wire::control::{FromMedia, Lane, Sequence, Stats};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -44,6 +44,14 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
     for effect in effects {
         let sent = match effect {
             Effect::Normal(message) => send(outputs.stdout, message, Lane::Normal),
+            Effect::NormalWith(message, payload) => encode_with(message, payload, Lane::Normal)
+                .map_err(|_| "an outgoing message did not encode")
+                .and_then(|bytes| {
+                    outputs
+                        .stdout
+                        .send(bytes)
+                        .map_err(|_| "an outbound lane is backed up past its bound")
+                }),
             // The priority lane is only ever answered once it is up.
             Effect::Priority(message) => outputs
                 .priority
