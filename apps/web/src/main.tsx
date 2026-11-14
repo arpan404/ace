@@ -11,7 +11,7 @@ import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
 import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
-import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
+import { afterFirstScreen, useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
@@ -101,7 +101,7 @@ const app = (client: ClientApi, machines?: MachinePool) => (
  * lookups kept between sessions.
  */
 function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
-  const { pool, ensure } = useBrowserMachinePool(local, session);
+  const { pool, ensure } = useBrowserMachinePool(local, session, poolStart);
   const [queryClient] = useState(createQueryClient);
   useKeptQueries(queryClient, props.client, props.connection);
   const { target, hostId } = props.connection;
@@ -314,6 +314,14 @@ const startup = createStartup({
   },
   frame: nextFrame,
 });
+
+/**
+ * Other machines connect once the first screen is up, unless the address opens a view on one of
+ * them (`?machine=`), which needs the pool for that screen.
+ */
+const poolStart = new URLSearchParams(location.search).has("machine")
+  ? undefined
+  : afterFirstScreen(startup, (run) => whenIdle(run));
 
 async function start(root: Root) {
   // iOS covers the page with its keyboard instead of resizing it; the app shell ends above it.
