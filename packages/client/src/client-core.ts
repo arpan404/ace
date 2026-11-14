@@ -352,12 +352,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         older: (threadId) => this.#tailFill.start(threadId),
       },
     );
-    this.#tailFill = new TailFill(
-      (threadId) => this.#subscriptions.held(threadId),
-      (threadId, limit) => this.loadOlder(threadId, limit),
-      // Up to what a full snapshot would have held, never the whole of a larger window.
-      Math.min(limits.items, 200),
-    );
+    this.#tailFill = new TailFill((threadId) => this.fillThread(threadId));
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
@@ -987,6 +982,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   async #readCore<T>(
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
+      | { type: "items.fill"; threadId: string; before: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
       | {
           type: "threads.page";
@@ -1133,6 +1129,25 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     return this.state === "ready" && thread && !thread.syncing && !thread.unconfirmed
       ? thread.cursor
       : undefined;
+  }
+  /**
+   * Read the rest of what a full snapshot holds into a thread opened from a small one
+   * (`ClientOptions.openTail`), so its window holds what a full snapshot would have.
+   */
+  async fillThread(threadId: string, options: RequestOptions = {}): Promise<void> {
+    const store = this.#subscriptions.held(threadId);
+    const before = store?.fillCursor;
+    if (!store || before === undefined) return;
+    const page = await this.#readCore(
+      { type: "items.fill", threadId, before },
+      (value) => {
+        const parsed = ItemsPage.parse(value);
+        if (parsed.threadId !== threadId) throw new ClientError("protocol");
+        return parsed;
+      },
+      options,
+    );
+    this.#subscriptions.held(threadId)?.fill(page, before);
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);

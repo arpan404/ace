@@ -1,7 +1,7 @@
 // A real daemon and client: the small first snapshot, the background pages behind it and the
 // resume that may answer with a snapshot all cross the socket, so only the wiring proves that the
 // client ends where a full snapshot would leave it.
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   AgentId,
   Interaction,
@@ -102,11 +102,7 @@ function shown(client: Client, threadId: ThreadId) {
     interactions: reader.interactionIds().map((id) => reader.interaction(id)),
     tasks: reader.taskIds().map((id) => reader.task(id)),
   };
-  // A paged text item also names where its full text is read from (`source`); its text, the
-  // part a view shows, is the snapshot's. Only that descriptor is set aside.
-  return JSON.parse(
-    JSON.stringify(view, (key, value: unknown) => (key === "source" ? undefined : value)),
-  ) as unknown;
+  return view;
 }
 const snapshotOf = (wire: ServerMessage) =>
   wire.type === "snapshot" && wire.view.kind === "thread" ? wire : undefined;
@@ -139,7 +135,7 @@ async function open(client: Client, threadId: ThreadId, items: number) {
   return lease;
 }
 
-test("a thread opened from a small tail pages in to what a full snapshot shows", async () => {
+test("a thread opened from a small tail fills in to what a full snapshot shows", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   fill(h, 120);
@@ -163,6 +159,55 @@ test("a thread opened from a small tail pages in to what a full snapshot shows",
   expect(shown(tail.client, h.thread.id)).toEqual(shown(full.client, h.thread.id));
 });
 
+test("a small-tail open with busy subagents fills in to what a full snapshot shows", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  // The person's transcript first, then a subagent's long run: a full snapshot keeps the root
+  // lane's share of the window, so the root transcript is not pushed out.
+  fill(h, 100);
+  const child = AgentId.parse("tail-child");
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "agent.created",
+      agent: {
+        id: child,
+        threadId: h.thread.id,
+        parentId: root,
+        origin: "provider_subagent",
+        fidelity: "full",
+        native: { provider: "codex" },
+        cwd: h.directory,
+        status: { state: "idle" },
+        createdAt: 2,
+        background: false,
+      },
+    },
+  ]);
+  for (let index = 0; index < 300; index++)
+    h.daemon.store.appendEvents(h.thread.id, [
+      {
+        type: "item.created",
+        item: { ...replyItem(`c${index}`, `child ${index} `.repeat(40)), agentId: child },
+      },
+    ]);
+  const full = h.make();
+  const tail = h.make({ openTail: screenTail });
+  await ready(full.client);
+  await ready(tail.client);
+  const reference = full.client.thread(h.thread.id);
+  await when(
+    reference.store.select(["order"], (reader) => reader.order.length),
+    (length) => length === 200,
+  );
+  tail.client.thread(h.thread.id);
+  const expected = shown(full.client, h.thread.id);
+  await vi.waitFor(() => expect(shown(tail.client, h.thread.id)).toEqual(expected), {
+    timeout: 8_000,
+  });
+  const roots = reference.store.order.filter((id) => id.startsWith("r"));
+  expect(roots).toHaveLength(100);
+});
+
 test("a client asking for a small tail still opens a daemon that sends the full snapshot", async () => {
   const h = await setup();
   cleanup = h.cleanup;
@@ -172,7 +217,7 @@ test("a client asking for a small tail still opens a daemon that sends the full 
   const client = h.make({ openTail: screenTail, transport: older.transport }).client;
   await open(reference.client, h.thread.id, 60);
   await open(client, h.thread.id, 60);
-  expect(older.faults.sent.some((text) => text.includes('"items.page"'))).toBe(false);
+  expect(older.faults.sent.some((text) => /"items\.(page|fill)"/.test(text))).toBe(false);
   expect(shown(client, h.thread.id)).toEqual(shown(reference.client, h.thread.id));
 });
 

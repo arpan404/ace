@@ -127,20 +127,16 @@ for (const [label, items] of [
   const scope = { kind: "thread" as const, threadId: thread };
   const opened = wire(scope, undefined, screen);
   row(label, wire(scope), opened);
-  // Then, behind the painted screen, pages of 50 up to what a full snapshot held (200 items).
+  // Then, behind the painted screen, one `items.fill` read for the rest of a full snapshot.
   const snapshot = opened[0];
   if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") continue;
-  let before = snapshot.view.itemsBefore;
-  let held = snapshot.view.itemOrder.length;
-  const pages: ServerMessage[] = [];
-  while (typeof before === "number" && held < 200) {
-    const page = store.readBoundedItemPage(thread, before, Math.min(50, 200 - held), 1024 * 1024);
-    pages.push({ type: "items.page", requestId: `p${pages.length}`, ...page });
-    held += page.items.length;
-    before = page.itemsBefore;
-  }
+  const before = snapshot.view.fill;
+  const pages: ServerMessage[] =
+    before === undefined
+      ? []
+      : [{ type: "items.page", requestId: "fill", ...store.readSnapshotFill(thread, before) }];
   console.log(
-    `${"  then in the background".padEnd(44)} ${pages.length} pages, ${kb(raw(pages))} (${kb(gzip(pages))} gz)`,
+    `${"  then in the background".padEnd(44)} ${pages.length} fill read, ${kb(raw(pages))} (${kb(gzip(pages))} gz)`,
   );
 }
 

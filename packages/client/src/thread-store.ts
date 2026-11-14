@@ -103,6 +103,12 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get itemsBefore() {
     return this.#view?.itemsBefore;
   }
+  /** Set while the snapshot held is cut short of a full one: the cursor `items.fill` reads. */
+  get fillCursor(): number | undefined {
+    return this.#trimmed ? undefined : this.#view?.fill;
+  }
+  /** The window has evicted items since its snapshot: a fill would no longer meet it. */
+  #trimmed = false;
   agentIds(): readonly string[] {
     return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
@@ -294,6 +300,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemsBefore = resumed.before;
     }
     this.#view = view;
+    this.#trimmed = false;
     this.#failure = undefined;
     this.#replace = false;
     this.#journal.reset(view.seq);
@@ -591,6 +598,51 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     }
     this.#notifications.emit(keys);
   }
+  /**
+   * Merge what a full snapshot holds beyond the small one held (`items.fill` for `before`), so
+   * the window holds what a full snapshot would have, each lane's share kept. Ignored once
+   * stale: another snapshot came, or the window has since evicted items.
+   */
+  fill(page: ItemsPage, before: number): void {
+    const view = this.#view;
+    if (!view) throw new ClientError("offline");
+    if (page.threadId !== view.thread.id) throw new ClientError("protocol");
+    const items = this.#journal.reconcile(page, view.seq);
+    if (this.fillCursor !== before) return;
+    delete view.fill;
+    const keys = new Set<ThreadKey>(["history"]);
+    const fresh: string[] = [];
+    for (const item of items) {
+      const seq = page.itemSeqs?.[item.id];
+      if (seq === undefined || this.item(item.id) || this.#deleted.has(item.id)) continue;
+      Object.defineProperty(view.items, item.id, {
+        value: item,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+      this.#hydrated.set(item.id, Math.max(page.seq, view.seq));
+      this.#creation.set(item.id, seq);
+      fresh.push(item.id);
+      keys.add(`item:${item.id}`);
+      this.#clip(item.id);
+    }
+    if (fresh.length) {
+      view.itemOrder = mergeBySeq(fresh, view.itemOrder, (id) => this.#creation.get(id));
+      keys.add("order");
+    }
+    // Everything from the full snapshot's cursor is now held, as everything from the small one's
+    // already was: the window holds from the older of the two.
+    const held = view.itemsBefore;
+    view.itemsBefore =
+      page.itemsBefore === null || held === null
+        ? page.itemsBefore === null
+          ? null
+          : held
+        : Math.min(held ?? page.itemsBefore, page.itemsBefore);
+    for (const id of this.#trim()) keys.add(`item:${id}`);
+    this.#notifications.emit(keys);
+  }
   /** Bound the window, keeping the root agent's share of it (ADR 0062). */
   #trim(): string[] {
     const view = this.#view;
@@ -605,6 +657,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       this.#limits.items,
     );
     view.itemOrder = tail.kept.map((entry) => entry.id);
+    if (tail.evicted.length) this.#trimmed = true;
     // Everything from the evicted boundary on is held; the cursor never moves back over a hole.
     if (tail.before !== undefined)
       view.itemsBefore =

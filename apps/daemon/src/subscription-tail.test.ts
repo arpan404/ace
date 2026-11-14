@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { Interaction, type ServerMessage, type ThreadView } from "@ace/protocol";
+import { Agent, AgentId, Interaction, type ServerMessage, type ThreadView } from "@ace/protocol";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
@@ -121,4 +121,46 @@ it("a small tail stops at its byte budget before its item count", () => {
   expect(small.view.itemOrder.length).toBeGreaterThan(0);
   expect(small.bytes).toBeLessThan(16 * 1024);
   expect(pageIn(store, small.view)).toHaveLength(60);
+});
+
+it("a small tail and its fill hold a full snapshot's items, root lane included, with busy subagents", () => {
+  const { store, thread } = setup(100);
+  store.appendEvents(thread.id, [
+    {
+      type: "agent.created",
+      agent: Agent.parse({
+        id: "root",
+        threadId: thread.id,
+        parentId: null,
+        origin: "root",
+        fidelity: "full",
+        native: { provider: "codex" },
+        cwd: "/repo",
+        status: { state: "idle" },
+        createdAt: 1,
+        background: false,
+      }),
+    },
+  ]);
+  // A subagent's long run after the person's transcript: a full snapshot keeps the root share.
+  for (let index = 0; index < 300; index++)
+    store.appendEvents(thread.id, [
+      {
+        type: "item.created",
+        item: { ...message(`child${index}`), agentId: AgentId.parse("child") },
+      },
+    ]);
+  const full = open(store, thread.id).view;
+  const small = open(store, thread.id, { items: 30, bytes: 48 * 1024 }).view;
+  expect(full.fill).toBeUndefined();
+  const before = small.fill;
+  if (before === undefined) throw new Error("No fill cursor");
+  const fill = store.readSnapshotFill(thread.id, before);
+  const seqs = { ...small.itemSeqs, ...fill.itemSeqs };
+  const held = [...new Set([...fill.items.map((item) => item.id), ...small.itemOrder])].toSorted(
+    (a, b) => (seqs[a] ?? 0) - (seqs[b] ?? 0),
+  );
+  expect(held).toEqual(full.itemOrder);
+  expect(full.itemOrder.filter((id) => id.startsWith("m"))).toHaveLength(100);
+  expect(fill.itemsBefore).toBe(full.itemsBefore);
 });

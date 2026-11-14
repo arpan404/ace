@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   EntitiesPage,
+  ItemsPage,
   EntityCollection,
   Event,
   ItemId,
@@ -141,24 +142,49 @@ export class ThreadReads {
    * whole, so a small snapshot shows the same state as a full one.
    */
   private sharedSnapshot(id: ThreadId, tail: SnapshotTail): ThreadView {
-    const key =
-      tail.items === fullTail.items && tail.bytes === fullTail.bytes
-        ? "snapshot"
-        : JSON.stringify(["snapshot", tail.items, tail.bytes]);
-    return this.source.cache.readShared(id, key, () =>
-      loadThreadSnapshot({
-        acquire: () =>
-          this.source.inTransaction()
-            ? this.source.status.snapshot(this.source.getThread(id), this.source.headSeq())
-            : this.acquireThread(id),
-        release: () => {
-          if (!this.source.inTransaction()) this.releaseThread(id);
-        },
-        items: (status) =>
-          this.source.payloads.tail(id, status.thread.rootAgentId, tail.items, tail.bytes),
-        retainAgents: (view) => this.source.status.retainItemAgents(view),
+    const full = tail.items >= fullTail.items && tail.bytes >= fullTail.bytes;
+    const key = full ? "snapshot" : JSON.stringify(["snapshot", tail.items, tail.bytes]);
+    return this.source.cache.readShared(id, key, () => {
+      const view = this.loadSnapshot(id, tail);
+      // Cut short of a full snapshot with older items left: the rest is read by `items.fill`.
+      if (!full && view.itemsBefore !== null) view.fill = view.itemsBefore;
+      return view;
+    });
+  }
+  /**
+   * What a full snapshot holds of the transcript created before `before` (a small snapshot's
+   * `fill`): with that snapshot, exactly a full snapshot's items, each lane's share kept.
+   */
+  readSnapshotFill(id: ThreadId, before: number): ItemsPage {
+    this.source.flush();
+    if (!this.source.readThread(id)) throw new Error("Unknown thread");
+    const full = this.sharedSnapshot(id, fullTail);
+    const seqs = full.itemSeqs ?? {};
+    const ids = full.itemOrder.filter((itemId) => (seqs[itemId] ?? before) < before);
+    return {
+      threadId: id,
+      items: ids.flatMap((itemId) => {
+        const item = full.items[itemId];
+        return item ? [item] : [];
       }),
-    );
+      itemSeqs: Object.fromEntries(ids.map((itemId) => [itemId, seqs[itemId] ?? 0])),
+      itemsBefore: full.itemsBefore,
+      seq: this.source.headSeq(),
+    };
+  }
+  private loadSnapshot(id: ThreadId, tail: SnapshotTail): ThreadView {
+    return loadThreadSnapshot({
+      acquire: () =>
+        this.source.inTransaction()
+          ? this.source.status.snapshot(this.source.getThread(id), this.source.headSeq())
+          : this.acquireThread(id),
+      release: () => {
+        if (!this.source.inTransaction()) this.releaseThread(id);
+      },
+      items: (status) =>
+        this.source.payloads.tail(id, status.thread.rootAgentId, tail.items, tail.bytes),
+      retainAgents: (view) => this.source.status.retainItemAgents(view),
+    });
   }
   readEntityPage(
     threadId: ThreadId,

@@ -35,7 +35,7 @@ interface Cached {
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
 }
-/** Threads open with a small tail (`ClientOptions.openTail`); `older` pages in the rest. */
+/** Threads open with a small tail (`ClientOptions.openTail`); `older` reads in the rest. */
 export interface TailOpen {
   tail: OpenTail;
   older(threadId: string): void;
@@ -429,8 +429,8 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
-      // A small tail paints first; what a full snapshot would have held follows by pages.
-      if (this.#tail && entry.store.itemsBefore != null) this.#tail.older(entry.threadId);
+      // A small tail paints first; the rest of a full snapshot follows in one fill read.
+      if (this.#tail && entry.store.fillCursor !== undefined) this.#tail.older(entry.threadId);
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

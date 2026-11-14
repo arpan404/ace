@@ -70,6 +70,11 @@ export const ThreadView = z.object({
   itemSeqs: records(seq.positive()).optional(),
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
+  /**
+   * On a snapshot cut to a `tail`: it holds fewer items than a full snapshot would. `items.fill`
+   * with this cursor reads the rest of what a full one holds.
+   */
+  fill: seq.positive().optional(),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -350,6 +355,17 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     before: seq.positive(),
     limit: seq.positive().max(200),
   }),
+  /**
+   * The items a full thread snapshot holds that were created before `before` (a tail
+   * snapshot's `fill`), answered as an `items.page` whose `itemsBefore` is the full snapshot's.
+   * Together with the tail snapshot they are exactly a full snapshot's transcript, lane by lane.
+   */
+  z.object({
+    type: z.literal("items.fill"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    before: seq.positive(),
+  }),
   z.object({
     type: z.literal("entities.page"),
     requestId: z.string().min(1),
@@ -552,6 +568,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "command",
   "output.read",
   "items.page",
+  "items.fill",
   "threads.page",
   "entities.page",
   "command.status",
