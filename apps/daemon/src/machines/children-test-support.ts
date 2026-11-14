@@ -110,7 +110,15 @@ export function machine(
     resend: async (_machine: string): Promise<ResendAnswer> => "taken",
     /** How the machine takes a cancel; by default it says it stopped nothing (never confirms). */
     cancel: async (_id: string): Promise<void> => {},
+    /** How the parent takes a result: throw to refuse it, "gone" for a deleted parent. */
+    deliver: (): "gone" | void => {},
   };
+  /** Every attempt to hand the parent something, delivered or not. */
+  const attempts: string[] = [];
+  /** Parents stopped here, whose results wait for their next input. */
+  const stopped = new Set<string>();
+  /** Every line logged, by message. */
+  const logs: { message: string; fields: Record<string, unknown> }[] = [];
   /** Every cancel sent there, by child id, in order. */
   const cancels: string[] = [];
   /**
@@ -163,8 +171,12 @@ export function machine(
     }),
     label: () => "Studio",
     deliver: (_parent, _key, text) => {
-      delivered.push(text);
+      attempts.push(text);
+      const answer = answers.deliver();
+      if (answer !== "gone") delivered.push(text);
+      return answer;
     },
+    held: (id) => stopped.has(id),
     waiting: () => false,
     isDescendant: (child, ancestor) => {
       for (let at = edges.get(child); at; at = edges.get(at)) if (at === ancestor) return true;
@@ -183,7 +195,9 @@ export function machine(
       return found;
     },
     device,
-    log: () => {},
+    log: (message, fields) => {
+      logs.push({ message, fields });
+    },
   });
   const add = (id: string, host = "studio", from: ThreadId = parent) => {
     const threadId = ThreadId.parse(id);
@@ -229,6 +243,9 @@ export function machine(
     resent,
     cancels,
     delivered,
+    attempts,
+    stopped,
+    logs,
     timers,
     clock,
     answers,
