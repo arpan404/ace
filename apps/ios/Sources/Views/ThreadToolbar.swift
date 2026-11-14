@@ -108,7 +108,6 @@ struct ThreadToolbar: ToolbarContent {
     }
     private var displayedMenu: some View {
         EquatableView(content: menu)
-            .barGlyph()
             .opacity(coveredByDrawer ? 0 : 1)
             .allowsHitTesting(!coveredByDrawer)
             .accessibilityHidden(coveredByDrawer)
@@ -159,7 +158,9 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
+            // Only the glyph: the panel ⋯ presents keeps the person's text size.
             AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+                .barGlyph()
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .contentShape(Rectangle())
         }
