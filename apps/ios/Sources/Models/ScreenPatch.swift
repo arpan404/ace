@@ -145,6 +145,8 @@ struct PillRow: Codable, Sendable, Equatable {
         let label: String
         let opens: String
         let live: Bool
+        /// A goal's progress ("182K tokens · 32m 0s · 3 checks"); empty or nil when none.
+        var detail: String? = nil
         var id: String { kind }
     }
     let status: Status?

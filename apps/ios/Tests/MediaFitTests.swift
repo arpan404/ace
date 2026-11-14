@@ -44,3 +44,37 @@ import Testing
         #expect(side == 4000)
     }
 }
+
+/// Where published media opens from the transcript, as the web opens it.
+@Suite struct MediaOpeningTests {
+    private func row(_ type: String, _ text: String) -> TranscriptRow {
+        TranscriptRow(id: "page", index: 0, type: type, role: "assistant", text: text,
+                      complete: true, createdAt: 0, agentId: "root", truncated: false,
+                      detail: nil, quiet: nil)
+    }
+
+    @Test func aVisualizationOpensFullScreenOnAPhoneAndAsATitledPanelTabBesideTheThread() {
+        #expect(MediaOpening.of(row("html", "Revenue by month"), panelBeside: false) == .fullScreen)
+        #expect(MediaOpening.of(row("html", "Revenue by month"), panelBeside: true) == .panel(title: "Revenue by month"))
+    }
+
+    @Test func anImageOpensInItsViewerWhereverItIs() {
+        #expect(MediaOpening.of(row("image", "Screenshot"), panelBeside: false) == .viewer)
+        #expect(MediaOpening.of(row("image", "Screenshot"), panelBeside: true) == .viewer)
+    }
+
+    @Test func aPanelTabAlwaysHasATitleThePanelAccepts() {
+        #expect(MediaOpening.of(row("html", "  "), panelBeside: true) == .panel(title: "Visualization"))
+        let long = String(repeating: "a", count: 400)
+        #expect(MediaOpening.of(row("html", long), panelBeside: true) == .panel(title: String(repeating: "a", count: 160)))
+    }
+
+    /// The shared rules count UTF-16 units, so a title of emoji is cut by those, never mid-character.
+    @Test func anEmojiTitleIsCutToTheLimitThePanelCountsWithoutSplittingACharacter() {
+        let thumbs = String(repeating: "👍", count: 100)
+        #expect(MediaOpening.of(row("html", thumbs), panelBeside: true) == .panel(title: String(repeating: "👍", count: 80)))
+        // A family is one character of eleven units: it goes whole or not at all.
+        let family = String(repeating: "a", count: 155) + "👨‍👩‍👧‍👦"
+        #expect(MediaOpening.of(row("html", family), panelBeside: true) == .panel(title: String(repeating: "a", count: 155)))
+    }
+}
