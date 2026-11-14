@@ -112,11 +112,13 @@ private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.tex
         let log = model.rawLog
         #expect(log.hasPrefix("first") && log.hasSuffix("later"))
         #expect(log.contains("[Earlier output unavailable]"))
+        // Lost in transport, not dropped by the phone's limit: no dropped notice.
+        #expect(!(try String(contentsOf: model.raw.export(named: "lost"), encoding: .utf8)).contains(TerminalRawLog.droppedNotice))
     }
 }
 
-/// A terminal's raw output as kept for exporting: bounded, the oldest whole chunks going first,
-/// and saved as a `.log` file to share.
+/// A terminal's raw output as kept for exporting: bounded, the oldest whole chunks going first
+/// and let go of at once, and saved as a `.log` file to share that says when output was dropped.
 @Suite struct TerminalRawLogTests {
     @Test func theOldestWholeChunksGoOncePastTheLimitButOneLongChunkStays() {
         var log = TerminalRawLog(limit: 10)
@@ -124,6 +126,25 @@ private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.tex
         #expect(log.text == "bbbbcccc")
         log.append(String(repeating: "z", count: 25))
         #expect(log.text == String(repeating: "z", count: 25))
+    }
+
+    @Test func outputDroppedPastTheLimitIsLetGoAtOnce() {
+        var log = TerminalRawLog(limit: 1_000_000)
+        let chunk = String(repeating: "x", count: 32 * 1024)
+        for _ in 0..<1_000 { log.append(chunk) }
+        // A thousand 32 KB chunks: only what fits the limit stays in memory.
+        #expect(log.size <= 1_000_000)
+        #expect(log.retained == log.size)
+    }
+
+    @Test func anExportAfterDroppingOldOutputSaysSoAtTheTop() throws {
+        var log = TerminalRawLog(limit: 10)
+        log.append("\u{1b}[31maaaa"); log.append("bbbb"); log.append("cccc")
+        let exported = try String(contentsOf: log.export(named: "build"), encoding: .utf8)
+        #expect(exported == TerminalRawLog.droppedNotice + "bbbbcccc")
+        // Nothing dropped since Clear: the export is the output alone.
+        log.clear(); log.append("fresh")
+        #expect(try String(contentsOf: log.export(named: "build"), encoding: .utf8) == "fresh")
     }
 
     @Test func exportingWritesTheRawBytesToALogFileNamedForTheTerminal() throws {
