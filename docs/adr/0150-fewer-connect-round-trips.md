@@ -33,14 +33,18 @@ fixed 150 ms race stagger dialed every path every time.
    pairing the install again, and counted against the device's quota (a spent quota just hands
    none over). Only clients that ask get one, so the pool doesn't fill with tickets older clients
    ignore; relayed sockets get none. The client keeps it in memory only, strips it from the
-   welcome it passes on, and uses it for its next hello if it has at least 15 s left. A handed
-   ticket the daemon refuses (it restarted) is replaced by an exchange at once, never a stop.
+   welcome it passes on, and uses it for its next hello if it has at least 15 s left by both
+   its monotonic clock and the wall clock: the iOS uptime clock stands still while the phone
+   sleeps, which the wall clock catches, and the monotonic clock catches a wall clock set back.
+   A handed ticket the daemon refuses (it restarted) is replaced by an exchange at once, never a
+   stop, and an exchanged ticket refused after it is final.
 4. **The web client keeps its account grant.** Grants are kept in memory only, in the window's
    account options (`grant-cache.ts`), for one ace session: an account switch or a sign-out
    forgets them. Concurrent asks share one fetch, so a race fetches once. A grant is reused until
-   two minutes before it runs out, measured on a forward-only clock from its fetch and never
-   past the five minutes a grant lives, so a browser clock minutes off cannot stretch it; the
-   margin stays above the grant keeper's 60 s refresh lead. The daemon's or the relay's refusal
+   two minutes before it runs out, never past the five minutes a grant lives, and only while it
+   is that young by both clocks: the forward-only clock (`performance.now()`) stands still while
+   the laptop sleeps, which the wall clock catches, and the wall clock can be set back, which
+   the forward-only clock catches. The margin stays above the grant keeper's 60 s refresh lead. The daemon's or the relay's refusal
    is the authority, and only a refusal evicts a grant: the client names the exact grant it
    presented (`ClientOptions.grantRefused`) when the daemon refuses a hello that carried it, or
    refuses the socket's latest refresh (a late answer to an earlier refresh names nothing). An
@@ -50,9 +54,13 @@ fixed 150 ms race stagger dialed every path every time.
    grant failed before their WebSocket opened. An attempt whose upgrade succeeded resets that
    count, however it ends after (a pairing or Noise handshake that times out during a daemon or
    relay outage says nothing of the grant). The cache drops a named grant only if it is still the
-   kept one, so one machine's refusal never evicts a newer grant another machine fetched. A
-   kept grant refused in a hello earns one retry with a fresh grant; a fresh grant refused is
-   final, as before.
+   kept one, so one machine's refusal never evicts a newer grant another machine fetched.
+   Whether a refusal earns a retry depends on where that machine's grant came from, not on
+   whether it is still kept: the cache remembers the last grant it gave each machine (by host
+   id) and whether it came from the cache. A machine whose refused grant came from the cache
+   gets one retry with a fresh grant, however many machines shared it and in whatever order
+   their refusals come, and concurrent retries share one fetch. A grant fetched fresh for that
+   machine's attempt and refused is final, as before.
 5. **Liveness scales to the link.** The pong deadline is four smoothed round trips, at least 2 s
    and at most 10 s. With a warm standby one miss fails over; without one, two misses in a row.
 6. **The race stagger scales too.** It is 1.5 times how long the last race took to open its
