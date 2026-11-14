@@ -59,13 +59,17 @@ const thread = Thread.parse({
 });
 store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
 
-const spawns: string[][] = [];
+const spawns: { args: string[]; ms: number }[] = [];
 const runtime = new WorkspaceRuntime(store, data, () => 1000, {
   git: {
     processRuntime: {
       spawn(binary, args, options) {
-        spawns.push(args.filter((arg) => arg !== "--no-pager"));
-        return spawnGitProcess(binary, args, options);
+        const entry = { args: args.filter((arg) => arg !== "--no-pager"), ms: 0 };
+        spawns.push(entry);
+        const began = performance.now();
+        const child = spawnGitProcess(binary, args, options);
+        child.once("exit", () => (entry.ms = performance.now() - began));
+        return child;
       },
     },
   },
@@ -84,6 +88,7 @@ const median = (values: number[]) => values.toSorted((a, b) => a - b)[Math.floor
 const measure = async (work: (index: number) => Promise<void>) => {
   const times: number[] = [];
   let counts: Record<string, number> = {};
+  let gitMs: Record<string, number> = {};
   let total = 0;
   for (let index = 0; index < runs; index++) {
     const start = spawns.length;
@@ -93,13 +98,20 @@ const measure = async (work: (index: number) => Promise<void>) => {
     const taken = spawns.slice(start);
     total = taken.length;
     counts = {};
-    for (const spawn of taken) counts[name(spawn)] = (counts[name(spawn)] ?? 0) + 1;
+    gitMs = {};
+    for (const spawn of taken) {
+      const key = name(spawn.args);
+      counts[key] = (counts[key] ?? 0) + 1;
+      gitMs[key] = Math.round((gitMs[key] ?? 0) + spawn.ms);
+    }
   }
   return {
     medianMs: median(times),
     times,
     spawns: total,
     by: Object.fromEntries(Object.entries(counts).toSorted((a, b) => b[1] - a[1])),
+    /** Wall time of each kind of Git process in the last run, summed. */
+    gitMs: Object.fromEntries(Object.entries(gitMs).toSorted((a, b) => b[1] - a[1])),
   };
 };
 
