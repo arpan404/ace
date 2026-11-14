@@ -49,12 +49,18 @@ pub fn run(input: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
             height: 1568,
         },
     )?;
-    let extension = CpuScaler::default().cpu_extensions();
+    let kernel = CpuJpegCodec::default().simd_kernel();
     if !libjpeg_turbo_rs::simd_and_std_features_enabled() {
         return Err("JPEG SIMD is disabled".into());
     }
+    if kernel == SimdKernel::Scalar && cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
+        #[cfg(target_arch = "x86_64")]
+        if std::arch::is_x86_feature_detected!("avx2") {
+            return Err("scalar resampling on a CPU with AVX2".into());
+        }
+    }
     println!(
-        "CPU resize/JPEG: {extension:?}, SIMD JPEG enabled; target {}x{} q80",
+        "CPU resample: {kernel:?}, SIMD DCT enabled; target {}x{} q80",
         target.width, target.height
     );
     let epoch = Instant::now();
@@ -69,11 +75,7 @@ pub fn run(input: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         WorkerLimits {
             physical_cores: num_cpus::get_physical(),
             input_bytes: input.len(),
-            output_bytes: libjpeg_turbo_rs::jpeg_buf_size(
-                target.width as usize,
-                target.height as usize,
-                libjpeg_turbo_rs::Subsampling::S420,
-            ),
+            output_bytes: jpeg_capacity(target),
         },
         now,
         Arc::new(move || {

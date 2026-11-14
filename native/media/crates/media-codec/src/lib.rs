@@ -12,10 +12,12 @@ mod jpeg;
 #[cfg(target_os = "macos")]
 mod macos;
 mod picture;
+mod resample;
 mod still;
-pub use jpeg::{CpuJpegCodec, jpeg_size};
+pub use jpeg::{CpuJpegCodec, dct_scaled_size, jpeg_capacity, jpeg_size};
 #[cfg(target_os = "macos")]
 pub use macos::{MacJpegCodec, NativeJpegPicture};
+pub use resample::SimdKernel;
 
 pub use contract::*;
 pub use picture::*;

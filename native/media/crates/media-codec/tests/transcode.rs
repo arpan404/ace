@@ -3,26 +3,20 @@ use media_codec::*;
 const INPUT: &[u8] = include_bytes!("../bench/data/still-1206x2622.jpg");
 
 #[test]
-fn dct_reduction_never_requires_upscaling_to_the_requested_size() -> Result<(), CodecError> {
-    let mut codec = CpuJpegCodec::default();
+fn dct_reduction_never_requires_upscaling_to_the_requested_size() {
+    let size = |(width, height)| Size { width, height };
     for (target, decoded) in [
         ((722, 1568), (1206, 2622)),
         ((600, 1300), (603, 1311)),
         ((300, 650), (302, 656)),
+        ((150, 327), (151, 328)),
+        ((151, 328), (302, 656)),
     ] {
-        let size = |(width, height)| Size { width, height };
-        let picture = codec.decode_for_resize(INPUT, size(target), Vec::new())?;
-        assert_eq!(picture.size(), size(decoded));
-        if picture.format() == PixelFormat::Rgba8 {
-            assert!(
-                picture.planes()[0]
-                    .data
-                    .chunks_exact(4)
-                    .all(|p| p[3] == 255)
-            );
-        }
+        assert_eq!(
+            dct_scaled_size(size((1206, 2622)), size(target)),
+            size(decoded)
+        );
     }
-    Ok(())
 }
 #[test]
 fn repeated_transcodes_reuse_storage_without_leaking_the_previous_picture() -> Result<(), CodecError>

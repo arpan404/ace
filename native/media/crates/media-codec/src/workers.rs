@@ -154,12 +154,7 @@ impl StillWorkers {
                 input,
             });
         };
-        if libjpeg_turbo_rs::jpeg_buf_size(
-            target.width as usize,
-            target.height as usize,
-            libjpeg_turbo_rs::Subsampling::S420,
-        ) > output.capacity()
-        {
+        if jpeg_capacity(target) > output.capacity() {
             return Err(RejectedStill {
                 error: CodecError::InvalidInput("JPEG exceeds output pool capacity".into()),
                 input,
