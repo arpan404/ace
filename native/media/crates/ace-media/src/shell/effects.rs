@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Carrying out the engine's effects, in order.
 use super::pictures::Pictures;
+use super::readers::Readers;
 use super::writer::Writer;
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, EncodeEffect, Engine};
@@ -26,6 +27,7 @@ pub struct Outputs<'a> {
     /// When each unanswered priority message arrived, oldest first.
     pub lag: &'a Mutex<VecDeque<Instant>>,
     pub pictures: &'a mut Pictures,
+    pub readers: &'a mut Readers,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
     pub now_ms: u64,
 }
@@ -88,8 +90,12 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             }
             Effect::Encode(command) => {
                 let pictures = &mut *outputs.pictures;
+                let readers = &mut *outputs.readers;
                 let now_ms = outputs.now_ms;
                 match command {
+                    EncodeEffect::Configure { token, encodes, .. } if readers.has(token) => {
+                        readers.configure(token, encodes)
+                    }
                     EncodeEffect::Configure {
                         source,
                         token,
@@ -102,8 +108,15 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
                         age_us,
                         ..
                     } => pictures.picture(token, text, epoch, age_us),
+                    EncodeEffect::Read { source, token, url } => readers.open(&source, token, &url),
+                    // A token is a reader's or an encoder's, never both.
+                    EncodeEffect::Key { token, .. } if readers.has(token) => readers.key(token),
                     EncodeEffect::Key { token, encode, .. } => pictures.key(token, encode),
+                    EncodeEffect::Drain { token, .. } if readers.has(token) => readers.drain(token),
                     EncodeEffect::Drain { source, token } => pictures.drain(&source, token),
+                    EncodeEffect::Close { token, .. } if readers.has(token) => {
+                        readers.close(token, now_ms)
+                    }
                     EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
                 }
                 Ok(())

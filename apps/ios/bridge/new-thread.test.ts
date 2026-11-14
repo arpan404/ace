@@ -220,7 +220,9 @@ test("an existing folder on the computer is found, added as a project and offere
     const patch = latest("compose.projects");
     return patch?.state === "ready" && patch;
   });
-  expect((projects.projects as { id: string }[]).map((row) => row.id)).toContain(added.projectId);
+  expect(
+    (projects.projects as { id: string; name: string }[]).find((row) => row.id === added.projectId),
+  ).toMatchObject({ name: "notes" });
 });
 
 test("a folder outside the computer's project folders is refused in words, with Allow offered", async () => {

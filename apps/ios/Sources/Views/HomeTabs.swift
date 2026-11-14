@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// The home screen's tabs. `compose` is the detached compose button on iOS 27, never a page.
-enum InboxTab: Hashable { case threads, chats, spade, search, compose }
+enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
-/// The home tabs in their order (Threads · Chats · Spade · Search, then compose) and what each
-/// is called. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
+/// The home tabs in their order (Threads · Chats · Spade · Code review · Search, then compose) and
+/// what each is called. Code review is the web rail's place for pull requests and issues. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
 /// its tab back in its slot between Chats and Search, and its glyph in the iPad sidebar, with
 /// nothing else to lay out again.
 enum HomeTabs {
@@ -12,13 +12,14 @@ enum HomeTabs {
     static let showsSpade = false
 
     /// The places the tab bar (and the iPad sidebar's foot) switches between, in order.
-    static var switchable: [InboxTab] { [.threads, .chats] + (showsSpade ? [.spade] : []) + [.search] }
+    static var switchable: [InboxTab] { [.threads, .chats] + (showsSpade ? [.spade] : []) + [.review, .search] }
 
     static func title(_ tab: InboxTab) -> String {
         switch tab {
         case .threads: "Threads"
         case .chats: "Chats"
         case .spade: "Spade"
+        case .review: "Code review"
         case .search: "Search"
         case .compose: "New thread"
         }
@@ -31,6 +32,7 @@ enum HomeTabs {
         case .threads: "folder"
         case .chats: "bubble.left.and.bubble.right"
         case .spade: "suit.spade"
+        case .review: "arrow.triangle.pull"
         case .search: "magnifyingglass"
         case .compose: "square.and.pencil"
         }
@@ -48,6 +50,7 @@ enum HomeTabs {
         case .threads: .folderSimple
         case .chats: .chats
         case .spade: .sparkle
+        case .review: .gitPullRequest
         case .search: .magnifyingGlass
         case .compose: .notePencil
         }
@@ -59,6 +62,7 @@ enum HomeTabs {
         case .threads: "threads"
         case .chats: "chats"
         case .spade: "spade"
+        case .review: "review"
         case .search: "search"
         case .compose: "compose"
         }

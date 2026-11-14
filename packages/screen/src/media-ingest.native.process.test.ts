@@ -76,6 +76,8 @@ it.runIf(runs)(
     onTestFinished(() => producers.dispose());
     // Which frames came back on egress, by the helper's own sequence.
     const viaEgress = new Set<number>();
+    /** How each ace-media path ended: clean (its end frame came) or interrupted. */
+    const ended: { at: number; interrupted: boolean }[] = [];
     const epochs = new Set<number>();
     const counted = (unit: EgressUnit) => {
       const stamp = readProducerStamp(unit.frame.extension);
@@ -92,6 +94,10 @@ it.runIf(runs)(
         add: (producer) =>
           producers.sources.add({
             ...producer,
+            pathEnded: (path, interrupted) => {
+              ended.push({ at: performance.now(), interrupted });
+              producer.pathEnded?.(path, interrupted);
+            },
             consumers: {
               deliver: (unit) => {
                 counted(unit);
@@ -191,7 +197,14 @@ it.runIf(runs)(
       await until(() => onPath().length >= 10);
     }
     await pause(500);
-    const sequences = h264().map((entry) => entry.frame.header.sequence);
+    // From the last helper-socket frame before the first switch on: before it the socket's own
+    // writer may coalesce a frame under load, which is today's path, not a handoff.
+    const all = h264();
+    const firstSwitch = Math.max(
+      0,
+      all.findIndex((entry) => viaEgress.has(entry.frame.header.sequence)) - 1,
+    );
+    const sequences = all.slice(firstSwitch).map((entry) => entry.frame.header.sequence);
     expect(
       sequences.every((value, index) => index === 0 || value > (sequences[index - 1] ?? 0)),
     ).toBe(true);
@@ -200,6 +213,9 @@ it.runIf(runs)(
     );
     expect(holes).toEqual([]);
     expect(manager.state(id).lifecycle).toBe("live");
+    // Each planned move off ace-media wrote its queue and an end frame: a clean end, no cut.
+    expect(ended.length).toBeGreaterThanOrEqual(2);
+    expect(ended.every((end) => !end.interrupted)).toBe(true);
 
     // ace-media killed: the screen is back on the helper socket within 2 s, then on the new
     // ace-media once it is up again.
@@ -215,5 +231,7 @@ it.runIf(runs)(
     await until(() => egressed().length > restarted + 10, 20_000);
     expect(producers.supervisor.snapshot().pid).not.toBe(pid);
     expect(manager.state(id).lifecycle).toBe("live");
+    // The killed process's path ended in failure: interrupted.
+    expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
   },
 );

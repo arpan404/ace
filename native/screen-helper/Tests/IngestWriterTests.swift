@@ -54,6 +54,14 @@ func waitFor(_ condition: () -> Bool, seconds: Double = 5) -> Bool {
     return true
 }
 
+
+/// The end-of-source frame ace-media takes as a clean end: kind 4, an empty payload.
+func isEndFrame(_ bytes: Data) -> Bool {
+    let frame = [UInt8](bytes)
+    return frame.count == 44 && frame[0..<4] == [0x41, 0x43, 0x45, 0x4d] && frame[5] == 4
+        && frame[6] == 0 && frame[7] == 44 && frame[8..<12] == [0, 0, 0, 0]
+}
+
 final class IngestWriterTests: XCTestCase {
     private let token = Data(repeating: 7, count: 32)
     private let helloBytes = 44 + 32
@@ -86,9 +94,11 @@ final class IngestWriterTests: XCTestCase {
         // Nothing new is taken once the switch has begun.
         XCTAssertFalse(writer.write(Data([9]), keyframe: true))
         let (received, ended) = listener.readToEnd()
-        XCTAssertTrue(ended, "the connection closes cleanly after the last unit")
-        XCTAssertEqual(received.count, helloBytes + units.reduce(0) { $0 + $1.count })
-        XCTAssertEqual(received.suffix(units[2].count), units[2], "the last unit is written before the close")
+        XCTAssertTrue(ended, "the connection closes after the last unit")
+        XCTAssertEqual(received.count, helloBytes + units.reduce(0) { $0 + $1.count } + 44)
+        let body = received.prefix(received.count - 44)
+        XCTAssertEqual(body.suffix(units[2].count), units[2], "the last unit is written before the end")
+        XCTAssertTrue(isEndFrame(received.suffix(44)), "a planned finish ends with an end frame: a clean end")
         XCTAssertTrue(waitFor { writer.isClosed })
     }
 }

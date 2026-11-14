@@ -19,6 +19,7 @@
     "./tee": "./src/tee.ts",
     "./session-link": "./src/session-link.ts",
     "./ingest-sources": "./src/ingest-sources.ts",
+    "./ingest-writer": "./src/ingest-writer.ts",
     "./path-merge": "./src/path-merge.ts",
     "./runtime": "./src/runtime.ts"
   },

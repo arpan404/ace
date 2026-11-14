@@ -6,26 +6,39 @@ private struct MenuScreen: Identifiable {
     let title: String
     let icon: AceIcon.Name
     let destination: ThreadDestination
+    /// What VoiceOver reads: the title, or a page's words with its count ("Changes, 6 files"),
+    /// as the bar's own page buttons read.
+    var spoken: String? = nil
     var identifier: String { id }
 }
 
-/// The thread's screens, always one tap away. Beside the iPad's side panel: Changes, Files,
-/// Terminal and Browser, opening as its tabs. On a phone Changes is beside Chat in the bar, so
-/// the grid holds Files, Terminal (a thread with a checkout), Browser and Agents, each pushed.
+/// The thread's screens, always one tap away (`ThreadDestination.menuScreens`): beside the
+/// iPad's side panel they open as its tabs; on a phone they push over the thread, led by Chat or
+/// Changes when the bar has no room for them.
 private struct MenuScreenGrid: View {
     let pages: ThreadPages?
+    let shownPage: ThreadPageKind
+    let switchInBar: Bool
     let open: (ThreadDestination) -> Void
     let dismiss: DismissAction
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var screens: [MenuScreen] {
-        let changes = MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes)
-        let files = MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files)
-        let terminal = MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal)
-        let browser = MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser)
-        let agents = MenuScreen(id: "thread.agents", title: "Agents", icon: .treeStructure, destination: .agents)
-        guard let pages else { return [changes, files, terminal, browser] }
-        return (pages.checkout ? [files, terminal] : []) + [browser, agents]
+        ThreadDestination.menuScreens(pages: pages, shown: shownPage, switchInBar: switchInBar).compactMap(screen)
+    }
+
+    private func screen(_ destination: ThreadDestination) -> MenuScreen? {
+        switch destination {
+        case .chat: MenuScreen(id: "thread.chat", title: "Chat", icon: .chatCircle, destination: .chat,
+                               spoken: pages?.label(of: .chat))
+        case .changes: MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes,
+                                  spoken: pages?.label(of: .changes))
+        case .files: MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files)
+        case .terminal: MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal)
+        case .browser: MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser)
+        case .agents: MenuScreen(id: "thread.agents", title: "Agents", icon: .treeStructure, destination: .agents)
+        default: nil
+        }
     }
 
     var body: some View {
@@ -51,7 +64,7 @@ private struct MenuScreenGrid: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(screen.title)
+                .accessibilityLabel(screen.spoken ?? screen.title)
                 .accessibilityIdentifier(screen.id)
             }
         }
@@ -92,6 +105,10 @@ struct ThreadMenuPanel: View {
     /// The thread's pages on a phone, which decide its screens; nil beside the iPad's side panel,
     /// where the screens open as its tabs from the grid.
     var pages: ThreadPages? = nil
+    /// The page showing, and whether Chat and Changes are in the bar; when they aren't, the grid
+    /// leads with the page not showing.
+    var shownPage: ThreadPageKind = .chat
+    var switchInBar = true
     @Environment(\.threadOrganizer) private var organizer
     @Environment(\.dismiss) private var dismiss
     private var row: ThreadRow? { model.inbox[thread.id] }
@@ -114,7 +131,7 @@ struct ThreadMenuPanel: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            MenuScreenGrid(pages: pages, open: open, dismiss: dismiss)
+            MenuScreenGrid(pages: pages, shownPage: shownPage, switchInBar: switchInBar, open: open, dismiss: dismiss)
                 .padding(.bottom, AceDesign.Space.related)
             Divider()
             Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
@@ -252,11 +269,9 @@ struct ThreadMenuPanel: View {
         if organizer == nil || row == nil {
             if model.canOperate, !model.inboxLayout.snooze.isEmpty {
                 Menu {
-                    ForEach(model.inboxLayout.snooze) { option in
-                        Button(option.label) {
-                            Task { if await model.snooze(thread.id, preset: option.id) { leave() } }
-                            dismiss()
-                        }
+                    SnoozeChoiceButtons(choices: SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox[thread.id])) { preset in
+                        Task { if await model.snooze(thread.id, preset: preset) { leave() } }
+                        dismiss()
                     }
                 } label: {
                     Label("Snooze", ace: .bellSimpleZ)

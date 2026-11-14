@@ -70,6 +70,12 @@ import {
   readUsageAccounts,
   useBankedReset,
 } from "./usage-limits.ts";
+import {
+  UsageLedgerCombineRequest,
+  UsageLedgerPartRequest,
+  combineLedger,
+  readLedgerPart,
+} from "./usage-ledger.ts";
 import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
 import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
 import { host } from "./host.ts";
@@ -408,6 +414,16 @@ export class NativeServices {
         this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
         return;
       }
+      const ledgerPart = UsageLedgerPartRequest.safeParse(raw);
+      if (ledgerPart.success) {
+        this.#answer(
+          id,
+          raw,
+          await readLedgerPart(this.owner, ledgerPart.data, controller.signal),
+          read,
+        );
+        return;
+      }
       if (MachineUpdateStatusRequest.safeParse(raw).success) {
         this.#answer(id, raw, await readMachineUpdate(this.owner, controller.signal), read);
         return;
@@ -458,6 +474,11 @@ export class NativeServices {
       const combine = UsageCombineRequest.safeParse(raw);
       if (combine.success) {
         this.#reply(id, true, combineUsage(combine.data), "");
+        return;
+      }
+      const combineLedgerRequest = UsageLedgerCombineRequest.safeParse(raw);
+      if (combineLedgerRequest.success) {
+        this.#reply(id, true, combineLedger(combineLedgerRequest.data), "");
         return;
       }
       const combineAccounts = UsageLimitsCombineRequest.safeParse(raw);

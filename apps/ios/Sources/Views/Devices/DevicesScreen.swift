@@ -67,7 +67,8 @@ struct DevicesScreen: View {
             } else if !view.connected || view.loading {
                 SkeletonRows(count: 3, label: "Loading devices").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if !view.enabled {
-                DeviceNote(sentence: "Devices are off on this machine.", action: model.canOperate ? "Turn on" : nil) {
+                DeviceNote(title: view.off?.title, sentence: view.off?.line ?? "Devices are off on this machine.",
+                           action: model.canOperate ? "Turn on" : nil) {
                     Task { await turnOn() }
                 }
             } else {
@@ -195,11 +196,19 @@ struct DeviceRow: View {
 
 /// A setup problem or state as one plain sentence, with one text action.
 struct DeviceNote: View {
+    /// A heading over the sentence, for a state the whole list is in (devices off).
+    var title: String? = nil
     let sentence: String
     let action: String?
     let run: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            if let title {
+                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .accessibilityAddTraits(.isHeader)
+            }
             Text(sentence).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(AceDesign.Ink.muted)
             if let action {

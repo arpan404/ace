@@ -9,9 +9,14 @@ import Darwin
 ///
 /// Commands arrive on stdin, one JSON object per line:
 /// `{"op":"frame","seq":n,"width":w,"height":h,"ts":ms}` (the file holds a new picture),
-/// `{"op":"bitrate","bitrate":b}` (in place, no keyframe) and `{"op":"keyframe"}`. Packets go to
-/// stdout in the capture's own framing (length, JSON header, Annex B). Only the newest picture
-/// waits while one encodes. End of stdin ends the process.
+/// `{"op":"bitrate","bitrate":b}` (in place, no keyframe), `{"op":"keyframe"}` and
+/// `{"op":"ingest","socket":path,"token":base64}` (send to ace-media's ingest from now on;
+/// without `socket`, back to stdout). Packets go to stdout in the capture's own framing (length,
+/// JSON header, Annex B), or to ace-media as MediaFrames. Each switch starts at a keyframe and is
+/// reported on stderr as one JSON line, `{"event":"ingest","state":"on"|"off"|"closed",
+/// "boundary":n|null}`: the last sequence the previous path took. A switch away from ace-media
+/// writes every queued unit before the connection closes. Only the newest picture waits while
+/// one encodes. End of stdin ends the process.
 /// One picture the emulator wrote into the shared file.
 struct FrameNote { let seq: UInt64; let width: Int; let height: Int; let ts: Double }
 
@@ -55,6 +60,12 @@ final class FrameFileState {
     }
 }
 
+/// One `--encode-frames` event on stderr.
+private func report(_ state: String, _ boundary: UInt64?) {
+    let event: [String: Any] = ["event": "ingest", "state": state, "boundary": boundary.map { $0 as Any } ?? NSNull()]
+    if let line = try? JSONSerialization.data(withJSONObject: event) { FileHandle.standardError.write(line + Data([10])) }
+}
+
 enum FrameFileEncoder {
 
     static func run(path: String) -> Never {
@@ -65,8 +76,12 @@ enum FrameFileEncoder {
         var mapped: (pointer: UnsafeMutableRawPointer, length: Int)?
         var pool: (pool: CVPixelBufferPool, width: Int, height: Int)?
         var state: FrameFileState!
-        let encoder = VideoEncoder(sessionId: "emulator", version: 2,
-            publish: { packet in output.write(packet) },
+        // The route owns its ingest writers: a replaced one drains before it closes, and only
+        // the current one's failure moves units back to stdout.
+        let route = IngestRoute(legacy: { unit in
+            if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) { output.write(packet) }
+        }, now: { DispatchTime.now().uptimeNanoseconds })
+        let encoder = VideoEncoder(units: { unit in route.publish(unit) },
             completed: { queue.async { state.completed() } }, keyframeInterval: 20)
         encoder.configure(bitrate: 6_000_000, fps: 60)
 
@@ -107,6 +122,8 @@ enum FrameFileEncoder {
             guard vImagePermuteChannels_ARGB8888(&input, &result, order, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil }
             return buffer
         }
+        route.onKeyframe = { queue.async { state.keyframe() } }
+        route.onClosed = { boundary in queue.async { report("closed", boundary); state.keyframe() } }
         state = FrameFileState(encoder: encoder, picture: picture, now: { DispatchTime.now().uptimeNanoseconds })
         while let line = readLine(strippingNewline: true) {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -125,6 +142,16 @@ enum FrameFileEncoder {
                     }
                 case "keyframe":
                     state.keyframe()
+                case "ingest":
+                    let socket = object["socket"] as? String
+                    let token = (object["token"] as? String).flatMap { Data(base64Encoded: $0) }
+                    let target = socket.flatMap { socket in token.map { (socket: socket, token: $0) } }
+                    // A refused address leaves units where they were, and says so.
+                    guard socket == nil || target != nil, let moved = try? route.route(to: target) else {
+                        report(route.ingesting ? "on" : "off", nil); return
+                    }
+                    report(route.ingesting ? "on" : "off", moved.switched ? moved.boundary : nil)
+                    if moved.switched { state.keyframe() }
                 default: break
                 }
             }
