@@ -6,24 +6,12 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useClient } from "@ace/client-react";
-import type { Item, RawPayload } from "@ace/protocol";
-import { useEffect, useRef, useState } from "react";
+import type { Item } from "@ace/protocol";
+import { useEffect, useReducer, useRef } from "react";
+import { canReadMore, initialRawReads, stepRawReads, type RawInput } from "./raw-reads.ts";
 
 /** While a step runs, its payloads are read again at most this often. */
 export const runningRefreshMs = 1500;
-
-interface Read {
-  /** Every payload read so far of one version, oldest first. */
-  raw: readonly RawPayload[];
-  /** The version they are of, and where its next page starts (undefined once all are read). */
-  revision: string | undefined;
-  next: number | undefined;
-  /** Whether a first page has arrived. */
-  started: boolean;
-  state: "idle" | "loading" | "failed";
-}
-
-const unread: Read = { raw: [], revision: undefined, next: 0, started: false, state: "idle" };
 
 /** Whether a step may still change: its payloads so far may not be its last. */
 function stillRunning(item: Item): boolean {
@@ -33,129 +21,102 @@ function stillRunning(item: Item): boolean {
 }
 
 /**
+ * The reads of one step's raw payloads (`raw-reads.ts` decides them): sends the read the
+ * machine names, runs the refresh timer it asks for, and tells it when the step changes. Once
+ * unmounted, no reply sets state, starts a timer or sends a read. Keyed by item at the call
+ * site, so another step starts afresh.
+ */
+function useRawReads(threadId: string, item: Item) {
+  const client = useClient();
+  const [state, dispatch] = useReducer(stepRawReads, stillRunning(item), initialRawReads);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const send = (input: RawInput) => {
+    if (alive.current) dispatch(input);
+  };
+  // The step changed: tell the machine (it decides whether and when to read again).
+  const shown = useRef(item);
+  useEffect(() => {
+    if (shown.current === item) return;
+    shown.current = item;
+    dispatch({ type: "changed", running: stillRunning(item) });
+  }, [item]);
+  const read = state.read;
+  const itemId = item.id;
+  useEffect(() => {
+    if (!read) return;
+    client
+      .request({
+        type: "item.raw",
+        threadId,
+        itemId,
+        from: read.from,
+        ...(read.revision === undefined ? {} : { revision: read.revision }),
+      })
+      .then(
+        (reply) => send({ type: "reply", id: read.id, reply }),
+        () => send({ type: "error", id: read.id }),
+      );
+    // A read is sent once, when the machine names it.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed by the read's id
+  }, [read?.id]);
+  const waiting = state.phase === "waiting";
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setTimeout(() => send({ type: "timer" }), runningRefreshMs);
+    return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `send` only checks the ref
+  }, [waiting]);
+  return { state, dispatch };
+}
+
+/**
  * A step's raw payloads the daemon left out of the transcript (`rawOmitted`, hello trim
- * `raw-on-demand`): read with `item.raw` the first time the disclosure opens, a page at a time
- * within one version of them.
- *
- * At most one read is in flight. A change to the step while one is (even the first) marks it
- * stale, and exactly one read from the start follows when it ends: at once if the step has
- * finished, else after `runningRefreshMs`. A step that updates fast over a slow link is read at
- * a bounded rate, and its final payloads always show.
+ * `raw-on-demand`), read with `item.raw` when the disclosure opens: one read at a time, a page
+ * per "Show more", read again from the start when the step changes (at most every 1.5 s while
+ * it runs). A refresh replaces the pages shown when it lands; "Show more" then reads on.
  */
 export function OmittedRaw(props: { threadId: string; item: Item }) {
-  const client = useClient();
-  const [read, setRead] = useState<Read>(unread);
-  const [open, setOpen] = useState(false);
-  /** The step as last rendered, for a read that ends to compare with. */
-  const latest = useRef(props.item);
-  const busy = useRef(false);
-  /** The step changed since the read in flight began. */
-  const stale = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const ask = (from: number, revision: string | undefined) =>
-    client.request({
-      type: "item.raw",
-      threadId: props.threadId,
-      itemId: props.item.id,
-      from,
-      ...(revision === undefined ? {} : { revision }),
-    });
-  /** One page from `from` of `revision`; a version that changed is read again from its start. */
-  const fetchPage = async (from: number, revision: string | undefined) => {
-    const reply = await ask(from, revision);
-    return reply.changed ? ask(0, undefined) : reply;
-  };
-  /** Read a page; when it ends, follow with one read from the start if the step moved on. */
-  const start = (from: number, revision: string | undefined) => {
-    busy.current = true;
-    stale.current = false;
-    const began = latest.current;
-    const done = () => {
-      busy.current = false;
-      if (stale.current || latest.current !== began) followUp();
-    };
-    fetchPage(from, revision).then(
-      (reply) => {
-        setRead((current) => ({
-          raw: reply.from === 0 ? reply.raw : [...current.raw, ...reply.raw],
-          revision: reply.revision,
-          next: reply.next,
-          started: true,
-          state: "idle",
-        }));
-        done();
-      },
-      () => {
-        setRead((current) => ({ ...current, state: "failed" }));
-        done();
-      },
-    );
-  };
-  /** One read from the start: after the one in flight, and spaced while the step runs. */
-  const followUp = () => {
-    if (busy.current) {
-      stale.current = true;
-      return;
-    }
-    if (!stillRunning(latest.current)) {
-      clearTimeout(timer.current);
-      timer.current = undefined;
-      start(0, undefined);
-      return;
-    }
-    timer.current ??= setTimeout(() => {
-      timer.current = undefined;
-      if (busy.current) stale.current = true;
-      else start(0, undefined);
-    }, runningRefreshMs);
-  };
-  const load = (from: number, revision: string | undefined) => {
-    setRead((current) => ({ ...current, state: "loading" }));
-    start(from, revision);
-  };
-  // The step changed while its payloads are open: read them again (what is shown stays until
-  // the new read arrives).
-  useEffect(() => {
-    if (latest.current === props.item) return;
-    latest.current = props.item;
-    if (busy.current) stale.current = true;
-    else if (open && read.started) followUp();
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- only a new item starts a read
-  }, [props.item]);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  const more = read.next !== undefined && read.state !== "loading";
+  const { state, dispatch } = useRawReads(props.threadId, props.item);
+  const out = state.phase === "reading" || state.phase === "stale";
   return (
-    <Collapsible
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next && !read.started && !busy.current) load(0, undefined);
-      }}
-    >
+    <Collapsible onOpenChange={(open) => dispatch({ type: open ? "open" : "close" })}>
       <CollapsibleTrigger className="self-start text-xs text-subtle-foreground underline-offset-2 hover:text-foreground hover:underline">
         Raw
       </CollapsibleTrigger>
       <CollapsibleContent>
-        {read.started && stillRunning(props.item) && (
+        {state.started && state.running && (
           <p className="text-xs text-subtle-foreground">Still running: these may not be final.</p>
         )}
-        {read.started && (
+        {state.started && (
           <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-            {JSON.stringify(read.raw, null, 2)}
+            {JSON.stringify(state.raw, null, 2)}
           </pre>
         )}
-        {read.state === "loading" && <Spinner />}
-        {read.state === "failed" && (
-          <p role="alert" className="text-xs text-muted-foreground">
-            Couldn't read the raw payloads.
-          </p>
+        {out && <Spinner />}
+        {state.failed && !out && (
+          <>
+            <p role="alert" className="text-xs text-muted-foreground">
+              Couldn't read the raw payloads.
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => dispatch({ type: "retry" })}>
+              Retry
+            </Button>
+          </>
         )}
-        {more && (read.started || read.state === "failed") && (
+        {!state.failed && state.started && state.next !== undefined && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => load(read.next ?? 0, read.started ? read.revision : undefined)}
+            disabled={!canReadMore(state)}
+            onClick={() => dispatch({ type: "more" })}
           >
-            {read.state === "failed" ? "Retry" : "Show more"}
+            Show more
           </Button>
         )}
       </CollapsibleContent>

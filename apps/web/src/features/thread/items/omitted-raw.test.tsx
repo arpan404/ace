@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { componentClient } from "@/test/component-client.tsx";
 import { ToolStep } from "./work-log-steps.tsx";
+import { runningRefreshMs } from "./omitted-raw.tsx";
 
 /** One finished browser step whose provider payloads only its Raw view shows. */
 const scenario: Scenario = {
@@ -136,7 +137,7 @@ test("Raw opened on a running step reads again when the step finishes, and says 
 });
 
 /** A running browser step whose payloads change as it goes; `final` ends it. */
-function runningStep(id: string): Scenario {
+function runningStep(id: string, frames = 1): Scenario {
   return {
     thread: { id, workspaceId: "relay", provider: "claude", title: "Running" },
     steps: [
@@ -157,7 +158,10 @@ function runningStep(id: string): Scenario {
                 kind: "browser",
                 title: "Opening the pricing page",
                 detail: { kind: "browser" },
-                raw: [{ type: "browser_frame", data: { marker: "first-frame" } }],
+                raw: Array.from({ length: frames }, (_, index) => ({
+                  type: "browser_frame",
+                  data: { marker: index === 0 ? "first-frame" : `frame-${index}` },
+                })),
               },
             },
           },
@@ -186,8 +190,8 @@ const progress = (marker: string, done = false) => ({
  * The step's Raw view, open, with `item.raw` replies held at the client until released: a
  * slow link. Counts the requests sent and the most in flight at once.
  */
-async function heldRawView(id: string) {
-  const app = await componentClient(runningStep(id));
+async function heldRawView(id: string, frames = 1) {
+  const app = await componentClient(runningStep(id, frames));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
   const itemId =
     view && "items" in view
@@ -213,7 +217,7 @@ async function heldRawView(id: string) {
       }
     },
   });
-  app.render(
+  const rendered = app.render(
     <ul aria-label="Work log">
       <ToolStep threadId={id} itemId={itemId} />
     </ul>,
@@ -226,10 +230,16 @@ async function heldRawView(id: string) {
     app,
     log,
     reads,
+    held,
+    unmount: () => rendered.unmount(),
     /** Let every held reply, and every later one, through. */
     release() {
       holding = false;
       for (const resolve of held.splice(0)) resolve();
+    },
+    /** Hold later replies again. */
+    hold() {
+      holding = true;
     },
   };
 }
@@ -253,4 +263,36 @@ test("a burst of updates during a slow read makes one follow-up, never a queue o
   raw.release();
   expect(await raw.log.findByText(/final-frame/)).toBeTruthy();
   expect(raw.reads).toMatchObject({ sent: 2, most: 1 });
+});
+
+test("Show more waits while a refresh is out: never two reads, and the refresh lands whole", async () => {
+  const raw = await heldRawView("thread-more", 60);
+  raw.release();
+  const more = await raw.log.findByRole("button", { name: "Show more" });
+  expect(raw.reads.sent).toBe(1);
+  // The step finishes; its refresh is out on a slow link.
+  raw.hold();
+  raw.app.daemon.apply("thread-more", [progress("final-frame", true)]);
+  await vi.waitFor(() => expect(raw.held).toHaveLength(1));
+  expect(more.hasAttribute("disabled")).toBe(true);
+  await userEvent.click(more);
+  expect(raw.reads).toMatchObject({ sent: 2, inFlight: 1, most: 1 });
+  raw.release();
+  expect(await raw.log.findByText(/final-frame/)).toBeTruthy();
+  // The refresh replaced the pages shown: the step's payloads are its two final ones.
+  expect(raw.log.queryByText(/frame-49/)).toBeNull();
+  expect(raw.reads).toMatchObject({ sent: 2, most: 1 });
+});
+
+test("a reply that lands after the view is gone starts nothing", async () => {
+  const raw = await heldRawView("thread-gone");
+  // A change the view sees while its first read is out, so that read ends stale.
+  raw.app.daemon.apply("thread-gone", [progress("frame-b")]);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  raw.unmount();
+  raw.release();
+  raw.app.daemon.apply("thread-gone", [progress("final-frame", true)]);
+  // Past the refresh interval: a timer or follow-up left behind would have sent by now.
+  await new Promise((resolve) => setTimeout(resolve, runningRefreshMs + 300));
+  expect(raw.reads).toMatchObject({ sent: 1, inFlight: 0 });
 });
