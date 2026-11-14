@@ -2,6 +2,7 @@ import { useAgent, useSidebarThread } from "@ace/client-react";
 import { agentName, agentStatusLabel, type Tone } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 
 export type Controller =
   | { kind: "you" }
@@ -22,7 +23,9 @@ export function controllerOf(state: {
 
 /**
  * An agent driving a device: its provider's mark, its name, and its status as a dot and a word
- * ("driving" while it works, otherwise what it is doing).
+ * ("driving" while it works, otherwise what it is doing). Its thread's copy unconfirmed, the word
+ * is only that ("Reconnecting…", "Syncing…"): who holds the device is the device's own fact, what
+ * its agent is doing is not.
  */
 export function AgentDriver(props: {
   threadId: string;
@@ -31,15 +34,19 @@ export function AgentDriver(props: {
 }) {
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useSidebarThread(props.threadId);
+  const live = useThreadFreshness(props.threadId);
   // An agent on another machine has no agent row here; its guest session names it, e.g.
   // "Linux box · Fix the login flow".
   const name = agent ? agentName(agent) : thread?.details?.guest ? thread.title : "An agent";
-  const status: { label: string; tone: Tone } = agent
-    ? agentStatusLabel(agent.status)
-    : { label: "Working", tone: "working" };
+  const status: { label: string; tone: Tone } = live.staleLabel
+    ? { label: live.staleLabel, tone: "idle" }
+    : agent
+      ? agentStatusLabel(agent.status)
+      : { label: "Working", tone: "working" };
   // Short words: holding the device is driving it; otherwise say what keeps it from acting.
-  const word =
-    status.tone === "working"
+  const word = live.staleLabel
+    ? live.staleLabel
+    : status.tone === "working"
       ? "driving"
       : status.tone === "waiting"
         ? "waiting"
