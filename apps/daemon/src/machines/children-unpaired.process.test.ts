@@ -189,7 +189,8 @@ it("a child its machine holds no record of never stops the others in its call be
   const h = await parentWith(["child-a", "child-b"]);
   h.studio.unknown.add("child-b");
   h.studio.views.set("child-a", view("child-a", "done", "Done."));
-  await h.pass(5_000);
+  // The refused call is split: each is asked alone on the next turn.
+  await h.pass(5_000, 1_000);
   expect(h.state("child-a")).toBe("done");
   // The unknown one stays as it was last seen, never settled for want of an answer.
   expect(h.state("child-b")).toBe("working");
@@ -239,7 +240,7 @@ it("a working child read alone is applied even when the next read alone fails", 
   h.studio.unknown.add("child-c");
   h.studio.cut.add("child-b");
   h.studio.views.set("child-a", view("child-a", "done", "Done."));
-  await h.pass(5_000);
+  await h.pass(5_000, 1_000);
   expect(h.state("child-a")).toBe("done");
   expect(h.state("child-b")).toBe("working");
 });

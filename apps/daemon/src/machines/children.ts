@@ -22,14 +22,20 @@ import type { RequestMirror } from "./mirror.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
 import { ChildResults, type ChildResultsDeps } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
+import { RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS, recheckOutcome } from "./child-recheck.ts";
 import {
-  RECHECK_PER_MACHINE,
-  RECHECK_SLOWEST_POLLS,
-  RECHECK_WINDOW_MS,
-  RecheckSchedule,
-  recheckOutcome,
-  recheckPicks,
-} from "./child-recheck.ts";
+  asksAlone,
+  defaultScheduleConfig,
+  foldCall,
+  nextDue,
+  planTurn,
+  restored,
+  retryNow,
+  type CallOutcome,
+  type ChildRecord,
+  type ScheduleChild,
+  type ScheduleConfig,
+} from "./child-schedule.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
 import {
   heldMessageReason,
@@ -38,11 +44,10 @@ import {
   unreadReason,
   watchedChild,
 } from "./child-views.ts";
-import { statusBatches, unsettledPage } from "./child-paging.ts";
 import { LostChildren } from "./child-lost.ts";
 import { RetryBackoff } from "./retry-backoff.ts";
 import { ChildLiveness, type ChildLivenessDeps } from "./child-liveness.ts";
-import { StatusReads, type StatusRead } from "./child-status-reads.ts";
+import { refusedNotFound } from "./transport.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -81,8 +86,6 @@ export interface ChildrenDeps {
   log(message: string, fields: Record<string, unknown>): void;
 }
 
-const recheckedRow = (row: ChildRow) => ({ id: row.id, settledAt: row.settled_at });
-
 /** At most this long between status calls to a machine that keeps failing them. */
 const UNREACHABLE_RETRY_CAP_MS = 30_000;
 
@@ -109,45 +112,24 @@ export class MachineChildren implements RemoteChildren {
   private cancelTimer: (() => void) | undefined;
   /** When the scheduled poll runs, by the injected clock. */
   private dueAt = 0;
-  private polling = false;
-  /** The next poll is set for when settled children are due a re-check, so it re-checks them. */
-  private recheckPoll = false;
   /**
-   * When each machine's settled children are next re-checked, by the injected clock: fast while
-   * one settled there recently, slower as they age, however many polls come in between.
-   */
-  private rechecks: RecheckSchedule;
-  /**
-   * Machines whose status calls fail, each asked again later after every failure and at once
-   * when another call to it gets through; logged when that starts and when it ends.
+   * Machines whose status calls fail, logged when that starts and when it ends. Which child is
+   * asked when is the scheduler's (child-schedule.ts), not this.
    */
   private reach: RetryBackoff;
-  /**
-   * Children whose own reads fail (their machine doesn't hold them, or their read alone keeps
-   * losing its connection) while the machine answers others: each asked again later after every
-   * failure, up to the same cap, and at the base pace again once it answers.
-   */
-  private childReach: RetryBackoff;
-  /** The last re-check turn handed out; each machine's least recently checked go next. */
-  private turn: number;
-  /** The last polling turn handed out; machines served longest ago go next. */
-  private served: number;
+  /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
+  private records = new Map<string, Map<string, ChildRecord>>();
+  private schedule: ScheduleConfig;
   private closed = false;
   private results: ChildResults;
   private messages: ChildMessages;
   private lost: LostChildren;
   private liveness: ChildLiveness;
-  /** Status reads where one child its machine doesn't hold never stops the others being read. */
-  private reads: StatusReads;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
-    this.reads = new StatusReads((machine, parent, ids) => deps.status(machine, parent, ids));
     this.ledger = new ChildLedger(deps.store);
-    this.turn = this.ledger.lastRecheckTurn();
-    this.rechecks = new RecheckSchedule(deps.pollMs, deps.now());
-    this.served = this.ledger.lastServedTurn();
+    this.schedule = defaultScheduleConfig(deps.pollMs, deps.now());
     this.reach = new RetryBackoff(deps.pollMs, UNREACHABLE_RETRY_CAP_MS);
-    this.childReach = new RetryBackoff(deps.pollMs, UNREACHABLE_RETRY_CAP_MS);
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
     this.lost = new LostChildren({
       ...deps,
@@ -384,22 +366,20 @@ export class MachineChildren implements RemoteChildren {
   private arm() {
     if (this.closed) return;
     const now = this.deps.now();
-    // The next re-check's own deadline, never pushed back by polls that come sooner.
-    let recheckAt = Number.POSITIVE_INFINITY;
     let delay: number | undefined = this.deps.pollMs;
     try {
       if (!this.ledger.hasUnsettled() && !this.ledger.anyMessages()) {
-        const wake = this.results.wakeAt(now);
         const waits: number[] = [];
+        const wake = this.results.wakeAt(now);
         if (wake !== undefined) waits.push(Math.max(this.deps.pollMs, wake - now));
-        for (const facts of this.ledger.recheckMachines(now - RECHECK_WINDOW_MS)) {
-          const { machine } = facts;
-          // A machine failing its calls is asked again once its wait is over, not before.
-          const due = this.rechecks.dueAt(machine, facts, now);
-          recheckAt = Math.min(recheckAt, Math.max(due, this.reach.dueAt(machine) ?? due));
+        // The earliest any settled child there is due a re-check, by the scheduler.
+        for (const machine of this.ledger.watchedMachines()) {
+          const lost = this.lostFrom(machine);
+          if (!lost) continue;
+          const { children } = this.childrenOf(machine, lost);
+          const at = nextDue(children, this.recordsOf(machine, children), now, this.schedule);
+          if (at !== undefined) waits.push(Math.max(this.deps.pollMs, at - now));
         }
-        if (recheckAt !== Number.POSITIVE_INFINITY)
-          waits.push(Math.max(this.deps.pollMs, recheckAt - now));
         // A settled child waiting on its machine to be paired again: looked at every slow
         // interval, with no call to any machine.
         if (this.ledger.settledLost().length > 0)
@@ -413,14 +393,19 @@ export class MachineChildren implements RemoteChildren {
     // A poll already due as soon stays; new work that needs an earlier one replaces it.
     if (this.cancelTimer && this.dueAt <= now + delay) return;
     this.cancelTimer?.();
-    // A poll that runs at or past the re-check deadline re-checks settled children.
-    this.recheckPoll = now + delay >= recheckAt;
     this.dueAt = now + delay;
+    const scheduledFor = now + delay;
     this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
-      void this.poll()
+      // A poll still running a poll from now (a slow call) never holds up the next: the next is
+      // set then, so one machine slow to answer never delays another's turn.
+      const watchdog = this.deps.schedule(this.deps.pollMs, () => this.arm());
+      void this.poll(scheduledFor)
         .catch((error: unknown) => this.deps.log("Machine children poll failed", { error }))
-        .finally(() => this.arm());
+        .finally(() => {
+          watchdog();
+          this.arm();
+        });
     });
   }
   /**
@@ -432,9 +417,11 @@ export class MachineChildren implements RemoteChildren {
     if (this.closed || !this.results.resumed(thread)) return;
     this.arm();
   }
-  /** Another call to the machine got through: status calls to it go on the next poll. */
+  /** Another call to the machine got through: children waiting out a failure go next poll. */
   machineReachable(machine: string): void {
     this.reach.retryNow(machine);
+    const records = this.records.get(machine);
+    if (records) this.records.set(machine, retryNow(records, this.deps.now()));
   }
   /** A status call to the machine got through: its failure episode, if any, ends. */
   private reached(machine: string) {
@@ -447,183 +434,156 @@ export class MachineChildren implements RemoteChildren {
     if (this.reach.failed(machine, this.deps.now()) === 1)
       this.deps.log("Machine children unreachable", { machine, error: String(error) });
   }
-  async poll(): Promise<void> {
-    if (this.polling || this.closed) return;
-    this.polling = true;
-    try {
-      // Alongside the poll, never ahead of it: a machine slow to answer one message must not
-      // stop its children being watched.
-      void this.messages
-        .reconcile()
-        .catch((error: unknown) =>
-          this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
-        );
-      // A fixed number of status calls, every child read in turn (ADR 0099).
-      const page = unsettledPage(this.ledger, ++this.served).flatMap(([machine, rows]) => {
-        const lost = this.lostFrom(machine);
-        // Pairings that can't be read leave every child as it was, lost or not.
-        if (!lost) return rows.filter((row) => row.lost_at === null);
-        for (const row of rows) {
-          if (lost(row)) this.lost.keep(row);
-          else if (row.lost_at !== null) this.lost.found(row);
-        }
-        return rows.filter((row) => !lost(row));
-      });
-      // Settled children whose machine was unpaired: watched again once it is paired back.
-      this.settledLost();
-      const now = this.deps.now();
-      // Per machine, whether anything asked of it this poll answered: it is failing only when
-      // nothing did. A child whose own reads fail backs off on its own.
-      const outcomes = new Map<
-        string,
-        { answered: boolean; error?: unknown; missed: ThreadId[] }
-      >();
-      const note = (machine: string, read: StatusRead) => {
-        const outcome = outcomes.get(machine) ?? { answered: false, missed: [] };
-        if (read.views.length > 0 || read.unknown.length > 0) outcome.answered = true;
-        const [failure] = read.failed;
-        if (failure) outcome.error = failure.error;
-        outcome.missed.push(...[...read.unknown, ...read.failed].map((entry) => entry.id));
-        outcomes.set(machine, outcome);
-        for (const view of read.views) this.childReach.succeeded(view.threadId);
-      };
-      const failedWhole = (machine: string, ids: readonly ThreadId[], error: unknown) =>
-        note(machine, { views: [], unknown: [], failed: ids.map((id) => ({ id, error })) });
-      await Promise.all([
-        // A child waiting out its own backoff isn't asked this poll; the rest are.
-        ...statusBatches(page.filter((row) => this.childReach.due(row.id, now))).map(
-          async ([machine, rows]) => {
-            const ids = rows.map((row) => row.id);
-            const first = rows[0];
-            // A machine failing its calls is asked again once its wait is over.
-            if (!first || !this.reach.due(machine, now)) return;
-            try {
-              const read = await this.reads.read(machine, first.parent_thread, ids);
-              note(machine, read);
-              // Every view answered is applied at once, whatever happened to the other reads.
-              for (const view of read.views) {
-                const row = rows.find((candidate) => candidate.id === view.threadId);
-                if (row && !this.closed) this.update(row, view);
-              }
-              // One its machine says it doesn't hold, or whose read failed, stays as last seen,
-              // saying why; it never settles for want of an answer.
-              const label = this.deps.label(machine);
-              const missed = [...read.unknown, ...read.failed];
-              for (const { id, error } of missed)
-                this.unreachable.set(id, unreadReason(label, error));
-              if (missed.length) this.emit(missed.map((entry) => entry.id));
-              // A slow sibling machine must not hold a result already received from this one.
-              if (!this.closed) this.results.drain();
-            } catch (error) {
-              failedWhole(machine, ids, error);
-              const reason = unreadReason(this.deps.label(machine), error);
-              for (const id of ids) this.unreachable.set(id, reason);
-              this.emit(ids);
-            }
-          },
-        ),
-        ...this.recheckDue(now).map(async ([machine, rows]) => {
-          const first = rows[0];
-          if (!first) return;
-          const ids = rows.map((row) => row.id);
-          try {
-            // A settled child its machine says it doesn't hold can't have started again there
-            // for this machine: that is the machine's answer for it.
-            const read = await this.reads.read(machine, first.parent_thread, ids);
-            note(machine, read);
-            // Every view answered is applied at once, whatever happened to the other reads.
-            for (const view of read.views) {
-              const row = rows.find((candidate) => candidate.id === view.threadId);
-              if (row && !this.closed) this.recheck(row, view);
-            }
-            // Only an answered re-check counts, and those read at or after their 24 h mark leave
-            // tracking now, never before. A child whose read failed is not checked: it stays
-            // owed, asked again once its own backoff allows.
-            const missed = new Set(read.failed.map((entry) => entry.id));
-            const answered = rows.filter((row) => !missed.has(row.id)).map(recheckedRow);
-            this.ledger.endRecheck(this.rechecks.answered(machine, answered, now));
-          } catch (error) {
-            // A settled child stays settled while its machine can't be asked. This was no
-            // check: each stays owed and is asked again once its wait is over.
-            failedWhole(machine, ids, error);
-          }
-        }),
-      ]);
-      for (const [machine, outcome] of outcomes)
-        if (outcome.answered) {
-          this.reached(machine);
-          // The machine answers, but not for these: each is asked again later after every miss.
-          for (const id of outcome.missed) this.childReach.failed(id, now);
-        } else if (outcome.error !== undefined) this.unreached(machine, outcome.error);
-      // Stops due, then the lease: replies read above have already renewed what reported.
-      this.liveness.tick();
-      this.liveness.lapse();
-      for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
-      this.results.drain();
-    } finally {
-      this.polling = false;
+  /**
+   * One turn for every machine with children to read: the scheduler picks which children go in
+   * which calls (child-schedule.ts); the calls run at once, each on its own deadline, and each
+   * answer is applied as soon as it arrives. Children asked in a turn still running are skipped,
+   * so a poll never waits on a slow call, and polls can overlap.
+   */
+  async poll(scheduledFor?: number): Promise<void> {
+    if (this.closed) return;
+    // Alongside the poll, never ahead of it: a machine slow to answer one message must not
+    // stop its children being watched.
+    void this.messages
+      .reconcile()
+      .catch((error: unknown) =>
+        this.deps.log("Machine messages not reconciled yet", { error: String(error) }),
+      );
+    // Settled children whose machine was unpaired: watched again once it is paired back.
+    this.settledLost();
+    const now = this.deps.now();
+    const calls: Promise<void>[] = [];
+    for (const machine of this.ledger.watchedMachines()) {
+      // Pairings that can't be read leave every child as it was, lost or not.
+      const lost = this.lostFrom(machine);
+      if (!lost) continue;
+      const { children, rows } = this.childrenOf(machine, lost);
+      // A poll set for a child's due time asks it then, even if its timer ran a moment early.
+      const plan = planTurn(
+        children,
+        this.recordsOf(machine, children),
+        now,
+        this.schedule,
+        scheduledFor,
+      );
+      this.records.set(machine, plan.records);
+      // A settled child past its 24 h mark whose machine is unpaired can't be watched through
+      // its window any more: the person is asked, as for a working child whose pairing went.
+      for (const id of plan.unpairedExpired) {
+        const row = rows.get(id);
+        if (row) this.lost.keepSettled(row);
+      }
+      for (const ids of plan.calls) calls.push(this.ask(machine, children, rows, ids));
     }
+    await Promise.all(calls);
+    // Stops due, then the lease: replies read above have already renewed what reported.
+    this.liveness.tick();
+    this.liveness.lapse();
+    for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
+    this.results.drain();
   }
   /**
-   * Settled children due a re-check, grouped by machine: once that machine's re-check interval
-   * has passed since its last one by the clock (or the poll was set for that deadline), and at
-   * least every interval's worth of polls. The interval grows as the machine's youngest settled
-   * child ages (`recheckEveryPolls`). A machine failing its calls is left out until its wait is
-   * over.
+   * A machine's children as the scheduler sees them: every working child (lost ones are handed
+   * to the lost-child handling here, as each poll does), and every settled child still tracked.
    */
-  private recheckDue(now: number): [string, ChildRow[]][] {
-    const expiry = now - RECHECK_WINDOW_MS;
-    const at = this.recheckPoll ? Math.max(now, this.dueAt) : now;
-    const machines = this.ledger.recheckMachines(expiry);
-    this.rechecks.retain(new Set(machines.map((entry) => entry.machine)));
-    const due = machines.filter((facts) => this.rechecks.due(facts.machine, facts, at));
-    if (due.length === 0) return [];
-    const turn = ++this.turn;
-    // Every machine due, and on each the children past the window first, then those the round
-    // has not read yet, then those checked longest ago: all are checked in turn.
-    return due.flatMap(({ machine }) => {
-      if (!this.reach.due(machine, now)) return [];
-      // Pairings that can't be read leave every child as it was.
-      const lost = this.lostFrom(machine);
-      if (!lost) return [];
-      // A child whose machine is no longer paired as its device is never asked and never counts
-      // as checked: it stays tracked at no cost until its machine is paired again. Once it is
-      // past its 24 h mark, it can't be watched through its window any more: the person is asked.
-      const tracked = this.ledger.recheckRows(machine);
-      const paired = tracked.filter((row) => !lost(row));
-      for (const row of tracked)
-        if (lost(row) && row.settled_at !== null && row.settled_at < expiry)
-          this.lost.keepSettled(row);
-      const round = this.rechecks.turn(
+  private childrenOf(machine: string, lost: (row: ChildRow) => boolean) {
+    const rows = new Map<string, ChildRow>();
+    const children: ScheduleChild[] = [];
+    const add = (row: ChildRow) => {
+      rows.set(row.id, row);
+      children.push({
+        id: row.id,
+        settled: row.settled === 1,
+        settledAt: row.settled_at,
+        unconfirmed: row.stopped_unconfirmed === 1,
+        paired: !lost(row),
+      });
+    };
+    for (const row of this.ledger.unsettledOf(machine)) {
+      if (lost(row)) {
+        this.lost.keep(row);
+        continue;
+      }
+      if (row.lost_at !== null) this.lost.found(row);
+      add(row);
+    }
+    for (const row of this.ledger.recheckRows(machine)) add(row);
+    return { children, rows };
+  }
+  /** The scheduler's records for a machine; a child saved as asked alone starts so after a restart. */
+  private recordsOf(machine: string, children: readonly ScheduleChild[]) {
+    const records = this.records.get(machine) ?? new Map<string, ChildRecord>();
+    for (const child of children)
+      if (!records.has(child.id) && this.ledger.row(child.id)?.rechecked === -1)
+        records.set(child.id, restored());
+    this.records.set(machine, records);
+    return records;
+  }
+  /**
+   * One call of a turn: its answer is applied the moment it arrives, then folded into the
+   * scheduler's records (whatever the turn's other calls do).
+   */
+  private async ask(
+    machine: string,
+    children: readonly ScheduleChild[],
+    rows: ReadonlyMap<string, ChildRow>,
+    ids: readonly string[],
+  ): Promise<void> {
+    const first = rows.get(ids[0] ?? "");
+    if (!first) return;
+    let outcome: CallOutcome;
+    try {
+      const views = await this.deps.status(
         machine,
-        paired.map((row) => row.id),
+        first.parent_thread,
+        ids.map((id) => ThreadId.parse(id)),
       );
-      const asked = recheckPicks(
-        paired,
-        expiry,
-        round,
-        (id) => this.childReach.due(id, now),
-        RECHECK_PER_MACHINE,
-      );
-      if (asked.length === 0) return [];
-      this.rechecks.picked(
-        machine,
-        asked.map((row) => row.id),
-        now,
-      );
-      this.ledger.markRechecked(
-        asked.map((row) => row.id),
-        turn,
-      );
-      // Children whose earlier reads failed go in a call of their own: one that fails as a whole
-      // never takes down the read of a child the round has not asked yet.
-      const fresh = new Set(round.pending);
-      const batches = [
-        asked.filter((row) => fresh.has(row.id)),
-        asked.filter((row) => !fresh.has(row.id)),
-      ].filter((batch) => batch.length > 0);
-      return batches.map((batch) => [machine, batch] as [string, ChildRow[]]);
-    });
+      outcome = { kind: "answered" };
+      this.reached(machine);
+      for (const view of views) {
+        const row = rows.get(view.threadId);
+        if (!row || this.closed) continue;
+        if (row.settled === 1) this.recheck(row, view);
+        else this.update(row, view);
+      }
+      // A slow sibling machine must not hold a result already received from this one.
+      if (!this.closed) this.results.drain();
+    } catch (error) {
+      // The machine saying it holds no record of a child is its answer for that child; any
+      // other failure is no answer. A working child stays as last seen, saying why; a settled
+      // child stays settled. Neither is ever settled for want of an answer.
+      outcome = refusedNotFound(error) ? { kind: "not_found" } : { kind: "failed" };
+      if (outcome.kind === "failed") this.unreached(machine, error);
+      const reason = unreadReason(this.deps.label(machine), error);
+      const working = ids.filter((id) => rows.get(id)?.settled === 0);
+      for (const id of working) this.unreachable.set(id, reason);
+      if (working.length) this.emit(working);
+    }
+    if (this.closed) return;
+    const folded = foldCall(
+      this.records.get(machine) ?? new Map(),
+      children,
+      ids,
+      outcome,
+      this.deps.now(),
+      this.schedule,
+    );
+    this.records.set(machine, folded.records);
+    // Read at or after their 24 h mark: they leave tracking now, never before.
+    this.ledger.endRecheck(
+      folded.ended.flatMap((id) => {
+        const settledAt = rows.get(id)?.settled_at;
+        return settledAt === null || settledAt === undefined ? [] : [{ id, settledAt }];
+      }),
+    );
+    // Whether each is asked alone outlives a restart.
+    const now = this.deps.now();
+    const alone = ids.filter((id) => asksAlone(folded.records.get(id), now));
+    this.ledger.setAlone(alone, true);
+    this.ledger.setAlone(
+      ids.filter((id) => !alone.includes(id)),
+      false,
+    );
   }
   /**
    * Settled children whose machine was unpaired, the person asked about each: paired again, it is

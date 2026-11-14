@@ -77,7 +77,7 @@ it("an unchanged result after a follow-up that never ran is not repeated, and po
   expect(h.timers).toEqual([]);
 });
 
-it("with more settled children than one re-check asks about, every one is checked in turn", async () => {
+it("with more settled children than one call holds, every one is checked, sixteen to a call", async () => {
   const h = machine();
   const ids = Array.from({ length: RECHECK_PER_MACHINE + 1 }, (_, index) =>
     h.add(`child-${index}`),
@@ -87,18 +87,15 @@ it("with more settled children than one re-check asks about, every one is checke
   for (const id of ids) expect(h.state(id), id).toBe("done");
   h.asked.length = 0;
 
-  // The first turn asks about at most a batch; the child it left out goes next, and work the
-  // person there gave it is noticed then.
+  // The re-check asks about every one of them, in calls of sixteen at most; work the person
+  // there gave any of them is noticed then.
+  const last = ids.at(-1);
+  if (!last) throw new Error("No children");
+  h.report(last, working);
   await h.fire();
-  const first = new Set(h.asked.flat());
-  expect(first.size).toBe(RECHECK_PER_MACHINE);
-  const left = ids.find((id) => !first.has(id));
-  if (!left) throw new Error("Every child was asked about at once");
-  h.report(left, working);
-  await h.fire();
-  expect(h.asked.at(-1)).toContain(left);
-  expect(h.state(left)).toBe("working");
+  expect(new Set(h.asked.flat())).toEqual(new Set(ids));
   expect(h.asked.every((batch) => batch.length <= RECHECK_PER_MACHINE)).toBe(true);
+  expect(h.state(last)).toBe("working");
 });
 
 it("a status reply read before a retried message was taken can't settle the child when saving the take fails", async () => {
@@ -342,7 +339,7 @@ it("a settled child started again there hours later is noticed within the slowes
   expect(h.state(id)).toBe("working");
 });
 
-it("a child settling on a machine brings that machine's re-checks back to the fast pace", async () => {
+it("each settled child keeps its own pace: an old one is read within the slowest interval", async () => {
   const h = machine();
   const old = h.add("old");
   h.report(old, done("Old result."));
@@ -352,9 +349,9 @@ it("a child settling on a machine brings that machine's re-checks back to the fa
   h.report(fresh, done("Fresh result."));
   await runUntil(h, h.clock.now + POLL_MS * 2);
   expect(h.state(fresh)).toBe("done");
-  const settledAt = h.clock.now;
-  // Work started again on the old child is read within the fast pace, not the slowest.
+  const reopenedAt = h.clock.now;
+  // Work started again on the old child is read within its own, slowest pace.
   h.report(old, working);
-  await runUntil(h, settledAt + POLL_MS * RECHECK_POLLS);
+  await runUntil(h, reopenedAt + POLL_MS * RECHECK_SLOWEST_POLLS);
   expect(h.state(old)).toBe("working");
 });

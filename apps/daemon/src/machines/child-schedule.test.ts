@@ -47,7 +47,14 @@ function random(seed: number) {
   };
 }
 
-const kinds: Behaviour["kind"][] = ["healthy", "fails", "poisons", "times_out", "not_found", "flapping"];
+const kinds: Behaviour["kind"][] = [
+  "healthy",
+  "fails",
+  "poisons",
+  "times_out",
+  "not_found",
+  "flapping",
+];
 
 /** A machine of `count` children, mixed: working and settled of various ages, some unpaired. */
 function generate(seed: number, count: number, start: number): SimChild[] {
@@ -86,7 +93,8 @@ function outcome(call: readonly string[], byId: Map<string, SimChild>, asks: Map
   const members = call.map((id) => byId.get(id));
   if (members.some((child) => child?.behaviour.kind === "not_found"))
     return { kind: "not_found" } as CallOutcome;
-  if (members.some((child) => child?.behaviour.kind === "fails")) return { kind: "failed" } as const;
+  if (members.some((child) => child?.behaviour.kind === "fails"))
+    return { kind: "failed" } as const;
   if (call.length > 1 && members.some((child) => child?.behaviour.kind === "poisons"))
     return { kind: "failed" } as const;
   if (
@@ -124,7 +132,11 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
     for (const id of folded.ended) trace.ended.set(id, now);
     tracked = tracked.filter((child) => !folded.ended.includes(child.id));
     if (result.kind === "answered") {
-      for (const id of ids) trace.answeredAt.set(id, [...(trace.answeredAt.get(id) ?? []), now]);
+      for (const id of ids) {
+        const list = trace.answeredAt.get(id) ?? [];
+        list.push(now);
+        trace.answeredAt.set(id, list);
+      }
       if (ids.length === 1 && ids[0]) tainted.delete(ids[0]);
     } else for (const id of ids) tainted.add(id);
   };
@@ -147,7 +159,9 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
       if (ids.length > 1 && ids.some((id) => tainted.has(id)))
         trace.breaches.push(`${now}: ${ids.join(",")}`);
       for (const id of ids) {
-        trace.asked.set(id, [...(trace.asked.get(id) ?? []), now]);
+        const list = trace.asked.get(id) ?? [];
+        list.push(now);
+        trace.asked.set(id, list);
         asks.set(id, (asks.get(id) ?? 0) + 1);
       }
       const result = outcome(ids, byId, asks);
@@ -159,7 +173,8 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
   return trace;
 }
 
-const gaps = (times: readonly number[]) => times.slice(1).map((at, index) => at - (times[index] ?? at));
+const gaps = (times: readonly number[]) =>
+  times.slice(1).map((at, index) => at - (times[index] ?? at));
 
 /** The longest wait between checks a healthy child can see, by its kind, with n children there. */
 function bound(child: ScheduleChild, n: number, now: number) {
@@ -181,7 +196,8 @@ test("a. any child that answers when asked alone is asked within the bound, what
     const children = generate(seed, 8 + (seed % 5) * 9, 0);
     const trace = simulate(children, 20 * MINUTE, [7 * MINUTE + 3000]);
     for (const child of children) {
-      if (child.behaviour.kind !== "healthy" || !child.paired || trace.ended.has(child.id)) continue;
+      if (child.behaviour.kind !== "healthy" || !child.paired || trace.ended.has(child.id))
+        continue;
       const asked = trace.asked.get(child.id) ?? [];
       expect(asked.length, `${seed} ${child.id}`).toBeGreaterThan(0);
       const worst = Math.max(...gaps(asked), asked[0] ?? 0);
@@ -208,7 +224,8 @@ test("c. each failing child backs off on its own to the 30 s cap, and a machine'
       if (!child.paired || child.behaviour.kind !== "fails") continue;
       const late = (trace.asked.get(child.id) ?? []).filter((at) => at >= 10 * MINUTE);
       // Twice a minute at the cap, whatever else answered meanwhile.
-      for (const gap of gaps(late)) expect(gap, `seed ${seed} ${child.id}`).toBeGreaterThanOrEqual(30_000);
+      for (const gap of gaps(late))
+        expect(gap, `seed ${seed} ${child.id}`).toBeGreaterThanOrEqual(30_000);
     }
     // Over the last ten minutes, whatever the mix: never more than a call per poll for each
     // working child and one per 10 s for each settled one, and never past 16 calls a turn.
@@ -265,9 +282,30 @@ test("d. no child leaves tracking without an answered check after its 24 h mark;
 test("e. an unconfirmed stop, or a child past its window, keeps to the fast pace", () => {
   const start = 0;
   const children: SimChild[] = [
-    { id: "stopped", settled: true, settledAt: start - 1000, unconfirmed: true, paired: true, behaviour: { kind: "healthy" } },
-    { id: "expired", settled: true, settledAt: start - RECHECK_WINDOW_MS - 1000, unconfirmed: false, paired: true, behaviour: { kind: "fails" } },
-    { id: "old", settled: true, settledAt: start - 5 * 60 * MINUTE, unconfirmed: false, paired: true, behaviour: { kind: "healthy" } },
+    {
+      id: "stopped",
+      settled: true,
+      settledAt: start - 1000,
+      unconfirmed: true,
+      paired: true,
+      behaviour: { kind: "healthy" },
+    },
+    {
+      id: "expired",
+      settled: true,
+      settledAt: start - RECHECK_WINDOW_MS - 1000,
+      unconfirmed: false,
+      paired: true,
+      behaviour: { kind: "fails" },
+    },
+    {
+      id: "old",
+      settled: true,
+      settledAt: start - 5 * 60 * MINUTE,
+      unconfirmed: false,
+      paired: true,
+      behaviour: { kind: "healthy" },
+    },
     ...Array.from({ length: 20 }, (_, index): SimChild => ({
       id: `noise-${index}`,
       settled: false,

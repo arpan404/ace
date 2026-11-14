@@ -529,27 +529,6 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
     );
   }
-  /**
-   * Machines with a settled child the re-check tracks: when the latest of them settled, whether
-   * any settled before `expiry` (past the window, still owed its last check), and whether a stop
-   * there is still unconfirmed.
-   */
-  recheckMachines(expiry: number): RecheckMachine[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            `SELECT machine, MAX(settled_at) AS latest, MAX(settled_at IS NOT NULL AND settled_at<?) AS expired, MAX(stopped_unconfirmed) AS unconfirmed FROM machine_children WHERE ${tracked} GROUP BY machine`,
-          )
-          .all(expiry),
-      )
-      .map((row) => ({
-        machine: z.string().parse(row.machine),
-        latest: z.number().nullable().parse(row.latest),
-        expired: Number(row.expired) === 1,
-        unconfirmed: Number(row.unconfirmed) === 1,
-      }));
-  }
   /** Every settled child the re-check tracks on one machine. */
   recheckRows(machine: string): ChildRow[] {
     return this.all(`SELECT * FROM machine_children WHERE ${tracked} AND machine=?`, machine);
@@ -566,29 +545,33 @@ export class ChildLedger {
       for (const row of rows) end.run(row.id, row.settledAt);
     });
   }
-  /** The latest re-check turn recorded. */
-  lastRecheckTurn(): number {
-    return Number(
-      this.store.atomic((db) =>
-        db.prepare("SELECT COALESCE(MAX(rechecked),0) AS turn FROM machine_children").get(),
-      )?.turn ?? 0,
-    );
+  /** Machines with a child to read: working there, or settled and still tracked. */
+  watchedMachines(): string[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(`SELECT DISTINCT machine FROM machine_children WHERE settled=0 OR (${tracked})`)
+          .all(),
+      )
+      .map((row) => z.string().parse(row.machine));
   }
-  markRechecked(ids: readonly string[], turn: number): void {
+  /** Every child still working on one machine, lost ones included. */
+  unsettledOf(machine: string): ChildRow[] {
+    return this.all("SELECT * FROM machine_children WHERE settled=0 AND machine=?", machine);
+  }
+  /**
+   * Saves whether each child is asked alone (its call failed or was refused beside others), so
+   * that outlives a restart. Kept in `rechecked`, which no longer counts re-check turns: -1 is
+   * alone; anything else, including a turn number from an older build, is not.
+   */
+  setAlone(ids: readonly string[], alone: boolean): void {
     this.store.atomic((db) => {
       const mark = db.prepare("UPDATE machine_children SET rechecked=? WHERE id=?");
-      for (const id of ids) mark.run(turn, id);
+      for (const id of ids) mark.run(alone ? -1 : 0, id);
     });
   }
 }
 
-/** A machine with settled children to re-check (`ChildLedger.recheckMachines`). */
-export interface RecheckMachine {
-  machine: string;
-  latest: number | null;
-  expired: boolean;
-  unconfirmed: boolean;
-}
 /**
  * Which settled children the re-check tracks: every one whose re-check window is still open
  * (`settled_at` set; it closes only once a check answered at or after its 24 h mark), and every

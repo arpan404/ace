@@ -1,11 +1,6 @@
 import { expect, test } from "vitest";
 import { MachinePendingRequest, ThreadId, type MachineThreadView } from "@ace/protocol";
-import {
-  RECHECK_POLLS,
-  RECHECK_SLOWEST_POLLS,
-  RecheckSchedule,
-  recheckOutcome,
-} from "./child-recheck.ts";
+import { recheckOutcome } from "./child-recheck.ts";
 
 const view = (changes: Partial<MachineThreadView>): MachineThreadView => ({
   threadId: ThreadId.parse("child-a"),
@@ -69,17 +64,4 @@ test("a settled failure found to be a usage limit gives the parent that reason",
   });
   expect(recheckOutcome(failed, limited)).toBe("settle");
   expect(recheckOutcome(limited, limited)).toBe("ignore");
-});
-
-test("a stop still unconfirmed keeps its machine on the fast pace, however old its children", () => {
-  const pollMs = 1000;
-  const schedule = new RecheckSchedule(pollMs, 0);
-  const hoursAgo = -10 * 60 * 60 * 1000;
-  // The first round is done, so only the facts decide the pace.
-  schedule.turn("studio", ["child-a"]);
-  schedule.answered("studio", [{ id: "child-a", settledAt: hoursAgo }], 0);
-  const quiet = { latest: hoursAgo, expired: false, unconfirmed: false };
-  expect(schedule.dueAt("studio", quiet, 0)).toBe(RECHECK_SLOWEST_POLLS * pollMs);
-  expect(schedule.dueAt("studio", { ...quiet, unconfirmed: true }, 0)).toBe(RECHECK_POLLS * pollMs);
-  expect(schedule.dueAt("studio", { ...quiet, expired: true }, 0)).toBe(RECHECK_POLLS * pollMs);
 });

@@ -6,7 +6,7 @@ import { RECHECK_POLLS, RECHECK_WINDOW_MS, recheckEveryPolls } from "./child-rec
  * each, and the time; it makes the calls and folds each outcome back in as it arrives.
  *
  * Every child has its own next due time:
- * - a working child, every poll;
+ * - a working child, on every turn (one a poll);
  * - a settled child, after an interval that grows with its age (10 s at first, up to 5 minutes),
  *   from its last answered check; one past its 24 h mark, or whose stop is unconfirmed, every
  *   10 s; one this daemon has not checked since it started, 10 s after start;
@@ -117,8 +117,9 @@ export function dueAt(
     (rec.lastAnsweredAt === undefined || rec.lastAnsweredAt < rec.implicatedAt)
   )
     return rec.implicatedAt;
-  if (!child.settled)
-    return rec.lastAskedAt === undefined ? config.start : rec.lastAskedAt + config.pollMs;
+  // A working child is read on every turn (there is one turn a poll); one with a call on its way
+  // is skipped above.
+  if (!child.settled) return config.start;
   const fast = RECHECK_POLLS * config.pollMs;
   if (rec.lastAnsweredAt === undefined) return config.start + fast;
   const expired = child.settledAt !== null && now - child.settledAt >= RECHECK_WINDOW_MS;
@@ -145,12 +146,24 @@ export function planTurn(
   records: Records,
   now: number,
   config: ScheduleConfig,
+  /**
+   * When the turn was set for, if later than `now` (a timer can run a moment early): a child's
+   * own next check counts as due then. A wait after a failure counts only against `now`.
+   */
+  setFor = now,
 ): TurnPlan {
   const next = new Map(records);
+  const by = Math.max(now, setFor);
   const due = children
-    .map((child) => ({ child, at: dueAt(child, records.get(child.id), now, config) }))
-    .filter((entry): entry is { child: ScheduleChild; at: number } => entry.at !== undefined)
-    .filter((entry) => entry.at <= now)
+    .map((child) => {
+      const record = records.get(child.id);
+      const waiting = record !== undefined && record.failures > 0 && record.retryAt !== undefined;
+      return { child, at: dueAt(child, record, by, config), limit: waiting ? now : by };
+    })
+    .filter(
+      (entry): entry is { child: ScheduleChild; at: number; limit: number } =>
+        entry.at !== undefined && entry.at <= entry.limit,
+    )
     .toSorted((a, b) => a.at - b.at || (a.child.id < b.child.id ? -1 : 1));
   const calls: string[][] = [];
   let open: string[] | undefined;
@@ -230,11 +243,7 @@ export function foldCall(
   const ended: string[] = [];
   const answered = (id: string) => {
     const child = byId.get(id);
-    if (
-      child?.settled &&
-      child.settledAt !== null &&
-      now - child.settledAt >= RECHECK_WINDOW_MS
-    )
+    if (child?.settled && child.settledAt !== null && now - child.settledAt >= RECHECK_WINDOW_MS)
       ended.push(id);
   };
   for (const id of ids) {
@@ -242,7 +251,12 @@ export function foldCall(
     if (outcome.kind === "answered") {
       const { retryAt: _retryAt, ...rest } = rec;
       // Answered alone: it may share calls again once its time alone is over.
-      next.set(id, { ...rest, failures: 0, lastAnsweredAt: now, suspect: ids.length > 1 && rec.suspect });
+      next.set(id, {
+        ...rest,
+        failures: 0,
+        lastAnsweredAt: now,
+        suspect: ids.length > 1 && rec.suspect,
+      });
       answered(id);
     } else if (ids.length > 1) {
       // Failed or refused beside others: nobody can tell whose doing it was. Each is asked
@@ -253,7 +267,8 @@ export function foldCall(
         suspect: true,
         implicated,
         implicatedAt: now,
-        aloneUntil: now + Math.min(config.aloneCapMs, config.pollMs * 2 ** Math.min(implicated - 1, 30)),
+        aloneUntil:
+          now + Math.min(config.aloneCapMs, config.pollMs * 2 ** Math.min(implicated - 1, 30)),
       });
     } else {
       // Its own read failed, or the machine doesn't hold it: asked again later each time.
