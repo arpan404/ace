@@ -26,18 +26,32 @@ import Testing
     @Test func aWorkingThreadSnoozedUntilItNeedsYouSaysSoInSnoozedAndWakesBack() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        try await until("working row arrives") { model.inbox["ios-tree"]?.snoozeEvents?.isEmpty == false }
-        // The menu leads with the event, then the times, as web lists them.
-        let choices = SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox["ios-tree"])
-        #expect(choices.map(\.id) == ["needs_you", "hour", "tomorrow", "monday"])
-        #expect(choices.first?.detail == "Returns on a question, a failure or when it finishes")
-        #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-tree", preset: "needs_you") })
-        try await until("row moves to Snoozed") { section(model, of: "ios-tree")?.key == "snoozed" }
-        let row = try #require(model.inbox["ios-tree"])
-        #expect(InboxRowLine.wake(row) == "Until it needs you")
-        #expect(try await SpikeFixture.within("wake admitted") { await model.wake("ios-tree") })
-        try await until("row wakes into Working") { section(model, of: "ios-tree")?.key == "working" }
-        #expect(model.inbox["ios-tree"]?.snoozeWake == nil)
+        // Rows arrive before the layout that places them and names the times: wait for both.
+        try await until("working row placed") {
+            section(model, of: "ios-tree") != nil && !model.inboxLayout.snooze.isEmpty && model.inbox["ios-tree"]?.snoozeEvents?.isEmpty == false
+        }
+        // The fixture is shared: a run cut short may have left it snoozed.
+        if section(model, of: "ios-tree")?.key == "snoozed" {
+            _ = await model.wake("ios-tree")
+            try await until("row awake") { section(model, of: "ios-tree")?.key == "working" }
+        }
+        do {
+            // The menu leads with the event, then the times, as web lists them.
+            let choices = SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox["ios-tree"])
+            #expect(choices.map(\.id) == ["needs_you", "hour", "tomorrow", "monday"])
+            #expect(choices.first?.detail == "Returns on a question, a failure or when it finishes")
+            #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-tree", preset: "needs_you") })
+            try await until("row moves to Snoozed") { section(model, of: "ios-tree")?.key == "snoozed" }
+            let row = try #require(model.inbox["ios-tree"])
+            #expect(InboxRowLine.wake(row) == "Until it needs you")
+            #expect(try await SpikeFixture.within("wake admitted") { await model.wake("ios-tree") })
+            try await until("row wakes into Working") { section(model, of: "ios-tree")?.key == "working" }
+            #expect(model.inbox["ios-tree"]?.snoozeWake == nil)
+        } catch {
+            // Never leave the shared fixture asleep for the tests after this one.
+            _ = await model.wake("ios-tree")
+            throw error
+        }
     }
     @Test func snoozeWakeArchiveAndUndoAreAdmittedDurablyAndMoveTheRowCanonically() async throws {
         let (model, root) = try await connected()
