@@ -206,7 +206,12 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   page shows the browser's error page and keeps its address. A tab's rest, freeze, discard and
   wake run one at a time in its own lifecycle turn, each change decided from the tab's use at
   that moment, so nothing ever runs on a page half-way into a change. Commands, the person's
-  input and dropped files, recordings and print requests all wake the tab first.
+  input and dropped files, recordings and print requests all wake the tab first, as do the
+  person's sign-in answers, certificate approvals and picked files (muting needs no page). Work
+  outside the command queue (a print, a person's request, files being staged) holds the tab
+  awake until it ends. A viewer's video waits for the shown tab to be back before it starts; a
+  watched tab that cannot be shown is tried again with growing waits (1 s up to a minute) and
+  its video status says `retrying` meanwhile.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;
