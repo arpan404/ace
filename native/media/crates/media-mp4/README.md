@@ -20,7 +20,10 @@ Opus always uses 48 kHz. Timestamp origins are shared across tracks after scalin
 
 Call `fragment` with a complete GOP. The recorder keeps a GOP until the next
 keyframe supplies its end timestamp, then flushes it. At stop it supplies an
-explicit end timestamp. Durations come from consecutive timestamps, including
+explicit end timestamp through `final_fragment`, which seals the part against
+further GOPs and permits a positive trimmed final Opus duration below 120 ticks.
+Ordinary `fragment` calls keep the 120-tick minimum, including at GOP boundaries.
+Call `finish` afterward to write the index. Durations come from consecutive timestamps, including
 the explicit endpoint for the last sample. The API rejects interior keyframes,
 so callers must split at every keyframe. Gaps retain their timestamps; every GOP,
 including the first in a new part, must start with a keyframe. Errors leave the
@@ -62,6 +65,11 @@ To repeat the native decoder smoke on macOS (no external media tools):
 
 ```sh
 mkdir -p /tmp/ace-mp4-playback
-ACE_MP4_PLAYBACK_DIR=/tmp/ace-mp4-playback cargo test -p media-mp4 platform_encoder_vectors
+ACE_MP4_PLAYBACK_DIR=/tmp/ace-mp4-playback cargo test -p media-mp4
 swift crates/media-mp4/tests/vectors/playback.swift /tmp/ace-mp4-playback
 ```
+
+The audio smoke decodes six 20 ms Opus silence packets, with the final packet
+trimmed to 119 valid samples in the MP4. AVAssetReader returns all 5,760 nominal
+PCM samples on this Mac; the independent Rust reader asserts the stored final
+119-tick duration and preservation of the video GOP.

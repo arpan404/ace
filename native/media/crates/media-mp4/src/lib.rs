@@ -77,6 +77,7 @@ pub struct Muxer {
     index: Vec<(u64, u64)>,
     video_end: Option<u64>,
     audio_end: Option<u64>,
+    sealed: bool,
     finished: bool,
 }
 impl Muxer {
@@ -105,6 +106,7 @@ impl Muxer {
             index: Vec::new(),
             video_end: None,
             audio_end: None,
+            sealed: false,
             finished: false,
         })
     }
@@ -116,7 +118,31 @@ impl Muxer {
     /// Validation errors leave the part unchanged. Buffers borrow encoded payloads
     /// until the one contiguous output allocation is built.
     pub fn fragment(&mut self, group: Group<'_>) -> Result<Vec<u8>, Error> {
-        if self.finished {
+        if self.finished || self.sealed {
+            return Err(Error::Finished);
+        }
+        if group.audio.last().is_some_and(|s| {
+            group
+                .audio_end
+                .checked_sub(s.timestamp)
+                .is_some_and(|d| d < 120)
+        }) {
+            return Err(Error::InvalidTimestamp);
+        }
+        self.write_group(group)
+    }
+    /// Write the last GOP of a part, allowing the final Opus packet's duration
+    /// to contain only its positive number of valid PCM samples (Opus §4.3.4).
+    /// Earlier audio samples retain the ordinary minimum of 120 ticks. Success
+    /// seals the part against further GOPs; call `finish` for its index.
+    /// Errors leave it open, including `PartFull` so the GOP can move to a new part.
+    pub fn final_fragment(&mut self, group: Group<'_>) -> Result<Vec<u8>, Error> {
+        let output = self.write_group(group)?;
+        self.sealed = true;
+        Ok(output)
+    }
+    fn write_group(&mut self, group: Group<'_>) -> Result<Vec<u8>, Error> {
+        if self.finished || self.sealed {
             return Err(Error::Finished);
         }
         if group.video.first().is_none_or(|s| !s.keyframe)
@@ -131,10 +157,6 @@ impl Muxer {
             .audio
             .windows(2)
             .any(|w| w[1].timestamp - w[0].timestamp < 120)
-            || group
-                .audio
-                .last()
-                .is_some_and(|s| group.audio_end - s.timestamp < 120)
         {
             return Err(Error::InvalidTimestamp);
         }

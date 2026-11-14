@@ -22,3 +22,21 @@ for codec in ["h264", "hevc"] {
         print("\(codec)\(suffix): decoded \(frames) frames")
     }
 }
+
+// The six 20 ms silence packets end with only 119 valid PCM samples.
+let audioAsset = AVURLAsset(url: URL(fileURLWithPath: directory + "/opus-cut.mp4"))
+let audioReader = try AVAssetReader(asset: audioAsset)
+let audioTrack = audioAsset.tracks(withMediaType: .audio)[0]
+let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM])
+audioReader.add(audioOutput)
+guard audioReader.startReading() else { fatalError("cannot start audio: \(String(describing: audioReader.error))") }
+// AVAssetReader returns whole decoded packets here, without applying the tail
+// trim. The Rust reader test verifies the stored final duration of 119 ticks.
+var pcmSamples = 0
+while let buffer = audioOutput.copyNextSampleBuffer() {
+    pcmSamples += CMSampleBufferGetNumSamples(buffer)
+}
+guard audioReader.status == .completed, pcmSamples == 5760 else {
+    fatalError("Opus: \(pcmSamples) PCM samples, expected 5760: \(String(describing: audioReader.error))")
+}
+print("opus-cut: decoded \(pcmSamples) PCM samples")
