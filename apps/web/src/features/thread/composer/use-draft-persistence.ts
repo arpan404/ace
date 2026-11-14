@@ -21,6 +21,7 @@ import {
   readDraft,
   readDurableDraft,
   writeDraft,
+  writeDraftJson,
 } from "./draft-store.ts";
 import { samePlain } from "./same-plain.ts";
 
@@ -178,7 +179,8 @@ function flushDraft(
 ): boolean | undefined {
   const next = pending.current;
   if (next === undefined) return;
-  if (!writeDraft(storage, key, next)) return false;
+  // Serialised here, once per save, never per render; stored exactly as the store expects.
+  if (!writeDraftJson(storage, key, JSON.stringify(next))) return false;
   pending.current = undefined;
   return true;
 }
