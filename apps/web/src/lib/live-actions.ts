@@ -1,4 +1,4 @@
-import type { ClientApi } from "@ace/client";
+import { retrySend, type ClientApi } from "@ace/client";
 import {
   AgentId,
   BackgroundTaskId,
@@ -279,4 +279,26 @@ export function followUpDelivery(
   return delivery === "steer" && runId === undefined && !currentNow(client, threadId)
     ? "queue"
     : delivery;
+}
+
+/**
+ * Retry a message that didn't go (`retrySend`). A kept message is resumed in its queue only
+ * while its thread's copy is current, checked as that `queue.resume` goes (after the queue is
+ * read): before the replay of a reconnect lands, Retry is refused (`stale_copy`) instead of
+ * resuming on what an old copy shows. The resume itself names the queue's revision.
+ */
+export function retryFailedSend(
+  client: ClientApi,
+  commandId: string,
+  payload: () => CommandPayload | undefined,
+): Promise<"resumed" | "resent"> {
+  const gatedClient: Pick<ClientApi, "request" | "command" | "enqueue"> = {
+    request: (input, options) => client.request(input, options),
+    enqueue: (sent, id) => client.enqueue(sent, id),
+    command: (sent, options, id) =>
+      sent.type === "queue.resume" && !currentNow(client, sent.threadId)
+        ? Promise.reject(new CommandRefused("stale_copy"))
+        : client.command(sent, options, id),
+  };
+  return retrySend(gatedClient, commandId, payload);
 }

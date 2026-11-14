@@ -3,8 +3,9 @@
  * change, a send-now steer, an archive, a delete) is built and sent by
  * apps/web/src/lib/live-actions.ts, which checks the copy is current as it sends. Anywhere else
  * in the web app, naming one of those commands as a value (any quotes, in a variable or an
- * object), or a `delivery` of "steer", is an error: a new sender can't skip the gate. Types
- * and comments may name them.
+ * object), or a `delivery` of "steer", is an error: a new sender can't skip the gate. So is
+ * using a helper from another package that sends one of them (`helpers`). Types and comments
+ * may name them.
  */
 
 const commands = new Set([
@@ -22,6 +23,17 @@ const commands = new Set([
   "queue.clear",
   "thread.archive",
   "thread.delete",
+]);
+
+/**
+ * Helpers in other packages that build or send those commands on the web app's behalf: using
+ * one outside live-actions.ts skips its gate just as a raw command would.
+ */
+const helpers = new Set([
+  // @ace/client: a failed send's Retry, which resumes the thread's queue.
+  "retrySend",
+  // @ace/ui-core: a queue-wide action's command (resume, pause, a limit choice).
+  "queueActionPayload",
 ]);
 
 /** Files that may name them: the gated module itself, and tests. */
@@ -62,7 +74,21 @@ const rule = {
       )
         context.report({ node, message: message('delivery: "steer"') });
     };
+    const helper = (node, name) => {
+      if (helpers.has(name))
+        context.report({
+          node,
+          message: `Use live-actions.ts instead of ${name}: it checks the copy is current as it sends.`,
+        });
+    };
     return {
+      ImportSpecifier(node) {
+        helper(node, node.imported?.name ?? node.imported?.value);
+      },
+      MemberExpression(node) {
+        if (!node.computed && node.property?.type === "Identifier")
+          helper(node, node.property.name);
+      },
       Literal(node) {
         check(node, node.value);
       },

@@ -1,8 +1,10 @@
-import { facts, flakyCheckout, type Scenario } from "@ace/fake-daemon";
+import { facts, flakyCheckout, seedRealThreadState, type Scenario } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
+import { retryFailedSend } from "@/lib/live-actions.ts";
 import { slowReplay } from "@/test/held-replay.ts";
 import { harness } from "@/test/harness.tsx";
 
@@ -145,4 +147,33 @@ test("words sent as a reply in the instant the connection drops never become the
   act(() => app.client.reconnectNow());
   await waitFor(() => expect(app.client.state).toBe("ready"));
   expect(app.daemon.isPending("thread-indent", "indent")).toBe(true);
+});
+
+test("connected again but not caught up: a Retry of a kept message doesn't resume its queue until the replay lands", async () => {
+  const { app, replay } = slowDaemon();
+  seedRealThreadState(app.daemon);
+  await app.open("/t/legacy-send");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByRole("button", { name: "Retry" });
+  const threadId = ThreadId.parse("legacy-send");
+  const queued = async () =>
+    (await app.client.request({ type: "queue.get", threadId })).queue.messages;
+  const [message] = await queued();
+  if (!message) throw new Error("No kept message");
+  const retry = () =>
+    retryFailedSend(app.client, message.id, () => ({
+      type: "thread.send",
+      threadId,
+      input: message.input,
+    }));
+
+  // A Retry already on its way when the copy goes stale: its resume is refused, not sent.
+  await replay.hold(app.client);
+  await expect(retry()).rejects.toMatchObject({ code: "stale_copy" });
+  expect(replay.sent.filter((payload) => payload.type === "queue.resume")).toEqual([]);
+  expect(await queued()).toHaveLength(1);
+
+  replay.release(app.client);
+  await waitFor(() => expect(app.client.peekThread?.("legacy-send")?.syncing).toBe(false));
+  await expect(retry()).resolves.toBe("resumed");
 });
