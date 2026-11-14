@@ -501,12 +501,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
           session.defaultSession.availableSpellCheckerLanguages,
         ),
       );
-    await isolateVisualizationSession();
+    // The visualization session is locked while the renderer is served; both finish before the
+    // app window (the only place a visualization `<webview>` attaches) exists.
     const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
-    if (devUrl && !app.isPackaged) {
-      applyDevCsp(devUrl, remote, network);
-      rendererUrl = devUrl;
-    } else rendererUrl = await serveRenderer(paths.renderer, remote, network);
+    const served =
+      devUrl && !app.isPackaged
+        ? (applyDevCsp(devUrl, remote, network), Promise.resolve(devUrl))
+        : serveRenderer(paths.renderer, remote, network);
+    [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
     // The page shows "Starting ace…" until its daemon answers, however long a first start
     // takes. Only a real failure rejects; the page then shows its connection screen and
