@@ -21,7 +21,13 @@ import {
 } from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { currentNow } from "@/lib/live-connection.ts";
-import { archiveAction, deleteAction, type ListAction } from "@/lib/list-actions.ts";
+import {
+  archiveAction,
+  decide,
+  deleteAction,
+  type Decided,
+  type ListAction,
+} from "@/lib/list-actions.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -79,7 +85,13 @@ export interface ThreadActions {
    */
   archiveMany(entries: readonly ThreadTarget[], archived?: () => void): void;
   /** Archive several threads at once, with one Undo, without asking: the caller asked. */
-  archiveManyNow(entries: readonly ThreadTarget[]): void;
+  /**
+   * Archive now. `decided` (from `decisions`, taken when the person was asked) is what the
+   * daemon fences each archive to; without it, the decision is now.
+   */
+  archiveManyNow(entries: readonly ThreadTarget[], decided?: ReadonlyMap<string, Decided>): void;
+  /** What the person sees of `entries` as they are asked: carried to the archive or delete. */
+  decisions(entries: readonly ThreadTarget[]): ReadonlyMap<string, Decided>;
   /** How many commands each thread left running, which archiving it would stop. */
   leftRunning(entries: readonly ThreadTarget[]): { title: string; leftRunning: number }[];
   /** Delete several threads at once, for good: no Undo, so ask first. */
@@ -237,9 +249,10 @@ const snooze = (entry: ThreadTarget, until: number | null, wake?: SnoozeWakeOn):
   failed: until === null ? "wake the thread" : "snooze the thread",
 });
 
-const archive = (entry: ThreadTarget): Action => ({
+/** `decided`: what the person saw when asked; the daemon refuses it if newer work started. */
+const archive = (entry: ThreadTarget, decided: Decided): Action => ({
   patch: { archived: true },
-  payload: archiveAction(entry.id),
+  payload: archiveAction(entry.id, decided),
   verb: "Archive",
   failed: "archive the thread",
 });
@@ -339,9 +352,20 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     lease.release();
     return counts;
   };
-  const archiveManyNow = (entries: readonly ThreadTarget[]) =>
+  /** Decisions for `entries` as of now: taken when the person is asked, carried to the send. */
+  const decisions = (entries: readonly ThreadTarget[]) =>
+    new Map(entries.map((entry) => [entry.id, decide(client, entry.id)]));
+  /** Archive now; `decided` when a question asked earlier stands for the decision. */
+  const archiveManyNow = (
+    entries: readonly ThreadTarget[],
+    decided: ReadonlyMap<string, Decided> = decisions(entries),
+  ) =>
     void reversibleAll(
-      entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
+      entries.map((entry) => ({
+        entry,
+        action: archive(entry, decided.get(entry.id) ?? decide(client, entry.id)),
+        undo: unarchive(entry),
+      })),
       `Archived ${count(entries.length)}`,
     );
   /**
@@ -361,11 +385,12 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    * always names what it may stop: the root run the list says runs, else the thread's cursor
    * (nothing started after it is stopped); with neither, nothing is stopped.
    */
-  const stopTree = async (listed: ThreadListEntry): Promise<boolean> => {
+  const stopTree = async (listed: ThreadListEntry, decided: Decided): Promise<boolean> => {
     // Loaded on first use: the sidebar paints without the sender.
     const { stopTask, stopThread } = await import("@/lib/live-actions.ts");
+    // Both from when the person was asked: the run the list showed, else what they had seen.
     const runId = listed.live?.rootRunId ?? undefined;
-    const cursor = client.peekThread?.(listed.id)?.cursor;
+    const cursor = decided.beforeSeq;
     const fence = runId
       ? { runId: RunId.parse(runId) }
       : cursor === undefined
@@ -396,12 +421,12 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     );
     return true;
   };
-  const deleteOne = (entry: ThreadTarget, force: boolean) =>
+  const deleteOne = (entry: ThreadTarget, force: boolean, decided: Decided) =>
     overlay
       .run(
         entry.id,
         { deleted: true },
-        deleteAction(entry.id, force),
+        deleteAction(entry.id, force, decided),
         `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
         Date.now(),
       )
@@ -419,7 +444,12 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    * refused only because their agents or terminals are still running are offered together
    * as one Stop and delete, which stops that work on the daemon and then deletes.
    */
-  const removeAll = (entries: readonly ThreadTarget[], force = false) => {
+  const removeAll = (
+    entries: readonly ThreadTarget[],
+    force = false,
+    // When the person was asked; a plain delete carries no fence, so now is as good.
+    decided: ReadonlyMap<string, Decided> = decisions(entries),
+  ) => {
     // Read before the delete: a chat's hidden project goes with its last thread (ADR 0099).
     const lease = client.threads();
     const chats = new Set(
@@ -429,7 +459,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       }),
     );
     lease.release();
-    void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
+    void Promise.all(
+      entries.map((entry) =>
+        deleteOne(entry, force, decided.get(entry.id) ?? decide(client, entry.id)),
+      ),
+    ).then((outcomes) => {
       const refused = outcomes.filter((outcome) => outcome !== undefined);
       const removed = entries.length - refused.length;
       // The rows leaving the list are the confirmation.
@@ -461,6 +495,8 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         });
       const only = live.length === 1 ? live[0] : undefined;
       if (!live.length) return;
+      // Asked now: Stop and delete stops what was running as of this question, nothing newer.
+      const asked = decisions(live.map((refusal) => refusal.entry));
       confirmation.open({
         title: only ? only.entry.title : count(live.length),
         running: stopAndDeleteQuestion(live.map((refusal) => refusal.entry.title)).running,
@@ -468,6 +504,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
           removeAll(
             live.map((refusal) => refusal.entry),
             true,
+            asked,
           ),
       });
     });
@@ -520,12 +557,14 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     },
     archiveMany: (entries, archived) => {
       if (!listCurrent()) return;
+      const asked = decisions(entries);
       askBeforeArchive(archiving, leftRunning(entries), () => {
-        archiveManyNow(entries);
+        archiveManyNow(entries, asked);
         archived?.();
       });
     },
     archiveManyNow,
+    decisions,
     leftRunning,
     removeMany: (entries) => removeAll(entries),
     moveMany: (entries, to) => {
@@ -557,9 +596,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       });
     },
     archive: (entry, leave) => {
+      // What the person sees as they are asked (or as they archive, when nothing asks).
+      const asked = decide(client, entry.id);
       const archiveNow = () => {
         void reversibleAll(
-          [{ entry, action: archive(entry), undo: unarchive(entry) }],
+          [{ entry, action: archive(entry, asked), undo: unarchive(entry) }],
           `Archived · ${entry.title}`,
           // Undo takes the person back to the thread they archived, wherever they went.
           () =>
@@ -584,7 +625,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         stopAndArchive: () => {
           // Confirmed later than it was asked: the list must still be current, and the Stop safe.
           if (!listCurrent()) return;
-          void stopTree(listed).then((stopped) => {
+          void stopTree(listed, asked).then((stopped) => {
             if (stopped) archiveNow();
           });
         },
@@ -600,10 +641,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       // refuses it if work still runs, offering Stop and delete from what is true now.
       const question =
         status && currentNow(client) ? deleteQuestion([{ title: entry.title, status }]) : undefined;
+      const asked = decisions([entry]);
       confirmation.open({
         title: entry.title,
         running: question?.running ?? "",
-        confirm: () => removeAll([entry], question?.force === true),
+        confirm: () => removeAll([entry], question?.force === true, asked),
       });
     },
     newThreadOnMain: (entry) =>

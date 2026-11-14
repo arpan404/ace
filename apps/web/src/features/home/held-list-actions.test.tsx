@@ -155,3 +155,44 @@ test("an Archive replayed from the outbox after newer work started is refused, a
   expect((await screen.findAllByText(/changed since you looked/)).length).toBeGreaterThan(0);
   expect(listed("thread-install-page")?.archivedAt).toBeUndefined();
 });
+
+test("a Stop and delete answered after newer work started while its dialog was open is refused, and says so", async () => {
+  const { app } = await openHome();
+  await menu(/^Rewrite the install page/, "Delete thread");
+  const ask = await screen.findByRole("dialog", { name: "Delete thread?" });
+  // While the question is open, the list updates: another device starts newer work, and this
+  // window's list has it before the person answers.
+  const seen = () => app.client.cachedThreads?.()?.thread("thread-install-page")?.activitySeq ?? 0;
+  const before = seen();
+  newerWork(app);
+  await waitFor(() => expect(seen()).toBeGreaterThan(before));
+  await userEvent.click(within(ask).getByRole("button", { name: "Stop and delete" }));
+  expect((await screen.findAllByText(/changed since you looked/)).length).toBeGreaterThan(0);
+  expect(
+    app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-install-page") }),
+  ).toBeDefined();
+});
+
+test("a bulk Archive answered after newer work started while its question was open is refused, and says so", async () => {
+  const { app, listed } = await openHome();
+  for (const title of [/^Backpressure on broadcast/, /^Invoice PDF/]) {
+    const user = userEvent.setup();
+    await user.keyboard("{Meta>}");
+    await user.click(card(title));
+    await user.keyboard("{/Meta}");
+  }
+  const selected = await screen.findByRole("toolbar", { name: "Selected threads" });
+  await userEvent.click(await within(selected).findByRole("button", { name: "Archive 2 threads" }));
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  const seen = () => app.client.cachedThreads?.()?.thread("thread-fan-out")?.activitySeq ?? 0;
+  const before = seen();
+  act(() =>
+    app.daemon.apply("thread-fan-out", [
+      { type: "turn.started", agent: "root", nativeTurnId: "elsewhere", trigger: "user" },
+    ]),
+  );
+  await waitFor(() => expect(seen()).toBeGreaterThan(before));
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive" }));
+  expect((await screen.findAllByText(/changed since you looked/)).length).toBeGreaterThan(0);
+  expect(listed("thread-fan-out")?.archivedAt).toBeUndefined();
+});
