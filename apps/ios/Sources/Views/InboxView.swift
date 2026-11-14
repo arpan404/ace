@@ -135,6 +135,9 @@ struct InboxView: View {
                     SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
                 }
             }
+            Tab(value: InboxTab.review) { review }
+                label: { Label { Text(HomeTabs.title(.review)) } icon: { HomeTabs.tabImage(.review) } }
+                .accessibilityIdentifier("tab.review")
             if HomeTabs.composeTab {
                 Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
                     .accessibilityIdentifier("tab.search")
@@ -183,6 +186,16 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+            }
+            .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
+    /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
+    private var review: some View {
+        CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
+                      openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) })
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
             }

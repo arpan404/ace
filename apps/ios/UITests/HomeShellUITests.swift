@@ -1,6 +1,6 @@
 import XCTest
 
-/// The home shell: Threads, Chats and Search in the tab bar (Spade hidden until it launches),
+/// The home shell: Threads, Chats, Code review and Search in the tab bar (Spade hidden until it launches),
 /// compose on the lists, and Search holding the places a More tab used to. Run against the
 /// fixture (`ACE_IOS_SPIKE_PORT`, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for another port). With
 /// `TEST_RUNNER_ACE_SHOT_DIR` set, each step's screenshot is written there too.
@@ -227,7 +227,7 @@ import XCTest
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.search", "sidebar.place.pulls", "sidebar.place.automations",
+        let places = ["sidebar.threads", "sidebar.chats", "sidebar.search", "sidebar.review", "sidebar.place.automations",
                       "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
         // Left to right in the rail's order, with no Spade and no tab bar beside the list.
@@ -236,8 +236,28 @@ import XCTest
         XCTAssertFalse(app.buttons["sidebar.spade"].exists)
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
         capture("ipad-sidebar")
+        // Code review is a place of its own: pull requests and issues, the list beside them kept.
+        app.buttons["sidebar.review"].tap()
+        XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 10))
+        capture("ipad-code-review")
         app.buttons["sidebar.place.settings"].tap()
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
+    }
+
+    func testCodeReviewIsAHomeTabForPullRequestsAndIssues() {
+        let app = launch()
+        let review = app.tabBars.firstMatch.buttons["Code review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30))
+        review.tap()
+        XCTAssertTrue(review.isSelected)
+        let issues = app.buttons["forge.kind.issues"]
+        XCTAssertTrue(issues.waitForExistence(timeout: 20))
+        capture("code-review-pulls")
+        issues.tap()
+        XCTAssertTrue(issues.isSelected)
+        capture("code-review-issues")
+        app.tabBars.firstMatch.buttons["Threads"].tap()
+        XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
     }
 
     private func launch() -> XCUIApplication {
