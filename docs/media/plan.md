@@ -92,10 +92,12 @@ TypeScript implementation (below).
 - **Parsing.** Annex B start-code scanning, AVCC/HVCC length prefixes, and NAL types for H.264
   (5 IDR, 7 SPS, 8 PPS) and H.265 (19/20 IDR, 21 CRA, 32 VPS, 33 SPS, 34 PPS).
 - **Conversions.** `avcC` and `hvcC` records to and from parameter sets (14496-15 §5.3, §8.3).
-- **Writers.** SPS/PPS/VPS writers with exp-Golomb coding (H.264 §7.3.2, H.265 §7.3.2), used
-  where VA-API needs packed headers.
-- **Tests.** Vectors of parameter sets taken from the platform encoders' output in process tests,
-  plus round trips.
+- **Writers.** SPS/PPS/VPS and slice header writers with exp-Golomb coding (H.264 §7.3.2,
+  §7.3.3; H.265 §7.3.2, §7.3.6), each with a reader, used where VA-API takes packed headers.
+  `media-vaapi` packs SPS/PPS (and the VPS) and leaves slice headers to the driver.
+- **Tests.** `vectors/bitstream/videotoolbox.json`: parameter sets, slice headers and records
+  from VideoToolbox on the Mac (`videotoolbox.swift` regenerates them). Each must parse and
+  write back bit for bit. Plus round trips of the sets ace's encoders write.
 
 ### media-mp4 (pure)
 
