@@ -137,9 +137,10 @@ test("a folder without suit.json says so", () => {
   expect(plan([]).problems).toEqual([expect.objectContaining({ field: "suit.json" })]);
 });
 
+const hash = (files: Record<string, string>) =>
+  contentHash(new Map(Object.entries(files).map(([path, text]) => [path, bytes(text)])));
+
 test("the content hash changes with any byte and frames paths and contents apart", () => {
-  const hash = (files: Record<string, string>) =>
-    contentHash(new Map(Object.entries(files).map(([path, text]) => [path, bytes(text)])));
   const base = hash({ "suit.json": "{}", "scene.js": "a" });
   expect(hash({ "scene.js": "a", "suit.json": "{}" })).toBe(base);
   expect(hash({ "suit.json": "{}", "scene.js": "b" })).not.toBe(base);

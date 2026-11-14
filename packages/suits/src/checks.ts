@@ -157,10 +157,9 @@ function glassProblems(palette: Palette, scheme: Scheme): SuitProblem[] {
 export function readabilityProblems(manifest: SuitManifest): SuitProblem[] {
   return suitSchemes(manifest).flatMap((scheme) => {
     const palette = suitPalette(manifest, scheme);
-    return [
-      ...contrastProblems(palette, scheme),
-      ...accentProblems(manifest, palette, scheme),
-      ...glassProblems(palette, scheme),
-    ];
+    return contrastProblems(palette, scheme).concat(
+      accentProblems(manifest, palette, scheme),
+      glassProblems(palette, scheme),
+    );
   });
 }

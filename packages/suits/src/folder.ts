@@ -99,6 +99,13 @@ export function plan(entries: readonly SuitEntry[]): SuitPlan {
   return result;
 }
 
+/** A length as 8 bytes, big-endian. */
+function length(value: number): Buffer {
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(value));
+  return buffer;
+}
+
 /**
  * sha256 over the folder's files in path order. Each file is framed as a tag, its path's length
  * and bytes, then its content's length and bytes (lengths as 8-byte big-endian), so no two
@@ -109,11 +116,6 @@ export function contentHash(
   skipped: readonly { path: string; size: number }[] = [],
 ): string {
   const hash = createHash("sha256").update("ace-suit\u00001\u0000");
-  const length = (value: number) => {
-    const buffer = Buffer.alloc(8);
-    buffer.writeBigUInt64BE(BigInt(value));
-    return buffer;
-  };
   const entries = [
     ...[...files].map(([path, bytes]) => ({ path, tag: "F", bytes, size: bytes.byteLength })),
     ...skipped.map(({ path, size }) => ({ path, tag: "S", bytes: undefined, size })),

@@ -53,7 +53,7 @@ export function contrastWarnings(palette: Palette, scheme: Scheme): ContrastWarn
     if (ratio < minimum) warnings.push({ key, label, ratio, minimum });
   };
   const texts = [
-    ...textChecks.map((entry) => ({ ...entry, value: palette[entry.key] })),
+    ...textChecks.map(({ key, label }) => ({ key, label, value: palette[key] })),
     ...projectTints(scheme).map((value, index) => ({
       key: null,
       label: `Project tint ${index + 1}`,
