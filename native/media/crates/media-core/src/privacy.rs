@@ -370,6 +370,20 @@ impl<T> Barrier<T> {
         self.prune();
     }
 
+    /// How `epoch` was decided: `Some(true)` clear, `Some(false)` discarded (or forgotten, which
+    /// refuses it), `None` while undecided. For what rides beside frames, such as a recording's
+    /// pointer track, so it is kept exactly when frames of its epoch would be.
+    pub fn decided(&self, epoch: Epoch) -> Option<bool> {
+        let e = u64::from(epoch);
+        if e < self.floor {
+            return Some(false);
+        }
+        if e >= self.undecided {
+            return None;
+        }
+        Some(self.verdicts.get(e) == Some(Verdict::Clear))
+    }
+
     /// Frames currently held: undecided, or audio waiting for its video fragment.
     pub fn held(&self) -> usize {
         self.video.held.len() + self.audio.held.len()

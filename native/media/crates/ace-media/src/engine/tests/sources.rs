@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Sources, ingest connections, epochs and the recording barrier.
 use super::super::egress::NoEgress;
-use super::super::recorder::{RecordSpec, Recorder, Recorders};
+use super::super::recorder::{RecordSpec, Recorder, Recorders, Started};
 use super::super::*;
 use super::*;
 use media_wire::control::{FromMedia, Part, Status};
@@ -152,14 +152,19 @@ type Log = Arc<Mutex<Vec<String>>>;
 struct FakeRecorder(Log);
 
 impl Recorder for FakeRecorder {
-    fn write(&mut self, frame: &MediaFrame) {
+    fn write(&mut self, frame: &MediaFrame, _: u64, _: &mut Vec<Part>) -> Result<(), String> {
         self.push(format!("write {} {}", frame.epoch, frame.flags & 1));
+        Ok(())
     }
-    fn gap(&mut self) {
+    fn gap(&mut self, _: &mut Vec<Part>) -> Result<(), String> {
         self.push("gap".into());
+        Ok(())
     }
     fn cut(&mut self) {}
-    fn meta(&mut self, _: u32, _: &serde_json::Value) {}
+    fn meta(&mut self, _: u64, epoch: u32, data: &serde_json::Value) -> Result<(), String> {
+        self.push(format!("meta {epoch} {data}"));
+        Ok(())
+    }
     fn finish(self: Box<Self>) -> Result<Vec<Part>, String> {
         self.push("finish".into());
         Ok(Vec::new())
@@ -177,8 +182,11 @@ impl FakeRecorder {
 struct FakeRecorders(Log);
 
 impl Recorders for FakeRecorders {
-    fn start(&mut self, _: &RecordSpec<'_>) -> Result<Box<dyn Recorder>, String> {
-        Ok(Box::new(FakeRecorder(self.0.clone())))
+    fn start(&mut self, _: &RecordSpec<'_>) -> Result<Started, String> {
+        Ok(Started {
+            recorder: Box::new(FakeRecorder(self.0.clone())),
+            recovered: Vec::new(),
+        })
     }
 }
 
@@ -194,13 +202,45 @@ fn decide(
     discard: Value,
     now: Now,
 ) -> Vec<Effect> {
+    decide_for(engine, "r1", seq, decided, clear, discard, now)
+}
+
+fn decide_for(
+    engine: &mut Engine,
+    recording: &str,
+    seq: u64,
+    decided: u32,
+    clear: Value,
+    discard: Value,
+    now: Now,
+) -> Vec<Effect> {
     send(
         engine,
-        json!({ "type": "record.epochs", "source": "s1", "seq": seq, "decided": decided,
-                "clear": clear, "discard": discard }),
+        json!({ "type": "record.epochs", "source": "s1", "recording": recording, "seq": seq,
+                "decided": decided, "clear": clear, "discard": discard }),
         &[],
         now,
     )
+}
+
+fn start(engine: &mut Engine, recording: &str, directory: &str) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "record.start", "recording": recording, "source": "s1",
+                "directory": directory, "maxBytes": 1_000_000, "pointerTrack": false }),
+        &[],
+        NOW,
+    )
+}
+
+fn failures(effects: &[Effect]) -> Vec<String> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Normal(FromMedia::RecordFailed { reason, .. }) => Some(reason.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[test]
@@ -341,4 +381,177 @@ fn finishing_closes_every_connection_and_recording() {
             .any(|e| matches!(e, Effect::Normal(FromMedia::RecordDone { .. })))
     );
     assert_eq!(written(&log), ["finish"]);
+}
+
+#[test]
+fn pointer_metadata_is_written_only_for_epochs_decided_clear() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 3);
+    send(
+        &mut engine,
+        json!({ "type": "record.start", "recording": "r1", "source": "s1", "directory": "/tmp/r",
+                "maxBytes": 1_000_000, "pointerTrack": true }),
+        &[],
+        NOW,
+    );
+    for (epoch, x) in [(1, 10), (2, 20), (3, 30)] {
+        send(
+            &mut engine,
+            json!({ "type": "record.meta", "recording": "r1", "epoch": epoch,
+                    "data": { "x": x } }),
+            &[],
+            NOW,
+        );
+    }
+    assert!(written(&log).is_empty(), "nothing before a decision");
+    // Epoch 1 clear, 2 discarded (the source went private), 3 still undecided.
+    decide(&mut engine, 0, 2, json!([[1, 1]]), json!([]), NOW);
+    assert_eq!(written(&log), ["meta 1 {\"x\":10}"]);
+    decide(&mut engine, 1, 3, json!([[3, 3]]), json!([]), NOW);
+    assert_eq!(written(&log), ["meta 1 {\"x\":10}", "meta 3 {\"x\":30}"]);
+}
+
+#[test]
+fn decisions_that_overtake_their_record_start_still_apply() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    // This recording's first decisions, out of order, ahead of record.start and even of
+    // source.open on the normal lane.
+    decide(&mut engine, 1, 2, json!([]), json!([[2, 2]]), NOW);
+    decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW);
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    start(&mut engine, "r1", "/tmp/r1");
+    for (epoch, key) in [(1, true), (1, false), (2, true), (3, true)] {
+        ingest(&mut engine, 1, unit(epoch, key), NOW);
+    }
+    assert_eq!(written(&log), ["write 1 1", "write 1 0"]);
+    decide(&mut engine, 2, 3, json!([[3, 3]]), json!([]), NOW);
+    assert_eq!(written(&log), ["write 1 1", "write 1 0", "write 3 1"]);
+}
+
+#[test]
+fn a_stopped_recordings_late_decisions_never_reach_the_next_one_on_the_source() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    start(&mut engine, "a", "/tmp/a");
+    send(
+        &mut engine,
+        json!({ "type": "record.stop", "recording": "a" }),
+        &[],
+        NOW,
+    );
+    // The source reopens with its epochs restarted, and B starts while it is private.
+    open_tab(&mut engine, "s1", 2, 4);
+    hello(&mut engine, 2, 4);
+    start(&mut engine, "b", "/tmp/b");
+    log.lock().map(|mut l| l.clear()).ok();
+    // A's decisions, in flight past its stop, clear epochs 1..9; B's own seq 0 discards 1.
+    decide_for(&mut engine, "a", 0, 9, json!([[1, 9]]), json!([]), NOW);
+    decide_for(&mut engine, "a", 1, 9, json!([[1, 9]]), json!([]), NOW);
+    for key in [true, false] {
+        ingest(&mut engine, 2, unit(1, key), NOW);
+    }
+    assert!(
+        written(&log).is_empty(),
+        "A's decision cleared none of B's frames"
+    );
+    decide_for(&mut engine, "b", 0, 1, json!([]), json!([[1, 1]]), NOW);
+    ingest(&mut engine, 2, unit(2, true), NOW);
+    decide_for(&mut engine, "b", 1, 2, json!([[2, 2]]), json!([]), NOW);
+    assert_eq!(written(&log), ["write 2 1"]);
+}
+
+#[test]
+fn a_second_live_recording_with_the_same_id_or_directory_is_refused() {
+    let log: Log = Arc::default();
+    let mut engine = Engine::new(Box::new(FakeRecorders(log)), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 3);
+    open_tab(&mut engine, "s2", 2, 4);
+    assert!(failures(&start(&mut engine, "r1", "/tmp/r1")).is_empty());
+    let again = send(
+        &mut engine,
+        json!({ "type": "record.start", "recording": "r1", "source": "s2",
+                "directory": "/tmp/other", "maxBytes": 1_000_000, "pointerTrack": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(failures(&again), ["recording-exists"]);
+    let shared = send(
+        &mut engine,
+        json!({ "type": "record.start", "recording": "r2", "source": "s2",
+                "directory": "/tmp/r1", "maxBytes": 1_000_000, "pointerTrack": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(failures(&shared), ["directory-in-use"]);
+}
+
+/// Closes part 0 on its first write and fails on the second; finishing closes part 1.
+struct Failing(u32);
+
+impl Recorder for Failing {
+    fn write(&mut self, _: &MediaFrame, _: u64, closed: &mut Vec<Part>) -> Result<(), String> {
+        self.0 += 1;
+        match self.0 {
+            1 => {
+                closed.push(test_part(0));
+                Ok(())
+            }
+            _ => Err("disk-full".into()),
+        }
+    }
+    fn gap(&mut self, _: &mut Vec<Part>) -> Result<(), String> {
+        Ok(())
+    }
+    fn cut(&mut self) {}
+    fn meta(&mut self, _: u64, _: u32, _: &serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<Vec<Part>, String> {
+        Ok(vec![test_part(0), test_part(1)])
+    }
+}
+
+fn test_part(index: u32) -> Part {
+    match serde_json::from_value(json!({ "path": format!("/tmp/r1/part-{index}.mp4"),
+        "index": index, "bytes": 10, "durationMs": 1, "gaps": 0 }))
+    {
+        Ok(part) => part,
+        Err(error) => panic!("part: {error}"),
+    }
+}
+
+struct FailingRecorders;
+
+impl Recorders for FailingRecorders {
+    fn start(&mut self, _: &RecordSpec<'_>) -> Result<Started, String> {
+        Ok(Started {
+            recorder: Box::new(Failing(0)),
+            recovered: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn a_recorder_error_reports_every_part_it_closed_before_the_failure() {
+    let mut engine = Engine::new(Box::new(FailingRecorders), Box::new(NoEgress));
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    start(&mut engine, "r1", "/tmp/r1");
+    decide(&mut engine, 0, 1, json!([[1, 1]]), json!([]), NOW);
+    let mut effects = ingest(&mut engine, 1, unit(1, true), NOW);
+    effects.extend(ingest(&mut engine, 1, unit(1, false), NOW));
+    let reported: Vec<String> = effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Normal(FromMedia::RecordPart { index, .. }) => Some(format!("part {index}")),
+            Effect::Normal(FromMedia::RecordFailed { reason, .. }) => Some(reason.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reported, ["part 0", "part 1", "disk-full"]);
 }
