@@ -2,7 +2,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { bindLocal, LocalInventory } from "./inventory.ts";
+import { bindLocal, ExecutableDigests, LocalInventory } from "./inventory.ts";
 
 const directories: string[] = [];
 async function directory() {
@@ -139,5 +139,49 @@ describe("Windows script bindings", () => {
     });
     await writeFile(script, "agent-v2");
     await expect(inventory.resolve(identity, {})).rejects.toThrow("changed");
+  });
+});
+
+describe("launch revalidation", () => {
+  // Hashing an hour later than now: every file here counts as settled, so digests are reused.
+  const later = () => Date.now() + 3_600_000;
+  const custom = {
+    acpAgentId: "local:custom",
+    installationId: "custom-1",
+    instanceId: "custom-1:default",
+  };
+
+  it("an agent binary rewritten in place to the same size needs approval again", async () => {
+    const root = await directory();
+    const agent = await file(root, "agent", "agent-v1");
+    const inventory = new LocalInventory(
+      [await bindLocal({ ...custom, version: "1", command: agent, args: [] }, { PATH: root })],
+      new ExecutableDigests(later),
+    );
+    for (let launch = 0; launch < 2; launch++)
+      await expect(inventory.resolve(custom, {})).resolves.toMatchObject({ command: agent });
+    await writeFile(agent, "agent-v2");
+    await expect(inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+  });
+
+  it("a replaced native CLI behind a bridge refuses the launch", async () => {
+    const root = await directory();
+    const bridge = await file(root, "claude-agent-acp", "bridge");
+    const claude = await file(root, "claude", "claude-v1");
+    const identity = {
+      acpAgentId: "official:claude-acp",
+      installationId: "claude-acp-1",
+      instanceId: "claude-acp-1:default",
+    };
+    const inventory = new LocalInventory(
+      [await bindLocal({ ...identity, version: "0.90.0", command: bridge, args: [] }, { PATH: root })],
+      new ExecutableDigests(later),
+    );
+    await expect(inventory.resolve(identity, {})).resolves.toMatchObject({
+      env: { CLAUDE_CODE_EXECUTABLE: claude },
+    });
+    await rm(claude);
+    await file(root, "claude", "claude-v2");
+    await expect(inventory.resolve(identity, {})).rejects.toThrow("Native bridge CLI changed");
   });
 });
