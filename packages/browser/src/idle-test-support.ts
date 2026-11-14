@@ -74,6 +74,10 @@ export class RestingTabs extends FakeHeadless {
   fail(step: string, times = 1): void {
     this.failing.set(step, (this.failing.get(step) ?? 0) + times);
   }
+  /** `step` stops failing. */
+  heal(step: string): void {
+    this.failing.delete(step);
+  }
   /** How many times each step was tried, failed tries included. */
   readonly tried = new Map<string, number>();
   /** The steps for one tab, in order. */

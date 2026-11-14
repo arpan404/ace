@@ -5,6 +5,11 @@ import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 const person = { kind: "human", connectionId: "viewer" } as const;
 const select = (t: Awaited<ReturnType<typeof idleThread>>, tabId: string) =>
   t.service.execute("thread", { action: "tabs", operation: "select", tabId }, person);
+/** Whether the browser is up, and whether it says its pages were lost. */
+const healthy = (t: Awaited<ReturnType<typeof idleThread>>) => {
+  const state = t.service.state("thread");
+  return { status: state.status, lost: state.pageStateLost ?? false };
+};
 /** The live capture opened on a tab's current page, if any. */
 const captureOf = (t: Awaited<ReturnType<typeof idleThread>>, tabId: string) =>
   t.backend.captures.find(
@@ -32,35 +37,46 @@ it("a person switching to a frozen tab whose window will not show yet gets it on
   expect(t.lifecycle("b")).toBe("live");
 });
 
-it("a watched tab that never comes back pauses the browser with the reason after a bounded number of tries, and Reopen brings it back", async () => {
+it("a watched tab that will not come back keeps being retried on its own while the rest of the browser works", async () => {
   const t = await idleThread();
   await t.idleFor(defaultTabLifecycle.restAfterMs);
-  t.backend.fail("show a", 100);
-  await watch(t.service);
+  t.backend.fail("show a", 1_000);
+  const viewer = await watch(t.service);
   await expect.poll(() => t.service.state("thread").video?.attempts).toBe(1);
-  for (const [wait, attempts] of [
-    [1_000, 2],
-    [2_000, 3],
-    [4_000, 4],
-    [8_000, 5],
-  ] as const) {
-    t.navigationClock.advance(wait);
+  // Waits double up to a minute and stay there; the browser stays ready all along.
+  let attempts = 1;
+  for (const wait of [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]) {
+    t.navigationClock.advance(wait - 1);
+    await settle();
+    expect(t.service.state("thread").video?.attempts).toBe(attempts);
+    t.navigationClock.advance(1);
+    attempts++;
     await expect.poll(() => t.service.state("thread").video?.attempts).toBe(attempts);
+    // An agent keeps working in the other tab, which nothing marks lost.
+    await t.use("b");
+    expect(healthy(t)).toEqual({ status: "ready", lost: false });
   }
-  // The sixth failure gives up: a paused browser that says why, no longer retrying.
-  t.navigationClock.advance(16_000);
-  await expect.poll(() => t.service.state("thread").status).toBe("paused");
-  expect(t.service.state("thread").reason).toContain("could not be shown");
-  expect(t.service.state("thread").video).toBeUndefined();
-  expect(t.backend.tried.get("show a")).toBe(6);
-  t.navigationClock.advance(120_000);
-  await settle();
-  expect(t.backend.tried.get("show a")).toBe(6);
+  expect(t.service.state("thread").video).toMatchObject({
+    status: "retrying",
+    reason: expect.stringContaining("could not be shown"),
+  });
+  const other = t.service.state("thread").tabs?.find((tab) => tab.tabId === "b");
+  expect(other?.pageStateLost ?? false).toBe(false);
+  // A command on the failing tab fails on its own, saying the tab could not be shown.
+  await expect(t.use("a")).rejects.toMatchObject({ code: "tab_unavailable" });
+  await t.use("b");
+  expect(viewer.chunks).toEqual([]);
 
-  // Reopen: the thread's tabs open afresh, shown and running.
-  await t.service.open({ threadId: "thread", workspaceId: "workspace" });
-  await expect.poll(() => t.service.state("thread").status).toBe("ready");
-  expect(t.service.state("thread").tabs?.map((tab) => tab.tabId)).toEqual(["a", "b"]);
+  // Once the window shows again, the next try brings the tab back and its video starts at a keyframe.
+  t.backend.heal("show a");
+  t.navigationClock.advance(60_000);
+  await expect.poll(() => t.service.state("thread").video).toBeUndefined();
+  expect(t.backend.steps("a")).toEqual(["hide a", "show a"]);
+  const opened = await capture(t.backend, 0);
+  opened.send(1, false);
+  opened.send(2, true);
+  await expect.poll(() => viewer.chunks.map((chunk) => chunk.bytes[0])).toEqual([2]);
+  expect(healthy(t)).toEqual({ status: "ready", lost: false });
 });
 
 it("an agent working in a tab someone keeps watching never stops, reopens or re-keys its video", async () => {
