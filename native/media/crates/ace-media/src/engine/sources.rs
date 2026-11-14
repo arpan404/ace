@@ -220,6 +220,16 @@ impl Sources {
         }
     }
 
+    /// The handle of an open source.
+    pub fn handle(&self, id: &str) -> Option<u32> {
+        self.by_id.get(id).map(|s| s.handle)
+    }
+
+    /// The source an admitted ingest connection feeds.
+    pub fn bound(&self, conn: IngestId) -> Option<&str> {
+        self.bindings.get(&conn).map(String::as_str)
+    }
+
     /// `source.close`.
     pub fn close_source(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
         self.close(id, vault, out);

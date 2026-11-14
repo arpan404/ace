@@ -3,6 +3,7 @@
 mod egress;
 mod grants;
 mod sources;
+mod stills;
 
 use super::*;
 use media_wire::control::{FromMedia, Refusal, Status, ToMedia};
