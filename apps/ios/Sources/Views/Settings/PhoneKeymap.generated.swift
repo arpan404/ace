@@ -27,6 +27,8 @@ enum PhoneKeymapTable {
         Entry(id: "settle", label: "Settle or unsettle", keys: "alt+mod+s", scope: "global", group: "Thread", fixed: true),
         Entry(id: "archive", label: "Archive", keys: "shift+mod+a", scope: "global", group: "Thread", fixed: true),
         Entry(id: "deleteThread", label: "Delete thread", keys: "mod+backspace", scope: "global", group: "Thread", fixed: true),
+        Entry(id: "previousTurn", label: "Previous turn", keys: "shift+alt+mod+arrowup", scope: "global", group: "Thread", fixed: false),
+        Entry(id: "nextTurn", label: "Next turn", keys: "shift+alt+mod+arrowdown", scope: "global", group: "Thread", fixed: false),
         Entry(id: "close", label: "Close", keys: "escape", scope: "sheet", group: "Window", fixed: true),
         Entry(id: "send", label: "Send message", keys: "mod+enter", scope: "composer", group: "Composer", fixed: false),
     ]

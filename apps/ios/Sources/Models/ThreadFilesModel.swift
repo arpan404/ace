@@ -66,6 +66,8 @@ struct FileContent: Decodable, Sendable {
     let data: String?
     let markdown: Bool?
     let editable: Bool?
+    /// Too large to edit whole, so a thread's file is edited a part at a time (`LargeFileView`).
+    var parts: Bool? = nil
     /// The language markit colours the text in; nil shows it plain.
     let language: String?
     let marks: [LineMark]?

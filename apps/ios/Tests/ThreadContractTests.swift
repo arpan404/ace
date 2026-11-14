@@ -44,8 +44,8 @@ import Testing
         #expect(controls.busy)
         #expect(controls.delivery == "steer")
         #expect(controls.alternate == "queue")
-        #expect(await model.sendMessage("Queue: also run lint \(UUID().uuidString)", alternate: false))
-        #expect(await model.sendMessage("Steer: skip the docs \(UUID().uuidString)", alternate: true))
+        #expect(try await SpikeFixture.within("queued send admitted") { await model.sendMessage("Queue: also run lint \(UUID().uuidString)", alternate: false) })
+        #expect(try await SpikeFixture.within("steer admitted") { await model.sendMessage("Steer: skip the docs \(UUID().uuidString)", alternate: true) })
         #expect(model.error == nil)
     }
     @Test func aQueuedFollowUpShowsAboveTheComposerUntilItIsRemoved() async throws {
@@ -54,10 +54,10 @@ import Testing
         model.open(try await SpikeFixture.fresh("stop"))
         _ = try await until("a working thread") { model.thread?.screen.controls?.busy == true ? true : nil }
         let text = "Queued for later \(UUID().uuidString)"
-        #expect(await model.sendMessage(text, alternate: false))
+        #expect(try await SpikeFixture.within("send admitted") { await model.sendMessage(text, alternate: false) })
         let queued = try await until("the queued message") { model.thread?.screen.queue?.messages.first { $0.text == text } }
         #expect(model.thread?.items.values.contains { $0.row.text == text } == false)
-        #expect(await model.editQueued(queued, change: ["kind": "remove"]))
+        #expect(try await SpikeFixture.within("removal admitted") { await model.editQueued(queued, change: ["kind": "remove"]) })
         _ = try await until("the removal") { model.thread?.screen.queue?.messages.contains { $0.text == text } == false ? true : nil }
     }
     @Test func answeringAQuestionIsAdmittedThenClosedOnlyByTheDaemon() async throws {
@@ -177,15 +177,15 @@ import Testing
         _ = try await until("the goal") {
             model.thread?.id == "ios-goal" && model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil
         }
-        let stale = await model.changeGoal("pause", epoch: sheetEpoch)
+        let stale = try await SpikeFixture.within("stale goal change answered") { await model.changeGoal("pause", epoch: sheetEpoch) }
         #expect(stale != nil, "a change from the left thread's sheet is refused")
         #expect(model.error == nil, "and said on the sheet, not screen-wide")
         try await Task.sleep(for: .milliseconds(500))
         #expect(model.thread?.screen.goal?.title == "Pursuing goal", "the open thread's goal is untouched")
         let epoch = try #require(model.thread?.epoch)
-        #expect(await model.changeGoal("pause", epoch: epoch) == nil)
+        #expect(try await SpikeFixture.within("pause answered") { await model.changeGoal("pause", epoch: epoch) } == nil)
         _ = try await until("the paused goal") { model.thread?.screen.goal?.title == "Goal paused" ? true : nil }
-        #expect(await model.changeGoal("resume", epoch: epoch) == nil)
+        #expect(try await SpikeFixture.within("resume answered") { await model.changeGoal("resume", epoch: epoch) } == nil)
         _ = try await until("the goal pursued again") { model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil }
     }
     private func connected() async throws -> (ClientModel, URL) {

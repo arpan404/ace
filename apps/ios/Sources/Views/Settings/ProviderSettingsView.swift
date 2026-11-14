@@ -32,8 +32,16 @@ struct LoginProgress: Decodable {
 struct ProviderSettingsView: View {
     let model: ClientModel
     @State private var others: OtherProvidersData?
+    @State private var checking = false
+    @State private var checkProblem: String?
     var body: some View {
         List {
+            // The first run after pairing, skipped or finished, opens again from here.
+            Section {
+                NavigationLink { FirstRunView(model: model) } label: { InsetRow("Set up agents", systemImage: "checklist") }
+                    .accessibilityIdentifier("providers.setup")
+            }
+            .insetRowBackground()
             Section {
                 ForEach(model.providers?.providers ?? []) { provider in
                     NavigationLink { ProviderPageView(model: model, provider: provider.provider, name: provider.name) } label: {
@@ -62,11 +70,42 @@ struct ProviderSettingsView: View {
             }
             .insetRowBackground()
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
+            if let checkProblem {
+                Section {
+                    ServiceProblem(message: checkProblem)
+                    Button("Retry") { Task { await checkAgain() } }.buttonStyle(.textAction())
+                }
+                .insetRowBackground()
+            }
         }
         .insetGroupedList()
         .followOtherProviders(model, $others)
         .nativeTitle("Providers")
+        .toolbar {
+            if model.canOperate {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if checking { ProgressView().accessibilityLabel("Checking") }
+                    else {
+                        Button("Check again") { Task { await checkAgain() } }
+                            .disabled(model.connection != "ready")
+                            .accessibilityIdentifier("providers.rediscover")
+                    }
+                }
+            }
+        }
         .readWhenConnected(model) { model.refreshMachine() }.refreshable { model.refreshMachine() }
+    }
+    /// Looks for installed CLIs and their sign-ins again (after installing one on the computer),
+    /// then reads the providers it found.
+    private func checkAgain() async {
+        struct Reply: Decodable { struct Result: Decodable { let ok: Bool }; let result: Result }
+        checking = true; checkProblem = nil
+        defer { checking = false }
+        do {
+            let reply = try await model.service(["type": "providers.request", "operation": "refresh"], as: Reply.self)
+            guard reply.result.ok else { throw ServiceFailure(message: "Couldn't check providers on this machine.") }
+            model.refreshMachine()
+        } catch { checkProblem = error.localizedDescription }
     }
 }
 struct ProviderSignInView: View {

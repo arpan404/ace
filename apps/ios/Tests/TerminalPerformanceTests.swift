@@ -23,13 +23,11 @@ final class TerminalPerformanceTests: XCTestCase {
         let session = TerminalSession(columns: 100, rows: 50)
         let bytes = Self.log.utf8.count
         session.feedNow(Self.log) // warm up
-        let start = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<5 { session.feedNow(Self.log) }
-        let seconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
-        let megabytesPerSecond = Double(bytes * 5) / 1_048_576 / seconds
+        let seconds = median(runs: 7) { session.feedNow(Self.log) } / 1e9
+        let megabytesPerSecond = Double(bytes) / 1_048_576 / seconds
         print("terminal log throughput: \(String(format: "%.1f", megabytesPerSecond)) MB/s")
         XCTAssertEqual(session.read { $0.historyCount }, 5_000)
-        XCTAssertGreaterThan(megabytesPerSecond, TerminalBudget.logMegabytesPerSecond)
+        XCTAssertGreaterThan(megabytesPerSecond, TerminalBudget.logMegabytesPerSecond / TerminalBudget.slack)
     }
 
     func testFullScreenRedrawsParseFasterThanTheScreenRefreshes() {
@@ -40,7 +38,7 @@ final class TerminalPerformanceTests: XCTestCase {
         let perFrame = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6 / 60
         print("terminal full-screen frame parse: \(String(format: "%.2f", perFrame)) ms")
         XCTAssertTrue(session.read { $0.lines[49].text.hasSuffix("x") })
-        XCTAssertLessThan(perFrame, TerminalBudget.fullScreenFrameMilliseconds)
+        XCTAssertLessThan(perFrame, TerminalBudget.fullScreenFrameMilliseconds * TerminalBudget.slack)
     }
 
     /// A long OSC string costs its length once, not once per character kept.
@@ -51,7 +49,7 @@ final class TerminalPerformanceTests: XCTestCase {
         let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
         print("terminal 200k OSC: \(String(format: "%.1f", milliseconds)) ms")
         XCTAssertTrue(session.read { $0.lines[0].text } == "ok")
-        XCTAssertLessThan(milliseconds, TerminalBudget.longOscMilliseconds)
+        XCTAssertLessThan(milliseconds, TerminalBudget.longOscMilliseconds * TerminalBudget.slack)
     }
 
     /// Hostile output (screen fills and huge scroll and line counts) never holds the screen lock
@@ -71,7 +69,7 @@ final class TerminalPerformanceTests: XCTestCase {
         }
         session.settle()
         print("terminal longest read wait under hostile output: \(String(format: "%.1f", longest)) ms")
-        XCTAssertLessThan(longest, TerminalBudget.lockWaitMilliseconds)
+        XCTAssertLessThan(longest, TerminalBudget.lockWaitMilliseconds * TerminalBudget.slack)
     }
 
     @MainActor func testBuildingAScreenOfColouredRowsFitsInAFrame() {
@@ -81,20 +79,38 @@ final class TerminalPerformanceTests: XCTestCase {
         let fonts = TerminalFonts(size: 12)
         let palette = TerminalPalette(foreground: .white, background: .black, dark: true)
         var rows = 0
-        let start = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<10 {
+        func buildScreen() {
+            rows = 0
             for line in lines { rows += TerminalRowDrawing(line: line, palette: palette, fonts: fonts, reverse: false).runs.count > 0 ? 1 : 0 }
         }
-        let perScreen = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6 / 10
+        buildScreen() // warm up the font and glyph caches
+        let perScreen = median(runs: 21, buildScreen) / 1e6
         print("terminal rows built per screen: \(String(format: "%.2f", perScreen)) ms")
-        XCTAssertEqual(rows, 500)
-        XCTAssertLessThan(perScreen, TerminalBudget.screenBuildMilliseconds)
+        XCTAssertEqual(rows, 50)
+        XCTAssertLessThan(perScreen, TerminalBudget.screenBuildMilliseconds * TerminalBudget.slack)
     }
+}
+
+/// The median wall time of `runs` calls to `work`, in nanoseconds. A median ignores the runs a
+/// busy machine preempts, where a mean would count them.
+private func median(runs: Int, _ work: () -> Void) -> Double {
+    let times = (0..<runs).map { _ in
+        let start = DispatchTime.now().uptimeNanoseconds
+        work()
+        return Double(DispatchTime.now().uptimeNanoseconds - start)
+    }
+    return times.sorted()[runs / 2]
 }
 
 /// Budgets sit well above the simulator medians so a busy Mac passes and a real regression
 /// fails. See apps/ios/README.md.
 enum TerminalBudget {
+    /// How many times slower than a dev Mac this machine may be. CI's simulator runs 3 to 4 times
+    /// slower, so the iOS workflow passes `TEST_RUNNER_ACE_PERF_SLACK=4`; elsewhere it is 1.
+    static let slack: Double = {
+        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""), value >= 1 else { return 1 }
+        return value
+    }()
     static let logMegabytesPerSecond = 2.0
     static let fullScreenFrameMilliseconds = 8.0
     static let screenBuildMilliseconds = 16.0

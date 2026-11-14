@@ -4,6 +4,8 @@ import {
   agentName,
   approvalCopy,
   browserHelpTitle,
+  lostChildAsk,
+  lostChildCopy,
   questionOptions,
   questionTitle,
 } from "@ace/ui-core";
@@ -11,6 +13,7 @@ import {
   approvalStripLine,
   browserHelpStripLine,
   formStripLine,
+  lostChildStripLine,
   planReviewLine,
   planStripLine,
   questionStripLine,
@@ -33,7 +36,10 @@ const optionLimit = 32;
 function approval(interaction: Interaction, command: string) {
   if (interaction.request.kind !== "approval")
     return { heading: "", reason: "", risk: "", riskText: "", decisions: [], others: [] };
-  const copy = approvalCopy(interaction.request, command ? { command } : {});
+  const plain = approvalCopy(interaction.request, command ? { command } : {});
+  // The daemon's request about a lost child answers with Stop tracking, as the child's row does.
+  const lost = lostChildAsk(interaction);
+  const copy = lost ? lostChildCopy(plain, lost) : plain;
   const index = new Map(interaction.request.options.map((option, at) => [option, at]));
   const at = (option: (typeof interaction.request.options)[number]) => index.get(option) ?? -1;
   return {
@@ -99,7 +105,9 @@ function stripOf(interaction: Interaction, reader: RequestReader, command: strin
   const who = agent ? agentName(agent) : "The agent";
   const request = interaction.request;
   switch (request.kind) {
-    case "approval":
+    case "approval": {
+      const lost = lostChildAsk(interaction);
+      if (lost) return clip(lostChildStripLine(lost, request.description ?? "", provider));
       return clip(
         approvalStripLine(
           approvalCopy(request, command ? { command } : {}),
@@ -108,6 +116,7 @@ function stripOf(interaction: Interaction, reader: RequestReader, command: strin
           provider,
         ),
       );
+    }
     case "question":
       return clip(
         questionStripLine(

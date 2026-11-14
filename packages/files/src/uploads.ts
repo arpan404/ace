@@ -11,10 +11,18 @@ import {
   hashFile,
   newId,
   openUpload,
+  observed,
   writeAll,
   replacementMode,
 } from "./filesystem.ts";
-import { CHUNK_SIZE, codeOf, FileError, version, type FilesOptions } from "./types.ts";
+import {
+  CHUNK_SIZE,
+  checkVersion,
+  codeOf,
+  FileError,
+  version,
+  type FilesOptions,
+} from "./types.ts";
 
 export class Uploads {
   private readonly safe: SafeRoot;
@@ -182,6 +190,11 @@ export class Uploads {
         throw new FileError("CONFLICT", "Upload changed before publication");
       await target.verify();
       await verify();
+      // The version was checked when the commit began; preparing took awaits since, in which
+      // an outside writer may have saved over the file. Check again just before replacing it,
+      // so that save is refused rather than lost. The unpublished temp stays resumable.
+      if (record.expected !== null)
+        checkVersion(await observed(this.safe, record.path), record.expected);
       const temp = join(dirname(target.path), record.temp);
       if (process.platform === "win32" && record.expected !== null) {
         await windowsReplace(temp, target.path);

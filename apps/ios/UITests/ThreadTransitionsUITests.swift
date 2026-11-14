@@ -174,7 +174,8 @@ import XCTest
     }
 }
 
-private extension XCUIElement {
+extension XCUIElement {
+    /// Replaces a text field's text (shared by the UI tests that edit a name).
     func clearAndType(_ text: String) {
         // The caret at the end, so every character before it can be deleted.
         coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()

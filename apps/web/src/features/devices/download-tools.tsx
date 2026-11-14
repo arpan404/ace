@@ -1,3 +1,4 @@
+import { toolWords } from "@ace/ui-core";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -26,14 +27,14 @@ export function DownloadDeviceTools(props: { done(): void }) {
           .request({ op: "tools.install" })
           .then(props.done, (cause: unknown) =>
             toast.error({
-              title: "Couldn't download the simulator tools",
+              title: toolWords.downloadFailed,
               description: cause instanceof Error ? cause.message : undefined,
             }),
           )
           .finally(() => setDownloading(false));
       }}
     >
-      {downloading ? "Downloading…" : "Download"}
+      {downloading ? toolWords.downloading : toolWords.download}
     </Button>
   );
 }

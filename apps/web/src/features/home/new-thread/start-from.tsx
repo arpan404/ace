@@ -5,7 +5,7 @@ import { useOpenIssues, useOpenPullRequests, useOpenWork } from "@/features/forg
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
-import { issueRows, pullRequestRows, startRowLimit } from "./start-from-model.ts";
+import { issueRows, pullRequestRows, startRowLimit } from "@ace/ui-core";
 import { StartRows } from "./start-rows.tsx";
 
 /** What a new thread starts from: one pull request or issue, by its URL. */

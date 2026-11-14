@@ -1,6 +1,6 @@
 import { DiffCounts } from "@/components/diff-stat.tsx";
 import type { ForgePrDetail, LinkedPullRequest } from "@ace/protocol";
-import { pluralCount } from "@ace/ui-core";
+import { summaryPrLine, summaryPrRows, prStateWords } from "@ace/ui-core";
 import { GitPullRequestIcon, XIcon } from "@phosphor-icons/react";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -9,21 +9,6 @@ import { usePrPrefetch, prDetailKey } from "@/lib/forge-pr-detail.ts";
 import { pullRequestTab, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { useUnlinkPr } from "./pr-unlink.ts";
-
-const stateWords: Record<LinkedPullRequest["state"], string> = {
-  open: "In review",
-  draft: "Draft",
-  merged: "Merged",
-  closed: "Closed",
-};
-
-const ciWords = {
-  none: "No checks",
-  pending: "Checks running",
-  success: "Checks passed",
-  failure: "Checks failed",
-  unknown: "",
-} as const;
 
 /** A result row's frame: a quiet kind icon, then its title over one grey line. */
 export const resultRow = "flex min-w-0 items-start gap-2.5 py-1.5";
@@ -47,7 +32,6 @@ function PrRow(props: {
     // Read from the cache only: the PR panel reads the forge, the Summary never does.
     queryFn: skipToken,
   }).data;
-  const ci = detail ? ciWords[detail.status.ci] : "";
   const sized = detail?.additions !== undefined && detail.deletions !== undefined;
   return (
     <li className={`group/pr ${resultRow}`}>
@@ -55,7 +39,7 @@ function PrRow(props: {
       <button
         type="button"
         title={pr.title}
-        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${stateWords[pr.state].toLowerCase()}`}
+        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prStateWords[pr.state].toLowerCase()}`}
         onPointerEnter={() => prefetch(pr.repo, pr.number)}
         onFocus={() => prefetch(pr.repo, pr.number)}
         onClick={() =>
@@ -71,7 +55,7 @@ function PrRow(props: {
       >
         <span className="block truncate text-ui font-medium">{pr.title ?? `#${pr.number}`}</span>
         <span className="block truncate text-xs text-subtle-foreground tabular-nums">
-          {[`#${pr.number}`, stateWords[pr.state], ci].filter(Boolean).join(" · ")}
+          {summaryPrLine(pr, detail?.status.ci)}
           {sized && (
             <>
               {" · "}
@@ -106,9 +90,7 @@ export function PrResults(props: {
   const showClosed = sections?.["prs:closed"] === true;
   const unlinkPr = useUnlinkPr(props.threadId);
   const [unlink, setUnlink] = useState<LinkedPullRequest | undefined>();
-  const current = props.prs.filter((pr) => pr.state !== "closed");
-  const closed = props.prs.filter((pr) => pr.state === "closed");
-  const rows = showClosed ? [...current, ...closed] : current;
+  const { rows, fold } = summaryPrRows(props.prs, showClosed);
   return (
     <>
       {rows.map((pr) => (
@@ -120,7 +102,7 @@ export function PrResults(props: {
           onUnlink={() => setUnlink(pr)}
         />
       ))}
-      {closed.length > 0 && (
+      {fold && (
         <li>
           <button
             type="button"
@@ -130,9 +112,7 @@ export function PrResults(props: {
             }
             className="focus-ring-inset rounded-sm py-1 text-xs text-subtle-foreground hover:text-foreground"
           >
-            {showClosed
-              ? "Hide closed pull requests"
-              : `${pluralCount(closed.length, "earlier pull request")}, closed`}
+            {fold}
           </button>
         </li>
       )}

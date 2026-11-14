@@ -2,7 +2,7 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { workspaceRuntime } from "@ace/workspace";
 import { createHash } from "node:crypto";
 import { chmod, link, lstat, readFile, rename, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { fixture } from "./test-support.ts";
@@ -298,3 +298,56 @@ test.runIf(windows)(
     }
   },
 );
+
+for (const writer of ["edits in place", "replaces the file"] as const) {
+  test(`an outside writer that ${writer} while a replacing upload commits keeps its save, and the upload is refused`, async () => {
+    let temp: string | undefined;
+    let written = false;
+    const runtime = workspaceRuntime();
+    const filesystem = runtime.filesystem;
+    runtime.filesystem = {
+      ...filesystem,
+      async realpath(path) {
+        const resolved = await filesystem.realpath(path);
+        // Once the upload is prepared (its temp carries the file's mode), the version check
+        // that began the commit is behind it: another program saves the file now.
+        const mode = temp ? ((await lstat(temp).catch(() => undefined))?.mode ?? 0) : 0;
+        if (!written && temp && mode & 0o044) {
+          written = true;
+          const root = dirname(temp);
+          if (writer === "edits in place") await writeFile(join(root, "final"), "outside save");
+          else {
+            await writeFile(join(root, "final.new"), "outside save");
+            await rename(join(root, "final.new"), join(root, "final"));
+          }
+        }
+        return resolved;
+      },
+    };
+    const f = await fixture({ workspaceRuntime: runtime });
+    try {
+      const final = join(f.root, "final");
+      await writeFile(final, "old", { mode: 0o644 });
+      const expected = Stat.parse(
+        await f.service.request("writer", { op: "stat", path: "final" }),
+      ).version;
+      const upload = Upload.parse(
+        await f.service.request("writer", {
+          op: "upload.begin",
+          path: "final",
+          expected,
+          size: 4,
+        }),
+      );
+      temp = join(f.root, `.ace-upload-${upload.uploadId}`);
+      await f.service.append("writer", upload.uploadId, 0, Buffer.from("data"));
+      await expect(
+        f.service.request("writer", { op: "upload.commit", uploadId: upload.uploadId, sha256 }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(written).toBe(true);
+      expect(await readFile(final, "utf8")).toBe("outside save");
+    } finally {
+      await f.close();
+    }
+  });
+}

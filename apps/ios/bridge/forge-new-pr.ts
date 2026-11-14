@@ -3,17 +3,24 @@ import {
   ForgeHostedPrCreateCommand,
   ForgeRepository,
   ForgeRepositoryName,
+  type ForgeRepoPrOptions,
   WorkspaceId,
 } from "@ace/protocol";
-import { actionErrorText, repositoryLabel, reviewRepositories } from "@ace/ui-core";
+import {
+  actionErrorText,
+  milestoneDue,
+  prCreateNotice,
+  repositoryLabel,
+  reviewRepositories,
+} from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 
 /*
  * Opening a pull request from any branch of a project, as the web's New pull request page does:
- * the branches it can come from and go into, what a pull request of two of them would hold, then
- * the create. The daemon answers an open pull request of the same branches instead of opening a
+ * the branches it can come from and go into, what a pull request of two of them would hold, who
+ * may review it and how it may be filed, then the create. The daemon answers an open pull request of the same branches instead of opening a
  * second one, so a create whose answer was lost is checked, never sent twice.
  */
 
@@ -35,6 +42,8 @@ export const ForgeNewPrCompareRequest = z.object({
     branch: ForgeBranchName,
   }),
 });
+/** How many of each detail GitHub takes on a new pull request, as the create command admits. */
+const most = { reviewers: 100, assignees: 10, labels: 100 };
 export const ForgeNewPrCreateRequest = z.object({
   type: z.literal("forge.newpr.create"),
   project: z.string().min(1).max(512),
@@ -44,6 +53,10 @@ export const ForgeNewPrCreateRequest = z.object({
   title: z.string().min(1).max(256).regex(/\S/),
   body: z.string().max(65_536),
   draft: z.boolean(),
+  reviewers: ForgeHostedPrCreateCommand.shape.reviewers,
+  assignees: ForgeHostedPrCreateCommand.shape.assignees,
+  labels: ForgeHostedPrCreateCommand.shape.labels,
+  milestone: ForgeHostedPrCreateCommand.shape.milestone,
 });
 export type ForgeNewPrContextRequest = z.infer<typeof ForgeNewPrContextRequest>;
 export type ForgeNewPrCompareRequest = z.infer<typeof ForgeNewPrCompareRequest>;
@@ -58,6 +71,17 @@ export interface NewPrContextReply {
   template: string;
   /** "Opens on GitLab · acme/ace", only when the project uses more than one repository. */
   opensOn: string | null;
+  /** What the pull request may be given besides its text; null when GitHub didn't say. */
+  details: NewPrDetails | null;
+}
+export interface NewPrDetails {
+  /** People GitHub lets be assigned; the same people can be asked to review. */
+  people: string[];
+  labels: { name: string; color: string | null; description: string }[];
+  /** Open milestones, with "Due Nov 20, 2026" where one is set. */
+  milestones: { number: number; title: string; due: string | null }[];
+  /** How many of each GitHub takes. */
+  most: typeof most;
 }
 export interface NewPrCompareReply {
   type: "forge.newpr.compare";
@@ -76,6 +100,11 @@ export interface NewPrCreateReply {
   uncertain: boolean;
   /** The pull request opened, or the one the branches already had. */
   number: number | null;
+  /**
+   * What the person hears after it opened: the branches' existing pull request, or a warning
+   * that GitHub didn't take all of its details. Null for a clean create or a failed one.
+   */
+  notice: { title: string; detail: string | null; warning: boolean } | null;
 }
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
@@ -92,10 +121,17 @@ export async function readNewPrContext(
   if (value.resource !== "newPrContext") throw new ForgeRefusal("forge_invalid_data");
   const context = value.value;
   // New pull requests open on the primary; with several repositories the sheet says which.
-  const several = await reads
-    .repositories(request.project)
-    .then((listed) => reviewRepositories(listed).length > 1)
-    .catch(() => false);
+  const [several, options] = await Promise.all([
+    reads
+      .repositories(request.project)
+      .then((listed) => reviewRepositories(listed).length > 1)
+      .catch(() => false),
+    // The details are extras: without them a pull request still opens with its text alone.
+    reads
+      .read({ op: "forge.repo.pr-options", workspaceId: request.project }, true)
+      .then((read) => (read.resource === "repoPrOptions" ? read.value : null))
+      .catch(() => null),
+  ]);
   return {
     type: "forge.newpr.context",
     repository: context.base.repository,
@@ -114,6 +150,26 @@ export async function readNewPrContext(
     },
     template: preview(context.template ?? "", 65_536),
     opensOn: several ? `Opens on ${repositoryLabel(context.base.repository)}` : null,
+    details: options ? newPrDetails(options, preview) : null,
+  };
+}
+
+function newPrDetails(options: ForgeRepoPrOptions, preview: Preview): NewPrDetails {
+  return {
+    people: options.assignable.map((person) => person.login),
+    labels: options.labels.map((label) => ({
+      name: label.name,
+      color: label.color ?? null,
+      description: preview(label.description, 300),
+    })),
+    milestones: options.milestones
+      .filter((milestone) => milestone.state === "open")
+      .map((milestone) => ({
+        number: milestone.number,
+        title: preview(milestone.title, 200),
+        due: milestoneDue(milestone.dueOn),
+      })),
+    most,
   };
 }
 
@@ -165,6 +221,10 @@ export async function createPr(
     title: request.title,
     body: request.body,
     draft: request.draft,
+    reviewers: request.reviewers,
+    assignees: request.assignees,
+    labels: request.labels,
+    ...(request.milestone ? { milestone: request.milestone } : {}),
   });
   try {
     const result = await owner.command(command);
@@ -176,6 +236,7 @@ export async function createPr(
         message: actionErrorText(result.error),
         uncertain: false,
         number: null,
+        notice: null,
       };
     return {
       type: "forge.write",
@@ -188,6 +249,13 @@ export async function createPr(
           : "",
       uncertain: false,
       number: result.pr?.number ?? null,
+      notice: result.pr
+        ? (prCreateNotice({
+            number: result.pr.number,
+            existing: !!result.prExisting,
+            code: result.code,
+          }) ?? null)
+        : null,
     };
   } catch {
     reads.forget(request.project);
@@ -198,6 +266,7 @@ export async function createPr(
         "Couldn't confirm it opened. Open New pull request again: an existing one is shown, never a second.",
       uncertain: true,
       number: null,
+      notice: null,
     };
   }
 }

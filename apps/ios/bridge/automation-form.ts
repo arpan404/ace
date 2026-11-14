@@ -2,6 +2,7 @@ import { Automation } from "@ace/protocol";
 import {
   AutomationForm,
   automationFromForm,
+  ideas,
   blankForm,
   cadencePatch,
   cadences,
@@ -201,7 +202,21 @@ export async function formOpen(request: z.infer<typeof FormOpen>, deps: FormDeps
   }
   if (form.cadence === "once" && !form.date)
     form = { ...form, date: nextDateFor(form.time, now, form.timezone) };
-  return { ok: true, pick, choices, ...describeForm(form, now) };
+  // A new automation offers the web's starting points, each as this form with its words and timing.
+  const offered = stored
+    ? undefined
+    : ideas.map((idea) => ({
+        label: idea.label,
+        prompt: idea.prompt,
+        form: describeForm({ ...form, ...idea.when, prompt: idea.prompt }, now).form,
+      }));
+  return {
+    ok: true,
+    pick,
+    choices,
+    ...describeForm(form, now),
+    ...(offered ? { ideas: offered } : {}),
+  };
 }
 
 export async function formPreview(

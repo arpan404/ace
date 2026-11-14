@@ -42,6 +42,7 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
         let sessions = inbox.sessions.filter { $0.client.connection == "ready" && (project == nil || $0.hostId == project?.machineId) }
         let commander = sessions.first(where: { $0.client.canOperate })?.hostId ?? sessions.first?.hostId
         let canStart = inbox.canStartThreads
+        let machines = inbox.sessions.map { ["id": $0.hostId, "name": inbox.name($0.hostId)] }
         // Every machine answers at once, on this actor.
         let asks = sessions.map { session in
             let client = session.client, host = session.hostId
@@ -51,6 +52,7 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
                     "context": ["canStart": canStart, "threadOpen": threadOpen],
                 ]
                 if let project { request["workspaceId"] = project.workspaceId }
+                if host == commander { request["machines"] = machines }
                 return (host, try? await client.service(request, as: PaletteAnswer.self))
             }
         }

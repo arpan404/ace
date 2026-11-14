@@ -15,6 +15,8 @@ const all = (value: boolean) => ({
   failures: value,
   finished: value,
   agentSays: value,
+  limits: value,
+  automations: value,
 });
 
 describe("phone notification delivery", () => {
@@ -48,6 +50,27 @@ describe("phone notification delivery", () => {
       banner: false,
     });
     expect(phoneDelivery("needs_you", quietBanners, open).banner).toBe(true);
+  });
+
+  it("an older phone's preferences without usage limits or automation runs read them as on", () => {
+    const older = PhoneNotificationPrefs.parse({
+      inApp: { needsYou: true, failures: true, finished: true, agentSays: false },
+      system: { needsYou: true, failures: true, finished: true, agentSays: false },
+      quietHours: null,
+    });
+    expect(phoneDelivery("limits", older, open)).toMatchObject({ post: true, banner: true });
+    expect(phoneDelivery("limits", older, away).post).toBe(true);
+    expect(phoneDelivery("automations", older, open)).toMatchObject({ post: true, banner: true });
+    expect(phoneDelivery("automations", older, away).post).toBe(true);
+  });
+
+  it("an automation run's alert follows its own category, not a thread's finish", () => {
+    const runsOff = prefs({
+      inApp: { ...all(true), automations: false },
+      system: { ...all(true), automations: false },
+    });
+    expect(phoneDelivery("automations", runsOff, away).post).toBe(false);
+    expect(phoneDelivery("done", runsOff, away).post).toBe(true);
   });
 
   it("posts nothing for a category that is off everywhere", () => {
