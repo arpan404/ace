@@ -89,11 +89,8 @@ test("a bulk Archive asked while current and confirmed after the list went stale
     await user.click(card(title));
     await user.keyboard("{/Meta}");
   }
-  await userEvent.click(
-    within(screen.getByRole("toolbar", { name: "Selected threads" })).getByRole("button", {
-      name: "Archive 2 threads",
-    }),
-  );
+  const selected = await screen.findByRole("toolbar", { name: "Selected threads" });
+  await userEvent.click(await within(selected).findByRole("button", { name: "Archive 2 threads" }));
   const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
 
   await replay.hold(app.client);

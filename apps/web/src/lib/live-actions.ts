@@ -256,7 +256,11 @@ export const isListAction = (value: object): value is ListAction => "listAction"
  * refused (`CommandRefused` `stale_copy`), never sent as it was asked. A plain delete goes as it
  * is, offline too: the daemon refuses it while any work of the thread still runs.
  */
-export function sendListAction<T>(client: ClientApi, action: ListAction, send: Send<T>): Promise<T> {
+export function sendListAction<T>(
+  client: ClientApi,
+  action: ListAction,
+  send: Send<T>,
+): Promise<T> {
   const threadId = ThreadId.parse(action.threadId);
   if (action.kind === "delete" && !action.force) return send({ type: "thread.delete", threadId });
   const payload: CommandPayload =
