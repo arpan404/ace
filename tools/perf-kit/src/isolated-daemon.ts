@@ -3,7 +3,8 @@
  * the person's environment: HOME, every provider's config home and ACE_HOME point inside it,
  * PATH is empty so no provider CLI can be found, and the TLS listener for paired devices binds
  * with 127.0.0.1 as its advertised address. Requests go over IPC; the first message is the
- * entry's ready report.
+ * entry's ready report. However the child ends (a crash on start included), `close()` returns
+ * and the temporary home is removed.
  */
 import { fork } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -24,13 +25,15 @@ export interface BenchDaemonOptions<Ready> {
   parse: (ready: unknown) => Ready;
   /** Added to, or replacing, the isolated environment. */
   env?: Record<string, string>;
+  /** Where the temporary home is made; the system's temporary directory by default. */
+  root?: string;
 }
 
 export async function startBenchDaemon<Ready>(
   options: BenchDaemonOptions<Ready>,
 ): Promise<BenchDaemon<Ready>> {
   const { entry, execPath, parse, env = {} } = options;
-  const home = await mkdtemp(join(tmpdir(), "ace-slow-link-"));
+  const home = await mkdtemp(join(options.root ?? tmpdir(), "ace-slow-link-"));
   const child = fork(entry, [], {
     execPath,
     cwd: home,
@@ -59,6 +62,11 @@ export async function startBenchDaemon<Ready>(
     },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
+  // Watched from the start, so a child that is already gone never leaves `close()` waiting.
+  const exited = new Promise<void>((resolve) => {
+    child.once("exit", () => resolve());
+    child.once("error", () => resolve());
+  });
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-16_000);
@@ -68,6 +76,9 @@ export async function startBenchDaemon<Ready>(
   let closing = false;
   child.on("exit", (code) => {
     if (!closing) failed.reject(new Error(`Bench daemon exited (${code}): ${stderr}`));
+  });
+  child.on("error", (error) => {
+    if (!closing) failed.reject(new Error(`Bench daemon did not start: ${error.message}`));
   });
   const pending = new Map<number, (value: Record<string, unknown>) => void>();
   const first = Promise.withResolvers<unknown>();
@@ -83,15 +94,22 @@ export async function startBenchDaemon<Ready>(
     pending.delete(id);
   });
   let nextId = 0;
-  const close = async () => {
-    if (closing) return;
+  let closed: Promise<void> | undefined;
+  const close = () => {
     closing = true;
-    const exited = new Promise((resolve) => child.once("exit", resolve));
-    if (child.connected) child.send({ id: ++nextId, op: "close" });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
-    await exited;
-    clearTimeout(timer);
-    await rm(home, { recursive: true, force: true });
+    closed ??= (async () => {
+      try {
+        const running = child.exitCode === null && child.signalCode === null;
+        if (running && child.connected) child.send({ id: ++nextId, op: "close" });
+        else if (running) child.kill("SIGTERM");
+        const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+        await exited;
+        clearTimeout(timer);
+      } finally {
+        await rm(home, { recursive: true, force: true });
+      }
+    })();
+    return closed;
   };
   try {
     const ready = parse(await Promise.race([first.promise, failed.promise]));
