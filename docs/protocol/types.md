@@ -8069,11 +8069,16 @@ Example:
 | recording | no | object | {"properties":{"by":{"$ref":"https://ace.local/protocol/v1/BrowserTabActor.json"}},"required":["by"]} |
 | features | no | array | {"maxItems":32,"items":{"type":"string","maxLength":64}} |
 | video | no | [BrowserVideoStatus.json](schema/BrowserVideoStatus.json) |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
 
 Example:
 
 ```json
 {
+  "acceleration": {
+    "degraded": true,
+    "steps": []
+  },
   "closed": true,
   "pageStateLost": true,
   "permissionDenied": {
@@ -10946,6 +10951,7 @@ Example:
 | running | yes | `true` |  |
 | version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
 | ready | no | `true` |  |
+| admission | no | [MaintenanceStatus.json](schema/MaintenanceStatus.json) |  |
 
 Example:
 
@@ -12399,11 +12405,10 @@ Example:
 ```json
 {
   "state": {
-    "agentPointer": {
-      "at": 3,
-      "kind": "drag",
-      "x": 2,
-      "y": 1
+    "acceleration": {
+      "degraded": true,
+      "reason": "example",
+      "steps": []
     },
     "controller": "agent",
     "device": {
@@ -12415,6 +12420,7 @@ Example:
     },
     "enabled": false,
     "lifecycle": "starting",
+    "personActive": true,
     "posture": "open",
     "sharing": "cowork"
   },
@@ -12525,6 +12531,7 @@ Example:
 | activity | no | [DeviceActivity.json](schema/DeviceActivity.json) |  |
 | posture | no | [DevicePosture.json](schema/DevicePosture.json) |  |
 | sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
 
@@ -19692,6 +19699,54 @@ Example:
   "agentId": "example",
   "groups": [],
   "threadId": "example"
+}
+```
+
+## MediaAcceleration
+
+[JSON Schema](schema/MediaAcceleration.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| steps | yes | array | {"maxItems":16,"items":{"type":"object","properties":{"step":{"type":"string","maxLength":32},"backend":{"type":"string","maxLength":32},"hardware":{"type":"boolean"},"readbacks":{"type":"integer","minimum":0,"maximum":4294967295},"uploads":{"type":"integer","minimum":0,"maximum":4294967295}},"required":["step","backend","hardware","readbacks","uploads"]}} |
+| degraded | yes | boolean |  |
+| reason | no | string | {"maxLength":256} |
+
+Example:
+
+```json
+{
+  "degraded": false,
+  "steps": []
+}
+```
+
+## MediaCapability
+
+[JSON Schema](schema/MediaCapability.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| step | yes | string | {"maxLength":32} |
+| codec | no | string | {"maxLength":64} |
+| backend | yes | string | {"maxLength":32} |
+| hardware | yes | boolean |  |
+| zeroCopy | yes | boolean |  |
+| state | yes | string | {"maxLength":32} |
+| maxWidth | yes | integer | {"minimum":0,"maximum":4294967295} |
+| maxHeight | yes | integer | {"minimum":0,"maximum":4294967295} |
+
+Example:
+
+```json
+{
+  "backend": "example",
+  "hardware": false,
+  "maxHeight": 3,
+  "maxWidth": 6,
+  "state": "example",
+  "step": "example",
+  "zeroCopy": false
 }
 ```
 
@@ -27219,6 +27274,7 @@ Example:
 | codecs | yes | array | {"minItems":1,"maxItems":2,"items":{"type":"string","enum":["jpeg","h264"]}} |
 | permissions | yes | object | {"properties":{"screen":{"type":"string","enum":["granted","denied","prompt","n/a"]},"input":{"type":"string","enum":["granted","denied","prompt","n/a"]}},"required":["screen","input"]} |
 | watchOnly | no | string | {"minLength":1,"maxLength":500} |
+| encoders | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/MediaCapability.json"}} |
 
 Example:
 
@@ -29706,6 +29762,7 @@ Example:
 | sharing | no | [CoworkSharing.json](schema/CoworkSharing.json) |  |
 | agentPointer | no | [AgentPointer.json](schema/AgentPointer.json) |  |
 | personActive | no | boolean |  |
+| acceleration | no | [MediaAcceleration.json](schema/MediaAcceleration.json) |  |
 
 Example:
 

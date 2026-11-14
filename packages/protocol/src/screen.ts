@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
@@ -64,6 +65,8 @@ export const ScreenState = z.object({
   agentPointer: AgentPointer.optional(),
   /** The person used this session's app within the last 3 s; agents' actions wait meanwhile. */
   personActive: z.boolean().optional(),
+  /** What the live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: MediaAcceleration.optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
 const ScreenBounds = z.object({
