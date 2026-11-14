@@ -207,3 +207,38 @@ export type SuitDetail = z.infer<typeof SuitDetail>;
 /** Pushed to every client when the library changes. */
 export const SuitsChanged = z.object({ suits: z.array(SuitSummary) });
 export type SuitsChanged = z.infer<typeof SuitsChanged>;
+
+/** What the daemon answers a `SuitRequest` with; `op` names the request it answers. */
+export const SuitResponse = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("list"), suits: z.array(SuitSummary) }),
+  z.object({ op: z.literal("read"), suit: SuitDetail }),
+  z.object({ op: z.literal("validate"), summary: SuitSummary }),
+  z.object({ op: z.literal("remove"), removed: z.boolean() }),
+  z.object({
+    op: z.literal("error"),
+    /** `invalid`: the Suit exists but its `suit.json` doesn't parse; `summary` says why. */
+    code: z.enum(["not_found", "invalid", "forbidden", "unavailable", "failed"]),
+    message: z.string().max(2000),
+    summary: SuitSummary.optional(),
+  }),
+]);
+export type SuitResponse = z.infer<typeof SuitResponse>;
+
+/* Socket frames, a message family of their own like plugins' (ADR 0014). */
+export const SuitClientMessage = z.strictObject({
+  type: z.literal("suitRequest"),
+  requestId: z.string().min(1).max(80),
+  request: SuitRequest,
+});
+export type SuitClientMessage = z.infer<typeof SuitClientMessage>;
+
+export const SuitServerMessage = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("suitResult"),
+    requestId: SuitClientMessage.shape.requestId,
+    response: SuitResponse,
+  }),
+  /** Pushed to every signed-in socket with read scope, after the library settles. */
+  z.strictObject({ type: z.literal("suitsChanged"), suits: SuitsChanged.shape.suits }),
+]);
+export type SuitServerMessage = z.infer<typeof SuitServerMessage>;

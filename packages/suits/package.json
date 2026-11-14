@@ -1,0 +1,19 @@
+{
+  "name": "@ace/suits",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./folder": "./src/folder.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/themes": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

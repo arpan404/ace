@@ -132,6 +132,7 @@
         "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
+        "@ace/suits": "workspace:*",
         "@ace/terminal": "workspace:*",
         "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
@@ -963,6 +964,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/suits": {
+      "name": "@ace/suits",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/themes": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
@@ -1298,6 +1307,8 @@
     "@ace/service": ["@ace/service@workspace:packages/service"],
 
     "@ace/settings": ["@ace/settings@workspace:packages/settings"],
+
+    "@ace/suits": ["@ace/suits@workspace:packages/suits"],
 
     "@ace/terminal": ["@ace/terminal@workspace:packages/terminal"],
 
