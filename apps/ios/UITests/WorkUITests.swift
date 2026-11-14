@@ -35,6 +35,44 @@ import XCTest
         screenshot("switched")
     }
 
+    func testALongBranchListPagesAndSearchFindsBranchesPastThePage() throws {
+        let app = try open("many")
+        app.openWork()
+        let branch = app.buttons["work.branch"]
+        XCTAssertTrue(branch.waitForExistence(timeout: 15))
+        branch.tap()
+        XCTAssertTrue(app.buttons["work.branch.main"].waitForExistence(timeout: 15))
+        // 452 branches: the first page holds 200, Show more the next 200.
+        let more = app.buttons["work.branches.more"]
+        app.reveal(more, swipes: 40)
+        XCTAssertTrue(more.label.contains("200 more of 252"), more.label)
+        screenshot("branches-more")
+        more.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "work.branches.more", "52 more of 52")).firstMatch.waitForExistence(timeout: 10))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("r450")
+        XCTAssertTrue(app.buttons["work.branch.release/r450"].waitForExistence(timeout: 10), "search reaches a branch no page had shown")
+        XCTAssertFalse(app.buttons["work.branches.more"].exists)
+        screenshot("branches-found")
+    }
+
+    func testMoreLinkedPullRequestsShowOnRequest() throws {
+        let app = try open("many")
+        app.openWork()
+        XCTAssertTrue(app.descendants(matching: .any)["work.pr.300"].waitForExistence(timeout: 15))
+        let more = app.buttons["work.prs.more"]
+        app.reveal(more, swipes: 30)
+        XCTAssertTrue(more.label.contains("20 more of 25"), more.label)
+        more.tap()
+        let last = app.descendants(matching: .any)["work.pr.339"]
+        app.reveal(last, swipes: 30)
+        XCTAssertTrue(last.exists, "the next twenty show")
+        XCTAssertTrue(app.buttons["work.prs.more"].label.contains("5 more of 5"))
+        screenshot("prs-more")
+    }
+
     func testWorkFromTheMenuMovesTheCheckoutIntoAWorktree() throws {
         let app = try open("clean")
         app.buttons["thread.menu"].tap()
