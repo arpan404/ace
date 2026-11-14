@@ -370,14 +370,19 @@ test("Connect an app lists the four addresses with what each can copy and why on
   daemon.outside.endpoints = [
     { path: "relay", url: null, on: true, problem: "Sign in to ace to use the relay" },
     { path: "local", url: "http://127.0.0.1:47811/mcp", on: true },
-    { path: "tailscale", url: "https://studio.tail.ts.net/mcp", on: true },
+    {
+      path: "tailscale",
+      url: "https://studio.tail.ts.net/mcp",
+      on: true,
+      problem: "Tailscale hasn't issued this machine's HTTPS certificate",
+    },
   ];
   const answer = await addresses(client);
   expect(answer.ok).toBe(true);
   expect(answer.enroll).toBe("ace mcp enroll");
   expect(answer.rows.map((row) => [row.path, row.title, row.url, row.state])).toEqual([
     ["local", "This computer", "http://127.0.0.1:47811/mcp", "http://127.0.0.1:47811/mcp"],
-    ["tailscale", "Tailscale", "https://studio.tail.ts.net/mcp", "https://studio.tail.ts.net/mcp"],
+    ["tailscale", "Tailscale", null, "Tailscale hasn't issued this machine's HTTPS certificate"],
     ["relay", "ace's relay", null, "Sign in to ace to use the relay"],
     ["custom", "Your own URL", null, null],
   ]);
