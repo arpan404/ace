@@ -1,4 +1,4 @@
-import { TailFill } from "./tail-fill.ts";
+import { TailFill, type FillResult } from "./tail-fill.ts";
 import { z } from "zod";
 import { KeptHistory } from "./kept-history.ts";
 import { SendOps } from "./send-ops.ts";
@@ -352,7 +352,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         older: (threadId) => this.#tailFill.start(threadId),
       },
     );
-    this.#tailFill = new TailFill((threadId) => this.fillThread(threadId));
+    this.#tailFill = new TailFill({
+      fill: (threadId) => this.fillThread(threadId),
+      owed: (threadId) => this.#subscriptions.held(threadId)?.filling === true,
+      askable: (threadId) => this.#subscriptions.held(threadId)?.fillRequest !== undefined,
+      full: (threadId) => this.#subscriptions.full(threadId),
+      delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
+    });
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
@@ -1134,24 +1140,20 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    * Read the rest of what a full snapshot holds into a thread opened from a small one
    * (`ClientOptions.openTail`), so its window holds what a full snapshot would have.
    */
-  async fillThread(threadId: string, options: RequestOptions = {}): Promise<void> {
-    // An answer read while an agent it does not carry changed is asked for again, a few times.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const request = this.#subscriptions.held(threadId)?.fillRequest;
-      if (!request) return;
-      const answer = await this.#readCore(
-        { type: "items.fill", threadId, ...request },
-        (value) => {
-          const parsed = CoreServerMessage.parse(value);
-          if (parsed.type !== "items.fill" || parsed.threadId !== threadId)
-            throw new ClientError("protocol");
-          return parsed;
-        },
-        options,
-      );
-      const result = this.#subscriptions.held(threadId)?.fill(answer, request);
-      if (result !== "stale") return;
-    }
+  async fillThread(threadId: string, options: RequestOptions = {}): Promise<FillResult> {
+    const request = this.#subscriptions.held(threadId)?.fillRequest;
+    if (!request) return "absent";
+    const answer = await this.#readCore(
+      { type: "items.fill", threadId, ...request },
+      (value) => {
+        const parsed = CoreServerMessage.parse(value);
+        if (parsed.type !== "items.fill" || parsed.threadId !== threadId)
+          throw new ClientError("protocol");
+        return parsed;
+      },
+      options,
+    );
+    return this.#subscriptions.held(threadId)?.fill(answer, request) ?? "absent";
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);

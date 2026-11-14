@@ -173,6 +173,24 @@ export class Subscriptions {
       },
     };
   }
+  /**
+   * Resubscribe a held thread for the daemon's full snapshot, replacing what it holds: what a
+   * thread falls back to when its small-tail fill cannot be had (`TailFill`).
+   */
+  full(threadId: string): void {
+    const entry = this.#cache.get(threadId);
+    if (!entry?.refs) return;
+    if (entry.subscriptionId) {
+      this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
+      this.#wires.delete(entry.subscriptionId);
+      this.#starting.delete(entry.subscriptionId);
+    }
+    entry.subscriptionId = undefined;
+    // No cursor and no tail: the daemon answers with its full snapshot, which replaces the copy.
+    entry.fresh = true;
+    entry.store.replaceOnSnapshot();
+    this.#pump();
+  }
   /** Slots an optional hold may still take: free ones beyond the reserve. */
   room(): number {
     return this.#room;
@@ -402,6 +420,8 @@ export class Subscriptions {
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
       entry.store.setSyncing(false);
+      // Caught up by replay while still owed the rest of a small-tail open: ask for it again.
+      if (this.#tail && entry.store.filling) this.#tail.older(entry.threadId);
       // Caught up by replay or snapshot: the daemon has confirmed what the store holds.
       entry.store.setUnconfirmed(false);
       this.#starting.delete(message.subscriptionId);
@@ -432,7 +452,7 @@ export class Subscriptions {
         return;
       }
       // A small tail paints first; the rest of a full snapshot follows in one fill read.
-      if (this.#tail && entry.store.fillRequest !== undefined) this.#tail.older(entry.threadId);
+      if (this.#tail && entry.store.filling) this.#tail.older(entry.threadId);
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

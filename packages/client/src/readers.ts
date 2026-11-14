@@ -42,6 +42,12 @@ export interface ThreadReader {
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
+  /**
+   * The thread was opened from a small tail and the rest of what a full snapshot holds is still
+   * on its way: older items, agents, or the whole text of items shown cut (`truncated`). A view
+   * shows that more is loading. Select with `history`.
+   */
+  readonly filling?: boolean;
   /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
    * an array equality, because each call returns a new array. */
   agentIds(): readonly string[];

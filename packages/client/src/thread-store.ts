@@ -115,6 +115,13 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get fillRequest(): SnapshotFill | undefined {
     return this.#trimmed ? undefined : this.#view?.fill;
   }
+  /**
+   * The store holds less than a full snapshot of the thread and is still owed the rest
+   * (`ThreadReader.filling`). Select with `history`.
+   */
+  get filling(): boolean {
+    return this.#view?.fill !== undefined;
+  }
   /** The window has evicted items since its snapshot: a fill would no longer meet it. */
   #trimmed = false;
   /** The newest event about an agent this store did not hold, so it could not apply. */
@@ -326,6 +333,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
+    // Sent only as a preview, its whole body owed by the fill: shown as cut until it lands.
+    for (const id of view.fill?.whole ?? []) if (this.item(id)) this.#clipped.add(id);
   }
   /** What a held transcript keeps of itself when `view` arrives for the same thread. */
   #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {
@@ -633,10 +642,10 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       this.#journal.reconcile(answer, view.seq).map((item) => [item.id, item]),
     );
     for (const id of answer.order) {
-      const seq = answer.itemSeqs[id] ?? this.#creation.get(id);
       // A live deletion since the read stands; anything else the answer names is held or sent.
-      if (seq === undefined || (!bodies.has(id) && !this.item(id) && !this.#deleted.has(id)))
-        return "stale";
+      if (this.#deleted.has(id)) continue;
+      const seq = answer.itemSeqs[id] ?? this.#creation.get(id);
+      if (seq === undefined || (!bodies.has(id) && !this.item(id))) return "stale";
     }
     const keys = new Set<ThreadKey>(["order", "history", "agents"]);
     const items: Record<string, Item> = {};
@@ -671,7 +680,11 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         this.#clipped.delete(id);
         this.#hydrated.delete(id);
       }
-    for (const id of bodies.keys()) keys.add(`item:${id}`);
+    for (const id of bodies.keys()) {
+      keys.add(`item:${id}`);
+      // A preview's whole body has landed: it is cut again only if it is over this client's limits.
+      this.#clipped.delete(id);
+    }
     view.items = items;
     view.itemOrder = [...creation.keys()].toSorted(
       (a, b) => (creation.get(a) ?? 0) - (creation.get(b) ?? 0),
