@@ -111,19 +111,19 @@
     "name": "ready.listen.remotePort:absent",
     "direction": "FromMedia",
     "accept": true,
-    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1}}"
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}],\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1}}"
   },
   {
     "name": "ready.listen.remotePort:present",
     "direction": "FromMedia",
     "accept": true,
-    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":1234}}"
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}],\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":1234}}"
   },
   {
     "name": "ready.listen.remotePort:null",
     "direction": "FromMedia",
     "accept": false,
-    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":null}}"
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}],\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":null}}"
   },
   {
     "name": "source.status.reason:absent",
@@ -220,5 +220,137 @@
     "direction": "ToMedia",
     "accept": true,
     "json": "{\"type\":\"ping\",\"id\":\"\"}"
+  },
+  {
+    "name": "source.status.acceleration:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\"}"
+  },
+  {
+    "name": "source.status.acceleration:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}],\"degraded\":false}}"
+  },
+  {
+    "name": "source.status.acceleration:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":null}"
+  },
+  {
+    "name": "source.status.acceleration.reason:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}],\"degraded\":false}}"
+  },
+  {
+    "name": "source.status.acceleration.reason:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}],\"degraded\":true,\"reason\":\"watchdog\"}}"
+  },
+  {
+    "name": "source.status.acceleration.reason:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}],\"degraded\":false,\"reason\":null}}"
+  },
+  {
+    "name": "source.status.acceleration.steps.0.step:unknown",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"capture\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}],\"degraded\":false}}"
+  },
+  {
+    "name": "source.status.acceleration.steps.0.unknown-field",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0,\"zeroCopy\":true}],\"degraded\":false}}"
+  },
+  {
+    "name": "source.status.acceleration.degraded:absent",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"playing\",\"acceleration\":{\"steps\":[{\"step\":\"encode\",\"backend\":\"vt\",\"hardware\":true,\"readbacks\":0,\"uploads\":0}]}}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.codec:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"scale\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.codec:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.codec:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"encode\",\"codec\":null,\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.backend:unknown",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"metal\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.state:unknown",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"zeroCopy\":true,\"state\":\"pending\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities.0.zeroCopy:absent",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[{\"step\":\"encode\",\"codec\":\"avc1.640028\",\"backend\":\"vt\",\"hardware\":true,\"state\":\"ok\",\"maxWidth\":4096,\"maxHeight\":2304}]}"
+  },
+  {
+    "name": "capabilities.changed.capabilities:empty",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"capabilities.changed\",\"capabilities\":[]}"
+  },
+  {
+    "name": "ready.capabilities:k1-shape",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[],\"decoders\":[],\"stills\":false},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1}}"
+  },
+  {
+    "name": "source.epoch.followsPrivate:true",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.epoch\",\"source\":\"source-1\",\"seq\":1,\"epoch\":1,\"followsPrivate\":true}"
+  },
+  {
+    "name": "source.epoch.followsPrivate:false",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.epoch\",\"source\":\"source-1\",\"seq\":1,\"epoch\":1,\"followsPrivate\":false}"
+  },
+  {
+    "name": "source.epoch.followsPrivate:absent",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.epoch\",\"source\":\"source-1\",\"seq\":1,\"epoch\":1}"
+  },
+  {
+    "name": "source.epoch.followsPrivate:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.epoch\",\"source\":\"source-1\",\"seq\":1,\"epoch\":1,\"followsPrivate\":null}"
+  },
+  {
+    "name": "source.epoch.followsPrivate:number",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.epoch\",\"source\":\"source-1\",\"seq\":1,\"epoch\":1,\"followsPrivate\":1}"
   }
 ]

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
 import { ThreadId, AgentId } from "./ids.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
@@ -173,6 +174,8 @@ export const DeviceState = z.object({
   posture: DevicePosture.optional(),
   /** `exclusive` while the person holds the device (`controller: "human"`); absent: `cowork`. */
   sharing: CoworkSharing.optional(),
+  /** What the live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: MediaAcceleration.optional(),
   /** Where the agent last acted on the device, in device points (ADR 0143). */
   agentPointer: AgentPointer.optional(),
   /** The person used the device within the last 3 s; agents' actions wait meanwhile. */

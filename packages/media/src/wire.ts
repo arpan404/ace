@@ -50,15 +50,32 @@ const EncodeSpec = z.strictObject({
   bitrate: u32,
   quantizer: u32.optional(),
 });
-const CodecCapability = z.strictObject({
-  codec: z.string(),
+const Step = z.enum(["encode", "decode", "jpeg-decode", "jpeg-encode", "scale"]);
+const Backend = z.enum(["vt", "mf", "vaapi", "nv", "chrome", "cpu"]);
+/** One probe result (ADR 0148). `codec` is absent for `scale`; sizes are 0 unless `ok`. */
+const Capability = z.strictObject({
+  step: Step,
+  codec: z.string().optional(),
+  backend: Backend,
   hardware: z.boolean(),
-  backend: z.string(),
+  zeroCopy: z.boolean(),
+  state: z.enum(["ok", "timed-out", "failed"]),
+  maxWidth: u32,
+  maxHeight: u32,
 });
-const Capabilities = z.strictObject({
-  encoders: z.array(CodecCapability),
-  decoders: z.array(CodecCapability),
-  stills: z.boolean(),
+/** The steps a source runs, with picture-sized GPU↔CPU copies per frame (per still for stills). */
+const Acceleration = z.strictObject({
+  steps: z.array(
+    z.strictObject({
+      step: Step,
+      backend: Backend,
+      hardware: z.boolean(),
+      readbacks: u32,
+      uploads: u32,
+    }),
+  ),
+  degraded: z.boolean(),
+  reason: z.string().optional(),
 });
 const Ingest = z.strictObject({ socket: z.string(), websocketPort: u32 });
 const Control = z.strictObject({ socket: z.string() });
@@ -115,7 +132,13 @@ export const ToMedia = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(z.string()) }),
   z.strictObject({ type: z.literal("source.picture"), source: id, ageMs: u32, epoch: u32 }),
-  z.strictObject({ type: z.literal("source.epoch"), source: id, seq: sequence, epoch: u32 }),
+  z.strictObject({
+    type: z.literal("source.epoch"),
+    source: id,
+    seq: sequence,
+    epoch: u32,
+    followsPrivate: z.boolean(),
+  }),
   z.strictObject({
     type: z.literal("record.epochs"),
     source: id,
@@ -204,11 +227,12 @@ export const FromMedia = z.discriminatedUnion("type", [
     protocol: z.literal(1),
     version: z.string(),
     pid: u32,
-    capabilities: Capabilities,
+    capabilities: z.array(Capability),
     ingest: Ingest,
     control: Control,
     listen: Listen,
   }),
+  z.strictObject({ type: z.literal("capabilities.changed"), capabilities: z.array(Capability) }),
   z.strictObject({ type: z.literal("pong"), id: id, stats: Stats }),
   z.strictObject({ type: z.literal("revoked"), id: id }),
   z.strictObject({ type: z.literal("closed"), id: id }),
@@ -226,6 +250,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     status: z.enum(["starting", "playing", "retrying", "ended"]),
     reason: z.string().optional(),
     attempts: u32.optional(),
+    acceleration: Acceleration.optional(),
   }),
   z.strictObject({ type: z.literal("source.want"), source: id, encodes: z.array(EncodeSpec) }),
   z.strictObject({

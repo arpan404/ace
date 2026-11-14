@@ -5,7 +5,7 @@ import { useLayoutEffect } from "react";
 import { expect, test, vi } from "vitest";
 import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
-import { ThreadWarmer, warmHoldMs, warmThreads } from "./thread-warmer.ts";
+import { ThreadWarmer, warmHoldMs, warmRouteThread, warmThreads } from "./thread-warmer.ts";
 
 function daemonWith(ids: readonly string[]) {
   const daemon = new FakeDaemon({ clock: () => 1 });
@@ -114,4 +114,26 @@ test("touching a thread in the list starts following it before it is opened", as
   // A phone has no hover card: the touch that starts a tap is the first sign of intent.
   fireEvent.touchStart(row);
   await vi.waitFor(() => expect(app.client.cachedThread?.(id)?.thread?.title).toBe(title));
+});
+
+test("a thread opened by address is followed from the route, before its view mounts", async () => {
+  const daemon = daemonWith(["opened"]);
+  const client = fakeClient(daemon);
+  await client.start();
+  warmRouteThread(client, "opened", undefined);
+  await vi.waitFor(() =>
+    expect(client.cachedThread("opened")?.thread?.title).toBe("Thread opened"),
+  );
+  expect(client.cachedThread("opened")?.unconfirmed).toBe(false);
+});
+
+test("a thread being started, or on another machine, is not followed by this client", async () => {
+  const daemon = daemonWith(["elsewhere"]);
+  const client = fakeClient(daemon);
+  await client.start();
+  warmRouteThread(client, "elsewhere", "other-host");
+  warmRouteThread(client, "pending:command-1", undefined);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(client.cachedThread("elsewhere")).toBeUndefined();
+  expect(client.cachedThread("pending:command-1")).toBeUndefined();
 });

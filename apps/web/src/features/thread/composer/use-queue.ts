@@ -1,3 +1,4 @@
+import type { ThreadReader } from "@ace/client";
 import { distinctRetainedInputs } from "@ace/projection";
 import {
   bubbleContent,
@@ -7,7 +8,7 @@ import {
   typedWords,
 } from "@ace/ui-core";
 import { annotationCount } from "@/features/annotations/index.ts";
-import { useClient, useThreadMeta } from "@ace/client-react";
+import { useClient, useThread } from "@ace/client-react";
 import {
   CommandId,
   ThreadId,
@@ -150,7 +151,7 @@ export interface QueueControls {
  */
 export function useQueue(threadId: string): QueueControls {
   const client = useClient();
-  const canSteer = useThreadMeta(threadId)?.capabilities?.steer === true;
+  const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
   const { storage } = useLayout();
   const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
@@ -321,3 +322,6 @@ export function useQueue(threadId: string): QueueControls {
     },
   };
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readCanSteer = (reader: ThreadReader) => reader.thread?.capabilities?.steer === true;

@@ -9,6 +9,7 @@ import { PictureScale } from "../src/video-scale.ts";
 import { planVideo } from "../src/video-policy.ts";
 import { QuantizerControl } from "../src/quantizer-control.ts";
 import { writeVectors } from "./media-vector-harness.ts";
+import { fanoutEdges, linkRateEdges } from "./media-pacing-vectors.ts";
 export function mediaVectors() {
   const gate = new VideoChunkGate();
   const offers = [
@@ -137,6 +138,8 @@ export function mediaVectors() {
       return { input, output: { next, settled: input.key ? q.settled() : undefined } };
     }),
     fanout: { steps: fanoutSteps, ack: { after: 5, sequence: 4 }, events },
+    "fanout-edges": fanoutEdges(),
+    "link-rate-edges": linkRateEdges(),
     plan: { input: { source, viewers }, output: planVideo(source, viewers) },
   };
 }

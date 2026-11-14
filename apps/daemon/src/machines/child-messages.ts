@@ -157,8 +157,18 @@ export class ChildMessages {
           if (typeof answer === "string") this.answered(child.id, message.requestId, answer);
           else this.answered(child.id, message.requestId, "refused", answer.rejected);
           if (!this.deps.ledger.hasMessages(child.id)) this.deps.held(child, undefined);
+          if (attempts > 0)
+            this.deps.log("Machine message answered after retries", {
+              id: child.id,
+              attempts: attempts + 1,
+            });
         } catch (error) {
-          this.deps.log("Machine message still unanswered", { id: child.id, error: String(error) });
+          // Logged when the message first goes unanswered; its retries say nothing new.
+          if (attempts === 0)
+            this.deps.log("Machine message still unanswered", {
+              id: child.id,
+              error: String(error),
+            });
           // Still waiting, never settled: the parent's agents_status and wait show why.
           this.deps.held(child, error);
         } finally {

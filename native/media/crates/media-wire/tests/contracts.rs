@@ -212,7 +212,7 @@ fn control_rejects_malformed_contracts_and_preserves_opaque_metadata()
 -> Result<(), Box<dyn std::error::Error>> {
     for bad in [
         json!({"type":"ping","id":"x".repeat(65)}),
-        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1}),
+        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1,"followsPrivate":false}),
         json!({"type":"record.epochs","source":"s","seq":0,"decided":4,"clear":[[4,2]],"discard":[]}),
         json!({"type":"unknown"}),
     ] {
@@ -310,5 +310,44 @@ fn checked_control_values_always_round_trip_and_refuse_out_of_range_construction
     assert!(Protocol::new(2).is_err());
     round_trip(Loopback::new(true)?, json!(true))?;
     assert!(Loopback::new(false).is_err());
+    Ok(())
+}
+#[derive(serde::Deserialize)]
+struct FrameVector {
+    name: String,
+    direction: String,
+    lane: String,
+    hex: String,
+}
+fn reencode<M: media_wire::control::Message>(
+    bytes: &[u8],
+    lane: media_wire::control::Lane,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let frame = ControlFrame::<M>::decode(bytes, lane).map_err(|_| "decode")?;
+    let mut out = frame.header(lane).map_err(|_| "encode")?;
+    out.extend_from_slice(&frame.payload);
+    Ok(out)
+}
+#[test]
+fn shared_control_frame_bytes_decode_and_reencode_exactly() -> Result<(), Box<dyn std::error::Error>>
+{
+    use media_wire::control::Lane;
+    let vectors: Vec<FrameVector> =
+        serde_json::from_slice(&fs::read(root().join("control-frames/k2.json"))?)?;
+    assert!(!vectors.is_empty());
+    for v in vectors {
+        let bytes = hex(&v.hex)?;
+        let lane = if v.lane == "priority" {
+            Lane::Priority
+        } else {
+            Lane::Normal
+        };
+        let out = if v.direction == "ToMedia" {
+            reencode::<ToMedia>(&bytes, lane)?
+        } else {
+            reencode::<FromMedia>(&bytes, lane)?
+        };
+        assert_eq!(out, bytes, "{}", v.name);
+    }
     Ok(())
 }

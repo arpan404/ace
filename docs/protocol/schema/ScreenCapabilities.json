@@ -37,6 +37,13 @@
       "minItems": 1,
       "type": "array"
     },
+    "encoders": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MediaCapability.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "input": {
       "properties": {
         "keyboard": {

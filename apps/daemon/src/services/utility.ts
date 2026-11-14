@@ -7,8 +7,9 @@ import type { CatalogModel, ModelListResult, ProviderKind } from "@ace/protocol"
 import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
+import { locateKnownCli, ProbeMemo } from "../utility-known-cli.ts";
 import { cursorAgentSignedIn } from "../acp-agent-cli.ts";
-import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
 
 export type { UtilityService } from "../utility-models.ts";
@@ -22,6 +23,7 @@ export interface UtilityDaemonOptions {
 /** The person's installed CLI for a provider and the environment that selects its account. */
 async function locateCli(
   context: ServiceContext,
+  memo: ProbeMemo,
   target: UtilityModel,
   signal: AbortSignal,
 ): Promise<UtilityLaunch | undefined> {
@@ -38,14 +40,28 @@ async function locateCli(
     target.provider === "codex" ||
     target.provider === "opencode"
   ) {
-    const cli = await discoverProvider(target.provider, {
-      signal,
-      env,
-      ...(binary ? { overrides: { [target.provider]: binary } } : {}),
-    });
-    if (!cli.installed || !cli.path) return undefined;
-    if (target.provider !== "opencode" && cli.auth === "logged_out") return undefined;
-    return { path: cli.path, env };
+    const provider = target.provider;
+    const login = accountLogin(context, target.instance ?? `${target.provider}-cli-default`);
+    // The provider check already found the CLI and its login: no probe per title or branch.
+    const path = await locateKnownCli(
+      {
+        status: services.providerStatuses
+          ?.list()
+          .find((row) => row.provider === target.provider && row.runtime === "cli"),
+        binary,
+        auth: login.auth,
+        needsLogin: target.provider !== "opencode",
+        login: JSON.stringify([login.id, login.revision, login.auth]),
+      },
+      (override) =>
+        discoverProvider(provider, {
+          signal,
+          env,
+          ...(override ? { overrides: { [provider]: override } } : {}),
+        }),
+      memo,
+    );
+    return path ? { path, env } : undefined;
   }
   const command =
     target.provider === "pi"
@@ -62,6 +78,23 @@ async function locateCli(
   )
     return undefined;
   return path ? { path, env } : undefined;
+}
+
+/** An account's login as last observed; unknown while account homes are still validated. */
+function accountLogin(
+  context: ServiceContext,
+  id: string,
+): { id: string; auth: "logged_in" | "logged_out" | "unknown"; revision?: string | undefined } {
+  try {
+    const account = context.services.accountRegistry?.get(id);
+    return {
+      id,
+      auth: account?.quota.auth ?? "unknown",
+      revision: account?.instance.loginRevision,
+    };
+  } catch {
+    return { id, auth: "unknown" };
+  }
 }
 
 function catalog(context: ServiceContext, provider: ProviderKind): CatalogModel[] {
@@ -81,10 +114,12 @@ function catalog(context: ServiceContext, provider: ProviderKind): CatalogModel[
 /** Titles and commit/PR drafts on the person's utility model, stored per daemon. */
 export function startUtility(context: ServiceContext): void {
   const { services, options, store, resources, now, log } = context;
+  const memo = new ProbeMemo(now);
   const run =
     options.utility?.run ??
     createUtilityCli({
-      locate: options.utility?.locate ?? ((target, signal) => locateCli(context, target, signal)),
+      locate:
+        options.utility?.locate ?? ((target, signal) => locateCli(context, memo, target, signal)),
       ...(options.engine?.clock ? { clock: options.engine.clock } : {}),
     });
   const utility = createUtility({
@@ -111,9 +146,13 @@ export function startUtility(context: ServiceContext): void {
       void (async () => {
         try {
           const execute = promisify(execFile);
-          const git = (cwd: string, args: string[]) =>
-            runWorktreeGit(execute, process.env, cwd, args);
-          await nameWorktreeBranch(store, threadId, now(), git, slug);
+          await nameWorktreeBranch(
+            store,
+            threadId,
+            now(),
+            worktreeGitScope(execute, process.env),
+            slug,
+          );
         } catch (error) {
           log.log(
             "debug",
