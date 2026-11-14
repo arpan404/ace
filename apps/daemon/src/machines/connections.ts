@@ -7,10 +7,16 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "token">;
 
 /**
- * Which connections a call uses. `urgent` calls (a cancel, a stop, an answer to the person's
- * request) have connections of their own, which long tool calls can never fill.
+ * Which connections a call uses, so no kind of call can wait behind another that may itself
+ * wait on it:
+ * - `reads`: short reads made by polling or answered at once (child and session status, job
+ *   reads, describe, starting a session, transfer probes and status), which a long call can
+ *   never hold up;
+ * - `work`: calls that may take long or wait on a person (tool calls, delegate, message,
+ *   transfer calls and chunks);
+ * - `urgent`: a cancel, a command stop, an answer to a request for the person.
  */
-export type ConnectionLane = "shared" | "urgent";
+export type ConnectionLane = "reads" | "work" | "urgent";
 
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
@@ -41,11 +47,11 @@ const IDLE_CAP_MS = 45_000;
 /** Kept this long when the other machine says nothing, as an older daemon's 5 s allows. */
 const IDLE_DEFAULT_MS = 3000;
 /**
- * Connections per machine per lane: tool calls and reads share six. Urgent calls open one more
- * connection rather than wait behind another urgent call, up to eight at once; two are kept
- * open when idle.
+ * Connections per machine per lane, the most a lane opens at once: a call opens another rather
+ * than wait while its lane has fewer, as each had its own before; two are kept open when idle.
+ * Reads and work up to 32 each, urgent calls up to 8.
  */
-const laneSockets: Record<ConnectionLane, number> = { shared: 6, urgent: 8 };
+const laneSockets: Record<ConnectionLane, number> = { reads: 32, work: 32, urgent: 8 };
 
 interface Lane {
   agent: Agent | undefined;
@@ -85,13 +91,13 @@ export class MachineConnections {
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
   }
-  lease(profile: ConnectionProfile, use: ConnectionLane = "shared"): ConnectionLease {
+  lease(profile: ConnectionProfile, use: ConnectionLane = "work"): ConnectionLease {
     const key = connectionKey(profile);
     let entry = this.entries.get(key);
     if (!entry) {
       let session: Buffer | undefined;
       entry = {
-        lanes: { shared: lane(), urgent: lane() },
+        lanes: { reads: lane(), work: lane(), urgent: lane() },
         ended: new AbortController(),
         sessions: { get: () => session, set: (next) => void (session = next) },
         idleMs: IDLE_DEFAULT_MS,

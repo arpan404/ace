@@ -219,23 +219,24 @@ test("a cancel reaches its machine at once while long tool calls hold every shar
 test("a call that never gets a connection fails at its own deadline, saying it was never sent", async () => {
   const target = await busyMachine(3000);
   const connections = pool();
-  const long = Array.from({ length: 6 }, () =>
+  // Every work connection is held by a tool call; one more work call can't get one.
+  const long = Array.from({ length: 32 }, () =>
     machineRequest(
       target.profile,
       { origin, call: browserCall },
       { timeoutMs: 10_000, connections },
     ),
   );
-  await expect.poll(() => target.arrived.length).toBe(6);
+  await expect.poll(() => target.arrived.length).toBe(32);
   const started = Date.now();
   const failure = await machineRequest(
     target.profile,
-    { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+    { origin, call: followUp },
     { timeoutMs: 1000, connections },
   ).catch((error: unknown) => error);
   expect(failure).toBeInstanceOf(MachineNotSent);
   expect(Date.now() - started).toBeLessThan(2000);
-  expect(target.arrived.map((entry) => entry.op)).not.toContain("status");
+  expect(target.arrived.map((entry) => entry.op)).not.toContain("message");
   await Promise.all(long);
 });
 
@@ -337,11 +338,8 @@ test("work sent on a dropped connection is never sent again on its own", async (
   const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port));
   const profile = { ...target.profile, origin: proxy.origin };
   const connections = pool();
-  await machineRequest(
-    profile,
-    { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
-    { timeoutMs: 5000, connections },
-  );
+  // A first message opens the work connection the next one would reuse.
+  await machineRequest(profile, { origin, call: followUp }, { timeoutMs: 5000, connections });
   proxy.cutAll();
   const failure = await machineRequest(
     profile,
@@ -360,7 +358,7 @@ test("work sent on a dropped connection is never sent again on its own", async (
   // The caller hears the connection was lost; its own retry rules decide what happens next.
   expect(failure).toBeInstanceOf(MachineFailure);
   expect((failure as MachineFailure).kind).toBe("disconnected");
-  expect(target.arrived.map((entry) => entry.op)).toEqual(["status"]);
+  expect(target.arrived.map((entry) => entry.op)).toEqual(["message"]);
   expect(proxy.state.connections).toBe(1);
 });
 
@@ -653,3 +651,47 @@ function savedProfile(profile: { origin: string; fingerprint: string; token: str
     ...profile,
   };
 }
+
+test("a session's status read reaches its machine while six tool calls wait on the person there", async () => {
+  // Tool calls there wait on an approval; the status read is how it surfaces here.
+  const target = await busyMachine(3000);
+  const connections = pool();
+  const blocked = Array.from({ length: 6 }, () =>
+    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+  );
+  await expect.poll(() => target.arrived.length).toBe(6);
+  const sent = Date.now();
+  await expect(
+    machineRequest(
+      target.profile,
+      { origin, call: { op: "status", threadIds: [ThreadId.parse("session-1")] } },
+      { timeoutMs: 10_000, connections },
+    ),
+  ).resolves.toEqual({ ok: true });
+  const read = target.arrived.find((entry) => entry.op === "status");
+  expect((read?.at ?? Infinity) - sent).toBeLessThan(500);
+  await Promise.all(blocked);
+});
+
+test("children's status keeps being read, poll after poll, however many tool calls are waiting", async () => {
+  const target = await busyMachine(4000);
+  const connections = pool();
+  const blocked = Array.from({ length: 32 }, () =>
+    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+  );
+  await expect.poll(() => target.arrived.length).toBe(32);
+  // A poll a second, each read answered at once: every one renews its child's lease.
+  for (let poll = 0; poll < 3; poll++) {
+    const sent = Date.now();
+    await expect(
+      machineRequest(
+        target.profile,
+        { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+        { timeoutMs: 10_000, connections },
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(Date.now() - sent).toBeLessThan(500);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  await Promise.all(blocked);
+});
