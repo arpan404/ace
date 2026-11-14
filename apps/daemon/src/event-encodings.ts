@@ -69,5 +69,7 @@ function trimmed(event: DeliveryEvent): string | undefined {
   if (payload.type === "item.delta") return shortDeltaJson(event);
   if (payload.type !== "item.created" && payload.type !== "item.updated") return undefined;
   const item = omitRaw(payload.item);
-  return item === payload.item ? undefined : JSON.stringify({ ...event, payload: { ...payload, item } });
+  return item === payload.item
+    ? undefined
+    : JSON.stringify({ ...event, payload: { ...payload, item } });
 }

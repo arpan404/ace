@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
-import { Item, ServerMessage, ThreadId, type ClientMessage } from "@ace/protocol";
+import { AgentId, Item, ServerMessage, ThreadId, type ClientMessage } from "@ace/protocol";
 import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-deltas";
 import { wireTrims } from "@ace/projection/wire-trim";
 import { fixture, token } from "./socket-test-support.ts";
@@ -62,7 +62,13 @@ async function setup(canReadThread?: (device: string, thread: ThreadId) => boole
   const join = async (hello: Partial<Extract<ClientMessage, { type: "hello" }>>) => {
     const client = await rawClient(f.server.url);
     cleanups.push(() => client.close());
-    client.send({ type: "hello", protocolVersion: 1, deviceId: "device", token, ...hello } as ClientMessage);
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: "device",
+      token,
+      ...hello,
+    } as ClientMessage);
     await client.until((text) => text.includes('"type":"welcome"'));
     client.send({
       type: "subscribe",
@@ -87,7 +93,13 @@ test("trimmed and whole clients of one thread each get their own encoding of the
   });
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item: reply }]);
   const [delta] = f.store.appendEvents(f.thread.id, [
-    { type: "item.delta", itemId: reply.id, agentId: reply.agentId, field: "text", append: " there" },
+    {
+      type: "item.delta",
+      itemId: reply.id,
+      agentId: AgentId.parse("root"),
+      field: "text",
+      append: " there",
+    },
   ]);
   if (!delta) throw new Error("no delta stored");
 
@@ -128,13 +140,27 @@ test("an item's raw payloads are refused where the thread is not readable, and a
   const { f, join } = await setup((_device, thread) => thread !== ThreadId.parse("hidden"));
   const client = await join({ trims: [wireTrims.rawOnDemand] });
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item: reply }]);
-  client.send({ type: "item.raw", requestId: "hidden", threadId: ThreadId.parse("hidden"), itemId: reply.id });
-  expect(JSON.parse(await client.until((text) => text.includes('"requestId":"hidden"')))).toMatchObject({
+  client.send({
+    type: "item.raw",
+    requestId: "hidden",
+    threadId: ThreadId.parse("hidden"),
+    itemId: reply.id,
+  });
+  expect(
+    JSON.parse(await client.until((text) => text.includes('"requestId":"hidden"'))),
+  ).toMatchObject({
     type: "error",
     code: "forbidden",
   });
-  client.send({ type: "item.raw", requestId: "missing", threadId: f.thread.id, itemId: "nope" } as ClientMessage);
-  expect(JSON.parse(await client.until((text) => text.includes('"requestId":"missing"')))).toMatchObject({
+  client.send({
+    type: "item.raw",
+    requestId: "missing",
+    threadId: f.thread.id,
+    itemId: "nope",
+  } as ClientMessage);
+  expect(
+    JSON.parse(await client.until((text) => text.includes('"requestId":"missing"'))),
+  ).toMatchObject({
     type: "error",
     code: "item_not_found",
   });

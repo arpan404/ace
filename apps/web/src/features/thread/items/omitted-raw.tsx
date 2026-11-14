@@ -1,4 +1,8 @@
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible.tsx";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useClient } from "@ace/client-react";
 import type { RawPayload } from "@ace/protocol";

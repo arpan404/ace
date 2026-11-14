@@ -123,7 +123,9 @@ function snapshots(all: Session[]) {
     console.log(`  ${label}: ${entry.session.name} (${items} items)`);
     for (const [client, { trims }] of Object.entries(clients)) {
       const text = sent(message, trims);
-      console.log(`    ${client.padEnd(30)} ${kb(text.length).padStart(9)} ${kb(deflated(text)).padStart(9)}`);
+      console.log(
+        `    ${client.padEnd(30)} ${kb(text.length).padStart(9)} ${kb(deflated(text)).padStart(9)}`,
+      );
     }
   }
   // An item page: the newest 200 items of the largest session.
@@ -140,7 +142,9 @@ function snapshots(all: Session[]) {
   console.log(`\nItem page (${large.session.name}, newest 200 items)`);
   for (const [client, { trims }] of Object.entries(clients)) {
     const text = sent(page, trims);
-    console.log(`    ${client.padEnd(30)} ${kb(text.length).padStart(9)} ${kb(deflated(text)).padStart(9)}`);
+    console.log(
+      `    ${client.padEnd(30)} ${kb(text.length).padStart(9)} ${kb(deflated(text)).padStart(9)}`,
+    );
   }
 }
 
@@ -163,7 +167,10 @@ function deltas(all: Session[]) {
         total.short += encoder.encodedBytes(message, { rawOnDemand: true, shortDeltas: true });
       } else if (event.payload.type === "item.updated") {
         total.item.whole += encoder.encodedBytes(message);
-        total.item.trimmed += encoder.encodedBytes(message, { rawOnDemand: true, shortDeltas: true });
+        total.item.trimmed += encoder.encodedBytes(message, {
+          rawOnDemand: true,
+          shortDeltas: true,
+        });
       }
     }
   const per = (bytes: number) => (bytes / total.count).toFixed(0);
@@ -253,6 +260,9 @@ function slowLink(events: Session["events"], remote: boolean, bytesPerSecond: nu
   return frames;
 }
 
+const isDeltaLine = (line: string) => line.includes('"d":[') || line.includes('"item.delta"');
+const size = (frame: string) => Buffer.byteLength(frame);
+
 function linkBatching(all: Session[]) {
   const busiest = all.toSorted(
     (a, b) =>
@@ -260,7 +270,6 @@ function linkBatching(all: Session[]) {
       a.events.filter((entry) => entry.event.payload.type === "item.delta").length,
   )[0];
   if (!busiest) return;
-  const isDeltaLine = (line: string) => line.includes('"d":[') || line.includes('"item.delta"');
   // Recorded frames often share a timestamp; each event here arrives `spacing` ms after the
   // one before, as a provider streams them.
   for (const [pace, spacing, bytesPerSecond] of [
@@ -268,11 +277,12 @@ function linkBatching(all: Session[]) {
     ["one event per 2 ms (a burst)", 2, 50 * 1024],
     ["one event per 2 ms on 10 KB/s", 2, 10 * 1024],
   ] as const) {
-    console.log(`\nDeltas per frame, ${pace}, ${kb(bytesPerSecond)}/s remote link (${busiest.name})`);
-    const events = busiest.events.map((entry, index) => ({
-      ...entry,
-      t: spacing ? index * spacing : entry.t * 4 + index,
-    }));
+    console.log(
+      `\nDeltas per frame, ${pace}, ${kb(bytesPerSecond)}/s remote link (${busiest.name})`,
+    );
+    const events = busiest.events.map((entry, index) =>
+      Object.assign({}, entry, { t: spacing ? index * spacing : entry.t * 4 + index }),
+    );
     const count = events.filter((entry) => entry.event.payload.type === "item.delta").length;
     for (const [label, remote] of [
       ["16 ms hold (before)", false],
@@ -284,7 +294,6 @@ function linkBatching(all: Session[]) {
         (sum, frame) => sum + frame.split("\n").filter(isDeltaLine).length,
         0,
       );
-      const size = (frame: string) => Buffer.byteLength(frame);
       const wire = (frame: string) =>
         size(frame) < compressionThresholdBytes ? size(frame) : deflated(frame);
       const small = frames.filter((frame) => size(frame) < compressionThresholdBytes);

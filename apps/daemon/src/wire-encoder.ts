@@ -53,9 +53,7 @@ export class WireEncoder {
   encode(message: ServerMessage | PluginServerMessage, shape: EventShape = wholeEvents): string {
     if (message.type !== "events") return JSON.stringify(message);
     const thread = shortThread(message, shape);
-    const encoded = message.events.map((event) =>
-      this.eventJson(event, shape, thread),
-    );
+    const encoded = message.events.map((event) => this.eventJson(event, shape, thread));
     return `${eventsPrefix(message, thread)}${encoded.join(",")}]}`;
   }
   /** UTF-8 length of `encode(message, shape)`, from each event's cached size: no frame is built. */

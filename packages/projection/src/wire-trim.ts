@@ -137,10 +137,15 @@ export class WireTrimmer {
         };
       case "items.page":
       case "items.window":
-        return this.#items || this.#raw ? { ...message, items: message.items.map(this.#item) } : message;
+        return this.#items || this.#raw
+          ? { ...message, items: message.items.map(this.#item) }
+          : message;
       case "turn.steps":
         return this.#items || this.#raw
-          ? { ...message, steps: message.steps.map((step) => ({ ...step, item: this.#item(step.item) })) }
+          ? {
+              ...message,
+              steps: message.steps.map((step) => ({ ...step, item: this.#item(step.item) })),
+            }
           : message;
       default:
         return message;

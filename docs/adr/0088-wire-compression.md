@@ -48,3 +48,47 @@ encryption, as a separate fragment kind; inflation is capped at the logical mess
 are compressed once per file version and kept in memory (32 MiB, least recently used out), on both
 listeners; the cost is paid once, not per request. Attachments, icons and images are already
 compressed or are served by byte range, and access JSON is tiny, so they stay identity.
+
+## Sending less before compressing (2026-11-14)
+
+On a 3G link a second carries about 50 KB, so what is sent matters as much as how it is
+compressed. Storage does not change: provider data is still kept in full. Only clients that ask
+get the shorter shapes; every other client gets exactly what it got before.
+
+**Hello trim `raw-on-demand`.** Items whose raw payloads clients only show, in the raw-frames
+view, come without them and marked `rawOmitted: true`, in snapshots, item pages and windows, turn
+steps and live `item.created` / `item.updated` events. Clients read some raw payloads for what a
+step says, so those stay: notices (refusals, delivery errors, screen steps, native stderr) and
+MCP and custom tool calls (ace's own tools' results, arguments and measurements). The rule is
+`rawShownOnly` in `packages/projection/src/wire-trim.ts`. A view reads the payloads with
+`item.raw` (`{threadId, itemId}` → the stored `raw`, or a tool call's `call.raw`, oldest first,
+cut at 1 MiB with `truncated`), under the same checks as reading the item: read scope and a
+thread the device may read.
+
+**Hello framing `short-deltas`.** An events message names its thread once (`threadId`) and
+carries each streamed delta as `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`. The
+event id is left out: clients order, dedupe and resume by `seq`, and nothing reads a delta's id;
+a reader gives it `~<seq>`. Deltas of several threads in one message go whole.
+
+Live events are serialised once for every connection. Each event keeps at most one trimmed
+encoding beside the whole one (`event-encodings.ts`): an item event without its shown-only raw,
+or a delta in short form; no event is both. Every connection that takes it shares it.
+
+**Holding deltas on a slow link.** Streamed deltas wait to share a frame: 16 ms on loopback and
+on a remote link that keeps up, 100 ms on a remote socket with 8 KiB or more queued, 250 ms past
+64 KiB. The daemon has no per-socket round-trip measure, so the queued backlog (`bufferedAmount`,
+or a relayed channel's held bytes) is the signal, kept in one per-socket estimate
+(`apps/daemon/src/link-estimate.ts`, `linkEstimate(socket)`) that other daemon code can read.
+Only messages made entirely of streamed deltas wait; anything else (an approval, a question, a
+status, a completion, a reply) goes at once and takes what is held with it.
+
+**Security.** `item.raw` is allowlisted for compression: it carries the same provider payloads
+snapshots and pages carried, compressed, before this trim, and no ace credential. Every message
+is still compressed alone.
+
+Measured on the recorded fixtures (`apps/daemon/bench/wire-trims.ts`): the largest snapshot
+deflates to 6.2 KB instead of 15.9 KB, its 200-item page to 5.4 KB instead of 15.1 KB; a delta's
+events message is 218 B instead of 314 B; `item.updated` loses 53% of its bytes; in a burst on a
+slow remote link, 23 deltas share a frame instead of 7. Frames under the 1 KiB threshold would
+shrink about a third if deflated alone; lowering the relay threshold, and a shared dictionary,
+are left for later.

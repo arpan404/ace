@@ -100,17 +100,17 @@ describe("raw-on-demand", () => {
   });
 });
 
-describe("short deltas", () => {
-  const delta = (seq: number, append: string, firstSeq?: number) =>
-    DeliveryEvent.parse({
-      id: `stored-${seq}`,
-      seq,
-      at: 1_731_600_000_000 + seq,
-      threadId: "thread-1",
-      ...(firstSeq === undefined ? {} : { firstSeq }),
-      payload: { type: "item.delta", itemId: "reply", agentId: "a", field: "text", append },
-    });
+const delta = (seq: number, append: string, firstSeq?: number) =>
+  DeliveryEvent.parse({
+    id: `stored-${seq}`,
+    seq,
+    at: 1_731_600_000_000 + seq,
+    threadId: "thread-1",
+    ...(firstSeq === undefined ? {} : { firstSeq }),
+    payload: { type: "item.delta", itemId: "reply", agentId: "a", field: "text", append },
+  });
 
+describe("short deltas", () => {
   it("a short-deltas client rebuilds the same deltas, text and order as a whole one", () => {
     const events = [delta(5, 'quote " and \n 😀'), delta(8, "tail", 6)];
     const json = `{"type":"events","subscriptionId":"s","afterSeq":4,"throughSeq":8,"threadId":"thread-1","events":[${events
@@ -121,9 +121,11 @@ describe("short deltas", () => {
     expect(rebuilt.events.map(({ id: _id, ...rest }) => rest)).toEqual(
       events.map(({ id: _id, ...rest }) => rest),
     );
-    expect(rebuilt.events.map((event) => event.payload.type === "item.delta" && event.payload.append).join("")).toBe(
-      'quote " and \n 😀tail',
-    );
+    expect(
+      rebuilt.events
+        .map((event) => event.payload.type === "item.delta" && event.payload.append)
+        .join(""),
+    ).toBe('quote " and \n 😀tail');
   });
 
   it("a short delta is far smaller than the whole event", () => {

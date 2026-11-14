@@ -1,4 +1,4 @@
-import { Event, Interaction, ItemId, type ServerMessage } from "@ace/protocol";
+import { AgentId, Event, Interaction, ItemId, type ServerMessage } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { linkEstimate } from "./link-estimate.ts";
 import type { MainSocket } from "./main-socket.ts";
@@ -53,7 +53,13 @@ const events = (payload: Event["payload"]): ServerMessage => {
   };
 };
 const delta = (append: string) =>
-  events({ type: "item.delta", itemId: ItemId.parse("i"), agentId: "a", field: "text", append });
+  events({
+    type: "item.delta",
+    itemId: ItemId.parse("i"),
+    agentId: AgentId.parse("a"),
+    field: "text",
+    append,
+  });
 
 function linked(backlog: number, remote: boolean) {
   const link = socket(backlog);
@@ -91,7 +97,7 @@ describe("holding deltas by link", () => {
         interaction: Interaction.parse({
           id: "ask",
           threadId: "t",
-          agentId: "a",
+          agentId: AgentId.parse("a"),
           blocking: true,
           state: "pending",
           createdAt: 0,
