@@ -113,27 +113,82 @@ final class IngestRouteTests: XCTestCase {
         XCTAssertTrue(waitFor { timers.scheduled[0].cancelled }, "the drain finished, so its limit is cancelled")
     }
 
-    func testAStaleTimerNeverClosesALaterRetirement() throws {
+    func testAStaleTimerNeverClosesALaterWriterAtTheSameAddress() throws {
         let timers = Timers()
-        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: timers.schedule)
+        // Each writer's address as the route made it, without keeping the writer alive.
+        var made: [ObjectIdentifier] = []
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
+            let writer = try IngestWriter(path: socket, token: token, onClosed: onClosed, onKeyframe: onKeyframe)
+            made.append(ObjectIdentifier(writer))
+            return writer
+        }, schedule: timers.schedule)
         let first = try Listener()
         _ = try route.route(to: (first.path, token))
         first.accept()
         _ = try route.route(to: nil)
         _ = first.readToEnd()
         XCTAssertTrue(waitFor { route.retiring == 0 })
-        // A later writer retires with a backlog, while the first one's timer is still pending.
-        let second = try Listener()
-        _ = try route.route(to: (second.path, Data(repeating: 9, count: 32)))
-        second.accept()
+        let freed = made[0]
+        // Flip until a new writer takes the freed one's address, as the allocator tends to.
+        var listeners: [Listener] = []
+        var reused = false
+        for attempt in 0..<64 {
+            let listener = try Listener()
+            listeners.append(listener)
+            _ = try route.route(to: (listener.path, Data(repeating: UInt8(attempt + 9), count: 32)))
+            listener.accept()
+            if made.last == freed { reused = true; break }
+            _ = try route.route(to: nil)
+            _ = listener.readToEnd()
+            XCTAssertTrue(waitFor { route.retiring == 0 })
+        }
+        guard reused, let second = listeners.last else { throw XCTSkip("no writer reused the freed address in 64 tries") }
+        // The writer at the reused address retires with a backlog while the first one's timer is
+        // still pending.
         for sequence in 1...3 { route.publish(unit(UInt64(sequence), bytes: 1 << 20, keyframe: sequence == 1)) }
         _ = try route.route(to: nil)
         XCTAssertEqual(route.retiring, 1)
         timers.scheduled[0].work()
-        XCTAssertEqual(route.retiring, 1, "the first retirement's timer is not the second's")
+        XCTAssertEqual(route.retiring, 1, "the first retirement's timer is not the second's, whatever their addresses")
         let (received, ended) = second.readToEnd()
         XCTAssertTrue(ended)
         XCTAssertGreaterThan(received.count, 3 << 20, "the second writer drained in full")
+    }
+
+    func testATimerThatFiresBeforeItsRetirementIsRecordedStillEndsIt() throws {
+        let listener = try Listener()
+        // The limit passes at once: the timer fires inside `schedule`, before it returns.
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, drainLimit: 0, schedule: { _, work in work(); return {} })
+        _ = try route.route(to: (listener.path, token))
+        listener.accept()
+        // ace-media isn't reading, so the writer can't drain on its own.
+        for sequence in 1...3 { route.publish(unit(UInt64(sequence), bytes: 1 << 20, keyframe: sequence == 1)) }
+        _ = try route.route(to: nil)
+        XCTAssertEqual(route.retiring, 0, "the limit closed it: nothing is left without a deadline")
+        let (received, ended) = listener.readToEnd()
+        XCTAssertTrue(ended)
+        XCTAssertLessThan(received.count, 3 << 20)
+    }
+
+    func testRetiredWritersHoldingMoreThanTheByteLimitLoseTheOldest() throws {
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: { _, _ in {} })
+        var listeners: [Listener] = []
+        // Three blocked writers each holding two 3.5 MiB keyframes (a writer drops deltas past its
+        // own bound, never keyframes): about 21 MiB, past 16 MiB, under four writers. Closing the
+        // oldest brings the rest under the limit.
+        for index in 0..<3 {
+            let listener = try Listener()
+            _ = try route.route(to: (listener.path, Data(repeating: UInt8(index + 1), count: 32)))
+            listener.accept()
+            listeners.append(listener)
+            for sequence in 1...2 { route.publish(unit(UInt64(sequence), bytes: 7 << 19, keyframe: true)) }
+        }
+        _ = try route.route(to: nil)
+        XCTAssertEqual(route.retiring, 2, "the oldest retired writer is closed past the byte limit")
+        let (received, ended) = listeners[0].readToEnd()
+        XCTAssertTrue(ended)
+        XCTAssertLessThan(received.count, 8 << 20)
+        route.close()
     }
 
     func testRapidFlipsKeepAtMostFourRetiredWritersClosingTheOldest() throws {
