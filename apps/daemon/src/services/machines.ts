@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { logError, logFields } from "@ace/diagnostics";
 import {
   Command,
@@ -34,6 +35,7 @@ import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { MachineConnections } from "../machines/connections.ts";
+import { cachedProfiles, fileStamp } from "../machines/profile-cache.ts";
 import {
   TransferClient,
   transferTransport,
@@ -214,14 +216,20 @@ export function startMachines(context: ServiceContext): void {
   const directory = new MachineDirectory({
     connections,
     reachable: (machine) => machineReachable?.(machine),
-    profiles: () => {
-      const profiles = new Profiles(config.dataDir);
-      try {
-        return profiles.list();
-      } finally {
-        profiles.close();
-      }
-    },
+    // Read again only when the pairings file changes, not on every call and poll.
+    profiles: cachedProfiles({
+      stamp: () => fileStamp(join(config.dataDir, "cli-profiles.sqlite")),
+      read: () => {
+        const profiles = new Profiles(config.dataDir);
+        try {
+          return profiles.list();
+        } finally {
+          profiles.close();
+        }
+      },
+      now,
+      maxAgeMs: 60_000,
+    }),
     transport: options.machines?.transport ?? machineRequest,
     transfers: async (profile) =>
       new TransferClient(probes, profile).probe(),
