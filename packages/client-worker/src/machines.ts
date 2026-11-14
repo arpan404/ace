@@ -364,7 +364,7 @@ export class MachinePool {
     const hostId = machine.hostId;
     let gate = this.gates.get(hostId);
     if (!gate) {
-      gate = machineCodeGate(() => account.grant());
+      gate = machineCodeGate(() => account.grant(hostId));
       this.gates.set(hostId, gate);
     }
     const current = this.live.get(hostId);
@@ -747,8 +747,8 @@ export class MachinePool {
       ...(paired ? { paired } : {}),
       transport: route.transport,
       credential: route.credential,
-      grant: () => account.grant(),
-      grantRefused: (grant) => account.grantRefused?.(grant) ?? false,
+      grant: () => account.grant(hostId),
+      grantRefused: (grant) => account.grantRefused?.(grant, hostId) ?? false,
     });
     client.usePaths?.(paths);
     return client;

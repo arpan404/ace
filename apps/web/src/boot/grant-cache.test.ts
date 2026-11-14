@@ -16,6 +16,8 @@ function backend(skewMs = 0) {
   let issued = 0;
   const asked: string[] = [];
   let failNext = false;
+  /** How far the forward-only clock is behind: it stands still while the laptop sleeps. */
+  let slept = 0;
   const cache = grantCache(
     async (session) => {
       asked.push(session);
@@ -25,12 +27,17 @@ function backend(skewMs = 0) {
       }
       return { token: `grant-${++issued}`, expiresAt: now + lifeMs };
     },
-    { wall: () => now + skewMs, elapsed: () => now },
+    { wall: () => now + skewMs, elapsed: () => now - slept },
   );
   return {
     cache,
     asked,
     advance: (ms: number) => (now += ms),
+    /** The laptop sleeps `ms`: the wall clock moves on, the forward-only clock does not. */
+    sleep: (ms: number) => {
+      now += ms;
+      slept += ms;
+    },
     failOnce: () => (failNext = true),
   };
 }
@@ -220,4 +227,39 @@ test("a refusal of a grant that is no longer the kept one evicts nothing", async
   expect(b.cache.refused("grant-0")).toBe(false);
   expect(await b.cache.grant("s")).toBe("grant-1");
   expect(b.asked).toHaveLength(1);
+});
+
+test("two machines sharing one expired cached grant both recover, with one fresh fetch", async () => {
+  const b = backend();
+  // Machine A fetched the grant; later both reconnect and take it from the cache.
+  await b.cache.grant("s", "machine-a");
+  await b.cache.grant("s", "machine-a");
+  await b.cache.grant("s", "machine-b");
+  // The daemon finds it expired on both: each refusal, in either order, earns a retry.
+  expect(b.cache.refused("grant-1", "machine-a")).toBe(true);
+  expect(b.cache.refused("grant-1", "machine-b")).toBe(true);
+  // Both retries share one fresh fetch.
+  const retries = await Promise.all([
+    b.cache.grant("s", "machine-a"),
+    b.cache.grant("s", "machine-b"),
+  ]);
+  expect(retries).toEqual(["grant-2", "grant-2"]);
+  expect(b.asked).toHaveLength(2);
+});
+
+test("a grant fetched fresh for an attempt and refused is final, beside one served cached", async () => {
+  const b = backend();
+  // Machine A's attempt fetched it; machine B's took it from the cache.
+  await b.cache.grant("s", "machine-a");
+  await b.cache.grant("s", "machine-b");
+  // B's refusal first, then A's: B retries, A's is final.
+  expect(b.cache.refused("grant-1", "machine-b")).toBe(true);
+  expect(b.cache.refused("grant-1", "machine-a")).toBe(false);
+});
+
+test("after the laptop sleeps ten minutes, the kept grant is not offered", async () => {
+  const b = backend();
+  await b.cache.grant("s");
+  b.sleep(600_000);
+  expect(await b.cache.grant("s")).toBe("grant-2");
 });

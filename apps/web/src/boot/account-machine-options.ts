@@ -157,7 +157,7 @@ export function accountMachineOptions(options: {
   return {
     relayUrl,
     deviceId,
-    async grant() {
+    async grant(machine) {
       const session = windowAccountSession(options.session, origin);
       if (!session) {
         // Signed out: no grant of the last session stays in memory.
@@ -166,9 +166,9 @@ export function accountMachineOptions(options: {
       }
       // The desktop app admits only addresses the person chose; the relay is one of them.
       await authorizeDaemonUrl(relayUrl);
-      return grants.grant(session.token);
+      return grants.grant(session.token, machine);
     },
-    grantRefused: (grant) => grants.refused(grant),
+    grantRefused: (grant, machine) => grants.refused(grant, machine),
     socket: browserDeviceSocket,
     // The network changed: a better path may be back, or the active one gone.
     watchNetwork: (changed) => {

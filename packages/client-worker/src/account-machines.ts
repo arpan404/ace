@@ -32,17 +32,19 @@ export interface AccountMachineOptions {
   /** This app's device id on the account: the subject of its device grants. */
   deviceId: string;
   /**
-   * A fresh five-minute device grant, called once per connection attempt; for example
-   * `aceAccountClient(...).grant(session, { kind: "device", subject: deviceId }, signal)`.
+   * A five-minute device grant for `machine` (its host id), called once per connection attempt;
+   * for example `aceAccountClient(...).grant(session, { kind: "device", subject: deviceId },
+   * signal)`. An app may keep one and give it to several machines while it is young.
    */
-  grant(): Promise<string>;
+  grant(machine?: string): Promise<string>;
   /**
-   * The daemon or the relay refused `grant`, one `grant()` gave; never called for an ordinary
-   * drop. An app that keeps grants drops it if it is still the kept one, and returns true when
-   * it was kept for reuse, so the client tries once more with a fresh grant; false (or absent)
-   * makes the refusal final, as without a cache.
+   * The daemon or the relay refused `grant`, one `grant(machine)` gave; never called for an
+   * ordinary drop. An app that keeps grants drops it if it is still the kept one, and returns
+   * true when `machine` had it from its cache rather than fetched for that attempt, so the
+   * client tries once more with a fresh grant; false (or absent) makes the refusal final, as
+   * without a cache.
    */
-  grantRefused?(grant: string): boolean;
+  grantRefused?(grant: string, machine?: string): boolean;
   socket(url: string, protocols?: string[]): PortableSocket;
   /**
    * Hear network changes (a browser's `online`), each a cue to look for a better path (ADR
@@ -189,7 +191,7 @@ export function accountRoutes(input: {
       schedule: (callback, delayMs) => input.scheduler.set(delayMs, callback),
       refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
       welcomed: () => gate.welcomed(),
-      grantRefused: (grant) => account.grantRefused?.(grant) ?? false,
+      grantRefused: (grant) => account.grantRefused?.(grant, hostId) ?? false,
     }),
   });
   const home = relay(input.relayUrl, "account");

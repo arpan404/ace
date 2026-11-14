@@ -18,16 +18,20 @@ export const grantReuseMarginMs = 120_000;
 export const grantLifetimeCapMs = 300_000;
 
 export interface GrantCache {
-  /** The grant for `session`: the kept one while it may still be used, else a fresh one. */
-  grant(session: string): Promise<string>;
   /**
-   * The daemon or the relay refused `grant`: if it is still the kept one, it is never offered
-   * again; any other grant (one already replaced, another machine's newer one) stays. True when
-   * it was offered again from the cache after the attempt it was fetched for, so a fresh grant
-   * may be worth one more try; false for a grant refused in the attempt it was fetched for,
-   * which a fresh one would not change.
+   * The grant for `session`: the kept one while it may still be used, else a fresh one.
+   * `machine` names the machine asking (its host id), so a refusal can tell how that machine
+   * got its grant.
    */
-  refused(grant: string): boolean;
+  grant(session: string, machine?: string): Promise<string>;
+  /**
+   * The daemon or the relay refused `grant`, presented by `machine`. If it is still the kept
+   * one, it is never offered again; any other grant (one already replaced, another machine's
+   * newer one) stays. True when `machine` had it from the cache, so a fresh grant is worth one
+   * more try, however many machines shared it and in whatever order their refusals come; false
+   * for a grant fetched fresh for that machine's attempt, which a fresh one would not change.
+   */
+  refused(grant: string, machine?: string): boolean;
   /** Sign-out: forget every grant. */
   clear(): void;
 }
@@ -36,42 +40,44 @@ export interface GrantCache {
  * Device grants for one window, in memory only (ADR 0114, ADR 0150): a connect, every path of
  * its race and a reconnect soon after share one grant instead of each asking the account
  * backend; concurrent asks share one fetch. A grant is kept for one ace session only: another
- * session (an account switch) or a sign-out forgets it. How long it is kept is measured on
- * `elapsed`, a clock that only moves forward (`performance.now`), from the time it was fetched,
- * never on the wall clock alone, so a browser clock minutes off cannot stretch it. The daemon's
- * or the relay's refusal is the authority: a refused grant is dropped at once.
+ * session (an account switch) or a sign-out forgets it. It is reused only while it is young by
+ * both clocks: `elapsed`, which only moves forward (`performance.now`) but stands still while
+ * the laptop sleeps, and `wall`, which keeps counting through sleep but can be set back. Never
+ * past the five minutes any grant lives. The daemon's or the relay's refusal is the authority:
+ * a refused grant is dropped at once.
  */
 export function grantCache(
   fetch: (session: string) => Promise<FetchedGrant>,
   clocks: { wall(): number; elapsed(): number },
 ): GrantCache {
-  /** The kept grant; `uses` counts the times it was offered again from the cache. */
-  let kept: { session: string; token: string; usableUntil: number; uses: number } | undefined;
+  let kept:
+    | { session: string; token: string; at: number; wallAt: number; reuseMs: number }
+    | undefined;
   let pending: { session: string; grant: Promise<string> } | undefined;
+  /** The last grant each machine was given, and whether it came from the cache. */
+  const served = new Map<string, { token: string; cached: boolean }>();
+  /** Whether the kept grant is young enough to offer again, by both clocks. */
+  const fresh = (grant: NonNullable<typeof kept>) =>
+    clocks.elapsed() - grant.at < grant.reuseMs && clocks.wall() - grant.wallAt < grant.reuseMs;
   return {
-    async grant(session) {
+    async grant(session, machine = "") {
       if (kept && kept.session !== session) kept = undefined;
-      if (kept && clocks.elapsed() < kept.usableUntil) {
-        kept.uses++;
+      if (kept && fresh(kept)) {
+        served.set(machine, { token: kept.token, cached: true });
         return kept.token;
       }
       kept = undefined;
       if (pending?.session !== session) {
-        const fetchedAt = clocks.elapsed();
-        const wall = clocks.wall();
+        const at = clocks.elapsed();
+        const wallAt = clocks.wall();
         const asked = {
           session,
           grant: fetch(session).then((grant) => {
             // Its life from now: what the backend says, as the wall clock reads it, but never
             // past the most any grant lives.
-            const life = Math.min(grant.expiresAt - wall, grantLifetimeCapMs);
+            const life = Math.min(grant.expiresAt - wallAt, grantLifetimeCapMs);
             if (pending === asked) pending = undefined;
-            kept = {
-              session,
-              token: grant.token,
-              usableUntil: fetchedAt + life - grantReuseMarginMs,
-              uses: 0,
-            };
+            kept = { session, token: grant.token, at, wallAt, reuseMs: life - grantReuseMarginMs };
             return grant.token;
           }),
         };
@@ -80,17 +86,22 @@ export function grantCache(
           if (pending === asked) pending = undefined;
         });
       }
-      return pending.grant;
+      // Fetched for this attempt (or one sharing its fetch): not from the cache.
+      const token = await pending.grant;
+      served.set(machine, { token, cached: false });
+      return token;
     },
-    refused(grant) {
-      if (kept?.token !== grant) return false;
-      const reused = kept.uses > 0;
-      kept = undefined;
-      return reused;
+    refused(grant, machine = "") {
+      if (kept?.token === grant) kept = undefined;
+      const given = served.get(machine);
+      if (given?.token !== grant) return false;
+      served.delete(machine);
+      return given.cached;
     },
     clear() {
       kept = undefined;
       pending = undefined;
+      served.clear();
     },
   };
 }
