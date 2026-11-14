@@ -249,9 +249,55 @@ inspection, downloads and recorded frames. Other tabs keep agent observation acc
 
 Live views are video only, at 60 fps, with each viewer's bit rate following its link (ADR
 0088, amendment). `node packages/browser/bench/video-link.ts` watches a scrolling page in real
-headless Chrome through a simulated phone link and prints frames shown per second, the longest
-gap and the bit rate per second; `ACE_VIDEO_LINK_MBPS`, `ACE_VIDEO_LINK_RTT_MS`,
-`ACE_VIDEO_LINK_JITTER_MS` and `ACE_VIDEO_LINK_PROFILE=ephemeral` change the link and the tab.
+headless Chrome through a simulated link and prints frames shown per second, the longest gap,
+the bit rate per second, the median coded width, and three delays:
+
+- **`firstPictureMs`, time to first picture:** from the viewer sending its subscribe to the
+  first keyframe having fully arrived at the viewer. Decode time is not simulated, and the
+  number includes the tab capture starting. `firstPosterMs` stays null until the poster (F2
+  with D1) exists.
+- **`glassToGlassMs`, glass to glass (p50, p95):** for each chunk shown, from its capture
+  timestamp (when its frame entered the encoder, as the daemon stamps it) to the chunk having
+  fully arrived at the viewer.
+- **`tapToPictureMs`, tap to picture (p50, p95):** every 2 s the viewer sends a key press up
+  the link. The page flips its background and stamps the frame that paints it. Each tap counts
+  from the viewer sending it to the arrival of the first chunk captured at or after that stamp.
+  `taps` is how many were sent, and `shown` is how many reached the screen before the run
+  ended.
+
+The default `phone` link is 25 Mbit/s at a 120 ms round trip with 30 ms jitter and no loss.
+`check:perf` fails it below a 55 fps median or a 45 fps p10. `ACE_VIDEO_LINK_MBPS`,
+`ACE_VIDEO_LINK_RTT_MS` and `ACE_VIDEO_LINK_JITTER_MS` change it. `ACE_VIDEO_LINK_CONTEXT=ephemeral`
+(or the older `ACE_VIDEO_LINK_PROFILE=ephemeral`) watches a private context's tab.
+
+`ACE_VIDEO_LINK_PROFILE=3g-400`, `3g-800` or `3g-1600` picks a 3G link (ADR 0149), modelled in
+`bench/link-model.ts`. The model is pure and seeded (`ACE_VIDEO_LINK_SEED`, default 1), so a
+seed replays the same link. Each profile is the phone reaching the Mac through the relay over
+two TCP legs: Mac to relay (50 Mbit/s, 40 ms) and relay to phone (the radio, the rest of the
+round trip). On each leg:
+
+- **Slow start:** the window starts at 10 segments and doubles each full round trip. It
+  restarts after an idle longer than the retransmit timeout.
+- **Loss:** a lost segment stalls its leg for one round trip. A lost tail (one of the last
+  three segments sent back to back) stalls for the retransmit timeout: the round trip plus
+  200 ms. Either cuts the window to 0.7, CUBIC's multiplicative decrease.
+- **Jitter:** up to 30 ms on the radio leg. Delivery stays in order.
+- **A competing flow:** the main session sends a burst every 10 s on the down radio leg,
+  starting 5 s in, sized at 25 % of what the link carries in those 10 s. It takes half the link
+  while it has bytes left.
+
+| Profile   | Down / up     | Round trip | Loss  | Burst  |
+| --------- | ------------- | ---------- | ----- | ------ |
+| `3g-400`  | 400 / 200 k   | 500 ms     | 2 %   | 125 KB |
+| `3g-800`  | 800 / 400 k   | 400 ms     | 1.5 % | 250 KB |
+| `3g-1600` | 1.6 M / 800 k | 300 ms     | 1 %   | 500 KB |
+
+The 3G profiles report only. Each profile's `enforced` field stays false until 3G pacing (M2b)
+lands. M2b then sets it for `3g-400` and `3g-1600`, which fail below their targets: first
+picture within 2 s, a glass-to-glass p50 within 1.5 s (400k) or 1 s (1.6M), a median of at
+least 5 fps (400k) or 15 fps (1.6M), and a median coded width of at least 640 px (400k) or
+1152 px (1.6M). They never fail while the load average is above twice the core count.
+`ACE_VIDEO_LINK_REPORT_ONLY=1` turns off every gate.
 
 `browser_measure` observes the current tab or dispatches an optional
 `interaction` using the existing click/type/press/scroll/drag command shape. The

@@ -123,7 +123,8 @@ it("supervises a process that speaks the control protocol: lanes up, revocation 
 });
 
 it("answers revocations well inside the deadline while the normal lane is saturated", async () => {
-  // The stand-in also keeps the egress lane full; the real binary's egress is idle until G1.
+  // The stand-in also keeps the egress lane full; the real binary's egress stays idle here, as no
+  // source turns it on.
   const { supervisor, state } = start({ FAKE_MEDIA_EGRESS_FLOOD: "1" });
   supervisor.need();
   await until(
