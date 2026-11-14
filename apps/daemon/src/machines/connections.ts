@@ -38,6 +38,11 @@ export interface AnswerHeaders {
 
 export interface MachineConnectionsDeps {
   schedule(ms: number, run: () => void): () => void;
+  /**
+   * The pairings saved now, read on every lease, for a pool whose callers may hold a profile
+   * across a wait (transfer clients). Without it the pool serves what `retain` was last given.
+   */
+  current?(): readonly ConnectionProfile[];
 }
 
 /** Idle connections close this long before the other machine says it would close them. */
@@ -87,12 +92,17 @@ const lane = (): Lane => ({ agent: undefined, inflight: 0, cancelIdle: undefined
 export class MachineConnections {
   private deps: MachineConnectionsDeps;
   private entries = new Map<string, Entry>();
+  /** The pairings it may serve, once told: any other profile is refused. */
+  private known: Set<string> | undefined;
   private closed = false;
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
   }
   lease(profile: ConnectionProfile, use: ConnectionLane = "work"): ConnectionLease {
+    if (this.deps.current) this.retain(this.deps.current());
     const key = connectionKey(profile);
+    // A pairing removed or replaced since its holder read it is refused: nothing is sent.
+    if (this.closed || (this.known && !this.known.has(key))) return endedLease(profile);
     let entry = this.entries.get(key);
     if (!entry) {
       let session: Buffer | undefined;
@@ -102,8 +112,6 @@ export class MachineConnections {
         sessions: { get: () => session, set: (next) => void (session = next) },
         idleMs: IDLE_DEFAULT_MS,
       };
-      // A closed pool hands out nothing: the call fails as never sent.
-      if (this.closed) return endedLease(profile);
       this.entries.set(key, entry);
     }
     const held = entry;
@@ -137,6 +145,7 @@ export class MachineConnections {
   /** Drops connections to machines no longer paired as they were (unpaired, new pin or token). */
   retain(profiles: readonly ConnectionProfile[]): void {
     const keep = new Set(profiles.map(connectionKey));
+    this.known = keep;
     for (const [key, entry] of this.entries)
       if (!keep.has(key)) {
         this.entries.delete(key);

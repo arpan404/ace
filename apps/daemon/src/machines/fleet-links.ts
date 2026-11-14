@@ -65,8 +65,17 @@ function redeemFailure(error: unknown): FleetError {
  */
 export class FleetLinks {
   private deps: FleetLinkDeps;
+  private listeners = new Set<(profiles: RemoteProfile[]) => void>();
   constructor(deps: FleetLinkDeps) {
     this.deps = deps;
+  }
+  /**
+   * Runs `listener` with every pairing saved now, each time a link is made, made again or
+   * removed here, before that operation returns. Returns its unsubscribe.
+   */
+  onChange(listener: (profiles: RemoteProfile[]) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
   private withProfiles<T>(use: (profiles: Profiles) => T): T {
     const profiles = this.deps.profiles();
@@ -123,7 +132,10 @@ export class FleetLinks {
         hostId: input.hostId,
         label: input.name,
       };
-      return previous ? store.replace(previous.name, fields) : store.add(fields);
+      const saved = previous ? store.replace(previous.name, fields) : store.add(fields);
+      // The machine's old pairing ends now, before this link reports done.
+      this.changed(store.list());
+      return saved;
     });
     return this.check(profile);
   }
@@ -132,7 +144,12 @@ export class FleetLinks {
       const profile = store.list().find((entry) => entry.hostId === hostId);
       if (!profile) throw new FleetError("not_found", "This machine has no link to that one.");
       store.remove(profile.name);
+      // Its connections end now, before the unlink reports done.
+      this.changed(store.list());
     });
+  }
+  private changed(profiles: RemoteProfile[]) {
+    for (const listener of this.listeners) listener(profiles);
   }
   private async check(profile: RemoteProfile): Promise<FleetLink> {
     const base = {

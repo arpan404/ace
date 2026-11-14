@@ -70,8 +70,12 @@ export function startTransfers(context: ServiceContext): void {
   };
 
   // Probes, calls and chunks to one machine share one kept-open, pinned connection.
-  const connections = new MachineConnections({ schedule });
+  // Each lease reads the pairings saved now, so a transfer holding one removed since is refused.
+  const connections = new MachineConnections({ schedule, current: profiles });
   resources.own(() => connections.close());
+  // Unlinking from Settings ends the machine's transfer connections before it reports done.
+  const unfollow = services.fleet?.onChange((listed) => connections.retain(listed));
+  if (unfollow) resources.own(unfollow);
   const base = options.transfers?.transport ?? transferTransport;
   const transport: TransferTransport = (profile, route, callOptions) =>
     base(profile, route, { ...callOptions, connections });

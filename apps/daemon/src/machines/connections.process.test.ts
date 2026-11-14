@@ -1,9 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { request as httpsRequest } from "node:https";
 import type { TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
 import {
   DeviceId,
+  DeviceToken,
   HostId,
   InteractionId,
   MachineCallRequest,
@@ -16,6 +20,10 @@ import { sniListener, type SniLimits } from "../sni-listener.ts";
 import { loadIdentity } from "../tls-identity.ts";
 import { pinnedKeepAliveAgent } from "../client-access.ts";
 import { MachineConnections } from "./connections.ts";
+import { MachineDirectory } from "./directory.ts";
+import { FleetLinks } from "./fleet-links.ts";
+import { Profiles } from "../cli/profiles.ts";
+import { TransferClient } from "../transfers/client.ts";
 import { MachineFailure, MachineNotSent, machineRequest, pinnedRequest } from "./transport.ts";
 import { machineCallsHttp } from "./http.ts";
 
@@ -694,4 +702,113 @@ test("children's status keeps being read, poll after poll, however many tool cal
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   await Promise.all(blocked);
+});
+
+/** A saved pairing for `target` in a temporary home, as `ace remote add` or Settings makes one. */
+function pairingHome(profile: { origin: string; fingerprint: string; token: string }) {
+  const home = mkdtempSync(join(tmpdir(), "ace-connections-"));
+  cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+  const table = new Profiles(home);
+  table.add({
+    name: "studio",
+    origin: profile.origin,
+    fingerprint: profile.fingerprint,
+    deviceId: DeviceId.parse("device-1"),
+    token: DeviceToken.parse(profile.token),
+    hostId: HostId.parse("host-studio"),
+  });
+  table.close();
+  const list = () => {
+    const opened = new Profiles(home);
+    try {
+      return opened.list();
+    } finally {
+      opened.close();
+    }
+  };
+  return { home, list };
+}
+
+test("unlinking a machine ends its connections before it reports done", async () => {
+  const target = await busyMachine(3000);
+  const saved = pairingHome(target.profile);
+  const connections = pool();
+  const directory = new MachineDirectory({
+    profiles: saved.list,
+    transport: machineRequest,
+    connections,
+    log: () => {},
+  });
+  const fleet = new FleetLinks({
+    profiles: () => new Profiles(saved.home),
+    describe: async () => {
+      throw new Error("not used");
+    },
+    redeem: async () => {
+      throw new Error("not used");
+    },
+    hostName: async () => "MacBook",
+  });
+  fleet.onChange((profiles) => connections.retain(profiles));
+  const long = Array.from({ length: 32 }, () =>
+    directory
+      .call("studio", origin, browserCall, { timeoutMs: 10_000 })
+      .catch((error: unknown) => error),
+  );
+  await expect.poll(() => target.arrived.length).toBe(32);
+  let queuedSettled = false;
+  const queued = directory
+    .call("studio", origin, followUp, { timeoutMs: 10_000 })
+    .catch((error: unknown) => error)
+    .finally(() => void (queuedSettled = true));
+  fleet.unlink(HostId.parse("host-studio"));
+  // No other directory call: the unlink itself ended the pairing's connections.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(queuedSettled).toBe(true);
+  expect(await queued).toBeInstanceOf(MachineFailure);
+  await Promise.all(long);
+  await new Promise((resolve) => setTimeout(resolve, 3500));
+  expect(target.arrived.map((entry) => entry.op)).not.toContain("message");
+});
+
+test("a transfer client holding a pairing removed since reaches nothing when it retries", async () => {
+  let requests = 0;
+  const listener = sniListener({
+    tls: identity,
+    requests: (request, response) => {
+      requests++;
+      request.resume();
+      request.on("end", () =>
+        response.writeHead(200, { "content-type": "application/json" }).end('{"offset":4}'),
+      );
+    },
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  const saved = pairingHome({
+    origin: `https://127.0.0.1:${port}/`,
+    fingerprint: identity.fingerprint,
+    token: token("a"),
+  });
+  // The transfer pool, as the transfers service makes it: it reads the pairings it may serve.
+  const connections = new MachineConnections({ schedule, current: saved.list });
+  cleanups.push(() => connections.close());
+  const [profile] = saved.list();
+  if (!profile) throw new Error("No pairing saved");
+  const client = new TransferClient(
+    (asked, route, options) => pinnedRequest(asked, route, { ...options, connections }),
+    profile,
+  );
+  await expect(client.chunk("transfer-1", 0, Buffer.from("data"))).resolves.toBe(4);
+  // The pairing is removed outside this daemon, as `ace remote remove` does.
+  const table = new Profiles(saved.home);
+  table.remove("studio");
+  table.close();
+  const failure = await client
+    .chunk("transfer-1", 4, Buffer.from("more"))
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(MachineNotSent);
+  expect(requests).toBe(1);
 });
