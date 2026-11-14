@@ -26,6 +26,7 @@ import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
 import { grantOfCaller } from "../external-mcp/principals.ts";
 import { browserBackendMessage } from "./socket-message.ts";
+import { startMedia } from "./media.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
 /**
@@ -80,8 +81,11 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   };
   // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
+  // Live video through ace-media while `media.encode` says so (E4); the browser's own otherwise.
+  const media = options.browser?.media ?? startMedia(context);
   const browser = new BrowserService({
     ...options.browser,
+    ...(media ? { media } : {}),
     ...(config.chromiumPath && !options.browser?.executablePath
       ? { executablePath: config.chromiumPath }
       : {}),
@@ -197,6 +201,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       dataDir: join(config.dataDir, "user-browser", "threads"),
       headlessBackend: new UserChromeTabsBackend(user.backend),
       backendPreference: () => "headless",
+      ...(media ? { media } : {}),
       tabLifecycle: false,
       tabBudget,
       // Agent tabs there come back after a restart too, from their own table.

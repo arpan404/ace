@@ -38,6 +38,7 @@ const origin = `chrome-extension://${videoExtensionId}/`;
 type Connection = Pick<CdpConnection, "send" | "session">;
 
 export class ChromeVideo implements VideoHost {
+  readonly mediaKind = "tab";
   private connection: Connection;
   private targets: { keep(targetId: string): void };
   private directory: string;
@@ -50,6 +51,7 @@ export class ChromeVideo implements VideoHost {
   /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
   private stopping = new Set<Promise<unknown>>();
   private ids = 0;
+  private picturesHost: VideoHost | undefined;
   constructor(options: {
     connection: Connection;
     /** The browser's target router, told to leave the extension's targets attached. */
@@ -94,6 +96,8 @@ export class ChromeVideo implements VideoHost {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
       audio: (on) => call("aceVideo.audio", [id, on]),
+      // Chunks go straight to ace-media's ingest, binary, instead of base64 over CDP.
+      ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
       close: () => {
         if (!this.captures.delete(id)) return;
         const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
@@ -210,12 +214,15 @@ export class ChromeVideo implements VideoHost {
       },
     };
   }
-  /** `openPictures` as a video host of its own, for the tabs of a private context. */
+  /** `openPictures` as a video host of its own, for the tabs of a private context. One per
+   * encoder, so what is learned about it (ace-media refusing its pictures) is kept. */
   pictures(): VideoHost {
-    return {
+    this.picturesHost ??= {
+      mediaKind: "tab-pictures",
       supported: (codecs, width, height) => this.supported(codecs, width, height),
       open: (page, width, height, events) => this.openPictures(page, width, height, events),
     };
+    return this.picturesHost;
   }
   private extension(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     this.ready ??= this.load().catch((error: unknown) => {
