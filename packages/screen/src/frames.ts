@@ -34,6 +34,19 @@ export function framePacket(header: ScreenFrameHeader, payload: Buffer): Buffer 
   return packet;
 }
 
+/** A frame as if it had come off the helper pipe: one packet, its payload a view into it. */
+export function wireFrame(header: ScreenFrameHeader, payload: Uint8Array): Frame {
+  const packet = framePacket(
+    header,
+    Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength),
+  );
+  return {
+    header: normalize(header),
+    payload: packet.subarray(packet.length - payload.byteLength),
+    packet,
+  };
+}
+
 /** The v2 header's short names, as the v1 header the daemon works with. */
 function normalize(wire: ScreenFrameHeader): Frame["header"] {
   if (wire.version === 1) return wire;
