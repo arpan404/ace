@@ -89,10 +89,9 @@ const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   automations: startAutomations,
   storage: startStorage,
 };
-export const serviceFactories: readonly ServiceDefinition[] = serviceOrder.map((entry) => ({
-  ...entry,
-  start: starts[entry.name],
-}));
+export const serviceFactories: readonly ServiceDefinition[] = serviceOrder.map((entry) =>
+  Object.assign({}, entry, { start: starts[entry.name] }),
+);
 /** Public daemon access fails explicitly when a feature could not be initialized. */
 export function requireService<T>(service: T | undefined, name: string): T {
   if (service === undefined) throw new Error(`Service ${name} is degraded`);

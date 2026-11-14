@@ -213,14 +213,15 @@ test("a service whose module loads after shutdown began is never started", async
 /** The daemon's own service order, each start replaced by one the test watches and holds. */
 function daemonOrder(hold: Partial<Record<string, Promise<void>>>, fail: readonly string[] = []) {
   const entered = new Set<string>();
-  const definitions: ServiceDefinition[] = serviceOrder.map((entry) => ({
-    ...entry,
-    async start() {
-      entered.add(entry.name);
-      if (fail.includes(entry.name)) throw new Error(`${entry.name} failed`);
-      await hold[entry.name];
-    },
-  }));
+  const definitions: ServiceDefinition[] = serviceOrder.map((entry) =>
+    Object.assign({}, entry, {
+      async start() {
+        entered.add(entry.name);
+        if (fail.includes(entry.name)) throw new Error(`${entry.name} failed`);
+        await hold[entry.name];
+      },
+    }),
+  );
   return { definitions, entered };
 }
 
