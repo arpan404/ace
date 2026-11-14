@@ -17,6 +17,7 @@
     "./producer-stamp": "./src/producer-stamp.ts",
     "./epochs": "./src/epochs.ts",
     "./recordings": "./src/recordings.ts",
+    "./stills": "./src/stills.ts",
     "./tee": "./src/tee.ts",
     "./session-link": "./src/session-link.ts"
   },

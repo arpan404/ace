@@ -299,9 +299,9 @@ table, including timed-out trials and the ranking cache.
     Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
     The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
     `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
-  - **Not built yet, failing at once so the daemon falls back:** `still.take` (`still.failed`
-    `stills-unavailable`, F2), `relay.dial` (`relay.failed` `relay-unavailable`, D2), and
-    and, on Windows, `record.start` (`record.failed` `recorder-unavailable`). A recording's
+  - **Not built yet, failing at once so the daemon falls back:** `relay.dial` (`relay.failed`
+    `relay-unavailable`, D2), and, on Windows, `record.start` (`record.failed`
+    `recorder-unavailable`). F2 built `still.take`; see "F2 notes". A recording's
     frames pass through `media-core::privacy` and `record.epochs` is answered with
     `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped (D1);
     `ready.listen.loopbackPort` is 0.
@@ -399,7 +399,7 @@ table, including timed-out trials and the ranking cache.
 | `relay.in`                      | normal   | `stream` (answers one `relay.pull`)                                                                                                                                                                                             | one inbound frame |
 | `record.part`                   | normal   | `recording, path, index, bytes, durationMs, gaps`                                                                                                                                                                               | —                 |
 | `record.done` / `record.failed` | normal   | `recording, parts[]` / `recording, reason`                                                                                                                                                                                      | —                 |
-| `still.done`                    | normal   | `request, width, height`                                                                                                                                                                                                        | the JPEG          |
+| `still.done`                    | normal   | `request, width, height, steps[]` (`steps` as in `source.status.acceleration`: the path the still took, with its copies)                                                                                                        | the JPEG          |
 | `still.failed`                  | normal   | `request, reason`                                                                                                                                                                                                               | —                 |
 | `log`                           | normal   | `level, message, fields` (never keys, tokens, tickets or picture bytes; `relay.keys`, `listen` and `init` payloads are never logged on either side)                                                                             | —                 |
 
@@ -1454,6 +1454,84 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   devices). Moving each of them onto `MediaRecording` with a tee, the browser recording onto
   the tab's video encode, the playback checks in Chrome and Windows' player, and the 1080p60
   CPU bench remain for F1's follow-up.
+
+## F2 notes
+
+- **The current picture** (`ace-media` `engine/stills.rs`, pure). A JPEG source keeps its
+  latest picture: an ingest picture, or `source.picture`'s base64 text decoded at the input
+  (bounded by the 8 MiB lane frame; text that isn't padded standard base64 leaves no picture).
+  A video source keeps the units its still maker hasn't been given yet:
+  - **One encode.** Stills follow the encode whose keyframe started the current group; other
+    encodes' units are ignored until one of them sends a keyframe, which starts a new group.
+  - **Its configuration.** A group's configuration is its encode, `MediaFrame` codec (which
+    also fixes Annex B or length-prefixed) and coded size. Each keyframe decodes with one
+    record: the parameter sets in the stream (Annex B) win, then the record the frame carries,
+    then the one kept from the last keyframe of the same configuration, since producers send
+    it only when it changes (`record::video::encoded` applies the same order for recordings and
+    the maker). That record is the one kept, so parameter sets that change in band are followed;
+    any other configuration drops it. A delta whose configuration differs ends the group.
+  - **Bounds.** Past 120 units or 32 MiB undecoded the group is dropped, and the next still
+    sends `source.keyframe` (`drop`) once and waits for the keyframe. VP8, VP9 and PNG sources
+    fail `unsupported-codec`.
+- **The maker** (`ace-media` `stills/`). A fixed set of threads (cores − 1, 1 to 8), never the
+  tokio threads; a source's jobs always go to the same thread, in order, because each continues
+  the decoder the one before left. Four jobs queue per thread; past that a still fails `busy`.
+  A job's units are always decoded, so the decoder stays in step, but one past its deadline is
+  not encoded.
+  - **macOS** (`stills/vt.rs`, B1): VT decode with the destination size set to the still's, then
+    VT JPEG where its session is hardware, else one readback and M5's encoder. A later still of
+    the same group at a smaller size is scaled by `VTPixelTransferSession` (reported
+    `hardware: false`); a larger one answers `needs-keyframe`, and the engine sends
+    `source.keyframe` and takes the request again from the new group, so a still is never
+    scaled up. A group whose keyframe this decoder never saw (after a backend change) answers
+    `needs-keyframe` the same way. JPEG sources use VT JPEG decode where the probe found it hardware, else the CPU
+    path end to end.
+  - **Everywhere else, and JPEG sources without hardware JPEG** (`stills/cpu.rs`, M5): one
+    planar transcode. A video source here fails `decode-unavailable` (ace-media has no software
+    H.264/HEVC decoder), so the legacy still maker answers. The Media Foundation, VA-API and
+    NVDEC still backends plug into the same `StillBackend` seam once ace-media runs on Windows
+    and its B2, B3 and B5 decoders are wired into its probe; until then those machines take this
+    path.
+  - **The probe** now runs B1's VideoToolbox trial beside the CPU one (`probe::trials`), with
+    B1's own deadline and shared worker. A trial publishes its whole list each time it learns
+    more: the last list by the deadline goes into `ready`, and each later one goes out as
+    `capabilities.changed` as soon as it is published, not when the trial ends. The still path
+    is chosen from the list (`stills::Choice`), and a `capabilities.changed` that changes the
+    choice replaces each maker thread's backend between jobs.
+- **Failures, so the daemon falls back in time.** `no-source`, `no-picture`, `invalid` (box
+  under 2 px or quality outside 1–100), `busy`, `unsupported-codec`, `decode-unavailable`,
+  `decode-failed` (which also drops the group), `deadline` (checked on every 100 ms tick and by
+  the maker), `source-closed` (every request for the source, waiting or with the maker),
+  `shutdown`. Each job carries a token of its own, and a result counts only if the request is
+  still waiting on that token: one from before a close, a deadline or a reused request id is
+  dropped, so a closed or reopened source never gets a still from before.
+- **The poster** (`stills/poster.rs`, consumed by D1): the still path at the viewer's viewport,
+  then the highest JPEG quality from 10 to 90 whose size is at most 20 KB, stopping at the first
+  of at least 10 KB; a picture too busy for 20 KB at quality 10 is made ¾ the size, up to three
+  times. VideoToolbox's JPEG quality has a floor (about 46 KB for a 388 × 844 screen whatever the
+  quality asked), so on the Mac a poster is converted to BGRA on the GPU, read back once per
+  size tried and searched on the CPU encoder; its encode step reports every readback it took.
+- **The daemon side** (`packages/media/src/stills.ts`): `stillRoute` (`media.stills` is
+  `legacy` by default; `auto` only while ace-media is healthy), and `MediaStills`, which sends
+  `still.take` and answers with ace-media's JPEG, or calls the caller's legacy still maker on
+  `still.failed`, at the deadline, when the message can't be sent, or when ace-media goes away,
+  and only once.
+- **Measured** on the owner's M4 Max (macOS 27.0, build 26A434), `cargo run --release -p
+ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 722 × 1568:
+  - `--path gpu` (HEVC, one new delta per still): p95 4.3 ms, median 3.9 ms at load 32 on 16
+    cores; a second run p95 5.9 ms at load 19. Decode, scale and JPEG all VideoToolbox hardware,
+    0 / 0 copies. The first still of a group (keyframe and a new decoder session) has a median
+    of 9.9 ms.
+  - `--path cpu` (JPEG source): p95 11.6 ms, median 9.7 ms at load 30; 14.4 ms at load 36.
+  - Posters of the 1206 × 2622 test screen at 390 × 844, 768 × 1024, 1280 × 800 and 1920 × 1080
+    viewports: 17.7–19.2 KB on both paths (`tests/still_paths.rs`).
+- **Not wired yet.** As with F1, no daemon composition root constructs a `MediaSupervisor`, and
+  `media.stills` is not yet a stored setting, so every still still takes the legacy path
+  (`simulator-frames.ts` and `simulator-jpeg.ts` through `Bun.Image`, `h264-jpeg.ts` and
+  `android-screenrecord.ts` through ffmpeg, `one-off-screenshot.ts`, `model-capture.ts`), and
+  `builtRouteCapabilities.stills` stays false. Moving each of them onto `MediaStills`, the
+  Windows and Linux numbers, and the daemon RSS check over 10 min of stills at 2 fps from three
+  simulators remain for F2's follow-up.
 
 ## E3 notes
 

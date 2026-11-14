@@ -2,11 +2,13 @@
 //! ace-media's decisions, with no I/O: every control message and ingest frame goes in, and
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
+pub mod base64;
 pub mod egress;
 pub mod grants;
 pub mod ledger;
 pub mod recorder;
 pub mod sources;
+pub mod stills;
 #[cfg(test)]
 mod tests;
 
@@ -18,12 +20,15 @@ use media_wire::control::{EpochRange, FromMedia, Id, Level, ToMedia};
 use media_wire::frame::MediaFrame;
 use recorder::{RecordSpec, Recorders};
 use sources::{IngestId, Sources};
+use stills::{NoStills, StillMaker, StillOutcome, Stills};
 use zeroize::Zeroizing;
 
 #[derive(Debug)]
 pub enum Effect {
     /// Send on stdout.
     Normal(FromMedia),
+    /// Send on stdout with this payload (a still's JPEG).
+    NormalWith(FromMedia, Vec<u8>),
     /// Send on the priority lane.
     Priority(FromMedia),
     /// Answer a `ping`: the shell adds what only the OS knows.
@@ -83,6 +88,7 @@ pub struct Engine {
     grants: Grants,
     recorders: Box<dyn Recorders>,
     egress: Box<dyn EgressSink>,
+    stills: Stills,
     bytes_out: u64,
     out: Vec<Effect>,
 }
@@ -95,9 +101,26 @@ impl Engine {
             grants: Grants::default(),
             recorders,
             egress,
+            stills: Stills::new(Box::new(NoStills)),
             bytes_out: 0,
             out: Vec::new(),
         }
+    }
+
+    /// Stills are made by `maker`; without one every `still.take` fails at once.
+    pub fn with_stills(mut self, maker: Box<dyn StillMaker>) -> Self {
+        self.stills = Stills::new(maker);
+        self
+    }
+
+    /// `capabilities.changed`: what the probe found now.
+    pub fn capabilities_changed(&mut self, capabilities: &[media_wire::control::Capability]) {
+        self.stills.capabilities(capabilities);
+    }
+
+    /// A still a maker finished.
+    pub fn still_finished(&mut self, outcome: StillOutcome) {
+        self.stills.finished(outcome, &mut self.out);
     }
 
     /// The effects produced so far, in the order they must happen.
@@ -131,20 +154,27 @@ impl Engine {
                 epoch,
                 origin,
                 ..
-            } => self.sources.open(
-                &source,
-                handle,
-                epoch,
-                &origin,
-                &payload,
-                vault,
-                now.mono_ms,
-                out,
-            ),
+            } => {
+                self.sources.open(
+                    &source,
+                    handle,
+                    epoch,
+                    &origin,
+                    &payload,
+                    vault,
+                    now.mono_ms,
+                    out,
+                );
+                match self.sources.handle(source.get()) {
+                    Some(handle) => self.stills.open(source.get(), handle),
+                    None => self.stills.close(source.get(), out),
+                }
+            }
             ToMedia::SourcePage { .. } | ToMedia::SourceCodecs { .. } => {}
             ToMedia::SourcePicture { source, epoch, .. } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
+                self.stills.picture(source.get(), &bytes);
                 self.sources
                     .picture(source.get(), epoch, bytes, now, self.egress.as_mut(), out);
             }
@@ -175,7 +205,10 @@ impl Engine {
                 self.sources
                     .decide(&source, &recording, decision, now.mono_ms, out);
             }
-            ToMedia::SourceClose { source } => self.sources.close_source(source.get(), vault, out),
+            ToMedia::SourceClose { source } => {
+                self.sources.close_source(source.get(), vault, out);
+                self.stills.close(source.get(), out);
+            }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::MediaTicket {
                 connection,
@@ -297,13 +330,26 @@ impl Engine {
                 .sources
                 .record_meta(recording.get(), epoch, data, now, out),
             ToMedia::RecordStop { recording } => self.sources.record_stop(&recording, out),
-            // Stills are F2's; the daemon falls back to its legacy still maker.
-            ToMedia::StillTake { request, .. } => normal(
-                out,
-                FromMedia::StillFailed {
-                    request,
-                    reason: "stills-unavailable".into(),
+            ToMedia::StillTake {
+                request,
+                source,
+                max_width,
+                max_height,
+                max_pixels,
+                quality,
+                deadline_ms,
+            } => self.stills.take(
+                request,
+                &source,
+                media_codec::Size {
+                    width: max_width,
+                    height: max_height,
                 },
+                max_pixels,
+                quality,
+                deadline_ms,
+                now.mono_ms,
+                out,
             ),
         }
     }
@@ -317,6 +363,9 @@ impl Engine {
 
     /// A frame from an ingest connection the engine admitted.
     pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
+        if let Some(source) = self.sources.bound(conn) {
+            self.stills.frame(source, &frame, &mut self.out);
+        }
         self.sources
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
     }
@@ -334,6 +383,7 @@ impl Engine {
     /// Periodic: barrier hold bounds and ticket expiry.
     pub fn tick(&mut self, now: Now) {
         self.sources.tick(now.mono_ms, &mut self.out);
+        self.stills.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);
     }
@@ -341,6 +391,7 @@ impl Engine {
     /// Shutdown or stdin closing: close every recording and connection.
     pub fn finish(&mut self) {
         self.sources.finish_all(&mut self.out);
+        self.stills.finish(&mut self.out);
         self.grants
             .close_all("shutdown", &mut self.vault, &mut self.out);
     }
