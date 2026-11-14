@@ -14,6 +14,7 @@ import {
   createPayload,
   defaultWorktreeBase,
   messageHasContent,
+  worktreeUnmade,
 } from "@ace/ui-core";
 import { newThreadProjects, selectNewThreadAgent, type NewThreadAgents } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -26,6 +27,7 @@ import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
 import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
+import { WorktreeStarts } from "./worktree-starts.ts";
 
 /*
  * The New thread sheet on one machine. Reads (projects, coding agents, a project's branches,
@@ -38,7 +40,15 @@ import type { AttachmentTray } from "./thread-attachments.ts";
 
 export type NewThreadOwner = Pick<
   ClientCore,
-  "request" | "enqueue" | "intent" | "commandId" | "cachedThreads"
+  | "request"
+  | "enqueue"
+  | "intent"
+  | "commandId"
+  | "cachedThreads"
+  | "onMessage"
+  | "connectionState"
+  | "connectionGeneration"
+  | "pendingSends"
 >;
 
 /** The first message's files: the project's tray, and handing its draft scope to the thread. */
@@ -91,6 +101,13 @@ export const CreateAction = z.object({
 type Create = z.infer<typeof CreateAction>;
 type Choice = z.infer<typeof ChoiceAction>;
 
+/** A refusal with no words of the daemon's own: a worktree's in the worktree's words. */
+function refusalWords(code: string | undefined): string {
+  if (worktreeUnmade(code))
+    return "Couldn't create the worktree. Try again or use the local checkout.";
+  return code ?? "The thread didn't start";
+}
+
 /** At most this many projects are read and listed. */
 const maxProjects = 300;
 const quiet = { timeoutMs: 15_000 };
@@ -102,6 +119,8 @@ export class NewThread {
   #now: () => number;
   #files: NewThreadFiles;
   #access: NewThreadAccessReader;
+  /** Worktree starts' cards (`compose.worktree`) and their actions. */
+  readonly worktrees: WorktreeStarts;
   #agents: NewThreadAgents | undefined;
   #catalog: readonly CatalogModel[] = [];
   #favorites: ModelFavorites;
@@ -131,6 +150,7 @@ export class NewThread {
     this.#memory = memory;
     this.#access = new NewThreadAccessReader(owner, sink);
     this.#favorites = new ModelFavorites(owner);
+    this.worktrees = new WorktreeStarts(owner, sink, preview);
   }
 
   /** Read the machine's projects, coding agents and default access for a sheet that opened. */
@@ -357,6 +377,12 @@ export class NewThread {
     const draftId = files.context?.draftId;
     // The new thread takes only these files: none joins until it is saved or refused.
     tray?.lock("Wait for the thread to start, then add files.");
+    const worktree = payload.type === "thread.create" && payload.mode === "worktree";
+    if (worktree)
+      this.worktrees.follow(action.commandId, {
+        message: action.text,
+        workspaceId: action.workspaceId,
+      });
     try {
       await submitCommand(
         this.#owner,
@@ -367,16 +393,20 @@ export class NewThread {
           if (draftId) this.#files.adopt(draftId);
           admission(true, "");
         },
-        (result) =>
+        (result) => {
+          if (worktree)
+            this.worktrees.settled(action.commandId, result.ok ? undefined : result.error);
           this.#put(`compose:start:${action.commandId}`, {
             type: "compose.start",
             id: action.commandId,
             ok: result.ok,
             threadId: result.threadId ?? null,
+            // The daemon's own words for why, never its code.
             message: result.ok
               ? ""
-              : this.#preview(result.error ?? "The thread didn't start", 2048),
-          }),
+              : this.#preview(result.detail ?? result.title ?? refusalWords(result.error), 2048),
+          });
+        },
         action.commandId,
       );
       return true;

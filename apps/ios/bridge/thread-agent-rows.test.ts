@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { HostId, ThreadId } from "@ace/protocol";
 import { commands, connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
@@ -248,4 +248,29 @@ test("a delegated child the thread list still shows working never reads done in 
     return agents?.title === "1 subagent ran" ? agents : undefined;
   }, "the launch reads as ran");
   expect(ended.token).not.toBe("working");
+});
+
+test("a child delegated to another machine names that machine and its host, to open it there", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "far-parent", workspaceId: "ace", title: "Far", provider: "codex" });
+  const launch = delegated("far-child", "running");
+  fake.apply("far-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      ...launch,
+      draft: {
+        ...launch.draft,
+        machine: { machine: "m-studio", name: "Studio", hostId: HostId.parse("studio") },
+      },
+    },
+  ]);
+  open(connect(fake), "far-parent");
+  const entry = await until(() => {
+    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+      | { entries: { threadId: string; machine: string; machineHost: string }[] }
+      | undefined;
+    return agents?.entries[0];
+  }, "the delegated child's row");
+  expect(entry).toMatchObject({ threadId: "far-child", machine: "Studio", machineHost: "studio" });
 });

@@ -245,6 +245,11 @@ export const ThreadRunMetadata = z.object({
   turnStart: z.object({ turn: z.number().int().positive(), at: Timestamp }).optional(),
   /** Start of the current wait on subagents, while the root does nothing but wait on them. */
   waitingSince: Timestamp.optional(),
+  /**
+   * When the root agent began compacting its context, while it compacts: the "Compacting
+   * context" line counts from here, not from the Working stretch the compaction interrupted.
+   */
+  compactingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),
   model: z.string().max(256).optional(),
   account: z.string().max(256).optional(),

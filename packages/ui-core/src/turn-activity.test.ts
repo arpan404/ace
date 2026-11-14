@@ -125,6 +125,7 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
   const tasks = new Map<string, BackgroundTask>();
   let order: readonly string[] = items.map((item) => item.id);
   let liveRunId: string | undefined;
+  let compactingSince: number | undefined;
   const reader: ActivityReader = {
     get order() {
       return order;
@@ -145,7 +146,14 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
         createdAt: 0,
         updatedAt: 0,
         // No daemon stamps: these cases cover the turn's own clock, which stands in without them.
-        ...(liveRunId ? { live: { rootRunId: liveRunId, runningSubagentCount: 0 } } : {}),
+        ...(liveRunId || compactingSince !== undefined
+          ? {
+              live: {
+                ...(liveRunId ? { rootRunId: liveRunId, runningSubagentCount: 0 } : {}),
+                ...(compactingSince !== undefined ? { compactingSince } : {}),
+              },
+            }
+          : {}),
       });
     },
     interactionIds: () => [...asked.keys()],
@@ -160,6 +168,10 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     tasks,
     liveRun: (id: string) => {
       liveRunId = id;
+    },
+    /** The daemon's stamp for when the root began compacting. */
+    compactingFrom: (at: number) => {
+      compactingSince = at;
     },
     add(item: Item) {
       byId.set(item.id, item);
@@ -463,17 +475,26 @@ test("a provider reconnecting by itself says so with its count, then reads Worki
   expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
 });
 
-test("while the provider compacts its context the line says so with its timer, then reads Working", () => {
+test("while the provider compacts its context the line says so, timed from when it began, then reads Working", () => {
+  const minute = 60_000;
+  // Five minutes of work, then the compaction.
   const thread = world({ state: "working", activity: "compacting" }, [said("ask", "user", 0)]);
-  const compacting = turnActivity(thread.reader, "root");
-  expect(compacting).toMatchObject({
+  // Without the daemon's stamp the compaction has no time of its own: none, not the work's.
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Compacting context",
+    tone: "working",
+    elapsedFrom: undefined,
+  });
+  thread.compactingFrom(5 * minute);
+  const compacting = turnActivity(thread.reader, "root");
+  expect(compacting).toMatchObject({ label: "Compacting context", elapsedFrom: 5 * minute });
+  expect(timedWords(compacting?.label ?? "")).toBe("Compacting context for");
+  thread.status(working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Working",
     tone: "working",
     elapsedFrom: 0,
   });
-  expect(timedWords(compacting?.label ?? "")).toBe("Compacting context for");
-  thread.status(working);
-  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
 });
 
 test("a root waiting on its subagents says so instead of Working, keeping its timer", () => {

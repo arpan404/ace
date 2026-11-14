@@ -15,6 +15,8 @@ import {
   closedMeta,
   closedQuestionWords,
   questionTitle,
+  readTurnActivity,
+  timedWords,
   subagentDetail,
   subagentElapsed,
   subagentGroupStatus,
@@ -169,6 +171,8 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
     result: preview(entry.result ?? "", 512),
     meta: preview(subagentMeta(entry) ?? "", 128),
     machine: preview(entry.machine ?? "", 128),
+    /** That machine's host id, so the phone opens the child there; empty when unknown. */
+    machineHost: entry.machineHost ?? "",
     detail: preview(detail ?? "", 256),
     detailKind: kind ?? "",
     ...elapsedRow(subagentElapsed({ ...entry, running: subagentRunning(entry.state) }, fresh)),
@@ -260,6 +264,26 @@ function questionLine(store: ThreadSource, interactionId: string) {
     title: preview(questionTitle(questions), 256),
     answer: preview(words.answer, 256),
     outcome: preview(words.outcome ?? "", 256),
+  };
+}
+
+/**
+ * The turn's live line while the agent compacts its context: "Compacting context", ticking from
+ * when the stretch began (the shared turn activity). Any other work is the pill's to say: null.
+ */
+function compactingLine(store: ThreadSource) {
+  const thread = store.thread;
+  const rootId = thread?.rootAgentId ?? "";
+  const status = store.agent(rootId)?.status;
+  if (status?.state !== "working" || status.activity !== "compacting") return null;
+  const activity = readTurnActivity(store, rootId, { threadStatus: thread?.status }).activity;
+  if (!activity) return null;
+  const label = preview(activity.label, 256);
+  /** "Compacting context for", before the ticking time. */
+  return {
+    label,
+    timed: preview(timedWords(activity.label), 256),
+    since: activity.elapsedFrom ?? null,
   };
 }
 
@@ -376,7 +400,7 @@ export function blockRow(
     case "forked":
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
-      return base;
+      return { ...base, live: compactingLine(store) };
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };

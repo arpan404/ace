@@ -38,6 +38,13 @@ const ComposeAction = z.discriminatedUnion("kind", [
   /** A file picked for the first message, uploaded into the project's draft scope. */
   z.object({ kind: z.literal("attach"), workspaceId: id, file: Picked }),
   z.object({ kind: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  /** A worktree start's card action: Cancel, Don't use worktree, Retry, Continue. */
+  z.object({
+    kind: z.literal("worktree"),
+    commandId: z.string().min(8).max(64),
+    /** `dismiss`: the person took the message back to New thread; the daemon forgets the start. */
+    action: z.enum(["cancel", "local", "retry", "continue", "dismiss"]),
+  }),
 ]);
 export class ComposeActions {
   readonly newThread: NewThread;
@@ -74,6 +81,10 @@ export class ComposeActions {
       memory,
     );
   }
+  /** Stop following worktree starts; for a session that ends. */
+  close(): void {
+    this.newThread.worktrees.close();
+  }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);
     if (!parsed.success) return false;
@@ -96,6 +107,9 @@ export class ComposeActions {
         break;
       case "detach":
         this.#tray?.tray.detach(action.localId);
+        break;
+      case "worktree":
+        this.newThread.worktrees.act(action.commandId, action.action);
         break;
       case "projects":
         void this.newThread.projects();

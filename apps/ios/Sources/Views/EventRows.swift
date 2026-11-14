@@ -9,18 +9,24 @@ struct EventRowView: View {
     @Bindable var item: ItemModel
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
+    /// Where a row naming another thread opens it, and that thread's title.
+    var links: TranscriptLinks? = nil
     var body: some View {
         switch event.kind {
         case "none": EmptyView()
         case "user": UserMessageRow(row: item.row)
         case "handoff":
             if let handoff = item.row.handoff { HandoffRow(handoff: handoff) }
+        // A compaction still under way is the live "Compacting context" line's to say.
+        case "system" where event.icon == "compaction" && !item.row.complete: EmptyView()
         case "event", "system": SystemRow(event: event)
         case "error": ErrorLine(event: event)
         case "refusal": RefusalLine(event: event)
         case "notSent": NotSentLine(reason: event.note, fenced: event.fenced == true)
         case "notice": NoticeLine(event: event)
         case "quiet": QuietText(text: event.text)
+        case "task": TaskCardRow(event: event, links: links)
+        case "merged": MergedLine(event: event, links: links)
         default: ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage)
         }
     }
@@ -124,6 +130,22 @@ struct SystemRow: View {
         case "compaction": .arrowsInLineVertical
         default: .info
         }
+    }
+}
+
+/// "Compacting context for 12s" where the turn's live line stands, while the agent compacts its
+/// context; the finished "Context compacted" row takes its place once the compaction lands.
+struct LiveCompactingRow: View {
+    let live: BlockRow.Live
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            EventRowLayout(lead: { AceIcon(.arrowsInLineVertical, size: AceDesign.Size.glyphMeta, relativeTo: .subheadline) },
+                           title: live.since.map { "\(live.timed) \(Elapsed.words(since: $0, now: context.date))" } ?? live.label)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(live.label)
+        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityIdentifier("transcript.compacting")
     }
 }
 
