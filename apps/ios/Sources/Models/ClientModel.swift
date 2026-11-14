@@ -192,14 +192,17 @@ import QuartzCore
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
+    /// Reads the kept inbox a connection shows first (`InboxCheckpoint.background`).
+    @ObservationIgnored private let checkpoints: InboxCheckpoint.Reader
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
 
-    init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live, makeRuntime: @escaping ClientSessionFactory = {
+    init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live,
+         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background, makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.frameTiming = frameTiming; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         connectionEpoch += 1
         let epoch = connectionEpoch
@@ -228,7 +231,7 @@ import QuartzCore
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
-        let restored = await Task.detached(priority: .userInitiated) { InboxCheckpoint.read(database: database) }.value
+        let restored = await checkpoints(database)
         restoring.end()
         // A newer connection began meanwhile: it restores its own copy.
         guard connectionEpoch == epoch else { return }

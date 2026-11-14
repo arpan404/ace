@@ -52,22 +52,74 @@ import Testing
         #expect(model.inbox["kept"]?.confirmed == true)
     }
 
-    @Test func aConnectionMadeWhileTheLastCopyIsReadKeepsOnlyItsOwnInbox() async throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
+    /// Holds the studio machine's read until the test lets it finish; others read at once.
+    private final class HeldRead: @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiting: CheckedContinuation<Void, Never>?
+        private var released = false
+        let started = Answer()
+        let held: URL
+        init(_ held: URL) { self.held = held }
+        var reader: InboxCheckpoint.Reader {
+            { [self] database in
+                if database == held {
+                    started.give("reading")
+                    await withCheckedContinuation { continuation in
+                        let go = lock.withLock { () -> Bool in
+                            if released { return true }
+                            waiting = continuation
+                            return false
+                        }
+                        if go { continuation.resume() }
+                    }
+                }
+                return InboxCheckpoint.read(database: database)
+            }
+        }
+        func release() {
+            let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                released = true
+                defer { waiting = nil }
+                return waiting
+            }
+            continuation?.resume()
+        }
+    }
+    /// A model whose studio machine has a kept inbox, and whose read of it is held.
+    private func heldStudio(in directory: URL) throws -> (ClientModel, HeldRead) {
         let studio = ClientModel.database(hostId: "studio", deviceId: "device", in: directory)
         try InboxCheckpoint.write(try json([
             ["type": "inbox.reset", "ids": ["studio-row"]],
             ["type": "inbox.row", "id": "studio-row", "row": row("studio-row", state: "done", label: "Syncing", token: "neutral")],
         ]), database: studio)
-        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
-        // The person switches machines before the first machine's copy has been read.
+        let held = HeldRead(studio)
+        return (ClientModel(now: { 0 }, frames: .immediate, checkpoints: held.reader, makeRuntime: { _, _, _, _ in StartRecorder() }), held)
+    }
+
+    @Test func aMachineSwitchedToWhileTheLastOnesCopyIsReadNeverShowsItsRows() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (model, held) = try heldStudio(in: directory)
         let first = Task { await model.connect(target: try target(host: "studio"), directory: directory) }
-        await Task.yield()
+        _ = await held.started.value()
+        // The person switches machines; that connection finishes while studio's read is held.
         await model.connect(target: try target(host: "laptop"), directory: directory)
+        #expect(model.hostId == "laptop")
+        held.release()
         try await first.value
         #expect(model.hostId == "laptop")
         #expect(model.inbox["studio-row"] == nil, "another machine's kept rows never show under this one")
+    }
+    @Test func signingOutWhileTheCopyIsReadLeavesTheInboxEmpty() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (model, held) = try heldStudio(in: directory)
+        let first = Task { await model.connect(target: try target(host: "studio"), directory: directory) }
+        _ = await held.started.value()
+        await model.disconnectAndWait()
+        held.release()
+        try await first.value
+        #expect(model.inbox.isEmpty, "a machine signed out of shows none of its kept rows")
     }
 
     @Test func anUnreadableCopyStartsTheInboxEmpty() async throws {
