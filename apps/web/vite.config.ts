@@ -11,6 +11,7 @@ import { mermaidChunk } from "./mermaid-chunk.ts";
 import { lazyIconChunk } from "./icon-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
 import { routePreloads } from "./route-preloads.ts";
+import { precompress } from "./precompress.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
   zodWithoutJsonSchema,
@@ -63,6 +64,7 @@ export default defineConfig(({ mode }) => ({
     // Before the content policy, which hashes the inline script this adds.
     routePreloads(firstScreens),
     contentPolicy(),
+    precompress(),
     // Windows: fail the build if the page entry ever joins a shared chunk (`initial-preloads.ts`).
     ...(process.platform === "win32"
       ? [windowsEntryGuard(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))]

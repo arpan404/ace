@@ -4,7 +4,7 @@ import { resolve, sep, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { RequestListener } from "node:http";
 import { compressedFiles } from "./compressed-files.ts";
-import { negotiateContentEncoding } from "./content-encoding.ts";
+import { negotiateContentEncoding, type ContentEncoding } from "./content-encoding.ts";
 
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -35,6 +35,21 @@ const matches = (header: string | undefined, tag: string) =>
     const trimmed = candidate.trim();
     return trimmed === "*" || trimmed.replace(/^W\//, "") === tag.replace(/^W\//, "");
   });
+/**
+ * The build's own compressed copy of `file` (`apps/web/precompress.ts`), if it has one written
+ * since the file itself: smaller than the on-the-fly copy and ready at once.
+ */
+async function prebuilt(file: string, encoding: ContentEncoding, mtimeMs: number) {
+  const sibling = `${file}.${encoding === "br" ? "br" : "gz"}`;
+  try {
+    const info = await stat(sibling);
+    return info.isFile() && info.mtimeMs >= mtimeMs
+      ? { file: sibling, size: info.size }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 /** Serve only the shipped renderer. No workspace or user-home files are reachable. */
 export function webHttp(root: string | undefined, next: RequestListener): RequestListener {
   const compressed = compressedFiles(32 * 1024 * 1024);
@@ -75,6 +90,14 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
           response.end();
           return;
         }
+      }
+      const ready = encoding && (await prebuilt(file, encoding, info.mtimeMs));
+      if (encoding && ready) {
+        response.setHeader("Content-Encoding", encoding);
+        response.setHeader("Content-Length", ready.size);
+        if (request.method === "HEAD") response.end();
+        else await pipeline(createReadStream(ready.file), response);
+        return;
       }
       const body =
         encoding &&

@@ -37,9 +37,11 @@ async function main() {
   });
   execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
   // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
+  // Its `.br` and `.gz` copies stay out too: they would add two entries per large asset to an
+  // archive the oldest updater caps at 2,048, and the daemon compresses those files itself.
   await cp(join(repo, "apps/web/dist"), join(root, "web"), {
     recursive: true,
-    filter: (path) => !path.endsWith(".map"),
+    filter: (path) => !path.endsWith(".map") && !path.endsWith(".br") && !path.endsWith(".gz"),
   });
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);

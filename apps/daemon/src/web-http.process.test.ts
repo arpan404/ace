@@ -1,8 +1,8 @@
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 import { expect, test } from "vitest";
 import { webHttp } from "./web-http.ts";
 
@@ -256,4 +256,32 @@ test("a repeat load of an unchanged page is answered 304, and a rebuilt one in f
   expect(fresh.status).toBe(200);
   expect(fresh.headers.etag).not.toBe(tag);
   expect(brotliDecompressSync(fresh.body).toString("utf8")).toBe(rebuilt);
+});
+
+test("an asset the build compressed is served from its own copy in either coding", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  // Marked so the test can tell the build's copy from one compressed on the fly.
+  const marked = `${script}// built\n`;
+  await writeFile(join(root, "assets", "app.js.br"), brotliCompressSync(marked));
+  await writeFile(join(root, "assets", "app.js.gz"), gzipSync(marked));
+  const br = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br, gzip" });
+  expect(br.headers["content-encoding"]).toBe("br");
+  expect(Number(br.headers["content-length"])).toBe(br.body.length);
+  expect(brotliDecompressSync(br.body).toString("utf8")).toBe(marked);
+  const gz = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "gzip" });
+  expect(gz.headers["content-encoding"]).toBe("gzip");
+  expect(gunzipSync(gz.body).toString("utf8")).toBe(marked);
+  const raw = await fetchRaw(port, "/assets/app.js");
+  expect(raw.body.toString("utf8")).toBe(script);
+});
+
+test("a compressed copy older than its file is ignored", async ({ onTestFinished }) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const stale = join(root, "assets", "app.js.br");
+  await writeFile(stale, brotliCompressSync("stale"));
+  await utimes(stale, new Date(0), new Date(0));
+  const response = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(script);
 });
