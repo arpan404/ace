@@ -73,6 +73,8 @@ import XCTest
         XCTAssertTrue(app.staticTexts["provider.toolSource.reason"].firstMatch.exists, "a folder without a config.toml says why")
         screenshot("codex-tool-folder")
         let reset = app.buttons["provider.toolSource.default"]
+        // Saving redraws the page, which can leave Use default below the fold.
+        for _ in 0..<6 where !reset.isHittable { app.swipeUp() }
         XCTAssertTrue(reset.waitForExistence(timeout: 10))
         reset.tap()
         XCTAssertTrue(app.staticTexts[home].waitForExistence(timeout: 15), "Use default goes back to the Codex home")
