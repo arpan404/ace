@@ -52,13 +52,19 @@ export type RouteCapabilities = {
   delivery: boolean;
 };
 
-/** Today's build: no route through ace-media is complete yet, so every setting acts as legacy. */
-export const builtRouteCapabilities: RouteCapabilities = {
-  ingest: [],
-  recordings: false,
-  stills: false,
-  delivery: false,
-};
+/**
+ * What this build routes through ace-media on `platform`: Mac screens stream into its ingest
+ * (E3). Nothing records, makes stills or serves viewers there yet, so those settings act as
+ * legacy and egress feeds the daemon's consumers.
+ */
+export function builtRouteCapabilities(platform: string): RouteCapabilities {
+  return {
+    ingest: platform === "darwin" ? ["screen"] : [],
+    recordings: false,
+    stills: false,
+    delivery: false,
+  };
+}
 
 function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
   return setting === "auto" && capable && healthy ? "ace-media" : "legacy";

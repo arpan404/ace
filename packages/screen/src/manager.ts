@@ -41,6 +41,8 @@ import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./pol
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
+import { ScreenMediaSource } from "./media-source.ts";
+import { nodeScheduler } from "./runtime.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
 
@@ -75,25 +77,10 @@ export class ScreenManager {
       ...options,
       onFrame: (frame) => {
         const session = this.sessions.get(frame.header.sessionId);
-        if (!session || !["live", "starting"].includes(session.state.lifecycle)) return;
-        if (!session.pixels.accepts(frame)) return;
-        try {
-          if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
-            throw new Error("Invalid frame sequence or session");
-          if (session.frameEpoch !== this.policy.epoch) {
-            this.authorize(session.state.target);
-            session.frameEpoch = this.policy.epoch;
-          }
-          session.latest = frame;
-          session.pixels.frame(frame);
-          if (session.state.lifecycle === "live") {
-            session.hub.publish(frame);
-            session.recording?.push(frame);
-          }
-        } catch (error) {
-          this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
-        }
+        if (session?.media) session.media.daemonFrame(frame);
+        else if (session) this.acceptFrame(session, frame);
       },
+      onStreamIngestClosed: (id) => this.sessions.get(id)?.media?.ingestClosed(),
       onPermissionsChanged: (permissions) => {
         for (const session of this.sessions.values()) {
           session.state.permissions = permissions;
@@ -139,6 +126,7 @@ export class ScreenManager {
       authorize: (target) => this.authorize(target),
       emit: (session) => this.emit(session),
       nextGeneration: () => ++this.captureGeneration,
+      live: (session) => this.attachMedia(session),
     });
     this.windows = new AppWindows(
       this.host,
@@ -501,6 +489,42 @@ export class ScreenManager {
       throw new HelperCommandError("screen_disabled", "Screen access is disabled");
     await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
+  }
+  /** A Mac session streams into ace-media while the route says so (ADR 0147, phase 2). */
+  private attachMedia(session: Session): void {
+    const media = this.options.media;
+    const capabilities = session.helper.capabilities;
+    if (!media || session.media || capabilities?.platform !== "macos") return;
+    if (!capabilities.codecs.includes("h264")) return;
+    session.media = new ScreenMediaSource({
+      sessionId: session.state.sessionId,
+      helper: session.helper,
+      media,
+      accept: (frame) => this.acceptFrame(session, frame),
+      schedule: (callback, milliseconds) =>
+        (this.options.scheduler ?? nodeScheduler).schedule(callback, milliseconds),
+    });
+  }
+  /** One frame for a session, in sequence order: from the helper socket, or from egress. */
+  private acceptFrame(session: Session, frame: Frame): void {
+    if (!["live", "starting"].includes(session.state.lifecycle)) return;
+    if (!session.pixels.accepts(frame)) return;
+    try {
+      if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
+        throw new Error("Invalid frame sequence or session");
+      if (session.frameEpoch !== this.policy.epoch) {
+        this.authorize(session.state.target);
+        session.frameEpoch = this.policy.epoch;
+      }
+      session.latest = frame;
+      session.pixels.frame(frame);
+      if (session.state.lifecycle === "live") {
+        session.hub.publish(frame);
+        session.recording?.push(frame);
+      }
+    } catch (error) {
+      this.fail(session, error instanceof Error ? error : new Error("Invalid frame"));
+    }
   }
   start(input: ScreenTarget, fps = 10, scope?: ScreenAgentScope): Promise<ScreenState> {
     return this.lifecycle.start(input, fps, scope);

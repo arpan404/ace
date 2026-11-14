@@ -45,6 +45,7 @@ type Open = {
   source: string;
   kind: SourceKind;
   consumers: LegacyConsumers;
+  route: (() => SourceRoute) | undefined;
   next: number | undefined;
 };
 
@@ -70,12 +71,19 @@ export class EgressRouter {
   /**
    * Gives a source its handle for `source.open`. Handles are never reused while the daemon
    * lives, so never while one ace-media process does, and a frame for a closed source can't
-   * reach its successor.
+   * reach its successor. `route` replaces the kind's live route for this source alone: a
+   * producer moving back to the daemon keeps its egress until it has switched, so units it sent
+   * ace-media just before reach their consumers (the producer's own sequence orders the two).
    */
-  open(source: string, kind: SourceKind, consumers: LegacyConsumers): number {
+  open(
+    source: string,
+    kind: SourceKind,
+    consumers: LegacyConsumers,
+    route?: () => SourceRoute,
+  ): number {
     if (this.#nextHandle > maxHandle) throw new Error("Egress handles exhausted");
     const handle = this.#nextHandle++;
-    this.#open.set(handle, { source, kind, consumers, next: undefined });
+    this.#open.set(handle, { source, kind, consumers, route, next: undefined });
     return handle;
   }
 
@@ -104,7 +112,7 @@ export class EgressRouter {
     }
     // A route that moved the producer back to the daemon has no egress: frames ace-media sent
     // before it heard `source.egress` off would reach the consumers twice.
-    const route = this.#route(open.kind);
+    const route = open.route ? open.route() : this.#route(open.kind);
     if (!route.egress) {
       this.#drops.unrouted++;
       return;
