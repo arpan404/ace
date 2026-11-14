@@ -41,6 +41,24 @@ import XCTest
         expectation(for: shown, evaluatedWith: last)
         waitForExpectations(timeout: 15)
     }
+    /// Finished turns whose work logs list edited files lay out chips in every log row: swiping
+    /// through them with an accessibility client attached must stay responsive too.
+    func testSwipingThroughFinishedWorkLogsStaysResponsive() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launch()
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        var slowest: TimeInterval = 0
+        for direction in [false, false, false, false, true, true, true, true] {
+            let started = Date()
+            if direction { transcript.swipeUp(velocity: .fast) } else { transcript.swipeDown(velocity: .fast) }
+            slowest = max(slowest, Date().timeIntervalSince(started))
+        }
+        // A settled swipe takes about three seconds, its fling included.
+        XCTAssertLessThan(slowest, 15, "a swipe through the finished work logs didn't settle")
+    }
     private func message(_ text: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text)).firstMatch
     }
