@@ -120,3 +120,19 @@ it("a held view sees a write made outside the event writer", () => {
   expect(store.snapshotThread(a.id).thread.title).toBe("Direct");
   expect(view.thread.title).toBe("Direct");
 });
+
+it("a read inside a transaction opened on the connection is not served after its rollback", () => {
+  const { store, a } = setup();
+  store.appendEvents(a.id, [{ type: "item.created", item: message("one", "before") }]);
+  expect(texts(store, a.id)).toEqual(["before"]);
+  // As history installation or a startup pass does: BEGIN on the connection itself.
+  store.statement("BEGIN IMMEDIATE").run();
+  store
+    .statement(
+      "UPDATE items SET item = json_set(item, '$.parts[0].text', 'uncommitted') WHERE id = ?",
+    )
+    .run("one");
+  expect(texts(store, a.id)).toEqual(["uncommitted"]);
+  store.statement("ROLLBACK").run();
+  expect(texts(store, a.id)).toEqual(["before"]);
+});

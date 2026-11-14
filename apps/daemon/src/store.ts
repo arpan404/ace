@@ -195,7 +195,9 @@ export class Store {
       // Other connections' commits, and local rows written outside the event writer.
       version: () =>
         `${this.statement("PRAGMA data_version").get()?.data_version}:${this.totalChanges() - this.attributedChanges}`,
-      inTransaction: () => this.transactionEvents !== undefined,
+      // Any transaction open on the connection, including one begun outside `transaction`
+      // (history installation): its rows may still roll back, which no counter would show.
+      inTransaction: () => this.transactionEvents !== undefined || this.db.isTransaction,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
     this.threads = new ThreadCache({
