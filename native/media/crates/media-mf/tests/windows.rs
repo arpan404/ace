@@ -347,9 +347,22 @@ fn hevc_round_trips_where_the_machine_has_an_hevc_encoder() -> Result<(), CodecE
     }
     let units = encode_all(&mut encoder, 10, 0, |_| false)?;
     assert!(units[0].key && units[0].format == BitstreamFormat::Hvcc);
-    let decoded = decode_cpu(device, &units)?;
+    let decoded = decode_cpu(device.clone(), &units)?;
+    assert_eq!(decoded.len(), units.len());
     for (i, picture) in decoded.iter().enumerate() {
         assert!(luma_psnr(&frame(SIZE, i as u32, 0)?, picture) >= 32.0);
+    }
+    // Into textures as well, the way the probe and the pipeline decode.
+    if let Some(device) = device {
+        let mut decoder = MfDecoder::new(Some(device), DecodeOutput::Surface);
+        for unit in &units {
+            let picture = decoder.decode(unit);
+            eprintln!("surface decode: {:?}", picture.as_ref().map(|p| p.as_ref().map(Picture::size)));
+            if let Some(picture) = picture? {
+                let surface = MfSurface::of(&picture).ok_or(CodecError::NotConfigured)?;
+                assert_eq!(surface.size(), SIZE);
+            }
+        }
     }
     Ok(())
 }
