@@ -6,7 +6,7 @@ import {
   type ClientMessage,
   type WorktreeCreationProgress,
 } from "@ace/protocol";
-import type { FakeCreationFailure } from "./git-states.ts";
+import type { FakeCreationFailure, FakeCreationRules } from "./git-states.ts";
 
 /**
  * Refusals the daemon's admission gives before any Git work, from the start's own settings: a
@@ -40,21 +40,25 @@ export class FakeWorktreeCreations {
   private slow: boolean;
   private execute: (command: Command) => CommandResult;
   private persist: (progress: Progress) => void;
-  private failure: (command: Command) => FakeCreationFailure | undefined;
+  private rules: (command: Command) => FakeCreationRules;
   constructor(
     now: () => number,
     schedule: (callback: () => void, delay: number) => () => void,
     slow: boolean,
     execute: (command: Command) => CommandResult,
     persist: (progress: Progress) => void,
-    failure: (command: Command) => FakeCreationFailure | undefined = () => undefined,
+    /** How the command's project fails its starts, and a step's own time there. */
+    rules: (command: Command) => FakeCreationRules = () => ({
+      failure: undefined,
+      pace: undefined,
+    }),
   ) {
     this.now = now;
     this.schedule = schedule;
     this.slow = slow;
     this.execute = execute;
     this.persist = persist;
-    this.failure = failure;
+    this.rules = rules;
   }
   start(command: Command, send: Send): Promise<CommandResult> {
     const prior = this.drafts.get(command.id);
@@ -100,7 +104,7 @@ export class FakeWorktreeCreations {
       { step: "setup" },
       { step: "done" },
     ];
-    const failure = this.failure(command);
+    const { failure, pace } = this.rules(command);
     return new Promise((resolve) => {
       draft.resolve = resolve;
       let index = 0;
@@ -134,7 +138,7 @@ export class FakeWorktreeCreations {
           this.fail(draft, failure);
           return;
         }
-        draft.stop = this.schedule(advance, this.slow ? 1500 : 80);
+        draft.stop = this.schedule(advance, pace ?? (this.slow ? 1500 : 80));
       };
       advance();
     });

@@ -202,7 +202,7 @@ export class FakeDaemon implements Host {
             options.clock(),
           );
       },
-      (command) => this.servicesWire.workspace.git.creationFailure(command.payload),
+      (command) => this.servicesWire.workspace.git.creationRules(command.payload),
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.databaseId = options.databaseId ?? globalThis.crypto.randomUUID();
