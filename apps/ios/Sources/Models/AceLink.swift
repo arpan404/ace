@@ -51,10 +51,14 @@ extension SettingsRoute {
     /// The Settings page a link names, by the web's page names where the phone has one.
     static func linked(_ page: String?) -> [SettingsRoute] {
         switch page {
+        case "account", "profile": [.account]
         case "machines", "devices": [.machines]
         case "pair": [.pair]
         case "notifications": [.notifications]
+        case "lock": [.lock]
         case "appearance", "general": [.appearance]
+        case "keyboard", "shortcuts": [.keyboard]
+        case "cache": [.cache]
         case "archive", "archived": [.archive]
         case "history": [.history]
         case "profiles": [.profiles]

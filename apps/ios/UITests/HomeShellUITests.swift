@@ -84,6 +84,33 @@ import XCTest
         XCTAssertTrue(app.buttons["settings.archive"].exists)
     }
 
+    func testThePaletteFiltersCommandsAndRunsTheOneChosen() {
+        let app = launch()
+        app.openSearch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("history")
+        let history = app.buttons["search.command.history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        // Typing narrows the list: a command that doesn't match is gone.
+        XCTAssertFalse(app.buttons["search.command.settings:appearance"].exists)
+        capture("palette-history")
+        history.tap()
+        XCTAssertTrue(app.navigationBars["History"].waitForExistence(timeout: 10))
+        app.buttons["settings.close"].tap()
+        // A settings page by name opens on that page. Search keeps its query; clear it first.
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.typeText("keyboard")
+        let keyboard = app.buttons["search.command.settings:keyboard"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10))
+        keyboard.tap()
+        XCTAssertTrue(app.navigationBars["Keyboard"].waitForExistence(timeout: 10))
+    }
+
     func testTypingInSearchFindsSettingsPagesAndThreads() {
         let app = launch()
         app.openSearch()
