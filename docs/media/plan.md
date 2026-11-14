@@ -1421,9 +1421,9 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   size, encoded, units out on egress with their picture's epoch and age, and the source's steps
   on `source.status.acceleration`. The backend comes from the probe (`encode::select`): a
   hardware encoder whose trial worked, else the last-resort Chrome encoder for H.264 only,
-  never a software encoder of ace-media's own. The probe now runs VideoToolbox's trial on macOS;
-  B4's trial runs after `ready` only when `last_resort_needed`, its result arriving as
-  `capabilities.changed`. On this Mac (M4 Max) the JPEG decode is VideoToolbox's hardware
+  never a software encoder of ace-media's own, using F2's VideoToolbox trial on macOS. B4's
+  trial runs after `ready` only when `last_resort_needed`, its result arriving as
+  `capabilities.changed`. The picture text is decoded with F2's `engine::base64`. On this Mac (M4 Max) the JPEG decode is VideoToolbox's hardware
   session into the encoder's surfaces, 0 readbacks and 0 uploads.
 - **Not built here.** Media Foundation, VA-API and NVENC are not wired into the JPEG encoder
   yet (their probes aren't in the binary either; A1), so Windows and Linux use the last-resort
