@@ -1,0 +1,172 @@
+import { createHash } from "node:crypto";
+import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits";
+import { fontProblems, parseManifest, problem, readabilityProblems } from "./checks.ts";
+import { suitLimits } from "./limits.ts";
+import { suitSchemes } from "./palette.ts";
+
+export { problem };
+
+/*
+ * A Suit's folder, decided without touching the disk: which entries a reader may read (`plan`),
+ * the folder's content hash, and its summary (`inspectSuit`). The daemon's reader walks the
+ * folder with lstat, asks `plan`, reads only what it allows, and hands the bytes back here.
+ */
+
+/** One entry under the Suit's folder, as lstat saw it; `path` is relative, with `/`. */
+export interface SuitEntry {
+  path: string;
+  kind: "file" | "directory" | "symlink" | "other";
+  size: number;
+}
+
+export interface SuitPlan {
+  /** Files to read, in path order. */
+  read: string[];
+  /** Files refused for their size, kept in the hash by path and size. */
+  skipped: { path: string; size: number }[];
+  problems: SuitProblem[];
+}
+
+const checkFor = (path: string) =>
+  path === "suit.json" ? "schema" : path === "scene.js" ? "scene" : "asset";
+const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** What a reader may read of `entries`, and the problems the walk itself found. */
+export function plan(entries: readonly SuitEntry[]): SuitPlan {
+  const result: SuitPlan = { read: [], skipped: [], problems: [] };
+  const sorted = entries.toSorted((a, b) => byPath(a.path, b.path));
+  let assetBytes = 0;
+  let files = 0;
+  let overAssets = false;
+  for (const entry of sorted) {
+    const { path } = entry;
+    if (path.split("/").length > suitLimits.depth) {
+      result.problems.push(problem(checkFor(path), `${path} is nested too deep`, path));
+      continue;
+    }
+    if (entry.kind === "symlink") {
+      result.problems.push(
+        problem(
+          checkFor(path),
+          `${path} is a symbolic link; a Suit holds only its own files`,
+          path,
+        ),
+      );
+      continue;
+    }
+    if (entry.kind === "other") {
+      result.problems.push(problem(checkFor(path), `${path} is not a regular file`, path));
+      continue;
+    }
+    if (entry.kind === "directory") continue;
+    if (++files > suitLimits.files) {
+      if (files === suitLimits.files + 1)
+        result.problems.push(
+          problem("asset", `a Suit holds at most ${suitLimits.files} files`, null),
+        );
+      result.skipped.push({ path, size: entry.size });
+      continue;
+    }
+    const cap =
+      path === "suit.json"
+        ? suitLimits.manifestBytes
+        : path === "scene.js"
+          ? suitLimits.sceneBytes
+          : undefined;
+    if (cap !== undefined) {
+      if (entry.size > cap) {
+        result.problems.push(
+          problem(checkFor(path), `${path} is ${entry.size} bytes; the limit is ${cap}`, path),
+        );
+        result.skipped.push({ path, size: entry.size });
+      } else result.read.push(path);
+      continue;
+    }
+    assetBytes += entry.size;
+    if (assetBytes > suitLimits.assetBytes) {
+      if (!overAssets)
+        result.problems.push(
+          problem("asset", `assets come to over ${suitLimits.assetBytes} bytes, the limit`, path),
+        );
+      overAssets = true;
+      result.skipped.push({ path, size: entry.size });
+      continue;
+    }
+    result.read.push(path);
+  }
+  if (!sorted.some((entry) => entry.path === "suit.json"))
+    result.problems.push(problem("schema", "the folder has no suit.json", "suit.json"));
+  return result;
+}
+
+/** A length as 8 bytes, big-endian. */
+function length(value: number): Buffer {
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(value));
+  return buffer;
+}
+
+/**
+ * sha256 over the folder's files in path order. Each file is framed as a tag, its path's length
+ * and bytes, then its content's length and bytes (lengths as 8-byte big-endian), so no two
+ * different folders frame to the same stream. A file refused for size is framed by its size.
+ */
+export function contentHash(
+  files: ReadonlyMap<string, Uint8Array>,
+  skipped: readonly { path: string; size: number }[] = [],
+): string {
+  const hash = createHash("sha256").update("ace-suit\u00001\u0000");
+  const entries = [
+    ...[...files].map(([path, bytes]) => ({ path, tag: "F", bytes, size: bytes.byteLength })),
+    ...skipped.map(({ path, size }) => ({ path, tag: "S", bytes: undefined, size })),
+  ].toSorted((a, b) => byPath(a.path, b.path));
+  for (const entry of entries) {
+    const path = Buffer.from(entry.path, "utf8");
+    hash.update(entry.tag).update(length(path.byteLength)).update(path).update(length(entry.size));
+    if (entry.bytes) hash.update(entry.bytes);
+  }
+  return hash.digest("hex");
+}
+
+export interface InspectedSuit {
+  summary: SuitSummary;
+  /** Undefined when suit.json is missing or doesn't parse. */
+  manifest: SuitManifest | undefined;
+}
+
+/** A Suit's summary from the files `plan` let the reader read, and the plan's own problems. */
+export function inspectSuit(
+  id: string,
+  files: ReadonlyMap<string, Uint8Array>,
+  walk: Pick<SuitPlan, "problems" | "skipped">,
+): InspectedSuit {
+  const problems = [...walk.problems];
+  const text = files.get("suit.json");
+  const parsed = text ? parseManifest(id, Buffer.from(text).toString("utf8")) : undefined;
+  if (parsed) problems.push(...parsed.problems);
+  const manifest = parsed?.manifest;
+  const scene = files.get("scene.js");
+  if (scene && scene.byteLength === 0)
+    problems.push(problem("scene", "scene.js is empty; remove it or draw something", "scene.js"));
+  const sceneSkipped = walk.skipped.some((entry) => entry.path === "scene.js");
+  if (manifest) {
+    const present = new Set(files.keys());
+    problems.push(...fontProblems(manifest, present));
+    // Readability only counts once the manifest itself holds together.
+    if (problems.every((entry) => entry.check !== "schema"))
+      problems.push(...readabilityProblems(manifest));
+  }
+  const hasScene = scene !== undefined || sceneSkipped;
+  return {
+    manifest: manifest ? { ...manifest, scene: hasScene } : undefined,
+    summary: {
+      id,
+      name: manifest?.name ?? id,
+      description: manifest?.description ?? "",
+      schemes: manifest ? suitSchemes(manifest) : [],
+      scene: hasScene,
+      contentHash: contentHash(files, walk.skipped),
+      problems,
+    },
+  };
+}
