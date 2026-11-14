@@ -3,6 +3,7 @@ import { useClient, useIntentSender } from "@ace/client-react";
 import type { CommandPayload, Interaction, InteractionResolution, Question } from "@ace/protocol";
 import { withoutSecrets } from "@ace/ui-core";
 import { refusalMessage } from "@/lib/daemon-command.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import type { Answer } from "./answer.ts";
 import { answerStore, pendingAnswers } from "./answers.ts";
 import { questionDrafts } from "./question-drafts.ts";
@@ -79,17 +80,24 @@ export function sendAnswer(
   return true;
 }
 
-/** Answer one request from its card, with what went wrong if the daemon refused it. */
-export function useAnswerSender(target: AnswerTarget) {
+/**
+ * Answer one request of `threadId`'s, with what went wrong if the daemon refused it. Every
+ * control that answers goes through it: while the thread's copy isn't confirmed (`held`) an
+ * answer sends nothing, since the request may have been answered, withdrawn or replaced.
+ */
+export function useAnswerSender(threadId: string, target: AnswerTarget) {
   const client = useClient();
+  const live = useThreadFreshness(threadId);
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
-  const answer: Answer = (resolution) => void sendAnswer(client, send, target, resolution);
+  const answer: Answer = (resolution) => {
+    if (live.isFresh()) void sendAnswer(client, send, target, resolution);
+  };
   const failed =
     state === "failed"
       ? (failures[intent?.error ?? ""] ?? refusalMessage(intent?.error ?? "unknown"))
       : error
         ? "Couldn't send the answer. Check the connection and try again."
         : undefined;
-  return { answer, failed };
+  return { answer, failed, held: !live.fresh };
 }

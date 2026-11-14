@@ -21,7 +21,7 @@ function useLostAsk(threadId: string, childThreadId: string) {
  */
 export function LostChildAction(props: { threadId: string; childThreadId: string }) {
   const ask = useLostAsk(props.threadId, props.childThreadId);
-  const { answer, failed } = useAnswerSender({
+  const { answer, failed, held } = useAnswerSender(props.threadId, {
     interactionId: ask?.id ?? "",
     identity: undefined,
     questions: [],
@@ -34,6 +34,8 @@ export function LostChildAction(props: { threadId: string; childThreadId: string
       <Button
         variant="ghost"
         size="xs"
+        // Its request may be gone once the copy is confirmed: it waits until then.
+        disabled={held}
         aria-label={lost.label}
         onClick={() => answer({ kind: "approval", optionId: lost.optionId })}
       >

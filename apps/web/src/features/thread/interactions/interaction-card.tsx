@@ -77,7 +77,7 @@ export function InteractionCard(props: {
   const local = useLocalAnswer(props.interactionId, identity);
   const earlier = useEarlierAnswer(props.threadId, interaction);
   const [reopened, setReopened] = useState(false);
-  const sender = useAnswerSender({
+  const sender = useAnswerSender(props.threadId, {
     interactionId: props.interactionId,
     identity,
     questions: interaction?.request.kind === "question" ? interaction.request.questions : [],
