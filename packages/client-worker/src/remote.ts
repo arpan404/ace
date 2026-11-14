@@ -399,6 +399,12 @@ export class RemoteClient implements ClientApi {
     const mirror = this.mirrors.get(key)?.mirror ?? this.released.get(key);
     return mirror instanceof MirrorThread ? mirror : undefined;
   }
+  peekThread(id: string): ThreadSource | undefined {
+    if (this.closed || this.workerLost) return undefined;
+    const key = `thread:${id}`;
+    const mirror = this.mirrors.get(key)?.mirror ?? this.released.peek(key);
+    return mirror instanceof MirrorThread ? mirror : undefined;
+  }
   cachedThreads(): SidebarSource | undefined {
     if (this.closed || this.workerLost) return undefined;
     const mirror = this.mirrors.get("threads")?.mirror ?? this.released.get("threads");

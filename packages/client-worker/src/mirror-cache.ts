@@ -22,6 +22,10 @@ export class MirrorCache {
     this.entries.set(key, cached);
     return cached.mirror;
   }
+  /** A cached mirror, left where it is in the order. */
+  peek(key: string): MirrorThread | MirrorSidebar | undefined {
+    return this.entries.get(key)?.mirror;
+  }
   /** A cached mirror, no longer cached (a lease holds it again). */
   take(key: string): MirrorThread | MirrorSidebar | undefined {
     const cached = this.entries.get(key);
