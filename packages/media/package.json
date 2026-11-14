@@ -17,7 +17,8 @@
     "./stills": "./src/stills.ts",
     "./tee": "./src/tee.ts",
     "./session-link": "./src/session-link.ts",
-    "./sources": "./src/sources.ts",
+    "./ingest-sources": "./src/ingest-sources.ts",
+    "./path-merge": "./src/path-merge.ts",
     "./runtime": "./src/runtime.ts"
   },
   "scripts": {

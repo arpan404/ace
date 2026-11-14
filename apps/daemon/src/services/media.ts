@@ -96,9 +96,10 @@ export function startMedia(context: ServiceContext): BrowserMedia | undefined {
   });
 
   return {
-    open: (kind, listener, ids) => runtime?.sources.open(kind, { kind }, listener, ids),
+    add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
     pictureCodecs: () => runtime?.pictureCodecs() ?? [],
+    endpoint: () => runtime?.sources.endpoint(),
   };
 }

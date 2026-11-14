@@ -1,7 +1,7 @@
 import { EgressRouter } from "./egress.ts";
 import { RouteWatch } from "./route-watch.ts";
-import { builtRouteCapabilities, type RouteCapabilities, type SourceKind } from "./routes.ts";
-import { MediaSources } from "./sources.ts";
+import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
+import { IngestSources } from "./ingest-sources.ts";
 import {
   MediaSupervisor,
   secureRandomBytes,
@@ -31,7 +31,7 @@ export class MediaRuntime {
   readonly supervisor: MediaSupervisor;
   readonly routes: RouteWatch;
   readonly egress: EgressRouter;
-  readonly sources: MediaSources;
+  readonly sources: IngestSources;
 
   constructor(options: MediaRuntimeOptions) {
     const capabilities = options.capabilities ?? builtRouteCapabilities;
@@ -59,19 +59,20 @@ export class MediaRuntime {
       capabilities: () => capabilities,
       onChange: (_routes, changed) => this.sources.routesChanged(changed),
     });
-    this.egress = new EgressRouter((kind) => this.sources.egressRoute(kind));
-    const wanted = (kind: SourceKind) =>
-      options.settings().encode === "auto" && capabilities.ingest.includes(kind);
-    this.sources = new MediaSources({
-      send: (message, payload) => this.supervisor.send(message, payload),
-      ingest: () => this.supervisor.ingest(),
-      need: () => this.supervisor.need(),
-      route: (kind) => this.routes.routes()[kind],
-      wanted,
-      egress: this.egress,
+    this.egress = new EgressRouter((kind) => this.routes.routes()[kind]);
+    this.sources = new IngestSources({
+      port: {
+        send: (message, payload) => this.supervisor.send(message, payload),
+        ingest: () => this.supervisor.ingest(),
+        need: () => this.supervisor.need(),
+      },
+      router: this.egress,
+      routes: () => this.routes.routes(),
+      settings: options.settings,
+      capabilities: () => capabilities,
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
-      setTimeout: (callback, ms) => options.clock.setTimeout(callback, ms),
+      schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
     });
   }
 
@@ -95,7 +96,7 @@ export class MediaRuntime {
   /** A media setting changed: routes move, and sources follow. */
   settingsChanged(): void {
     this.routes.update();
-    this.sources.routesChanged(["tab", "tab-pictures", "user-tab", "embedded"]);
+    this.sources.routesChanged(sourceKinds);
   }
 
   dispose(): void {

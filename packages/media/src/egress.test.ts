@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts";
-import { encodeEgress, type MediaFrame } from "./frame.ts";
+import { encodeEgress, encodeEgressEnd, type MediaFrame } from "./frame.ts";
 import { sourceRoute, sourceKinds, type SourceRoute } from "./routes.ts";
 
 function frame(mark: number, encode = 0): MediaFrame {
@@ -147,4 +147,46 @@ it("once the route moves the producer back to the daemon, egress still in flight
   router.push(encodeEgress(handle, 2, frame(3)));
   expect(marks(got.deliver)).toEqual([1]);
   expect(router.drops().unrouted).toBe(2);
+});
+
+it("an end marker reaches its source after its units whatever the route, and a gap before it says the stream was cut", () => {
+  const { router, table } = routed(allLegacy);
+  const ended: boolean[] = [];
+  const a = consumers();
+  const handle = router.open("a", "tab", {
+    ...a.sinks,
+    end: (end) => void ended.push(end.interrupted),
+  });
+  router.push(encodeEgress(handle, 0, frame(1)));
+  router.push(encodeEgress(handle, 1, frame(2)));
+  // The route already left ace-media: the marker still arrives, clean, since nothing is missing.
+  table.route = { ...allLegacy, producer: "daemon", egress: false };
+  router.push(encodeEgressEnd(handle, 2, false));
+  expect(marks(a.got.deliver)).toEqual([1, 2]);
+  expect(ended).toEqual([false]);
+
+  const b = consumers();
+  const cut: boolean[] = [];
+  table.route = allLegacy;
+  const other = router.open("b", "tab", {
+    ...b.sinks,
+    end: (end) => void cut.push(end.interrupted),
+  });
+  router.push(encodeEgress(other, 0, frame(3)));
+  // Unit 1 was dropped in ace-media: the stream before the marker is not whole.
+  router.push(encodeEgressEnd(other, 2, false));
+  expect(cut).toEqual([true]);
+});
+
+it("a draining handle keeps the route it was opened with while the kind's route moves on", () => {
+  const { router, table } = routed(allLegacy);
+  const a = consumers();
+  let draining = true;
+  const handle = router.open("a", "tab", a.sinks, () => (draining ? allLegacy : table.route));
+  table.route = { ...allLegacy, producer: "daemon", egress: false };
+  router.push(encodeEgress(handle, 0, frame(1)));
+  draining = false;
+  router.push(encodeEgress(handle, 1, frame(2)));
+  expect(marks(a.got.deliver)).toEqual([1]);
+  expect(router.drops().unrouted).toBe(1);
 });
