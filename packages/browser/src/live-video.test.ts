@@ -196,7 +196,7 @@ async function startRate(capture: CaptureViewer, local = false): Promise<number 
   const encoder = fakeHost();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
-  video.add("viewer", { send: () => true }, capture, undefined, local);
+  video.add("viewer", { send: () => true }, capture, undefined, { local });
   for (let index = 0; index < 4; index++) {
     video.tick({ width: 659, height: 825 });
     await new Promise((resolve) => setTimeout(resolve, 0));

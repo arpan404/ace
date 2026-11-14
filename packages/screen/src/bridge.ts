@@ -217,6 +217,7 @@ export function screenConnection(
                 if (closed) throw new Error("Screen connection closed");
               },
               link: pictureLinkLimits,
+              ...(operation.link ? { hint: operation.link } : {}),
             });
             const follow = new LinkFollow({
               link: () => view.link(),

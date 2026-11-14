@@ -184,6 +184,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
                 guard,
                 link: pictureLinkLimits,
+                ...(operation.link ? { hint: operation.link } : {}),
               });
               const follow = new LinkFollow({
                 link: () => view.link(),
