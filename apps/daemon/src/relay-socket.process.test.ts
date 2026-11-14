@@ -3,6 +3,7 @@ import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay, startRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
+import { deflateRawSync } from "node:zlib";
 import { RelaySocket } from "./relay-socket.ts";
 
 // A real relay and real channels: what's checked is when the device's end of a relayed main
@@ -30,7 +31,7 @@ function manualDelay() {
   };
 }
 
-async function relayedMain() {
+async function relayedMain(deflate?: (json: Uint8Array) => Promise<Uint8Array>) {
   const relay = await startRelay();
   cleanup.push(() => relay.close());
   const arrived = Promise.withResolvers<HostChannel>();
@@ -38,6 +39,7 @@ async function relayedMain() {
     relayUrl: relay.url,
     hostKeys: keyPair(),
     onClientChannel: arrived.resolve,
+    ...(deflate ? { deflate } : {}),
   });
   cleanup.push(() => host.close());
   const client = await connectClientViaRelay({
@@ -87,5 +89,20 @@ it("a device that keeps reading gets every message and then the goodbye", async 
   for (let index = 0; index < 41; index++) received.push((await client.receive()).type);
   expect(received.slice(0, 40).every((type) => type === "pong")).toBe(true);
   expect(received[40]).toBe("channel.close");
+  await client.closed;
+});
+
+it("a close right after a message whose deflate is slow loses nothing: the goodbye comes after it", async () => {
+  const { channel, client } = await relayedMain(async (json) => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return deflateRawSync(json);
+  });
+  const timers = manualDelay();
+  const socket = new RelaySocket(channel, { deflate: true, delay: timers.delay });
+  const big = JSON.stringify({ type: "pong", pad: "output line ".repeat(50_000) });
+  socket.send(big, { compress: true });
+  socket.close(4000, "Reconnect with afterSeq");
+  expect(await client.receiveRaw()).toBe(big);
+  expect((await client.receive()).type).toBe("channel.close");
   await client.closed;
 });

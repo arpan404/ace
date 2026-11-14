@@ -8,7 +8,7 @@ import {
   readCredit,
 } from "@ace/secure-channel";
 import type WebSocket from "ws";
-import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { deflateRaw, deflateRawSync, inflateRawSync } from "node:zlib";
 import { z } from "zod";
 import { FrameReader, sendFrame } from "./socket.ts";
 export type WireMessage = ClientMessage | ServerMessage;
@@ -29,13 +29,60 @@ const PLAIN_HIGH_WATER = 256 * 1024;
 /** Smaller JSON messages gain too little to be worth a deflate. */
 const DEFLATE_THRESHOLD = 1024;
 
-/** A JSON message deflated alone, or undefined when that wouldn't make it smaller. */
-function deflateMessage(json: Uint8Array): Uint8Array | undefined {
-  if (json.length < DEFLATE_THRESHOLD) return undefined;
-  const deflated = deflateRawSync(json, { level: 6 });
-  if (deflated.length < json.length) return deflated;
+/**
+ * From this size a deflate runs on zlib's thread pool rather than the event loop (about 9 ms
+ * per MiB there); smaller ones stay synchronous, where the hop would cost more than the work.
+ */
+const ASYNC_DEFLATE_FROM = 256 * 1024;
+
+/** A message's bytes as they go out: JSON, deflated JSON or binary. */
+interface Prepared {
+  data: Uint8Array;
+  kind: FragmentKind;
+}
+
+/** Deflates a large JSON message off the event loop; tests may slow it down or make it fail. */
+export type DeflateLater = (json: Uint8Array) => Promise<Uint8Array>;
+
+export function deflateLater(json: Uint8Array): Promise<Uint8Array> {
+  return new Promise((resolve, reject) =>
+    deflateRaw(json, { level: 6 }, (error, result) => (error ? reject(error) : resolve(result))),
+  );
+}
+
+/** `deflated` when it is smaller than `json` (which is then zeroed); otherwise `json` as is. */
+function smaller(json: Uint8Array, deflated: Uint8Array): Prepared {
+  if (deflated.length < json.length) {
+    json.fill(0);
+    return { data: deflated, kind: fragmentKinds.deflated };
+  }
   deflated.fill(0);
-  return undefined;
+  return { data: json, kind: fragmentKinds.json };
+}
+
+/**
+ * A JSON message deflated alone when that makes it smaller. A large one is deflated off the
+ * event loop; one whose deflate fails goes as it is, since deflating is only ever a saving.
+ */
+function prepareJson(
+  json: Uint8Array,
+  compress: boolean,
+  deflate: DeflateLater,
+): Prepared | Promise<Prepared> {
+  if (!compress || json.length < DEFLATE_THRESHOLD) return { data: json, kind: fragmentKinds.json };
+  if (json.length < ASYNC_DEFLATE_FROM) return smaller(json, deflateRawSync(json, { level: 6 }));
+  // A deflate that throws at once fails like one that rejects.
+  return Promise.resolve(json)
+    .then(deflate)
+    .then(
+      (deflated) => smaller(json, deflated),
+      () => ({ data: json, kind: fragmentKinds.json }),
+    );
+}
+
+/** Zero a sent (or dropped) message's bytes; binary bytes are the caller's. */
+function release(message: Prepared): void {
+  if (message.kind !== fragmentKinds.binary) message.data.fill(0);
 }
 
 /**
@@ -116,9 +163,10 @@ export function hostMessageChannel(
   transport: Transport,
   onReceive: (message: ClientMessage | Uint8Array | string) => void,
   authorize: () => void,
+  deflate: DeflateLater = deflateLater,
 ): HostChannel {
   return Object.assign(
-    createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive),
+    createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive, deflate),
     { authorize },
   );
 }
@@ -129,6 +177,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   incoming: z.ZodType<Incoming>,
   outgoing: z.ZodType<Outgoing>,
   onReceive?: (message: Incoming | Uint8Array | string) => void,
+  deflate: DeflateLater = deflateLater,
 ): MessageChannel<Incoming, Outgoing> {
   let resolveClosed: (error: Error | undefined) => void;
   const closed = new Promise<Error | undefined>((resolve) => {
@@ -231,12 +280,26 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   );
   socket.once("error", end);
   let compressible: ((message: Outgoing) => boolean) | undefined;
-  const sendData = async (data: Uint8Array, kind: FragmentKind): Promise<void> => {
-    if (ended) throw new Error("Channel closed");
-    if (data.length > LOGICAL_MESSAGE_LIMIT || pendingBytes + data.length > LOGICAL_MESSAGE_LIMIT)
+  /**
+   * Queue one message of `size` bytes as it is now. Messages go strictly in the order they
+   * were queued: one still being deflated holds back every message behind it (and a close),
+   * as a slow synchronous deflate would, without blocking the event loop meanwhile.
+   */
+  const sendData = async (size: number, prepared: Prepared | Promise<Prepared>): Promise<void> => {
+    if (ended) {
+      void Promise.resolve(prepared).then(release);
+      throw new Error("Channel closed");
+    }
+    if (size > LOGICAL_MESSAGE_LIMIT || pendingBytes + size > LOGICAL_MESSAGE_LIMIT) {
+      void Promise.resolve(prepared).then(release);
       throw new Error("Logical message or send queue too large");
-    pendingBytes += data.length;
+    }
+    let counted = size;
+    pendingBytes += counted;
     const task = sending.then(async () => {
+      const { data, kind } = await prepared;
+      pendingBytes += data.length - counted;
+      counted = data.length;
       const chunkSize = MAX_MESSAGE - 17;
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const chunk = data.subarray(offset, offset + chunkSize);
@@ -262,9 +325,15 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       end(error instanceof Error ? error : new Error("Send failed"));
       throw error;
     } finally {
-      pendingBytes -= data.length;
-      if (kind !== fragmentKinds.binary) data.fill(0);
+      pendingBytes -= counted;
+      // Never rejects: a failed deflate already fell back to the message as it was.
+      void Promise.resolve(prepared).then(release);
     }
+  };
+  /** A message still being deflated counts at its full size until it is done. */
+  const sendJson = (json: Uint8Array, compress: boolean) => {
+    const prepared = prepareJson(json, compress, deflate);
+    return sendData(prepared instanceof Promise ? json.length : prepared.data.length, prepared);
   };
   /** One whole message: binary bytes, or its JSON text (inflated and UTF-8 checked). */
   const receivePayload = async (): Promise<Uint8Array | { text: string }> => {
@@ -338,20 +407,13 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     async send(message) {
       const parsed = outgoing.parse(message);
       const json = new TextEncoder().encode(JSON.stringify(parsed));
-      const deflated = compressible?.(parsed) ? deflateMessage(json) : undefined;
-      if (!deflated) return sendData(json, fragmentKinds.json);
-      json.fill(0);
-      return sendData(deflated, fragmentKinds.deflated);
+      return sendJson(json, compressible?.(parsed) === true);
     },
     compress(allowed) {
       compressible = allowed;
     },
     async sendText(text, compress = false) {
-      const json = new TextEncoder().encode(text);
-      const deflated = compress ? deflateMessage(json) : undefined;
-      if (!deflated) return sendData(json, fragmentKinds.json);
-      json.fill(0);
-      return sendData(deflated, fragmentKinds.deflated);
+      return sendJson(new TextEncoder().encode(text), compress);
     },
     async receiveRaw() {
       const payload = await receivePayload();
@@ -367,7 +429,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       if (!data.length || data.length > BINARY_MESSAGE_LIMIT)
         return Promise.reject(new Error("Binary message too large"));
       // The caller keeps these bytes immutable until the send completes.
-      return sendData(data, fragmentKinds.binary);
+      return sendData(data.length, { data, kind: fragmentKinds.binary });
     },
     async receiveBinary() {
       const frame = await channel.receiveFrame();
