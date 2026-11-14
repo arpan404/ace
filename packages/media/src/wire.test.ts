@@ -119,6 +119,7 @@ test.each(BoundaryCases)("shared control boundary: $name", ({ direction, accept,
   if (parsed.success) expect(parsed.data).toEqual(input);
 });
 
+const frameDirectory = new URL("../../../native/media/vectors/control-frames/", import.meta.url);
 const FrameVectors = z
   .array(
     z.strictObject({
@@ -129,11 +130,8 @@ const FrameVectors = z
     }),
   )
   .parse(
-    JSON.parse(
-      readFileSync(
-        new URL("../../../native/media/vectors/control-frames/k2.json", import.meta.url),
-        "utf8",
-      ),
+    readdirSync(frameDirectory).flatMap((name): unknown[] =>
+      JSON.parse(readFileSync(new URL(name, frameDirectory), "utf8")),
     ),
   );
 test.each(FrameVectors)("shared control frame bytes: $name", ({ direction, lane, hex }) => {

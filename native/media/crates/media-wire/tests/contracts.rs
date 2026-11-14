@@ -332,9 +332,12 @@ fn reencode<M: media_wire::control::Message>(
 fn shared_control_frame_bytes_decode_and_reencode_exactly() -> Result<(), Box<dyn std::error::Error>>
 {
     use media_wire::control::Lane;
-    let vectors: Vec<FrameVector> =
-        serde_json::from_slice(&fs::read(root().join("control-frames/k2.json"))?)?;
-    assert!(!vectors.is_empty());
+    let mut vectors: Vec<FrameVector> = Vec::new();
+    for entry in fs::read_dir(root().join("control-frames"))? {
+        let file: Vec<FrameVector> = serde_json::from_slice(&fs::read(entry?.path())?)?;
+        vectors.extend(file);
+    }
+    assert!(vectors.iter().any(|v| v.name == "session.link"));
     for v in vectors {
         let bytes = hex(&v.hex)?;
         let lane = if v.lane == "priority" {
