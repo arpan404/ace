@@ -3,9 +3,9 @@ import UIKit
 
 /// The browser's ⋯ menu, grouped as Safari's: the page (find, zoom, screenshots, print, the
 /// device, share), the thread's browser (history, downloads, console, page source, extensions),
-/// the tab (keep agents out, sound, recording, new and close) and the browser itself (settings,
-/// clearing its data). Everything acts on the tab shown; the person's own Chrome is theirs, so
-/// ace never prints, clears or reads it.
+/// the tab (keep agents out, watch the agent, sound, recording, new and close) and the browser
+/// itself (its engine, settings, clearing its data). Everything acts on the tab shown; the
+/// person's own Chrome is theirs, so ace never prints, clears or reads it.
 struct BrowserMenu: View {
     @Bindable var model: ClientModel
     @Binding var sheet: BrowserSheet?
@@ -86,6 +86,12 @@ struct BrowserMenu: View {
                         }
                         .accessibilityIdentifier("browser.menu.mute")
                     }
+                    if let watch = model.browser.view?.watch {
+                        Button(watch.on ? "Stop watching the agent" : "Watch the agent", ace: watch.on ? .eyeSlash : .eye) {
+                            model.browserWatch(!watch.on)
+                        }
+                        .accessibilityIdentifier("browser.menu.watch")
+                    }
                     if let recording = state?.recording {
                         if recording.byPerson {
                             Button("Stop recording", ace: .stopCircle) { model.browserRecord(false) }
@@ -112,6 +118,7 @@ struct BrowserMenu: View {
                 }
             }
             Section {
+                if let engine = model.browser.view?.engine { engineMenu(engine) }
                 Button("Browser settings", ace: .gear) { sheet = .settings }
                 if model.canOperate {
                     Button("Clear browsing data…", ace: .broom, role: .destructive) { clearing = true }
@@ -127,6 +134,27 @@ struct BrowserMenu: View {
         }
         .accessibilityLabel("Browser options")
         .accessibilityIdentifier("browser.menu")
+    }
+
+    /// Moves this thread's browser between the desktop app and ace's Chrome, as web's ⋯ menu does,
+    /// and names the default other threads keep.
+    private func engineMenu(_ engine: BrowserViewInfo.Engine) -> some View {
+        Menu {
+            Section(engine.note) {
+                ForEach(engine.choices) { choice in
+                    Button {
+                        if choice.value != engine.current { model.browserEngine(choice.value) }
+                    } label: {
+                        if choice.value == engine.current { Label(choice.label, ace: .check) } else { Text(choice.label) }
+                    }
+                    .accessibilityIdentifier("browser.menu.engine.\(choice.value)")
+                }
+            }
+        } label: {
+            Label(engine.moving ? "Engine for this thread · Moving" : "Engine for this thread", ace: .globe)
+        }
+        .disabled(!model.canOperate || engine.moving)
+        .accessibilityIdentifier("browser.menu.engine")
     }
 
     private var downloadsTitle: String {

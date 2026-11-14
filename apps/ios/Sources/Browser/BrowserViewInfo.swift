@@ -137,24 +137,47 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         /// False for the person's own Chrome, which ace never resizes.
         let supported: Bool
     }
+    /// "Engine for this thread" (`bridge/browser-engine.ts`): where the thread's pages run, the
+    /// engines it can move to in Settings › Browser's words, and the default other threads use.
+    struct Engine: Codable, Sendable, Equatable {
+        struct Choice: Codable, Sendable, Equatable, Identifiable {
+            let value: String
+            let label: String
+            var id: String { value }
+        }
+        /// embedded or headless; nil before the thread has a browser, or in the person's own Chrome.
+        let current: String?
+        /// A move to `current` is under way.
+        let moving: Bool
+        let note: String
+        let choices: [Choice]
+    }
+    /// Watch mode (`bridge/browser-watch.ts`): the browser follows the agent from tab to tab until
+    /// the agents stop working. Nil while no agent browses, so there is nothing to offer.
+    struct Watch: Codable, Sendable, Equatable { let on: Bool }
     /// Bumped whenever the daemon starts this viewer's pictures again.
     let generation: Int
     /// Why the browser can't be watched yet (none open); retried while the view is shown.
     let error: String?
     let state: State?
     var device: Device? = nil
+    var engine: Engine? = nil
+    var watch: Watch? = nil
 
-    private enum CodingKeys: String, CodingKey { case generation, error, state, device }
+    private enum CodingKeys: String, CodingKey { case generation, error, state, device, engine, watch }
 }
 
 extension BrowserViewInfo {
-    /// The device toolbar is read on its own: one that doesn't decode hides the toolbar, never the browser.
+    /// The device toolbar, the engine and watch mode are read on their own: one that doesn't decode hides
+    /// its control, never the browser.
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         generation = try box.decode(Int.self, forKey: .generation)
         error = try box.decodeIfPresent(String.self, forKey: .error)
         state = try box.decodeIfPresent(State.self, forKey: .state)
         device = (try? box.decodeIfPresent(Device.self, forKey: .device)) ?? nil
+        engine = (try? box.decodeIfPresent(Engine.self, forKey: .engine)) ?? nil
+        watch = (try? box.decodeIfPresent(Watch.self, forKey: .watch)) ?? nil
     }
 }
 

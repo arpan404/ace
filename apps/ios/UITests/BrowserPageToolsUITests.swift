@@ -3,7 +3,8 @@ import XCTest
 /// The browser's page commands and annotate mode on the spike fixture's checkout page: Ask agent
 /// about this page puts the page in the message, annotate pins comments that join the message,
 /// the menu's sheets (page source, screenshots at sizes, extensions) open with what the page
-/// has, a download is saved onto the phone, and the page is recorded and stopped.
+/// has, a download is saved onto the phone, the page is recorded and stopped, watch mode follows
+/// the agent and the thread's browser moves to another engine.
 final class BrowserPageToolsUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }
@@ -135,6 +136,36 @@ final class BrowserPageToolsUITests: XCTestCase {
         screenshot("browser-tools-13-clear")
         confirm.tap()
         XCTAssertTrue(app.buttons["browser.done"].waitForExistence(timeout: 10))
+    }
+
+    /// Watch mode follows the agent and shows a strip while on; Engine for this thread moves the
+    /// thread's browser to ace's Chrome and the page comes back there.
+    @MainActor func testWatchingTheAgentAndMovingTheBrowserToAnotherEngine() {
+        let app = XCUIApplication()
+        openBrowser(app)
+        app.buttons["browser.menu"].tap()
+        item(app, "browser.menu.watch", "Watch the agent").tap()
+        let stop = app.buttons["browser.watch.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        screenshot("browser-watch-1-on")
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 10))
+
+        app.buttons["browser.menu"].tap()
+        item(app, "browser.menu.engine", "Engine for this thread").tap()
+        let chrome = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                                      "browser.menu.engine.headless", "ace's Chrome only")).firstMatch
+        XCTAssertTrue(chrome.waitForExistence(timeout: 5))
+        screenshot("browser-engine-1-menu")
+        chrome.tap()
+        // The browser opens again on the new engine with its pages, and nothing went wrong.
+        XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
+        sleep(3)
+        XCTAssertFalse(app.alerts["Browser"].exists)
+        app.buttons["browser.menu"].tap()
+        item(app, "browser.menu.engine", "Engine for this thread").tap()
+        XCTAssertTrue(chrome.waitForExistence(timeout: 5))
+        screenshot("browser-engine-2-moved")
     }
 
     private func screenshot(_ name: String) {

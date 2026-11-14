@@ -165,6 +165,60 @@ import Testing
         #expect(model.browser.view?.device == nil)
     }
 
+    @Test func theEngineMenuShowsWhereThePagesRunAndSwitchingAsksTheBridgeToMoveThem() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/"]],
+        ]
+        let engine: [String: Any] = [
+            "current": "embedded", "moving": false, "note": "Other threads use the default in Settings › Browser.",
+            "choices": [["value": "embedded", "label": "Desktop app only"], ["value": "headless", "label": "ace's Chrome only"]],
+        ]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "engine": engine]]))
+        #expect(model.browser.view?.engine?.current == "embedded")
+        #expect(model.browser.view?.engine?.choices.map(\.label) == ["Desktop app only", "ace's Chrome only"])
+        model.browserEngine("headless")
+        #expect(session.browserActions.last?["kind"] as? String == "engine")
+        #expect(session.browserActions.last?["engine"] as? String == "headless")
+        // A view-only grant can't move the thread's browser.
+        model.canOperate = false
+        let count = session.browserActions.count
+        model.browserEngine("embedded")
+        #expect(session.browserActions.count == count)
+        // A later bridge's engine this one can't read hides the menu entry, never the browser.
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state,
+                                  "engine": ["current": 3]]]))
+        #expect(model.browser.view?.state?.activeTabId == "t1")
+        #expect(model.browser.view?.engine == nil)
+    }
+
+    @Test func watchModeIsOfferedWhileAnAgentBrowsesAndTurnsOnAndOffThroughTheBridge() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "https://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0,
+            "tabs": [["id": "t1", "title": "Shop", "url": "https://shop.example/", "agent": "Claude"]],
+        ]
+        let view = { (watch: Any) -> [String: Any] in
+            ["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state, "watch": watch]
+        }
+        model.receive(try frame([view(NSNull())]))
+        #expect(model.browser.view?.watch == nil)
+        model.receive(try frame([view(["on": false])]))
+        #expect(model.browser.view?.watch?.on == false)
+        model.browserWatch(true)
+        #expect(session.browserActions.last?["kind"] as? String == "watch")
+        #expect(session.browserActions.last?["on"] as? Bool == true)
+        model.receive(try frame([view(["on": true])]))
+        #expect(model.browser.view?.watch?.on == true)
+        model.browserWatch(false)
+        #expect(session.browserActions.last?["on"] as? Bool == false)
+    }
+
     @Test func theToolsAnswersBelongToTheOpenViewAndGoWithIt() async throws {
         let (model, _) = try await connected()
         let problem: [String: Any] = ["type": "browser.problem", "at": 1, "message": "Couldn't close the tab."]
