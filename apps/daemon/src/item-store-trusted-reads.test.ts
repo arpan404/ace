@@ -67,6 +67,10 @@ function seed(store: Store): ThreadId {
     ]);
   }
   store.appendEvents(thread, [{ type: "item.created", item: tool("tool-last", 50) }]);
+  // Output rewrites the shell body in place, and its stored size with it.
+  store.appendEvents(thread, [
+    { type: "item.delta", itemId: "tool-last", agentId: "root", field: "output", append: "out\n" },
+  ]);
   return thread;
 }
 

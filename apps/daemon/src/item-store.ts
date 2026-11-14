@@ -244,7 +244,12 @@ export class ItemStore {
         break;
       }
       const item = this.pageItem(id, row.item_type);
-      const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
+      // A body this build wrote is read as stored and takes no text chunks, so its stored size
+      // is exactly its JSON's. Text previews and older bodies are measured.
+      const size =
+        (!preview && row.created_seq >= this.trust.from
+          ? row.size
+          : Buffer.byteLength(JSON.stringify(item))) + overhead;
       if (bytes + size > byteLimit) {
         if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
