@@ -33,7 +33,11 @@ fn picture(size: Size, frame: u32) -> Result<CpuPicture, CodecError> {
 }
 
 /// serve-sim's stream: VideoToolbox H.264 at the Simulator's native size, as records.
-fn serve_sim_records(size: Size, count: u32) -> Result<Vec<Record>, Box<dyn std::error::Error>> {
+fn serve_sim_records(
+    size: Size,
+    count: u32,
+    keys: &[u32],
+) -> Result<Vec<Record>, Box<dyn std::error::Error>> {
     let pool = PixelPool::new(size, VtFormat::Nv12, count as usize)?;
     let mut encoder = VtEncoder::new();
     encoder.configure(&Spec {
@@ -49,7 +53,7 @@ fn serve_sim_records(size: Size, count: u32) -> Result<Vec<Record>, Box<dyn std:
         loop {
             match encoder.encode(
                 surface.share().into_picture(u64::from(index) * 16_667)?,
-                index == 0,
+                keys.contains(&index),
             ) {
                 Err(CodecError::Backpressure) => {
                     while let Some(unit) = encoder.poll_result()? {
@@ -90,6 +94,7 @@ fn a_simulator_is_re_encoded_at_the_viewers_size_on_videotoolbox_without_a_copy(
             height: 2622,
         },
         12,
+        &[0],
     )?;
     let wire = EncodeSpec {
         id: 3,
@@ -147,5 +152,54 @@ fn a_simulator_is_re_encoded_at_the_viewers_size_on_videotoolbox_without_a_copy(
             .all(|s| s.readbacks == 0 && s.uploads == 0),
         "no CPU copy"
     );
+    Ok(())
+}
+
+#[test]
+fn a_re_encode_that_starts_mid_stream_waits_for_the_next_keyframe() -> TestResult {
+    // The viewer asked while serve-sim was between keyframes: deltas come first.
+    let records = serve_sim_records(
+        Size {
+            width: 1206,
+            height: 2622,
+        },
+        12,
+        &[0, 6],
+    )?;
+    let wire = EncodeSpec {
+        id: 1,
+        codec: "avc1.640033".into(),
+        width: 588,
+        height: 1280,
+        fps: 60,
+        bitrate: 4_000_000,
+        quantizer: None,
+    };
+    let mut transcode = Transcode::new(&wire)?;
+    let mut translator = Translator::default();
+    let mut frames = Vec::new();
+    let mut seen_key = false;
+    for (index, record) in records.into_iter().enumerate() {
+        if matches!(record, Record::Description(_)) {
+            translator.frame(record).map_err(|e| format!("{e:?}"))?;
+            continue;
+        }
+        let Some(unit) = translator.source(&record, index as u64 * 16_667) else {
+            continue;
+        };
+        // Skip the first keyframe: the re-encode joins at a delta.
+        if unit.key && !seen_key {
+            seen_key = true;
+            continue;
+        }
+        transcode.push(&unit, &mut frames)?;
+    }
+    transcode.flush(&mut frames)?;
+    assert!(
+        !frames.is_empty(),
+        "it re-encodes from the second keyframe on"
+    );
+    assert_eq!(frames[0].flags & 1, 1);
+    assert!(frames.len() <= 6);
     Ok(())
 }

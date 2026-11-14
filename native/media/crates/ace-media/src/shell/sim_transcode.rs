@@ -16,6 +16,8 @@ pub struct Transcode {
     out: Translator,
     id: u32,
     force_key: bool,
+    /// The decoder has had a keyframe: it can't start from a delta.
+    primed: bool,
 }
 
 fn spec(wire: &EncodeSpec) -> Spec {
@@ -41,6 +43,7 @@ impl Transcode {
             out: Translator::default(),
             id: wire.id,
             force_key: true,
+            primed: false,
         })
     }
 
@@ -62,6 +65,14 @@ impl Transcode {
         unit: &EncodedUnit,
         frames: &mut Vec<MediaFrame>,
     ) -> Result<(), CodecError> {
+        // Asked for between serve-sim's keyframes: the decoder starts at the next one (the
+        // reader opens a fresh subscription, whose first unit is one).
+        if !self.primed {
+            if !unit.key {
+                return self.poll(frames);
+            }
+            self.primed = true;
+        }
         let force = self.force_key;
         match self.inner.push(unit, force) {
             Ok(reached) => {
