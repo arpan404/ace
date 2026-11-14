@@ -36,6 +36,7 @@ gaps:
 
      Without them, or with a driver whose `NvEncodeAPIGetMaxSupportedVersion` is below the
      pinned API version, it reports no backend. ace ships no NVIDIA binary.
+
    - **What it never uses:** the CUDA toolkit's libraries (NPP, nvJPEG, the CUDA runtime).
      Encoder input is a GL texture on Linux (NVENC's OpenGL resource type) and a D3D11 texture
      on Windows, in a 32-bit RGB format that NVENC converts to YUV itself. Scaling happens
@@ -78,6 +79,7 @@ gaps:
    - NVDEC's JPEG decoder where the GPU reports one, otherwise the CPU.
 
    From there the picture goes straight to the encoder.
+
 6. **Stills on the GPU** (amends ADR 0147 §6). A still is the current picture:
    - **Decode** it on the GPU: VideoToolbox, Media Foundation (DXVA), VA-API or NVDEC.
    - **Scale** it on the GPU: the decoder's own output size where it has one, otherwise the
@@ -87,6 +89,7 @@ gaps:
      VA-API's JPEG encoder on Intel iHD.
 
    The CPU path (M5's encoder) is the fallback.
+
 7. **The CPU paths that remain are fast and allocation-free.**
    - **SIMD.** Scaling and JPEG use NEON or AVX2, detected at run time.
    - **Workers.** CPU media work runs on a fixed worker pool sized to the machine, never on the
