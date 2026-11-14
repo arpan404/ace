@@ -95,6 +95,8 @@ export class FakeBrowser {
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
+  /** Scripting: whether a desktop app is there to host `embedded` pages, as the daemon reports. */
+  desktop = true;
   /**
    * The daemon's first browser needs Chromium downloaded (ADR 0055 acquisition). While set, the
    * next `browser.open` reports download progress and waits for `finishDownload()`.

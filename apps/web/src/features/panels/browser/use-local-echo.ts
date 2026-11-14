@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { LocalStore } from "../store.ts";
-import { nextLatency } from "./local-echo.ts";
+import { nextLatency } from "@ace/ui-core";
 
 /** Each thread's input round trip in whole ms, for the ⋯ menu; absent until input was sent. */
 export const inputLatency = new LocalStore<ReadonlyMap<string, number>>(new Map());
