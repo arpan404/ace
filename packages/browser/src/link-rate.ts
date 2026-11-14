@@ -17,25 +17,15 @@
  * queueing that lasts cuts the rate.
  */
 
+import type { MediaLinkHint } from "@ace/protocol";
+import { hintedStart } from "./link-start.ts";
+
 export interface LinkRateLimits {
   /** Bits per second the rate never goes below or above. */
   min: number;
   max: number;
   /** Where a new viewer starts. */
   initial: number;
-}
-
-/**
- * What a client says about its link (ADR 0149 §4): `navigator.connection` and `Save-Data` on
- * the web, `NWPath` on iOS. It is the client's word: bounded, and it only lowers the start.
- */
-export interface LinkHint {
-  effectiveType?: string;
-  downlinkKbps?: number;
-  rttMs?: number;
-  saveData?: boolean;
-  expensive?: boolean;
-  constrained?: boolean;
 }
 
 /** The lowest rate any link is driven at: a 3G link at its worst still carries this. */
@@ -85,25 +75,6 @@ export const backlogMs = 300;
  */
 export const outstandingSends = 512;
 
-/** Where a viewer's rate starts, given what its client says about the link: never higher. */
-export function hintedStart(limits: LinkRateLimits, hint: LinkHint | undefined): number {
-  let start = limits.initial;
-  if (hint) {
-    const kbps = hint.downlinkKbps;
-    // The client's estimate is of the whole link, and coarse: half of it for video.
-    if (kbps !== undefined && Number.isFinite(kbps) && kbps > 0)
-      start = Math.min(start, kbps * 500);
-    const type = hint.effectiveType;
-    if (type === "slow-2g" || type === "2g") start = limits.min;
-    else if (type === "3g") start = Math.min(start, 400_000);
-    const rtt = hint.rttMs;
-    if (rtt !== undefined && Number.isFinite(rtt) && rtt >= 400) start = Math.min(start, 400_000);
-    if (hint.saveData === true || hint.constrained === true) start = Math.min(start, 300_000);
-    if (hint.expensive === true) start = Math.min(start, 1_000_000);
-  }
-  return Math.round(Math.min(limits.initial, Math.max(limits.min, start)));
-}
-
 interface Sent {
   sequence: number;
   bytes: number;
@@ -146,9 +117,10 @@ export class LinkRate {
    */
   #stall = { sentBefore: -Infinity, until: -Infinity };
   #lastStall = -Infinity;
-  constructor(limits: LinkRateLimits, hint?: LinkHint) {
+  /** `hint`: what the viewer's client says about its link; it may only start it lower. */
+  constructor(limits: LinkRateLimits, hint?: MediaLinkHint) {
     this.#limits = limits;
-    this.#start = hintedStart(limits, hint);
+    this.#start = Math.round(hintedStart(hint, limits.initial, limits.min));
     this.#rate = this.#start;
     this.#hinted = this.#start < limits.initial;
   }

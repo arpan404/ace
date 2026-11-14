@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hintedStart, LinkRate, linkFloor, outstandingSends } from "./link-rate.ts";
+import type { MediaLinkHint } from "@ace/protocol";
+import { LinkRate, linkFloor, outstandingSends } from "./link-rate.ts";
 import { simulate, type SimLink } from "../scripts/link-sim.ts";
 
 const limits = { min: linkFloor, max: 16_000_000, initial: 4_000_000 };
@@ -159,19 +160,18 @@ describe("a viewer's link rate", () => {
 describe("a link hint", () => {
   it("starts a thin link low, and is no longer a probe", () => {
     const rate = new LinkRate(phone, { effectiveType: "3g" });
-    expect(rate.rate).toBe(400_000);
+    expect(rate.rate).toBe(500_000);
     expect(rate.probing).toBe(false);
     expect(new LinkRate(phone).probing).toBe(true);
   });
 
   it("never raises the start, and stays within the limits", () => {
-    expect(hintedStart(phone, { effectiveType: "4g", downlinkKbps: 100_000 })).toBe(1_500_000);
-    expect(hintedStart(phone, { effectiveType: "slow-2g" })).toBe(linkFloor);
-    expect(hintedStart(phone, { downlinkKbps: 1 })).toBe(linkFloor);
-    expect(hintedStart(phone, { downlinkKbps: Number.NaN, rttMs: -5 })).toBe(1_500_000);
-    expect(hintedStart(phone, { saveData: true })).toBe(300_000);
-    expect(hintedStart(phone, { rttMs: 450 })).toBe(400_000);
-    expect(hintedStart(phone, { downlinkKbps: 1_600 })).toBe(800_000);
+    const start = (hint: MediaLinkHint) => new LinkRate(phone, hint).rate;
+    expect(start({ effectiveType: "4g", downlinkKbps: 100_000 })).toBe(1_500_000);
+    expect(start({ effectiveType: "slow-2g" })).toBe(linkFloor);
+    expect(start({ downlinkKbps: 1 })).toBe(linkFloor);
+    expect(start({ saveData: true })).toBe(linkFloor);
+    expect(start({ downlinkKbps: 700 })).toBe(350_000);
   });
 
   it("only picks the start: the rate still climbs no faster than the link proves", () => {

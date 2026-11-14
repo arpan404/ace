@@ -1,7 +1,8 @@
+import type { MediaLinkHint } from "@ace/protocol";
 import { encodePicture, type PictureKind } from "./stream-picture.ts";
 import { PictureViewer, type CapturedPicture } from "./picture-viewer.ts";
 import type { VideoWindow } from "./video-fanout.ts";
-import type { LinkHint, LinkRateLimits } from "./link-rate.ts";
+import type { LinkRateLimits } from "./link-rate.ts";
 import type { FollowedLink } from "./link-follow.ts";
 
 export { PictureViewer, pictureKeyframeGapMs, type CapturedPicture } from "./picture-viewer.ts";
@@ -74,7 +75,7 @@ export class PictureChannel {
    */
   open(
     sourceId: string,
-    options: { keyframe(): void; guard(): void; link?: LinkRateLimits; hint?: LinkHint },
+    options: { keyframe(): void; guard(): void; link?: LinkRateLimits; hint?: MediaLinkHint },
   ): PictureView {
     if (this.#closed) throw new Error("Picture channel closed");
     this.#viewers.get(sourceId)?.close();

@@ -1,5 +1,6 @@
+import type { MediaLinkHint } from "@ace/protocol";
 import { encodePicture, type PictureChunk, type PictureKind } from "./stream-picture.ts";
-import { LinkRate, type LinkHint, type LinkRateLimits } from "./link-rate.ts";
+import { LinkRate, type LinkRateLimits } from "./link-rate.ts";
 import { VideoFanout, type VideoWindow } from "./video-fanout.ts";
 
 /** Forced keyframes for one viewer at most this often (ADR 0088's per-encode gap). */
@@ -40,7 +41,7 @@ export interface PictureViewerPorts {
   /** Follow this viewer's link (`link-rate.ts`) within these bounds; `rate` says where it is. */
   link?: LinkRateLimits;
   /** What the viewer's client says about its link: it may start the rate lower. */
-  hint?: LinkHint;
+  hint?: MediaLinkHint;
 }
 
 /**

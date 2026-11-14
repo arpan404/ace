@@ -23,7 +23,7 @@ impl Default for Limits {
         }
     }
 }
-/// What a client says about its link (ADR 0149 §4). Untrusted: it only lowers the start.
+/// What a client says about its link (ADR 0149 §4, K3), already parsed: it only lowers the start.
 #[derive(Clone, Debug, Default)]
 pub struct LinkHint {
     pub effective_type: Option<String>,
@@ -49,29 +49,34 @@ const PERSIST_MS: f64 = 400.0;
 const STALL_MS: f64 = 200.0;
 const STALL_GAP_MS: f64 = 2_000.0;
 
-/// Where a viewer's rate starts, given what its client says about the link: never higher.
+/// Where a viewer's rate starts, from what its client says about its link, matching
+/// link-start.ts (K3): never above `limits.initial`, never below `limits.min`. The hint was
+/// parsed (and clamped) at the boundary.
 pub fn hinted_start(limits: Limits, hint: Option<&LinkHint>) -> f64 {
-    let mut start = limits.initial;
-    if let Some(hint) = hint {
-        if let Some(kbps) = hint.downlink_kbps.filter(|k| k.is_finite() && *k > 0.0) {
-            start = start.min(kbps * 500.0);
-        }
-        match hint.effective_type.as_deref() {
-            Some("slow-2g" | "2g") => start = limits.min,
-            Some("3g") => start = start.min(400_000.0),
-            _ => {}
-        }
-        if hint.rtt_ms.is_some_and(|r| r.is_finite() && r >= 400.0) {
-            start = start.min(400_000.0);
-        }
-        if hint.save_data || hint.constrained {
-            start = start.min(300_000.0);
-        }
-        if hint.expensive {
-            start = start.min(1_000_000.0);
-        }
+    let Some(hint) = hint else {
+        return limits.initial.round();
+    };
+    if hint.save_data || hint.constrained {
+        return limits.min.round();
     }
-    start.max(limits.min).min(limits.initial).round()
+    let kind = hint.effective_type.as_deref().map(str::to_ascii_lowercase);
+    if matches!(kind.as_deref(), Some("slow-2g" | "2g")) {
+        return limits.min.round();
+    }
+    let mut start = limits.initial;
+    if kind.as_deref() == Some("3g") {
+        start = start.min(500_000.0);
+    }
+    if hint.rtt_ms.is_some_and(|r| r >= 300.0) {
+        start = start.min(500_000.0);
+    }
+    if hint.expensive {
+        start = start.min(1_000_000.0);
+    }
+    if let Some(kbps) = hint.downlink_kbps {
+        start = start.min(kbps * 1_000.0 * 0.5);
+    }
+    start.min(limits.initial).max(limits.min).round()
 }
 #[derive(Debug)]
 struct Sent {

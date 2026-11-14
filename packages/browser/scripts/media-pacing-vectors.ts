@@ -1,5 +1,6 @@
 import { VideoFanout, type VideoPiece, type VideoWindow } from "../src/video-fanout.ts";
-import { LinkRate, linkFloor, type LinkHint, type LinkRateLimits } from "../src/link-rate.ts";
+import type { MediaLinkHint as LinkHint } from "@ace/protocol";
+import { LinkRate, linkFloor, type LinkRateLimits } from "../src/link-rate.ts";
 import { simulate, type SimRun } from "./link-sim.ts";
 
 /** One step of a fanout scenario, replayed in order by the Rust port. */
@@ -292,8 +293,9 @@ export function linkHints() {
     { effectiveType: "2g" },
     { effectiveType: "slow-2g", saveData: true },
     { downlinkKbps: 1_600 },
-    { downlinkKbps: 0.5 },
-    { downlinkKbps: -3, rttMs: 1e9 },
+    { downlinkKbps: 1 },
+    { downlinkKbps: 0, rttMs: 60_000 },
+    { effectiveType: "3G" },
     { rttMs: 450 },
     { saveData: true },
     { constrained: true, expensive: true },
