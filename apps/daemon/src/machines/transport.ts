@@ -120,9 +120,12 @@ export function pinnedRequest(
     deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
     request.on("socket", (socket) => {
-      socket.once("secureConnect", () => {
-        connected = true;
-      });
+      // A kept-open connection is already up: what is written to it may reach the machine.
+      if (request.reusedSocket) connected = true;
+      else
+        socket.once("secureConnect", () => {
+          connected = true;
+        });
     });
     // Fully written to an open connection: the machine may have the call even if no answer comes.
     request.on("finish", () => {
