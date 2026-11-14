@@ -238,18 +238,17 @@ import XCTest
     /// A long press on an answer offers Copy, Select text and Share; Select text opens the words
     /// where any part of them can be selected.
     func testLongPressOnAnAnswerOffersCopySelectAndShare() {
-        let app = launch()
-        reveal("thread.ios-code", in: app)
-        app.buttons["thread.ios-code"].tap()
-        let prose = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Here is the class'")).firstMatch
-        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        // The fixture lists more threads than a few scrolls reach, so this one opens at launch.
+        let app = open("ios-code")
+        let prose = words("Here is the class as it stands:", in: app)
+        XCTAssertTrue(prose.waitForExistence(timeout: 30))
         prose.press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Share"].exists)
         app.buttons["Select text"].tap()
-        let words = app.textViews["select.text"]
-        XCTAssertTrue(words.waitForExistence(timeout: 5))
-        XCTAssertTrue((words.value as? String)?.contains("export class RetryBudget") == true)
+        let selectable = app.textViews["select.text"]
+        XCTAssertTrue(selectable.waitForExistence(timeout: 5))
+        XCTAssertTrue((selectable.value as? String)?.contains("export class RetryBudget") == true)
         app.buttons["select.done"].tap()
     }
     /// Ended in the background, as the system ends apps for memory, the app comes back on the
