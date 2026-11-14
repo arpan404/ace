@@ -47,7 +47,7 @@ export interface MachineConnectionsDeps {
    * a pairing no longer saved, whoever still holds its profile, is refused and its connections
    * end. Without it the pool serves what `retain` was last given.
    */
-  saved?: { keys(): ReadonlySet<string> };
+  saved?: { keys(): ReadonlySet<string> | undefined };
 }
 
 /** Idle connections close this long before the other machine says it would close them. */
@@ -103,6 +103,8 @@ export class MachineConnections {
   private known: ReadonlySet<string> | undefined;
   /** The saved keys last seen, so an unchanged set costs nothing. */
   private seen: ReadonlySet<string> | undefined;
+  /** The saved pairings couldn't be read on the last look: nothing is sent, nothing ends. */
+  private unreadable = false;
   private closed = false;
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
@@ -163,8 +165,9 @@ export class MachineConnections {
   /** The pairing's connections, made on first use; undefined when it isn't saved now. */
   private entry(key: string): Entry | undefined {
     this.refresh();
-    // A pairing removed or replaced since its holder read it is refused: nothing is sent.
-    if (this.closed || (this.known && !this.known.has(key))) return undefined;
+    // A pairing removed or replaced since its holder read it is refused: nothing is sent. So is
+    // any call while the saved pairings can't be read; the next look tries again.
+    if (this.closed || this.unreadable || (this.known && !this.known.has(key))) return undefined;
     let entry = this.entries.get(key);
     if (!entry) {
       let session: Buffer | undefined;
@@ -182,11 +185,13 @@ export class MachineConnections {
   /** Whether `entry` is still the connections of a pairing saved now. */
   private isCurrent(key: string, entry: Entry): boolean {
     this.refresh();
-    return !entry.ended.signal.aborted && this.entries.get(key) === entry;
+    return !this.unreadable && !entry.ended.signal.aborted && this.entries.get(key) === entry;
   }
   /** What is saved now, when the pool can see it: any pairing gone from it ends here. */
   private refresh() {
-    const keys = this.deps.saved?.keys();
+    if (!this.deps.saved) return;
+    const keys = this.deps.saved.keys();
+    this.unreadable = keys === undefined;
     if (keys && keys !== this.seen) {
       this.seen = keys;
       this.retainKeys(keys);
