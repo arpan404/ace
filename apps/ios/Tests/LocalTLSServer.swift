@@ -18,10 +18,14 @@ final class LocalTLSServer: @unchecked Sendable {
     private let lock = NSLock()
     private var accepted: [NWConnection] = []
     private var lines: [String] = []
+    private var offered: [String] = []
+    /// WebSocket upgrades answered with this status instead of 101, as a relay refusing a grant.
+    var refuseUpgrades: Int?
     /// Requests that get no answer at all, by path: a machine that stopped responding.
     var silent: Set<String> = []
 
-    init() throws {
+    /// `tls: false` serves plain HTTP and WS on loopback, as a development relay does.
+    init(tls useTLS: Bool = true) throws {
         var items: CFArray?
         let options = [kSecImportExportPassphrase as String: "ace"] as CFDictionary
         guard SecPKCS12Import(Data(base64Encoded: Self.identity)! as CFData, options, &items) == errSecSuccess,
@@ -32,6 +36,7 @@ final class LocalTLSServer: @unchecked Sendable {
         SecIdentityCopyCertificate(identity, &certificate)
         guard let certificate else { throw HostError.transport }
         pin = try CertificatePin.digest(certificate: SecCertificateCopyData(certificate) as Data)
+        guard useTLS else { listener = try NWListener(using: .tcp, on: .any); return }
         let tls = NWProtocolTLS.Options()
         guard let local = sec_identity_create(identity) else { throw HostError.transport }
         sec_protocol_options_set_local_identity(tls.securityProtocolOptions, local)
@@ -60,6 +65,8 @@ final class LocalTLSServer: @unchecked Sendable {
     var connections: Int { lock.withLock { accepted.count } }
     /// Each request's first line, in arrival order.
     var requests: [String] { lock.withLock { lines } }
+    /// Each WebSocket upgrade's offered subprotocols, in arrival order.
+    var subprotocols: [String] { lock.withLock { offered } }
 
     private func accept(_ connection: NWConnection) {
         lock.withLock { accepted.append(connection) }
@@ -85,9 +92,17 @@ final class LocalTLSServer: @unchecked Sendable {
                 let path = line.split(separator: " ").dropFirst().first.map(String.init) ?? ""
                 if silent.contains(path) { continue }
                 if let key = field("sec-websocket-key") {
+                    let protocols = field("sec-websocket-protocol") ?? ""
+                    lock.withLock { offered.append(protocols) }
+                    if let status = refuseUpgrades {
+                        connection.send(content: Data("HTTP/1.1 \(status) Refused\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8),
+                                        completion: .contentProcessed { _ in connection.cancel() })
+                        return
+                    }
+                    let echoed = protocols.split(separator: ",").first.map { "Sec-WebSocket-Protocol: \($0.trimmingCharacters(in: .whitespaces))\r\n" } ?? ""
                     let digest = Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))
                     let accept = Data(digest).base64EncodedString()
-                    connection.send(content: Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8),
+                    connection.send(content: Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\(echoed)\r\n".utf8),
                                     completion: .contentProcessed { _ in })
                     return // The socket stays open; nothing more is read from it.
                 }

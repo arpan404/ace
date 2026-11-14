@@ -35,6 +35,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var flow = RelayFlow()
     /// Data fragments waiting for the daemon's credit, sealed only when they go out.
     private var waiting: [Data] = []
+    /// The grant this connection presented, dropped from the kept ones if it is refused.
+    private var grant: String?
+    /// The daemon's welcome arrived; until then an `unauthorized` error refuses the grant.
+    private var welcomed = false
 
     private enum Phase {
         case connecting
@@ -55,15 +59,20 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     func open() {
         guard route.isValid else { event("close", .text("4003")); return }
         let route = route
-        // A fresh device grant for every relay connection; it also names this device in the hello.
-        Task { [weak self] in
-            let grant: String
-            do { grant = try await route.grants.fresh() }
-            catch let failure as AccountGrantError {
-                self?.queue.addOperation { self?.finish(failure == .signedOut ? 4003 : 1006, cause: "no device grant (\(failure))") }
-                return
-            } catch { self?.queue.addOperation { self?.finish(1006, cause: "no device grant") }; return }
-            self?.queue.addOperation { self?.connect(grant: grant) }
+        // The kept device grant while it has time left (it also names this device in the
+        // hello), so a reconnect opens its socket at once; a new one only when none is kept.
+        if let kept = route.grants.kept() {
+            queue.addOperation { [weak self] in self?.connect(grant: kept) }
+        } else {
+            Task { [weak self] in
+                let grant: String
+                do { grant = try await route.grants.fresh() }
+                catch let failure as AccountGrantError {
+                    self?.queue.addOperation { self?.finish(failure == .signedOut ? 4003 : 1006, cause: "no device grant (\(failure))") }
+                    return
+                } catch { self?.queue.addOperation { self?.finish(1006, cause: "no device grant") }; return }
+                self?.queue.addOperation { self?.connect(grant: grant) }
+            }
         }
         queue.addOperation { [weak self] in
             guard let self else { return }
@@ -82,6 +91,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
     private func connect(grant: String) {
         guard !ended, let url = route.clientURL else { finish(4003, cause: "no relay address"); return }
+        self.grant = grant
         let config = URLSessionConfiguration.ephemeral
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
         config.urlCache = nil
@@ -222,6 +232,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                             finish(code, reason: Self.channelCloseReason(text), cause: "daemon closed the channel")
                             return false
                         }
+                        if !welcomed { admission(text) }
                         event("message", .text(text))
                     case .binary(let data): return deliver(data)
                     }
@@ -237,6 +248,18 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             finish(1002, cause: "unreadable frame (\(error))")
             return false
         }
+    }
+    /// Before the welcome: the daemon either welcomes this device or refuses its hello. A grant
+    /// it refused is not presented again.
+    private func admission(_ text: String) {
+        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; return }
+        if Self.refusesGrant(text), let grant { route.grants.discard(grant) }
+    }
+    /// The daemon's refusal of a hello's grant: an `error` naming `unauthorized`. Pure.
+    static func refusesGrant(_ text: String) -> Bool {
+        guard text.hasPrefix(#"{"type":"error""#),
+              let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+        return value["code"] as? String == "unauthorized"
     }
     private func deliver(_ bytes: Data) -> Bool {
         switch router.route(bytes) {
@@ -281,6 +304,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         guard let error else { return }
         // A 403 before the upgrade is a refusal for good; 401 and 503 retry with a fresh grant.
         let status = (task.response as? HTTPURLResponse)?.statusCode
+        if status == 401, let grant { route.grants.discard(grant) }
         finish(status == 403 ? 4003 : 1006,
                cause: "connection failed (\(status.map(String.init) ?? "no response"), \(Self.describe(error)))")
     }
