@@ -185,6 +185,7 @@ export function AppHeader(
     <header
       ref={header}
       data-slot="app-header"
+      data-part="header"
       className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
       {/* Where the sidebar meets the column, while both are on screen. */}
@@ -214,6 +215,7 @@ export function AppHeader(
           {/* A screen still finding its title (a thread loading) has no heading yet, not an empty one. */}
           {props.title !== "" && props.title != null && (
             <h1
+              data-part="header-title"
               className={cn(
                 "min-w-0 text-md font-medium",
                 titleHidden && "sr-only",

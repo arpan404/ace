@@ -59,9 +59,11 @@ function ThreadPlace(props: {
         search={last.search}
         aria-label={`${props.label}${asks.replace(" ·", ",")}`}
         aria-current={props.current ? "page" : undefined}
+        data-state={props.current ? "active" : undefined}
         // The link marks itself current when it points at the open page: only an exact match,
         // so Threads' last New thread never claims New chat's.
         activeOptions={exactMatch}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <Icon icon={props.icon} size={20} active={props.current} />
@@ -97,6 +99,7 @@ export function AppRail(props: {
     <nav
       aria-label="App"
       data-slot="rail"
+      data-part="rail"
       className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
     >
       <TooltipSide value="right">
@@ -131,6 +134,8 @@ export function AppRail(props: {
               to={view.to}
               aria-label={view.label}
               aria-current={current === view.id ? "page" : undefined}
+              data-state={current === view.id ? "active" : undefined}
+              data-part="rail-item"
               className={railPlaceClass}
             >
               <Icon icon={view.icon} size={20} active={current === view.id} />
@@ -145,6 +150,8 @@ export function AppRail(props: {
             to="/settings"
             aria-label="Settings"
             aria-current={current === "settings" ? "page" : undefined}
+            data-state={current === "settings" ? "active" : undefined}
+            data-part="rail-item"
             className={railPlaceClass}
           >
             <Icon icon={GearSixIcon} size={20} active={current === "settings"} />
@@ -163,6 +170,7 @@ export function SpadeComingSoon() {
       <span
         role="img"
         aria-label="Spade, coming soon"
+        data-part="rail-item"
         className={`${railPlaceClass} cursor-default`}
       >
         <SpadeMark size={20} />
@@ -183,6 +191,8 @@ export function SpadePlace(props: { current: boolean; last: Pick<Place, "to" | "
         search={props.last.search}
         aria-label="Spade"
         aria-current={props.current ? "page" : undefined}
+        data-state={props.current ? "active" : undefined}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <SpadeMark size={20} />

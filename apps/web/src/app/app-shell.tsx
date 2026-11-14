@@ -72,6 +72,7 @@ export function AppShell() {
             <AddAccountHost>
               <div
                 ref={shell}
+                data-part="app"
                 data-connection={connection}
                 data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
                 data-suit-scene={sceneShowing ? "" : undefined}

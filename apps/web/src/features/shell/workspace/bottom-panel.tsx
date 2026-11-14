@@ -54,6 +54,8 @@ function Panel(props: { scope: string; definition: WorkspaceDefinition; bounds: 
         ref={section}
         aria-label={label}
         data-bottom-panel
+        data-part="right-panel"
+        data-variant="bottom"
         onFocus={focus.onFocus}
         onBlur={focus.onBlur}
         style={{ height: size }}
@@ -71,6 +73,7 @@ function Panel(props: { scope: string; definition: WorkspaceDefinition; bounds: 
           onReset={() => actions.setBottomHeight(defaultBottomSize, true)}
         />
         <div
+          data-part="panel-header"
           className={cn(
             "flex h-(--row-height) shrink-0 items-center gap-1 pr-1.5 pl-2",
             toolbarEdge,

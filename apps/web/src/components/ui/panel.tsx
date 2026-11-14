@@ -26,6 +26,7 @@ export function PanelTitleRow(props: { children: ReactNode; className?: string |
   return (
     <div
       data-slot="panel-top"
+      data-part="sidebar-header"
       className={cn("flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2", props.className)}
     >
       {props.children}

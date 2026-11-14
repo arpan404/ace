@@ -47,10 +47,17 @@ export function AppSidebar(props: {
         <AppRail forge={props.forge} usage={props.usage} spade={props.spade} />
         <div
           data-slot="sidebar-panel"
-          className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
+          data-part="sidebar"
+          className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
         >
           {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
           <div ref={setBody} className="contents" />
+          {/* The panel's foot: an empty band a Suit may decorate (docs/design/suit-parts.md). */}
+          <div
+            aria-hidden
+            data-part="sidebar-footer"
+            className="pointer-events-none absolute inset-x-0 bottom-0"
+          />
         </div>
       </div>
     </div>

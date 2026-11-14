@@ -33,7 +33,12 @@ export function Screen(
   // With no machine there is no connection to report on, and no machine for outside apps to ask about.
   const machine = useOptionalClient() !== undefined;
   const main = (
-    <main ref={pane} id="main" tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
+    <main
+      ref={pane}
+      id="main"
+      data-part="main"
+      tabIndex={-1}
+      className="relative min-h-0 flex-1 outline-none">
       {props.children}
     </main>
   );

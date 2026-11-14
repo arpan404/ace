@@ -37,7 +37,7 @@ export function AccountMenu() {
     <SidebarMenu
       tip={shown}
       trigger={
-        <button type="button" aria-label={label} className={railPlaceClass}>
+        <button type="button" aria-label={label} data-part="rail-item" className={railPlaceClass}>
           <span className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
             {picture ? (
               <ProfileAvatar name={name} picture={picture} className="size-7" iconSize={14} />

@@ -36,6 +36,7 @@ export function TaskLines(props: {
   return (
     <div className="flex w-full min-w-0 flex-col">
       <div
+        data-part="thread-meta"
         className={cn(
           "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
           props.actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
@@ -67,6 +68,7 @@ export function TaskLines(props: {
         </span>
       </div>
       <div
+        data-part="thread-title"
         className={cn(
           "mt-1 min-w-0 truncate text-md leading-5",
           props.dimmed ? "text-muted-foreground" : titleTone(attention),

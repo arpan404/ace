@@ -104,6 +104,8 @@ export function WorkspacePanel(props: {
       ref={section}
       aria-label={label}
       data-panel
+      data-part="right-panel"
+      data-variant={bottom ? "bottom" : "right"}
       data-focus-region="panel"
       onFocus={focusBack.onFocus}
       onBlur={focusBack.onBlur}
@@ -131,6 +133,7 @@ export function WorkspacePanel(props: {
     >
       {!topBar && resize}
       <div
+        data-part="panel-header"
         className={cn(
           "relative flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
           // Heading the panel on the canvas, the strip has a hairline under it; in the top bar

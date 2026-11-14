@@ -131,6 +131,8 @@ export function TabItem(props: {
                 id={tabDomId(tab.key, "tab")}
                 aria-controls={tabDomId(tab.key, "panel")}
                 aria-selected={props.active}
+                data-part="tab"
+                data-state={props.active ? "selected" : undefined}
                 aria-label={iconOnly ? title : undefined}
                 tabIndex={props.focusable ? 0 : -1}
                 onClick={() => actions.activate(tab.key)}

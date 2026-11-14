@@ -437,6 +437,7 @@ export function ThreadList(props: {
         onPointerEnter={() => void loadDrag()}
         onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
         data-virtual-viewport=""
+        data-part="thread-list"
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",

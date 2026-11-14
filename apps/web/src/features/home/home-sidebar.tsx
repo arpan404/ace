@@ -100,7 +100,7 @@ export function HomeSidebar() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <PanelTitleSearch title="Threads" label="Search threads" query={query} onQuery={setQuery} />
-      <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
+      <div data-part="project-header" className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
       </div>
