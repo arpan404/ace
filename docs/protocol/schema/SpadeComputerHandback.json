@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputerHandback.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "closed": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SpadeComputerTab.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "drivenMs": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "opened": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SpadeComputerTab.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "screenUsed": {
+      "type": "boolean"
+    },
+    "visited": {
+      "items": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "drivenMs",
+    "visited",
+    "opened",
+    "closed",
+    "screenUsed"
+  ],
+  "type": "object"
+}
