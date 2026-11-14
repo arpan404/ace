@@ -8,6 +8,7 @@ pub enum CodecError {
     Unsupported(String),
     NotConfigured,
     Backpressure,
+    DeadlineExceeded,
     Backend(String),
 }
 impl fmt::Display for CodecError {
@@ -109,8 +110,61 @@ pub trait Decoder: Send {
 pub trait Scaler: Send {
     fn scale(&mut self, picture: &Picture, width: u32, height: u32) -> Result<Picture, CodecError>;
 }
+#[derive(Clone, Copy)]
+pub enum StillStage {
+    Decoded,
+    Scaled,
+    Encoded,
+}
 pub trait StillCodec: Send {
+    fn transcode_observed(
+        &mut self,
+        jpeg: &[u8],
+        target: Size,
+        quality: u8,
+        output: &mut Vec<u8>,
+        observer: &mut dyn FnMut(StillStage),
+    ) -> Result<(), CodecError> {
+        self.transcode_into(jpeg, target, quality, output)?;
+        observer(StillStage::Encoded);
+        Ok(())
+    }
+    /// Reusable output path. Implementations override to retain scratch capacity.
+    fn transcode_into(
+        &mut self,
+        jpeg: &[u8],
+        target: Size,
+        quality: u8,
+        output: &mut Vec<u8>,
+    ) -> Result<(), CodecError> {
+        let encoded = self.transcode(jpeg, target, quality)?;
+        output.clear();
+        output.extend_from_slice(&encoded);
+        Ok(())
+    }
+    /// Exact-size JPEG transcode; policy supplies the aspect-fitted dimensions.
+    fn transcode(&mut self, jpeg: &[u8], target: Size, quality: u8) -> Result<Vec<u8>, CodecError> {
+        let decoded = self.decode(jpeg)?;
+        let Picture::Cpu(scaled) = crate::CpuScaler::default().scale(
+            &Picture::Cpu(decoded),
+            target.width,
+            target.height,
+        )?
+        else {
+            return Err(CodecError::Unsupported(
+                "CPU scaler returned a surface".into(),
+            ));
+        };
+        self.encode(&scaled, quality)
+    }
     fn decode(&mut self, jpeg: &[u8]) -> Result<CpuPicture, CodecError>;
     /// Quality is 1 through 100. Alpha is discarded; callers composite if needed.
     fn encode(&mut self, picture: &CpuPicture, quality: u8) -> Result<Vec<u8>, CodecError>;
+}
+
+/// JPEG backends may keep pixels in platform storage. Width and height are
+/// the requested decoded size, unlike StillCodec's full CPU-picture decode.
+pub trait JpegCodec: Send {
+    fn decode(&mut self, jpeg: &[u8], width: u32, height: u32) -> Result<Picture, CodecError>;
+    fn encode(&mut self, picture: &Picture, quality: u8) -> Result<Vec<u8>, CodecError>;
 }

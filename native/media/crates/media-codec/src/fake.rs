@@ -109,7 +109,7 @@ impl Decoder for FakeDecoder {
         Ok(Some(Picture::Cpu(CpuPicture::new(
             unit.size,
             PixelFormat::Rgb8,
-            vec![Plane {
+            [Plane {
                 data: vec![0; stride * unit.size.height as usize],
                 stride,
             }],

@@ -32,7 +32,7 @@ pub enum PixelFormat {
     Bgra8,
     Nv12,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Plane {
     pub data: Vec<u8>,
     pub stride: usize,
@@ -41,7 +41,8 @@ pub struct Plane {
 pub struct CpuPicture {
     size: Size,
     format: PixelFormat,
-    planes: Vec<Plane>,
+    planes: [Plane; 2],
+    plane_count: usize,
     pub pts_us: u64,
 }
 impl CpuPicture {
@@ -50,17 +51,17 @@ impl CpuPicture {
     pub fn new(
         size: Size,
         format: PixelFormat,
-        planes: Vec<Plane>,
+        planes: impl IntoIterator<Item = Plane>,
         pts_us: u64,
     ) -> Result<Self, CodecError> {
         size.validate()?;
         let w = size.width as usize;
         let h = size.height as usize;
-        let layouts = match format {
-            PixelFormat::Rgb8 => vec![(w * 3, h)],
-            PixelFormat::Rgba8 | PixelFormat::Bgra8 => vec![(w * 4, h)],
+        let (count, layouts) = match format {
+            PixelFormat::Rgb8 => (1, [(w * 3, h), (0, 0)]),
+            PixelFormat::Rgba8 | PixelFormat::Bgra8 => (1, [(w * 4, h), (0, 0)]),
             PixelFormat::Nv12 if w.is_multiple_of(2) && h.is_multiple_of(2) => {
-                vec![(w, h), (w, h / 2)]
+                (2, [(w, h), (w, h / 2)])
             }
             _ => {
                 return Err(CodecError::InvalidInput(
@@ -68,24 +69,42 @@ impl CpuPicture {
                 ));
             }
         };
-        if planes.len() != layouts.len()
-            || planes.iter().zip(layouts).any(|(p, (row, rows))| {
-                p.stride < row
-                    || p.stride
-                        .checked_mul(rows)
-                        .is_none_or(|len| p.data.len() < len)
-            })
-        {
-            return Err(CodecError::InvalidInput(
-                "invalid pixel planes or strides".into(),
-            ));
+        let mut iter = planes.into_iter();
+        let mut planes = [Plane::default(), Plane::default()];
+        for index in 0..count {
+            let plane = iter
+                .next()
+                .ok_or_else(|| CodecError::InvalidInput("missing pixel plane".into()))?;
+            let (row, rows) = layouts[index];
+            if plane.stride < row
+                || plane
+                    .stride
+                    .checked_mul(rows)
+                    .is_none_or(|len| plane.data.len() < len)
+            {
+                return Err(CodecError::InvalidInput(
+                    "invalid pixel plane or stride".into(),
+                ));
+            }
+            planes[index] = plane;
+        }
+        if iter.next().is_some() {
+            return Err(CodecError::InvalidInput("extra pixel planes".into()));
         }
         Ok(Self {
             size,
             format,
             planes,
+            plane_count: count,
             pts_us,
         })
+    }
+    pub fn into_packed_plane(self) -> Result<Plane, CodecError> {
+        if self.plane_count != 1 {
+            return Err(CodecError::InvalidInput("expected packed picture".into()));
+        }
+        let [first, _] = self.planes;
+        Ok(first)
     }
     pub fn size(&self) -> Size {
         self.size
@@ -94,7 +113,7 @@ impl CpuPicture {
         self.format
     }
     pub fn planes(&self) -> &[Plane] {
-        &self.planes
+        &self.planes[..self.plane_count]
     }
 }
 

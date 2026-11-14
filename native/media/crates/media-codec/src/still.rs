@@ -5,8 +5,6 @@ use fast_image_resize::{
     images::{Image, ImageRef},
 };
 use std::borrow::Cow;
-use zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions};
-use zune_jpeg::JpegDecoder;
 
 /// Fit without enlargement or cropping. Round to the nearest even pixel (ties
 /// up, minimum two), as video-policy does. Odd bounds round down to remain inside.
@@ -67,7 +65,7 @@ pub fn fit_size_with_max_pixels(
 
 /// Packs rows and removes alpha. GPU surfaces and NV12 need the platform's
 /// colour converter/readback, rather than a silent CPU conversion with wrong range.
-fn rgb(p: &CpuPicture) -> Result<Cow<'_, [u8]>, CodecError> {
+pub(crate) fn rgb(p: &CpuPicture) -> Result<Cow<'_, [u8]>, CodecError> {
     if p.format() == PixelFormat::Nv12 {
         return Err(CodecError::Unsupported(
             "CPU stills need RGB, RGBA or BGRA".into(),
@@ -106,6 +104,21 @@ pub struct CpuScaler {
 }
 impl Scaler for CpuScaler {
     fn scale(&mut self, picture: &Picture, width: u32, height: u32) -> Result<Picture, CodecError> {
+        self.scale_reusing(picture, width, height, Vec::new())
+    }
+}
+impl CpuScaler {
+    /// Runtime-selected SIMD extension; no unsafe override of CPU detection.
+    pub fn cpu_extensions(&self) -> fast_image_resize::CpuExtensions {
+        self.resizer.cpu_extensions()
+    }
+    pub fn scale_reusing(
+        &mut self,
+        picture: &Picture,
+        width: u32,
+        height: u32,
+        mut buffer: Vec<u8>,
+    ) -> Result<Picture, CodecError> {
         let size = Size { width, height };
         size.validate()?;
         let Picture::Cpu(p) = picture else {
@@ -113,77 +126,40 @@ impl Scaler for CpuScaler {
                 "platform surface needs platform scaler/readback".into(),
             ));
         };
-        let packed = rgb(p)?;
-        let src = ImageRef::new(p.size().width, p.size().height, &packed, PixelType::U8x3)
+        let (packed, pixel_type, format, channels) = if p.format() == PixelFormat::Rgba8
+            && p.planes()[0].stride == p.size().width as usize * 4
+        {
+            (
+                Cow::Borrowed(p.planes()[0].data.as_slice()),
+                PixelType::U8x4,
+                PixelFormat::Rgba8,
+                4,
+            )
+        } else {
+            (rgb(p)?, PixelType::U8x3, PixelFormat::Rgb8, 3)
+        };
+        let src = ImageRef::new(p.size().width, p.size().height, &packed, pixel_type)
             .map_err(|e| CodecError::InvalidInput(e.to_string()))?;
-        let mut dst = Image::new(width, height, PixelType::U8x3);
+        buffer.resize(width as usize * height as usize * channels, 0);
+        let mut dst = Image::from_vec_u8(width, height, buffer, pixel_type)
+            .map_err(|e| CodecError::InvalidInput(e.to_string()))?;
         self.resizer
             .resize(
                 &src,
                 &mut dst,
-                &ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Bilinear)),
+                &ResizeOptions::new()
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
+                    .use_alpha(false),
             )
             .map_err(|e| CodecError::Backend(e.to_string()))?;
         Ok(Picture::Cpu(CpuPicture::new(
             size,
-            PixelFormat::Rgb8,
-            vec![Plane {
+            format,
+            [Plane {
                 data: dst.into_vec(),
-                stride: width as usize * 3,
+                stride: width as usize * channels,
             }],
             p.pts_us,
         )?))
-    }
-}
-#[derive(Default)]
-pub struct JpegCodec;
-impl StillCodec for JpegCodec {
-    fn decode(&mut self, jpeg: &[u8]) -> Result<CpuPicture, CodecError> {
-        let options = DecoderOptions::default()
-            .set_max_width(MAX_DIMENSION as usize)
-            .set_max_height(MAX_DIMENSION as usize)
-            .jpeg_set_out_colorspace(ColorSpace::RGB);
-        let mut decoder = JpegDecoder::new_with_options(ZCursor::new(jpeg), options);
-        decoder
-            .decode_headers()
-            .map_err(|e| CodecError::InvalidInput(e.to_string()))?;
-        let info = decoder
-            .info()
-            .ok_or_else(|| CodecError::InvalidInput("missing JPEG dimensions".into()))?;
-        let size = Size {
-            width: u32::from(info.width),
-            height: u32::from(info.height),
-        };
-        size.validate()?;
-        let data = decoder
-            .decode()
-            .map_err(|e| CodecError::InvalidInput(e.to_string()))?;
-        CpuPicture::new(
-            size,
-            PixelFormat::Rgb8,
-            vec![Plane {
-                data,
-                stride: size.width as usize * 3,
-            }],
-            0,
-        )
-    }
-    fn encode(&mut self, picture: &CpuPicture, quality: u8) -> Result<Vec<u8>, CodecError> {
-        if !(1..=100).contains(&quality) {
-            return Err(CodecError::InvalidInput(
-                "JPEG quality outside 1..100".into(),
-            ));
-        }
-        let data = rgb(picture)?;
-        let mut jpeg = Vec::new();
-        jpeg_encoder::Encoder::new(&mut jpeg, quality)
-            .encode(
-                &data,
-                picture.size().width as u16,
-                picture.size().height as u16,
-                jpeg_encoder::ColorType::Rgb,
-            )
-            .map_err(|e| CodecError::Backend(e.to_string()))?;
-        Ok(jpeg)
     }
 }

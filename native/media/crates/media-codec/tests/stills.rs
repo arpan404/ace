@@ -29,7 +29,7 @@ fn cpu(p: Picture) -> Result<CpuPicture, CodecError> {
 }
 #[test]
 fn jpeg_decode_scale_encode_preserves_size_and_colour_within_tolerance() -> Result<(), CodecError> {
-    let mut codec: Box<dyn StillCodec> = Box::new(JpegCodec);
+    let mut codec: Box<dyn StillCodec> = Box::<CpuJpegCodec>::default();
     let mut scaler: Box<dyn Scaler> = Box::<CpuScaler>::default();
     for (source, target) in [
         (
@@ -114,7 +114,7 @@ fn fitting_preserves_aspect_with_even_dimensions_and_stays_in_bounds() -> Result
 }
 #[test]
 fn bad_images_quality_and_plane_layouts_return_errors() -> Result<(), CodecError> {
-    let mut codec = JpegCodec;
+    let mut codec = CpuJpegCodec::default();
     for data in [&b""[..], &b"not jpeg"[..], &[0xff, 0xd8, 0xff]] {
         assert!(codec.decode(data).is_err());
     }
@@ -183,7 +183,7 @@ fn jpeg_quality_changes_bytes_and_reconstruction_error() -> Result<(), CodecErro
         width: 128,
         height: 64,
     })?;
-    let mut codec = JpegCodec;
+    let mut codec = CpuJpegCodec::default();
     let low = codec.encode(&source, 10)?;
     let high = codec.encode(&source, 95)?;
     assert!(high.len() > low.len());
