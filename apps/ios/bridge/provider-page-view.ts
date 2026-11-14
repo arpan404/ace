@@ -145,6 +145,12 @@ export interface ProviderPage {
     removable: boolean;
   };
   models: ProviderModelsPage | null;
+  /**
+   * Codex: the folder its accounts take plugins, marketplaces and MCP servers from, as the
+   * machine reads it; `reason` says why it adds nothing; `chosen` when it isn't the default.
+   * Null for other providers and for machines too old to say.
+   */
+  toolSource: { path: string; reason: string | null; chosen: boolean } | null;
 }
 
 const accountProviders = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi"]);
@@ -168,6 +174,8 @@ export interface ProviderPageInput {
   machine: string;
   /** This phone was paired as an administrator of the computer. */
   admin: boolean;
+  /** `providers.codex.toolSource` holds a folder, not the default. */
+  toolFolderChosen?: boolean;
 }
 
 /** Where to change a preference this phone may only read. */
@@ -283,6 +291,17 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
       removable: !missing && provider !== "cursor" && provider !== "acp",
     },
     models: missing || !input.catalog ? null : modelsPage(input, input.catalog),
+    toolSource: toolSourceRow(input),
+  };
+}
+
+function toolSourceRow(input: ProviderPageInput): ProviderPage["toolSource"] {
+  const source = input.provider === "codex" ? input.status?.toolSource : undefined;
+  if (!source) return null;
+  return {
+    path: preview(source.path, 4096),
+    reason: source.usable ? null : preview(source.reason ?? "Adds nothing from this folder", 512),
+    chosen: input.toolFolderChosen === true,
   };
 }
 

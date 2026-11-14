@@ -2,6 +2,7 @@ import type { ClientCore } from "@ace/client";
 import {
   ProviderConfigurations,
   ProviderKind,
+  SettingsValues,
   type NativePermissionMode,
   type ProviderConfiguration,
 } from "@ace/protocol";
@@ -13,6 +14,7 @@ import {
   checkpointChange,
   customModelChange,
   customModelRemoval,
+  deviceForbidden,
   editProviderConfiguration,
   modelVisibilityChange,
   providerRow,
@@ -64,6 +66,8 @@ const Change = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("removeCustom"), id }),
   z.object({ kind: z.literal("refreshModels") }),
   z.object({ kind: z.literal("checkAgain") }),
+  /** Codex's tool folder (`providers.codex.toolSource`): a full path, or null for the default. */
+  z.object({ kind: z.literal("toolSource"), path: z.string().max(4096).nullable() }),
 ]);
 export const ProviderEditRequest = z.object({
   type: z.literal("provider.edit"),
@@ -100,7 +104,7 @@ export function machineLabel(owner: Owner): () => Promise<string> {
 
 async function setting(
   owner: Owner,
-  key: "providers.configuration" | "access.nativeModes",
+  key: "providers.configuration" | "access.nativeModes" | "providers.codex.toolSource",
   signal: AbortSignal,
 ): Promise<unknown> {
   const reply = Entries.parse(
@@ -127,18 +131,22 @@ export class ProviderPages {
   ): Promise<ProviderPage> {
     const { provider } = request;
     const options = { ...quiet, signal };
-    const [readiness, configurations, native, modes, catalog, machine] = await Promise.all([
-      this.#owner.request({ type: "providers.request", operation: "readiness" }, options),
-      setting(this.#owner, "providers.configuration", signal)
-        .then((value) => ProviderConfigurations.catch([]).parse(value ?? []))
-        .catch((): ProviderConfiguration[] => []),
-      setting(this.#owner, "access.nativeModes", signal)
-        .then((value) => NativeModes.parse(value ?? {}))
-        .catch((): Record<string, string> => ({})),
-      this.#modes(provider, signal),
-      readModelCatalog(this.#owner, { provider }, signal).catch(() => undefined),
-      this.#machine(),
-    ]);
+    const [readiness, configurations, native, modes, catalog, machine, toolFolder] =
+      await Promise.all([
+        this.#owner.request({ type: "providers.request", operation: "readiness" }, options),
+        setting(this.#owner, "providers.configuration", signal)
+          .then((value) => ProviderConfigurations.catch([]).parse(value ?? []))
+          .catch((): ProviderConfiguration[] => []),
+        setting(this.#owner, "access.nativeModes", signal)
+          .then((value) => NativeModes.parse(value ?? {}))
+          .catch((): Record<string, string> => ({})),
+        this.#modes(provider, signal),
+        readModelCatalog(this.#owner, { provider }, signal).catch(() => undefined),
+        this.#machine(),
+        provider === "codex"
+          ? setting(this.#owner, "providers.codex.toolSource", signal).catch(() => null)
+          : Promise.resolve(null),
+      ]);
     if (!readiness.result.ok) throw new Error(readiness.result.error);
     if (catalog) this.#catalogs.set(provider, catalog);
     return providerPage({
@@ -151,6 +159,7 @@ export class ProviderPages {
       catalog,
       machine,
       admin: request.admin,
+      toolFolderChosen: typeof toolFolder === "string",
     });
   }
 
@@ -185,6 +194,8 @@ export class ProviderPages {
             ? { ok: true }
             : { ok: false, message: "Couldn't check providers. Try again." };
         }
+        case "toolSource":
+          return await this.#toolSource(provider, change.path, signal);
         case "favourite": {
           const ids = catalogModelIds(this.#catalogs.get(provider)?.models ?? []);
           await editProviderConfiguration(
@@ -229,6 +240,33 @@ export class ProviderPages {
     }
   }
 
+  /** Codex's tool folder, checked as the machine checks it, then saved globally. */
+  async #toolSource(provider: ProviderKind, path: string | null, signal: AbortSignal) {
+    if (provider !== "codex")
+      return { ok: false, message: "Only Codex takes a tool folder." } as const;
+    const parsed = SettingsValues.shape["providers.codex.toolSource"].safeParse(
+      path === null ? null : path.trim(),
+    );
+    if (!parsed.success) return { ok: false, message: "Use the folder's full path." } as const;
+    try {
+      const saved = await this.#owner.request(
+        {
+          type: "settings.set",
+          key: "providers.codex.toolSource",
+          value: parsed.data,
+          layer: { kind: "global" },
+        },
+        { ...quiet, signal },
+      );
+      return saved.ok
+        ? ({ ok: true } as const)
+        : ({ ok: false, message: "Couldn't save the tool folder. Try again." } as const);
+    } catch (error) {
+      if (deviceForbidden(error)) throw new ConfigurationRefused();
+      throw error;
+    }
+  }
+
   async #nativeMode(provider: ProviderKind, mode: string, signal: AbortSignal) {
     const before = NativeModes.parse(
       (await setting(this.#owner, "access.nativeModes", signal)) ?? {},
@@ -248,7 +286,7 @@ export class ProviderPages {
 
 type RowEdit = Exclude<
   z.infer<typeof Change>,
-  { kind: "nativeMode" | "refreshModels" | "checkAgain" | "favourite" }
+  { kind: "nativeMode" | "refreshModels" | "checkAgain" | "favourite" | "toolSource" }
 >;
 
 /** One preference change as a change to the provider's row, or why it can't be saved. */
