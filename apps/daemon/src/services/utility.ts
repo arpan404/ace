@@ -7,7 +7,7 @@ import type { CatalogModel, ModelListResult, ProviderKind } from "@ace/protocol"
 import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
-import { knownCliPath } from "../utility-known-cli.ts";
+import { locateKnownCli } from "../utility-known-cli.ts";
 import { cursorAgentSignedIn } from "../acp-agent-cli.ts";
 import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
@@ -40,24 +40,23 @@ async function locateCli(
     target.provider === "opencode"
   ) {
     // The provider check already found the CLI and its login: no probe per title or branch.
-    const known = knownCliPath({
-      status: services.providerStatuses
-        ?.list()
-        .find((row) => row.provider === target.provider && row.runtime === "cli"),
-      binary,
-      auth: accountAuth(context, target.instance ?? `${target.provider}-cli-default`),
-      needsLogin: target.provider !== "opencode",
-    });
-    if (known === "unavailable") return undefined;
-    if (known !== "probe") return { path: known, env };
-    const cli = await discoverProvider(target.provider, {
-      signal,
-      env,
-      ...(binary ? { overrides: { [target.provider]: binary } } : {}),
-    });
-    if (!cli.installed || !cli.path) return undefined;
-    if (target.provider !== "opencode" && cli.auth === "logged_out") return undefined;
-    return { path: cli.path, env };
+    const path = await locateKnownCli(
+      {
+        status: services.providerStatuses
+          ?.list()
+          .find((row) => row.provider === target.provider && row.runtime === "cli"),
+        binary,
+        auth: accountAuth(context, target.instance ?? `${target.provider}-cli-default`),
+        needsLogin: target.provider !== "opencode",
+      },
+      (override) =>
+        discoverProvider(target.provider, {
+          signal,
+          env,
+          ...(override ? { overrides: { [target.provider]: override } } : {}),
+        }),
+    );
+    return path ? { path, env } : undefined;
   }
   const command =
     target.provider === "pi"
