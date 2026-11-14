@@ -348,7 +348,7 @@ private struct InboxThreadCell: View {
             } else {
                 let look = InboxThreadRow.look(of: row)
                 InboxLineRow(row: row, end: .work,
-                             wake: snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil)
+                             wake: snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(InboxThreadRow.spoken(row, look, snoozed: snoozed, need: need))
             }

@@ -439,7 +439,9 @@ remove stops only that machine's runtime, then deletes its credential and databa
 
 `--spike-machines 9852,9863` connects one fixture runtime per port; start each fixture
 with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1 bun run spike:daemon` so each is
-its own host. `MachinesUITests` uses those two ports.
+its own host. `MachinesUITests` uses those two ports. `--spike-unpaired` starts as a fresh
+install with no computer paired and connects to no fixture, so home and Code review offer
+pairing; its machine list lives in its own scratch storage.
 
 ## Live browser
 

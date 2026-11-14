@@ -5,11 +5,22 @@ import BackgroundTasks
 /// Installs the notification delegate, categories and the background refresh task at launch,
 /// which iOS requires before launch finishes.
 final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let coordinator = NotificationCoordinator(lockScreenEdges: .system, pushed: .appGroup)
+    let coordinator = NotificationAppDelegate.makeCoordinator()
+
+    /// The app's notifications. A `--spike-unpaired` launch keeps its settings in scratch defaults
+    /// and touches nothing outside the process: no lock screen or widgets, no app group, no
+    /// background connections.
+    private static func makeCoordinator() -> NotificationCoordinator {
+        guard SpikeConfiguration.unpaired else { return NotificationCoordinator(lockScreenEdges: .system, pushed: .appGroup) }
+        return NotificationCoordinator(defaults: UnpairedScratch.defaults, connectInBackground: { _ in [] }, lockScreenEdges: .inert)
+    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // Nothing registered for a fresh-install fixture: categories, background refresh and push
+        // would write the app's real defaults and register with iOS.
+        if SpikeConfiguration.unpaired { return true }
         center.setNotificationCategories(NotificationCategories.remember(nil, defaults: .standard))
         BackgroundRefresh.register(coordinator)
         coordinator.requestPushToken = { application.registerForRemoteNotifications() }

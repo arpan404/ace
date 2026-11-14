@@ -29,6 +29,30 @@ import Testing
         await more.value
         #expect(search.hits.isEmpty && search.cursor == nil && !search.loading)
     }
+    @Test func aDateFilteredSearchSendsWholeMillisecondsFromAClockThatCountsFractions() async throws {
+        let session = SearchSession()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })
+        session.reply = { data in model.receive(data) }
+        await model.connect(target: ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "phone", pin: nil, credential: { "{}" }), directory: FileManager.default.temporaryDirectory)
+        model.connection = "ready"
+        defer { model.disconnect() }
+        let search = ConversationSearch()
+        // The phone's clock: `timeIntervalSince1970 * 1000`, never a whole number of milliseconds.
+        let now = 1_794_700_000_123.456
+        let filters = ConversationSearch.filters(workspaceId: "ace", days: 7, now: now)
+        let asked = Task { await search.search(model: model, text: "find", kind: "message", threadId: nil, filters: filters) }
+        try await wait { session.requests.count == 1 }
+        let request = try #require(session.requests[0]["request"] as? [String: Any])
+        let sentFilters = try #require(request["filters"] as? [String: Any])
+        #expect(sentFilters["workspaceId"] as? String == "ace")
+        let sent = try #require(sentFilters["after"] as? NSNumber)
+        // The protocol's Timestamp is an integer: a fraction would fail the bridge's validation.
+        #expect(sent.doubleValue == 1_794_700_000_123 - 7 * 86_400_000)
+        #expect(sent.doubleValue.rounded(.down) == sent.doubleValue)
+        try session.answer(at: 0, text: "Last week", cursor: nil)
+        await asked.value
+        #expect(search.hits.map(\.threadTitle) == ["Last week"])
+    }
     @Test func aRefusedCursorOffersARefreshWithoutErasingResults() async throws {
         let session = SearchSession()
         let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in session })

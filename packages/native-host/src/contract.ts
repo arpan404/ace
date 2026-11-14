@@ -166,7 +166,16 @@ export interface NativeHost {
   readonly capabilities: readonly OptionalCapability[];
 
   // Clock, identity and entropy.
+  /**
+   * Epoch milliseconds, whole, as `Date.now()`: protocol Timestamps are built from it. Never for
+   * timing work: it can't tell a sub-millisecond span from none, and it moves with the wall clock.
+   */
   now(): number;
+  /**
+   * Milliseconds on a monotonic clock, with fractions (`performance.now()`, the device's uptime):
+   * for measuring how long work takes, never for a date. Its zero is arbitrary.
+   */
+  monotonicMs(): number;
   uuid(): string;
   /** Uniform in [0, 1). */
   random(): number;
@@ -227,6 +236,7 @@ export interface HostEntries {
 /** Every function a host must have, checked once when the bundle starts. */
 export const requiredFunctions = [
   "now",
+  "monotonicMs",
   "uuid",
   "random",
   "randomBytes",
