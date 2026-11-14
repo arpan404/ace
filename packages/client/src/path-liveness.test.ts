@@ -1,12 +1,14 @@
 import { expect, test } from "vitest";
 import { connected, settle, type Clock } from "./path-switch.fixture.ts";
 
-/** Let `ms` pass in `step` ms steps, letting promise chains run after each. */
+/** Let `ms` pass in `step` ms steps, letting pings and pongs (microtasks) run after each. */
 async function wait(clock: Clock, ms: number, step = 500): Promise<void> {
   for (let left = ms; left > 0; left -= step) {
     clock.advance(Math.min(step, left));
-    await settle();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
   }
+  // A drop's reconnect runs through timers and promises: let it all land before asserting.
+  await settle();
 }
 
 test("one pong 3 s late on a relay-only link does not drop the path", async () => {
