@@ -25,8 +25,8 @@ cargo run --locked -p ace-media
 From the repository root, `bun run check:media` runs formatting, clippy, workspace tests,
 and the cargo-deny license and source checks. The root `bun run check` includes this local
 entry point. Run macOS checks on the Mac and Windows checks in the Windows VM.
-`@ace/media`'s supervisor process test runs against the real binary when
-`ACE_MEDIA_TEST_BINARY` names it:
+`bun run check:media` also builds the binary and runs `@ace/media`'s supervisor process test
+against it. To run that test alone, name the binary in `ACE_MEDIA_TEST_BINARY`:
 
 ```sh
 cargo build -p ace-media

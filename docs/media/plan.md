@@ -256,9 +256,32 @@ table, including timed-out trials and the ranking cache.
 - **As built in M7** (`native/media/crates/ace-media`: the pure `engine`, `auth`, `secret` and
   `probe`, and the I/O in `shell`).
   - **Sockets.** The control and ingest sockets are `m<pid>c.sock` and `m<pid>i.sock` in
-    `init.runtimeDir`, mode 0600, removed at exit. A path longer than `sun_path` allows is a start
-    failure (exit 1). The control socket keeps accepting after both lanes are up and closes every
-    later connection after its hello, unanswered.
+    `init.runtimeDir`, removed at exit. ace-media refuses (exit 1) a runtime directory that is a
+    symlink, is owned by another user or isn't mode 0700, and binds its sockets under a 0177
+    umask, so they are never reachable by anyone else. A path longer than `sun_path` allows is
+    a start failure. The control socket keeps accepting after both lanes are up and closes
+    every later connection after its hello, unanswered; at most 8 connections may be sending a
+    hello at once.
+  - **Grant order.** Grants on the normal lane arrive with non-decreasing `issued` (one FIFO, one
+    monotonic sequence); one older than a grant already seen is refused as `revoked`. So a
+    revocation is forgotten once a later grant arrives. Past 4,096 outstanding revocations the
+    oldest is dropped and every grant at or below its `issued` is refused (fail closed).
+  - **Closed ids.** `connection.close`, `relay.close`, revocations and expiry remember the closed
+    connection and stream ids for the process's lifetime, and a grant naming one is refused
+    (`unknown-connection`) before any ticket is stored or key imported. Past 65,536 remembered
+    ids ace-media exits 1, so the restart ends every connection.
+  - **Limits.** 256 open sources and 65,536 handles (`source.status ended` with reason
+    `source-limit`); 1,024 connections (a refused `media.ticket` gets `connection.closed` with
+    reason `limit`), 4,096 viewers (logged) and 1,024 relay streams (`relay.failed` `limit`).
+    Outbound lanes hold at most 32 MiB (normal) and 1 MiB (priority) of queued bytes; past
+    that, or on a failed write, ace-media exits 1. Neither lane ever waits for the other.
+  - **Producers before their hello.** At most 64 producer connections, 16 of them without an
+    accepted hello; more are closed at accept. A connection has 2 s from accept (the WebSocket
+    handshake included) to send its hello, and may send only what a hello needs: the hello
+    frame's header announces its size, so a larger first frame is refused unread, and a
+    WebSocket client may send 8 KiB of upgrade request and one hello message. The token is
+    read into wiped buffers on every path. A shared buffer inside the WebSocket library can't
+    be wiped from outside; it is reused for the next message.
   - **Exit codes.** 0 after stdin EOF or `shutdown`; 2 when the first message isn't a valid `init`
     or any normal-lane frame is invalid; 1 when a socket lane drops or a socket can't be bound.
   - **Secrets.** Tickets and ingest tokens live in one locked 64 KiB slab (2,048 slots), compared
@@ -280,6 +303,9 @@ table, including timed-out trials and the ranking cache.
     `ready` waits at most the 2 s trial deadline.
   - **Windows.** The lanes on named pipes with a current-user ACL are not built; the binary exits
     1 there.
+  - **Acceptance.** `bun run check:media` builds the binary and runs `@ace/media`'s supervisor
+    process test against it. `cargo run --release -p ace-media --example ingest` measures the
+    ingest budget: 0.37 % of a core for 60 fps of 33 KB units on the Mac (0.04 % idle).
 
 ### Types
 
