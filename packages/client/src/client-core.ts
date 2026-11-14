@@ -643,6 +643,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   cachedThread(id: string): ThreadSource | undefined {
     return this.closed ? undefined : this.#subscriptions.cached(id);
   }
+  peekThread(id: string): ThreadSource | undefined {
+    return this.cachedThread(id);
+  }
   cachedThreads(): SidebarSource | undefined {
     return this.closed ? undefined : this.#sidebar;
   }

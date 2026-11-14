@@ -1,4 +1,5 @@
-import { useSidebarThread, useThreadMeta } from "@ace/client-react";
+import { useSidebarThread } from "@ace/client-react";
+import { useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { AccountView } from "@ace/ui-core";
 import { useMachineAccountViews, useMachineThreadAccount } from "@/lib/machine-accounts.ts";
 
@@ -12,6 +13,9 @@ export interface AgentAccount {
    */
   accounts?: readonly AccountView[] | undefined;
 }
+
+/** The account a thread runs on. */
+const accountOf = (thread: ThreadRecord) => thread.execution?.instanceId ?? thread.live?.account;
 
 /**
  * The account an agent runs on. A subagent runs on its parent thread's account; a delegated
@@ -27,15 +31,15 @@ export function useAgentAccount(input: {
   host?: string | undefined;
 }): AgentAccount {
   const child = input.childThreadId ?? "";
-  const parent = useThreadMeta(input.childThreadId ? undefined : input.threadId);
+  const parent = useThreadField(input.childThreadId ? undefined : input.threadId, accountOf);
   const here = useSidebarThread(input.elsewhere ? "" : child);
   const host = input.elsewhere ? (input.host ?? "") : "";
   const remote = useMachineThreadAccount(host, host ? child : "");
   const remoteAccounts = useMachineAccountViews(host);
   if (input.elsewhere)
     return { instance: host ? remote : undefined, accounts: remoteAccounts ?? none };
-  const source = input.childThreadId ? here : parent;
-  return { instance: source?.execution?.instanceId ?? source?.live?.account };
+  if (!input.childThreadId) return { instance: parent };
+  return { instance: here?.execution?.instanceId ?? here?.live?.account };
 }
 
 const none: readonly AccountView[] = [];

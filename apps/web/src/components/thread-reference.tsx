@@ -1,4 +1,6 @@
-import { useClient, useThreadMeta, useThread, useThreadStore } from "@ace/client-react";
+import { useClient, useThread, useThreadStore } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
+import { threadCheckoutRoot } from "@/lib/thread-fields.ts";
 import { ThreadId, ItemId } from "@ace/protocol";
 import { useQuery } from "@tanstack/react-query";
 import { Suspense, createContext, useContext, useCallback, useEffect, type ReactNode } from "react";
@@ -43,10 +45,9 @@ function ScopedReference(props: {
   children?: ReactNode;
 }) {
   const client = useClient();
-  const thread = useThreadMeta(props.threadId);
+  const root = useThreadField(props.threadId, threadCheckoutRoot);
   const workspace = useWorkspaceActions(props.threadId);
   const path = localPath(props.reference);
-  const root = (thread?.details?.worktree ?? thread?.details?.workspace?.path)?.replace(/\/+$/, "");
   const base = props.cwd ?? root;
   const resolvePath = (value: string, cwd = base) =>
     normalizedPath(value.startsWith("/") || !cwd ? value : `${cwd}/${value}`);
