@@ -232,6 +232,30 @@ export const SuitClientMessage = z.strictObject({
 });
 export type SuitClientMessage = z.infer<typeof SuitClientMessage>;
 
+/** Names one keep, so its undo puts back what each device had before it. */
+export const SuitKeepId = z.string().min(1).max(80);
+
+/**
+ * What an agent's `suit_apply` asks of this device (ADR 0150). The setting (`appearance.suit`)
+ * lives on each device, so the daemon never stores it: it tells the devices that saw a preview
+ * what to show, and each device keeps its own undo.
+ *
+ * - `preview`: show `suitId` over the device's setting, without storing it.
+ * - `none`: no preview; the device's own setting shows. Sent on every new socket too, so a
+ *   preview never outlives the daemon run or the socket that showed it.
+ * - `keep`: the device's setting becomes `suitId` and any preview ends; remember what it was
+ *   under `keepId`.
+ * - `restore`: undo `keepId`: put back what the device had before it, if the setting is still
+ *   the Suit that keep stored.
+ */
+export const SuitActive = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("preview"), suitId: SuitId }),
+  z.strictObject({ kind: z.literal("none") }),
+  z.strictObject({ kind: z.literal("keep"), suitId: SuitId, keepId: SuitKeepId }),
+  z.strictObject({ kind: z.literal("restore"), keepId: SuitKeepId }),
+]);
+export type SuitActive = z.infer<typeof SuitActive>;
+
 export const SuitServerMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("suitResult"),
@@ -240,5 +264,7 @@ export const SuitServerMessage = z.discriminatedUnion("type", [
   }),
   /** Pushed to every signed-in socket with read scope, after the library settles. */
   z.strictObject({ type: z.literal("suitsChanged"), suits: SuitsChanged.shape.suits }),
+  /** Pushed to the devices an agent's preview, keep or revert is for (`SuitActive`). */
+  z.strictObject({ type: z.literal("suitActive"), active: SuitActive }),
 ]);
 export type SuitServerMessage = z.infer<typeof SuitServerMessage>;

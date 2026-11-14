@@ -158,7 +158,7 @@ function SceneFrame(props: {
       title="Suit scene"
       aria-hidden="true"
       tabIndex={-1}
-      className="pointer-events-none fixed inset-0 h-full w-full border-0 bg-transparent"
+      className="pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
     />
   );
 }

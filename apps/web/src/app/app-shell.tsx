@@ -7,7 +7,7 @@ import { UsageLink } from "@/components/usage-bars.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
 import {
   DeleteConfirmationHost,
@@ -40,7 +40,7 @@ import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
-import { SuitBackdrop } from "@/theme/suits/suit-backdrop.tsx";
+import { AppliedSuitBackdrop } from "@/features/suits/index.ts";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -56,6 +56,8 @@ const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => 
  */
 export function AppShell() {
   const shell = useRouteFocus();
+  // While a Suit's scene draws, the canvas lets it through (`canvas.ts`).
+  const [sceneShowing, setSceneShowing] = useState(false);
   useSeenWhileOpen();
   const connection = useConnectionState();
   // The startup screen stays over the shell until its route has resolved and every view has
@@ -72,16 +74,18 @@ export function AppShell() {
                 ref={shell}
                 data-connection={connection}
                 data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
+                data-suit-scene={sceneShowing ? "" : undefined}
                 className={cn(
                   // Focus belongs to the inner panes; the shell must never become a scrollport.
                   // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
                   // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
                   // Under `data-live-held`, motion.css dims the live indicators.
-                  "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
+                  // `isolate`: a Suit's scene sits just over the frame colour, under everything else.
+                  "relative isolate flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
                 )}
               >
                 {/* A Suit's scene, behind the sidebar and the transcript. */}
-                <SuitBackdrop />
+                <AppliedSuitBackdrop onShowing={setSceneShowing} />
                 <a
                   href="#main"
                   // The desktop's macOS traffic lights cover the window's top-left corner.

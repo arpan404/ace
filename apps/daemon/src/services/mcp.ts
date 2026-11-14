@@ -13,7 +13,10 @@ import {
   knowledgeToolkit,
   guideToolkit,
   PublicToolError,
+  SuitPreviews,
+  suitToolkit,
 } from "@ace/mcp-server";
+import { daemonSuitPort } from "../suits/port.ts";
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
@@ -124,6 +127,13 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     id: context.id,
   });
   const layouts = new MeasuredLayouts();
+  // `suit_apply` (ADR 0150): checks from the library, looks to the caller's devices.
+  const suitPreviews = new SuitPreviews(
+    daemonSuitPort(
+      () => services.suits,
+      () => services.suitLooks,
+    ),
+  );
   const mcp = await startDaemonMcp(
     store,
     [
@@ -144,6 +154,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         redactText: createTextRedactor({ env: process.env }),
       }),
       handoffToolkit(store),
+      suitToolkit(suitPreviews),
       // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).
       guideToolkit(await builtinGuides()),
       knowledgeToolkit(knowledge),
@@ -303,6 +314,18 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           if (payload.type === "run.started") help.withdrawIdle(threadId);
       }),
     );
+  // A preview lasts one turn: it ends with the run that started it.
+  resources.own(
+    store.subscribe((events) => {
+      for (const { threadId, payload } of events)
+        if (payload.type === "run.ended")
+          void suitPreviews
+            .turnEnded(threadId)
+            .catch((error: unknown) =>
+              context.log.log("error", "Ending a Suit preview failed", logError(error)),
+            );
+    }),
+  );
   resources.own(
     store.subscribe((events) => {
       if (

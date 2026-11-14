@@ -130,6 +130,8 @@ export interface Services {
   plugins: PluginService;
   /** The Suit library (ADR 0150). */
   suits?: import("../suits/library.ts").SuitLibrary;
+  /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */
+  suitLooks?: import("../suits/looks.ts").SuitLooks;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(
     provider: Provider,

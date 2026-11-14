@@ -27,12 +27,18 @@ export function fakeSuit(
 /** The daemon's Suit library at the transport: tests push lists and `suit.active` by hand. */
 export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
   let suits = [...initial];
-  const lists = new Set<(suits: readonly SuitSummary[]) => void>();
+  let socket: number | undefined;
+  const lists = new Set<(suits: readonly SuitSummary[], socket?: number) => void>();
   const actives = new Set<(active: SuitActive) => void>();
   const transport: SuitTransport = {
     watch(receive) {
       lists.add(receive);
-      queueMicrotask(() => receive(suits.map((suit) => suit.summary)));
+      queueMicrotask(() =>
+        receive(
+          suits.map((suit) => suit.summary),
+          socket,
+        ),
+      );
       return () => lists.delete(receive);
     },
     async read(id) {
@@ -47,9 +53,15 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
   };
   return {
     transport,
-    replace(next: readonly SuitDetail[]) {
+    /** A new list; `over` names a new daemon socket, whose served URLs the Suits now carry. */
+    replace(next: readonly SuitDetail[], over = socket) {
       suits = [...next];
-      for (const receive of lists) receive(suits.map((suit) => suit.summary));
+      socket = over;
+      for (const receive of lists)
+        receive(
+          suits.map((suit) => suit.summary),
+          socket,
+        );
     },
     active(active: SuitActive) {
       for (const receive of actives) receive(active);
