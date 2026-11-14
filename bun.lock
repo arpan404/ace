@@ -963,6 +963,9 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/suit-scene-runtime": {
+      "name": "@ace/suit-scene-runtime",
+    },
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
@@ -1298,6 +1301,8 @@
     "@ace/service": ["@ace/service@workspace:packages/service"],
 
     "@ace/settings": ["@ace/settings@workspace:packages/settings"],
+
+    "@ace/suit-scene-runtime": ["@ace/suit-scene-runtime@workspace:packages/suit-scene-runtime"],
 
     "@ace/terminal": ["@ace/terminal@workspace:packages/terminal"],
 
