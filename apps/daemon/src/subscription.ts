@@ -5,6 +5,7 @@ import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.
 import type { Store } from "./store.ts";
 import { sidebarSubscription } from "./sidebar-subscription.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
+import { routeThread } from "./thread-routes.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -143,10 +144,20 @@ export function subscribe(
       progressTimer = schedule(flushProgress, progressIntervalMs);
     }
   };
-  const remove = store.subscribe((events) => {
-    if (initializing) queued.push(...events);
-    else deliver(events);
-  });
+  // Batches heard while the subscription starts, and the newest head among them.
+  let queuedHead = 0;
+  const hear = (events: Event[], head = events.at(-1)?.seq ?? 0) => {
+    if (!initializing) deliver(events, head);
+    else {
+      queued.push(...events);
+      queuedHead = Math.max(queuedHead, head);
+    }
+  };
+  // A thread subscription hears only its thread's events, plus each batch's head for progress.
+  const remove =
+    scope.kind === "thread"
+      ? routeThread(store, scope.threadId, hear)
+      : store.subscribe((events) => hear(events));
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -232,7 +243,7 @@ export function subscribe(
     initializing = false;
     const pending = queued;
     queued = [];
-    deliver(pending);
+    deliver(pending, Math.max(queuedHead, pending.at(-1)?.seq ?? 0));
     return stop;
   } catch (error) {
     stop();
