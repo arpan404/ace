@@ -9,15 +9,25 @@ type Tab = { tabId: string; url: string; private?: boolean };
 
 /**
  * A daemon with one thread's browser: its engine, tabs and shown tab, the thread's engine
- * setting, and pages that refuse to load (`broken`).
+ * setting, pages that refuse to load (`broken`), whether a desktop app is there to host
+ * `embedded` pages, and whether the daemon says so in its states (`reports`).
  */
-function daemon(start: { backend: string; tabs: Tab[]; activeTabId: string; broken?: string[] }) {
+function daemon(start: {
+  backend: string;
+  tabs: Tab[];
+  activeTabId: string;
+  broken?: string[];
+  desktop?: boolean;
+  reports?: boolean;
+}) {
+  const desktop = start.desktop ?? true;
   let backend = start.backend;
   let tabs = start.tabs;
   let active: string | undefined = start.activeTabId;
   let closed = false;
   let next = 0;
-  const setting: { value?: unknown; layer?: unknown } = {};
+  const setting: { value?: unknown; layer?: unknown } = { value: "auto" };
+  let closes = 0;
   const state = () => ({
     threadId: "thread-1",
     url: tabs.find((tab) => tab.tabId === active)?.url ?? "about:blank",
@@ -25,6 +35,7 @@ function daemon(start: { backend: string; tabs: Tab[]; activeTabId: string; brok
     backend,
     tabs: tabs.map((tab) => ({ ...tab, title: "" })),
     activeTabId: active,
+    ...(start.reports ? { features: ["engines", ...(desktop ? ["embedded-engine"] : [])] } : {}),
   });
   const request = async (input: Record<string, unknown>) => {
     switch (input.type) {
@@ -32,15 +43,25 @@ function daemon(start: { backend: string; tabs: Tab[]; activeTabId: string; brok
         setting.value = input.value;
         setting.layer = input.layer;
         return { ok: true, diagnostics: [] };
+      case "settings.get":
+        return {
+          ok: true,
+          diagnostics: [],
+          entries: [{ key: "browser.backend", value: setting.value, provenance: "thread" }],
+        };
       case "browser.open":
         if (closed) {
+          const preference = String(setting.value);
+          if (preference === "embedded" && !desktop)
+            return fail("Desktop browser backend unavailable");
           closed = false;
-          backend = String(setting.value ?? backend);
+          backend = preference === "auto" ? (desktop ? "embedded" : "headless") : preference;
           tabs = [{ tabId: `t${++next}`, url: "about:blank" }];
           active = tabs[0]?.tabId;
         }
         return ok(state());
       case "browser.close":
+        closes++;
         closed = true;
         tabs = [];
         active = undefined;
@@ -80,6 +101,9 @@ function daemon(start: { backend: string; tabs: Tab[]; activeTabId: string; brok
     },
     get setting() {
       return setting;
+    },
+    get closes() {
+      return closes;
     },
     get shown() {
       return tabs.find((tab) => tab.tabId === active);
@@ -131,6 +155,50 @@ describe("switching a thread's browser engine", () => {
     const moved = await moveBrowserEngine(machine.client, { ...input, engine: "headless" });
     expect(moved.activeTabId).toBe("a");
     expect(machine.tabs).toEqual([{ tabId: "a", url: "https://one.example/" }]);
+  });
+
+  it("refuses the desktop app's engine when the machine has none, before closing anything", async () => {
+    const pages = [
+      { tabId: "a", url: "https://one.example/" },
+      { tabId: "b", url: "https://two.example/" },
+    ];
+    const machine = daemon({
+      backend: "headless",
+      tabs: pages,
+      activeTabId: "b",
+      desktop: false,
+      reports: true,
+    });
+    await expect(
+      moveBrowserEngine(machine.client, { ...input, engine: "embedded" }),
+    ).rejects.toThrow(/desktop app isn't running/);
+    expect(machine.closes).toBe(0);
+    expect(machine.setting.value).toBe("auto");
+    expect(machine.tabs).toEqual(pages);
+    expect(machine.shown?.tabId).toBe("b");
+  });
+
+  it("puts the engine and pages back when the new engine won't open", async () => {
+    // A daemon that doesn't say which engines can open: the move is tried, then undone.
+    const machine = daemon({
+      backend: "headless",
+      tabs: [
+        { tabId: "a", url: "https://one.example/" },
+        { tabId: "b", url: "https://two.example/", private: true },
+      ],
+      activeTabId: "b",
+      desktop: false,
+    });
+    await expect(
+      moveBrowserEngine(machine.client, { ...input, engine: "embedded" }),
+    ).rejects.toThrow(/stayed where it was\. Desktop browser backend unavailable/);
+    expect(machine.setting.value).toBe("auto");
+    expect(machine.backend).toBe("headless");
+    expect(machine.tabs.map((tab) => tab.url)).toEqual([
+      "https://one.example/",
+      "https://two.example/",
+    ]);
+    expect(machine.shown).toMatchObject({ url: "https://two.example/", private: true });
   });
 
   it("names the pages that didn't reload once the rest have moved", async () => {

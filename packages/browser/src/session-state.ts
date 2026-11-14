@@ -43,6 +43,10 @@ export function browserState(
       "tabs",
       "collaborate",
       ...(options.cursor?.visible ? ["page-cursor"] : []),
+      // `engines`: this daemon says which engines can open; `embedded-engine`: the desktop's can.
+      ...(options.embeddedAvailable
+        ? ["engines", ...(options.embeddedAvailable() ? ["embedded-engine"] : [])]
+        : []),
     ],
     ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),

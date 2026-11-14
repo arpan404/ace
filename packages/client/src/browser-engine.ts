@@ -37,50 +37,54 @@ function result(reply: { ok: boolean; result?: unknown; error?: string | undefin
   return reply.result;
 }
 
-/** Keeps the engine for the thread; its next browser opens there. */
-export async function keepBrowserEngine(client: Client, move: Move): Promise<void> {
+type Preference = BrowserEngine | "auto";
+
+/** Writes the thread's `browser.backend`. */
+async function setEngine(client: Client, threadId: ThreadId, value: Preference): Promise<void> {
   const set = await client.request({
     type: "settings.set",
     key: "browser.backend",
-    value: move.engine,
-    layer: { kind: "thread", threadId: ThreadId.parse(move.threadId) },
+    value,
+    layer: { kind: "thread", threadId },
   });
   if (!set.ok) throw new Error(set.diagnostics[0]?.message ?? "Couldn't switch the browser engine");
 }
 
+/** The thread's engine as it reads now, to put back if a move fails; undefined if unreadable. */
+async function readEngine(client: Client, threadId: ThreadId): Promise<Preference | undefined> {
+  try {
+    const reply = await client.request({
+      type: "settings.get",
+      key: "browser.backend",
+      scope: { threadId },
+    });
+    const value = reply.entries.find((entry) => entry.key === "browser.backend")?.value;
+    return value === "auto" || value === "embedded" || value === "headless" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keeps the engine for the thread; its next browser opens there. */
+export async function keepBrowserEngine(client: Client, move: Move): Promise<void> {
+  await setEngine(client, ThreadId.parse(move.threadId), move.engine);
+}
+
+/** A tab to load again on the other engine. */
+type Restore = { url: string; private?: boolean | undefined };
+
 /**
- * Keeps the engine for the thread and moves its open browser there. `reopened` hears the new
- * browser's state as soon as it opens, before its pages load again. A tab agents were kept out
- * of stays that way. One page failing to load skips that tab, never the move; the error names
- * what didn't come back.
+ * Loads `restores` into a browser that just opened, the tab at `activeUrl` shown. One page
+ * failing skips that tab; the failures come back for the caller to name.
  */
-export async function moveBrowserEngine(
+async function reload(
   client: Client,
-  move: Move,
-  reopened?: (state: BrowserState) => void,
-): Promise<{ activeTabId: string | undefined }> {
-  const threadId = ThreadId.parse(move.threadId);
-  const workspaceId = WorkspaceId.parse(move.workspaceId);
-  const timeout = move.openTimeoutMs === undefined ? {} : { timeoutMs: move.openTimeoutMs };
-  const open = async () =>
-    BrowserState.safeParse(
-      await result(
-        await client.request({ type: "browser.open", options: { threadId, workspaceId } }, timeout),
-      ),
-    );
-  // The choice is kept first, so every open from here uses the new engine.
-  await keepBrowserEngine(client, move);
-  // A fresh snapshot: `open` returns the live session untouched, so the tabs never lag.
-  const snapshot = await open();
-  if (!snapshot.success || snapshot.data.closed) throw new Error("browser_failed");
-  if (snapshot.data.backend === move.engine) return { activeTabId: snapshot.data.activeTabId };
-  const prior = snapshot.data.tabs ?? [];
-  const restores = prior.filter((tab) => reloadable(tab.url));
-  const activeUrl = prior.find((tab) => tab.tabId === snapshot.data.activeTabId)?.url;
-  await result(await client.request({ type: "browser.close", threadId }));
-  const fresh = await open();
-  if (fresh.success) reopened?.(fresh.data);
-  const tabsNow = fresh.success ? (fresh.data.tabs ?? []) : [];
+  threadId: ThreadId,
+  state: BrowserState | undefined,
+  restores: readonly Restore[],
+  activeUrl: string | undefined,
+): Promise<{ shown: string | undefined; failed: { url: string; reason: string }[] }> {
+  const tabsNow = state?.tabs ?? [];
   const [only] = tabsNow;
   const blank =
     tabsNow.length === 1 && only && (only.url === "about:blank" || only.url === "")
@@ -139,6 +143,74 @@ export async function moveBrowserEngine(
     created.at(-1)?.tabId;
   if (shown)
     await result(await client.request({ type: "browser.tabs.select", threadId, tabId: shown }));
+  return { shown, failed };
+}
+
+/** The daemon says the desktop app's engine can't open now (no desktop app registered). */
+function desktopMissing(state: BrowserState): boolean {
+  const features = state.features ?? [];
+  return features.includes("engines") && !features.includes("embedded-engine");
+}
+
+/**
+ * Keeps the engine for the thread and moves its open browser there. `reopened` hears each new
+ * browser's state as soon as it opens, before its pages load again. A tab agents were kept out
+ * of stays that way. One page failing to load skips that tab, never the move; the error names
+ * what didn't come back. A desktop engine the daemon says is missing is refused before anything
+ * changes; if the new engine still won't open, the thread's previous engine and pages come back.
+ */
+export async function moveBrowserEngine(
+  client: Client,
+  move: Move,
+  reopened?: (state: BrowserState) => void,
+): Promise<{ activeTabId: string | undefined }> {
+  const threadId = ThreadId.parse(move.threadId);
+  const workspaceId = WorkspaceId.parse(move.workspaceId);
+  const timeout = move.openTimeoutMs === undefined ? {} : { timeoutMs: move.openTimeoutMs };
+  const open = async () =>
+    BrowserState.safeParse(
+      await result(
+        await client.request({ type: "browser.open", options: { threadId, workspaceId } }, timeout),
+      ),
+    );
+  // A fresh snapshot: `open` returns the live session untouched, so the tabs never lag.
+  const snapshot = await open();
+  if (!snapshot.success || snapshot.data.closed) throw new Error("browser_failed");
+  if (snapshot.data.backend === move.engine) {
+    await setEngine(client, threadId, move.engine);
+    return { activeTabId: snapshot.data.activeTabId };
+  }
+  if (move.engine === "embedded" && desktopMissing(snapshot.data))
+    throw new Error("The desktop app isn't running on this machine, so its browser can't open.");
+  const previous = await readEngine(client, threadId);
+  const prior = snapshot.data.tabs ?? [];
+  const restores = prior.filter((tab): tab is typeof tab & { url: string } => reloadable(tab.url));
+  const activeUrl = prior.find((tab) => tab.tabId === snapshot.data.activeTabId)?.url;
+  // The choice is kept before the close, so the reopen uses the new engine.
+  await setEngine(client, threadId, move.engine);
+  await result(await client.request({ type: "browser.close", threadId }));
+  let fresh: Awaited<ReturnType<typeof open>>;
+  try {
+    fresh = await open();
+  } catch (error) {
+    // The new engine won't open: the thread goes back to its engine and its pages.
+    const why = error instanceof Error ? error.message : String(error);
+    if (previous) await setEngine(client, threadId, previous);
+    const back = await open();
+    if (back.success) reopened?.(back.data);
+    await reload(client, threadId, back.success ? back.data : undefined, restores, activeUrl);
+    throw new Error(`Couldn't open the browser there, so it stayed where it was. ${why}`, {
+      cause: error,
+    });
+  }
+  if (fresh.success) reopened?.(fresh.data);
+  const { shown, failed } = await reload(
+    client,
+    threadId,
+    fresh.success ? fresh.data : undefined,
+    restores,
+    activeUrl,
+  );
   if (failed.length)
     throw new Error(
       `Switched engines, but ${failed.length === 1 ? "this tab" : `${failed.length} tabs`} didn't reload: ${failed

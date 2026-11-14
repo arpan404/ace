@@ -48,4 +48,24 @@ describe("Engine for this thread", () => {
       }),
     );
   });
+
+  test("Desktop app only on a machine without the desktop app is refused and the page stays", async () => {
+    const { daemon, sink, view, requested } = await live();
+    daemon.browser.desktop = false;
+    daemon.browser.drive("web", { url: "https://shop.test/cart", backend: "headless" });
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => engine(sink)?.current === "headless", "engine");
+    view.action({ kind: "engine", engine: "embedded" });
+    await until(() => sink.read("browser:problem") !== undefined, "problem");
+    expect(sink.read("browser:problem")).toMatchObject({
+      message: expect.stringMatching(
+        /^Couldn't switch the browser engine\. The desktop app isn't running/,
+      ),
+    });
+    expect(requested).not.toContainEqual(expect.objectContaining({ type: "browser.close" }));
+    expect(daemon.browser.view("web")).toMatchObject({ backend: "headless", closed: false });
+    await until(() => !engine(sink)?.moving, "settled");
+    expect(engine(sink)?.current).toBe("headless");
+    expect(url(sink)).toBe("https://shop.test/cart");
+  });
 });
