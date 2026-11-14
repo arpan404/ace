@@ -55,7 +55,7 @@ What the rows show:
 - **An approval waits behind a snapshot in flight**: 0.4 s on an idle 3g-slow link, 1.7–1.8 s
   while the 58 KiB large-thread snapshot is crossing. This row depends on how much of the
   snapshot is still queued when the approval is sent (the bench sends it once 4 KiB of the
-  snapshot has crossed); across runs it moved between about 0.3 and 1.8 s on 3g-fast.
+  snapshot has crossed); across runs it moved between about 0.3 and 0.75 s on 3g-fast.
 
 ## Daemon to daemon (`machine-link.ts`)
 
