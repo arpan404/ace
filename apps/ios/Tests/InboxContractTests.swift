@@ -40,7 +40,8 @@ import Testing
             let choices = SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox["ios-tree"])
             #expect(choices.map(\.id) == ["needs_you", "hour", "tomorrow", "monday"])
             #expect(choices.first?.detail == "Returns on a question, a failure or when it finishes")
-            #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-tree", preset: "needs_you") })
+            let snoozed = try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-tree", preset: "needs_you") }
+            #expect(snoozed, "the snooze was refused: \(model.error ?? "no reason given")")
             try await until("row moves to Snoozed") { section(model, of: "ios-tree")?.key == "snoozed" }
             let row = try #require(model.inbox["ios-tree"])
             #expect(InboxRowLine.wake(row) == "Until it needs you")

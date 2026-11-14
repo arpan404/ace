@@ -441,12 +441,13 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
       return { type: "thread.unsettle", threadId: action.threadId };
     case "snooze": {
       // An event snooze keeps a backstop time, so nothing sleeps for good; the daemon refuses
-      // one that doesn't fit the thread.
+      // one that doesn't fit the thread. A timestamp is whole milliseconds, and the phone's
+      // clock counts fractions of one.
       if (action.preset === "needs_you" || action.preset === "pr")
         return {
           type: "thread.snooze",
           threadId: action.threadId,
-          until: now + eventSnoozeBackstopMs,
+          until: Math.floor(now) + eventSnoozeBackstopMs,
           wake: action.preset,
         };
       const until = snoozePresets(now).find((preset) => preset.id === action.preset)?.until;

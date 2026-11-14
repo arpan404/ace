@@ -29,6 +29,7 @@ import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
+import { host } from "./host.ts";
 import { inboxRequests } from "./inbox-manage.ts";
 import { PatchPump } from "./patch-pump.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
@@ -287,6 +288,27 @@ describe("snoozing until an event", () => {
     daemon.apply("busy", [facts.endTurn("root")]);
     await until(() => groups(sink).snoozed === undefined, "woke");
     expect(rowOf(sink, "busy")?.snoozeWake).toBeNull();
+  });
+
+  test("on the phone's clock, which counts fractions of a millisecond, the event snooze is still admitted", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "busy",
+        workspaceId: "ace",
+        title: "Busy",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+    });
+    await until(() => rowOf(sink, "busy")?.snoozeEvents.length === 1, "offered");
+    // Swift's host clock is `Date().timeIntervalSince1970 * 1000`, never a whole number.
+    const clock = vi.spyOn(host, "now").mockReturnValue(Date.now() + 0.375);
+    closers.push(() => clock.mockRestore());
+    inboxAction(client, { kind: "snooze", threadId: "busy", preset: "needs_you" }, "frac", sink);
+    await until(() => sink.read("admission:frac") !== undefined, "the admission");
+    expect(sink.read("admission:frac")).toMatchObject({ ok: true });
+    await until(() => groups(sink).snoozed?.includes("busy") === true, "snoozed");
   });
 
   test("a finished thread with a confirmed pull request can sleep until the PR changes", async () => {
