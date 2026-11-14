@@ -38,6 +38,7 @@ export {
   builtinGuides,
   prepareBuiltinSkills,
 } from "./builtins.ts";
+export { seedBuiltinSuits } from "./builtin-suits.ts";
 
 export {
   parseCodexToolConfig,

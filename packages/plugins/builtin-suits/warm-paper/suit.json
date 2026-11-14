@@ -1,0 +1,85 @@
+{
+  "format": 1,
+  "id": "warm-paper",
+  "name": "Warm paper",
+  "description": "Cream pages and ink-brown text by day, lamplit brown by night, with a bronze accent.",
+  "version": "1",
+  "base": "paper",
+  "light": {
+    "canvas": "#FBF4E6",
+    "sidebar": "#F5ECDA",
+    "surface": "#F8EFDF",
+    "raised": "#FFF9EE",
+    "hover": "#F4EBD9",
+    "active": "#F0E6D2",
+    "border": "#E2D6C0",
+    "borderStrong": "#CFC1A8",
+    "faint": "#8E8270",
+    "subtle": "#655947",
+    "muted": "#514636",
+    "text": "#2B2116",
+    "code": "#F6EDDC",
+    "accent": "#744C01",
+    "accentHover": "#643F00",
+    "accentFg": "#FFFFFF",
+    "accentText": "#6E4700",
+    "diffAdd": "#E2EFDF",
+    "diffAddFg": "#2F6236",
+    "diffDel": "#F6E1DC",
+    "diffDelFg": "#93291F",
+    "syntax": {
+      "kw": "#8A3810",
+      "fn": "#3B2A14",
+      "str": "#3B6530",
+      "num": "#834D10",
+      "type": "#1D5A6E",
+      "com": "#655947",
+      "punc": "#655947"
+    }
+  },
+  "dark": {
+    "canvas": "#1B1610",
+    "sidebar": "#15110C",
+    "surface": "#211B14",
+    "raised": "#261F17",
+    "hover": "#221C15",
+    "active": "#2B241B",
+    "border": "#352C22",
+    "borderStrong": "#463B2E",
+    "faint": "#7D7262",
+    "subtle": "#A39682",
+    "muted": "#BEB29E",
+    "text": "#EDE4D4",
+    "code": "#1E1812",
+    "accent": "#EE8545",
+    "accentHover": "#F49A63",
+    "accentFg": "#1B1209",
+    "accentText": "#F09058",
+    "diffAdd": "#1F2A1C",
+    "diffAddFg": "#93CC8C",
+    "diffDel": "#35211C",
+    "diffDelFg": "#F09484",
+    "syntax": {
+      "kw": "#E9A27A",
+      "fn": "#EDE4D4",
+      "str": "#A9CF8F",
+      "num": "#E8B86A",
+      "type": "#8CC4D6",
+      "com": "#A39682",
+      "punc": "#A39682"
+    }
+  },
+  "fonts": {
+    "prose": {
+      "system": "Iowan Old Style, Charter, Georgia, serif"
+    }
+  },
+  "shape": {
+    "radius": 1.2,
+    "border": 1,
+    "density": "comfortable"
+  },
+  "motion": {
+    "speed": 1
+  }
+}

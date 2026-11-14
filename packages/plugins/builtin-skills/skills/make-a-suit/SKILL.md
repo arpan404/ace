@@ -67,7 +67,7 @@ Status colours (working, waiting on you, failed, done), row status colours, the 
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `schema`      | `suit.json` parses within the limits above.                                                                                                                                                                                                                                  |
 | `contrast`    | `text`, `muted`, `subtle` and `accentText` reach 4.5:1 on every surface: `canvas`, `sidebar`, `surface`, `raised`, `code`, `hover`, `active`, a selected row, and glass. `faint` and `accent` reach 3:1 on `canvas`. `accentFg` reaches 4.5:1 on `accent` and `accentHover`. |
-| `accent-fit`  | `accent` is not mistakable for a status colour: keep it away from the blue, amber, green and red ace uses for working, waiting, done and failed.                                                                                                                             |
+| `accent-fit`  | `accent` is not mistakable for a status colour: keep it away from the blue, amber, red, green, violet and pink ace uses for working, needs you, failed, done, waiting and unresponsive.                                                                                      |
 | `glass-floor` | Text on glass still reads at 4.5:1 over frames sampled from your scene. A bright, busy scene needs darker glass (dark) or lighter glass (light).                                                                                                                             |
 | `asset`       | Every `assets/` path exists, stays inside `assets/`, and fonts are files ace can load.                                                                                                                                                                                       |
 | `scene`       | `scene.js` loads, calls `ace.scene` and draws a frame.                                                                                                                                                                                                                       |
@@ -79,7 +79,7 @@ Each problem is `{ scheme, check, field, message }`. Fix the `field` in that `sc
 - `contrast` on `muted` or `subtle`: move that text colour away from the surfaces (darker in light, lighter in dark), or move the surfaces closer to `canvas`. One problem can name the worst surface; fixing it against that one usually fixes the rest.
 - `contrast` on `accentText`: links need the same 4.5:1 as text. Take `accent` a step darker (light) or lighter (dark) for `accentText`.
 - `contrast` on `accentFg`: pick white or near-black, whichever reads on `accent`.
-- `accent-fit`: turn the accent's hue 20–40° or change its lightness; don't fight the check by nudging one digit.
+- `accent-fit`: the gaps between status hues are narrow, so turn the accent's hue 20–40° toward the middle of one (bronze, warm orange and ice blue all fit) or lower its chroma; don't fight the check by nudging one digit.
 - `glass-floor`: raise the scene's darkness behind the sidebar and transcript, or set `glass` to `null`.
 
 ## Scenes
