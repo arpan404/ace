@@ -125,6 +125,55 @@ test("a client shows the daemon's places as given, and places only entries that 
   expect(built.inbox).toEqual(["b"]);
 });
 
+test("sorted by hand, threads from a machine sorting by activity follow the hand order with this one's", () => {
+  const manual = { baseline: 0, now, sortBy: "manual" } as const;
+  const activity = { baseline: 0, now, sortBy: "activity" } as const;
+  const mine = [
+    entry("mine-top", { state: "done" }, now - day, { ...seen(now), listOrder: 40 }),
+    entry("mine-low", { state: "done" }, now - day, { ...seen(now), listOrder: 10 }),
+  ].map((each) => withPlace(each, manual));
+  // The other machine sorts by activity, so its daemon ranked these by live state.
+  const theirs = [
+    entry("theirs-asks", { state: "needs_you", interactions: 1 }, now, { listOrder: 5 }),
+    entry("theirs-mid", { state: "done" }, now - day, { ...seen(now), listOrder: 20 }),
+  ].map((each) => withPlace(each, activity));
+  const built = threadTabs([...mine, ...theirs], placeReader({ fallback: manual }));
+  expect(built.inbox).toEqual(["mine-top", "theirs-mid", "mine-low", "theirs-asks"]);
+});
+
+test("sorted by activity, threads from a machine sorting by hand rank by how they stand", () => {
+  const manual = { baseline: 0, now, sortBy: "manual" } as const;
+  const activity = { baseline: 0, now, sortBy: "activity" } as const;
+  const mine = withPlace(entry("mine-idle", { state: "done" }, now - day, seen(now)), activity);
+  const theirs = [
+    entry("theirs-asks", { state: "needs_you", interactions: 1 }, now - 2 * day),
+    entry("theirs-idle", { state: "done" }, now, seen(now)),
+  ].map((each) => withPlace(each, manual));
+  const built = threadTabs([mine, ...theirs], placeReader({ fallback: activity }));
+  expect(built.inbox).toEqual(["theirs-asks", "theirs-idle", "mine-idle"]);
+});
+
+test("pinned, snoozed and settled threads from machines on another sort keep their places", () => {
+  const manual = { baseline: 0, now, sortBy: "manual" } as const;
+  const activity = { baseline: 0, now, sortBy: "activity" } as const;
+  const later = now + day;
+  const sooner = now + minute;
+  const mine = [
+    entry("pin-mine", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 2 }),
+    entry("snz-mine", { state: "done" }, now, { ...seen(now), snoozedUntil: later }),
+    entry("set-mine", { state: "done" }, now - day, settledAt(now - day)),
+  ].map((each) => withPlace(each, manual));
+  const theirs = [
+    entry("pin-theirs", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 3 }),
+    entry("snz-theirs", { state: "done" }, now, { ...seen(now), snoozedUntil: sooner }),
+    entry("set-theirs", { state: "done" }, now, settledAt(now)),
+  ].map((each) => withPlace(each, activity));
+  const built = threadTabs([...mine, ...theirs], placeReader({ fallback: manual }));
+  expect(built.pinned).toEqual(["pin-theirs", "pin-mine"]);
+  expect(built.snoozed).toEqual(["snz-theirs", "snz-mine"]);
+  expect(built.settled).toEqual(["set-theirs", "set-mine"]);
+});
+
 test("an unconfirmed copy keeps its tabs but folds the Inbox's live bands into one list by activity", () => {
   const input = { baseline: 0, now };
   const entries = [
