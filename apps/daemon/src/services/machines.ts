@@ -33,7 +33,8 @@ import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
-import { TransferClient, transferTransport } from "../transfers/client.ts";
+import { MachineConnections } from "../machines/connections.ts";
+import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
 import { readLocalToken } from "../local-token.ts";
@@ -200,7 +201,15 @@ export function startMachines(context: ServiceContext): void {
 
   // Bound once the children exist below: a machine answering again ends their wait on it.
   let machineReachable: ((machine: string) => void) | undefined;
+  // One kept-open, pinned connection per paired machine, so a call costs one round trip.
+  const connections = new MachineConnections({ schedule });
+  resources.own(() => connections.close());
+  const transferBase = options.transfers?.transport ?? transferTransport;
+  const probes: TransferTransport = (profile, route, callOptions) =>
+    transferBase(profile, route, { ...callOptions, connections });
   const directory = new MachineDirectory({
+    connections,
+    now,
     reachable: (machine) => machineReachable?.(machine),
     profiles: () => {
       const profiles = new Profiles(config.dataDir);
@@ -211,8 +220,7 @@ export function startMachines(context: ServiceContext): void {
       }
     },
     transport: options.machines?.transport ?? machineRequest,
-    transfers: async (profile) =>
-      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
+    transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
     // Sim tools are offered here while a linked machine lends its devices, even with ours off.
     served: () => services.mcp?.toolsChanged(),
@@ -238,8 +246,7 @@ export function startMachines(context: ServiceContext): void {
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
     hostName,
-    transfers: (profile) =>
-      new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),
+    transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;

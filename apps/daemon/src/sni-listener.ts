@@ -1,4 +1,10 @@
-import { createServer as createHttpServer, type RequestListener, type Server } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type RequestListener,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import type { Socket } from "node:net";
 import { createServer as createTlsServer, type TlsOptions } from "node:tls";
 import { bindListener } from "./listener.ts";
@@ -10,9 +16,38 @@ export interface SniLimits {
   headers: number;
   /** A connection with no request in flight is closed after this. */
   keepAlive: number;
+  /**
+   * ...or after this, once a request on it authenticated (`keepTrusted`): another paired
+   * machine polling every few seconds, or re-checking every few minutes at first, reuses one
+   * pinned connection instead of a new TCP and TLS handshake each time. Connections that never
+   * authenticate keep the short limit, so idle ones from strangers can't pile up.
+   */
+  trustedKeepAlive: number;
 }
 
-const defaultLimits: SniLimits = { handshake: 10_000, headers: 10_000, keepAlive: 5_000 };
+const defaultLimits: SniLimits = {
+  handshake: 10_000,
+  headers: 10_000,
+  keepAlive: 5_000,
+  trustedKeepAlive: 60_000,
+};
+
+/** On a socket: the listener's trusted keep-alive, then whether a request on it authenticated. */
+const trustedLimit = Symbol("ace.sni.trustedKeepAlive");
+const trusted = Symbol("ace.sni.trusted");
+
+/**
+ * A request on this connection authenticated: the connection is kept open for the listener's
+ * longer limit once idle, and the answer says so (`Keep-Alive: timeout=N`) so the caller keeps
+ * it as long. Outside an SNI listener's connection this does nothing.
+ */
+export function keepTrusted(request: IncomingMessage, response: ServerResponse): void {
+  const limit: unknown = Reflect.get(request.socket, trustedLimit);
+  if (typeof limit !== "number") return;
+  Reflect.set(request.socket, trusted, true);
+  if (!response.headersSent)
+    response.setHeader("Keep-Alive", `timeout=${Math.floor(limit / 1000)}`);
+}
 
 export interface SniListenerOptions {
   /** TLS options, including the `SNICallback` that picks a certificate per server name. */
@@ -56,6 +91,9 @@ const peer = (socket: Socket) =>
 export function sniListener(options: SniListenerOptions): SniListener {
   const limits = { ...defaultLimits, ...options.limits };
   const http = createHttpServer(options.requests);
+  // Answers say how long the connection is kept (`Keep-Alive: timeout=N`), so clients close it
+  // first; keepTrusted says the longer limit on answers to authenticated requests.
+  http.keepAliveTimeout = limits.keepAlive;
   const front = createTlsServer({
     ALPNProtocols: ["http/1.1"],
     handshakeTimeout: limits.handshake,
@@ -96,6 +134,7 @@ export function sniListener(options: SniListenerOptions): SniListener {
     };
     handshaking.delete(key);
     own(socket);
+    Reflect.set(socket, trustedLimit, limits.trustedKeepAlive);
     connections.set(socket, connection);
     socket.once("close", () => {
       hold(connection);
@@ -113,7 +152,11 @@ export function sniListener(options: SniListenerOptions): SniListener {
     response.once("close", () => {
       connection.inflight--;
       if (connection.inflight === 0 && !socket.destroyed)
-        expire(socket, connection, limits.keepAlive);
+        expire(
+          socket,
+          connection,
+          Reflect.get(socket, trusted) === true ? limits.trustedKeepAlive : limits.keepAlive,
+        );
     });
   });
   // An upgraded socket leaves HTTP: its WebSocket server bounds and closes it from here on.
