@@ -278,7 +278,9 @@ import XCTest
         screenshot("newthread-files-folder")
         app.buttons["file.docs/runbook.md"].tap()
         XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Relay runbook"].exists)
+        // markit draws each block as a text view whose value is its words, not as a static text.
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Relay runbook", "Relay runbook")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
         // A project's own folder is read-only before the thread exists.
         XCTAssertFalse(app.buttons["file.edit"].exists)
         screenshot("newthread-files-preview")
