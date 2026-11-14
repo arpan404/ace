@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The VA backend's availability trial for ace-media's probe (docs/media/plan.md, "Probe at
 //! start"): open a session per step and push one picture through it. The probe runs this on
-//! its own thread under the 2 s deadline and abandons it if it overruns.
+//! its own thread under the 2 s deadline; `stop` is checked between steps, so a cancelled
+//! trial closes its sessions and returns at the next boundary, reporting the steps it didn't
+//! reach as `timed-out`.
 use super::device::{Device, OpenError};
 use super::encoder::VaEncoder;
 use super::ffi::attrib;
@@ -35,25 +37,29 @@ pub fn trial_steps() -> Vec<(Step, Option<String>, Backend)> {
 /// Runs the trial on the first usable render node. A machine without libva or a render
 /// node has no VA backend and reports nothing; one whose driver fails reports every step
 /// `failed`.
-pub fn run_trial() -> Vec<Capability> {
+pub fn run_trial(stop: &dyn Fn() -> bool) -> Vec<Capability> {
     match Device::open() {
-        Ok(device) => trial_on(&device),
+        Ok(device) => trial_on(&device, stop),
         Err(OpenError::Absent(_)) => Vec::new(),
         Err(OpenError::Failed(_)) => trial_steps()
             .into_iter()
-            .map(|(step, codec, backend)| failed(step, codec, backend))
+            .map(|(step, codec, _)| failed(step, codec))
             .collect(),
     }
 }
 
-fn failed(step: Step, codec: Option<String>, backend: Backend) -> Capability {
+fn failed(step: Step, codec: Option<String>) -> Capability {
+    not_ok(step, codec, TrialState::Failed)
+}
+
+fn not_ok(step: Step, codec: Option<String>, state: TrialState) -> Capability {
     Capability {
         step,
         codec,
-        backend,
+        backend: Backend::Vaapi,
         hardware: false,
         zero_copy: false,
-        state: TrialState::Failed,
+        state,
         max_width: 0,
         max_height: 0,
     }
@@ -280,32 +286,49 @@ fn jpeg_trials(
 
 /// The trial on an open device: one entry per step, `failed` where it didn't work. Steps
 /// the driver doesn't list at all are left out: the machine has no hardware for them.
-pub fn trial_on(device: &Arc<Device>) -> Vec<Capability> {
+pub fn trial_on(device: &Arc<Device>, stop: &dyn Fn() -> bool) -> Vec<Capability> {
     let listed = device.profiles().unwrap_or_default();
-    let mut out = Vec::new();
+    let jpeg = || Some("jpeg".to_string());
+    // The steps this driver lists, in trial order, each with what it reports when skipped.
+    let mut steps: Vec<(Step, Option<String>)> = Vec::new();
     for (codec, nominal) in [(Codec::H264, H264_CODEC), (Codec::Hevc, HEVC_CODEC)] {
-        if select::encode_candidates(codec, &listed).is_empty() {
-            continue;
+        if !select::encode_candidates(codec, &listed).is_empty() {
+            steps.push((Step::Encode, Some(nominal.into())));
         }
-        out.push(
-            encode_trial(device, codec)
-                .unwrap_or_else(|_| failed(Step::Encode, Some(nominal.into()), Backend::Vaapi)),
-        );
     }
     if select::lists(&listed, profile::NONE, entrypoint::VIDEO_PROC) {
-        out.push(scale_trial(device).unwrap_or_else(|_| failed(Step::Scale, None, Backend::Vaapi)));
+        steps.push((Step::Scale, None));
     }
     let lists_decode = select::lists(&listed, profile::JPEG_BASELINE, entrypoint::VLD);
     let lists_encode = select::lists(&listed, profile::JPEG_BASELINE, entrypoint::ENC_PICTURE);
-    if lists_decode || lists_encode {
-        let (decode, encode) = jpeg_trials(device);
-        let jpeg = || Some("jpeg".to_string());
-        if lists_decode {
-            out.push(decode.unwrap_or_else(|_| failed(Step::JpegDecode, jpeg(), Backend::Vaapi)));
+    if lists_decode {
+        steps.push((Step::JpegDecode, jpeg()));
+    }
+    if lists_encode {
+        steps.push((Step::JpegEncode, jpeg()));
+    }
+    let mut out = Vec::with_capacity(steps.len());
+    let mut jpeg_results = None;
+    for (step, codec) in steps {
+        if stop() {
+            out.push(not_ok(step, codec, TrialState::TimedOut));
+            continue;
         }
-        if lists_encode {
-            out.push(encode.unwrap_or_else(|_| failed(Step::JpegEncode, jpeg(), Backend::Vaapi)));
-        }
+        let result = match (step, codec.as_deref()) {
+            (Step::Encode, Some(H264_CODEC)) => encode_trial(device, Codec::H264),
+            (Step::Encode, _) => encode_trial(device, Codec::Hevc),
+            (Step::Scale, _) => scale_trial(device),
+            (Step::JpegDecode | Step::JpegEncode, _) => {
+                let (decode, encode) = jpeg_results.get_or_insert_with(|| jpeg_trials(device));
+                if step == Step::JpegDecode {
+                    decode.clone()
+                } else {
+                    encode.clone()
+                }
+            }
+            (Step::Decode, _) => continue,
+        };
+        out.push(result.unwrap_or_else(|_| failed(step, codec)));
     }
     out
 }

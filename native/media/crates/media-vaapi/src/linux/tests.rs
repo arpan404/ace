@@ -572,7 +572,7 @@ fn a_decode_only_driver_refuses_jpeg_encode() {
 #[test]
 fn the_trial_reports_every_listed_step_on_hardware() {
     let (device, _) = fake::device(Fake::intel());
-    let found = trial_on(&device);
+    let found = trial_on(&device, &|| false);
     let steps: Vec<(Step, Option<String>)> =
         found.iter().map(|c| (c.step, c.codec.clone())).collect();
     assert_eq!(
@@ -602,7 +602,7 @@ fn a_driver_without_encoders_reports_only_what_it_has() {
     let mut fake = Fake::intel();
     fake.profiles.retain(|(p, _)| *p == profile::NONE);
     let (device, _) = fake::device(fake);
-    let found = trial_on(&device);
+    let found = trial_on(&device, &|| false);
     assert_eq!(
         found.iter().map(|c| c.step).collect::<Vec<_>>(),
         [Step::Scale]
@@ -614,12 +614,34 @@ fn a_driver_without_encoders_reports_only_what_it_has() {
 }
 
 #[test]
+fn a_cancelled_trial_stops_at_the_next_step_and_reports_the_rest_timed_out() {
+    let (device, _) = fake::device(Fake::intel());
+    let ran = std::cell::Cell::new(0);
+    let found = trial_on(&device, &|| {
+        ran.set(ran.get() + 1);
+        ran.get() > 1
+    });
+    let states: Vec<TrialState> = found.iter().map(|c| c.state).collect();
+    assert_eq!(
+        states,
+        [
+            TrialState::Ok,
+            TrialState::TimedOut,
+            TrialState::TimedOut,
+            TrialState::TimedOut,
+            TrialState::TimedOut
+        ]
+    );
+    assert_eq!(found[1].codec.as_deref(), Some(HEVC_CODEC));
+}
+
+#[test]
 fn a_failing_step_is_reported_failed_not_dropped() {
     let mut fake = Fake::intel();
     fake.refuse_configs
         .push((profile::HEVC_MAIN, entrypoint::ENC_SLICE_LP));
     let (device, _) = fake::device(fake);
-    let hevc = trial_on(&device).into_iter().nth(1).unwrap();
+    let hevc = trial_on(&device, &|| false).into_iter().nth(1).unwrap();
     assert_eq!((hevc.step, hevc.state), (Step::Encode, TrialState::Failed));
     assert_eq!(hevc.codec.as_deref(), Some(HEVC_CODEC));
 }
@@ -631,7 +653,7 @@ fn without_a_gpu_the_trial_reports_no_backend() {
     if std::path::Path::new("/dev/dri").exists() {
         return; // A machine with a GPU runs the hardware checks instead.
     }
-    assert!(run_trial().is_empty());
+    assert!(run_trial(&|| false).is_empty());
     assert!(matches!(Device::open(), Err(OpenError::Absent(_))));
 }
 
