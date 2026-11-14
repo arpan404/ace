@@ -83,16 +83,15 @@ const Capability = z.strictObject({
   maxHeight: u32,
 });
 /** The steps a source runs, with picture-sized GPU↔CPU copies per frame (per still for stills). */
+const SourceStep = z.strictObject({
+  step: Step,
+  backend: Backend,
+  hardware: z.boolean(),
+  readbacks: u32,
+  uploads: u32,
+});
 const Acceleration = z.strictObject({
-  steps: z.array(
-    z.strictObject({
-      step: Step,
-      backend: Backend,
-      hardware: z.boolean(),
-      readbacks: u32,
-      uploads: u32,
-    }),
-  ),
+  steps: z.array(SourceStep),
   degraded: z.boolean(),
   reason: z.string().optional(),
 });
@@ -329,7 +328,14 @@ export const FromMedia = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("record.done"), recording: id, parts: z.array(Part) }),
   z.strictObject({ type: z.literal("record.failed"), recording: id, reason: z.string() }),
-  z.strictObject({ type: z.literal("still.done"), request: id, width: u32, height: u32 }),
+  z.strictObject({
+    type: z.literal("still.done"),
+    request: id,
+    width: u32,
+    height: u32,
+    /** The path the still took, step by step, with its picture-sized copies. */
+    steps: z.array(SourceStep),
+  }),
   z.strictObject({ type: z.literal("still.failed"), request: id, reason: z.string() }),
   z.strictObject({
     type: z.literal("log"),

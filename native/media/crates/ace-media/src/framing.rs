@@ -72,6 +72,19 @@ pub fn encode(message: FromMedia, lane: Lane) -> io::Result<Vec<u8>> {
         .map_err(|_| invalid("outgoing control frame"))
 }
 
+/// Encodes a message and its payload (a still's JPEG) as one frame for `lane`.
+pub fn encode_with(message: FromMedia, payload: Vec<u8>, lane: Lane) -> io::Result<Vec<u8>> {
+    let frame = ControlFrame {
+        message,
+        payload: Zeroizing::new(payload),
+    };
+    let mut bytes = frame
+        .header(lane)
+        .map_err(|_| invalid("outgoing control frame"))?;
+    bytes.extend_from_slice(&frame.payload);
+    Ok(bytes)
+}
+
 pub const TOKEN_LEN: usize = 32;
 /// The largest hello: the biggest header, then the token.
 pub const HELLO_MAX: usize = MEDIA_HEADER_MAX + TOKEN_LEN;
