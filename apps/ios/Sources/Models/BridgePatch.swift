@@ -185,6 +185,9 @@ struct BubbleLine: Codable, Sendable, Equatable {
     let long: Bool
     /// How many lines a long bubble shows folded; absent from older bridges (ten).
     var fold: Int? = nil
+    /// The markdown the bubble renders instead of its runs, every line break kept as a hard
+    /// break; empty (or absent from older bridges) when it draws its runs.
+    var markdown: String? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose

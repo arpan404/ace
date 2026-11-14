@@ -279,3 +279,55 @@ test("a brief from an agent on a paired machine names that machine's thread and 
     bubble: { long: false },
   });
 });
+
+const userBubble = () => rows("thread.item").find((item) => item.role === "user")?.bubble;
+
+test("the person's markdown reaches the bubble as markdown, every line break kept", async () => {
+  const fake = start("markdown");
+  fake.apply("markdown", [
+    facts.message("root", "ask", "user", "Two things:\n- keep the budget\n- add a test\nThanks"),
+  ]);
+  open(connect(fake), "markdown");
+  expect(await until(userBubble, "the bubble")).toMatchObject({
+    markdown: "Two things:  \n- keep the budget  \n- add a test  \nThanks",
+    fold: 10,
+  });
+});
+
+test("plain words stay runs, never markdown, though they hold a # or a *", async () => {
+  const fake = start("plain");
+  fake.apply("plain", [facts.message("root", "ask", "user", "Fix the #3 retry * budget")]);
+  open(connect(fake), "plain");
+  expect(await until(userBubble, "the bubble")).toMatchObject({ markdown: "" });
+});
+
+test("words with a mention stay runs with its chip, even around markdown", async () => {
+  const fake = start("mentioned");
+  fake.apply("mentioned", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "ask",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [
+          { type: "text", text: "Use **this** with " },
+          {
+            type: "mention",
+            entryId: "claude:skill:review",
+            name: "review",
+            kind: "skill",
+            arguments: "",
+          },
+        ],
+      },
+    },
+  ]);
+  open(connect(fake), "mentioned");
+  const bubble = await until(userBubble, "the bubble");
+  expect(bubble).toMatchObject({ markdown: "" });
+  const kinds = (bubble as { segments: { kind: string }[] }).segments.map((run) => run.kind);
+  expect(kinds).toContain("mention");
+});

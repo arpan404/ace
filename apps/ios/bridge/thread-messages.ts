@@ -9,6 +9,7 @@ import {
   eventView,
   isLimitError,
   isLongMessage,
+  looksLikeMarkdown,
   sentByLine,
   sentFold,
   mayBeSystemInput,
@@ -19,6 +20,7 @@ import {
   thoughtMs,
   type BubbleFold,
   type EventView,
+  withHardBreaks,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
@@ -47,6 +49,14 @@ function bounded<T extends { text: string }>(runs: readonly T[]): T[] {
 }
 
 /**
+ * The markdown a bubble renders, as the web's bubble decides it: text the writer plainly meant as
+ * markdown, every line break kept, bounded; empty for text drawn as runs.
+ */
+function markdownOf(text: string): string {
+  return looksLikeMarkdown(text) ? preview(withHardBreaks(text), bubbleChars) : "";
+}
+
+/**
  * Plain words drawn as the person's bubble (a subagent's prompt from its parent, a brief another
  * thread sent): the same runs of words and code, bound as a message the person wrote. `fold` is
  * when it folds and how many lines it then shows; a brief folds sooner than the person's words.
@@ -60,6 +70,7 @@ export function textBubble(text: string, fold: BubbleFold = personFold) {
         mention: "",
       })),
     ),
+    markdown: markdownOf(text),
     readable: text.trim().length > 0,
     long: isLongMessage(text, fold),
     fold: fold.shown,
@@ -67,7 +78,10 @@ export function textBubble(text: string, fold: BubbleFold = personFold) {
   };
 }
 
-/** The person's bubble: its runs of words, code and mentions, bounded, and whether it folds. */
+/**
+ * The person's bubble: its runs of words, code and mentions, bounded, the markdown it renders
+ * instead when it reads as markdown, and whether and where it folds.
+ */
 export function bubbleOf(item: Item) {
   if (item.type !== "message" || item.role !== "user") return null;
   const content = bubbleContent(item.parts);
@@ -89,8 +103,11 @@ export function bubbleOf(item: Item) {
     segments,
     // What it replies to, drawn above the words; each passage bounded as the bubble is.
     quotes: (content.quotes ?? []).map((quote) => ({ text: preview(quote.text, 1024) })),
+    // Mentions draw as chips, so a message with any stays runs, as on the web.
+    markdown: mentions ? "" : markdownOf(content.text),
     readable: content.readable,
-    long: isLongMessage(content.text),
+    long: isLongMessage(content.text, personFold),
+    fold: personFold.shown,
     origin: origins.has(origin) ? origin : "",
   };
 }

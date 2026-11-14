@@ -27,9 +27,16 @@ struct UserMessageRow: View {
         if row.bubble?.readable == false, let quotes = row.bubble?.quotes, !quotes.isEmpty {
             return quotes.map(\.text).joined(separator: "\n\n")
         }
+        if let markdown = row.bubble?.markdown, !markdown.isEmpty { return Self.source(of: markdown) }
         guard let segments = row.bubble?.segments, !segments.isEmpty else { return row.text }
         return segments.map { $0.kind == "code" ? "\n\($0.text)\n" : $0.text }.joined()
             .trimmingCharacters(in: .newlines)
+    }
+    /// Rendered markdown copies as written: without the hard breaks the bridge added to its lines.
+    static func source(of markdown: String) -> String {
+        markdown.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.hasSuffix("  ") ? String($0.dropLast(2)) : String($0) }
+            .joined(separator: "\n")
     }
 }
 
@@ -125,10 +132,11 @@ private struct MessageEyebrow: View {
     }
 }
 
-/// A tailless bubble at the answers' reading size, at most about 80% of the column. Prose as typed,
-/// fenced code (or a paste that is plainly code) in monospace on the code surface, mentions as
-/// chips. A long message shows its first lines under a fade (the bridge's `fold`: ten of the
-/// person's words, four of a brief another thread sent), with Show more / Show less.
+/// A tailless bubble at the answers' reading size, at most about 80% of the column. Markdown the
+/// writer meant renders as answers do; otherwise prose as typed, fenced code (or a paste that is
+/// plainly code) in monospace on the code surface, mentions as chips. A long message shows its
+/// first lines under a fade (the bridge's `fold`: ten of the person's words, four of a brief
+/// another thread sent), with Show more / Show less.
 struct UserBubble: View {
     /// What the bubble leaves free beside it: about a fifth of a phone's column.
     static let inset = AceDesign.Space.section * 2 + AceDesign.Space.related
@@ -138,13 +146,16 @@ struct UserBubble: View {
     /// Show more / Show less carry a caret: most of a brief another thread sent is folded away.
     var caret = false
     @State private var open = false
+    /// Rendered markdown's drawn height: it folds by what it draws, as on the web.
+    @State private var drawn: CGFloat?
     @ScaledMetric(relativeTo: .body) private var lineHeight = AceTheme.Typography.body.lineHeight
     private var foldLines: Int { max(1, bubble?.fold ?? 10) }
     private var foldHeight: CGFloat { lineHeight * CGFloat(foldLines) }
     /// The fade covers the last folded line; a long fold of plain text fades two.
-    private var fadeFrom: CGFloat { 1 - CGFloat(foldLines > 4 ? 2 : 1) / CGFloat(foldLines) }
+    private var fadeFrom: CGFloat { 1 - CGFloat(foldLines > 4 && !markdown ? 2 : 1) / CGFloat(foldLines) }
+    private var markdown: Bool { !(bubble?.markdown ?? "").isEmpty }
     var body: some View {
-        let long = bubble?.long ?? false
+        let long = markdown ? drawn.map { $0 > foldHeight + 1 } ?? (bubble?.long ?? false) : bubble?.long ?? false
         let folded = long && !open
         HStack(spacing: AceTheme.Spacing.none) {
             Spacer(minLength: Self.inset)
@@ -156,6 +167,9 @@ struct UserBubble: View {
                     if bubble?.readable != false {
                         BubbleText(text: text, bubble: bubble)
                             .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                                if markdown { drawn = height }
+                            }
                             .frame(maxHeight: folded ? foldHeight : nil, alignment: .top)
                             .clipped()
                             .mask {
@@ -210,12 +224,22 @@ private struct BubbleQuotes: View {
     }
 }
 
-/// The bubble's runs: prose and mentions flow as one paragraph; code breaks out as its own block.
+/// The bubble's words. Markdown renders through the answers' renderer (markit), lists, code and
+/// links included, with code and tables scrolling inside the bubble. Otherwise its runs: prose and
+/// mentions flow as one paragraph; code breaks out as its own block.
 private struct BubbleText: View {
     let text: String
     let bubble: BubbleLine?
     private enum Piece { case prose(AttributedString), code(String) }
     var body: some View {
+        if let markdown = bubble?.markdown, !markdown.isEmpty {
+            // Copy and Select text are the bubble's long-press menu, so the text isn't selectable.
+            AceMarkdown(text: markdown, selectable: false)
+        } else {
+            runs
+        }
+    }
+    private var runs: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                 switch piece {

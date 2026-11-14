@@ -1,8 +1,8 @@
 import XCTest
 
 /// A message's actions, the fork composer, rename, Turns, Attachments, Pi's Retry, Bring back,
-/// rendered Markdown and a brief another thread sent, against the spike fixture's `ios-turns`,
-/// `ios-pi`, `ios-fork`, `ios-markdown` and `ios-sent`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
+/// rendered Markdown, the person's markdown bubble and a brief another thread sent, against the
+/// spike fixture's `ios-turns`, `ios-pi`, `ios-fork`, `ios-markdown`, `ios-messages` and `ios-sent`. `ACE_IOS_SPIKE_PORT` picks the fixture; `ACE_IOS_SHOTS` (a folder) also
 /// saves the screenshots. Run on a fresh fixture: forking adds threads to it.
 @MainActor final class ThreadTransitionsUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
@@ -156,6 +156,20 @@ import XCTest
         let sender = app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Keep the retry budget'")).firstMatch
         XCTAssertTrue(sender.waitForExistence(timeout: 20), "the sender's thread opens")
         screenshot("sent-by-opened")
+    }
+
+    func testTheMarkdownBubbleFoldsAndOpensWithShowMore() {
+        let app = launch()
+        open("ios-messages", in: app)
+        // The long ask is a list with code: rendered as markdown, folded under Show more.
+        let fold = message("message.fold.", in: app)
+        XCTAssertTrue(fold.waitForExistence(timeout: 90))
+        app.bringToMiddle(fold)
+        XCTAssertEqual(fold.value as? String, "Collapsed")
+        screenshot("markdown-bubble-folded")
+        fold.tap()
+        XCTAssertEqual(fold.value as? String, "Expanded")
+        screenshot("markdown-bubble-open")
     }
 
     private func waitForAny(prefix: String, in app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
