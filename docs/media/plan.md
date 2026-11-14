@@ -244,6 +244,11 @@ table, including timed-out trials and the ranking cache.
     daemon sends it in `init`'s binary payload over stdin, which is already private to the two
     processes. ace-media compares in constant time, wipes its copy once both lanes are up, and
     takes no further lane connections until it restarts.
+  - **Lane hello** (`packages/media/src/lanes.ts`). A socket lane's first 37 bytes are `"ACEL"`,
+    a u8 lane tag (1 priority, 2 egress) and the 32-byte lane secret. ace-media answers one byte,
+    `0x01`, and the connection then carries that lane's frames. On a wrong secret, an unknown or
+    repeated tag, or a connection after both lanes are up, it closes the connection without
+    answering, and the supervisor treats that as a lane failure.
 - **Frames** (all lanes except egress). `u32 BE frame length` (the bytes after this field, at
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
@@ -691,6 +696,37 @@ ace-media.
   - a priority lane that drops causes a kill and a restart.
 - **Rule.** The supervisor never blocks agent tools: every call that needs ace-media has a
   deadline and a fallback.
+- **As built in M6** (`packages/media/src/supervisor.ts`, with its rules in
+  `supervision-policy.ts`, `health.ts`, `grants.ts`, `media-binary.ts`, `diagnostics.ts` and
+  `supervisor-host.ts`).
+  - **Setting gate.** `need()` does nothing while every media setting is `legacy`, the default,
+    so nothing starts ace-media until a setting turns `auto`.
+  - **Sends.** `send()` returns false while ace-media isn't up with both lanes, while it is
+    shutting down after idle, or when a revocation already covers the grant. The caller falls
+    back; sources and recordings come back through `replay`, which runs once both lanes are up
+    and `listen` is sent. A need that arrives during an idle shutdown starts a new process
+    once the old one exits.
+  - **Pings.** A ping's 5 s pong deadline starts when its bytes are written, not when it is
+    queued, and no second ping queues behind an unwritten one, so normal-lane backpressure never
+    counts as missed pongs. A child that stops reading stdin altogether is killed separately:
+    normal-lane bytes pending and no write completing across six ping intervals.
+  - **Lanes.** A socket lane's close is watched from the moment it connects, so a lane that
+    drops while the other is still authenticating ends the run.
+  - **Revocations.** `revoke()` writes to the priority lane and drops queued, unwritten grants it
+    covers (same device and admission with `issued` at most the revocation's, the connection,
+    or the stream), zeroing their payloads. It resolves `answered`, `killed` (the process is
+    gone, so every socket is) or `not-running`.
+  - **Exits.** `onExit` lists the stills, connections, sources and recordings the process held,
+    for their owners to fail or replay. A recording stays listed after `record.stop` until its
+    `record.done` or `record.failed`. It also says whether the exit counted as a failure; an idle
+    shutdown and `dispose()` don't. Secret payloads (`init`, `media.ticket`, `source.open`,
+    `relay.keys`, `listen`) are zeroed after their write callback, or when dropped unwritten.
+    The lane secret comes from the platform CSPRNG unless a test injects `randomBytes`.
+  - **Binary.** `mediaBinaryPath` takes an explicit mode. A release runs only
+    `media/ace-media(.exe)` under the bundle root of the daemon's entry (the release folder or
+    the desktop app's resources, as `@ace/service/spade-layout` defines) and ignores the
+    environment, since the binary receives secrets. Development honours `ACE_MEDIA_PATH`, then
+    the source tree's release build, then its debug build.
 
 ## Helper changes
 
