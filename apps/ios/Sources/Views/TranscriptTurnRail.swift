@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The turn rail on the transcript's trailing edge (`TurnRail`): one short tick per turn shown,
-/// the reader's turn brighter. A finger on it scrubs, a card beside the finger names the turn and
-/// its ask, and lifting jumps there. VoiceOver adjusts the turn and activates to jump. It reads
+/// the reader's turn brighter. Touching and holding its edge band, then dragging, scrubs: a card
+/// beside the finger names the turn and its ask, and lifting jumps there. A tap there jumps too;
+/// a swipe anywhere else along it scrolls the transcript. VoiceOver adjusts the turn and activates to jump. It reads
 /// the turn list once each time the reader leaves the end, never while the feed scrolls.
 struct TranscriptTurnRail: View {
     let model: ClientModel
@@ -44,9 +45,15 @@ struct TranscriptTurnRail: View {
         }
     }
 
+    /// The touch band at the screen's edge: no wider than the transcript's side margin, so it never
+    /// covers a row, and swipes anywhere else along the rail still scroll the transcript.
+    static let band = AceDesign.Space.feedSide
+    /// How long a finger rests on the band before it scrubs: a quick swipe there never does.
+    static let hold = 0.2
+
     private func rail(ticks: [Int], height: CGFloat) -> some View {
-        // The strip itself is the touch area, a full tap wide and the rail's height; the ticks and
-        // the card are drawn over it, so a tap anywhere along it lands.
+        // A full tap wide for VoiceOver and to draw in, but it takes no touches: only the band at
+        // its trailing edge does (`band`), so the transcript under the rest of it still scrolls.
         Color.clear
             .frame(width: AceDesign.Size.tap, height: height)
             .overlay(alignment: .topTrailing) {
@@ -64,20 +71,10 @@ struct TranscriptTurnRail: View {
                     }
                 }
                 .padding(.trailing, AceDesign.Space.tight)
-                .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { drag in scrub = TurnRail.tick(at: Double(drag.location.y), height: Double(height), ticks: ticks) }
-                .onEnded { _ in
-                    guard let turn = scrub else { return }
-                    selection.pick(turn)
-                    scrub = nil
-                    jump(turn)
-                }
-        )
+            .allowsHitTesting(false)
+            .overlay(alignment: .trailing) { touchBand(ticks: ticks, height: height) }
         .accessibilityElement()
         .accessibilityLabel("Turns")
         .accessibilityValue("Turn \(current) of \(count)")
@@ -88,6 +85,33 @@ struct TranscriptTurnRail: View {
         }
         .accessibilityAction { jump(current) }
         .accessibilityIdentifier("transcript.turnRail")
+    }
+
+    /// Touch and hold, then drag, scrubs and lifting jumps; a tap jumps to the tick under it.
+    private func touchBand(ticks: [Int], height: CGFloat) -> some View {
+        let turn = { (y: CGFloat) in TurnRail.tick(at: Double(y), height: Double(height), ticks: ticks) }
+        let scrubbing = LongPressGesture(minimumDuration: Self.hold).sequenced(before: DragGesture(minimumDistance: 0))
+        return Color.clear
+            .frame(width: Self.band, height: height)
+            .contentShape(Rectangle())
+            .gesture(
+                scrubbing.exclusively(before: SpatialTapGesture())
+                    .onChanged { value in
+                        if case .first(.second(true, let drag?)) = value { scrub = turn(drag.location.y) }
+                    }
+                    .onEnded { value in
+                        let picked: Int?
+                        switch value {
+                        case .first: picked = scrub
+                        case .second(let tap): picked = turn(tap.location.y)
+                        }
+                        scrub = nil
+                        guard let picked else { return }
+                        selection.pick(picked)
+                        jump(picked)
+                    }
+            )
+            .accessibilityHidden(true)
     }
 
     /// The turn under the finger: its number, and its ask when the newest page holds it.
