@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect } from "vitest";
 import { FakeHeadless } from "./backend-test-support.ts";
-import type { BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type { BackendOpen, BrowserBackendSession, CaptureEvents, VideoHost } from "./backend.ts";
+import type { VideoEncode } from "./video-policy.ts";
 import { BrowserService } from "./index.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
@@ -26,6 +27,27 @@ export class RestingTabs extends FakeHeadless {
   private failing = new Map<string, number>();
   /** The thread's open request: the page's own callbacks, such as `print`. */
   request: BackendOpen | undefined;
+  /**
+   * Every tab capture the live video opened, in order: the test makes its chunks (`events`)
+   * and reads the encodes it was told to run.
+   */
+  readonly captures: { events: CaptureEvents; encodes: VideoEncode[]; closed: boolean }[] = [];
+  private videoHost: VideoHost = {
+    supported: async (codecs) => codecs.filter((codec) => codec === "vp8"),
+    open: async (_page, _width, _height, events) => {
+      const capture = { events, encodes: [] as VideoEncode[], closed: false };
+      this.captures.push(capture);
+      return {
+        encodes: (specs) => {
+          capture.encodes = [...specs];
+        },
+        keyframe: () => {},
+        close: () => {
+          capture.closed = true;
+        },
+      };
+    },
+  };
   /** Holds the next `step` (such as `hide a`) until the returned function is called. */
   hold(step: string): () => void {
     const gate = Promise.withResolvers<void>();
@@ -68,6 +90,7 @@ export class RestingTabs extends FakeHeadless {
         }
         return send(method, params);
       };
+      page.video = () => this.videoHost;
       page.screenshot = async () => {
         this.log.push(`picture ${id}`);
         return Buffer.from([0]);

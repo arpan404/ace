@@ -86,8 +86,11 @@ export async function settleIdleTabs(
 export function wakeTab(
   runtime: TabRuntime,
   tabs: BrowserBackendTabs | undefined,
+  /** Told, in the turn and before any step, when the tab is not yet shown and running. */
+  restoring: () => void = () => {},
 ): Promise<false | "thawed" | "reopened"> {
   return runtime.lifecycleTurn(async () => {
+    if (runtime.lifecycle !== "live" || tabs?.resting?.(runtime.id)) restoring();
     // Always asked, even when nothing looks hidden: it waits for a hide or show still applying.
     // A tab never stays hidden under a command: the screencast, screenshots and input need frames.
     await tabs?.rest?.(runtime.id, false);

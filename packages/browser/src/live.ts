@@ -214,21 +214,18 @@ export class LiveCapture {
     }
   }
   /** One video step; a page that went away meanwhile skips it rather than throw in a timer. */
-  /** Wakes of the shown page under way: the video waits for them. */
-  private restorations = 0;
   /**
-   * The shown page is being brought back (shown again, thawed or reopened) by `waking`. No
-   * video starts or plays meanwhile, so a viewer's first picture is the restored page at its
-   * size, never a hidden or stale one. Resolves as `waking` does.
+   * The shown page is about to be restored (shown again, thawed or reopened): no video is
+   * captured or delivered until `resumeVideo`, so a viewer never gets a hidden or stale picture.
    */
-  restoring<T>(waking: Promise<T>): Promise<T> {
-    this.restorations++;
-    return waking.finally(() => {
-      this.restorations--;
-    });
+  holdVideo(): void {
+    this.video.hold();
+  }
+  /** The shown page is back; video starts again at a fresh keyframe. */
+  resumeVideo(): void {
+    this.video.resume();
   }
   private stepVideo(): void {
-    if (this.restorations > 0) return;
     let viewport: { width: number; height: number };
     try {
       viewport = this.viewport();
@@ -403,6 +400,8 @@ export class LiveCapture {
     await previous.send("Page.stopScreencast").catch(() => {});
     this.cdp = cdp;
     this.closed = false;
+    // Another page (another tab, or a reopened browser's): nothing is being restored on it.
+    this.video.resume();
     this.lastFrame = -Infinity;
     this.settings = screencastSettings;
     await this.start();

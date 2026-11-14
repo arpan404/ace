@@ -75,6 +75,8 @@ export class BrowserSession {
   private viewers = new ViewerSizes();
   /** Tries again to show the watched tab after a failed wake (`wakeWatched`). */
   private shownWake: RecoveryRetry;
+  /** Bumped by each `wakeWatched`, so a wake that ends after a newer one changes nothing. */
+  private watchWakes = 0;
   /** Why the watched tab could not be shown, and how many tries failed in a row. */
   private wakeFailure: { reason: string; attempts: number } | undefined;
   get evictable(): boolean {
@@ -181,34 +183,36 @@ export class BrowserSession {
     this.scheduleLifecycle();
   }
   /**
-   * Someone started (or keeps) watching: the shown tab comes back. A frozen or dropped page is
-   * captured afresh once it runs again, as a newly shown tab is (a failure there pauses the
-   * browser). A resting page is shown again; if that fails, it is tried again, waiting longer
-   * each time, while anyone watches, and the video says it is retrying rather than stay blank.
+   * Someone started (or keeps) watching: the shown tab comes back, shown and running; a frozen
+   * or dropped page is then captured afresh, as a newly shown tab is. A wake that fails is tried
+   * again, waiting longer each time, while anyone watches that same tab, and the video says it
+   * is retrying (and shows nothing) rather than stay blank. Each call supersedes the ones before
+   * it: a wake that ends after the viewer left or another tab was shown changes nothing.
    */
   private wakeWatched(): void {
+    const generation = ++this.watchWakes;
     this.shownWake.stop();
     const shown = this.tabs.viewed();
     if (this.closed || !shown || !this.live.watched()) {
-      if (this.wakeFailure) {
-        this.wakeFailure = undefined;
-        this.emit();
-      }
+      this.clearWakeFailure();
       return;
     }
-    if (shown.lifecycle !== "live") {
-      this.recapture("Tab capture failed");
-      return;
-    }
-    this.wakeIdle(shown.id).then(
+    const tabId = shown.id;
+    const recapture = shown.lifecycle !== "live";
+    const current = () =>
+      generation === this.watchWakes &&
+      !this.closed &&
+      this.live.watched() &&
+      this.tabs.viewedId() === tabId;
+    this.wakeIdle(tabId).then(
       () => {
+        if (!current()) return;
         this.shownWake.recovered();
-        if (!this.wakeFailure) return;
-        this.wakeFailure = undefined;
-        this.emit();
+        this.clearWakeFailure();
+        if (recapture) this.recapture("Tab capture failed");
       },
       (error: unknown) => {
-        if (this.closed) return;
+        if (!current()) return;
         const reason = error instanceof Error ? error.message : String(error);
         this.wakeFailure = {
           reason: `The page could not be shown: ${reason}`.slice(0, 2048),
@@ -219,13 +223,23 @@ export class BrowserSession {
       },
     );
   }
-  /** A frozen tab runs again, a discarded one reopens (its page state reported lost). */
+  private clearWakeFailure(): void {
+    if (!this.wakeFailure) return;
+    this.wakeFailure = undefined;
+    this.emit();
+  }
+  /**
+   * A resting tab is shown, a frozen one runs again, a discarded one reopens (its page state
+   * reported lost). While the shown tab is being brought back its video is held, and it plays
+   * again only once the tab is back; a failed wake leaves it held until one succeeds.
+   */
   private async wakeIdle(tabId: string): Promise<void> {
     const runtime = this.tabs.find(tabId);
     if (!runtime) return;
-    const waking = wakeTab(runtime, this.options.backend.tabs);
-    // The video waits for the page it shows to be back.
-    const woke = await (tabId === this.captured ? this.live.restoring(waking) : waking);
+    const woke = await wakeTab(runtime, this.options.backend.tabs, () => {
+      if (tabId === this.captured) this.live.holdVideo();
+    });
+    if (tabId === this.captured) this.live.resumeVideo();
     if (woke === "reopened") this.tabs.stateLost(tabId, true);
     if (woke) this.emit();
   }
@@ -622,6 +636,10 @@ export class BrowserSession {
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
+      // Another tab is shown: a wake of the last one, or its retries and status, no longer count.
+      this.watchWakes++;
+      this.shownWake.stop();
+      this.clearWakeFailure();
       this.captured = viewedId;
       this.recapture("Tab capture failed");
       // A backend that treats only the shown view specially (the desktop) relearns it.

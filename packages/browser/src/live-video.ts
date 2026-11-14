@@ -222,7 +222,23 @@ export class LiveVideo {
     this.viewers.clear();
   }
   /** Re-plans the encodes from each viewer's pane and link, and applies them. `page` is the page's CSS size now. */
+  /**
+   * The page it shows is being restored (shown again, thawed or reopened): the capture stops,
+   * every viewer's queued chunks go and late ones from that capture are dropped, and no capture
+   * opens or delivers until `resume`. The first chunk after is a keyframe of a new capture.
+   */
+  hold(): void {
+    if (this.held) return;
+    this.held = true;
+    this.close();
+  }
+  /** The page is back: the next tick opens a capture of it. */
+  resume(): void {
+    this.held = false;
+  }
+  private held = false;
   tick(page: { width: number; height: number }): void {
+    if (this.held) return;
     const now = this.now();
     this.fanout.flush();
     this.page = { ...this.page, ...page };
