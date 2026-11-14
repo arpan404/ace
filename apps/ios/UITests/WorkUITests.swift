@@ -48,7 +48,11 @@ import XCTest
         XCTAssertTrue(more.label.contains("200 more of 252"), more.label)
         screenshot("branches-more")
         more.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "work.branches.more", "52 more of 52")).firstMatch.waitForExistence(timeout: 10))
+        // The next Show more sits after the 200 rows just added; a lazy list only has it once
+        // it is scrolled near.
+        let rest = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "work.branches.more", "52 more of 52")).firstMatch
+        for _ in 0..<60 where !(rest.exists && rest.isHittable) { app.swipeUp() }
+        XCTAssertTrue(rest.waitForExistence(timeout: 10), "Show more offers the last 52")
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
