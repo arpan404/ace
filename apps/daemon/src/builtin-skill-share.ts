@@ -22,11 +22,12 @@ export type SharedBuiltinSkills = {
 };
 
 /**
- * One projection of the shipped skill bundle for every session of a provider whose process is
- * shared. Identical spawn arguments let those sessions run on one process. A root is replaced
- * once its lease cannot record another launch, and removed when nothing uses it.
+ * One projection of the shipped skill bundle for every session of a provider. Codex sessions
+ * share an app-server, so identical spawn arguments let them run on one process; Claude sessions
+ * each launch their own process from the same read-only copy. A root is replaced once its lease
+ * cannot record another launch, and removed when nothing uses it.
  */
-export function sharedBuiltinSkills(provider: "codex", dataDir: string) {
+export function sharedBuiltinSkills(provider: "claude" | "codex", dataDir: string) {
   let current: Promise<Holder> | undefined;
   async function create(): Promise<Holder> {
     const root = await createBuiltinSkillRoot(dataDir);
