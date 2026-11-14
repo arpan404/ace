@@ -11,6 +11,7 @@ import {
   type StartupRuntime,
 } from "./startup.ts";
 import type { Services } from "./types.ts";
+import { serviceOrder } from "./service-order.ts";
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 const server = {} as Server;
@@ -207,4 +208,40 @@ test("a service whose module loads after shutdown began is never started", async
   await closing;
   expect(late.entered()).toBe(false);
   expect(services.agentControl).toBeUndefined();
+});
+
+/** The daemon's own service order, each start replaced by one the test watches and holds. */
+function daemonOrder(hold: Partial<Record<string, Promise<void>>>, fail: readonly string[] = []) {
+  const entered = new Set<string>();
+  const definitions: ServiceDefinition[] = serviceOrder.map((entry) => ({
+    ...entry,
+    async start() {
+      entered.add(entry.name);
+      if (fail.includes(entry.name)) throw new Error(`${entry.name} failed`);
+      await hold[entry.name];
+    },
+  }));
+  return { definitions, entered };
+}
+
+/** Services that start work on their own (outside clients, Spade, scheduled runs) or move threads. */
+const workStarters = ["externalMcp", "spade", "automations", "threadOrganization", "storage"];
+
+test("outside clients, Spade and scheduled runs start no work before machines and transfers are up", async () => {
+  const machines = Promise.withResolvers<void>();
+  const transfers = Promise.withResolvers<void>();
+  const order = daemonOrder({ machines: machines.promise, transfers: transfers.promise });
+  const subject = startup();
+  await subject.start(order.definitions);
+  const listening = subject.listening(server);
+  await expect.poll(() => order.entered.has("machines")).toBe(true);
+  // Independent services still start meanwhile.
+  await expect.poll(() => state(subject, "usage")).toBe("ready");
+  for (const name of [...workStarters, "transfers"]) expect(order.entered.has(name)).toBe(false);
+  machines.resolve();
+  await expect.poll(() => order.entered.has("transfers")).toBe(true);
+  for (const name of workStarters) expect(order.entered.has(name)).toBe(false);
+  transfers.resolve();
+  await listening;
+  for (const name of workStarters) expect(state(subject, name)).toBe("ready");
 });
