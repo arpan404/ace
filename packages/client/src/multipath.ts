@@ -119,6 +119,8 @@ export class Multipath {
   #switching = false;
   #openingStandby = false;
   #lastWinner: string | undefined;
+  /** The active path's missed pongs in a row. */
+  #misses = 0;
   /** How long the last race took to open its winner: the next race's stagger follows it. */
   #lastOpenMs: number | undefined;
   /** Paths that reached another daemon: never used again by this manager. */
@@ -235,6 +237,7 @@ export class Multipath {
   #settle(route: MachineRoute): void {
     this.#stopLoops();
     this.#active = route;
+    this.#misses = 0;
     this.#lastWinner = route.path.key;
     this.#health.set(route.path.key, afterSuccess(this.#healthOf(route)));
     this.#options.chosen?.(route.path);
@@ -264,46 +267,53 @@ export class Multipath {
   }
 
   /**
-   * Ping the active path; a pong sharpens its round trip. Silence past the pong deadline (2 s, or
-   * four round trips on a slow link) is a miss: with a warm standby one fails the path over, and
-   * without one a second ping must go unanswered too, since then a miss means a reconnect.
+   * Ping the active path every 5 s while visible, 25 s while hidden, from one ping to the next
+   * whatever the round trip, so a keep-alive never lets a NAT forget the socket. A pong sharpens
+   * the round trip. Each ping has its own deadline (2 s, or four round trips on a slow link):
+   * silence past it is a miss. With a warm standby one miss fails the path over; without one, a
+   * second ping goes at once and must go unanswered too, since then a miss means a reconnect.
    */
-  #schedulePing(misses = 0): void {
-    const delay = misses ? 0 : pingEvery(this.#options.visible?.() ?? true);
-    this.#later(delay, () => {
-      const connection = this.#connection;
-      const route = this.#active;
-      if (!connection || !route || connection.state !== "ready") return;
-      const sentAt = this.#options.now();
-      const heard = connection.heard;
-      let answered = false;
-      void connection.ping().then(() => {
-        answered = true;
-        if (this.#active !== route) return;
-        const health = this.#healthOf(route);
-        const at = this.#options.now();
-        this.#health.set(route.path.key, {
-          ...health,
-          rttMs: smoothRtt(health.rttMs, at - sentAt),
-          rttAt: at,
-        });
-      });
-      this.#later(pongDeadline(this.#healthOf(route).rttMs), () => {
-        if (this.#active !== route) return;
-        // Anything heard proves the path alive; a pong queued behind a busy stream is late.
-        if (answered || connection.heard > heard) {
-          this.#schedulePing();
-          return;
-        }
-        this.#options.report?.("path.pong_missed", { path: route.path.kind });
-        if (misses + 1 < missesToFail(this.#standby !== undefined)) {
-          this.#schedulePing(misses + 1);
-          return;
-        }
-        this.#failed(route);
-        connection.failover("Path missed its pong");
+  #schedulePing(): void {
+    this.#later(pingEvery(this.#options.visible?.() ?? true), () => {
+      if (this.#ping()) this.#schedulePing();
+    });
+  }
+  /** Ping the active path once and watch for its answer; false when there is none to ping. */
+  #ping(): boolean {
+    const connection = this.#connection;
+    const route = this.#active;
+    if (!connection || !route || connection.state !== "ready") return false;
+    const sentAt = this.#options.now();
+    const heard = connection.heard;
+    let answered = false;
+    void connection.ping().then(() => {
+      answered = true;
+      if (this.#active !== route) return;
+      const health = this.#healthOf(route);
+      const at = this.#options.now();
+      this.#health.set(route.path.key, {
+        ...health,
+        rttMs: smoothRtt(health.rttMs, at - sentAt),
+        rttAt: at,
       });
     });
+    this.#later(pongDeadline(this.#healthOf(route).rttMs), () => {
+      if (this.#active !== route) return;
+      // Anything heard proves the path alive; a pong queued behind a busy stream is late.
+      if (answered || connection.heard > heard) {
+        this.#misses = 0;
+        return;
+      }
+      this.#options.report?.("path.pong_missed", { path: route.path.kind });
+      if (++this.#misses < missesToFail(this.#standby !== undefined)) {
+        this.#ping();
+        return;
+      }
+      this.#misses = 0;
+      this.#failed(route);
+      connection.failover("Path missed its pong");
+    });
+    return true;
   }
   /**
    * The link the connection uses now, as the planner measures it: the active path's smoothed

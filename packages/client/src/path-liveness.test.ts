@@ -68,16 +68,54 @@ test("hidden keep-alives keep a mapping that expires after 30 s idle alive", asy
   expect(relay.sockets).toHaveLength(1);
 });
 
-test("a hidden window on a relay-only link finds a silently expired path within 31 s", async () => {
+test("a hidden window on a relay-only link finds a silently expired path within 29 s", async () => {
   const { clock, path } = await connected("relay", ["relay"], { visible: () => false });
   const relay = path("relay");
   // The first hidden ping goes at 25 s and is answered.
   await wait(clock, 25_500);
   // The mapping expires right after that pong; nothing comes back any more.
   relay.answers = false;
-  // Next ping at 52 s (its 2 s deadline, then 25 s), missed twice: dropped by 56 s.
-  await wait(clock, 29_000);
+  // Next ping at 50 s, 25 s after the last; missed at 52 s, pinged again, missed at 54 s.
+  await wait(clock, 26_000);
   expect(relay.sockets[0]?.closed).toBe(false);
-  await wait(clock, 2_000);
+  await wait(clock, 3_000);
   expect(relay.sockets[0]?.closed).toBe(true);
+});
+
+/** The longest gap between consecutive pings on the wire, from their send times. */
+const longestGap = (times: readonly number[]) =>
+  Math.max(...times.slice(1).map((at, index) => at - (times[index] ?? 0)));
+
+for (const [name, visible, intervalMs] of [
+  ["hidden", false, 25_000],
+  ["visible", true, 5_000],
+] as const)
+  test(`${name} pings stay ${intervalMs / 1000} s apart from ping to ping on a slow link`, async () => {
+    const { clock, path } = await connected("relay", ["relay"], { visible: () => visible });
+    const relay = path("relay");
+    // A 2.5 s round trip: the pong deadline grows to its 10 s cap.
+    const sent: number[] = [];
+    relay.pongAfter = (deliver) => {
+      sent.push(clock.now);
+      clock.set(2_500, deliver);
+    };
+    await wait(clock, 200_000);
+    expect(sent.length).toBeGreaterThan(5);
+    expect(longestGap(sent)).toBeLessThanOrEqual(intervalMs);
+    // Every pong came back: the path was never dropped.
+    expect(relay.sockets).toHaveLength(1);
+  });
+
+test("a hidden mapping that expires after 30 s idle survives a slow link's pongs", async () => {
+  const { clock, path } = await connected("relay", ["relay"], { visible: () => false });
+  const relay = path("relay");
+  let lastPing = clock.now;
+  relay.pongAfter = (deliver) => {
+    if (clock.now - lastPing > 30_000) relay.answers = false;
+    lastPing = clock.now;
+    if (relay.answers) clock.set(2_500, deliver);
+  };
+  await wait(clock, 200_000);
+  expect(relay.answers).toBe(true);
+  expect(relay.sockets).toHaveLength(1);
 });
