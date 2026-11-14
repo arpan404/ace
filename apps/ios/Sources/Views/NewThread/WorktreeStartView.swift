@@ -89,6 +89,8 @@ struct WorktreeStartView: View {
                 .overlay(alignment: .top) { Hairline() }
             }
         }
+        // A container: its actions keep their own identifiers rather than taking the card's.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("worktree.card")
     }
     private var actionButtons: some View {
