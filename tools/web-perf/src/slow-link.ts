@@ -207,6 +207,11 @@ async function navigate(
         const kind = `${entry.type ?? "?"} from ${entry.initiator.type} ${pathOf(mapInitiator(entry.initiator) ?? "")}`;
         kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
       }
+    // Measured; now stay on the page while it finishes loading, as a person would, so the warm
+    // visit finds in the cache what the page fetches after its first message. Closing at first
+    // content left late chunks uncached, and the warm visit moved with the link's speed.
+    if (cache === "cold")
+      await page.waitForLoadState("networkidle", { timeout: 180_000 }).catch(() => undefined);
     return {
       cache,
       kinds: [...kinds].toSorted((a, b) => b[1] - a[1]).slice(0, 12),
