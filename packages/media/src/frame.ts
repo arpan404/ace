@@ -56,7 +56,7 @@ function valid(frame: MediaFrame): void {
   if (frame.kind === 5 && frame.payload.length !== 32)
     throw new Error("Invalid hello token length");
 }
-export function encodeMediaFrame(frame: MediaFrame): Uint8Array {
+export function encodeMediaFrame(frame: MediaFrame): Uint8Array<ArrayBuffer> {
   valid(frame);
   const h = 44 + frame.codecString.length + frame.description.length + frame.extension.length;
   const bytes = new Uint8Array(h + frame.payload.length);

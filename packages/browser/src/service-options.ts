@@ -13,6 +13,11 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 
 export interface BrowserServiceOptions {
   dataDir: string;
+  /**
+   * The daemon's ace-media (E4): live video streams through it while `media.encode` routes it
+   * there. Omitted, every capture uses the browser's own path.
+   */
+  media?: import("./media-video.ts").BrowserMedia;
   /** A Chromium to run instead of ace's pinned one (`ACE_CHROMIUM_PATH`). */
   executablePath?: string;
   /**

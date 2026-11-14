@@ -202,3 +202,18 @@ describe("named routes", () => {
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
   });
 });
+
+it("ace-media going away changes exactly the kinds that were routed through it", () => {
+  const settings: MediaSettings = {
+    encode: "auto",
+    delivery: "legacy",
+    recordings: "legacy",
+    stills: "legacy",
+  };
+  const capabilities = { ...builtRouteCapabilities, ingest: ["tab", "screen"] as const };
+  const up = mediaRoutes(settings, "healthy", capabilities);
+  const down = mediaRoutes(settings, "restarting", capabilities);
+  expect(changedRoutes(up, down)).toEqual(["tab", "screen"]);
+  expect(down.tab.producer).toBe("daemon");
+  expect(changedRoutes(down, mediaRoutes(settings, "unavailable", capabilities))).toEqual([]);
+});

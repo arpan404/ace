@@ -288,7 +288,8 @@ export class MediaSources {
     this.#byId.set(id, open);
     if (this.#options.route(open.kind).egress)
       this.#options.send({ type: "source.egress", source: id, on: true });
-    if (open.encodes) this.#options.send({ type: "source.encodes", source: id, encodes: open.encodes });
+    if (open.encodes)
+      this.#options.send({ type: "source.encodes", source: id, encodes: open.encodes });
     open.streaming = true;
     open.listener.target({
       url: `ws://127.0.0.1:${ingest.websocketPort}/ingest`,

@@ -49,8 +49,7 @@ function world() {
   let now = 0;
   let ids = 0;
   let bytes = 0;
-  const route = (kind: SourceKind) =>
-    mediaRoutes(state.settings, state.health, capabilities)[kind];
+  const route = (kind: SourceKind) => mediaRoutes(state.settings, state.health, capabilities)[kind];
   let sources: MediaSources;
   const egress = new EgressRouter((kind) => sources.egressRoute(kind));
   sources = new MediaSources({

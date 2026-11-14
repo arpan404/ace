@@ -1,7 +1,12 @@
 import { session as sessions, WebContentsView, type WebContents } from "electron";
 import { z } from "zod";
 import { videoEncoderScript } from "@ace/browser/video-encoder";
-import { encoderOrigin, type EncodeSpec, type PageVideoHost } from "./page-video.ts";
+import {
+  encoderOrigin,
+  type EncodeSpec,
+  type IngestTarget,
+  type PageVideoHost,
+} from "./page-video.ts";
 
 /*
  * The desktop's video encoder (ADR 0088, embedded backend): one hidden page, made while anyone
@@ -21,7 +26,8 @@ import { encoderOrigin, type EncodeSpec, type PageVideoHost } from "./page-video
 const partition = "ace-video-encoder";
 const channel = "ace:video.event";
 const page = `<!doctype html>\n<meta charset="utf-8">\n<title>ace video encoder</title>\n<script src="encoder.js"></script>\n`;
-const policy = "default-src 'none'; script-src 'self'";
+// `connect-src` admits only ace-media's loopback ingest (E4), which takes this page's origin.
+const policy = "default-src 'none'; script-src 'self'; connect-src ws://127.0.0.1:*";
 /** An unused encoder page stays this long, for the next capture to start quickly. */
 const defaultIdleMs = 30_000;
 
@@ -113,6 +119,10 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
 
   audio(capture: string, on: boolean): void {
     this.post(capture, "aceVideo.audio", [capture, on]);
+  }
+
+  ingest(capture: string, target: IngestTarget | undefined): void {
+    this.post(capture, "aceVideo.ingest", [capture, target ?? null]);
   }
 
   /** Stops a capture; its listeners hear it ended (the daemon ignores an end it asked for). */
