@@ -152,6 +152,8 @@ export class Store {
   private attributedChanges = 0;
   /** Threads the open transaction's events wrote: their cached reads end when it commits. */
   private writtenThreads = new Set<ThreadId>();
+  /** A savepoint in the open transaction rolled back: its views are rebuilt when it ends. */
+  private partlyRolledBack = false;
   private readonly wal: WalMaintenance;
   private transactions = 0;
   private eventRows = 0;
@@ -571,6 +573,10 @@ export class Store {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         this.threads.discard();
         this.readCache.invalidate();
+        // Views read inside the savepoint may hold its rows: stale now, rebuilt once the
+        // outermost transaction ends.
+        this.threadReads.invalidateViews();
+        this.partlyRolledBack = true;
         this.rolledBack++;
         this.sidebarReads.invalidate();
         this.transactionEvents.length = length;
@@ -585,6 +591,7 @@ export class Store {
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
+    let failed = false;
     try {
       result = run();
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
@@ -597,6 +604,7 @@ export class Store {
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
+      failed = true;
       this.db.exec("ROLLBACK");
       this.writtenThreads.clear();
       this.rolledBack++;
@@ -606,6 +614,7 @@ export class Store {
     } finally {
       this.threads.end();
       this.transactionEvents = undefined;
+      if (failed || this.partlyRolledBack) this.afterRollback();
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
     // subscribers have already received.
@@ -630,6 +639,16 @@ export class Store {
       }
     }
     return result;
+  }
+  /**
+   * A transaction ended with rows rolled back (a failed commit included). Held views read
+   * inside it may show those rows, and no counter moves on a rollback: rebuild them from what
+   * is committed, outside any transaction, before anything is published.
+   */
+  private afterRollback(): void {
+    this.partlyRolledBack = false;
+    this.readCache.invalidate();
+    this.threadReads.refreshViews();
   }
   private settle(
     settlements: { outcome: TransactionOutcome }[],
@@ -849,6 +868,8 @@ export class Store {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
       this.sidebarReads.invalidate();
+      this.installingHistory = false;
+      this.afterRollback();
       throw error;
     } finally {
       this.writtenThreads.clear();

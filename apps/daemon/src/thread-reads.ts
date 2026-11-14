@@ -42,6 +42,22 @@ export class ThreadReads {
   invalidateViews(): void {
     for (const { view } of this.caches.values()) this.source.status.invalidateCache(view);
   }
+  /**
+   * After a transaction that rolled back, in whole or in part: a view read inside it may hold
+   * rows that were never stored. Each held view is rebuilt from committed rows now, or stays
+   * marked stale (rebuilt at its next read) if it cannot be read, such as a thread the
+   * transaction created.
+   */
+  refreshViews(): void {
+    for (const [id, { view }] of this.caches) {
+      this.source.status.invalidateCache(view);
+      try {
+        this.catchUp(view, id);
+      } catch {
+        /* Still marked stale: its next acquire or publication rebuilds it. */
+      }
+    }
+  }
   clearViews(): void {
     this.caches.clear();
   }
