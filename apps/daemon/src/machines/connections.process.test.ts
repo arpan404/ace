@@ -600,3 +600,56 @@ for (const [ending, end] of [
       expect(after).toBeInstanceOf(MachineNotSent);
     }
   });
+
+test("a read whose answer had begun to arrive is never sent again", async () => {
+  const served = new Map<object, number>();
+  let reads = 0;
+  const listener = sniListener({
+    tls: identity,
+    requests: (request, response) => {
+      reads++;
+      const socket = request.socket;
+      const count = (served.get(socket) ?? 0) + 1;
+      served.set(socket, count);
+      request.resume();
+      request.on("end", () => {
+        if (count === 1) {
+          response.writeHead(200, { "content-type": "application/json" }).end("{}");
+          return;
+        }
+        // The second read on this connection gets part of a status line, then the connection
+        // is dropped: the machine had started answering it.
+        socket.write("HTTP/1.1 20");
+        setTimeout(() => socket.destroy(), 50);
+      });
+    },
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  const profile = {
+    origin: `https://127.0.0.1:${port}/`,
+    fingerprint: identity.fingerprint,
+    token: token("a"),
+  };
+  const connections = pool();
+  const read = { origin, call: { op: "status" as const, threadIds: [ThreadId.parse("child-1")] } };
+  await machineRequest({ ...target(profile) }, read, { timeoutMs: 5000, connections });
+  const failure = await machineRequest({ ...target(profile) }, read, {
+    timeoutMs: 5000,
+    connections,
+  }).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(MachineFailure);
+  expect(reads).toBe(2);
+});
+
+/** A full saved profile for an address, pin and token. */
+function target(profile: { origin: string; fingerprint: string; token: string }) {
+  return {
+    id: "5b0f3f4e-8f3a-4b8e-9d3c-2f6a1c7e9b10",
+    name: "studio",
+    deviceId: DeviceId.parse("device-1"),
+    ...profile,
+  };
+}

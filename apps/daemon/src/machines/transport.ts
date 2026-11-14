@@ -227,8 +227,14 @@ function pinnedOnce(
       );
     };
     lease.ended?.addEventListener("abort", ended, { once: true });
+    // Bytes of an answer that arrived on this request's connection, however little: once any
+    // did, the machine had begun answering, and the call is never sent again.
+    let received = 0;
+    const count = (chunk: Buffer) => void (received += chunk.length);
     request.on("socket", (socket) => {
       assigned = true;
+      socket.on("data", count);
+      request.once("close", () => socket.off("data", count));
       // A kept-open connection is already up: what is written to it may reach the machine.
       if (request.reusedSocket) connected = true;
       else
@@ -242,7 +248,7 @@ function pinnedOnce(
     });
     request.on("error", () =>
       finish(
-        request.reusedSocket && answer === undefined ? new StaleConnection("disconnected") : lost(),
+        request.reusedSocket && received === 0 ? new StaleConnection("disconnected") : lost(),
       ),
     );
     // After the error listener: destroying an aborted request reports through it.
