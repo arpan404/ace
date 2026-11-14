@@ -41,12 +41,14 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
 
 1. **Connect: race.** Every connect and reconnect races the paths, last winner first, then
    best ranked. The first starts at once, each next one 150 ms later or as soon as the one
-   before it fails. The first path whose secure transport opens (TLS with its pin checked, or a
+   before it fails ([ADR 0150](0150-fewer-connect-round-trips.md): the stagger follows the last
+   winner's open time, up to 2 s). The first path whose secure transport opens (TLS with its pin checked, or a
    relay's pinned handshake) carries the attempt; the others close. Its hello then runs on it.
    This is one step earlier than "first to finish hello": the hello's credential differs per
    path (a ticket on a direct socket, a token or grant on a relay), so it cannot be sent on
    every path at once.
-2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden (a
+2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden (40 s since
+   [ADR 0150](0150-fewer-connect-round-trips.md)) (a
    machine worker counts as visible while any tab it serves is); the round trip is smoothed
    (EWMA, an eighth of each sample).
 3. **Upgrade.** On a network change, on wake, and every 30 s while on a worse path, better
@@ -83,7 +85,8 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
    couldn't be fetched or was refused, doesn't rest its relay: the grant failed, not the path. A
    standby still opening when the connection moves to another path closes once it opens, and
    the new path's own standby is sought then. A socket error, or a ping on the active path that
-   hears nothing for 2 s, swaps to the standby at once and asks every unanswered command
+   hears nothing for 2 s (four smoothed round trips on a slower link, and two misses without a
+   standby, since [ADR 0150](0150-fewer-connect-round-trips.md)), swaps to the standby at once and asks every unanswered command
    again. Without a standby the connection reconnects, racing the remaining paths.
 5. **Anti-flap.** After a switch the client stays 10 s unless the path fails. A failed path
    rests 1 s, 2 s, 4 s … up to 60 s.
