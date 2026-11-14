@@ -178,7 +178,7 @@ import XCTest
         open("ios-copy", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
         let typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two"
-        XCTAssertEqual(copyAndPaste(message("message.user.", in: app), in: app), typed)
+        XCTAssertEqual(copyAndPaste(message("message.words.", in: app), in: app), typed)
 
         open("ios-sent", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.sent.", in: app))
@@ -189,10 +189,11 @@ import XCTest
                       "Keep the test under a second: use the fake clock.",
                       "Report back with the test's name."]
                      + (1...120).map { "Note \($0): keep the budget across restarts." }).joined(separator: "\n")
-        XCTAssertEqual(copyAndPaste(message("message.sent.", in: app), in: app), brief)
+        // The brief's own words, folded to four lines: not its Sent by line or Show more.
+        XCTAssertEqual(copyAndPaste(message("message.words.", in: app), in: app), brief)
     }
 
-    /// Copy from the message's own menu, then paste into the composer: what Copy put there.
+    /// Copy from the menu of a bubble's words, then paste into the composer: what Copy put there.
     private func copyAndPaste(_ bubble: XCUIElement, in app: XCUIApplication) -> String? {
         openMenu(of: bubble, in: app)
         app.buttons["Copy"].tap()

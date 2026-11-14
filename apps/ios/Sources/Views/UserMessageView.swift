@@ -218,6 +218,12 @@ struct UserBubble: View {
                                 LinearGradient(stops: [.init(color: .black, location: folded ? fadeFrom : 1), .init(color: folded ? .clear : .black, location: 1)],
                                                startPoint: .top, endPoint: .bottom)
                             }
+                            // Clipping only stops the drawing: folded, the words are still laid
+                            // out at full height. Touches and VoiceOver take the fold's bounds, so a
+                            // long press lands on what is shown and nothing below it opens this menu.
+                            .contentShape(Rectangle())
+                            .accessibilityElement(children: folded ? .combine : .contain)
+                            .accessibilityIdentifier("message.words.\(id)")
                     }
                 }
                 if long {
