@@ -1,6 +1,6 @@
 import { WireEncoder } from "./wire-encoder.ts";
 import type { DeviceId, Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
-import { createThreadListView, isSidebarEvent } from "@ace/projection";
+import { changedItemId, createThreadListView, isSidebarEvent } from "@ace/projection";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { Store } from "./store.ts";
 import { sidebarSubscription, type DeviceReads } from "./sidebar-subscription.ts";
@@ -101,26 +101,6 @@ function replayFrames(events: Event[], encoder: WireEncoder): Event[][] {
 /** A thread replay at or under this many bytes is sent without weighing a snapshot against it. */
 const replayCompareBytes = 16 * 1024;
 /**
- * The transcript item `payload` changes, if any. A repeated `item.created` upserts an item
- * that may already exist, so it is a change like an update; `input.admitted` sets the native id
- * of the `input:<command>` item it names. Every other event changes only what a snapshot
- * carries whole (thread, agents, runs, interactions, tasks, queue, usage, context meters).
- */
-function changedItem(payload: Event["payload"]): string | undefined {
-  switch (payload.type) {
-    case "item.created":
-    case "item.updated":
-      return payload.item.id;
-    case "item.delta":
-    case "item.deleted":
-      return payload.itemId;
-    case "input.admitted":
-      return payload.commandId ? `input:${payload.commandId}` : undefined;
-    default:
-      return undefined;
-  }
-}
-/**
  * `message`, a full snapshot, when it costs fewer bytes than a replay of `replayBytes` (the
  * `missed` events) and the client ends where the replay would leave it. It must hold every item
  * created after `afterSeq`, so the client keeps the history it holds (ADR 0062) instead of
@@ -138,7 +118,8 @@ function smallerSnapshot(
   const view = message.view;
   if (view.itemsBefore !== null && view.itemsBefore > afterSeq + 1) return undefined;
   for (const event of missed) {
-    const changed = changedItem(event.payload);
+    // The same definition clients catch their reads up by (`changedItemId`).
+    const changed = changedItemId(event.payload);
     if (changed !== undefined && !Object.hasOwn(view.items, changed)) return undefined;
   }
   return Buffer.byteLength(encoder.encode(message)) < replayBytes ? message : undefined;
