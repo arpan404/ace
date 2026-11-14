@@ -35,7 +35,7 @@ async function idleNativeTabs() {
     now: () => now,
     // The thread's lifecycle check runs when the test says, not on a timer.
     tabLifecycle: {
-      policy: { freezeAfterMs: 15 * minute, discardAfterMs: 120 * minute },
+      policy: { restAfterMs: minute / 2, freezeAfterMs: 15 * minute, discardAfterMs: 120 * minute },
       every: minute,
       set: (_delay, work) => {
         check = work;

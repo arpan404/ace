@@ -179,6 +179,14 @@ export class GitService {
   heal(worktree: string) {
     return this.repository.cli.heal(worktree);
   }
+  /**
+   * `heal` for every checkout of a periodic sweep: one process listing for the whole sweep,
+   * taken only when some lock is old enough to remove, and each repository's locks cleared once
+   * however many of its worktrees are listed. A checkout that can't be healed goes to `failed`.
+   */
+  healAll(worktrees: readonly string[], failed: (worktree: string, error: unknown) => void) {
+    return this.repository.cli.healAll(worktrees, failed);
+  }
 
   async clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
     if (input.directoryFd === undefined) await mkdir(input.path);

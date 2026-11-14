@@ -252,12 +252,15 @@ export class BrowserService {
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     const selfRecovery = new RecoveryRetry(this.navigationClock);
+    /** Moving off a locked desktop that failed tries again, less often each time. */
+    const handOffRetry = new RecoveryRetry(this.navigationClock);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
       loss.finish();
       selfRecovery.stop();
+      handOffRetry.stop();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -413,13 +416,17 @@ export class BrowserService {
         });
       };
       const moving = move()
-        .catch((error: unknown) => {
-          this.options.onError?.(error);
-          // Still locked: try again shortly; the desktop's frozen view stays meanwhile.
-          if (signal.aborted) return;
-          const retry = setTimeout(() => void handOff(), 5_000);
-          retry.unref();
-        })
+        .then(
+          () => handOffRetry.recovered(),
+          (error: unknown) => {
+            this.options.onError?.(error);
+            // Still locked: try again, waiting longer each time (up to a minute) so a move that
+            // keeps failing neither floods the log nor keeps opening pages; the desktop's
+            // frozen view stays meanwhile.
+            if (signal.aborted) return;
+            handOffRetry.schedule(() => void handOff());
+          },
+        )
         .finally(() => this.recoveries.delete(options.threadId));
       this.recoveries.set(options.threadId, moving);
       return moving;
