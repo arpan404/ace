@@ -164,7 +164,6 @@ describe("a viewer's link rate", () => {
     expect(short.backlogBytes).toBe(Math.round((short.rate / 8) * ((50 + 300) / 1000)));
   });
 
-
   it("a queue doesn't widen its own bound: it is the path's round trip, not the queued one", () => {
     const rate = new LinkRate({ ...phone, initial: 1_000_000 });
     for (let index = 0; index < 10; index++) {
