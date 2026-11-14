@@ -1,5 +1,6 @@
 import { DeviceRevokedClose } from "@ace/protocol";
 import { disconnectDecision } from "./lifecycle.ts";
+import type { Credential } from "./credentials.ts";
 import type { PathRoute } from "./path-handshake.ts";
 import { pathTiming, type PlannedPath } from "./path-plan.ts";
 import type { Scheduler, Transport, TransportEvents } from "./types.ts";
@@ -25,6 +26,12 @@ export interface RaceOptions {
   failed(route: MachineRoute): void;
 }
 
+/** `route`'s credential, asked for now; a path that never wins never reads it. */
+function prefetch(route: MachineRoute): Promise<Credential> {
+  const credential = Promise.resolve().then(() => route.credential());
+  credential.catch(() => {});
+  return credential;
+}
 /** A refusal another attempt can't change, on that path at least. */
 const final = (code: number) => disconnectDecision(true, true, code) === "fatal";
 /** The owner revoked this device: true on every path. */
@@ -45,7 +52,12 @@ export function racingTransport(options: RaceOptions): Transport {
   let winner: Transport | undefined;
   let winningRoute: MachineRoute | undefined;
   let closed = false;
-  const started: { route: MachineRoute; transport: Transport; failed: boolean }[] = [];
+  const started: {
+    route: MachineRoute;
+    transport: Transport;
+    failed: boolean;
+    credential: Promise<Credential> | undefined;
+  }[] = [];
   let cancelNext: (() => void) | undefined;
   const closeAll = (keep?: Transport) => {
     cancelNext?.();
@@ -68,10 +80,12 @@ export function racingTransport(options: RaceOptions): Transport {
     get flowControl() {
       return winner?.flowControl ?? [];
     },
-    // The winning path's own credential: its transport's, else its route's.
+    // The winning path's own credential: its transport's, else its route's, asked for when the
+    // path started dialing so the exchange overlaps the dial.
     credential() {
+      const entry = started.find((each) => each.transport === winner);
       if (!winner || !winningRoute) return Promise.reject(new Error("No path is open"));
-      return winner.credential?.() ?? winningRoute.credential();
+      return winner.credential?.() ?? entry?.credential ?? winningRoute.credential();
     },
     open(events: TransportEvents) {
       let next = 0;
@@ -115,7 +129,13 @@ export function racingTransport(options: RaceOptions): Transport {
           start();
           return;
         }
-        const entry = { route, transport, failed: false };
+        const entry = {
+          route,
+          transport,
+          failed: false,
+          // A transport with its own credential (a relay attempt) fetches it as it dials.
+          credential: transport.credential ? undefined : prefetch(route),
+        };
         started.push(entry);
         const fail = (code?: number, reason?: string) => {
           if (entry.failed || winner === transport) return;

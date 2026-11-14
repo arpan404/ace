@@ -334,11 +334,14 @@ export class Connection {
     try {
       const transport = this.#options.transport();
       this.#transport = transport;
+      // The credential (a ticket exchange, on its own connection) is fetched while the socket
+      // dials, not after it opens. A transport with its own credential has it only once open.
+      const early = transport.credential ? undefined : this.#prefetch();
       transport.open({
         open: () => {
           if (epoch !== this.#epoch) return;
           void Promise.resolve()
-            .then(() => transport.credential?.() ?? this.#options.credential())
+            .then(() => early ?? transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
               if (epoch !== this.#epoch || !this.send(this.#hello(transport, credential))) return;
               this.#greeted = epoch;
@@ -358,6 +361,13 @@ export class Connection {
     } catch {
       this.#lost(1006, "Transport failed to open");
     }
+  }
+  /** The route's credential, asked for now; a failure is read once the socket opens. */
+  #prefetch(): Promise<Credential> {
+    const credential = Promise.resolve().then(() => this.#options.credential());
+    // A socket that never opens never reads it: that failure is no one's to report.
+    credential.catch(() => {});
+    return credential;
   }
   #hello(transport: Transport, credential: Credential): ClientMessage {
     return {
