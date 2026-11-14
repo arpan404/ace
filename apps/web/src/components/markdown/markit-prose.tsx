@@ -21,6 +21,7 @@ import type { LinkClick } from "@/lib/web-links.ts";
 import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
+import { keptAnswersFor } from "./kept-answers.ts";
 import { MarkitView, type MarkitCallbacks } from "./markit-view.tsx";
 
 /**
@@ -207,6 +208,14 @@ function MarkitThreadProse(
   const fileLinks = useFileLinks({ client, threadId, itemId, root, workspace });
   // Only an answer that shows an image follows the thread for captures.
   const captures = useThreadStore(props.text.includes("![") ? threadId : undefined);
+  // A finished answer of this item may stay drawn across remounts, in this client's own cache.
+  const keep = useMemo(
+    () =>
+      itemId
+        ? { answers: keptAnswersFor(client), scope: { threadId, itemId }, cwd, root }
+        : undefined,
+    [client, threadId, itemId, cwd, root],
+  );
 
   const callbacks = useMemo(() => {
     const base = cwd ?? root;
@@ -276,6 +285,7 @@ function MarkitThreadProse(
       className={props.className}
       callbacks={callbacks}
       flavor={proseFlavor}
+      keep={keep}
     />
   );
 }

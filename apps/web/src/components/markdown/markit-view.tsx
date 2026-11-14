@@ -8,11 +8,13 @@ import { cn } from "@/lib/cn.ts";
 import { prefersReducedMotion } from "@/lib/motion.ts";
 import { updateInterval } from "./cadence.ts";
 import {
+  answerContext,
   createKeptAnswer,
   disposeKeptAnswer,
-  keptKey,
-  pageAnswers,
+  sweepKeptAnswers,
+  type AnswerScope,
   type KeptAnswer,
+  type KeptAnswers,
   type RendererHooks,
 } from "./kept-answers.ts";
 import { renderMermaid } from "./mermaid-render.ts";
@@ -61,10 +63,18 @@ function watchHeight(node: Element): () => void {
   return () => sizer?.unobserve(node);
 }
 
+/** Where a thread answer may be kept: its client's kept answers, its item, and what it resolves against. */
+export interface KeepTarget {
+  answers: KeptAnswers;
+  scope: AnswerScope;
+  cwd: string | undefined;
+  root: string | undefined;
+}
+
 /**
  * One markit renderer for one element; text updates stream through it, never React state. A
- * finished answer's renderer outlives its row (`kept-answers.ts`): mounting the same text again
- * puts the drawn answer back before the first paint.
+ * finished thread answer's renderer outlives its row (`kept-answers.ts`): mounting the same
+ * answer again in the same context puts the drawing back before the first paint.
  */
 export function MarkitView(props: {
   markdown: string;
@@ -73,27 +83,35 @@ export function MarkitView(props: {
   className?: string | undefined;
   callbacks: MarkitCallbacks;
   flavor: "agent" | "github";
+  /** Absent: never kept (prose outside a thread item). */
+  keep?: KeepTarget | undefined;
 }) {
-  const { markdown, finalized, stream, flavor } = props;
-  const key = keptKey(flavor, pageScheme(), stream);
+  const { markdown, finalized, stream, flavor, keep } = props;
+  /** The context markit would draw `text` under now. */
+  const contextOf = (target: KeepTarget, text: string) =>
+    answerContext({ flavor, scheme: pageScheme(), cwd: target.cwd, root: target.root, text });
   // The first frame: the kept drawing when there is one. Otherwise the message reads as plain
   // text until markit's first render replaces it, so an answer is never blank (not while the
   // worker starts, nor if it cannot run at all), held at its last drawn height.
-  const [start] = useState(() =>
-    finalized && pageAnswers.has(key, markdown)
+  const [start] = useState(() => {
+    const context = keep && finalized ? contextOf(keep, markdown) : undefined;
+    if (!keep || context === undefined) return { kept: false, height: undefined };
+    return keep.answers.has(keep.scope, context)
       ? { kept: true, height: undefined }
-      : { kept: false, height: finalized ? pageAnswers.height(key, markdown) : undefined },
-  );
+      : { kept: false, height: keep.answers.height(keep.scope, context) };
+  });
   const [drawn, setDrawn] = useState(start.kept);
   const drawnRef = useRef(start.kept);
   const wrapper = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const answer = useRef<KeptAnswer | undefined>(undefined);
-  /** What the current renderer has on screen. */
-  const shown = useRef<{ text: string; finalized: boolean } | undefined>(undefined);
-  const latest = useRef({ key, markdown, stream, callbacks: props.callbacks });
+  /** What the current renderer has on screen, and the context that drew it. */
+  const shown = useRef<{ text: string; finalized: boolean; context: string } | undefined>(
+    undefined,
+  );
+  const latest = useRef({ markdown, stream, keep, contextOf, callbacks: props.callbacks });
   useLayoutEffect(() => {
-    latest.current = { key, markdown, stream, callbacks: props.callbacks };
+    latest.current = { markdown, stream, keep, contextOf, callbacks: props.callbacks };
   });
   // Stable hooks that call the newest callbacks, whichever renderer is drawing.
   const [hooks] = useState<RendererHooks>(() => ({
@@ -106,21 +124,33 @@ export function MarkitView(props: {
       language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
   }));
 
-  // Before paint: the kept drawing of this text, or a fresh renderer.
+  // Before paint: the kept drawing of this answer, or a fresh renderer.
   useLayoutEffect(() => {
     const parent = host.current;
     if (!parent) return;
-    const { key: mountKey, markdown: text } = latest.current;
-    const kept = drawnRef.current ? pageAnswers.take(mountKey, text) : undefined;
+    const { markdown: text, keep: target } = latest.current;
+    const context = target ? latest.current.contextOf(target, text) : undefined;
+    // Taken whether or not the first frame expected it: a drawing under another context is
+    // dropped here, so a stale one never stays kept beside the new.
+    const kept =
+      target && context !== undefined ? target.answers.take(target.scope, context) : undefined;
     const current =
       kept ?? createKeptAnswer({ workerURL: markitWorkerPath(), flavor, code: codeChrome }, hooks);
     current.hooks.current = hooks;
     parent.append(current.element);
     answer.current = current;
-    shown.current = kept ? { text: kept.text, finalized: true } : undefined;
-    // Images whose bytes came while the answer was away.
-    if (kept) current.renderer.refreshImages();
-    else if (drawnRef.current) {
+    shown.current = kept && context !== undefined ? { text, finalized: true, context } : undefined;
+    if (kept && !drawnRef.current) {
+      // Kept after this view's first render was decided: shown before paint all the same.
+      drawnRef.current = true;
+      setDrawn(true);
+    }
+    if (kept) {
+      // Images whose bytes came while the answer was away, and file mentions whose lookup was
+      // cut short when it left: this view finishes them, without drawing the markdown again.
+      current.renderer.refreshImages();
+      latest.current.callbacks.drawn?.(current.element, true);
+    } else if (drawnRef.current) {
       // Another view took it in the meantime: draw again, from the text.
       drawnRef.current = false;
       setDrawn(false);
@@ -130,13 +160,19 @@ export function MarkitView(props: {
     return () => {
       unwatch();
       answer.current = undefined;
-      const { key: lastKey, markdown: lastText } = latest.current;
+      const { markdown: lastText, keep: lastTarget } = latest.current;
       const done = shown.current;
       shown.current = undefined;
-      if (done?.finalized && done.text === lastText) {
-        current.text = lastText;
-        pageAnswers.keep(lastKey, current, (node && heights.get(node)) ?? 0);
-      } else disposeKeptAnswer(current);
+      // Kept under the context that drew it, never the one current at unmount.
+      if (lastTarget && done?.finalized && done.text === lastText)
+        lastTarget.answers.keep(
+          lastTarget.scope,
+          done.context,
+          current,
+          (node && heights.get(node)) ?? 0,
+        );
+      else disposeKeptAnswer(current);
+      sweepKeptAnswers();
     };
   }, [flavor, hooks]);
 
@@ -157,11 +193,14 @@ export function MarkitView(props: {
         // A kept drawing of this very text is already on screen.
         if (!current || (was && was.text === text && was.finalized === done))
           return Promise.resolve();
+        // The context this drawing is made under, recorded as it is asked for.
+        const target = latest.current.keep;
+        const context = target ? latest.current.contextOf(target, text) : "";
         const started = performance.now();
         return current.renderer.render(text, { finalized: done }).then(
           (patch) => {
             if (patch.superseded || answer.current !== current) return;
-            shown.current = { text, finalized: done };
+            shown.current = { text, finalized: done, context };
             // markit drew in an animation frame, before paint; the placeholder goes in the
             // same turn, or one frame would show the text twice.
             if (!drawnRef.current) {
