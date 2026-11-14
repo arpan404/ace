@@ -18,6 +18,7 @@ import {
   releaseTag,
   StagedRelease,
 } from "../src/packaging/release-plan.ts";
+import { windowsSigning, windowsSigningConfigured } from "../src/packaging/release-signing.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
@@ -149,8 +150,10 @@ async function build(version: string): Promise<void> {
     { ...process.env, ACE_VERSION: version },
   );
   const output = join(dist, "release");
+  let packagedMac: string | undefined;
   if (process.platform === "darwin") {
     const app = verifyMac(output, signed);
+    packagedMac = app;
     say("launching the packaged app with an empty data home");
     await checkPackagedLaunch(app);
     say("packaged app started its daemon and checked for updates");
@@ -158,12 +161,40 @@ async function build(version: string): Promise<void> {
 
   if (withDaemon && publicKey && privateKey)
     for (const target of daemonTargets) {
-      run(process.execPath, [join(repo, "tools/release/src/build.ts"), version, target, publicKey]);
+      run(
+        process.execPath,
+        [join(repo, "tools/release/src/build.ts"), version, target, publicKey],
+        packagedMac
+          ? {
+              ...process.env,
+              ACE_MEDIA_BIN: join(packagedMac, "Contents/Resources/media/ace-media"),
+            }
+          : process.env,
+      );
+      run(process.execPath, [
+        join(repo, "tools/release/src/smoke.ts"),
+        join(daemonOutput, target),
+        "--unsigned-archive",
+      ]);
       run(process.execPath, [
         join(repo, "tools/release/src/sign.ts"),
         join(daemonOutput, `${target}.json`),
         privateKey,
         join(daemonOutput, `${target}.sig`),
+      ]);
+      run(process.execPath, [
+        join(repo, "tools/release/src/smoke.ts"),
+        join(daemonOutput, target),
+        "--signed-archive",
+        "--manifest",
+        join(daemonOutput, `${target}.json`),
+        "--public-key",
+        publicKey,
+        ...(process.platform === "win32" &&
+        !unsigned &&
+        windowsSigningConfigured(windowsSigning(process.env))
+          ? ["--verify-authenticode"]
+          : []),
       ]);
     }
 

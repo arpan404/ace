@@ -93,7 +93,7 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
         view.onReference = markdown.onReference
         view.resolveImage = markdown.resolveImage
         view.onTask = markdown.onTask
-        view.renderDiagram = markdown.renderDiagram
+        view.renderDiagram = MarkdownGates.gated(markdown.renderDiagram, for: view)
         view.onContentHeightChange = onHeight
         view.render(markdown.text, finalized: true)
     }
@@ -116,15 +116,39 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             self.view = view
             self.key = key
             self.shelf = shelf
+            MarkdownGates.gate(for: view).open()
         }
-        /// The row went off screen (or shows other text): its view goes back on the shelf.
+        /// The row went off screen (or shows other text): its view goes back on the shelf, and
+        /// its diagrams still waiting to be drawn step out of the queue until it shows again.
         func release() {
             guard let view, let key else { return }
+            MarkdownGates.gate(for: view).close()
             view.removeFromSuperview()
             view.onContentHeightChange = nil
             shelf?.put(view, for: key)
             self.view = nil
             self.key = nil
         }
+    }
+}
+
+/// One `RenderGate` per shelved markit view, for as long as the view lives: its diagrams draw
+/// only while it is on screen.
+@MainActor enum MarkdownGates {
+    private static let gates = NSMapTable<MarkitInlineView, RenderGate>.weakToStrongObjects()
+
+    static func gate(for view: MarkitInlineView) -> RenderGate {
+        if let gate = gates.object(forKey: view) { return gate }
+        let gate = RenderGate()
+        gates.setObject(gate, forKey: view)
+        return gate
+    }
+
+    /// The view's diagram drawing, through its gate.
+    static func gated(_ draw: (@MainActor (_ language: String, _ source: String) async -> UIView?)?,
+                      for view: MarkitInlineView) -> (@MainActor (_ language: String, _ source: String) async -> UIView?)? {
+        guard let draw else { return nil }
+        let gate = gate(for: view)
+        return { language, source in await gate.run { await draw(language, source) } }
     }
 }

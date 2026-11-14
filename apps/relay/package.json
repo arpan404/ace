@@ -20,6 +20,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/browser": "workspace:*",
     "@types/ws": "^8.18.1"
   }
 }

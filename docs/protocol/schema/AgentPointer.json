@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentPointer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/AgentPointerKind.json"
+    },
+    "x": {
+      "type": "number"
+    },
+    "y": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "kind",
+    "at"
+  ],
+  "type": "object"
+}
