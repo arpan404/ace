@@ -144,10 +144,21 @@ impl PictureScale {
         }
         self.down_since = None;
         let roomy = fitting(&ladder, 1.5);
-        if roomy < self.level {
+        // Frames alone step up sooner (no new encode, no keyframe): 1.2x spare for 1 s.
+        let scale = ladder.steps[self.level].scale;
+        let mut frames = fitting(&ladder, 1.2);
+        while frames < self.level && ladder.steps[frames].scale != scale {
+            frames += 1;
+        }
+        let (target, after) = if roomy < self.level {
+            (roomy, 3000.0)
+        } else {
+            (frames, 1000.0)
+        };
+        if target < self.level {
             let since = *self.up_since.get_or_insert(now);
-            if now - since >= 3000.0 {
-                self.level = roomy;
+            if now - since >= after {
+                self.level = target;
                 self.up_since = None;
             }
         } else {

@@ -33,10 +33,16 @@ const sizeSteps = 6;
 const steadyFps = 15;
 /** At `steadyFps` the picture shrinks no smaller than this on its longer side, in pixels. */
 export const readableSide = 1152;
-/** The link must carry a larger step's rate with this much spare before stepping up. */
+/** The link must carry a larger step's rate with this much spare before stepping up... */
 const upSpare = 1.5;
 /** ...for this long. */
 const upAfterMs = 3_000;
+/**
+ * A step up that only adds frames is no new encode and no keyframe (the frame rate changes in
+ * place), so it needs less spare, for less long.
+ */
+const framesUpSpare = 1.2;
+const framesUpAfterMs = 1_000;
 /** The link must fall short of the current step this long before stepping down. */
 const downAfterMs = 1_000;
 
@@ -152,10 +158,16 @@ export class PictureScale {
     // Up only after the link has carried a larger step with spare for a while, and then
     // straight to the largest it carries.
     const roomy = fitting(ladder, upSpare);
-    if (roomy < this.#level) {
+    // Short of a larger picture, the frames at this size may still step up.
+    const scale = this.#step().scale;
+    let frames = fitting(ladder, framesUpSpare);
+    while (frames < this.#level && (ladder[frames]?.scale ?? scale) !== scale) frames++;
+    const target = roomy < this.#level ? roomy : frames < this.#level ? frames : this.#level;
+    if (target < this.#level) {
+      const after = roomy < this.#level ? upAfterMs : framesUpAfterMs;
       this.#upSince ??= now;
-      if (now - this.#upSince >= upAfterMs) {
-        this.#level = roomy;
+      if (now - this.#upSince >= after) {
+        this.#level = target;
         this.#upSince = undefined;
       }
     } else this.#upSince = undefined;

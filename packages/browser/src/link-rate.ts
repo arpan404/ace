@@ -66,6 +66,8 @@ const probeRise = 1.1;
 const startRise = 1.25;
 /** A queue lowers the rate to this share of what was delivered, but never below `deepest`. */
 const deliveredShare = 0.9;
+/** The link carried the rate when it delivered at least this share of it. */
+const carriedShare = 0.95;
 const deepest = 0.6;
 /** A drop with nothing delivered to judge by cuts to this share: CUBIC's beta. */
 const dropFall = 0.7;
@@ -342,9 +344,10 @@ export class LinkRate {
     // empties a queue of our own. The 2 s window covers a stall's gap.
     if (this.#dropped) cut(Math.max(delivered, rates.longer) * deliveredShare || rate * dropFall);
     else if (this.#queuedSince !== undefined) {
-      if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs)
-        // A queue that lasts cuts to what the link delivered: if that is more than the rate, the
-        // queue is another flow's, and cutting would only hand it the link.
+      // A queue that lasts cuts only if the link delivered less than the rate: when it carried
+      // all of it, the queue is another flow's, and cutting would only hand it the link.
+      const short = Math.max(delivered, rates.longer) < rate * carriedShare;
+      if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs && short)
         cut(Math.max(delivered, rates.longer) * deliveredShare);
     } else if (queueing < calm && at >= this.#holdUntil && at - this.#lastRise >= floor) {
       // Once a path round trip (the floor, not one a queue inflates): what a rise did shows then.

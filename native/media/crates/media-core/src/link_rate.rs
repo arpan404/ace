@@ -369,7 +369,11 @@ impl LinkRate {
             let carried = delivered.max(longer) * 0.9;
             Some(if carried == 0.0 { rate * 0.7 } else { carried })
         } else if let Some(since) = self.queued_since {
-            (at >= self.hold_until && at - since >= PERSIST_MS).then(|| delivered.max(longer) * 0.9)
+            (at >= self.hold_until && at - since >= PERSIST_MS)
+                .then_some(delivered.max(longer))
+                // Only if the link delivered less than the rate: else the queue is another flow's.
+                .filter(|carried| *carried < rate * 0.95)
+                .map(|carried| carried * 0.9)
         } else {
             None
         };
