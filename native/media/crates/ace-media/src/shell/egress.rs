@@ -23,4 +23,10 @@ impl EgressSink for EgressLane {
             .get()
             .is_some_and(|writer| writer.send(frame).is_ok())
     }
+
+    fn force(&mut self, frame: Vec<u8>) {
+        if let Some(writer) = self.0.get() {
+            let _ = writer.send_always(frame);
+        }
+    }
 }

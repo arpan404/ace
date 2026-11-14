@@ -47,6 +47,11 @@ impl Capabilities {
     pub fn list(&self) -> Vec<Capability> {
         self.slots.iter().flatten().cloned().collect()
     }
+    /// A slot for a trial started after `ready` (the last-resort encoder's): its index.
+    pub fn add_slot(&mut self) -> usize {
+        self.slots.push(Vec::new());
+        self.slots.len() - 1
+    }
     /// A late result replaces its trial's slot.
     pub fn update(&mut self, trial: usize, found: Vec<Capability>) {
         if let Some(slot) = self.slots.get_mut(trial) {

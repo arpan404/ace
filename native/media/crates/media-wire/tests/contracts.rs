@@ -1,6 +1,6 @@
 use media_wire::{
     control::{ControlFrame, FromMedia, ToMedia, lane},
-    frame::{Egress, MediaFrame},
+    frame::{Egress, EgressEnd, MediaFrame, egress_end},
     keys::{KeyBlock, crc32c},
 };
 use serde_json::{Value, json};
@@ -352,5 +352,44 @@ fn shared_control_frame_bytes_decode_and_reencode_exactly() -> Result<(), Box<dy
         };
         assert_eq!(out, bytes, "{}", v.name);
     }
+    Ok(())
+}
+
+#[test]
+fn the_egress_end_marker_matches_the_shared_bytes_and_says_whether_the_stream_was_cut()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixtures: Vec<Value> =
+        serde_json::from_slice(&fs::read(root().join("frame/egress-end.json"))?)?;
+    assert_eq!(fixtures.len(), 2);
+    for f in fixtures {
+        let bytes = hex(f["hex"].as_str().ok_or("hex")?)?;
+        let handle: u32 = f["handle"].as_u64().ok_or("handle")?.try_into()?;
+        let sequence: u32 = f["sequence"].as_u64().ok_or("sequence")?.try_into()?;
+        let interrupted = f["interrupted"].as_bool().ok_or("interrupted")?;
+        assert_eq!(egress_end(handle, sequence, interrupted), bytes);
+        let egress = Egress::decode(&bytes).map_err(|_| "decode")?;
+        assert_eq!((egress.handle, egress.sequence), (handle, sequence));
+        assert_eq!(egress.frame.end(), Some(EgressEnd { interrupted }));
+    }
+    // A unit is never an end marker.
+    let unit = MediaFrame {
+        kind: 1,
+        flags: 8,
+        age_us: 0,
+        width: 2,
+        height: 2,
+        display_width: 2,
+        display_height: 2,
+        scale: 1000,
+        rotation: 0,
+        codec: 2,
+        encode: 0,
+        epoch: 0,
+        codec_string: String::new(),
+        description: Vec::new(),
+        extension: Vec::new(),
+        payload: vec![1],
+    };
+    assert_eq!(unit.end(), None);
     Ok(())
 }

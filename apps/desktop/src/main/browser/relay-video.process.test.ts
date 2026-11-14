@@ -50,6 +50,8 @@ class FakeEncoder implements PageVideoHost<string>, VideoRelaySource {
   audio(capture: string, on: boolean): void {
     this.sound.set(capture, on);
   }
+  ingest(): void {}
+  reach(): void {}
   stop(capture: string): void {
     this.stopped.push(capture);
     this.end(capture);

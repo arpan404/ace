@@ -9,13 +9,17 @@
 use super::{Effect, log, normal};
 use media_core::gate::ChunkGate;
 use media_wire::control::{FromMedia, Id, KeyReason, Level};
-use media_wire::frame::{MediaFrame, encode_egress};
+use media_wire::frame::{MediaFrame, egress_end, encode_egress};
 
 /// Where egress frames go: the shell's egress lane, or a fake in tests.
 pub trait EgressSink: Send {
     /// Queues one whole egress frame. False when the lane can't take it (full, or not up yet);
     /// the frame is then dropped.
     fn offer(&mut self, frame: Vec<u8>) -> bool;
+    /// Queues an end marker past the lane's bound: one is never dropped while the lane is up.
+    fn force(&mut self, frame: Vec<u8>) {
+        let _ = self.offer(frame);
+    }
 }
 
 /// No egress lane: every frame is refused.
@@ -97,6 +101,14 @@ impl SourceEgress {
                     reason,
                 },
             );
+        }
+    }
+
+    /// The source's producer is done: after its last unit, the end marker, so the daemon closes
+    /// the handle only once every earlier unit is in. `interrupted` when the stream was cut.
+    pub fn end(&mut self, handle: u32, interrupted: bool, sink: &mut dyn EgressSink) {
+        if self.on {
+            sink.force(egress_end(handle, self.sequence, interrupted));
         }
     }
 
