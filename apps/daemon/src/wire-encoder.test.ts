@@ -23,20 +23,21 @@ test("fan-out preserves per-subscription cursors and escaped Unicode payloads", 
   }
 });
 
+const titled = (seq: number, title: string) =>
+  Event.parse({
+    id: `e${seq}`,
+    seq,
+    at: 1,
+    threadId: "t",
+    payload: { type: "thread.updated", title },
+  });
+
 test("an events frame's measured size is its encoded size", () => {
   const encoder = new WireEncoder();
-  const event = (seq: number, title: string) =>
-    Event.parse({
-      id: `e${seq}`,
-      seq,
-      at: 1,
-      threadId: "t",
-      payload: { type: "thread.updated", title },
-    });
   for (const events of [
     [],
-    [event(1, "plain")],
-    [event(1, 'é " 😀 \n'), event(2, "\ud800"), event(3, "z")],
+    [titled(1, "plain")],
+    [titled(1, 'é " 😀 \n'), titled(2, "\ud800"), titled(3, "z")],
   ]) {
     const message = {
       type: "events",
@@ -49,6 +50,15 @@ test("an events frame's measured size is its encoded size", () => {
   }
 });
 
+const eventsMessage = (events: Event[]) =>
+  ({
+    type: "events",
+    subscriptionId: "s",
+    afterSeq: 0,
+    throughSeq: 1,
+    events,
+  }) satisfies ServerMessage;
+
 test("an event whose payload is replaced after it was sent is sent with the new payload", () => {
   const encoder = new WireEncoder();
   const event = Event.parse({
@@ -58,18 +68,10 @@ test("an event whose payload is replaced after it was sent is sent with the new 
     threadId: "t",
     payload: { type: "thread.updated", title: "inline" },
   });
-  const message = (events: Event[]) =>
-    ({
-      type: "events",
-      subscriptionId: "s",
-      afterSeq: 0,
-      throughSeq: 1,
-      events,
-    }) satisfies ServerMessage;
-  encoder.encode(message([event]));
+  encoder.encode(eventsMessage([event]));
   // Storing an event may swap its payload for a capped copy.
   event.payload = { type: "thread.updated", title: "capped" };
-  const sent = ServerMessage.parse(JSON.parse(encoder.encode(message([event]))));
-  expect(sent).toEqual(message([event]));
+  const sent = ServerMessage.parse(JSON.parse(encoder.encode(eventsMessage([event]))));
+  expect(sent).toEqual(eventsMessage([event]));
   expect(encoder.eventBytes(event)).toBe(Buffer.byteLength(JSON.stringify(event)));
 });

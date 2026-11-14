@@ -59,7 +59,7 @@ class ThreadRoutes {
     }
     // A route added while this batch is delivered starts with the next one, as a listener would.
     let failure: { error: unknown } | undefined;
-    for (const entry of [...this.entries]) {
+    for (const entry of Array.from(this.entries)) {
       if (!this.entries.has(entry)) continue;
       try {
         entry.route(byThread.get(entry.thread) ?? none, head);
