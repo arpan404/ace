@@ -194,6 +194,79 @@ test("a steer aimed at a run that has ended queues instead of joining the run th
   expect(h.engine.queue(id).messages).toMatchObject([{ input: text("stale"), delivery: "queue" }]);
 });
 
+test("an omitted delivery that the setting makes a steer still queues when the run it names has ended", async () => {
+  const frames = scriptFrames();
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start)] },
+    ],
+    frames,
+    { steer: true, preferences: { followUpBehavior: "steer" } },
+  );
+  const id = await h.create();
+  const ended = Object.values(h.store.snapshotThread(id).runs)[0]?.id;
+  h.command({ type: "thread.send", threadId: id, input: text("second turn") });
+  await h.engine.flush();
+  h.command({ type: "thread.send", threadId: id, input: text("stale"), runId: ended });
+  await h.engine.flush();
+  expect(sends(h.adapter)).toHaveLength(2);
+  expect(h.engine.queue(id).messages).toMatchObject([{ input: text("stale"), delivery: "queue" }]);
+});
+
+test("a steer whose run ends while it is on its way never joins the run that started meanwhile", async () => {
+  const frames = scriptFrames();
+  let gate: Promise<void> | undefined;
+  const entered = Promise.withResolvers<void>();
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start)] },
+      { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" }, start)] },
+    ],
+    frames,
+    {
+      steer: true,
+      async assertWorkspaceAvailable() {
+        if (!gate) return;
+        entered.resolve();
+        await gate;
+      },
+    },
+  );
+  const id = await h.create();
+  const runs = () => Object.values(h.store.snapshotThread(id).runs);
+  const first = runs().find((run) => run.state === "active")?.id;
+  expect(first).toBeDefined();
+  const release = Promise.withResolvers<void>();
+  gate = release.promise;
+  // Admitted while its run is the active one.
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      input: text("stale"),
+      delivery: "steer",
+      runId: first,
+    }),
+  ).toMatchObject({ ok: true });
+  await entered.promise;
+  // Before it reaches the provider, that run ends and another starts.
+  h.command({ type: "thread.interrupt", threadId: id, cascade: true, runId: first });
+  for (
+    let wait = 0;
+    wait < 400 && !runs().some((run) => run.state === "active" && run.id !== first);
+    wait++
+  )
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(runs().some((run) => run.state === "active" && run.id !== first)).toBe(true);
+  release.resolve();
+  await h.engine.flush();
+  expect(sends(h.adapter).filter((send) => JSON.stringify(send).includes('"stale"'))).toHaveLength(
+    0,
+  );
+  expect(h.engine.queue(id).messages).toMatchObject([{ input: text("stale") }]);
+});
+
 test("claiming a message before provider startup makes a concurrent edit fail", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames);

@@ -6,6 +6,8 @@ import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
+import { InputRejected } from "@ace/engine-api";
+import { steerLostRun } from "./steer-selection.ts";
 
 export class InteractionUnavailable extends Error {
   readonly code: "interaction_expired" | "interaction_unavailable";
@@ -188,6 +190,15 @@ export async function executeIntent(
       await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd, actor.id);
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
+      // The last moment before the provider reads it: a steer aimed at a run that has since
+      // ended, while another runs, never joins that other run. Refused unread, it goes back in
+      // the queue as the next message, as a steer that lost its turn does.
+      if (steering && p.type === "thread.send" && p.runId !== undefined) {
+        const live = repo.requireState(actor.id);
+        const running = live.agents[live.rootKey ?? ""]?.activeRun;
+        if (running !== undefined && steerLostRun(repo, actor.id, p.runId))
+          throw new InputRejected("The turn this message was meant to join has ended");
+      }
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
         ...(prepared?.input ??

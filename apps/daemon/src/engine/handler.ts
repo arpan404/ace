@@ -463,8 +463,10 @@ export function engineHandler(
           if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
             return fail("provider_input_queue_full");
         }
-        const resolved = recovery.admit(fenceSteer(repo, deliveryCommand, threadId), threadId);
-        if (!resolved) return fail("queue_capacity_exceeded");
+        const admittedSend = recovery.admit(deliveryCommand, threadId);
+        if (!admittedSend) return fail("queue_capacity_exceeded");
+        // After the default delivery is resolved: an omitted one may have become a steer.
+        const resolved = fenceSteer(repo, admittedSend, threadId);
         const steer = admitSteer(repo, resolved, threadId);
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
