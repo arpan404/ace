@@ -665,7 +665,11 @@ test("a session's status read reaches its machine while six tool calls wait on t
   const target = await busyMachine(3000);
   const connections = pool();
   const blocked = Array.from({ length: 6 }, () =>
-    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+    machineRequest(
+      target.profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ),
   );
   await expect.poll(() => target.arrived.length).toBe(6);
   const sent = Date.now();
@@ -685,7 +689,11 @@ test("children's status keeps being read, poll after poll, however many tool cal
   const target = await busyMachine(4000);
   const connections = pool();
   const blocked = Array.from({ length: 32 }, () =>
-    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+    machineRequest(
+      target.profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ),
   );
   await expect.poll(() => target.arrived.length).toBe(32);
   // A poll a second, each read answered at once: every one renews its child's lease.
