@@ -14,6 +14,20 @@ const MAX_DC_CATEGORY: u8 = 11;
 const MAX_AC_CATEGORY: u8 = 10;
 /// The DC coefficient of 8-bit samples needs at most eleven bits plus sign.
 const DC_RANGE: std::ops::RangeInclusive<i32> = -2048..=2047;
+/// Level-shifted 8-bit samples give |F(u,v)| <= 1024 for every DCT
+/// coefficient, and rounding to a quantiser adds at most half a step. Twice
+/// that bound still rejects values no 8-bit picture can produce, which IDCTs
+/// would only overflow on.
+const MAX_DEQUANTISED: i32 = 2048;
+
+/// Largest quantised magnitude allowed per natural-order coefficient.
+pub(crate) fn coefficient_limits(quant: &[u16; 64]) -> [i32; 64] {
+    let mut limits = [0; 64];
+    for (limit, q) in limits.iter_mut().zip(quant) {
+        *limit = MAX_DEQUANTISED / i32::from((*q).max(1));
+    }
+    limits
+}
 
 pub(crate) fn corrupt(what: &str) -> CodecError {
     CodecError::InvalidInput(format!("corrupt JPEG scan: {what}"))
@@ -170,6 +184,7 @@ pub(crate) fn block(
     bits: &mut Bits<'_>,
     dc: &HuffDecode,
     ac: &HuffDecode,
+    limits: &[i32; 64],
     pred: &mut i32,
     coeffs: &mut [i16; 64],
 ) -> Result<(), CodecError> {
@@ -179,7 +194,7 @@ pub(crate) fn block(
         return Err(corrupt("DC category"));
     }
     let dc_value = *pred + bits.value(s)?;
-    if !DC_RANGE.contains(&dc_value) {
+    if !DC_RANGE.contains(&dc_value) || dc_value.abs() > limits[0] {
         return Err(corrupt("DC coefficient out of range"));
     }
     *pred = dc_value;
@@ -205,7 +220,11 @@ pub(crate) fn block(
         k += run;
         let natural = *ZIGZAG_ORDER.get(k).ok_or_else(|| corrupt("AC run"))?;
         // Ten bits keep the value within ±1023, well inside i16.
-        coeffs[natural] = bits.value(size)? as i16;
+        let value = bits.value(size)?;
+        if value.abs() > limits[natural] {
+            return Err(corrupt("coefficient outside the 8-bit range"));
+        }
+        coeffs[natural] = value as i16;
         k += 1;
     }
     Ok(())

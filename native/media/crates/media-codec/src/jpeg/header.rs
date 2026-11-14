@@ -275,6 +275,10 @@ fn dht(mut s: &[u8], t: &mut Tables) -> Result<(), CodecError> {
         if class > 1 || id > 3 || total > 256 || s.len() < 17 + total {
             return Err(invalid("DHT"));
         }
+        // DC symbols are magnitude categories: never above 15 (T.81 F.1.2.1).
+        if class == 0 && s[17..17 + total].iter().any(|v| *v > 15) {
+            return Err(invalid("DC Huffman symbol"));
+        }
         let table = if class == 0 {
             &mut t.dc[id]
         } else {
@@ -318,8 +322,9 @@ fn sos(s: &[u8], f: &mut Frame, t: &Tables, quant: &[bool; 4]) -> Result<(), Cod
             return Err(invalid("missing table"));
         }
     }
+    // Sequential frames code the full spectrum in one pass (T.81 B.2.3).
     if body[n * 2..] != [0, 63, 0] {
-        return Err(unsupported("spectral selection"));
+        return Err(invalid("spectral selection for a sequential frame"));
     }
     Ok(())
 }

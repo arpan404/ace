@@ -172,6 +172,15 @@ fn coefficient_categories_runs_and_quantisers_are_validated() {
             "{what}"
         );
     }
+    // An unused DC symbol above 15 still makes the table invalid.
+    let mut bad_dc_table = source.clone();
+    let at = dht(&source, 0);
+    let total: usize = source[at + 1..at + 17]
+        .iter()
+        .map(|c| usize::from(*c))
+        .sum();
+    bad_dc_table[at + 16 + total] = 41;
+    assert!(transcode(&mut codec, &bad_dc_table, FULL).is_err());
     let mut zero_quant = source.clone();
     zero_quant[body(&source, 0xDB) + 5] = 0;
     assert!(transcode(&mut codec, &zero_quant, FULL).is_err());
@@ -192,9 +201,11 @@ fn duplicate_component_ids_and_selectors_fail() {
 }
 
 #[test]
-fn extreme_dequantised_coefficients_decode_at_every_dct_scale() -> Result<(), CodecError> {
-    // A one-pixel checkerboard at q100 codes near-maximal AC magnitudes;
-    // raising every quantiser to 255 then multiplies them far past 8 bits.
+fn near_maximal_coefficients_decode_and_impossible_ones_fail_at_every_dct_scale()
+-> Result<(), CodecError> {
+    // A one-pixel checkerboard at q100 codes the largest coefficients an
+    // 8-bit picture has. Raising every quantiser to 255 afterwards pushes them
+    // far past what any 8-bit picture can produce.
     let board: Vec<u8> = (0..W * H)
         .flat_map(|i| {
             let v = if (i % W + i / W).is_multiple_of(2) {
@@ -205,35 +216,39 @@ fn extreme_dequantised_coefficients_decode_at_every_dct_scale() -> Result<(), Co
             [v, 255 - v, v]
         })
         .collect();
+    let targets = [
+        FULL,
+        Size {
+            width: 32,
+            height: 24,
+        },
+        Size {
+            width: 16,
+            height: 12,
+        },
+        EIGHTH,
+    ];
     for subsampling in [Subsampling::S444, Subsampling::S420] {
-        let mut source = Encoder::new(&board, W, H, Pf::Rgb)
+        let source = Encoder::new(&board, W, H, Pf::Rgb)
             .quality(100)
             .subsampling(subsampling)
             .encode()
             .unwrap_or_else(|e| panic!("{e}"));
-        for (marker, at) in segments(&source.clone()) {
+        let mut extreme = source.clone();
+        for (marker, at) in segments(&source) {
             if marker == 0xDB {
                 let len = usize::from(u16::from_be_bytes([source[at - 2], source[at - 1]])) - 2;
-                for table in source[at..at + len].chunks_exact_mut(65) {
+                for table in extreme[at..at + len].chunks_exact_mut(65) {
                     table[1..].fill(255);
                 }
             }
         }
         let mut codec = CpuJpegCodec::default();
-        for target in [
-            FULL,
-            Size {
-                width: 32,
-                height: 24,
-            },
-            Size {
-                width: 16,
-                height: 12,
-            },
-            EIGHTH,
-        ] {
+        for target in targets {
             let out = transcode(&mut codec, &source, target)?;
-            assert_eq!(codec.decode(&out)?.size(), target);
+            let picture = codec.decode(&out)?;
+            assert_eq!(picture.size(), target);
+            assert!(transcode(&mut codec, &extreme, target).is_err());
         }
     }
     Ok(())

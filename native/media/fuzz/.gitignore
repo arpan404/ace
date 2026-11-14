@@ -1,0 +1,6 @@
+/target/
+/artifacts/
+/coverage/
+# libFuzzer adds its discoveries next to the committed seeds; only seeds are kept.
+/corpus/transcode/*
+!/corpus/transcode/seed-*

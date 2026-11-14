@@ -3,7 +3,7 @@
 //! conversion or chroma upsampling. Full-size blocks use libjpeg-turbo-rs's
 //! runtime-selected SIMD IDCT; 1/2, 1/4 and 1/8 outputs use a reduced IDCT
 //! over the low-frequency coefficients. Planes keep their capacity.
-use super::entropy::{Bits, block, corrupt};
+use super::entropy::{Bits, block, coefficient_limits, corrupt};
 use super::header::{self, Frame, Tables};
 use crate::resample::Layout;
 use crate::{CodecError, Size};
@@ -131,6 +131,10 @@ impl BaselineDecoder {
         let mut until_restart = f.restart;
         let mut next_restart = 0_u8;
         let mut coeffs = [0_i16; 64];
+        let mut limits = [[0_i32; 64]; 4];
+        for (limit, quant) in limits.iter_mut().zip(&self.tables.quant) {
+            *limit = coefficient_limits(quant);
+        }
         let mut pixels = [0_u8; 64];
         for my in 0..mcus_y {
             for mx in 0..mcus_x {
@@ -153,7 +157,14 @@ impl BaselineDecoder {
                     let plane = &mut out.planes[ci];
                     for by in 0..c.v {
                         for bx in 0..c.h {
-                            block(&mut bits, dc, ac, &mut preds[ci], &mut coeffs)?;
+                            block(
+                                &mut bits,
+                                dc,
+                                ac,
+                                &limits[c.quant],
+                                &mut preds[ci],
+                                &mut coeffs,
+                            )?;
                             let x = (mx * c.h + bx) * n;
                             let y = (my * c.v + by) * n;
                             let dst = &mut plane[y * stride + x..];
