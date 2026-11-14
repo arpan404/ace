@@ -128,8 +128,8 @@ export class Connection {
   /** The device grant this attempt's hello carried, and whether a refused one was retried. */
   #helloGrant: string | undefined;
   #grantRetried = false;
-  /** The grant each open socket's last refresh carried, to name it if that is refused. */
-  #refreshGrants = new Map<Transport, string>();
+  /** Each open socket's last refresh: its request id and the grant it carried. */
+  #refreshGrants = new Map<Transport, { requestId: string; grant: string }>();
   /** The daemon of this attempt said `starting`: its welcome waits out a cold start. */
   #starting = false;
   constructor(
@@ -805,14 +805,17 @@ export class Connection {
       transport,
       keepGrant({
         ttlMs: welcome.grantTtlMs,
-        grant: async () => {
-          const next = await grant();
-          this.#refreshGrants.set(transport, next);
-          return next;
-        },
+        grant: () => grant(),
         scheduler: this.#options.scheduler,
         id: () => this.#options.id(),
-        send: (message) => transport.send(JSON.stringify(this.#codec.encode(message))),
+        send: (message) => {
+          if (message.type === "account.grant.refresh")
+            this.#refreshGrants.set(transport, {
+              requestId: message.requestId,
+              grant: message.grant,
+            });
+          transport.send(JSON.stringify(this.#codec.encode(message)));
+        },
         refused: () => this.#grantRefused(transport),
       }),
     );
@@ -825,8 +828,11 @@ export class Connection {
   }
   #grantAnswered(transport: Transport | undefined, message: GrantRefreshResult): void {
     // A refused refresh's grant is never offered again: the keeper's retry fetches a fresh one.
-    if (transport && !message.result.ok)
-      this.#options.grantRefused?.(this.#refreshGrants.get(transport));
+    // Only the answer to the socket's latest refresh names a grant: a late answer to an earlier
+    // one is stale, and the keeper ignores it too.
+    const last = transport && this.#refreshGrants.get(transport);
+    if (last && last.requestId === message.requestId && !message.result.ok)
+      this.#options.grantRefused?.(last.grant);
     if (transport) this.#keepers.get(transport)?.answered(message);
   }
   /**
