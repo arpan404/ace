@@ -3,9 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect } from "vitest";
 import { FakeHeadless } from "./backend-test-support.ts";
-import type { BackendOpen, BrowserBackendSession, CaptureEvents, VideoHost } from "./backend.ts";
+import type {
+  BackendOpen,
+  BrowserBackendSession,
+  BrowserCdp,
+  CaptureEvents,
+  VideoHost,
+} from "./backend.ts";
 import type { VideoEncode } from "./video-policy.ts";
-import { BrowserService } from "./index.ts";
+import { BrowserService, connectBrowser } from "./index.ts";
+import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
+import type { BrowserVideoChunk } from "./stream-video.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 
@@ -31,19 +39,27 @@ export class RestingTabs extends FakeHeadless {
    * Every tab capture the live video opened, in order: the test makes its chunks (`events`)
    * and reads the encodes it was told to run.
    */
-  readonly captures: { events: CaptureEvents; encodes: VideoEncode[]; closed: boolean }[] = [];
+  readonly captures: {
+    page: BrowserCdp;
+    events: CaptureEvents;
+    encodes: VideoEncode[];
+    keyframes: number;
+    closed: boolean;
+  }[] = [];
   private videoHost: VideoHost = {
     supported: async (codecs) => codecs.filter((codec) => codec === "vp8"),
-    open: async (_page, _width, _height, events) => {
-      const capture = { events, encodes: [] as VideoEncode[], closed: false };
-      this.captures.push(capture);
+    open: async (page, _width, _height, events) => {
+      const opened = { page, events, encodes: [] as VideoEncode[], keyframes: 0, closed: false };
+      this.captures.push(opened);
       return {
         encodes: (specs) => {
-          capture.encodes = [...specs];
+          opened.encodes = [...specs];
         },
-        keyframe: () => {},
+        keyframe: () => {
+          opened.keyframes++;
+        },
         close: () => {
-          capture.closed = true;
+          opened.closed = true;
         },
       };
     },
@@ -58,6 +74,8 @@ export class RestingTabs extends FakeHeadless {
   fail(step: string, times = 1): void {
     this.failing.set(step, (this.failing.get(step) ?? 0) + times);
   }
+  /** How many times each step was tried, failed tries included. */
+  readonly tried = new Map<string, number>();
   /** The steps for one tab, in order. */
   steps(tabId: string): string[] {
     return this.log.filter((step) => step.endsWith(` ${tabId}`));
@@ -66,6 +84,7 @@ export class RestingTabs extends FakeHeadless {
     const gate = this.gates.get(step);
     this.gates.delete(step);
     if (gate) await gate.promise;
+    this.tried.set(step, (this.tried.get(step) ?? 0) + 1);
     const failures = this.failing.get(step) ?? 0;
     if (failures > 0) {
       this.failing.set(step, failures - 1);
@@ -73,11 +92,20 @@ export class RestingTabs extends FakeHeadless {
     }
     this.log.push(step);
   }
+  /** Each tab's current page, as the thread's last open made it (a revived tab has a new one). */
+  readonly tabPages = new Map<string, BrowserBackendSession>();
   override async open(request: BackendOpen): Promise<BrowserBackendSession> {
     this.request = request;
     const hidden = new Set<string>();
-    const pages = new Map<string, BrowserBackendSession>();
-    for (const id of ["a", "b"]) {
+    const discarded = new Set<string>();
+    const addresses = new Map([
+      ["a", "https://a.test/"],
+      ["b", "https://b.test/"],
+    ]);
+    let active = "a";
+    const pages = this.tabPages;
+    pages.clear();
+    const makePage = async (id: string) => {
       const page = await super.open(request);
       const send = page.cdp.send.bind(page.cdp);
       page.cdp.send = async (method, params) => {
@@ -96,16 +124,26 @@ export class RestingTabs extends FakeHeadless {
         return Buffer.from([0]);
       };
       pages.set(id, page);
-    }
-    const first = pages.get("a");
-    if (!first) throw new Error("No first tab");
+      return page;
+    };
+    const first = await makePage("a");
+    await makePage("b");
     return {
       ...first,
       tabs: {
-        list: () => [...pages.keys()].map((tabId) => ({ tabId, url: "about:blank", title: "" })),
-        active: () => "a",
-        open: async () => "a",
-        switch: async () => {},
+        list: () =>
+          [...pages.keys()].map((tabId) => ({
+            tabId,
+            url: addresses.get(tabId) ?? "about:blank",
+            title: "",
+            discarded: discarded.has(tabId),
+          })),
+        active: () => active,
+        open: async () => active,
+        switch: async (tabId) => {
+          active = tabId;
+          request.changed?.();
+        },
         close: async () => {},
         dialog: () => undefined,
         answer: async () => {},
@@ -116,12 +154,24 @@ export class RestingTabs extends FakeHeadless {
         },
         // As ace's Chrome: asking for the state a tab is already in changes nothing.
         rest: async (tabId, resting) => {
-          if (hidden.has(tabId) === resting) return;
+          if (discarded.has(tabId) || hidden.has(tabId) === resting) return;
           await this.step(`${resting ? "hide" : "show"} ${tabId}`);
           if (resting) hidden.add(tabId);
           else hidden.delete(tabId);
         },
         resting: (tabId) => hidden.has(tabId),
+        // Dropping a tab closes its page; reviving opens a new one (a new target) at its address.
+        discard: async (tabId) => {
+          await this.step(`discard ${tabId}`);
+          discarded.add(tabId);
+          hidden.delete(tabId);
+        },
+        revive: async (tabId) => {
+          await this.step(`revive ${tabId}`);
+          await makePage(tabId);
+          discarded.delete(tabId);
+        },
+        discarded: (tabId) => discarded.has(tabId),
         proceedCertificate: (tabId) => this.step(`certificate ${tabId}`),
         chooseFiles: (tabId) => this.step(`files ${tabId}`),
         answerAuth: (tabId) => this.step(`auth ${tabId}`),
@@ -184,3 +234,70 @@ export async function idleThread() {
 
 /** Lets pending callbacks run, so a held step is reached. */
 export const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+/** A person's video viewer of the thread: the chunks it was sent, in order. */
+export async function watch(service: BrowserService, connectionId = "viewer") {
+  const chunks: BrowserVideoChunk[] = [];
+  const assembler = new StreamAssembler();
+  /** While set, the viewer's transport pushes back: chunks wait in its queue. */
+  const link = { blocked: false };
+  const bridge = connectBrowser(service, {
+    connectionId,
+    authorize: () => true,
+    send: () => true,
+    sendStream: (pieces) => {
+      if (link.blocked) return false;
+      for (const piece of pieces) {
+        const envelope = assembler.push(piece);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind === "browser.video") chunks.push(message.chunk);
+      }
+      return true;
+    },
+  });
+  let closed = false;
+  const leave = () => {
+    if (closed) return;
+    closed = true;
+    bridge.close();
+  };
+  cleanups.push(async () => leave());
+  await bridge.handle({
+    type: "browser.subscribe",
+    threadId: "thread",
+    requestId: "subscribe",
+    binaryFrames: true,
+    viewport: { width: 640, height: 400, devicePixelRatio: 1 },
+    video: { codecs: ["vp8"] },
+  });
+  const ack = (sequence: number) =>
+    bridge.handle({
+      type: "browser.ack",
+      threadId: "thread",
+      requestId: `ack-${sequence}`,
+      sequence,
+      video: true,
+    });
+  return { chunks, ack, leave, link };
+}
+
+/** The tab capture the live video opened `index`th, once it was told what to encode. */
+export async function capture(backend: RestingTabs, index: number) {
+  await expect
+    .poll(() => backend.captures[index]?.encodes.length ?? 0, { timeout: 5_000 })
+    .toBeGreaterThan(0);
+  const opened = backend.captures[index];
+  const encode = opened?.encodes[0]?.key;
+  if (!opened || !encode) throw new Error("No capture");
+  /** One encoded picture, marked so the test can tell which it is. */
+  const send = (marker: number, key: boolean) =>
+    opened.events.chunk({
+      encode,
+      key,
+      codec: "vp8",
+      codedWidth: 640,
+      codedHeight: 400,
+      bytes: new Uint8Array([marker]),
+    });
+  return { opened, send };
+}
