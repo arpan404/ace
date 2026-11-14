@@ -9,12 +9,13 @@ import { useThreadMeta } from "@ace/client-react";
  * status and hold actions on what is shown.
  */
 export function useThreadLiveState(threadId: string) {
-  const { fresh, staleLabel } = useThreadFreshness(threadId);
+  const { fresh, staleLabel, isFresh } = useThreadFreshness(threadId);
   const status = useThreadMeta(threadId)?.status;
   return {
     fresh,
     paused: status?.state === "limited",
     canStop: fresh && threadIsRunning(status),
     staleLabel,
+    isFresh,
   };
 }
