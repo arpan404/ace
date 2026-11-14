@@ -8,10 +8,12 @@ import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { loginShellPath } from "./login-path.ts";
 import { watchEndpointFile } from "./endpoint-watch.ts";
 import {
+  configuredOrigin,
   daemonHealth,
   findRunningDaemon,
   maintenanceBlockers,
   maintenanceStatus,
+  readKeptDaemon,
   readLocalDaemon,
   setMaintenance,
   setUpdateHold,
@@ -22,6 +24,7 @@ import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions 
 import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
+import { startFailed } from "./status.ts";
 import type { FreezeSignal } from "./watchdog.ts";
 
 /**
@@ -238,6 +241,23 @@ export class DaemonRuntime {
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
     };
+  }
+
+  /**
+   * The page's hand-off before its daemon answers: what the home kept (token, identity, and the
+   * address it listens on), so the page opens on what it cached for that daemon and connects
+   * once the daemon does. Undefined once the daemon runs (`connection` then hands the real
+   * one), when its start has failed (the page shows that instead), for any daemon this app
+   * doesn't run locally, and when the home kept nothing to show.
+   */
+  async earlyConnection(): Promise<DaemonConnection | undefined> {
+    if (this.target.kind !== "managed" && this.target.kind !== "attach") return undefined;
+    const status = this.supervisor?.current();
+    if (!status || status.state === "running" || startFailed(status)) return undefined;
+    const origin = configuredOrigin(this.options.env);
+    const kept = origin ? await readKeptDaemon(this.target.home, origin) : undefined;
+    if (!kept?.hostId) return undefined;
+    return { mode: "daemon", url: kept.url, token: kept.token, localHostId: kept.hostId };
   }
 
   /** The local daemon's address, once running (managed or dev). */

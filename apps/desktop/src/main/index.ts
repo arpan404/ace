@@ -549,7 +549,33 @@ function main(target: DaemonTarget, crashDumps: string): void {
         throw error;
       }
     };
+    // While the daemon starts, the page gets what its home kept (`earlyConnection`) and opens on
+    // what it cached, reconnecting; the real target follows once the daemon runs, and the page
+    // reconnects to it if it differs (`watchDesktopTarget`). A start that fails instead reloads
+    // the page, which then shows the failure rather than waiting on a daemon that won't come.
+    let handedEarly = false;
+    const pageConnection = async () => {
+      const early = await runtime.earlyConnection();
+      if (!early) return connection();
+      if (!handedEarly)
+        log("info", "Handed the page what the daemon's home kept", {
+          sinceLaunchMs: sinceLaunchMs(),
+        });
+      handedEarly = true;
+      return early;
+    };
     runtime.onStatus((status) => {
+      if (status.state === "running") handedEarly = false;
+      if (
+        handedEarly &&
+        startFailed(status) &&
+        status.state !== "stopping" &&
+        status.state !== "stopped"
+      ) {
+        handedEarly = false;
+        window?.webContents.reload();
+        return;
+      }
       if (status.state !== "running" || !missedConnection) return;
       missedConnection = false;
       window?.webContents.reload();
@@ -639,6 +665,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       window: () => window,
       toolchains: () => toolchains(process.env),
       connection,
+      pageConnection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,
