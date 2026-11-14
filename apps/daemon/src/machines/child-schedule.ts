@@ -34,6 +34,8 @@ export interface ScheduleChild {
   settledAt: number | null;
   /** Its stop was never confirmed: its real end is read at the fast pace. */
   unconfirmed: boolean;
+  /** Being stopped: asked ahead of every other due child, so its stop is confirmed in time. */
+  stopping?: boolean;
   /** Its machine is still paired as the device it was delegated through. */
   paired: boolean;
 }
@@ -150,8 +152,8 @@ export interface TurnPlan {
 }
 
 /**
- * This turn's calls for one machine: due children earliest due first, then those asked longest
- * ago, then by id; a suspect child alone in its call, the rest sixteen to a call; at most
+ * This turn's calls for one machine: due children being stopped first, then earliest due, then
+ * those asked longest ago, then by id; a suspect child alone in its call, the rest sixteen to a call; at most
  * `callsPerTurn` calls. More due than fits waits for the next turn, first in line then: every due
  * child is asked within `ceil(n / callsPerTurn)` turns of coming due, n being the children there.
  */
@@ -177,13 +179,24 @@ export function planTurn(
         at: dueAt(child, record, by, config),
         limit: waiting ? now : by,
         asked: record?.lastAskedAt ?? Number.NEGATIVE_INFINITY,
+        first: child.stopping === true ? 0 : 1,
       };
     })
     .filter(
-      (entry): entry is { child: ScheduleChild; at: number; limit: number; asked: number } =>
-        entry.at !== undefined && entry.at <= entry.limit,
+      (
+        entry,
+      ): entry is {
+        child: ScheduleChild;
+        at: number;
+        limit: number;
+        asked: number;
+        first: number;
+      } => entry.at !== undefined && entry.at <= entry.limit,
     )
-    .toSorted((a, b) => a.at - b.at || a.asked - b.asked || (a.child.id < b.child.id ? -1 : 1));
+    .toSorted(
+      (a, b) =>
+        a.first - b.first || a.at - b.at || a.asked - b.asked || (a.child.id < b.child.id ? -1 : 1),
+    );
   const calls: string[][] = [];
   let open: string[] | undefined;
   for (const { child } of due) {

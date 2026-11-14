@@ -138,6 +138,8 @@ test("re-checks of a machine that can't be reached back off, log once, and resum
   await h.fire();
   h.asked.length = 0;
 
+  // Nothing heard from the machine for a while, then its child's re-check fails: it is down.
+  h.clock.now += 3 * POLL_MS;
   h.reads.error = new MachineFailure("offline");
   await h.fire();
   await h.fire();

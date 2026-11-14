@@ -41,6 +41,14 @@ export interface ChildLivenessDeps {
   mirror: RequestMirror;
   emit(ids: readonly string[]): void;
   log(message: string, fields: Record<string, unknown>): void;
+  /**
+   * Children asked about since their machine last reported them, by when the first of those
+   * asks went out: the lease runs from then, never from a time the child was only waiting for its
+   * turn. Kept by the poll; entries the lease check finds settled, lost or stopping are dropped.
+   */
+  unanswered: Map<string, number>;
+  /** Whether a read of the child that started at or after `at` has come back, answered or not. */
+  readSince(id: string, at: number): boolean;
   /** Overrides for tests; the defaults are the ADR's. */
   stopPlan?: StopPlan<"cancel"> | undefined;
   leaseMs?: number | undefined;
@@ -101,6 +109,12 @@ export class ChildLiveness {
     for (const row of this.deps.ledger.stopping()) {
       const at = this.standingOf(row, now);
       if (at.kind === "stopped_unconfirmed") {
+        // Given up on only once the child was read after its last cancel went out: a child still
+        // waiting for its turn was never asked whether it stopped.
+        if (!this.deps.readSince(row.id, row.stop_last_at ?? row.stop_started_at ?? now)) {
+          next = Math.min(next ?? now + this.plan[0].waitMs, now + this.plan[0].waitMs);
+          continue;
+        }
         this.giveUp(row);
         continue;
       }
@@ -159,18 +173,34 @@ export class ChildLiveness {
     });
   }
   /**
-   * The lease check: every unsettled child whose machine hasn't reported it within the lease is
-   * lost contact, and its parent's hold on it ends.
+   * The lease check: every unsettled child that was asked about and whose machine hasn't
+   * reported it within the lease since is lost contact, and its parent's hold on it ends. The
+   * lease runs from the later of its last report, this daemon's start and the first ask since:
+   * a child the poll has not reached yet is never lost for that.
    */
   lapse(): void {
     if (this.closed) return;
     const now = this.deps.now();
-    // Nothing has had a whole lease to report since this daemon started.
-    if (now - this.bootAt < this.leaseMs) return;
-    for (const row of this.deps.ledger.lapsed(now - this.leaseMs, LAPSED_PER_POLL)) {
-      const renewedAt = Math.max(row.seen_at ?? row.created_at, this.bootAt);
+    let marked = 0;
+    for (const [id, askedAt] of this.deps.unanswered) {
+      if (marked >= LAPSED_PER_POLL) break;
+      if (now - askedAt < this.leaseMs) continue;
+      const row = this.deps.ledger.row(id);
+      if (
+        !row ||
+        row.settled !== 0 ||
+        row.silent_since !== null ||
+        row.stop_started_at !== null ||
+        row.lost_at !== null
+      ) {
+        this.deps.unanswered.delete(id);
+        continue;
+      }
+      const renewedAt = Math.max(row.seen_at ?? row.created_at, this.bootAt, askedAt);
       const at = standing({ ended: false, lease: { renewedAt, ttlMs: this.leaseMs } }, now);
       if (at.kind !== "lost") continue;
+      marked++;
+      this.deps.unanswered.delete(id);
       const name = this.deps.label(row.machine);
       this.deps.store.atomic(() => {
         this.deps.ledger.markSilent(row.id, at.since);

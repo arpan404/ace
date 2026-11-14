@@ -393,17 +393,6 @@ export class ChildLedger {
         .run(at, id),
     );
   }
-  /**
-   * Unsettled children whose last report is older than `before` and that are not already lost
-   * contact, being stopped or lost their pairing: the lease check, by index, however many.
-   */
-  lapsed(before: number, limit: number): ChildRow[] {
-    return this.all(
-      "SELECT * FROM machine_children WHERE settled=0 AND seen_at<? AND silent_since IS NULL AND stop_started_at IS NULL AND lost_at IS NULL ORDER BY seen_at LIMIT ?",
-      before,
-      limit,
-    );
-  }
   /** Its lease lapsed at `since`: lost contact until it reports again. */
   markSilent(id: ThreadId, since: number): void {
     this.store.atomic((db) =>

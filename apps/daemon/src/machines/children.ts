@@ -133,6 +133,13 @@ export class MachineChildren implements RemoteChildren {
   private heardAt = new Map<string, number>();
   /** Status calls on their way. */
   private running = new Set<Promise<void>>();
+  /**
+   * Each child asked about since its machine last reported it, by when the first such ask went
+   * out: its lease runs from then (ChildLiveness.lapse).
+   */
+  private unanswered = new Map<string, number>();
+  /** For each child being stopped, when its latest read that has come back started. */
+  private readAt = new Map<string, number>();
   /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
   private records = new Map<string, Map<string, ChildRecord>>();
   private schedule: ScheduleConfig;
@@ -159,6 +166,8 @@ export class MachineChildren implements RemoteChildren {
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
+      unanswered: this.unanswered,
+      readSince: (id, at) => (this.readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= at,
       emit: (ids) => this.emit(ids),
     });
     this.messages = new ChildMessages({
@@ -554,6 +563,7 @@ export class MachineChildren implements RemoteChildren {
         settled: row.settled === 1,
         settledAt: row.settled_at,
         unconfirmed: row.stopped_unconfirmed === 1,
+        stopping: row.settled === 0 && row.stop_started_at !== null,
         paired: !lost(row),
       });
     };
@@ -592,6 +602,7 @@ export class MachineChildren implements RemoteChildren {
     const first = rows.get(ids[0] ?? "");
     if (!first) return;
     const startedAt = this.deps.now();
+    for (const id of ids) if (!this.unanswered.has(id)) this.unanswered.set(id, startedAt);
     let outcome: CallOutcome;
     let views: MachineThreadView[] | undefined;
     try {
@@ -617,6 +628,12 @@ export class MachineChildren implements RemoteChildren {
       for (const id of working) this.unreachable.set(id, reason);
       if (working.length) this.emit(working);
     }
+    // A child being stopped is given up on only after a read that started after its last cancel.
+    for (const id of ids)
+      if (typeof rows.get(id)?.stop_started_at === "number") this.readAt.set(id, startedAt);
+      else this.readAt.delete(id);
+    // Each child its machine reported: its lease renews, whatever applying the view does.
+    for (const view of views ?? []) this.unanswered.delete(view.threadId);
     if (views && !this.closed)
       try {
         for (const view of views) {

@@ -52,6 +52,24 @@ function longestWait(times: readonly number[], from: number, to: number) {
   return Math.max(...gaps([from, ...times, to]));
 }
 
+/** A machine whose children were all saved as asked alone, as after a restart following failures. */
+async function restartedWithBacklog(n: number, options: Parameters<typeof machine>[1] = {}) {
+  const first = machine(undefined, { pollMs: POLL });
+  const ids = Array.from({ length: n }, (_, index) =>
+    first.add(`w-${String(index).padStart(4, "0")}`),
+  );
+  for (const id of ids) first.report(id, working);
+  await run(first, first.clock.now + 2_000);
+  // One turn in which every shared call fails: each child is saved as asked alone.
+  first.reads.decide = (asked) =>
+    asked.length > 1 ? new MachineFailure("disconnected") : undefined;
+  await run(first, first.clock.now + POLL);
+  first.children.close();
+  const h = machine(first.home, { pollMs: POLL, startAt: first.clock.now + POLL, ...options });
+  for (const id of ids) h.report(id, working);
+  return { h, ids };
+}
+
 it("a. every child is read within the stated bound on a machine of 301 working children", async () => {
   const h = machine(undefined, { pollMs: POLL });
   const workers = Array.from({ length: 300 }, (_, index) =>
@@ -240,3 +258,41 @@ it("while children are tracked a timer is always armed, whatever the pairings, s
     h.children.close();
   }
 }, 30_000);
+
+it("no healthy child loses contact or its parent's hold while 400 wait their turn to be asked alone", async () => {
+  // 400 children asked alone, 16 a turn, take 25 s to reach: well past a 10 s lease.
+  const { h, ids } = await restartedWithBacklog(400, { leaseMs: 10_000 });
+  const lost = new Set<string>();
+  const calls = await run(h, h.clock.now + 40_000, () => {
+    for (const id of ids) if (h.children.watched(id)?.view.contact === "lost") lost.add(id);
+  });
+  expect([...lost]).toEqual([]);
+  for (const id of ids) expect(timesOf(calls, id).length, id).toBeGreaterThan(0);
+});
+
+it("a child that is asked and never answers still loses contact after the lease", async () => {
+  const { h, ids } = await restartedWithBacklog(40, { leaseMs: 10_000 });
+  const [silent] = ids;
+  if (!silent) throw new Error("no child");
+  h.reads.decide = (asked) => (asked.includes(silent) ? new MachineFailure("offline") : undefined);
+  await run(h, h.clock.now + 30_000);
+  expect(h.children.watched(silent)?.view.contact).toBe("lost");
+  expect(ids.slice(1).filter((id) => h.children.watched(id)?.view.contact === "lost")).toEqual([]);
+});
+
+it("a stop is confirmed, never given up on, while the child waits its turn behind 400 others", async () => {
+  const { h, ids } = await restartedWithBacklog(400, {
+    stopPlan: [{ action: "cancel", waitMs: 2_000 }],
+  });
+  const stopped = ids.at(-1);
+  if (!stopped) throw new Error("no child");
+  // Its machine takes the cancel at once; only a read of the child can say so.
+  h.answers.cancel = async (id) => {
+    h.report(id, { state: "cancelled", status: { state: "done" }, result: "Stopped." });
+  };
+  h.children.stop(stopped);
+  const contacts = new Set<string | undefined>();
+  await run(h, h.clock.now + 40_000, () => contacts.add(h.children.watched(stopped)?.view.contact));
+  expect(contacts.has("unconfirmed")).toBe(false);
+  expect(h.state(stopped)).toBe("cancelled");
+});
