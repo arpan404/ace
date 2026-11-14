@@ -479,3 +479,60 @@ test("the Notifications page shows a machine's phone push as saved, and turning 
   expect(daemon.services.settings.get("notifications.remotePush")).toBe(false);
   expect(row(await page(p, "notifications"), "notifications.remotePush").value).toBe(false);
 });
+
+test("the Browser page reads ace's Chrome in the web's words and saves each choice", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "/Users/ada/Downloads");
+  const shown = await page(p, "browser");
+  expect(shown.title).toBe("Browser");
+  expect(shown.sections.map((section) => section.title)).toEqual(["ace's Chrome", "Use my Chrome"]);
+  expect(labels(row(shown, "browser.backend"))).toEqual([
+    "App, then ace's Chrome",
+    "Desktop app only",
+    "ace's Chrome only",
+  ]);
+  expect(labels(row(shown, "browser.profile"))).toEqual(["Keep sign-ins", "Private"]);
+  expect(labels(row(shown, "browser.profileScope"))).toEqual([
+    "Global",
+    "Each project",
+    "Each thread",
+  ]);
+  expect(labels(row(shown, "browser.backendLoss"))).toEqual(["Pause", "Use ace's Chrome"]);
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "Empty uses this machine's Downloads folder.",
+  );
+
+  const engine = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.backend",
+    value: "headless",
+  });
+  expect(engine.ok).toBe(true);
+  expect(p.daemon.services.settings.get("browser.backend")).toBe("headless");
+  expect(row(engine.page!, "browser.backend").value).toBe("headless");
+  const scope = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.profileScope",
+    value: "thread",
+  });
+  expect(p.daemon.services.settings.get("browser.profileScope")).toBe("thread");
+  expect(row(scope.page!, "browser.profileScope").value).toBe("thread");
+  await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.userChrome.storageReads",
+    value: true,
+  });
+  expect(p.daemon.services.settings.get("browser.userChrome.storageReads")).toBe(true);
+});
+
+test("without a Downloads folder on the machine, the Browser page says downloads stay with each thread", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "");
+  const shown = await page(p, "browser");
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "No usable Downloads folder here; empty keeps them with each thread.",
+  );
+});

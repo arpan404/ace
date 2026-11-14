@@ -5,6 +5,11 @@ import {
   agentSettingTitles,
   atLimitLine,
   autoSettleChoices,
+  browserDownloadsNote,
+  browserEngineChoices,
+  browserLossChoices,
+  browserProfileChoices,
+  browserProfileScopeChoices,
   childLimitChoices,
   childLimitNote,
   devicesSwitch,
@@ -54,8 +59,10 @@ export interface StaticRow {
   key: SettingsKey;
   title: string;
   control: StaticControl;
-  /** What the current value means, when that changes with it. */
-  note?: (current: unknown) => string | null;
+  /** What the current value means, when that changes with it; `other` reads `reads`' values. */
+  note?: (current: unknown, other: (key: SettingsKey) => unknown) => string | null;
+  /** Other settings the note depends on, read with the page. */
+  reads?: SettingsKey[];
 }
 /** A row built from the machine's providers and models. */
 export type AgentRow =
@@ -298,24 +305,62 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
     ],
     savedHere,
   ),
-  browser: one(
-    "browser",
-    "Browser and computer",
-    [
-      menu("browser.backend", "Browser", named(["auto", "embedded", "headless"])),
-      menu("browser.backendLoss", "When browser disconnects", named(["pause", "headless"])),
-      menu("browser.profile", "Browser data", named(["persistent", "ephemeral"])),
-      menu("browser.profileScope", "Browser profile", named(["global", "project", "thread"])),
+  /** ace's Chrome on the machine, as web's Settings › Browser words it. */
+  browser: {
+    id: "browser",
+    title: "Browser",
+    sections: [
       {
-        kind: "static",
-        key: "browser.downloadDir",
-        title: "Download folder on machine",
-        control: { kind: "text", placeholder: "Folder path" },
+        id: "chrome",
+        title: "ace's Chrome",
+        footer: "ace's Chrome keeps agents browsing without the app. Saved on this machine.",
+        rows: [
+          menu("browser.backend", "Browser engine", choices(browserEngineChoices)),
+          {
+            kind: "static",
+            key: "browser.profile",
+            title: "New browsers",
+            control: {
+              kind: "choice",
+              style: "segmented",
+              choices: choices(browserProfileChoices),
+            },
+          },
+          menu(
+            "browser.profileScope",
+            "Browser profile",
+            choices(browserProfileScopeChoices),
+            () => "A project can choose its own in Edit project.",
+          ),
+          {
+            kind: "static",
+            key: "browser.backendLoss",
+            title: "When the desktop app goes away",
+            control: { kind: "choice", style: "segmented", choices: choices(browserLossChoices) },
+          },
+          {
+            kind: "static",
+            key: "browser.downloadDir",
+            title: "Downloads folder for ace's Chrome",
+            control: { kind: "text", placeholder: "Folder path" },
+            reads: ["browser.downloadDefault"],
+            note: (_current, other) => {
+              const machine = other("browser.downloadDefault");
+              return browserDownloadsNote(typeof machine === "string" ? machine : "");
+            },
+          },
+        ],
       },
-      toggle("browser.userChrome.storageReads", "Agents can read Chrome storage"),
+      {
+        id: "userChrome",
+        title: "Use my Chrome",
+        footer: "Set up Use my Chrome in Computer use.",
+        rows: [
+          toggle("browser.userChrome.storageReads", "Let agents read cookies and site storage"),
+        ],
+      },
     ],
-    savedHere,
-  ),
+  },
   computer: one(
     "computer",
     "App access",
