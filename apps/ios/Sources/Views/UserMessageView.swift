@@ -221,8 +221,9 @@ struct UserBubble: View {
                             // Clipping only stops the drawing: folded, the words are still laid
                             // out at full height. Touches and VoiceOver take the fold's bounds, so a
                             // long press lands on what is shown and nothing below it opens this menu.
+                            // Plain words read as one element; open markdown keeps its links apart.
                             .contentShape(Rectangle())
-                            .accessibilityElement(children: folded ? .combine : .contain)
+                            .accessibilityElement(children: folded || !markdown ? .combine : .contain)
                             .accessibilityIdentifier("message.words.\(id)")
                     }
                 }
