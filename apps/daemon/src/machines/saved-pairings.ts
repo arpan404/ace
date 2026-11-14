@@ -111,8 +111,7 @@ export class SavedPairings {
     this.version = undefined;
   }
   private failed(error: unknown) {
-    const reason =
-      error instanceof Error && "code" in error ? String(error.code) : "unreadable";
+    const reason = error instanceof Error && "code" in error ? String(error.code) : "unreadable";
     if (this.failing !== reason)
       this.log("Saved pairings can't be read; calls to paired machines wait", { reason });
     this.failing = reason;

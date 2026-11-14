@@ -949,14 +949,18 @@ for (const [change, run] of [
   test(`a call queued while the pairings file is ${change} is never sent, and the pool ends`, async () => {
     const h = await savedPool();
     const long = Array.from({ length: 32 }, () =>
-      machineRequest(h.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections: h.connections }).catch(
-        (error: unknown) => error,
-      ),
+      machineRequest(
+        h.profile,
+        { origin, call: browserCall },
+        { timeoutMs: 10_000, connections: h.connections },
+      ).catch((error: unknown) => error),
     );
     await expect.poll(() => h.target.arrived.length).toBe(32);
-    const queued = machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 10_000, connections: h.connections }).catch(
-      (error: unknown) => error,
-    );
+    const queued = machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 10_000, connections: h.connections },
+    ).catch((error: unknown) => error);
     run(h.file);
     await Promise.all(long);
     expect(await queued).toBeInstanceOf(MachineNotSent);
@@ -964,9 +968,11 @@ for (const [change, run] of [
     expect(h.target.arrived.map((entry) => entry.op)).not.toContain("message");
     // The pairing's connections ended: every socket there is closed, and nothing more is sent.
     expect([...h.target.sockets].every((socket) => socket.destroyed)).toBe(true);
-    const later = await machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 2000, connections: h.connections }).catch(
-      (error: unknown) => error,
-    );
+    const later = await machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 2000, connections: h.connections },
+    ).catch((error: unknown) => error);
     expect(later).toBeInstanceOf(MachineNotSent);
   });
 
@@ -977,12 +983,18 @@ test("a pairings file locked by another writer fails the call as never sent, and
   process.on("uncaughtException", crash);
   cleanups.push(() => void process.off("uncaughtException", crash));
   // Warm the pool, then an `ace` CLI write holds the file while the next call is handed its socket.
-  await machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections });
+  await machineRequest(
+    h.profile,
+    { origin, call: followUp },
+    { timeoutMs: 5000, connections: h.connections },
+  );
   const writer = new DatabaseSync(h.file);
   writer.exec("BEGIN EXCLUSIVE");
-  const blocked = await machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections }).catch(
-    (error: unknown) => error,
-  );
+  const blocked = await machineRequest(
+    h.profile,
+    { origin, call: followUp },
+    { timeoutMs: 5000, connections: h.connections },
+  ).catch((error: unknown) => error);
   writer.exec("COMMIT");
   writer.close();
   expect(blocked).toBeInstanceOf(MachineNotSent);
@@ -990,6 +1002,10 @@ test("a pairings file locked by another writer fails the call as never sent, and
   expect(crashes).toEqual([]);
   // The lock is gone: the pool was not ended for it, and the next call goes.
   await expect(
-    machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections }),
+    machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 5000, connections: h.connections },
+    ),
   ).resolves.toEqual({ ok: true });
 });
