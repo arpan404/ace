@@ -122,7 +122,9 @@ export class DaemonRuntime {
           : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
-      const prioritize = daemonLaunchPolicy(systemLaunchPort(options.platform ?? process.platform));
+      const launchPolicy = daemonLaunchPolicy(
+        systemLaunchPort(options.platform ?? process.platform),
+      );
       this.supervisor = new DaemonSupervisor(
         {
           spawn:
@@ -131,7 +133,7 @@ export class DaemonRuntime {
                   launchStep("Spawning the daemon");
                   return (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
-                    prioritize,
+                    prioritize: launchPolicy.wrap,
                     onOutput:
                       options.daemonOutput ??
                       ((line, stream) =>
@@ -140,7 +142,8 @@ export class DaemonRuntime {
                 }
               : undefined,
           prepareSpawn: async () => {
-            this.resolvedPath = await this.path;
+            const [path] = await Promise.all([this.path, launchPolicy.ready()]);
+            this.resolvedPath = path;
           },
           find: async () => {
             const found = await findRunningDaemon(home);

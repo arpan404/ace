@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 /** A program and its arguments, as handed to `spawn`. */
 export interface Launch {
@@ -10,7 +10,15 @@ export interface Launch {
 export interface LaunchPriorityPort {
   platform: NodeJS.Platform;
   /** Runs a program to completion; true when it started and exited 0. */
-  succeeds(command: string, args: string[]): boolean;
+  succeeds(command: string, args: string[]): Promise<boolean>;
+}
+
+/** How the daemon is launched, once its dry run (if any) has answered. */
+export interface LaunchPolicy {
+  /** Settles once the dry run answered; started by the first call and kept after. */
+  ready(): Promise<void>;
+  /** The launch to spawn. Before `ready` settles it is the plain launch. */
+  wrap(launch: Launch): Launch;
 }
 
 /** Ships with macOS; `-a` execs the program in place (same pid) as an application. */
@@ -30,15 +38,22 @@ export const TASKPOLICY = "/usr/sbin/taskpolicy";
  * Windows and Linux need nothing here: the daemon raises itself at start (its
  * `process-priority` module), which also covers a daemon started outside the app.
  *
- * Returns a function from the plain launch to the one to spawn. The dry run happens on the
- * first macOS launch and its answer is kept.
+ * The dry run runs once, off the main thread's critical path (the supervisor awaits `ready`
+ * only on its way to a spawn), and its answer is kept for later restarts.
  */
-export function daemonLaunchPolicy(port: LaunchPriorityPort): (launch: Launch) => Launch {
-  let wrap: boolean | undefined;
-  return (launch) => {
-    if (port.platform !== "darwin") return launch;
-    wrap ??= port.succeeds(TASKPOLICY, ["-a", "/usr/bin/true"]);
-    return wrap ? { command: TASKPOLICY, args: ["-a", launch.command, ...launch.args] } : launch;
+export function daemonLaunchPolicy(port: LaunchPriorityPort): LaunchPolicy {
+  let wrapped = false;
+  let checking: Promise<void> | undefined;
+  return {
+    ready() {
+      if (port.platform !== "darwin") return Promise.resolve();
+      return (checking ??= port.succeeds(TASKPOLICY, ["-a", "/usr/bin/true"]).then(
+        (ok) => void (wrapped = ok),
+        () => undefined,
+      ));
+    },
+    wrap: (launch) =>
+      wrapped ? { command: TASKPOLICY, args: ["-a", launch.command, ...launch.args] } : launch,
   };
 }
 
@@ -47,8 +62,11 @@ export function systemLaunchPort(platform: NodeJS.Platform = process.platform): 
   return {
     platform,
     succeeds(command, args) {
-      const result = spawnSync(command, args, { stdio: "ignore", timeout: 2_000 });
-      return result.error === undefined && result.status === 0;
+      return new Promise((resolve) => {
+        const child = spawn(command, args, { stdio: "ignore", timeout: 2_000 });
+        child.once("error", () => resolve(false));
+        child.once("exit", (code) => resolve(code === 0));
+      });
     },
   };
 }
