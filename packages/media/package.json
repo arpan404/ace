@@ -12,6 +12,9 @@
     "./routes": "./src/routes.ts",
     "./route-watch": "./src/route-watch.ts",
     "./egress": "./src/egress.ts",
+    "./epochs": "./src/epochs.ts",
+    "./recordings": "./src/recordings.ts",
+    "./tee": "./src/tee.ts",
     "./session-link": "./src/session-link.ts"
   },
   "scripts": {

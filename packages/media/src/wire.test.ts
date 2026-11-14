@@ -72,6 +72,7 @@ test("control boundaries reject malformed grants while opaque metadata retains u
     ToMedia.safeParse({
       type: "record.epochs",
       source: "s",
+      recording: "r",
       seq: 0,
       decided: 4,
       clear: [[4, 2]],

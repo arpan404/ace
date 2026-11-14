@@ -161,6 +161,7 @@ export const ToMedia = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("record.epochs"),
     source: id,
+    recording: id,
     seq: sequence,
     decided: u32,
     clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),

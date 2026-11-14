@@ -385,6 +385,8 @@ pub enum ToMedia {
     RecordEpochs {
         #[serde(rename = "source")]
         source: Id,
+        #[serde(rename = "recording")]
+        recording: Id,
         #[serde(rename = "seq")]
         seq: Sequence,
         #[serde(rename = "decided")]
