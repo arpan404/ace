@@ -2,9 +2,11 @@ import { deflateSync, inflateSync, zstdCompressSync, zstdDecompressSync } from "
 
 /*
  * Compression of `/v1/machine-calls` bodies (ADR 0088's rule, applied between daemons). Only
- * calls whose bodies carry no ace credential beside text another party can influence are
- * compressed: `status` and `describe`, in both directions. Each body is compressed alone, and
- * the device token travels in a header, never in a compressed body.
+ * bodies that carry no secret beside text another party can influence are compressed, decided
+ * per body: `status` and `describe` requests (an origin and thread ids), and their answers when
+ * every field in them is one this build knows to be safe. A status answer holding a request for
+ * the person (a browser tab's URL, an elicitation link) goes as it is. Each body is compressed
+ * alone, and the device token travels in a header, never in a compressed body.
  */
 
 /** Calls whose request and answer bodies may be compressed. */
@@ -18,6 +20,63 @@ export type CallEncoding = "zstd" | "deflate";
 
 export function compressibleOp(op: string): boolean {
   return compressibleOps.has(op);
+}
+
+/** What a describe answer may hold and still be compressed: names, ids, levels, no URLs. */
+const describeFields: ReadonlySet<string> = new Set([
+  "hostId",
+  "name",
+  "access",
+  "grants",
+  "projects",
+  "tools",
+  "providers",
+  "transfers",
+  "delegateAccounts",
+  "accounts",
+]);
+/**
+ * What one thread in a status answer may hold and still be compressed. `requests` and `needs`
+ * are allowed only empty: a pending request can carry a URL with a code or token in it.
+ */
+const threadFields: ReadonlySet<string> = new Set([
+  "threadId",
+  "state",
+  "title",
+  "elapsedSeconds",
+  "step",
+  "result",
+  "truncated",
+  "last",
+  "machine",
+  "contact",
+  "failure",
+  "status",
+  "notice",
+  "requests",
+  "needs",
+]);
+
+const record = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const empty = (value: unknown) => value === undefined || (Array.isArray(value) && !value.length);
+const only = (value: Record<string, unknown>, fields: ReadonlySet<string>) =>
+  Object.keys(value).every((key) => fields.has(key));
+
+/**
+ * Whether the answer to `op` may be compressed: the op allows it and this body holds only fields
+ * known to be safe. Anything else, including a field a newer build added, goes as it is.
+ */
+export function compressibleAnswer(op: string, body: unknown): boolean {
+  if (!record(body)) return false;
+  if (op === "describe") return only(body, describeFields);
+  if (op !== "status") return false;
+  const { threads } = body;
+  if (!only(body, new Set(["threads"])) || !Array.isArray(threads)) return false;
+  return threads.every(
+    (thread) =>
+      record(thread) && only(thread, threadFields) && empty(thread.requests) && empty(thread.needs),
+  );
 }
 
 /**

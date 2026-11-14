@@ -69,10 +69,10 @@ function older(request: IncomingMessage, response: ServerResponse) {
 }
 
 /** A machine running this build's handler, answering every call with `bigAnswer`. */
-async function machine(mode: { old: boolean } = { old: false }) {
+async function machine(mode: { old: boolean } = { old: false }, answer: unknown = bigAnswer) {
   const seen: Seen = { requests: [], answers: [] };
   const current = machineCallsHttp(
-    () => ({ handle: async () => ({ status: 200, body: bigAnswer }) }),
+    () => ({ handle: async () => ({ status: 200, body: answer }) }),
     (presented) => (presented === token ? device : undefined),
     (_request, response) => response.writeHead(404).end(),
   );
@@ -196,3 +196,71 @@ test("a machine downgraded under the same pairing gets the read again uncompress
   await machineRequest(target.profile, status, { timeoutMs: 5000, connections });
   expect(target.seen.requests.at(-1)).toBe("identity");
 });
+
+/** A busy parent's status, one child waiting on the person in a browser tab at a sign-in URL. */
+const asking = {
+  threads: bigAnswer.threads.map((thread, index) => ({
+    ...thread,
+    requests:
+      index === 0
+        ? [
+            {
+              threadId: thread.threadId,
+              interactionId: "help-1",
+              request: {
+                kind: "browser_help",
+                tabId: "tab-1",
+                reason: "sign_in",
+                message: "Sign in to continue",
+                url: "https://example.test/callback?code=secret-one-time-code",
+              },
+            },
+          ]
+        : [],
+  })),
+};
+
+test("a status answer carrying a request for the person, with its URL, goes out as it is", async () => {
+  const target = await machine({ old: false }, asking);
+  await expect(
+    machineRequest(target.profile, status, { timeoutMs: 5000, connections: pool() }),
+  ).resolves.toEqual(asking);
+  expect(target.seen.answers).toEqual(["identity"]);
+});
+
+test("an answer with a field this build doesn't know is never compressed", async () => {
+  const unknown = {
+    ...description(),
+    homepage: "https://example.test/?token=secret",
+  };
+  const target = await machine({ old: false }, unknown);
+  await machineRequest(target.profile, request({ op: "describe" }), {
+    timeoutMs: 5000,
+    connections: pool(),
+  });
+  expect(target.seen.answers).toEqual(["identity"]);
+});
+
+test("a large describe answer with only known fields comes compressed", async () => {
+  const target = await machine({ old: false }, description());
+  await machineRequest(target.profile, request({ op: "describe" }), {
+    timeoutMs: 5000,
+    connections: pool(),
+  });
+  expect(target.seen.answers).toEqual(["zstd"]);
+});
+
+/** What a machine with many projects says about itself: well over 1 KiB. */
+function description() {
+  return {
+    hostId: "host-studio",
+    name: "Studio",
+    access: "operate",
+    projects: Array.from({ length: 32 }, (_, index) => ({
+      workspaceId: `workspace-${index}`,
+      name: `project-number-${index}`,
+    })),
+    tools: [],
+    providers: ["claude", "codex"],
+  };
+}

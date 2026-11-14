@@ -4,6 +4,7 @@ import type { MachineTarget } from "./target.ts";
 import {
   CALL_ENCODINGS,
   COMPRESS_MIN_BYTES,
+  compressibleAnswer,
   compressibleOp,
   decodeBody,
   encodeBody,
@@ -66,13 +67,14 @@ export function machineCallsHttp(
     // compression themselves; a caller learns from its absence that a machine was downgraded.
     if (request.headers["accept-encoding"] !== undefined)
       response.setHeader("Accept-Encoding", CALL_ENCODINGS);
-    let compressible = false;
+    let op: string | undefined;
     const reply = (status: number, body: unknown) => {
       if (response.writableEnded) return;
       response.statusCode = status;
       const text = Buffer.from(JSON.stringify(body));
+      // Decided per answer: only one holding nothing but fields known to be safe.
       const encoding =
-        compressible && text.length >= COMPRESS_MIN_BYTES
+        op !== undefined && text.length >= COMPRESS_MIN_BYTES && compressibleAnswer(op, body)
           ? pickEncoding(request.headers["accept-encoding"])
           : undefined;
       if (!encoding) {
@@ -110,8 +112,8 @@ export function machineCallsHttp(
         reply(error instanceof UnsupportedCoding ? 415 : 400, { error: "invalid" });
         return;
       }
-      const op = opOf(body);
-      compressible = op !== undefined && compressibleOp(op);
+      const called = opOf(body);
+      op = called !== undefined && compressibleOp(called) ? called : undefined;
       const answer = await owner.handle(device, body, lifetime.signal);
       reply(answer.status, answer.body);
     })().catch(() => reply(500, { error: "unavailable" }));
