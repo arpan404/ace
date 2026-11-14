@@ -56,7 +56,7 @@ function valid(frame: MediaFrame): void {
   if (frame.kind === 5 && frame.payload.length !== 32)
     throw new Error("Invalid hello token length");
 }
-export function encodeMediaFrame(frame: MediaFrame): Uint8Array {
+export function encodeMediaFrame(frame: MediaFrame): Uint8Array<ArrayBuffer> {
   valid(frame);
   const h = 44 + frame.codecString.length + frame.description.length + frame.extension.length;
   const bytes = new Uint8Array(h + frame.payload.length);
@@ -144,4 +144,39 @@ export function decodeEgress(bytes: Uint8Array): {
     sequence: v.getUint32(8),
     frame: decodeMediaFrame(bytes.subarray(12)),
   };
+}
+/** `MediaFrame` kind 4, the end of a source; on egress, flag 8 says the stream was cut. */
+export const kindEnd = 4;
+export const flagInterrupted = 8;
+
+/**
+ * The egress end marker (docs/media/plan.md, "Egress format"): after the last unit of a
+ * producer connection that ended, or of a source the daemon closed. `sequence` is the next
+ * unit's, so a gap before it shows. Same bytes as `media_wire::frame::egress_end`.
+ */
+export function encodeEgressEnd(handle: number, sequence: number, interrupted: boolean) {
+  return encodeEgress(handle, sequence, {
+    kind: kindEnd,
+    flags: interrupted ? flagInterrupted : 0,
+    ageUs: 0,
+    width: 0,
+    height: 0,
+    displayWidth: 0,
+    displayHeight: 0,
+    scale: 1000,
+    rotation: 0,
+    codec: 0,
+    encode: 0,
+    epoch: 0,
+    codecString: "",
+    description: new Uint8Array(0),
+    extension: new Uint8Array(0),
+    payload: new Uint8Array(0),
+  });
+}
+
+/** What an end marker says, or undefined for any other frame. */
+export function egressEnd(frame: MediaFrame): { interrupted: boolean } | undefined {
+  if (frame.kind !== kindEnd || frame.payload.length > 0) return undefined;
+  return { interrupted: (frame.flags & flagInterrupted) !== 0 };
 }

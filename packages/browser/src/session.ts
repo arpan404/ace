@@ -169,7 +169,8 @@ export class BrowserSession {
       () => {
         const page = this.viewedPage();
         const host = page.video?.();
-        return host ? { host, page: page.cdp } : undefined;
+        if (!host) return undefined;
+        return { host: this.options.mediaVideo?.(host) ?? host, page: page.cdp };
       },
     );
     // A recording needs frames whether or not anyone watches.

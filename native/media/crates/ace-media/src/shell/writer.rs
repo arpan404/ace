@@ -67,6 +67,13 @@ impl Writer {
         self.tx.send(bytes).map_err(|_| Overflow)
     }
 
+    /// Queues `bytes` past the bound: for the egress lane's end markers, 56 bytes at most once
+    /// per producer connection, which must never be dropped.
+    pub fn send_always(&self, bytes: Vec<u8>) -> Result<(), Overflow> {
+        self.queued.fetch_add(bytes.len(), Ordering::Relaxed);
+        self.tx.send(bytes).map_err(|_| Overflow)
+    }
+
     /// Writes what is queued, waiting at most `within`.
     pub async fn close(self, within: Duration) {
         drop(self.tx);
