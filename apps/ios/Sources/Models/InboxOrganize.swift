@@ -266,6 +266,9 @@ struct MoveGroup: Equatable {
         let suffix: String
         var serial: UUID?
         var waiting: Set<InboxKey> = []
+        /// Late answers that came while another machine was still being asked, before the toast
+        /// showed: applied when it does, so its counts and Undo match what the machines did.
+        var early: [Sorted] = []
         init(verb: String, suffix: String = "") { self.verb = verb; self.suffix = suffix }
         func text(_ count: Int) -> String {
             let words = count == 1 ? "\(verb) thread\(suffix)" : "\(verb) \(count) threads\(suffix)"
@@ -274,12 +277,21 @@ struct MoveGroup: Equatable {
     }
     private func show(_ toast: PendingToast, _ undo: InboxUndo, waiting: [InboxKey]) {
         toast.waiting = Set(waiting)
-        let shown = InboxUndo(keys: undo.keys, kind: undo.kind, text: toast.text(undo.keys.count))
+        var keys = undo.keys
+        for later in toast.early {
+            toast.waiting.subtract(later.taken + later.refused.map(\.key) + later.running)
+            let refused = Set(later.refused.map(\.key) + later.running)
+            keys.removeAll { refused.contains($0) }
+        }
+        toast.early = []
+        guard !keys.isEmpty else { return }
+        let shown = InboxUndo(keys: keys, kind: undo.kind, text: toast.text(keys.count))
         toast.serial = shown.serial
         self.undo = shown
     }
     /// A late answer: refused threads leave the toast's Undo, and its count of waiting ones drops.
     private func answered(_ toast: PendingToast, _ later: Sorted) {
+        guard toast.serial != nil else { toast.early.append(later); return }
         toast.waiting.subtract(later.taken + later.refused.map(\.key) + later.running)
         guard let current = undo, current.serial == toast.serial else { return }
         let refused = Set(later.refused.map(\.key) + later.running)
