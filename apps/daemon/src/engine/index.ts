@@ -474,6 +474,10 @@ export class Engine {
     }
     return actor;
   }
+  /** Rediscovers a provider with no adapter yet, as a command for it would, before admission. */
+  async ensureProvider(provider: ProviderKind): Promise<void> {
+    await this.waitForProvider?.(provider);
+  }
   providerAvailability(provider: ProviderKind) {
     if (!this.registry.has(provider)) return { installed: false, auth: "unknown" as const };
     const { installed, auth } = this.registry.get(provider).discovery;

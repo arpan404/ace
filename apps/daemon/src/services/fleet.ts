@@ -5,6 +5,7 @@ import { issuePairing } from "../pairing-issue.ts";
 import { AccessError } from "../remote-auth.ts";
 import { grantsFor } from "../machines/grant-rules.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { featureOff } from "./feature-off.ts";
 
 const fleetCodes: Record<FleetError["code"], string> = {
   invalid: "invalid",
@@ -42,7 +43,10 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
     case "link":
     case "unlink": {
       if (!links)
-        throw new FleetError("refused", "Machine links aren't ready on this machine yet.");
+        throw new FleetError(
+          "refused",
+          featureOff(context.options.serviceStatus, "machines", "Machine links"),
+        );
       if (operation.op === "links") return { kind: "links", links: await links.links() };
       if (operation.op === "link") return { kind: "linked", link: await links.link(operation) };
       links.unlink(operation.hostId);
@@ -112,7 +116,10 @@ async function grants(
   const store = context.options.machineCalls?.grants;
   const auth = context.access?.auth;
   if (!store || !auth)
-    throw new FleetError("refused", "Linked machines aren't ready on this machine yet.");
+    throw new FleetError(
+      "refused",
+      featureOff(context.options.serviceStatus, "machines", "Linked machines"),
+    );
   const at = auth.now();
   // Local credentials (the desktop app, "Use my Chrome") never call as another machine.
   const asked = operation.op === "grants" ? operation.deviceIds : undefined;

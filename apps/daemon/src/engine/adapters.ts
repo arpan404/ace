@@ -14,7 +14,12 @@ export async function discoverAdapters(
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
   registry: AdapterRegistry = new AdapterRegistry(),
 ): Promise<AdapterRegistry> {
-  const { claude, codex, opencode } = await discover();
+  // The CLI probes, the Cursor SDK and the additional providers are independent: read together.
+  const [{ claude, codex, opencode }, sdk] = await Promise.all([
+    discover(),
+    sdkDiscovery(cursorOptions.discovery),
+    additional ? additional(registry) : registerPi(registry),
+  ]);
   if (claude.installed && !registry.has("claude")) {
     const { createClaudeAdapter } = await import("@ace/adapter-claude");
     registry.register(
@@ -36,7 +41,6 @@ export async function discoverAdapters(
       opencode,
     );
   }
-  const sdk = await sdkDiscovery(cursorOptions.discovery);
   if (
     sdk.installed &&
     (!registry.has("cursor") || registry.get("cursor").adapter.backend !== "cursor-sdk")
@@ -51,14 +55,13 @@ export async function discoverAdapters(
       ...(sdk.error ? { error: sdk.error } : {}),
     });
   }
-  if (additional) await additional(registry);
-  else {
-    const pi = await discoverPi();
-    if (pi.installed) {
-      const { createPiAdapter } = await import("@ace/adapter-pi/adapter");
-      const { piProfile } = await import("@ace/adapter-pi/capabilities");
-      if (piProfile(pi).supported) registry.register(createPiAdapter({ cli: pi }), pi);
-    }
-  }
   return registry;
+}
+
+async function registerPi(registry: AdapterRegistry): Promise<void> {
+  const pi = await discoverPi();
+  if (!pi.installed) return;
+  const { createPiAdapter } = await import("@ace/adapter-pi/adapter");
+  const { piProfile } = await import("@ace/adapter-pi/capabilities");
+  if (piProfile(pi).supported) registry.register(createPiAdapter({ cli: pi }), pi);
 }
