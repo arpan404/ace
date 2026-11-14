@@ -3938,7 +3938,7 @@
     },
     "schema/SettingsKey.json": {
       "bytes": 2383,
-      "sha256": "241736affcd90ebfb9cbd68ba6445a9b16accdbf789d2bad5462cf8be5bbefb2"
+      "sha256": "07b886baf90c57cf4230d512846273f7991a09a1ef6c69bcb923f72ede2727fb"
     },
     "schema/SettingsLayer.json": {
       "bytes": 973,
@@ -3986,7 +3986,7 @@
     },
     "schema/SettingsValues.json": {
       "bytes": 12444,
-      "sha256": "5720ed26bf0a8cb11500486fcf144b25b918e5e0dd801703e091e8cc27f1ef75"
+      "sha256": "55724aeb43d49cd43fc0abb5dfaf374747551fb4212d4f251d443cc481061982"
     },
     "schema/SharedImage.json": {
       "bytes": 486,
@@ -5242,9 +5242,9 @@
     },
     "types.md": {
       "bytes": 1055178,
-      "sha256": "92405bf3c31907f832fd41498174a1287fbb13e786183ac1a67bd43a4d7ffd37"
+      "sha256": "d95c89b979c1952701964eb415322cb6ecd95543f953e2ab7aae1b33d0c83c8b"
     }
   },
-  "input": "e0864f2e63d56277a36d4208ab96e85828115c076f4037ac137aef870fd17595",
+  "input": "97a79aceadf0212c1bc8385f0a5b8214c86ba0184ff5b50f455c30e56a5ff343",
   "version": 1
 }

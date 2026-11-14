@@ -129,18 +129,21 @@ export const SettingsValues = z.object({
    */
   "devices.emulatorWindow": z.boolean(),
   /**
+   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps today's
+   * encoders (the browser's WebCodecs over its CDP binding, the daemon's encoder Chrome for
+   * pictures, the Mac screen helper's own socket); `auto` streams through ace-media, which
+   * encodes picture-only sources on this computer's hardware encoder and hands every unit back
+   * to the daemon's legacy viewers, recordings and stills while those stay legacy. It falls
+   * back to `legacy` whenever ace-media isn't healthy.
+   * Global only; read live, so a change moves running producers at their next keyframe.
+   */
+  "media.encode": z.enum(["auto", "legacy"]),
+  /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
    * across restarts until turned on again.
    */
   "devices.enabled": z.boolean(),
-  /**
-   * Where live video is encoded and carried (ADR 0147, phase 2). `auto` sends Mac screens'
-   * video through ace-media, which hands it back to the daemon's viewers, recordings and
-   * stills; `legacy` keeps every frame on the screen helper's own socket. `legacy` by default
-   * until the phase ships.
-   */
-  "media.encode": z.enum(["auto", "legacy"]),
   /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.

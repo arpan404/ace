@@ -1,4 +1,4 @@
-import { decodeEgress, type MediaFrame } from "./frame.ts";
+import { decodeEgress, egressEnd, type MediaFrame } from "./frame.ts";
 import type { SourceKind, SourceRoute } from "./routes.ts";
 
 /**
@@ -26,6 +26,12 @@ export type LegacyConsumers = {
   deliver: (unit: EgressUnit) => void;
   record: (unit: EgressUnit) => void;
   still: (unit: EgressUnit) => void;
+  /**
+   * The source's end marker: every unit ace-media sent for this handle has arrived before it.
+   * `interrupted` when the stream was cut (the producer's connection dropped, or a unit went
+   * missing before the marker), so units may be missing.
+   */
+  end?: (end: { interrupted: boolean }) => void;
 };
 
 export type EgressDrops = {
@@ -45,8 +51,11 @@ type Open = {
   source: string;
   kind: SourceKind;
   consumers: LegacyConsumers;
-  route: (() => SourceRoute) | undefined;
   next: number | undefined;
+  /** A unit went missing at some point in the handle's life: its stream isn't whole. */
+  lost: boolean;
+  /** This handle's own route while it differs from its kind's (a source draining). */
+  route: (() => SourceRoute) | undefined;
 };
 
 const maxHandle = 0xffffffff;
@@ -71,9 +80,7 @@ export class EgressRouter {
   /**
    * Gives a source its handle for `source.open`. Handles are never reused while the daemon
    * lives, so never while one ace-media process does, and a frame for a closed source can't
-   * reach its successor. `route` replaces the kind's live route for this source alone: a
-   * producer moving back to the daemon keeps its egress until it has switched, so units it sent
-   * ace-media just before reach their consumers (the producer's own sequence orders the two).
+   * reach its successor.
    */
   open(
     source: string,
@@ -83,7 +90,7 @@ export class EgressRouter {
   ): number {
     if (this.#nextHandle > maxHandle) throw new Error("Egress handles exhausted");
     const handle = this.#nextHandle++;
-    this.#open.set(handle, { source, kind, consumers, route, next: undefined });
+    this.#open.set(handle, { source, kind, consumers, next: undefined, lost: false, route });
     return handle;
   }
 
@@ -110,15 +117,23 @@ export class EgressRouter {
       else this.#drops.unknown++;
       return;
     }
+    const end = egressEnd(egress.frame);
+    if (end) {
+      // Ordered after every unit of the handle, so it goes whatever the route now says.
+      if (egress.sequence !== (open.next ?? 0)) open.lost = true;
+      open.consumers.end?.({ interrupted: end.interrupted || open.lost });
+      return;
+    }
     // A route that moved the producer back to the daemon has no egress: frames ace-media sent
     // before it heard `source.egress` off would reach the consumers twice.
-    const route = open.route ? open.route() : this.#route(open.kind);
+    const route = open.route?.() ?? this.#route(open.kind);
     if (!route.egress) {
       this.#drops.unrouted++;
       return;
     }
     const lost = open.next === undefined ? 0 : (egress.sequence - open.next) >>> 0;
     this.#drops.gaps += lost;
+    if (lost > 0 || (open.next === undefined && egress.sequence !== 0)) open.lost = true;
     open.next = (egress.sequence + 1) >>> 0;
     const unit: EgressUnit = {
       source: open.source,

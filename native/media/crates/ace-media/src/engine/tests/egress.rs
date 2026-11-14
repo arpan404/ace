@@ -56,6 +56,16 @@ impl EgressSink for Lane {
         }
         true
     }
+
+    /// End markers are queued whatever the room.
+    fn force(&mut self, frame: Vec<u8>) {
+        let Ok(decoded) = Egress::decode(&frame) else {
+            panic!("the engine wrote an invalid egress frame");
+        };
+        if let Ok(mut frames) = self.frames.lock() {
+            frames.push(decoded);
+        }
+    }
 }
 
 fn with_lane(lane: &Lane) -> Engine {
@@ -158,7 +168,10 @@ fn a_closed_source_sends_nothing_more_on_egress() {
         NOW,
     );
     ingest(&mut engine, 1, marked(true, 2), NOW);
-    assert_eq!(sent(&lane.drain()), [(5, 0, 1)]);
+    // Its last unit, then the end marker the close sent, then nothing.
+    let frames = lane.drain();
+    assert_eq!(sent(&frames[..1]), [(5, 0, 1)]);
+    assert_eq!(ends(&frames[1..]), [(5, 1, false)]);
 }
 
 #[test]
@@ -259,4 +272,79 @@ fn an_encode_past_the_gate_bound_is_logged_and_its_successor_starts_at_a_keyfram
         [("s1".into(), 0, KeyReason::Resume)]
     );
     assert_eq!(lane.drain().len(), 17);
+}
+
+/// `(handle, sequence, interrupted)` of each end marker sent, in order.
+fn ends(frames: &[Egress]) -> Vec<(u32, u32, bool)> {
+    frames
+        .iter()
+        .filter_map(|e| {
+            e.frame
+                .end()
+                .map(|end| (e.handle, e.sequence, end.interrupted))
+        })
+        .collect()
+}
+
+#[test]
+fn a_producer_that_ends_cleanly_gets_an_end_marker_after_its_last_unit_even_on_a_full_lane() {
+    let lane = Lane::new(2);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "a", 11, 1);
+    egress(&mut engine, "a", true);
+    for key in [true, false, false] {
+        ingest(&mut engine, 1, unit(1, key), NOW);
+    }
+    // The lane took two units and is full; the end still goes, after them.
+    ingest(&mut engine, 1, frame(4, 0, 0, Vec::new()), NOW);
+    let frames = lane.drain();
+    assert_eq!(frames.len(), 3);
+    assert_eq!(ends(&frames), [(11, 3, false)]);
+    assert!(frames.last().is_some_and(|f| f.frame.end().is_some()));
+    // Closing the ended source sends no second marker.
+    send(
+        &mut engine,
+        json!({ "type": "source.close", "source": "a" }),
+        &[],
+        NOW,
+    );
+    assert!(lane.drain().is_empty());
+}
+
+#[test]
+fn a_producer_connection_that_drops_gets_an_interrupted_end_marker() {
+    let lane = Lane::new(16);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "a", 11, 1);
+    egress(&mut engine, "a", true);
+    ingest(&mut engine, 1, unit(1, true), NOW);
+    engine.ingest_closed(1, NOW);
+    let _ = engine.effects().count();
+    assert_eq!(ends(&lane.drain()), [(11, 1, true)]);
+}
+
+#[test]
+fn closing_a_source_whose_producer_still_streams_ends_it_with_a_marker() {
+    let lane = Lane::new(16);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "a", 11, 1);
+    egress(&mut engine, "a", true);
+    ingest(&mut engine, 1, unit(1, true), NOW);
+    send(
+        &mut engine,
+        json!({ "type": "source.close", "source": "a" }),
+        &[],
+        NOW,
+    );
+    assert_eq!(ends(&lane.drain()), [(11, 1, false)]);
+}
+
+#[test]
+fn a_source_without_egress_sends_no_marker() {
+    let lane = Lane::new(16);
+    let mut engine = with_lane(&lane);
+    streaming(&mut engine, "a", 11, 1);
+    ingest(&mut engine, 1, unit(1, true), NOW);
+    ingest(&mut engine, 1, frame(4, 0, 0, Vec::new()), NOW);
+    assert!(lane.drain().is_empty());
 }

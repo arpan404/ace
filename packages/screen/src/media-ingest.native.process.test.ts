@@ -9,14 +9,15 @@
  * ace-media, and needs the helper's existing Screen Recording grant.
  */
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import type { EgressUnit } from "@ace/media/egress";
-import { MediaProducers } from "@ace/media/producers";
+import { platformRouteCapabilities } from "@ace/media/routes";
+import { MediaRuntime } from "@ace/media/runtime";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import { nodeMediaHost, systemMediaClock, type MediaSettings } from "@ace/media/supervisor";
 import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
@@ -55,7 +56,7 @@ it.runIf(runs)(
       recordings: "legacy",
       stills: "legacy",
     };
-    const producers = new MediaProducers({
+    const producers = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
         .trim(),
@@ -66,10 +67,11 @@ it.runIf(runs)(
       host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
       clock: systemMediaClock,
       random: Math.random,
-      randomBytes: (length) => new Uint8Array(randomBytes(length)),
+      randomBytes: (length: number) => new Uint8Array(randomBytes(length)),
+      id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
-      platform: "darwin",
+      capabilities: platformRouteCapabilities("darwin"),
     });
     onTestFinished(() => producers.dispose());
     // Which frames came back on egress, by the helper's own sequence.

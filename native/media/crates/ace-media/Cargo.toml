@@ -12,6 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+media-chrome = { path = "../media-chrome" }
 media-codec = { path = "../media-codec" }
 media-core = { path = "../media-core" }
 media-mp4 = { path = "../media-mp4" }

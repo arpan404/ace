@@ -1,0 +1,17 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.encodes",
+    "source": "source-1",
+    "encodes": [
+      {
+        "id": 1,
+        "codec": "avc1.42E033",
+        "width": 1280,
+        "height": 800,
+        "fps": 60,
+        "bitrate": 8000000
+      }
+    ]
+  }
+}

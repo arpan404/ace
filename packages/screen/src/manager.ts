@@ -500,23 +500,37 @@ export class ScreenManager {
       sessionId: session.state.sessionId,
       helper: session.helper,
       media,
-      accept: (frame) => this.acceptFrame(session, frame),
+      accept: (frame) => this.acceptOrdered(session, frame),
       schedule: (callback, milliseconds) =>
         (this.options.scheduler ?? nodeScheduler).schedule(callback, milliseconds),
     });
   }
-  /** One frame for a session, in sequence order: from the helper socket, or from egress. */
+  /** A frame off the helper socket, for a session without a media source: it must be newer. */
   private acceptFrame(session: Session, frame: Frame): void {
     if (!["live", "starting"].includes(session.state.lifecycle)) return;
     if (!session.pixels.accepts(frame)) return;
+    if (frame.header.sequence <= (session.latest?.header.sequence ?? -1)) {
+      this.fail(session, new Error("Invalid frame sequence or session"));
+      return;
+    }
+    this.takeFrame(session, frame);
+  }
+  /**
+   * A frame its media source has ordered: video and stills each in their own order, since a
+   * still on the helper socket can overtake video still on its way through ace-media.
+   */
+  private acceptOrdered(session: Session, frame: Frame): void {
+    this.takeFrame(session, frame);
+  }
+  private takeFrame(session: Session, frame: Frame): void {
+    if (!["live", "starting"].includes(session.state.lifecycle)) return;
+    if (!session.pixels.accepts(frame)) return;
     try {
-      if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
-        throw new Error("Invalid frame sequence or session");
       if (session.frameEpoch !== this.policy.epoch) {
         this.authorize(session.state.target);
         session.frameEpoch = this.policy.epoch;
       }
-      session.latest = frame;
+      if (frame.header.sequence > (session.latest?.header.sequence ?? -1)) session.latest = frame;
       session.pixels.frame(frame);
       if (session.state.lifecycle === "live") {
         session.hub.publish(frame);

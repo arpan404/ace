@@ -9,7 +9,7 @@ import {
 } from "@ace/protocol";
 import { wireFrame, type Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
-import { PathMerge } from "./media-path-merge.ts";
+import { PathMerge } from "@ace/media/path-merge";
 
 /**
  * A Mac screen session as an ace-media producer (docs/media/plan.md, E3). When the route sends
@@ -62,27 +62,42 @@ export type ScreenMediaSourceOptions = {
   sessionId: string;
   helper: HelperPort;
   media: ScreenMedia;
-  /** A frame in sequence order, from either path: what the helper socket's frames feed. */
+  /** A frame from either path, video in sequence order and stills in theirs. */
   accept: (frame: Frame) => void;
   schedule: (callback: () => void, milliseconds: number) => () => void;
 };
 
+const daemonPath = "daemon";
+
 export class ScreenMediaSource {
   readonly #options: ScreenMediaSourceOptions;
+  /** Video only: it is what moves between the helper socket and ace-media. */
   readonly #merge: PathMerge<Frame>;
   readonly #source: IngestSource;
   #settings: ScreenStreamSettings | undefined;
-  #address: ScreenStreamIngest | undefined;
-  #ingestOn = false;
+  /** The current ace-media address, as the helper takes it, and its path's name. */
+  #address: { ingest: ScreenStreamIngest; path: string } | undefined;
+  /** Where the helper sends video now: the daemon's path or an ace-media path. */
+  #onPath = daemonPath;
+  /** Switching off the helper socket: its last video sequence there, not yet delivered. */
+  #daemonBoundary: number | undefined;
+  #lastDaemonVideo = -1;
+  /** The last video and still handed on: each keeps its own order. */
+  #lastVideo = -1;
+  #lastStill = -1;
+  #stale = 0;
   #tail: Promise<unknown> = Promise.resolve();
   #lastUnit: EgressUnit | undefined;
   #closed = false;
 
   constructor(options: ScreenMediaSourceOptions) {
     this.#options = options;
-    this.#merge = new PathMerge({
-      sequence: (frame) => frame.header.sequence,
-      emit: (frame) => options.accept(frame),
+    this.#merge = new PathMerge<Frame>(daemonPath, {
+      emit: (frame) => this.#hand(frame),
+      // One encode per session: the helper restarts it at a keyframe.
+      stream: () => "video",
+      key: (frame) => frame.header.keyframe === true,
+      bytes: (frame) => frame.payload.length,
       schedule: options.schedule,
     });
     const unit = (egress: EgressUnit) => this.#egress(egress);
@@ -97,12 +112,31 @@ export class ScreenMediaSource {
       consumers: { deliver: unit, record: unit, still: unit },
       point: (address) => this.#point(address),
       keyframe: () => void options.helper.request({ op: "stream.keyframe" }).catch(() => {}),
+      // ace-media's end marker for a path, after its last unit.
+      pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
     });
+  }
+
+  /** Frames dropped as older than one already handed on, or lost to a cut path. */
+  get stale(): number {
+    return this.#stale + this.#merge.stale;
   }
 
   /** A frame off the helper's own socket. */
   daemonFrame(frame: Frame): void {
-    if (!this.#closed) this.#merge.frame("daemon", frame);
+    if (this.#closed) return;
+    // Stills always take the helper socket, whichever path video is on. They are ordered among
+    // themselves, so a still arriving during a switch never makes held video stale.
+    if (frame.header.codec === "jpeg") {
+      if (frame.header.sequence > this.#lastStill) {
+        this.#lastStill = frame.header.sequence;
+        this.#options.accept(frame);
+      } else this.#stale++;
+      return;
+    }
+    this.#lastDaemonVideo = Math.max(this.#lastDaemonVideo, frame.header.sequence);
+    this.#merge.deliver(daemonPath, frame);
+    this.#daemonReached();
   }
 
   /** `stream.configure` with the current route's ingest and epoch. */
@@ -124,10 +158,13 @@ export class ScreenMediaSource {
 
   /** The helper's ingest connection failed; it is back on the daemon's socket already. */
   ingestClosed(): void {
-    if (this.#closed || !this.#ingestOn) return;
-    this.#ingestOn = false;
+    if (this.#closed || this.#onPath === daemonPath) return;
+    const lost = this.#onPath;
+    this.#onPath = daemonPath;
     this.#address = undefined;
-    this.#merge.mediaClosed();
+    // Units it had sent may be missing: video starts again at the helper's next keyframe.
+    this.#merge.switching(daemonPath);
+    this.#merge.ended(lost, true);
     this.#source.reconnect();
   }
 
@@ -138,18 +175,35 @@ export class ScreenMediaSource {
     this.#merge.dispose();
   }
 
+  #hand(frame: Frame): void {
+    if (frame.header.sequence <= this.#lastVideo) {
+      this.#stale++;
+      return;
+    }
+    this.#lastVideo = frame.header.sequence;
+    this.#options.accept(frame);
+  }
+
+  /** The helper socket has delivered its boundary: that path's end, in order. */
+  #daemonReached(): void {
+    const boundary = this.#daemonBoundary;
+    if (boundary === undefined || this.#lastDaemonVideo < boundary) return;
+    this.#daemonBoundary = undefined;
+    this.#merge.ended(daemonPath, false);
+  }
+
   #egress(unit: EgressUnit): void {
     if (this.#closed || unit === this.#lastUnit) return;
     this.#lastUnit = unit;
     const frame = egressScreenFrame(this.#options.sessionId, unit.frame);
-    if (frame) this.#merge.frame("media", frame);
+    if (frame) this.#merge.deliver(unit.source, frame);
   }
 
   #point(address: IngestAddress | undefined): Promise<void> {
     return this.#serial(async () => {
       this.#address = address && {
-        socket: address.socket,
-        token: Buffer.from(address.token).toString("base64"),
+        ingest: { socket: address.socket, token: Buffer.from(address.token).toString("base64") },
+        path: address.path,
       };
       // No live video yet: the next `stream.configure` carries the address.
       const settings = this.#settings;
@@ -167,8 +221,9 @@ export class ScreenMediaSource {
 
   async #send(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
     const address = this.#address;
-    const wantOn = address !== undefined;
-    if (wantOn !== this.#ingestOn) this.#merge.switching(wantOn ? "media" : "daemon");
+    const from = this.#onPath;
+    const to = address ? address.path : daemonPath;
+    if (to !== from) this.#merge.switching(to);
     let reply: ScreenStreamConfigured;
     try {
       reply = ScreenStreamConfigured.parse(
@@ -176,17 +231,28 @@ export class ScreenMediaSource {
           op: "stream.configure",
           settings,
           epoch: screenOpeningEpoch,
-          ...(address ? { ingest: address } : {}),
+          ...(address ? { ingest: address.ingest } : {}),
         }),
       );
     } catch (error) {
-      this.#merge.unchanged();
+      // The helper didn't move: the switch is abandoned and the current path goes on.
+      if (to !== from) this.#merge.switching(from);
       throw error;
     }
-    this.#ingestOn = reply.ingest === "on";
-    if (reply.switched)
-      this.#merge.switched(this.#ingestOn ? "media" : "daemon", reply.boundary ?? null);
-    else this.#merge.unchanged();
+    const now = reply.ingest === "on" && address ? address.path : daemonPath;
+    this.#onPath = now;
+    if (now === from) {
+      if (to !== from) this.#merge.switching(from);
+    } else if (from === daemonPath) {
+      // Off the helper socket: its end is its boundary arriving there. A path into ace-media
+      // ends with ace-media's marker instead (`pathEnded`).
+      const boundary = reply.switched ? (reply.boundary ?? null) : null;
+      if (boundary === null) this.#merge.ended(daemonPath, false);
+      else {
+        this.#daemonBoundary = boundary;
+        this.#daemonReached();
+      }
+    }
     return { codec: reply.codec };
   }
 

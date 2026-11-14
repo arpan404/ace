@@ -53,17 +53,24 @@ export type RouteCapabilities = {
 };
 
 /**
- * What this build routes through ace-media on `platform`: Mac screens stream into its ingest
- * (E3). Nothing records, makes stills or serves viewers there yet, so those settings act as
- * legacy and egress feeds the daemon's consumers.
+ * Today's build: browser producers stream into ace-media (E4); recordings, stills and delivery
+ * still act as legacy.
  */
-export function builtRouteCapabilities(platform: string): RouteCapabilities {
-  return {
-    ingest: platform === "darwin" ? ["screen"] : [],
-    recordings: false,
-    stills: false,
-    delivery: false,
-  };
+export const builtRouteCapabilities: RouteCapabilities = {
+  ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
+  recordings: false,
+  stills: false,
+  delivery: false,
+};
+
+/**
+ * This build's capabilities on `platform`: Mac screens stream into ace-media's ingest too (E3).
+ * Screens elsewhere wait for their helpers' encoders (E1, E2).
+ */
+export function platformRouteCapabilities(platform: string): RouteCapabilities {
+  return platform === "darwin"
+    ? { ...builtRouteCapabilities, ingest: [...builtRouteCapabilities.ingest, "screen"] }
+    : builtRouteCapabilities;
 }
 
 function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
