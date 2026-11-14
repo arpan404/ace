@@ -2,7 +2,7 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { lazy, StrictMode, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
@@ -21,7 +21,6 @@ import {
   setDesktopWindowBackground,
 } from "./boot/desktop.ts";
 import { desktopColorScheme } from "./boot/desktop-color-scheme.ts";
-import { reconnectWhenDesktopDaemonRuns } from "./boot/desktop-reconnect.ts";
 import { webStorage } from "./boot/web-storage.ts";
 import { ACE_WEB_SIGN_IN_PATH } from "@ace/protocol/ace-account";
 import {
@@ -107,8 +106,6 @@ function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   useKeptQueries(queryClient, props.client, props.connection);
   const { target, hostId } = props.connection;
   const kept = useMemo(() => target && { target, hostId }, [target, hostId]);
-  // Opened on what it cached while the desktop starts its daemon: connect once that one runs.
-  useEffect(() => reconnectWhenDesktopDaemonRuns(props.client), [props.client]);
   return (
     <KeptTurnStepsConnection.Provider value={kept}>
       <App
@@ -335,8 +332,7 @@ async function start(root: Root) {
         </AppFrame>
       </StrictMode>,
     );
-  // The desktop app hands over its daemon once it answers, or earlier what its home kept, so a
-  // page that cached that daemon opens on it while it starts; until then the startup screen
+  // The desktop app hands over its daemon only once it answers; until then the startup screen
   // waits calmly. "Connect manually…" takes over from whatever the hand-off later says.
   let manual = false;
   render(
