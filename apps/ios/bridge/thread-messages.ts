@@ -9,13 +9,16 @@ import {
   eventView,
   isLimitError,
   isLongMessage,
+  isSentByAgent,
   looksLikeMarkdown,
   sentByLine,
   sentFold,
   mayBeSystemInput,
   messageOrigin,
   personFold,
+  promptText,
   referenceSegments,
+  systemInput,
   thoughtLabel,
   thoughtMs,
   type BubbleFold,
@@ -57,11 +60,43 @@ function markdownOf(text: string): string {
 }
 
 /**
+ * The words as written, for Copy, Select text and Share: bounded as the bubble is, and whether
+ * the bound cut them (the phone then reads them whole with `native.message`'s `bubble`).
+ */
+function wordsOf(text: string, stored = false) {
+  return { source: preview(text, bubbleChars), cut: stored || text.length > bubbleChars };
+}
+
+/** Whether the daemon keeps more of the message than its item carries (`native.message` reads it). */
+function storedLonger(item: Item | undefined): boolean {
+  return (
+    item?.type === "message" &&
+    item.parts.some(
+      (part) =>
+        part.type === "text" &&
+        part.source !== undefined &&
+        part.source.bytes > part.text.length * 2,
+    )
+  );
+}
+
+/**
+ * A message's bubble words in full: a brief another thread sent without ace's frame, else the
+ * person's words without the passages they reply to. Mentions read as their tokens.
+ */
+export function bubbleWords(item: Item): string {
+  if (item.type !== "message") return "";
+  const input = systemInput(item);
+  if (input && isSentByAgent(input)) return promptText(input);
+  return bubbleContent(item.parts).text;
+}
+
+/**
  * Plain words drawn as the person's bubble (a subagent's prompt from its parent, a brief another
  * thread sent): the same runs of words and code, bound as a message the person wrote. `fold` is
  * when it folds and how many lines it then shows; a brief folds sooner than the person's words.
  */
-export function textBubble(text: string, fold: BubbleFold = personFold) {
+export function textBubble(text: string, fold: BubbleFold = personFold, stored = false) {
   return {
     segments: bounded(
       bubbleSegments(text).map((segment) => ({
@@ -71,6 +106,7 @@ export function textBubble(text: string, fold: BubbleFold = personFold) {
       })),
     ),
     markdown: markdownOf(text),
+    ...wordsOf(text, stored),
     readable: text.trim().length > 0,
     long: isLongMessage(text, fold),
     fold: fold.shown,
@@ -105,6 +141,8 @@ export function bubbleOf(item: Item) {
     quotes: (content.quotes ?? []).map((quote) => ({ text: preview(quote.text, 1024) })),
     // Mentions draw as chips, so a message with any stays runs, as on the web.
     markdown: mentions ? "" : markdownOf(content.text),
+    // A message with mentions copies its runs, the chips by name; its words hold their tokens.
+    ...(mentions ? { source: "", cut: false } : wordsOf(content.text, storedLonger(item))),
     readable: content.readable,
     long: isLongMessage(content.text, personFold),
     fold: personFold.shown,
@@ -135,7 +173,7 @@ const icons: Partial<Record<EventView["kind"], string>> = {
 };
 
 /** One event row, flattened for Swift: its glyph, words, what opens from it and ×N. */
-function flatten(view: EventView) {
+function flatten(view: EventView, item: Item | undefined) {
   const row = {
     kind: view.kind,
     icon: icons[view.kind] ?? "",
@@ -217,7 +255,7 @@ function flatten(view: EventView) {
           /** The sender's machine when it isn't this one; empty for this machine. */
           hostId: view.sent.host?.id ?? "",
           line: preview(sentByLine(view.sent), 512),
-          bubble: textBubble(view.text, sentFold),
+          bubble: textBubble(view.text, sentFold, storedLonger(item)),
         },
       };
     default:
@@ -234,7 +272,10 @@ function isEvent(kind: string, item: Item | undefined): boolean {
 export function eventRow(store: ThreadSource, kind: string, itemId: string) {
   const item = store.item(itemId);
   if (!isEvent(kind, item)) return null;
-  return flatten(eventView(item, eventCounts(store, itemId), store.thread?.provider, store.thread));
+  return flatten(
+    eventView(item, eventCounts(store, itemId), store.thread?.provider, store.thread),
+    item,
+  );
 }
 
 /** Whether a block's row reads the rows around it (×N, repeats), so it follows the order. */

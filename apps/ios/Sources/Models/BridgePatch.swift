@@ -188,6 +188,11 @@ struct BubbleLine: Codable, Sendable, Equatable {
     /// The markdown the bubble renders instead of its runs, every line break kept as a hard
     /// break; empty (or absent from older bridges) when it draws its runs.
     var markdown: String? = nil
+    /// The words as written, for Copy, Select text and Share; empty for a message with mentions
+    /// (it copies its runs) and absent from older bridges.
+    var source: String? = nil
+    /// The words ran past what the row carries: the menu reads them whole (`readBubble`).
+    var cut: Bool? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose

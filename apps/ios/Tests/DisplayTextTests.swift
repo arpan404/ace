@@ -10,10 +10,4 @@ import Testing
         #expect(DisplayText.head("😀", limit: 2) == "😀")
         #expect(DisplayText.tail("e\u{301}", limit: 2) == "e\u{301}")
     }
-    @Test func renderedMarkdownInABubbleCopiesAsTheWriterTypedIt() {
-        // The bridge keeps each line break as a hard break; Copy gives back the lines as typed.
-        let markdown = "Two things:  \n- keep the budget  \n- add a test  \nThanks"
-        #expect(UserMessageRow.source(of: markdown) == "Two things:\n- keep the budget\n- add a test\nThanks")
-        #expect(UserMessageRow.source(of: "```sh\nbun run test\n```") == "```sh\nbun run test\n```")
-    }
 }

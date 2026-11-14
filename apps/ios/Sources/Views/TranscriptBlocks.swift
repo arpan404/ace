@@ -68,6 +68,7 @@ struct BlockView: View {
                 }
             }
             .environment(\.readMessage, reader)
+            .environment(\.readBubble, bubbleReader)
             .environment(\.readImage, imageReader)
         default:
             VStack(alignment: .leading, spacing: AceDesign.Space.related) {
@@ -98,6 +99,14 @@ struct BlockView: View {
         let threadId = thread.id
         return { id in
             try await model.service(["type": "native.message", "threadId": threadId, "itemId": id], as: MessageText.self).text
+        }
+    }
+    /// Where a cut bubble reads its whole words: the thread's own model, when the feed has one.
+    private var bubbleReader: (@MainActor (String) async throws -> String)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id in
+            try await model.service(["type": "native.message", "threadId": threadId, "itemId": id, "bubble": true], as: MessageText.self).text
         }
     }
     private func open(_ entry: BlockRow.Agents.Entry) {

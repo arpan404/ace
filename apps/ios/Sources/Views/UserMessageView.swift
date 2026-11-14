@@ -15,29 +15,54 @@ struct UserMessageRow: View {
                 MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
-            if readable || quoted { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
+            if readable || quoted {
+                UserBubble(text: row.text, bubble: row.bubble, id: row.id)
+                    .modifier(BubbleMenu(text: copyText, cut: readable && row.bubble?.cut == true, id: row.id, row: row))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.user.\(row.id)")
     }
-    /// The bubble's words as shown: mentions by name, code as written. A message of only quotes
-    /// copies the passages, never the block the agent reads.
+    /// The bubble's words as written (the bridge's `source`). A message with mentions copies its
+    /// runs, the chips by name; a message of only quotes copies the passages, never the block the
+    /// agent reads.
     private var copyText: String {
         if row.bubble?.readable == false, let quotes = row.bubble?.quotes, !quotes.isEmpty {
             return quotes.map(\.text).joined(separator: "\n\n")
         }
-        if let markdown = row.bubble?.markdown, !markdown.isEmpty { return Self.source(of: markdown) }
+        if let source = row.bubble?.source, !source.isEmpty { return source }
         guard let segments = row.bubble?.segments, !segments.isEmpty else { return row.text }
         return segments.map { $0.kind == "code" ? "\n\($0.text)\n" : $0.text }.joined()
             .trimmingCharacters(in: .newlines)
     }
-    /// Rendered markdown copies as written: without the hard breaks the bridge added to its lines.
-    static func source(of markdown: String) -> String {
-        markdown.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.hasSuffix("  ") ? String($0.dropLast(2)) : String($0) }
-            .joined(separator: "\n")
+}
+
+/// A bubble's long-press menu over its words as written: Copy, Select text and Share hold what
+/// the bubble shows, never less. A bubble the bridge cut reads its whole words (`readBubble`)
+/// while it is on screen, and the menu holds those once they arrive.
+private struct BubbleMenu: ViewModifier {
+    let text: String
+    let cut: Bool
+    let id: String
+    /// The person's own message, whose Edit, Fork and Retry the menu offers; nil for a brief.
+    var row: TranscriptRow? = nil
+    @Environment(\.readBubble) private var readBubble
+    @State private var whole: String?
+    func body(content: Content) -> some View {
+        content
+            .messageMenu(whole ?? text, title: "Message", row: row)
+            .task(id: cut) {
+                guard cut, whole == nil, let readBubble else { return }
+                whole = try? await readBubble(id)
+            }
     }
+}
+
+extension EnvironmentValues {
+    /// Reads a message's whole bubble words (`native.message` with `bubble`), for a bubble longer
+    /// than its row carries. Nil where nothing can read it.
+    @Entry var readBubble: (@MainActor (String) async throws -> String)? = nil
 }
 
 /// A message another thread's agent sent, as the web draws it: the person's bubble of its words
@@ -57,13 +82,18 @@ struct SentMessageRow: View {
             senderLine
             if sent.bubble.readable {
                 // Its words copy as written; Edit, Fork and Retry belong to the person's own messages.
-                UserBubble(text: event.detail, bubble: sent.bubble, id: row.id, caret: true)
-                    .messageMenu(event.detail, title: "Message")
+                UserBubble(text: words(of: sent.bubble), bubble: sent.bubble, id: row.id, caret: true)
+                    .modifier(BubbleMenu(text: words(of: sent.bubble), cut: sent.bubble.cut == true, id: row.id))
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.sent.\(row.id)")
+    }
+    /// The brief's words as written; from an older bridge, its runs.
+    private func words(of bubble: BubbleLine) -> String {
+        if let source = bubble.source, !source.isEmpty { return source }
+        return bubble.segments.map(\.text).joined()
     }
     /// What tapping the line does, if it can open the sender.
     private var opener: (() -> Void)? {
