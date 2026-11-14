@@ -9,8 +9,16 @@ export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
   agent: Agent;
-  /** `keepAlive` is the answer's `Keep-Alive` header, when one came. */
-  release(keepAlive?: string): void;
+  /** The codings the machine last said it reads in request bodies (`Accept-Encoding`). */
+  accepts: string | undefined;
+  /** Given back with the answer's headers, when an answer came. */
+  release(answer?: AnswerHeaders): void;
+}
+
+/** What an answer says about the connection and the machine behind it. */
+export interface AnswerHeaders {
+  keepAlive: string | undefined;
+  acceptEncoding: string | undefined;
 }
 
 export interface MachineConnectionsDeps {
@@ -31,6 +39,8 @@ interface Entry {
   sessions: { get(): Buffer | undefined; set(session: Buffer): void };
   inflight: number;
   idleMs: number;
+  /** What the machine last said it reads; an answer without it (an older build) clears it. */
+  accepts: string | undefined;
   cancelIdle: (() => void) | undefined;
 }
 
@@ -66,6 +76,7 @@ export class MachineConnections {
         sessions: { get: () => session, set: (next) => void (session = next) },
         inflight: 0,
         idleMs: IDLE_DEFAULT_MS,
+        accepts: undefined,
         cancelIdle: undefined,
       };
       if (!this.closed) this.entries.set(key, entry);
@@ -84,11 +95,15 @@ export class MachineConnections {
     let released = false;
     return {
       agent,
-      release: (keepAlive) => {
+      accepts: held.accepts,
+      release: (answer) => {
         if (released) return;
         released = true;
         held.inflight--;
-        held.idleMs = idleMs(keepAlive) ?? held.idleMs;
+        if (answer) {
+          held.idleMs = idleMs(answer.keepAlive) ?? held.idleMs;
+          held.accepts = answer.acceptEncoding;
+        }
         if (held.inflight > 0) return;
         if (this.closed || this.entries.get(key) !== held) {
           agent.destroy();

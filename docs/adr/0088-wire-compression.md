@@ -44,6 +44,17 @@ client needs an app change.
 (`hello.compression`) gets allowlisted JSON messages of 1 KiB or more deflated alone, before
 encryption, as a separate fragment kind; inflation is capped at the logical message limit.
 
+**Machine calls: zstd or deflate for status and describe.** `POST /v1/machine-calls` between
+daemons (ADR 0078) compresses only `status` and `describe` bodies of 1 KiB or more, each alone,
+in both directions (`apps/daemon/src/machines/call-encoding.ts`); the device token is a header,
+never in a compressed body. The caller offers `Accept-Encoding: zstd, deflate` on those calls and
+the target answers with zstd when offered (both ends are Bun or Node 26), deflate otherwise. A
+target says what it reads in request bodies with `Accept-Encoding` on its answer (RFC 7694); the
+caller compresses its own bodies only after hearing that, and an answer without it (an older or
+downgraded build) puts it back to identity, the refused read sent again once as it is. Inflating
+is capped at the uncompressed limits. Work, messages and tool calls, images included, stay
+identity.
+
 **HTTP: br/gzip for renderer text files.** `.html`, `.js`, `.css` and `.svg` files of at least 1 KiB
 are compressed once per file version and kept in memory (32 MiB, least recently used out), on both
 listeners; the cost is paid once, not per request. Attachments, icons and images are already

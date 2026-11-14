@@ -2,7 +2,15 @@ import { request as httpsRequest } from "node:https";
 import { MachineRefusal, type MachineCallRequest } from "@ace/protocol";
 import { pinnedAgent } from "../client-access.ts";
 import type { RemoteProfile } from "../cli/profiles.ts";
-import type { ConnectionLease, MachineConnections } from "./connections.ts";
+import type { AnswerHeaders, ConnectionLease, MachineConnections } from "./connections.ts";
+import {
+  CALL_ENCODINGS,
+  COMPRESS_MIN_BYTES,
+  compressibleOp,
+  decodeBody,
+  encodeBody,
+  pickEncoding,
+} from "./call-encoding.ts";
 
 /** Why a call to another machine did not produce an answer. Never carries a credential. */
 export class MachineFailure extends Error {
@@ -52,6 +60,12 @@ export interface PinnedRequest {
   method: "POST" | "PUT";
   body: Buffer | string;
   contentType: string;
+  /**
+   * The body and its answer carry no credential beside text another party can influence, so
+   * both may be compressed (ADR 0088): the answer when the machine offers it, the body once the
+   * machine has said it reads that coding.
+   */
+  compressible?: boolean;
 }
 
 /**
@@ -67,6 +81,7 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
       method: "POST",
       body: JSON.stringify(body),
       contentType: "application/json",
+      compressible: compressibleOp(body.call.op),
     },
     options,
   );
@@ -74,31 +89,56 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
 /** A connection for this request alone, closed once it is answered. */
 function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
   const agent = pinnedAgent(profile.fingerprint);
-  return { agent, release: () => agent.destroy() };
+  return { agent, accepts: undefined, release: () => agent.destroy() };
 }
 
+/**
+ * A compressed body refused by a machine that no longer says it reads compressed bodies (it was
+ * downgraded since): the call, a read, is sent once more as it is.
+ */
+class CodingRefused extends MachineFailure {}
+
 /** A JSON answer from a paired machine's listener; refusals keep their authored words. */
-export function pinnedRequest(
+export async function pinnedRequest(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
   route: PinnedRequest,
   options: MachineTransportOptions,
 ): Promise<unknown> {
+  try {
+    return await pinnedOnce(profile, route, options, true);
+  } catch (error) {
+    if (!(error instanceof CodingRefused)) throw error;
+    return pinnedOnce(profile, route, options, false);
+  }
+}
+
+function pinnedOnce(
+  profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+  route: PinnedRequest,
+  options: MachineTransportOptions,
+  mayCompress: boolean,
+): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
   const lease: ConnectionLease = options.connections?.lease(profile) ?? oneShot(profile);
   const agent = lease.agent;
-  const data = route.body;
+  const plain = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
+  const coding =
+    route.compressible && mayCompress && plain.length >= COMPRESS_MIN_BYTES
+      ? pickEncoding(lease.accepts)
+      : undefined;
+  const data = coding ? encodeBody(plain, coding) : plain;
   const maxBytes = options.maxBytes ?? 1024 * 1024;
   return new Promise<unknown>((resolve, reject) => {
     let connected = false;
     let settled = false;
-    let keepAlive: string | undefined;
+    let answer: AnswerHeaders | undefined;
     const finish = (error: MachineFailure | undefined, value?: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(deadline);
       options.signal?.removeEventListener("abort", abort);
       // A failed request's socket is destroyed with it; only a whole answer leaves it reusable.
-      lease.release(keepAlive);
+      lease.release(answer);
       if (error) reject(error);
       else resolve(value);
     };
@@ -109,7 +149,9 @@ export function pinnedRequest(
       headers: {
         authorization: `Bearer ${profile.token}`,
         "content-type": route.contentType,
-        "content-length": Buffer.byteLength(data),
+        "content-length": data.length,
+        ...(coding ? { "content-encoding": coding } : {}),
+        ...(route.compressible ? { "accept-encoding": CALL_ENCODINGS } : {}),
       },
     });
     const abort = () => {
@@ -139,8 +181,15 @@ export function pinnedRequest(
     }
     request.on("response", (response) => {
       connected = true;
-      const hint = response.headers["keep-alive"];
-      keepAlive = typeof hint === "string" ? hint : undefined;
+      const header = (name: string) => {
+        const value = response.headers[name];
+        return typeof value === "string" ? value : undefined;
+      };
+      answer = {
+        keepAlive: header("keep-alive"),
+        // Only an answer to a request that offered compression says what the machine reads.
+        acceptEncoding: route.compressible ? header("accept-encoding") : lease.accepts,
+      };
       const chunks: Buffer[] = [];
       let bytes = 0;
       response.on("data", (chunk: Buffer) => {
@@ -154,13 +203,19 @@ export function pinnedRequest(
       response.on("end", () => {
         let parsed: unknown;
         try {
-          parsed = JSON.parse(Buffer.concat(chunks).toString());
+          // A compressed answer may expand to no more than an uncompressed one could be.
+          const body = decodeBody(Buffer.concat(chunks), header("content-encoding"), maxBytes);
+          parsed = JSON.parse(body.toString());
         } catch {
           finish(new MachineFailure("refused", "unavailable", "Machine answer unreadable"));
           return;
         }
         if (response.statusCode === 200) {
           finish(undefined, parsed);
+          return;
+        }
+        if (coding && answer?.acceptEncoding === undefined) {
+          finish(new CodingRefused("refused", "invalid"));
           return;
         }
         const refusal = MachineRefusal.safeParse(parsed);

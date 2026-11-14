@@ -1,6 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { maxMessageBytes, maxSpadeRequestBytes, type Device } from "@ace/protocol";
 import type { MachineTarget } from "./target.ts";
+import {
+  CALL_ENCODINGS,
+  COMPRESS_MIN_BYTES,
+  compressibleOp,
+  decodeBody,
+  encodeBody,
+  pickEncoding,
+} from "./call-encoding.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
 /**
@@ -9,7 +17,13 @@ type Listener = (request: IncomingMessage, response: ServerResponse) => void;
  */
 const maxBody = Math.max(maxMessageBytes, maxSpadeRequestBytes) + 64 * 1024;
 
+/** A request body in a coding this build can't read. */
+class UnsupportedCoding extends Error {}
+
 async function readBody(request: IncomingMessage): Promise<unknown> {
+  const coding = request.headers["content-encoding"];
+  if (coding !== undefined && !/^\s*(identity|zstd|deflate)\s*$/i.test(coding))
+    throw new UnsupportedCoding("Unsupported content coding");
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of request) {
@@ -18,7 +32,17 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
     if (bytes > maxBody) throw new Error("Request too large");
     chunks.push(buffer);
   }
-  return JSON.parse(Buffer.concat(chunks).toString());
+  // Inflating is capped at the same limit as a body sent as it is.
+  return JSON.parse(decodeBody(Buffer.concat(chunks), coding, maxBody).toString());
+}
+
+/** The call's op, read only to decide whether its answer may be compressed. */
+function opOf(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const call: unknown = Reflect.get(body, "call");
+  if (typeof call !== "object" || call === null) return undefined;
+  const op: unknown = Reflect.get(call, "op");
+  return typeof op === "string" ? op : undefined;
 }
 
 /**
@@ -27,7 +51,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
  * revoked device or a turned-off opt-in stops the next call.
  */
 export function machineCallsHttp(
-  target: () => MachineTarget | undefined,
+  target: () => Pick<MachineTarget, "handle"> | undefined,
   authenticate: (token: string) => Device | undefined,
   next: Listener,
 ): Listener {
@@ -38,10 +62,25 @@ export function machineCallsHttp(
     }
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Content-Type", "application/json");
+    // The codings this machine reads in request bodies (RFC 7694), told to callers that offer
+    // compression themselves; a caller learns from its absence that a machine was downgraded.
+    if (request.headers["accept-encoding"] !== undefined)
+      response.setHeader("Accept-Encoding", CALL_ENCODINGS);
+    let compressible = false;
     const reply = (status: number, body: unknown) => {
       if (response.writableEnded) return;
       response.statusCode = status;
-      response.end(JSON.stringify(body));
+      const text = Buffer.from(JSON.stringify(body));
+      const encoding =
+        compressible && text.length >= COMPRESS_MIN_BYTES
+          ? pickEncoding(request.headers["accept-encoding"])
+          : undefined;
+      if (!encoding) {
+        response.end(text);
+        return;
+      }
+      response.setHeader("Content-Encoding", encoding);
+      response.end(encodeBody(text, encoding));
     };
     if (request.method !== "POST") {
       request.resume();
@@ -67,10 +106,12 @@ export function machineCallsHttp(
       let body: unknown;
       try {
         body = await readBody(request);
-      } catch {
-        reply(400, { error: "invalid" });
+      } catch (error) {
+        reply(error instanceof UnsupportedCoding ? 415 : 400, { error: "invalid" });
         return;
       }
+      const op = opOf(body);
+      compressible = op !== undefined && compressibleOp(op);
       const answer = await owner.handle(device, body, lifetime.signal);
       reply(answer.status, answer.body);
     })().catch(() => reply(500, { error: "unavailable" }));
