@@ -251,19 +251,18 @@ export const deleteAction = (threadId: string, force: boolean): ListAction => ({
 export const isListAction = (value: object): value is ListAction => "listAction" in value;
 
 /**
- * Send a list action, checking the list as it sends: an archive or a delete confirmed after the
- * connection dropped is refused (`CommandRefused` `stale_copy`), never sent as it was asked.
+ * Send a list action, checking the list as it sends. An archive (it stops commands a thread left
+ * running) or a forced delete (Stop and delete) confirmed after the list stopped being current is
+ * refused (`CommandRefused` `stale_copy`), never sent as it was asked. A plain delete goes as it
+ * is, offline too: the daemon refuses it while any work of the thread still runs.
  */
-export function sendListAction<T>(
-  client: ClientApi,
-  action: ListAction,
-  send: Send<T>,
-): Promise<T> {
+export function sendListAction<T>(client: ClientApi, action: ListAction, send: Send<T>): Promise<T> {
   const threadId = ThreadId.parse(action.threadId);
+  if (action.kind === "delete" && !action.force) return send({ type: "thread.delete", threadId });
   const payload: CommandPayload =
     action.kind === "archive"
       ? { type: "thread.archive", threadId }
-      : { type: "thread.delete", threadId, ...(action.force ? { force: true } : {}) };
+      : { type: "thread.delete", threadId, force: true };
   return refusing(gated(client, "list", payload, send));
 }
 
