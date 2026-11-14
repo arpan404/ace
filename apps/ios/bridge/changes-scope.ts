@@ -50,13 +50,20 @@ export interface ScopeOption {
   turn: number | null;
 }
 
+/** A scope's resolved turns and their files, in first-touched order and by path. */
+interface ScopedEdits {
+  resolved: ResolvedScope;
+  files: FileChanges[];
+  byPath: ReadonlyMap<string, FileChanges>;
+}
+
 export class ChangesScope {
   #reader: TurnReader;
   #diffs: TurnDiffs;
   #requested: DiffScope = "last";
   #turns: Turn[] = [];
   #dirty = true;
-  #edits: { resolved: ResolvedScope; files: FileChanges[] } | undefined;
+  #edits: ScopedEdits | undefined;
   #versions = new WeakMap<Reads, Map<string, string>>();
 
   constructor(reader: TurnReader, diffs: TurnDiffs) {
@@ -83,11 +90,13 @@ export class ChangesScope {
     return this.#turns;
   }
 
-  #scoped(): { resolved: ResolvedScope; files: FileChanges[] } {
+  #scoped(): ScopedEdits {
     const edited = this.#edited();
     if (this.#edits) return this.#edits;
     const resolved = resolveScope(this.#requested, edited);
-    this.#edits = { resolved, files: groupFileChanges(scopeEdits(resolved, edited)) };
+    const files = groupFileChanges(scopeEdits(resolved, edited));
+    // Indexed once, so looking up every listed file's version stays linear in the files.
+    this.#edits = { resolved, files, byPath: new Map(files.map((file) => [file.path, file])) };
     return this.#edits;
   }
 
@@ -127,7 +136,7 @@ export class ChangesScope {
   /** Where `path`'s diff comes from in this scope, and its version; undefined if not listed. */
   sourceOf(path: string, reads: Reads | undefined): Sourced | undefined {
     if (!this.workingTree) {
-      const file = this.#scoped().files.find((candidate) => candidate.path === path);
+      const file = this.#scoped().byPath.get(path);
       return file && { source: { kind: "turn", file }, version: this.#diffs.key(file) };
     }
     const file = reads?.byPath.get(path);
@@ -146,7 +155,7 @@ export class ChangesScope {
   /** The version a viewed mark is checked against; undefined while a cut file's is unknown. */
   versionOf(path: string, reads: Reads | undefined): string | undefined {
     if (!this.workingTree) {
-      const file = this.#scoped().files.find((candidate) => candidate.path === path);
+      const file = this.#scoped().byPath.get(path);
       return file && this.#diffs.key(file);
     }
     if (!reads) return undefined;
