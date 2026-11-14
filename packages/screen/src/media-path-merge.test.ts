@@ -78,3 +78,29 @@ it("ace-media's path closing hands on what waited for it at once", () => {
   paths.mediaClosed();
   expect(out).toEqual([1, 4]);
 });
+
+it("a still on the helper socket during a switch waits its turn instead of making the held video stale", () => {
+  const { paths, out } = merge();
+  paths.frame("daemon", 2);
+  paths.switching("media");
+  paths.frame("media", 4);
+  paths.frame("media", 5);
+  paths.switched("media", 3);
+  // Stills always take the helper socket, so one can overtake the video held for the switch.
+  paths.frame("daemon", 6);
+  paths.frame("daemon", 3);
+  paths.frame("media", 7);
+  expect(out).toEqual([2, 3, 4, 5, 6, 7]);
+  expect(paths.stale).toBe(0);
+});
+
+it("a still that arrives before the helper has said where it switched is ordered with the rest", () => {
+  const { paths, out } = merge();
+  paths.frame("daemon", 1);
+  paths.switching("media");
+  paths.frame("daemon", 4);
+  paths.frame("media", 3);
+  paths.switched("media", 2);
+  paths.frame("daemon", 2);
+  expect(out).toEqual([1, 2, 3, 4]);
+});
