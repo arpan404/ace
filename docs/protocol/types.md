@@ -10426,13 +10426,20 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
+    "keep": [],
     "kind": "threads",
-    "seq": 1,
-    "threads": {}
+    "seq": 0,
+    "threads": {},
+    "window": {
+      "before": null,
+      "counts": [],
+      "epoch": "example",
+      "total": 9
+    }
   }
 }
 ```
@@ -32256,6 +32263,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
 Example:
 
@@ -35237,6 +35245,7 @@ Example:
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | place | no | [ListedThreadPlace.json](schema/ListedThreadPlace.json) |  |
+| readState | no | [ThreadReadCursor.json](schema/ThreadReadCursor.json) |  |
 
 Example:
 
@@ -35260,6 +35269,10 @@ Example:
   "prSettled": 3,
   "prSettledKey": "example",
   "provider": "acp",
+  "readState": {
+    "lastSeenSeq": 4,
+    "updatedAt": null
+  },
   "snoozeWoke": {
     "at": 8,
     "on": "needs_you",
@@ -35332,6 +35345,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
 Example:
 
@@ -35540,6 +35554,24 @@ Example:
     "visibility": "limited"
   },
   "instanceId": "example"
+}
+```
+
+## ThreadReadCursor
+
+[JSON Schema](schema/ThreadReadCursor.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| lastSeenSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| updatedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "lastSeenSeq": 4,
+  "updatedAt": 9
 }
 ```
 

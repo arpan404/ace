@@ -37,11 +37,13 @@ export function useThreadCard(
   const [lastEntry, setLastEntry] = useState(liveEntry);
   if (liveEntry !== undefined && liveEntry !== lastEntry) setLastEntry(liveEntry);
   const entry = liveEntry ?? (leaving ? lastEntry : undefined);
-  // Only mounted rows read one cursor, once per read change. No history or polling.
+  // A daemon that sends each row with this device's read cursor needs no request. Otherwise
+  // only mounted rows read one cursor, once per read change. No history or polling.
+  const carried = entry?.readState;
   const read = useDaemonQuery({
     queryKey: ["sidebar-thread-read", threadId, entry?.readAt],
     read: (client, signal) => client.threadReadState({ threadId }, { signal }),
-    enabled: entry?.activitySeq !== undefined && !settled,
+    enabled: entry?.activitySeq !== undefined && !settled && carried === undefined,
     staleTime: Infinity,
     gcTime: 300_000,
     placeholderData: (previous) => previous,
@@ -70,7 +72,9 @@ export function useThreadCard(
       settled,
       now,
       projectName: projectLabel(entry.workspaceId, project),
-      readState: read.data,
+      readState: carried
+        ? { type: "thread.readState", requestId: "sidebar", threadId: entry.id, ...carried }
+        : read.data,
       unconfirmed,
     }),
   };

@@ -1,9 +1,9 @@
 import { WireEncoder } from "./wire-encoder.ts";
-import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
+import type { DeviceId, Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
 import { createThreadListView, isSidebarEvent } from "@ace/projection";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { Store } from "./store.ts";
-import { sidebarSubscription } from "./sidebar-subscription.ts";
+import { sidebarSubscription, type DeviceReads } from "./sidebar-subscription.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
 import { routeThread } from "./thread-routes.ts";
 import type { SnapshotTail } from "./thread-reads.ts";
@@ -30,7 +30,36 @@ export type SubscriptionStore = Pick<
   | "sidebarPage"
   | "readEvents"
 > &
-  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken" | "countThreadEvents">>;
+  Partial<
+    Pick<
+      Store,
+      | "replaySafe"
+      | "sidebarRowRevision"
+      | "sidebarToken"
+      | "countThreadEvents"
+      | "threadReadState"
+      | "onThreadRead"
+    >
+  >;
+
+/** `device`'s read cursors in `store`, when the store keeps them (`DeviceReads`). */
+function deviceReads(store: SubscriptionStore, device: DeviceId): DeviceReads | undefined {
+  const readState = store.threadReadState?.bind(store);
+  const onThreadRead = store.onThreadRead?.bind(store);
+  if (!readState || !onThreadRead) return undefined;
+  return {
+    read(threadId) {
+      const { lastSeenSeq, updatedAt } = readState(threadId, device);
+      return { lastSeenSeq, updatedAt };
+    },
+    listen(moved) {
+      return onThreadRead((threadId, deviceId) => {
+        // Marked inside a command's transaction: read it once that has committed.
+        if (deviceId === device) queueMicrotask(() => moved(threadId));
+      });
+    },
+  };
+}
 
 const fallbackPlacements = new WeakMap<object, SidebarPlacement>();
 /**
@@ -102,6 +131,7 @@ export function subscribe(
   encoder = new WireEncoder(),
   placement?: SidebarPlacement,
   tail?: SnapshotTail,
+  device?: DeviceId,
 ): () => void {
   if (scope.kind === "threads" && scope.window) {
     const window = sidebarSubscription(
@@ -110,6 +140,7 @@ export function subscribe(
       scope.window,
       send,
       placement ?? storePlacement(store, Date.now),
+      device === undefined ? undefined : deviceReads(store, device),
     );
     const stop = () => window.stop();
     windows.set(stop, window);

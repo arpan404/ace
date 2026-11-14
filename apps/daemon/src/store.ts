@@ -1372,6 +1372,10 @@ export class Store {
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
     return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
   }
+  /** Told after `markThreadRead`, possibly before its transaction commits. */
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    return this.navigation.onThreadRead(listener);
+  }
   outputThread(streamId: string) {
     return this.threadReads.outputThread(streamId);
   }

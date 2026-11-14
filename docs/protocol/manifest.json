@@ -4469,8 +4469,8 @@
       "sha256": "7572788c16d634d71fa18c68c1ec8608f39c07bd3bcab8e2e9261b35f95f08b6"
     },
     "schema/ThreadListEntry.json": {
-      "bytes": 6388,
-      "sha256": "66e649159d15f86204a2336a7233f2c4b7bfec4e87e5fc869471ef2b421ab16d"
+      "bytes": 6482,
+      "sha256": "3a49d075e067809d5a982c0a8f0b31cfa9cd8e88281c4f7ec24106c66a52e67e"
     },
     "schema/ThreadListInput.json": {
       "bytes": 584,
@@ -4481,8 +4481,8 @@
       "sha256": "af2f3ca66a9891980e01c6898d8f61238efde299cf4fe5a09162a048d514de2b"
     },
     "schema/ThreadListView.json": {
-      "bytes": 951,
-      "sha256": "cec35c942245de5ac57d954f808fd93368a62e70f0f288369be14fd7d4561324"
+      "bytes": 1284,
+      "sha256": "9cc9ac163e74e21a4004244ecb8bf394b6c57f07d0efd5a74f923857a3c9e206"
     },
     "schema/ThreadListWindow.json": {
       "bytes": 1196,
@@ -4511,6 +4511,10 @@
     "schema/ThreadProviderMetadata.json": {
       "bytes": 666,
       "sha256": "24b4ba997d6998ab3dae9b4e3eb4b5707fe90ce5618db36ac0e88380040f76d6"
+    },
+    "schema/ThreadReadCursor.json": {
+      "bytes": 541,
+      "sha256": "e2197e5e4d25e7cc5bcde2e4516d3537bc0e4e022fbf8922fd6a00f84bf7b3b6"
     },
     "schema/ThreadReadStateRequest.json": {
       "bytes": 500,
@@ -5225,10 +5229,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1050760,
-      "sha256": "87b1baab0e0769abcef1510c1668b246e4257e9c32cca284c3df4ea7bf961a1d"
+      "bytes": 1051953,
+      "sha256": "6b10e4af490185dde2b680263ef7d38b8cd7a625b49a67b8878a03e5bfbf1bad"
     }
   },
-  "input": "881e2c1873a6011a01defab39e2f45092647d5150e73845d29d8c56423f9723d",
+  "input": "5824ff6564ff5408b9042b850ad8096e6151e6220889292d39fff64d98bd89ae",
   "version": 1
 }

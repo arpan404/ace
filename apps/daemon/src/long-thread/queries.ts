@@ -33,8 +33,14 @@ export class LongThreadQueries {
   private readonly source: NavigationSource;
   /** The site each agent was on before a step, as turn.steps and icons work it out. */
   private readonly stepSites = new Map<string, string | null>();
+  /** Told after a device's read cursor for a thread may have moved. */
+  private readonly readListeners = new Set<(threadId: ThreadId, deviceId: DeviceId) => void>();
   constructor(source: NavigationSource) {
     this.source = source;
+  }
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    this.readListeners.add(listener);
+    return () => void this.readListeners.delete(listener);
   }
   private readableThread(id: ThreadId): Thread {
     this.source.flush();
@@ -235,5 +241,6 @@ export class LongThreadQueries {
         this.source.now(),
       ),
     );
+    for (const listener of this.readListeners) listener(threadId, deviceId);
   }
 }

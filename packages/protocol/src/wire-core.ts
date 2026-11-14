@@ -77,12 +77,24 @@ export const ThreadView = z.object({
   usageSnapshots: records(UsageUpdated).default({}),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
+/** One device's read cursor for a thread, as `thread.readState` answers it. */
+export const ThreadReadCursor = z.object({
+  lastSeenSeq: seq,
+  /** When it was last moved; null while the device has never marked the thread read. */
+  updatedAt: z.number().int().nonnegative().nullable(),
+});
+export type ThreadReadCursor = z.infer<typeof ThreadReadCursor>;
 export const ThreadListEntry = Thread.omit({ rootAgentId: true }).extend({
   /**
    * Where the daemon puts the thread in the Threads panel. Absent from older daemons, and from
    * archived or unlisted threads; one this client can't read is dropped, not fatal.
    */
   place: ListedThreadPlace.optional(),
+  /**
+   * The subscribing device's read cursor for the thread, sent again whenever that device marks
+   * it read. Absent from older daemons: the client asks with `thread.readState`.
+   */
+  readState: ThreadReadCursor.optional(),
 });
 export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
 export const ThreadListCursor = z.object({ at: z.number().int().nonnegative(), id: ThreadId });
@@ -110,6 +122,8 @@ export const ThreadListView = z.object({
    * hold means it must subscribe again without `resume`.
    */
   keep: z.array(ThreadId).optional(),
+  /** With `keep`: the subscribing device's read cursor for each kept thread that has one. */
+  reads: records(ThreadReadCursor).optional(),
 });
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);

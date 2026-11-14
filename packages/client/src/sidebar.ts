@@ -16,6 +16,9 @@ import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
 
+/** The read cursor of a thread the device never marked read. */
+const unread = { lastSeenSeq: 0, updatedAt: null };
+
 export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #failure: ClientError | undefined;
   get error() {
@@ -448,14 +451,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
    * placed as they were, and adds the ones that changed. Undefined when a kept one isn't held.
    */
   #resumed(view: ThreadListView, held: ThreadListView | undefined): ThreadListView | undefined {
-    const { keep, ...rest } = view;
+    const { keep, reads, ...rest } = view;
     if (!keep) return view;
     const threads: Record<string, ThreadListEntry> = {};
     for (const id of keep) {
       const entry = held && Object.hasOwn(held.threads, id) ? held.threads[id] : undefined;
       if (!entry) return undefined;
+      // A kept row's read cursor comes on its own: it may have moved while the row did not.
+      const readState = reads
+        ? ((Object.hasOwn(reads, id) ? reads[id] : undefined) ?? unread)
+        : entry.readState;
       Object.defineProperty(threads, id, {
-        value: entry,
+        value: readState === entry.readState ? entry : { ...entry, readState },
         enumerable: true,
         writable: true,
         configurable: true,

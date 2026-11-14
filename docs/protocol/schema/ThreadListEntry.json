@@ -188,6 +188,9 @@
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "readState": {
+      "$ref": "https://ace.local/protocol/v1/ThreadReadCursor.json"
+    },
     "settleWhenDone": {
       "const": true,
       "type": "boolean"
