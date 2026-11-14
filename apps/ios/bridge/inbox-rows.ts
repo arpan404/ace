@@ -97,6 +97,8 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
       label: choice.label,
       detail: choice.detail,
     })),
+    /** The event an event snooze waits for, kept so Undo of a settle can put it back. */
+    snoozeOn: entry.snoozeWake?.on ?? null,
     /** Why an event snooze sleeps ("until it needs you"); null for a timed one or none. */
     snoozeWake: entry.snoozeWake ? (snoozeLabel(entry, context.now) ?? null) : null,
     /** False when the thread never settles by itself. */

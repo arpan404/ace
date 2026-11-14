@@ -50,6 +50,22 @@ import Testing
         #expect(host.snoozes[key] == host.rows[key]?.snoozedUntil)
     }
 
+    @Test func undoOfASettlePutsASnoozeUntilThePRChangesBackWithItsEvent() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        var row = FakeHost.row("a", snoozedUntil: host.clock() + 30 * 86_400_000)
+        row.snoozeOn = "pr"
+        host.rows[key] = row
+        host.answers = [BulkOutcome(saved: ["a"]), BulkOutcome(saved: ["a"])]
+        let organize = InboxOrganize()
+        await organize.run(.settle, [key], in: host)
+        let undo = try! #require(organize.undo)
+        #expect(await organize.takeBack(undo, in: host))
+        // The backstop alone would wake it in a month; the PR is what it waits for.
+        #expect(host.snoozes[key] == row.snoozedUntil)
+        #expect(host.wakes[key] == "pr")
+    }
+
     @Test func undoOfAMoveSendsEachThreadBackToItsOwnProject() async {
         let host = FakeHost()
         let a = InboxKey(machineId: "mac", id: "a"), b = InboxKey(machineId: "mac", id: "b")
@@ -286,6 +302,7 @@ import Testing
     var sent: [Sent] = []
     var rows: [InboxKey: ThreadRow] = [:]
     var snoozes: [InboxKey: Double] = [:]
+    var wakes: [InboxKey: String] = [:]
     private var finals: [String: CheckedContinuation<BulkOutcome?, Never>] = [:]
     private var early: [String: BulkOutcome] = [:]
 
@@ -309,7 +326,9 @@ import Testing
         if let waiting = finals.removeValue(forKey: ticket) { waiting.resume(returning: outcome) } else { early[ticket] = outcome }
     }
     var snoozeRefusal: String?
-    func snooze(_ key: InboxKey, until: Double?) async -> String? { snoozes[key] = until; return snoozeRefusal }
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String? {
+        snoozes[key] = until; wakes[key] = wake; return snoozeRefusal
+    }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? { nil }
     func row(_ key: InboxKey) -> ThreadRow? { rows[key] }
     func clock() -> Double { 1_800_000_000_000 }

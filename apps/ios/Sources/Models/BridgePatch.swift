@@ -61,6 +61,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var snoozeEvents: [SnoozeEvent]? = nil
     /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
     var snoozeWake: String? = nil
+    /// Inbox rows only: that event's id ("needs_you", "pr"), so Undo of a settle puts it back.
+    var snoozeOn: String? = nil
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil

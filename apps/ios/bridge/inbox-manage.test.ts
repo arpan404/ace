@@ -387,6 +387,45 @@ test("taking back a settle restores the thread as it was: auto-settle stays and 
   expect(listed(daemon, "a")?.autoSettle).not.toBe(false);
 });
 
+test("taking back a settle puts an event snooze back with the event it waits for", async () => {
+  const { daemon, sink, act, request } = await following((machine) => {
+    machine.createThread({
+      id: "shipped",
+      workspaceId: "ace",
+      title: "shipped",
+      provider: "codex",
+      hasSentMessage: true,
+      details: {
+        linkedPrs: [
+          {
+            number: 196,
+            state: "open",
+            url: "https://github.com/acme/ace/pull/196",
+            repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+            updatedAt: 0,
+          },
+        ],
+      },
+    });
+    machine.apply("shipped", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  });
+  await until(() => ids(sink).length === 1, "the inbox");
+  const backstop = Date.now() + 30 * 86_400_000;
+  act({ kind: "snoozeAt", threadId: "shipped", until: backstop, wake: "pr" }, "snooze-pr");
+  await until(() => listed(daemon, "shipped")?.snoozeWake?.on === "pr", "the snooze");
+  // The row says which event, so Undo of a settle can put that back too.
+  const row = () =>
+    (sink.read("inbox:shipped") as { row: { snoozeOn: string | null } } | undefined)?.row;
+  await until(() => row()?.snoozeOn === "pr", "the row's event");
+  await request({ type: "inbox.bulk", action: "settle", threadIds: ["shipped"] });
+  await until(() => !listed(daemon, "shipped")?.snoozeWake, "the settle clears it");
+
+  await request({ type: "inbox.bulk", action: "undoSettle", threadIds: ["shipped"] });
+  act({ kind: "snoozeAt", threadId: "shipped", until: backstop, wake: "pr" }, "resnooze-pr");
+  await until(() => listed(daemon, "shipped")?.snoozeWake?.on === "pr", "the event back");
+  expect(listed(daemon, "shipped")?.snoozedUntil).toBe(backstop);
+});
+
 test("a project filter keeps other projects' archived threads out of search everything", async () => {
   const { daemon, sink, request } = await following((machine) => {
     finished(machine, "relay-here");
