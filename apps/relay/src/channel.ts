@@ -34,6 +34,13 @@ const DEFLATE_THRESHOLD = 1024;
  * per MiB there); smaller ones stay synchronous, where the hop would cost more than the work.
  */
 const ASYNC_DEFLATE_FROM = 256 * 1024;
+/**
+ * Uncompressed bytes a channel deflates off the event loop at once. Past it, a message is
+ * deflated on the event loop as it always was, so this budget never refuses a send.
+ */
+const ASYNC_DEFLATE_BUDGET = 16 * 1024 * 1024;
+/** A control message (the goodbye) is never refused for room; it is at most this long. */
+const CONTROL_LIMIT = 1024;
 
 /** A message's bytes as they go out: JSON, deflated JSON or binary. */
 interface Prepared {
@@ -73,25 +80,22 @@ function uncompressed(json: Uint8Array, error: unknown, log: ChannelLog | undefi
   return { data: json, kind: fragmentKinds.json };
 }
 
-/**
- * A JSON message deflated alone when that makes it smaller. A large one is deflated off the
- * event loop; one whose deflate fails goes as it is, since deflating is only ever a saving.
- * Called only for a message the channel already admitted, so it never deflates one it refuses.
- */
-function prepareJson(
+/** A JSON message deflated at once on the event loop when asked and when that makes it smaller. */
+function prepareNow(json: Uint8Array, compress: boolean, log: ChannelLog | undefined): Prepared {
+  if (!compress || json.length < DEFLATE_THRESHOLD) return { data: json, kind: fragmentKinds.json };
+  try {
+    return smaller(json, deflateRawSync(json, { level: 6 }));
+  } catch (error) {
+    return uncompressed(json, error, log);
+  }
+}
+
+/** A large JSON message deflated off the event loop; one whose deflate fails goes as it is. */
+function prepareLater(
   json: Uint8Array,
-  compress: boolean,
   deflate: DeflateLater,
   log: ChannelLog | undefined,
-): Prepared | Promise<Prepared> {
-  if (!compress || json.length < DEFLATE_THRESHOLD) return { data: json, kind: fragmentKinds.json };
-  if (json.length < ASYNC_DEFLATE_FROM) {
-    try {
-      return smaller(json, deflateRawSync(json, { level: 6 }));
-    } catch (error) {
-      return uncompressed(json, error, log);
-    }
-  }
+): Promise<Prepared> {
   // A deflate that throws at once fails like one that rejects.
   return Promise.resolve(json)
     .then(deflate)
@@ -99,6 +103,14 @@ function prepareJson(
       (deflated) => smaller(json, deflated),
       (error: unknown) => uncompressed(json, error, log),
     );
+}
+
+/**
+ * The least a deflate can shrink `size` bytes to: deflate's best ratio is about 1032 to 1. A
+ * message that can't fit even at that size is refused before it is deflated.
+ */
+function leastDeflated(size: number): number {
+  return Math.ceil(size / 1032);
 }
 
 /** Zero a sent (or dropped) message's bytes; binary bytes are the caller's. */
@@ -161,6 +173,11 @@ export interface MessageChannel<Incoming extends WireMessage, Outgoing extends W
    */
   sendText(json: string, compress?: boolean): Promise<void>;
   /**
+   * Send a short control message (a goodbye), never deflated and never refused for room, in
+   * order after everything sent before it. At most 1 KiB.
+   */
+  sendControl(json: string): Promise<void>;
+  /**
    * The next message as received: JSON text (inflated, valid UTF-8, not schema-checked) or
    * binary bytes. The caller parses the text, as a direct socket's handler would.
    */
@@ -212,7 +229,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     resolveClosed = resolve;
   });
   let ended = false,
-    pendingBytes = 0,
+    /** Bytes ready to send (final size known) and not yet sent: at most 16 MiB, as before. */
+    readyBytes = 0,
     sending = Promise.resolve(),
     receiving = false,
     locallyClosed = false;
@@ -308,28 +326,39 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   );
   socket.once("error", end);
   let compressible: ((message: Outgoing) => boolean) | undefined;
+  /** Uncompressed bytes of messages being deflated off the event loop right now. */
+  let deflating = 0;
   /**
-   * Take a message of `size` bytes into the queue, or refuse it: the channel ended, or it would
-   * pass the logical limit. It counts at that size from here until it has gone, so nothing is
-   * kept or deflated that the limit would refuse.
+   * Refuse a message that can't be queued: the channel ended, or `size` more bytes ready to
+   * send would pass the 16 MiB limit (the same check, on the same bytes, as before deflates
+   * left the event loop).
    */
-  const admit = (size: number): void => {
+  const fits = (size: number): void => {
     if (ended) throw new Error("Channel closed");
-    if (size > LOGICAL_MESSAGE_LIMIT || pendingBytes + size > LOGICAL_MESSAGE_LIMIT)
+    if (readyBytes + size > LOGICAL_MESSAGE_LIMIT)
       throw new Error("Logical message or send queue too large");
-    pendingBytes += size;
   };
   /**
-   * Queue an admitted message counted at `size` bytes. Messages go strictly in the order they
-   * were queued: one still being deflated holds back every message behind it (and a close),
-   * as a slow synchronous deflate would, without blocking the event loop meanwhile.
+   * Queue an admitted message. `counted`: its bytes already counted as ready (a message whose
+   * final size was known at once); a message still being deflated is counted when it is done.
+   * Messages go strictly in the order they were queued: one still being deflated holds back
+   * every message behind it (and a close), as a slow synchronous deflate would, without
+   * blocking the event loop meanwhile.
    */
-  const sendData = async (size: number, prepared: Prepared | Promise<Prepared>): Promise<void> => {
-    let counted = size;
+  const sendData = async (prepared: Prepared | Promise<Prepared>, counted = 0): Promise<void> => {
+    let gone = false;
+    const ready =
+      prepared instanceof Promise
+        ? prepared.then((message) => {
+            if (!gone) {
+              readyBytes += message.data.length;
+              counted = message.data.length;
+            }
+            return message;
+          })
+        : prepared;
     const task = sending.then(async () => {
-      const { data, kind } = await prepared;
-      pendingBytes += data.length - counted;
-      counted = data.length;
+      const { data, kind } = await ready;
       const chunkSize = MAX_MESSAGE - 17;
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const chunk = data.subarray(offset, offset + chunkSize);
@@ -355,26 +384,57 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       end(error instanceof Error ? error : new Error("Send failed"));
       throw error;
     } finally {
-      pendingBytes -= counted;
+      gone = true;
+      readyBytes -= counted;
       // Never rejects: a failed deflate already fell back to the message as it was.
       void Promise.resolve(prepared).then(release);
     }
   };
   /**
-   * Admit JSON bytes at their full size, then deflate them if asked. A message still being
-   * deflated counts at its full size until it is done; one deflated at once, at what it became.
+   * Queue JSON bytes, deflated first when asked and when that makes them smaller. A large one
+   * is deflated off the event loop while the async budget has room, held at its full size until
+   * its deflate finishes; any other is deflated at once, as before. A send that can't fit is
+   * refused before it is deflated, except one past the async budget that might still fit once
+   * deflated: that one is deflated first and refused only if it doesn't, as before.
    */
-  const sendJson = async (json: Uint8Array, compress: boolean): Promise<void> => {
+  const sendJson = (json: Uint8Array, compress: boolean): Promise<void> => {
+    let queued: Promise<void>;
     try {
-      admit(json.length);
+      queued = queueJson(json, compress);
     } catch (error) {
+      // Refused before it was handed over: nothing else holds these bytes.
       json.fill(0);
+      return Promise.reject(error instanceof Error ? error : new Error("Send refused"));
+    }
+    return queued;
+  };
+  /** Admit and queue JSON bytes (see `sendJson`); throws when it refuses them. */
+  const queueJson = (json: Uint8Array, compress: boolean): Promise<void> => {
+    const size = json.length;
+    if (!compress || size < DEFLATE_THRESHOLD) {
+      if (size > LOGICAL_MESSAGE_LIMIT) throw new Error("Logical message or send queue too large");
+      fits(size);
+      readyBytes += size;
+      return sendData({ data: json, kind: fragmentKinds.json }, size);
+    }
+    // One that can't fit even at deflate's best ratio is refused before any deflate.
+    fits(leastDeflated(size));
+    if (size >= ASYNC_DEFLATE_FROM && deflating + size <= ASYNC_DEFLATE_BUDGET) {
+      deflating += size;
+      return sendData(prepareLater(json, deflate, options.log).finally(() => (deflating -= size)));
+    }
+    // Small, or past the async budget: on the event loop, then checked, as a channel always did.
+    const now = prepareNow(json, true, options.log);
+    try {
+      if (now.data.length > LOGICAL_MESSAGE_LIMIT)
+        throw new Error("Logical message or send queue too large");
+      fits(now.data.length);
+    } catch (error) {
+      release(now);
       throw error;
     }
-    const prepared = prepareJson(json, compress, deflate, options.log);
-    if (prepared instanceof Promise) return sendData(json.length, prepared);
-    pendingBytes += prepared.data.length - json.length;
-    return sendData(prepared.data.length, prepared);
+    readyBytes += now.data.length;
+    return sendData(now, now.data.length);
   };
   /** One whole message: binary bytes, or its JSON text (inflated and UTF-8 checked). */
   const receivePayload = async (): Promise<Uint8Array | { text: string }> => {
@@ -439,7 +499,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       sendCredit(flow.start());
     },
     get bufferedBytes() {
-      return pendingBytes + socket.bufferedAmount;
+      return readyBytes + deflating + socket.bufferedAmount;
     },
     close() {
       locallyClosed = true;
@@ -452,6 +512,13 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     },
     compress(allowed) {
       compressible = allowed;
+    },
+    async sendControl(text) {
+      const json = new TextEncoder().encode(text);
+      if (ended) throw new Error("Channel closed");
+      if (json.length > CONTROL_LIMIT) throw new Error("Control message too long");
+      readyBytes += json.length;
+      return sendData({ data: json, kind: fragmentKinds.json }, json.length);
     },
     async sendText(text, compress = false) {
       return sendJson(new TextEncoder().encode(text), compress);
@@ -470,8 +537,9 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       if (!data.length || data.length > BINARY_MESSAGE_LIMIT)
         return Promise.reject(new Error("Binary message too large"));
       // The caller keeps these bytes immutable until the send completes.
-      admit(data.length);
-      return sendData(data.length, { data, kind: fragmentKinds.binary });
+      fits(data.length);
+      readyBytes += data.length;
+      return sendData({ data, kind: fragmentKinds.binary }, data.length);
     },
     async receiveBinary() {
       const frame = await channel.receiveFrame();

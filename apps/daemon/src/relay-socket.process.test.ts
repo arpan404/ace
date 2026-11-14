@@ -3,6 +3,7 @@ import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay, startRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
+import { randomBytes } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { RelaySocket } from "./relay-socket.ts";
 
@@ -106,3 +107,41 @@ it("a close right after a message whose deflate is slow loses nothing: the goodb
   expect((await client.receive()).type).toBe("channel.close");
   await client.closed;
 });
+
+/** JSON text of exactly `bytes` bytes that deflates well. */
+function compressible(bytes: number): string {
+  const head = '{"type":"pong","data":"';
+  return `${head}${"line of output ".repeat(bytes / 15 + 1).slice(0, bytes - head.length - 2)}"}`;
+}
+
+it("a 16 MiB message closed at once still arrives, then the goodbye", async () => {
+  const { channel, client } = await relayedMain();
+  const socket = new RelaySocket(channel, { deflate: true, delay: manualDelay().delay });
+  const big = compressible(16 * 1024 * 1024);
+  socket.send(big, { compress: true });
+  socket.close(4000, "Reconnect with afterSeq");
+  expect(await client.receiveRaw()).toBe(big);
+  expect((await client.receive()).type).toBe("channel.close");
+  await client.closed;
+}, 30_000);
+
+it("with the queue full behind a reader that stopped, a close loses nothing it queued", async () => {
+  const { channel, client } = await relayedMain();
+  const socket = new RelaySocket(channel, { deflate: true, delay: manualDelay().delay });
+  const errors: string[] = [];
+  // 16 MiB that won't deflate, then 16 MiB that will, while the reader reads nothing.
+  const texts = [
+    ...Array.from({ length: 4 }, (_, index) =>
+      JSON.stringify({ type: "pong", index, pad: randomBytes(3 * 1024 * 1024).toString("base64") }),
+    ),
+    compressible(16 * 1024 * 1024),
+  ];
+  for (const text of texts)
+    socket.send(text, { compress: true }, (error) => error && errors.push(error.message));
+  socket.close(4000, "Reconnect with afterSeq");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  for (const text of texts) expect(await client.receiveRaw()).toBe(text);
+  expect((await client.receive()).type).toBe("channel.close");
+  expect(errors).toEqual([]);
+  await client.closed;
+}, 30_000);

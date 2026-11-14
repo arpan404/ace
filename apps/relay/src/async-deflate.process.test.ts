@@ -60,6 +60,11 @@ const bulky = (tag: string, bytes: number) =>
   JSON.stringify({ type: "pong", tag, data: `${tag} line of output `.repeat(bytes / 24) });
 const tagOf = (text: string | Uint8Array) =>
   typeof text === "string" ? (JSON.parse(text) as { tag?: string }).tag : "binary";
+/** JSON text of exactly `bytes` bytes that deflates well, tagged. */
+function compressible(tag: string, bytes: number): string {
+  const head = `{"type":"pong","tag":"${tag}","data":"`;
+  return `${head}${"line of output ".repeat(bytes / 15 + 1).slice(0, bytes - head.length - 2)}"}`;
+}
 /** JSON text of exactly `bytes` bytes. */
 const exactly = (bytes: number) => `{"type":"pong","pad":"${"x".repeat(bytes - 24)}"}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -140,24 +145,31 @@ it("with the queue full behind a reader that stopped, large sends are refused be
     },
     { flowControl: true },
   );
-  // The reader never reads: one window goes out, the rest waits in the channel's queue, which
-  // these fill to 4 KiB short of its limit.
-  const filling = Array.from({ length: 4 }, () =>
-    server.sendText(exactly(4 * 1024 * 1024 - 1024), false).catch(() => {}),
-  );
+  // The reader never reads: one window goes out, the rest waits in the channel, which these
+  // fill to 1 KiB short of the 16 MiB it may hold ready to send.
+  const fills = [...Array.from({ length: 3 }, () => 4 * 1024 * 1024), 4 * 1024 * 1024 - 1024];
+  const filling = fills.map((bytes) => server.sendText(exactly(bytes), false).catch(() => {}));
   await sleep(200);
+  // Even at deflate's best ratio these can't fit in 1 KiB: refused before any deflate.
   for (let index = 0; index < 5; index++)
     await expect(server.sendText(bulky(`more${index}`, 2 * 1024 * 1024), true)).rejects.toThrow(
       "send queue too large",
     );
-  // Smaller ones deflate at once on the event loop: refused just the same, before any work.
-  await expect(server.sendText(bulky("mid", 100 * 1024), true)).rejects.toThrow(
-    "send queue too large",
-  );
+  await expect(server.sendText(exactly(2048), false)).rejects.toThrow("send queue too large");
   expect(deflates).toBe(0);
-  expect(server.bufferedBytes).toBeLessThanOrEqual(LOGICAL_MESSAGE_LIMIT + 64 * 1024);
+  expect(server.bufferedBytes).toBeLessThanOrEqual(LOGICAL_MESSAGE_LIMIT);
   server.close();
   await Promise.all(filling);
+}, 20_000);
+
+it("two 9 MiB messages that deflate well, back to back, both arrive in order", async () => {
+  // Accepted before deflates left the event loop (the limit counted deflated bytes), so still.
+  const { client, server } = await connected();
+  const texts = [compressible("first", 9 * 1024 * 1024), compressible("second", 9 * 1024 * 1024)];
+  expect(texts.map((text) => text.length)).toEqual([9 * 1024 * 1024, 9 * 1024 * 1024]);
+  const sends = texts.map((text) => server.sendText(text, true));
+  for (const text of texts) expect(await client.receiveRaw()).toBe(text);
+  await Promise.all(sends);
 }, 20_000);
 
 it("a closed channel refuses a large send without deflating it", async () => {

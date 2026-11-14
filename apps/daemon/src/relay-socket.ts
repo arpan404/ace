@@ -129,7 +129,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     // channel ends anyway after the daemon's close grace, as a direct socket's would.
     const cancel = this.#delay(() => this.#channel.close(), DAEMON_CLOSE_GRACE_MS);
     void this.#channel
-      .sendText(JSON.stringify(goodbye))
+      // A control message: never refused for room, sent after everything queued before it.
+      .sendControl(JSON.stringify(goodbye))
       .catch(() => {})
       .finally(() => {
         cancel();
