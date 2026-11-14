@@ -25,7 +25,8 @@ export function assertMediaLibraries(output: string): void {
     if (!library) continue;
     // The ELF interpreter and virtual DSO are supplied by the kernel/runtime.
     if (/^(linux-vdso\.so|\/.*\/ld-linux[^/]*\.so)/.test(library)) continue;
-    if (!/^lib(c|m|dl|pthread)\.so(?:\.|$)/.test(library) || line.includes("not found"))
+    // Match the screen helper and Spade: GNU Rust uses the shared unwinding runtime.
+    if (!/^lib(c|m|dl|pthread|gcc_s)\.so(?:\.|$)/.test(library) || line.includes("not found"))
       throw new Error(`ace-media has an unexpected dynamic dependency: ${line.trim()}`);
   }
 }

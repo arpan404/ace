@@ -6,6 +6,12 @@ import type { ReleaseTarget } from "@ace/protocol";
 import type { z } from "zod";
 import { checkLinuxMedia, mediaSizeLimit, stagedAceMedia } from "./ace-media.ts";
 
+import {
+  readScreenHelperIdentity,
+  assertScreenHelperIdentity,
+  type ScreenHelperIdentity,
+} from "./screen-identity.ts";
+
 type Target = z.infer<typeof ReleaseTarget>;
 const run = (command: string, args: string[]) =>
   execFileSync(command, args, {
@@ -40,7 +46,7 @@ export async function verifyMediaDesktop(
   app: string,
   target: Target,
   identityFile: string,
-  local: boolean,
+  options: { production: boolean; authenticode: boolean; screenIdentity?: ScreenHelperIdentity },
 ) {
   if (target.startsWith("darwin-")) {
     run("codesign", ["--verify", "--deep", "--strict", app]);
@@ -48,20 +54,24 @@ export async function verifyMediaDesktop(
     run("codesign", ["--verify", "--strict", binary]);
     const metadata = display(["-dvv", binary]);
     if (!metadata.includes("runtime")) throw new Error("ace-media lacks hardened runtime");
-    if (!local && !metadata.includes("Authority=Developer ID Application:"))
+    if (options.production && !metadata.includes("Authority=Developer ID Application:"))
       throw new Error("ace-media lacks Developer ID");
     if (display(["-d", "--entitlements", ":-", binary]).includes("<key>"))
       throw new Error("ace-media must have no entitlements");
-    const requirement = display(["-d", "-r-", join(app, "Contents/Helpers/AceScreenHelper.app")])
-      .split("\n")
-      .find((line) => line.startsWith("designated => "));
-    if (requirement !== (await readFile(identityFile, "utf8")).trim())
-      throw new Error("Screen helper identity changed: Screen Recording grants would be lost");
-    if (!local) {
+    const identity = readScreenHelperIdentity(join(app, "Contents/Helpers/AceScreenHelper.app"));
+    if (options.screenIdentity) assertScreenHelperIdentity(options.screenIdentity, identity);
+    else if (!options.production)
+      throw new Error("Local desktop smoke needs the staged screen helper identity");
+    if (
+      options.production &&
+      identity.requirement !== (await readFile(identityFile, "utf8")).trim()
+    )
+      throw new Error("Screen helper production identity changed");
+    if (options.production) {
       run("spctl", ["--assess", "--type", "execute", app]);
       run("xcrun", ["stapler", "validate", app]);
     }
-  } else if (target.startsWith("win32-") && !local) {
+  } else if (target.startsWith("win32-") && options.authenticode) {
     run("signtool", ["verify", "/pa", stagedAceMedia(join(app, "resources"), target)]);
   }
 }

@@ -749,7 +749,7 @@ FALSE)`.
   - otherwise `cargo build --release --locked -p ace-media` in `native/media` with
     `ACE_MEDIA_VERSION`, after which the binary's `--version` must equal the release's.
   - Linux builds in the Debian 12 container. The existing glibc check applies, and `ldd` must
-    show only libc, libm, libdl and libpthread (no `libva`).
+    show only libc, libm, libdl, libpthread and Rust's libgcc_s unwinding runtime (matching the screen helper and Spade; no `libva`).
 - **Layout.** Archives and the desktop app carry `media/ace-media` (`.exe` on Windows).
   `apps/desktop/scripts/package.ts` adds `media` to its resource folders.
 - **macOS.** The binary is signed with the Developer ID and the hardened runtime by the same

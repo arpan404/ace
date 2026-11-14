@@ -7,7 +7,7 @@ import { assertMediaLibraries, stageAceMedia, stagedAceMedia } from "./ace-media
 
 test("Linux refuses missing libraries, libva and shipped encoder dependencies", () => {
   assertMediaLibraries(
-    "linux-vdso.so.1 (0x01)\nlibc.so.6 => /lib/libc.so.6 (0x02)\n/lib64/ld-linux-x86-64.so.2 (0x03)",
+    "libgcc_s.so.1 => /lib/libgcc_s.so.1 (0x04)\nlinux-vdso.so.1 (0x01)\nlibc.so.6 => /lib/libc.so.6 (0x02)\n/lib64/ld-linux-x86-64.so.2 (0x03)",
   );
   for (const output of [
     "libva.so.2 => /lib/libva.so.2",

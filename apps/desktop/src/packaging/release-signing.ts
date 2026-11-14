@@ -108,3 +108,8 @@ export function windowsSigningConfig(signing: WindowsSigning): Record<string, un
   }
   return {};
 }
+
+/** Only resolved certificate and Azure configurations produce Authenticode signatures. */
+export function windowsSigningConfigured(signing: WindowsSigning | undefined): boolean {
+  return signing?.kind === "certificate" || signing?.kind === "azure";
+}

@@ -1,9 +1,6 @@
-/**
- * On each matching release host (Linux: Debian 12):
- * smoke RELEASE_ROOT DESKTOP_APP TARGET.json PUBLIC_KEY.pem
- * TARGET.sig and the archive sit beside TARGET.json. Use --local instead of the last two
- * arguments only for local packages; it skips release authority and notarization checks.
- * R1 checks the M0 executable's version and clean exit. Ready/pong belongs to the later runtime.
+/** Root-only or --unsigned-archive runs pre-signing checks. Signed archives require
+ * --signed-archive --manifest TARGET.json --public-key KEY.pem. Desktop checks are optional:
+ * --desktop APP [--local --screen-identity STAGED.json] [--verify-authenticode].
  */
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -15,16 +12,18 @@ import { checked, runProcess } from "@ace/service";
 import { smokeMedia, verifyMediaDesktop } from "./media-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
 import { z } from "zod";
-const artifact = resolve(process.argv[2] ?? "");
+import { smokeOptions } from "./smoke-options.ts";
+import { ScreenHelperIdentity } from "./screen-identity.ts";
+const options = smokeOptions(process.argv.slice(2));
+const artifact = resolve(options.root);
 const manifest = InstalledRelease.parse(
   JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
 );
 if (manifest.target !== `${process.platform}-${process.arch}`)
   throw new Error("Smoke check requires the target host");
 // Release mode authenticates the archive before executing any packaged binary.
-if (!process.argv.includes("--local")) {
-  const manifestPath = process.argv[4],
-    keyPath = process.argv[5];
+if (options.manifestPath && options.keyPath) {
+  const { manifestPath, keyPath } = options;
   if (!manifestPath || !keyPath)
     throw new Error("Release smoke needs MANIFEST.json PUBLIC_KEY.pem");
   const signed = verifyManifest(
@@ -53,6 +52,8 @@ if (!process.argv.includes("--local")) {
     await rm(extracted, { recursive: true, force: true });
   }
 }
+if (!options.manifestPath)
+  process.stdout.write("Unsigned archive smoke: manifest authentication skipped\n");
 // files.json is inside the archive authenticated by the release manifest.
 const files = z
   .object({ checksums: z.record(z.string(), z.string()) })
@@ -69,7 +70,7 @@ for (const [path, expected] of Object.entries(files.checksums)) {
   if (expected !== (await hashFile(join(artifact, path))))
     throw new Error(`Packaged file checksum mismatch: ${path}`);
 }
-if (process.platform === "win32" && !process.argv.includes("--local"))
+if (process.platform === "win32" && options.authenticode)
   execFileSync("signtool", ["verify", "/pa", join(artifact, mediaPath)], {
     stdio: "inherit",
     timeout: 30_000,
@@ -80,22 +81,33 @@ await smokeMedia(
   manifest.version,
   join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
 );
-const app = process.argv[3];
-if (!app) throw new Error("Usage: smoke RELEASE_ROOT DESKTOP_APP [--local]");
-const resources =
-  process.platform === "darwin" ? join(app, "Contents/Resources") : join(app, "resources");
-await verifyMediaDesktop(
-  app,
-  manifest.target,
-  resolve(import.meta.dirname, "../../../native/screen-helper/identity.txt"),
-  process.argv.includes("--local"),
-);
-await smokeMedia(
-  resources,
-  manifest.target,
-  manifest.version,
-  join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
-);
+const app = options.app;
+if (app) {
+  const resources =
+    process.platform === "darwin" ? join(app, "Contents/Resources") : join(app, "resources");
+  await verifyMediaDesktop(
+    app,
+    manifest.target,
+    resolve(import.meta.dirname, "../../../native/screen-helper/identity.txt"),
+    {
+      production: options.production,
+      authenticode: options.authenticode,
+      ...(options.snapshot
+        ? {
+            screenIdentity: ScreenHelperIdentity.parse(
+              JSON.parse(await readFile(options.snapshot, "utf8")),
+            ),
+          }
+        : {}),
+    },
+  );
+  await smokeMedia(
+    resources,
+    manifest.target,
+    manifest.version,
+    join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+  );
+}
 if (process.platform === "win32") {
   await smokeWindows(artifact, manifest.version);
   process.exit(0);
