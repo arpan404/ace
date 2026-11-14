@@ -79,6 +79,8 @@ export class TransferClient {
     data: Buffer,
     signal?: AbortSignal,
     part: "code" | "ignored" = "code",
+    /** How long the chunk may take; follows the link's measured throughput. */
+    timeoutMs = 120_000,
   ): Promise<number> {
     const query = `transfer=${encodeURIComponent(transferId)}&offset=${offset}`;
     const answer = await this.request(
@@ -88,7 +90,7 @@ export class TransferClient {
         body: data,
         contentType: "application/octet-stream",
       },
-      120_000,
+      timeoutMs,
       signal,
     );
     return TransferChunkAck.parse(answer).offset;
