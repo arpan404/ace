@@ -12,6 +12,8 @@ use media_wire::control::EncodeSpec;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -21,6 +23,14 @@ use tokio::sync::mpsc;
 const CONNECT: Duration = Duration::from_secs(2);
 /// Longest a new subscription may take to send its first IDR before it is given up.
 const KEY_DEADLINE: Duration = Duration::from_secs(5);
+/// Longest the first subscription may take to send its first IDR. Past it the source fails, and
+/// the daemon reads serve-sim itself again, inside its 2 s fallback.
+const FIRST_KEY_DEADLINE: Duration = Duration::from_millis(1_500);
+/// Most bytes of records waiting for the coordinator; past it records are dropped to the next
+/// keyframe, which is asked for.
+const RECORD_BUDGET: usize = 8 * 1024 * 1024;
+/// Longest the coordinator waits for a record before it looks at control again.
+const IDLE_WAIT: Duration = Duration::from_millis(20);
 /// A closed reader still running this long after its close is stuck.
 pub const STUCK_AFTER_MS: u64 = 2_000;
 
@@ -32,7 +42,80 @@ enum Message {
     /// The source's reader ends (the coordinator holds a sender of its own, for subscriptions).
     Close,
     Record(u32, Record),
+    /// Subscription `id` dropped records past the budget: it waits for a keyframe.
+    Gap(u32),
     Ended(u32, String),
+}
+
+/// What a subscription does with a record, given what is already waiting for the coordinator.
+#[derive(Debug, PartialEq, Eq)]
+enum Admit {
+    Send,
+    Drop,
+    /// The first record dropped past the budget: a keyframe is needed to start again.
+    DropAndAsk,
+}
+
+/// The byte budget on records waiting: past it, deltas would pile up without bound behind a
+/// slow re-encode, so records are dropped until a keyframe that fits.
+#[derive(Default)]
+struct Admission {
+    skipping: bool,
+}
+
+impl Admission {
+    fn admit(&mut self, key: bool, bytes: usize, queued: usize, limit: usize) -> Admit {
+        let fits = queued.saturating_add(bytes) <= limit;
+        if self.skipping {
+            if key && fits {
+                self.skipping = false;
+                return Admit::Send;
+            }
+            return Admit::Drop;
+        }
+        if fits {
+            return Admit::Send;
+        }
+        self.skipping = true;
+        Admit::DropAndAsk
+    }
+}
+
+/// The coordinator's two queues: control (keyframes, encodes, drain, close) is always taken
+/// before records, so a close never waits behind queued video.
+struct Mailbox {
+    control: Receiver<Message>,
+    data: Receiver<Message>,
+}
+
+impl Mailbox {
+    /// The mailbox, its control sender and its data sender.
+    fn new() -> (Self, Sender<Message>, Sender<Message>) {
+        let (control_tx, control) = channel();
+        let (data_tx, data) = channel();
+        (Self { control, data }, control_tx, data_tx)
+    }
+
+    fn next(&self, wait: Duration) -> Result<Message, RecvTimeoutError> {
+        match self.control.try_recv() {
+            Ok(message) => return Ok(message),
+            // The reader's owner is gone: as good as a close.
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => return Ok(Message::Close),
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+        match self.data.recv_timeout(wait) {
+            Ok(message) => Ok(message),
+            Err(error) => self.control.try_recv().map_err(|_| error),
+        }
+    }
+}
+
+/// A record's size against the budget.
+fn record_bytes(record: &Record) -> usize {
+    match record {
+        Record::Description(body) | Record::Key(body) | Record::Delta(body) => body.len(),
+        Record::Other(_) => 0,
+    }
 }
 
 struct Handle {
@@ -63,9 +146,8 @@ impl Readers {
             let _ = self.outputs.try_send(failed("reader-address"));
             return;
         };
-        let (messages, received) = channel();
+        let (mailbox, messages, own) = Mailbox::new();
         let outputs = self.outputs.clone();
-        let own = messages.clone();
         let name = source.to_owned();
         let spawned = std::thread::Builder::new()
             .name("ace-media-reader".into())
@@ -73,7 +155,7 @@ impl Readers {
                 let addr = SocketAddr::from(([127, 0, 0, 1], port));
                 run(
                     Coordinator::new(addr, path, own),
-                    received,
+                    mailbox,
                     outputs,
                     (name, token),
                 );
@@ -133,6 +215,8 @@ struct Coordinator {
     addr: SocketAddr,
     path: String,
     own: Sender<Message>,
+    /// Bytes of records waiting for the coordinator, across its subscriptions.
+    queued: Arc<AtomicUsize>,
     last: u32,
     active: Option<u32>,
     next: Option<(u32, Instant)>,
@@ -151,6 +235,7 @@ impl Coordinator {
             addr,
             path,
             own,
+            queued: Arc::default(),
             last: 0,
             active: None,
             next: None,
@@ -177,9 +262,10 @@ impl Coordinator {
             .write_all(request.as_bytes())
             .map_err(|e| e.to_string())?;
         let own = self.own.clone();
+        let queued = self.queued.clone();
         std::thread::Builder::new()
             .name("ace-media-subscription".into())
-            .spawn(move || subscription(id, writer, own))
+            .spawn(move || subscription(id, writer, own, queued))
             .map_err(|e| e.to_string())?;
         self.streams.insert(id, stream);
         self.next = Some((id, Instant::now()));
@@ -319,7 +405,7 @@ impl Coordinator {
 
 fn run(
     mut coordinator: Coordinator,
-    messages: Receiver<Message>,
+    mailbox: Mailbox,
     outputs: mpsc::Sender<Encoded>,
     (source, token): (String, u64),
 ) {
@@ -333,6 +419,17 @@ fn run(
         return;
     }
     loop {
+        // The first subscription must start in time, or the daemon reads serve-sim again.
+        if coordinator.active.is_none()
+            && coordinator
+                .next
+                .is_some_and(|(_, opened)| opened.elapsed() >= FIRST_KEY_DEADLINE)
+        {
+            let _ = send(Output::Failed(
+                "reader-stalled: serve-sim sent no keyframe in time".into(),
+            ));
+            break;
+        }
         // A keyframe subscription that never sent its IDR is given up; the active one goes on.
         if let Some((id, opened)) = coordinator.next
             && opened.elapsed() >= KEY_DEADLINE
@@ -345,11 +442,23 @@ fn run(
         let wait = if coordinator.transcoding() {
             Duration::from_millis(4)
         } else {
-            Duration::from_millis(250)
+            IDLE_WAIT
         };
         let mut out = Vec::new();
-        let step = match messages.recv_timeout(wait) {
-            Ok(Message::Record(id, record)) => coordinator.record(id, record, &mut out),
+        let step = match mailbox.next(wait) {
+            Ok(Message::Record(id, record)) => {
+                coordinator
+                    .queued
+                    .fetch_sub(record_bytes(&record), Ordering::AcqRel);
+                coordinator.record(id, record, &mut out)
+            }
+            Ok(Message::Gap(id)) => {
+                // Records were dropped: start again from a fresh subscription's IDR.
+                if coordinator.active == Some(id) && coordinator.next.is_none() {
+                    let _ = coordinator.subscribe();
+                }
+                Ok(())
+            }
             Ok(Message::Configure(encodes)) => coordinator.configure(&encodes),
             Ok(Message::Key) => {
                 coordinator.key();
@@ -389,8 +498,9 @@ fn run(
 }
 
 /// Reads one subscription until it ends, handing on each record it carries.
-fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>) {
+fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>, queued: Arc<AtomicUsize>) {
     let (mut http, mut records) = (HttpBody::default(), Records::default());
+    let mut admission = Admission::default();
     let (mut buffer, mut body, mut found) = (vec![0; 64 * 1024], Vec::new(), Vec::new());
     let reason = loop {
         let read = match stream.read(&mut buffer) {
@@ -406,7 +516,23 @@ fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>) {
             break format!("{error:?}");
         }
         for record in found.drain(..) {
-            if own.send(Message::Record(id, record)).is_err() {
+            let bytes = record_bytes(&record);
+            let key = matches!(record, Record::Key(_));
+            // A description always goes: it is small, and the next keyframe needs it.
+            let admit = if matches!(record, Record::Description(_)) {
+                Admit::Send
+            } else {
+                admission.admit(key, bytes, queued.load(Ordering::Acquire), RECORD_BUDGET)
+            };
+            let sent = match admit {
+                Admit::Send => {
+                    queued.fetch_add(bytes, Ordering::AcqRel);
+                    own.send(Message::Record(id, record))
+                }
+                Admit::Drop => Ok(()),
+                Admit::DropAndAsk => own.send(Message::Gap(id)),
+            };
+            if sent.is_err() {
                 return;
             }
         }
@@ -416,3 +542,7 @@ fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>) {
     };
     let _ = own.send(Message::Ended(id, reason));
 }
+
+#[cfg(test)]
+#[path = "readers_tests.rs"]
+mod tests;
