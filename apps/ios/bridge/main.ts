@@ -67,6 +67,7 @@ import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 import { ReadAhead } from "./read-ahead.ts";
+import { ThreadLinger } from "./thread-linger.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -190,6 +191,7 @@ const visit = new ThreadVisit(
   (id) => suggest?.entries(id),
   undefined,
   retries,
+  new ThreadLinger(scheduler.set),
 );
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
 function deviceAgent(threadId: string, agentId: string) {
@@ -564,6 +566,8 @@ function action(json: string): void {
     }
     const cache = CacheAction.safeParse(raw);
     if (cache.success) {
+      // Cleared chats aren't followed any longer either.
+      if (cache.data.type === "cache.clear") visit.forgetLingering();
       if (client && snapshots)
         void handleCacheAction(cache.data, {
           client,
