@@ -121,6 +121,32 @@ it("c. a child failing alone backs off to the cap, though its machine answers an
   expect(timesOf(calls, "healthy").length).toBeGreaterThanOrEqual(55);
 });
 
+it("c. a child alone on its machine backs off to the cap while describe calls there succeed between polls", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const failing = h.add("failing");
+  h.report(failing, working);
+  h.reads.error = new MachineFailure("disconnected");
+  const described = () => h.children.machineReachable("studio");
+  // Something else here reads its description after every poll, and gets an answer.
+  await run(h, h.clock.now + 3 * 60_000, described);
+  const calls = await run(h, h.clock.now + 60_000, described);
+  expect(timesOf(calls, "failing").length).toBeLessThanOrEqual(3);
+});
+
+it("c. a lone child on a machine that was down is read again as soon as the machine answers", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const child = h.add("child");
+  h.report(child, working);
+  h.reads.error = new MachineFailure("offline");
+  await run(h, h.clock.now + 3 * 60_000);
+  h.reads.error = undefined;
+  h.report(child, done("Done."));
+  // A describe gets through: the machine is back, so its child's wait is the machine's and ends.
+  h.children.machineReachable("studio");
+  await run(h, h.clock.now + 2 * POLL);
+  expect(h.state(child)).toBe("done");
+});
+
 it("d. a settled child leaves tracking only after a check answered at or after its 24 h mark", async () => {
   const h = machine(undefined, { pollMs: POLL });
   const id = h.add("child");
@@ -213,4 +239,4 @@ it("while children are tracked a timer is always armed, whatever the pairings, s
     for (const id of workers) expect(h.state(id), `seed ${seed}`).toBe("done");
     h.children.close();
   }
-}, 60_000);
+}, 30_000);

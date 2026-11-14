@@ -120,12 +120,17 @@ export class MachineChildren implements RemoteChildren {
   /** The pairings changed: the next poll comes one interval away, whatever was planned. */
   private replan = false;
   /**
-   * Machines whose status calls fail, logged when that starts and when it ends. Which child is
-   * asked when is the scheduler's (child-schedule.ts), not this.
+   * Machines that are down: nothing there answered around a failed status call. Logged when that
+   * starts and when it ends; any call that gets through ends it. Which child is asked when is the
+   * scheduler's (child-schedule.ts), not this.
    */
   private reach: RetryBackoff;
-  /** When a status call to each machine was last answered, by the injected clock. */
-  private answeredAt = new Map<string, number>();
+  /**
+   * When any call to each machine last got through (a status read, a refusal, a description),
+   * by the injected clock. The one evidence of whether the machine is up, for both sides: a
+   * child's failed read is the machine's only when nothing was heard from it around that read.
+   */
+  private heardAt = new Map<string, number>();
   /** Status calls on their way. */
   private running = new Set<Promise<void>>();
   /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
@@ -451,22 +456,24 @@ export class MachineChildren implements RemoteChildren {
     this.arm();
   }
   /**
-   * Another call to the machine got through. Children whose reads failed while nothing there
-   * answered are asked again next poll; a child whose own read failed while the machine answered
-   * others keeps its wait, as the machine answering says nothing of it.
+   * A call to the machine got through, of any kind: it is up. If it was down, its episode ends
+   * and children whose reads failed while it was down are asked again next poll. A child whose
+   * own read failed while the machine answered keeps its wait: only its own answer ends that.
    */
   machineReachable(machine: string): void {
-    this.reach.retryNow(machine);
+    this.heardAt.set(machine, this.deps.now());
+    const failures = this.reach.succeeded(machine);
+    if (failures === 0) return;
+    this.deps.log("Machine children reachable again", { machine, attempts: failures + 1 });
     const records = this.records.get(machine);
     if (records) this.records.set(machine, machineBack(records, this.deps.now()));
   }
-  /** A status call to the machine got through: its failure episode, if any, ends. */
-  private reached(machine: string) {
-    const failures = this.reach.succeeded(machine);
-    if (failures > 0)
-      this.deps.log("Machine children reachable again", { machine, attempts: failures + 1 });
+  /** Whether the machine is down for a call started at `startedAt`: nothing heard around it. */
+  private down(machine: string, startedAt: number): boolean {
+    const heard = this.heardAt.get(machine) ?? Number.NEGATIVE_INFINITY;
+    return heard < startedAt - 2 * this.deps.pollMs;
   }
-  /** A status call to the machine failed: it is asked again later, logged once per episode. */
+  /** A status call failed while the machine was down: logged once per episode. */
   private unreached(machine: string, error: unknown) {
     if (this.reach.failed(machine, this.deps.now()) === 1)
       this.deps.log("Machine children unreachable", { machine, error: String(error) });
@@ -594,20 +601,17 @@ export class MachineChildren implements RemoteChildren {
         ids.map((id) => ThreadId.parse(id)),
       );
       outcome = { kind: "answered" };
-      this.answeredAt.set(machine, this.deps.now());
-      this.reached(machine);
+      this.machineReachable(machine);
     } catch (error) {
       // The machine saying it holds no record of a child is its answer for that child; any
       // other failure is no answer. A working child stays as last seen, saying why; a settled
       // child stays settled. Neither is ever settled for want of an answer.
-      // Nothing there answered since shortly before this call: the machine's failure, not the
-      // child's own.
-      const answered = this.answeredAt.get(machine) ?? Number.NEGATIVE_INFINITY;
-      const machineWide = answered < startedAt - 2 * this.deps.pollMs;
+      // The machine's failure, not the child's own, only while the machine is down.
+      const machineWide = this.down(machine, startedAt);
       outcome = refusedNotFound(error) ? { kind: "not_found" } : { kind: "failed", machineWide };
       // A refusal for a child it doesn't hold is the machine answering.
-      if (outcome.kind === "not_found") this.answeredAt.set(machine, this.deps.now());
-      if (outcome.kind === "failed") this.unreached(machine, error);
+      if (outcome.kind === "not_found") this.machineReachable(machine);
+      if (machineWide) this.unreached(machine, error);
       const reason = unreadReason(this.deps.label(machine), error);
       const working = ids.filter((id) => rows.get(id)?.settled === 0);
       for (const id of working) this.unreachable.set(id, reason);

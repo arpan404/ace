@@ -52,19 +52,15 @@ const view = (id: string, state: "working" | "done"): MachineThreadView => ({
   ...(state === "done" ? { result: `Done ${id}.`, truncated: false } : {}),
 });
 
+/** The scheduler's clock, which each call is stamped with as it arrives. */
+let schedulerNow: () => number = () => 0;
+
 /**
  * Attempts to read `id`: a read lost on a kept-open connection is sent once more on a fresh one
- * by the transport, which arrives within milliseconds and counts as the same attempt.
+ * by the transport within the same poll, so calls at one scheduler time are one attempt.
  */
 function attempts(calls: readonly { ids: string[]; at: number }[], id: string): number {
-  let count = 0;
-  let last = Number.NEGATIVE_INFINITY;
-  for (const call of calls)
-    if (call.ids.includes(id)) {
-      if (call.at - last > 50) count++;
-      last = call.at;
-    }
-  return count;
+  return new Set(calls.filter((call) => call.ids.includes(id)).map((call) => call.at)).size;
 }
 
 /** A machine on a real listener: its children's views, and how it answers each call. */
@@ -80,7 +76,7 @@ async function remote(name: string, decide: (ids: readonly string[]) => Answer) 
         const { call } = MachineCallRequest.parse(JSON.parse(Buffer.concat(chunks).toString()));
         if (call.op !== "status") return response.writeHead(200).end("{}");
         const ids = call.threadIds.map(String);
-        calls.push({ ids, at: Date.now() });
+        calls.push({ ids, at: schedulerNow() });
         const answer = decide(ids);
         if (answer === "hang") return;
         if (answer === "late") {
@@ -128,6 +124,7 @@ async function remote(name: string, decide: (ids: readonly string[]) => Answer) 
 /** Children on the given machines, read through real HTTPS, with a parent here. */
 async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], timeoutMs = 10_000) {
   const f = setup();
+  schedulerNow = f.clock.now;
   const parent = await f.parent();
   const connections = new MachineConnections({
     schedule: (ms, run) => {
@@ -192,20 +189,24 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
     });
     machine.views.set(id, view(id, state));
   };
-  /** Moves the scheduler's clock in steps, a poll at each, waiting for that poll's calls. */
-  const pass = async (ms: number, step = 1_000) => {
+  /**
+   * Moves the scheduler's clock in steps, a poll at each, waiting for that poll's calls; `between`
+   * runs after each, as other work here calling the machine.
+   */
+  const pass = async (ms: number, step = 1_000, between?: () => Promise<unknown>) => {
     const until = f.clock.now() + ms;
     while (f.clock.now() < until) {
       f.clock.advance(Math.min(f.clock.now() + step, until));
       await ledger.poll();
       // Real calls take real time: each step waits for the calls it started to come back.
       await ledger.flush();
+      await between?.();
     }
     await f.engine.flush();
   };
   const state = (id: string) => ledger.watched(ThreadId.parse(id))?.view.state;
   const parentState = () => f.store.getThread(parent.threadId)?.status.state;
-  return { f, ledger, add, pass, state, parentState };
+  return { f, ledger, directory, add, pass, state, parentState };
 }
 
 it("a child that takes calls down with it is never batched with one that answers, round after round", async () => {
@@ -290,5 +291,21 @@ it("a machine answering another child never cuts short the wait of one whose own
   await h.pass(60_000);
   const after = attempts(studio.calls, "child-a");
   // Twice a minute at its 30 s cap, the machine's recovery notwithstanding; every poll is sixty.
+  expect(after - before).toBeLessThanOrEqual(3);
+});
+
+it("a lone child whose reads keep failing backs off to the cap while describe calls to its machine succeed", async () => {
+  // Its only child's read always loses its connection; the machine answers anything else.
+  const studio = await remote("studio", () => "drop");
+  const h = await parentWatching([studio]);
+  h.add(studio, "child-a");
+  // Something else here reads the machine's description after every poll, and gets an answer.
+  const describe = () =>
+    h.directory.call("studio", origin, { op: "describe" }, { timeoutMs: 10_000 });
+  await h.pass(3 * 60_000, 1_000, describe);
+  const before = attempts(studio.calls, "child-a");
+  await h.pass(60_000, 1_000, describe);
+  const after = attempts(studio.calls, "child-a");
+  // Twice a minute at its 30 s cap: the machine answering others says nothing of this child.
   expect(after - before).toBeLessThanOrEqual(3);
 });
