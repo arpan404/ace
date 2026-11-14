@@ -24,7 +24,8 @@ for (let index = 0; index < 200; index++)
   store.appendEvents(quiet.id, [
     { type: "item.created", item: message(`q${index}`, "x".repeat(2000)) },
   ]);
-store.appendEvents(busy.id, [{ type: "item.created", item: message("live", "", false) }]);
+const live = message("live", "", false);
+store.appendEvents(busy.id, [{ type: "item.created", item: live }]);
 // A subscribed client holds the quiet thread's view.
 store.acquireThread(quiet.id);
 const median = (samples: number[]) => samples.toSorted((a, b) => a - b)[samples.length >> 1] ?? 0;
@@ -33,7 +34,7 @@ const busyMs: number[] = [];
 const before = { ...store.streamingMetrics().reads };
 for (let round = 0; round < 300; round++) {
   store.appendEvents(busy.id, [
-    { type: "item.delta", itemId: "live", agentId: "root", field: "text", append: "token " },
+    { type: "item.delta", itemId: live.id, agentId: live.agentId, field: "text", append: "token " },
   ]);
   let start = performance.now();
   store.snapshotThread(quiet.id);

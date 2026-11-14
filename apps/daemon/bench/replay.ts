@@ -27,8 +27,8 @@ const append = (count: number) => {
     store.appendEvents(thread.id, [
       {
         type: "item.delta",
-        itemId: "live",
-        agentId: "root",
+        itemId: item.id,
+        agentId: item.agentId,
         field: "text",
         append: "token ".repeat(Number(process.env.REPEAT ?? 8)),
       },

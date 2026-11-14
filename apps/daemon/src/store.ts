@@ -16,6 +16,7 @@ import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
 const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
+import { EventEncodings } from "./event-encodings.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
 import { spawnCheckpointWorker, type CheckpointWorkerFactory } from "./wal-worker-runtime.ts";
@@ -145,6 +146,8 @@ export class Store {
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
   private readonly readCache: ThreadReadCache;
+  /** Each published event's JSON, made once and shared by the live buffer and the server. */
+  readonly encodings = new EventEncodings();
   /** Rows the event writer changed, each on behalf of the thread of the event it wrote. */
   private attributedChanges = 0;
   /** Threads the open transaction's events wrote: their cached reads end when it commits. */
@@ -248,6 +251,7 @@ export class Store {
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
       publish: (events) => this.publish(events),
+      encodings: this.encodings,
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
     });

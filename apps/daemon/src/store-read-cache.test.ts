@@ -25,7 +25,9 @@ function setup() {
 }
 const texts = (store: Store, id: Parameters<Store["snapshotThread"]>[0]) =>
   Object.values(store.snapshotThread(id).items).map((item) =>
-    item.type === "message" ? item.parts.map((part) => part.text).join("") : item.type,
+    item.type === "message"
+      ? item.parts.map((part) => (part.type === "text" ? part.text : "")).join("")
+      : item.type,
   );
 
 it("a write to a thread is visible to the next read of that thread", () => {

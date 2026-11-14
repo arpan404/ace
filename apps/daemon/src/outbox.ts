@@ -169,7 +169,7 @@ export class Outbox {
   private sendOne(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
-      const charge = Buffer.byteLength(this.encoder.encode(message));
+      const charge = this.encoder.encodedBytes(message);
       if (charge > eventFrameBytes) {
         this.resync();
         return;
@@ -271,7 +271,8 @@ export class Outbox {
                 throughSeq: frame.throughSeq,
                 events: frame.events,
               });
-      const bytes = Buffer.byteLength(encoded);
+      // A serialized frame was measured when it was queued.
+      const bytes = frame.type === "serialized" ? frame.chargedBytes : Buffer.byteLength(encoded);
       if (bytes > replyFrameBytes) {
         this.resync();
         return;
