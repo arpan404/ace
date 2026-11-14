@@ -208,12 +208,26 @@ async function measure(path: LinkPath, profileName: string) {
     clients.push(warm);
     const again = mark(link);
     const keptReader = warm.thread(ready.threads.typical.id).store;
+    const connectAgain = mark(link);
     await warm.start();
     const warmState = selection(warm);
-    const fromDisk = keptReader.order.length;
-    const rewelcome = await when(
+    // What the phone paints before the network answers: the kept copy, read back from disk.
+    let unconfirmedFromDisk = false;
+    const painted = when(
       link,
-      again,
+      connectAgain,
+      (changed) => keptReader.observe(changed),
+      () => {
+        if (keptReader.order.length === 0) return false;
+        unconfirmedFromDisk = keptReader.unconfirmed === true;
+        return true;
+      },
+      timeout,
+      "paint from disk",
+    );
+    const rewelcome = when(
+      link,
+      connectAgain,
       warmState.observe,
       () => warmState.state.getSnapshot() === "ready",
       timeout,
@@ -221,12 +235,13 @@ async function measure(path: LinkPath, profileName: string) {
     );
     const confirmed = await when(
       link,
-      again,
+      connectAgain,
       (changed) => keptReader.observe(changed),
       () => settled(keptReader),
       timeout,
       "cached confirm",
     );
+    const paint = await painted;
 
     // Offline through a long streamed turn, then back: what does catching up cost?
     warm.networkOnline(false);
@@ -262,9 +277,11 @@ async function measure(path: LinkPath, profileName: string) {
       firstContent: { small: small.first, typical: typical.first, large: large.first },
       complete: { small: small.complete, typical: typical.complete, large: large.complete },
       cached: {
-        itemsFromDisk: fromDisk,
+        /** Painted from disk before the daemon confirmed it: a copy marked unconfirmed. */
+        unconfirmedFromDisk,
+        paint,
         keptBytes,
-        welcome: rewelcome,
+        welcome: await rewelcome,
         confirmed,
       },
       approval: { idleMs: idleApprovalMs, duringLargeSnapshotMs: duringSnapshotMs },
@@ -301,6 +318,7 @@ function summary(run: (typeof runs)[number]): string {
     span("typical thread, first content", run.firstContent.typical),
     span("large thread, first content", run.firstContent.large),
     span("large thread, complete", run.complete.large),
+    span("cached thread, painted from disk", run.cached.paint),
     span("cached thread, confirmed", run.cached.confirmed),
     span("resume after long turn", run.resume),
     `  approval delay: idle ${run.approval.idleMs} ms, during large snapshot ${run.approval.duringLargeSnapshotMs} ms`,

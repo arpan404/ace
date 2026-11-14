@@ -10,6 +10,7 @@ import { Client, relayRoute, ticketCredential, type ReadSnapshotStorage } from "
 import { browserDeviceSocket } from "@ace/client/devices";
 import { accessRequest, pinnedSocketTransport } from "@ace/daemon/client-access";
 import { DeviceId } from "@ace/protocol";
+import { z } from "zod";
 import { countsSince, type LinkCounts, type LinkShaper } from "@ace/perf-kit/link";
 
 export type LinkPath = "direct" | "relay";
@@ -32,19 +33,31 @@ const scheduler = {
   },
 };
 
-/** Read snapshots in memory, written to and read from one JSON file. */
+/**
+ * Read snapshots and the daemon's bound identity in memory, written to and read from one JSON
+ * file, as an app keeps them between launches. Records are filed under the bound host, so a
+ * client paints from disk before it connects only when it remembers which daemon it was.
+ */
 export class FileSnapshots implements ReadSnapshotStorage {
   readonly records = new Map<string, unknown>();
   readonly file: string;
+  host: string | null = null;
   constructor(file: string) {
     this.file = file;
   }
   async load(): Promise<void> {
     const text = await readFile(this.file, "utf8").catch(() => "{}");
-    for (const [key, value] of Object.entries(JSON.parse(text))) this.records.set(key, value);
+    const saved = z
+      .object({
+        host: z.string().nullable().default(null),
+        records: z.record(z.string(), z.unknown()).default({}),
+      })
+      .parse(JSON.parse(text));
+    this.host = saved.host;
+    for (const [key, value] of Object.entries(saved.records)) this.records.set(key, value);
   }
   async save(): Promise<number> {
-    const text = JSON.stringify(Object.fromEntries(this.records));
+    const text = JSON.stringify({ host: this.host, records: Object.fromEntries(this.records) });
     await writeFile(this.file, text);
     return text.length;
   }
@@ -69,7 +82,16 @@ export class FileSnapshots implements ReadSnapshotStorage {
 export function shapedClient(route: Route, snapshots: FileSnapshots): Client {
   const base = {
     deviceId: DeviceId.parse(route.deviceId),
-    storage: { load: async () => null, save: async () => {} },
+    storage: {
+      load: async () => null,
+      save: async () => {},
+      hostBinding: {
+        load: async () => snapshots.host,
+        save: async (host: string) => {
+          snapshots.host = host;
+        },
+      },
+    },
     readSnapshots: snapshots,
     scheduler,
     random: () => 0.5,
