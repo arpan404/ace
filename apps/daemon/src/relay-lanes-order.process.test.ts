@@ -52,11 +52,12 @@ interface Sent {
   text: string;
 }
 
+const pad = (bytes: number) => "x".repeat(bytes);
+
 /** A random run: each thread subscription's snapshot before its events, then a mix. */
 function scenario(seed: number): Sent[] {
   const random = generator(seed);
   const out: Sent[] = [];
-  const pad = (bytes: number) => "x".repeat(bytes);
   const opened = new Set<ThreadSubscription>();
   const count = random.int(20, 45);
   for (let n = 0; out.length < count; n = out.length) {

@@ -123,12 +123,13 @@ it("a sidebar patch saying a thread is done never reaches the phone before that 
   expect(order).toEqual(["snapshot", "events", "threads.patch"]);
 }, 30_000);
 
+/** A deflate that takes far longer than a close needs to go out. */
+async function slow(json: Uint8Array): Promise<Uint8Array> {
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  return deflateRawSync(json);
+}
+
 it("a close waits for a message sent before it that is still being deflated", async () => {
-  // A deflate that takes far longer than the close needs to go out.
-  const slow = async (json: Uint8Array) => {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    return deflateRawSync(json);
-  };
   const { socket, client } = await relayedMain(true, slow);
   const big = `{"type":"events","subscriptionId":"sb","pad":"${"e".repeat(300_000)}","events":[]}`;
   socket.send(big, { compress: true });
