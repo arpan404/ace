@@ -232,3 +232,19 @@ test("the remote HTTPS listener omits the maintenance route even for a paired ad
     holds: [],
   });
 });
+
+test("only the host token reads admission in the daemon's status; a paired admin never does", async () => {
+  const f = await setup();
+  const admin = await f.pair(["admin"]);
+  await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "POST", token });
+  expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toMatchObject({
+    admission: { draining: true, holds: ["user"] },
+  });
+  for (const status of [
+    await f.request("/v1/status", { token: admin.token }),
+    await f.remoteRequest("/v1/status", { token: admin.token }),
+  ]) {
+    expect(status).toMatchObject({ running: true });
+    expect(status).not.toHaveProperty("admission");
+  }
+});
