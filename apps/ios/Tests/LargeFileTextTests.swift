@@ -114,4 +114,48 @@ import Testing
         for page in file where search.next?.page == page.offset { search.take(page) }
         #expect(search.hits == [FileSearch.Hit(page: file[4].offset, pageLine: 12, line: 13, column: 7)])
     }
+
+    /// Pages of `texts` laid end to end, the last one ending the file.
+    private func laid(_ texts: [String]) -> [FilePageAnswer] {
+        let size = texts.reduce(0) { $0 + $1.utf8.count }
+        var offset = 0
+        return texts.enumerated().map { index, text in
+            defer { offset += text.utf8.count }
+            return FilePageAnswer(text: text, offset: offset, nextOffset: offset + text.utf8.count, size: size, version: "v1", done: index == texts.count - 1)
+        }
+    }
+
+    @Test func aMatchAcrossTheCutOfALongLineIsFoundAndLinesAfterItKeepTheirNumbers() {
+        // A line longer than a page is cut mid-word: "nee" | "dle".
+        let file = laid(["short\n" + String(repeating: "x", count: 20) + "nee", "dle tail\nnext needle\n"])
+        var search = FileSearch(query: "needle")
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.hits == [
+            FileSearch.Hit(page: file[0].offset, pageLine: 0, line: 1, column: 20),
+            FileSearch.Hit(page: file[1].offset, pageLine: 1, line: 2, column: 5),
+        ])
+        // The shown parts number the cut line once: the second part starts in it.
+        var reading = LargeFileText()
+        for page in file { reading.take(page) }
+        #expect(reading.parts.map(\.firstLine) == [0, 1])
+    }
+
+    @Test func aDenseUnicodeLineIsSearchedInLinearWorkThroughEveryBatch() {
+        // 200,000 matches on one line cut across four pages, in batches of 10,000.
+        let file = laid(Array(repeating: String(repeating: "é", count: 50_000), count: 4))
+        var search = FileSearch(query: "É")
+        let clock = ContinuousClock()
+        let took = clock.measure {
+            while let next = search.next {
+                if search.full { search.advance() }
+                guard let page = file.first(where: { $0.offset == next.page }) else { break }
+                search.take(page)
+            }
+        }
+        #expect(search.found == 200_000)
+        #expect(search.hit(199_999)?.column == 199_999, "columns run on along the line across pages")
+        // Each character is walked once, however many batches the matches fill.
+        #expect(search.walked <= 200_000)
+        #expect(took < .seconds(10))
+    }
 }

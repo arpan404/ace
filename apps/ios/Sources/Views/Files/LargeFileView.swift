@@ -40,7 +40,7 @@ struct LargeFileView: View {
                         ForEach(reading.parts) { part in
                             if editable { partHeader(part) }
                             ForEach(part.lines.indices, id: \.self) { index in
-                                row(number: part.firstLine + index, text: part.lines[index]).id(part.firstLine + index)
+                                row(number: part.firstLine + index, text: part.lines[index]).id(Self.rowId(page: part.offset, index: index))
                             }
                         }
                         footer
@@ -49,7 +49,7 @@ struct LargeFileView: View {
                 }
                 .onChange(of: shown) { _, hit in
                     guard let hit else { return }
-                    withAnimation { scroller.scrollTo(hit.line, anchor: .center) }
+                    withAnimation { scroller.scrollTo(Self.rowId(page: hit.page, index: hit.line - hit.pageLine), anchor: .center) }
                 }
             }
         }
@@ -108,6 +108,10 @@ struct LargeFileView: View {
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
     }
+    /// A row's place: its part and its line within the part. A long line cut across parts shows
+    /// as a row in each, under the same line number, so the number alone isn't unique.
+    private static func rowId(page: Int, index: Int) -> String { "\(page):\(index)" }
+
     private var findCount: String {
         guard !query.isEmpty else { return "" }
         if searching, let next = search.next, let total = size, total > 0 { return "Searching · \(min(99, next.page * 100 / total))%" }
@@ -260,7 +264,7 @@ struct LargeFileView: View {
             read = try await page(at: resume.page)
         }
         search.take(read)
-        if let next = search.next, next.after == nil { reading.learn(.init(offset: next.page, firstLine: next.firstLine)) }
+        if let next = search.next, next.position == 0 { reading.learn(.init(offset: next.page, firstLine: next.firstLine)) }
     }
 
     /// Show a held match, reading its page into view when the parts shown don't hold it.

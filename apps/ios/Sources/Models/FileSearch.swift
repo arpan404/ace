@@ -2,26 +2,40 @@ import Foundation
 
 /// Find in a file too large to hold, searched a page at a time in order: each page is searched
 /// once as it comes and then let go, so a search costs one page of text and a bounded batch of
-/// matches however long the file is. A batch holds at most `limit` matches; once it is full the
-/// search stops there and remembers where, so matches past any count stay reachable: Next past
-/// the batch lets it go and searches on from that point. Pure.
+/// matches however long the file is. A line longer than a page is cut between pages; the end of
+/// the cut line (one character short of the query) carries into the next page, so a match
+/// across the cut is found, and line numbers carry on through it. A batch holds at most `limit`
+/// matches; once it is full the search stops at the match that didn't fit and remembers where,
+/// so matches past any count stay reachable and no page is searched twice. Work is linear in
+/// the text searched. Pure.
 struct FileSearch: Equatable {
     /// One match: its line (0-based, in the file), where in the line (in characters), and the
-    /// page it is on with that page's first line, so the view can read that page to show it.
+    /// page it starts on with the line that page starts in, so the view can show that page.
     struct Hit: Equatable {
         let page: Int
         let pageLine: Int
         let line: Int
         let column: Int
     }
-    /// Where the search goes on: a page, its first line, and the last match already taken in it.
+    /// The end of a page's last line when the page ends inside it, and where that end is.
+    struct Carry: Equatable {
+        let text: String
+        let page: Int
+        let pageLine: Int
+        let line: Int
+        let column: Int
+    }
+    /// Where the search goes on.
     struct Resume: Equatable {
         let page: Int
+        /// The line the page starts in (a cut line goes on into the next page).
         let firstLine: Int
-        var after: (line: Int, column: Int)?
-        static func == (lhs: Resume, rhs: Resume) -> Bool {
-            lhs.page == rhs.page && lhs.firstLine == rhs.firstLine && lhs.after?.line == rhs.after?.line && lhs.after?.column == rhs.after?.column
-        }
+        /// The UTF-16 offset in the page's text to go on from, and the line and column there.
+        var position = 0
+        var line: Int
+        var column: Int
+        /// The previous page's cut line end, searched before this page's text.
+        var carry: Carry?
     }
 
     let query: String
@@ -30,7 +44,9 @@ struct FileSearch: Equatable {
     private(set) var hits: [Hit] = []
     private(set) var base = 0
     /// Where searching goes on; nil once the file is searched to its end.
-    private(set) var next: Resume? = Resume(page: 0, firstLine: 0, after: nil)
+    private(set) var next: Resume? = Resume(page: 0, firstLine: 0, line: 0, column: 0)
+    /// Characters walked to place matches, over the whole search: linear in the text searched.
+    private(set) var walked = 0
 
     init(query: String, limit: Int = 10_000) {
         self.query = query
@@ -46,26 +62,69 @@ struct FileSearch: Equatable {
     /// The match at an overall index, when the batch holds it.
     func hit(_ index: Int) -> Hit? { hits.indices.contains(index - base) ? hits[index - base] : nil }
 
-    /// Search the page the search is waiting on (any other page is ignored).
+    /// Search the page the search is waiting on (any other page is ignored), from where it left off.
     mutating func take(_ page: FilePageAnswer) {
         guard !query.isEmpty, let resume = next, page.offset == resume.page, !full else { return }
-        let lines = PageLines(page.text).lines
-        for (index, text) in lines.enumerated() {
-            let line = resume.firstLine + index
-            var from = text.startIndex
-            while let range = text.range(of: query, options: [.caseInsensitive], range: from..<text.endIndex) {
-                let column = text.distance(from: text.startIndex, to: range.lowerBound)
-                from = range.upperBound
-                if let after = resume.after, (line, column) <= (after.line, after.column) { continue }
-                if hits.count >= limit {
-                    // Full: go on later from the last match taken.
-                    next = Resume(page: page.offset, firstLine: resume.firstLine, after: hits.last.map { ($0.line, $0.column) })
-                    return
-                }
-                hits.append(Hit(page: page.offset, pageLine: resume.firstLine, line: line, column: column))
+        let text = page.text
+        let start = String.Index(utf16Offset: min(resume.position, text.utf16.count), in: text)
+        let carry = resume.position == 0 ? resume.carry : nil
+        let prefix = carry?.text ?? ""
+        let searched = prefix + text[start...]
+        let prefixEnd = String.Index(utf16Offset: prefix.utf16.count, in: searched)
+        var cursor = searched.startIndex
+        var line = carry?.line ?? resume.line
+        var column = carry?.column ?? resume.column
+        var from = searched.startIndex
+        var lastEnd = searched.startIndex
+        while let range = searched.range(of: query, options: [.caseInsensitive], range: from..<searched.endIndex) {
+            walk(searched[cursor..<range.lowerBound], line: &line, column: &column)
+            cursor = range.lowerBound
+            let inCarry = range.lowerBound < prefixEnd
+            if hits.count >= limit {
+                // Full: the next batch starts at this match.
+                next = inCarry
+                    ? resume
+                    : Resume(page: page.offset, firstLine: resume.firstLine,
+                             position: resume.position + searched.utf16.distance(from: prefixEnd, to: range.lowerBound),
+                             line: line, column: column)
+                return
             }
+            hits.append(Hit(page: inCarry ? carry?.page ?? page.offset : page.offset,
+                            pageLine: inCarry ? carry?.pageLine ?? resume.firstLine : resume.firstLine,
+                            line: line, column: column))
+            from = range.upperBound
+            lastEnd = range.upperBound
         }
-        next = page.done ? nil : Resume(page: page.nextOffset, firstLine: resume.firstLine + lines.count, after: nil)
+        walk(searched[cursor...], line: &line, column: &column)
+        guard !page.done else { next = nil; return }
+        next = Resume(page: page.nextOffset, firstLine: line, line: line, column: column,
+                      carry: Self.carry(of: searched, after: max(lastEnd, prefixEnd), length: query.count - 1,
+                                        page: page.offset, pageLine: resume.firstLine, line: line, column: column))
+    }
+
+    /// The end of the searched text's last line, at most `length` characters, none before `after`
+    /// (a match already taken, or the previous page's carry); nil when the text ends a line.
+    private static func carry(of searched: String, after: String.Index, length: Int,
+                              page: Int, pageLine: Int, line: Int, column: Int) -> Carry? {
+        guard length > 0, searched.unicodeScalars.last != "\n" else { return nil }
+        var start = searched.endIndex
+        var count = 0
+        while count < length, start > after {
+            let previous = searched.index(before: start)
+            if searched[previous].unicodeScalars.contains("\n") { break }
+            start = previous
+            count += 1
+        }
+        guard count > 0 else { return nil }
+        return Carry(text: String(searched[start...]), page: page, pageLine: pageLine, line: line, column: column - count)
+    }
+
+    /// Count lines and columns over `text`: a line feed (CRLF too) starts a line.
+    private mutating func walk(_ text: Substring, line: inout Int, column: inout Int) {
+        for character in text {
+            walked += 1
+            if character.unicodeScalars.contains("\n") { line += 1; column = 0 } else { column += 1 }
+        }
     }
 
     /// Let the full batch go so the search can go on past it.
@@ -78,7 +137,7 @@ struct FileSearch: Equatable {
     mutating func rewind() {
         hits = []
         base = 0
-        next = Resume(page: 0, firstLine: 0, after: nil)
+        next = Resume(page: 0, firstLine: 0, line: 0, column: 0)
     }
 }
 
