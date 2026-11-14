@@ -114,8 +114,10 @@ extension XCUIApplication {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if inboxReady.exists { return true }
+            // On a phone the list fills the window, so its frame can equal the window's; when the
+            // list isn't found, the window is where a person would drag anyway.
             let list = threadsList
-            guard list != frame, frame.width > 0, frame.height > 0 else {
+            guard list.width > 0, list.height > 0, frame.width > 0, frame.height > 0 else {
                 _ = inboxReady.waitForExistence(timeout: 1)
                 continue
             }

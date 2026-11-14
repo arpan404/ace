@@ -125,7 +125,9 @@ import XCTest
         let expand = app.buttons["Open Interactive counter full screen"]
         XCTAssertTrue(expand.waitForHittable(timeout: 25))
         expand.tap()
-        let tabs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "panel.tab.visualization:"))
+        // The tabs themselves, not each tab's close button (`<tab>.close`).
+        let tabs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND NOT identifier ENDSWITH %@",
+                                                    "panel.tab.visualization:", ".close"))
         let tab = tabs.firstMatch
         XCTAssertTrue(tab.waitForHittable(timeout: 15))
         XCTAssertEqual(tab.label, "Interactive counter")
