@@ -22,12 +22,18 @@ const finished = (state: string | undefined) => state !== undefined && state !==
 
 export class BrowserWatch {
   #threadId: string | undefined;
-  #status: string | undefined;
 
-  /** Whether watch mode is on for the thread: undefined when no agent browses, nothing to offer. */
-  view(threadId: string, state: BrowserState | undefined): { on: boolean } | null {
+  /**
+   * Whether watch mode is on for the thread; null when there is nothing to watch: no agent
+   * browses, or the thread's agents have stopped (their tab may still carry their mark).
+   */
+  view(
+    threadId: string,
+    state: BrowserState | undefined,
+    status: string | undefined,
+  ): { on: boolean } | null {
     if (this.#threadId === threadId) return { on: true };
-    return agentTab(state) ? { on: false } : null;
+    return agentTab(state) && !finished(status) ? { on: false } : null;
   }
 
   /** Turns watch mode on or off; on answers the tab to show, the agent's. */
@@ -42,9 +48,9 @@ export class BrowserWatch {
       return undefined;
     }
     const target = agentTab(state);
-    if (!target) return undefined;
+    // Agents that already stopped have nothing more to show.
+    if (!target || finished(status)) return undefined;
     this.#threadId = threadId;
-    this.#status = status;
     return target === state?.activeTabId ? undefined : target;
   }
 
@@ -55,20 +61,17 @@ export class BrowserWatch {
     return target && target !== state.activeTabId ? target : undefined;
   }
 
-  /** The thread's status changed; true when watch mode ended because the agents stopped. */
+  /**
+   * The thread's status as it reads now; true when watch mode ended because the agents aren't
+   * working. Any stopped reading ends it, so a repeated one or a reconnect's snapshot does too.
+   */
   status(threadId: string, status: string | undefined): boolean {
-    if (this.#threadId !== threadId) return false;
-    const was = this.#status;
-    this.#status = status;
-    if (finished(status) && !finished(was)) {
-      this.stop();
-      return true;
-    }
-    return false;
+    if (this.#threadId !== threadId || !finished(status)) return false;
+    this.stop();
+    return true;
   }
 
   stop(): void {
     this.#threadId = undefined;
-    this.#status = undefined;
   }
 }

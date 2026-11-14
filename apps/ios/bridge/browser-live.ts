@@ -335,7 +335,7 @@ export class BrowserLive {
         const status = this.#context.threadState?.(watch.threadId);
         const tabId = this.#following.set(watch.threadId, watch.state, following.data.on, status);
         if (tabId) this.#show(watch, tabId);
-        if (this.#following.view(watch.threadId, watch.state)?.on) this.#observe(watch);
+        if (this.#following.view(watch.threadId, watch.state, status)?.on) this.#observe(watch);
         else this.#endFollowing();
         this.#putView(watch);
         return true;
@@ -617,7 +617,11 @@ export class BrowserLive {
         error: watch.error ?? null,
         device: this.#devices.view(watch),
         engine: state ? this.#engine.view(state, watch.threadId) : null,
-        watch: this.#following.view(watch.threadId, state),
+        watch: this.#following.view(
+          watch.threadId,
+          state,
+          this.#context.threadState?.(watch.threadId),
+        ),
         state: state
           ? browserViewState(state, {
               tabsLimit: this.#tabsLimit,
