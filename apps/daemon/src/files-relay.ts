@@ -39,6 +39,8 @@ export async function startFilesRelay(
     relayMain?: ((entry: RelayedMain) => void) | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
+    /** The daemon's log: what relay channels recover from on their own (a failed deflate). */
+    log?: ((error: unknown) => void) | undefined;
   },
 ) {
   const clients = new Map<HostChannel, string>();
@@ -68,6 +70,8 @@ export async function startFilesRelay(
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       ...(options.http ? { http: options.http } : {}),
+      // Read when a channel logs, as the daemon's other options are.
+      log: (error) => options.log?.(error),
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {

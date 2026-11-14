@@ -3,6 +3,7 @@ import { deflateRawSync } from "node:zlib";
 import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay, startRelay } from "./index.ts";
+import { LOGICAL_MESSAGE_LIMIT } from "./channel.ts";
 import type { HostChannel } from "./index.ts";
 import { deferred } from "./testing/peer.ts";
 
@@ -14,7 +15,10 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-async function connected(deflate?: (json: Uint8Array) => Promise<Uint8Array>) {
+async function connected(
+  deflate?: (json: Uint8Array) => Promise<Uint8Array>,
+  options: { flowControl?: boolean; log?: (error: Error) => void } = {},
+) {
   const relay = await startRelay();
   cleanup.push(() => relay.close());
   const arrived = deferred<HostChannel>();
@@ -23,6 +27,7 @@ async function connected(deflate?: (json: Uint8Array) => Promise<Uint8Array>) {
     hostKeys: keyPair(),
     onClientChannel: arrived.resolve,
     ...(deflate ? { deflate } : {}),
+    ...(options.log ? { log: options.log } : {}),
   });
   cleanup.push(() => host.close());
   const client = await connectClientViaRelay({
@@ -41,6 +46,12 @@ async function connected(deflate?: (json: Uint8Array) => Promise<Uint8Array>) {
   });
   await server.receive();
   server.authorize();
+  if (options.flowControl) {
+    // The client's channel limits itself once the daemon's first credit arrives.
+    server.flowControl?.();
+    await server.send({ type: "pong" });
+    await client.receive();
+  }
   return { client, server };
 }
 
@@ -49,6 +60,8 @@ const bulky = (tag: string, bytes: number) =>
   JSON.stringify({ type: "pong", tag, data: `${tag} line of output `.repeat(bytes / 24) });
 const tagOf = (text: string | Uint8Array) =>
   typeof text === "string" ? (JSON.parse(text) as { tag?: string }).tag : "binary";
+/** JSON text of exactly `bytes` bytes. */
+const exactly = (bytes: number) => `{"type":"pong","pad":"${"x".repeat(bytes - 24)}"}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 it("a large message deflates off the event loop and holds back what was sent after it", async () => {
@@ -91,14 +104,23 @@ it("messages keep their order through slow deflates of different lengths", async
   await Promise.all(sends);
 });
 
-it("a deflate that fails sends the message as it is, still in order", async () => {
-  const { client, server } = await connected(async () => {
-    throw new Error("deflate failed");
-  });
-  const texts = [bulky("big", 1024 * 1024), bulky("after", 100)];
+it("a deflate that fails sends the message as it is, still in order, and says so once", async () => {
+  const logged: Error[] = [];
+  const { client, server } = await connected(
+    async () => {
+      throw new Error("deflate failed");
+    },
+    { log: (error) => logged.push(error) },
+  );
+  const texts = [bulky("big", 1024 * 1024), bulky("after", 100), bulky("again", 512 * 1024)];
   const sends = texts.map((text) => server.sendText(text, true));
   for (const text of texts) expect(await client.receiveRaw()).toBe(text);
   await Promise.all(sends);
+  // One line per failed deflate, naming the message's size; the small one never deflated.
+  expect(logged.map((error) => error.message)).toEqual([
+    `Relay deflate failed for a ${new TextEncoder().encode(texts[0]).length}-byte message; sent uncompressed`,
+    `Relay deflate failed for a ${new TextEncoder().encode(texts[2]).length}-byte message; sent uncompressed`,
+  ]);
 });
 
 it("a large message sent with compression arrives whole through the real deflate", async () => {
@@ -107,4 +129,46 @@ it("a large message sent with compression arrives whole through the real deflate
   const sent = server.sendText(big, true);
   expect(await client.receiveRaw()).toBe(big);
   await sent;
+});
+
+it("with the queue full behind a reader that stopped, large sends are refused before any deflate", async () => {
+  let deflates = 0;
+  const { server } = await connected(
+    async (json) => {
+      deflates++;
+      return deflateRawSync(json);
+    },
+    { flowControl: true },
+  );
+  // The reader never reads: one window goes out, the rest waits in the channel's queue, which
+  // these fill to 4 KiB short of its limit.
+  const filling = Array.from({ length: 4 }, () =>
+    server.sendText(exactly(4 * 1024 * 1024 - 1024), false).catch(() => {}),
+  );
+  await sleep(200);
+  for (let index = 0; index < 5; index++)
+    await expect(server.sendText(bulky(`more${index}`, 2 * 1024 * 1024), true)).rejects.toThrow(
+      "send queue too large",
+    );
+  // Smaller ones deflate at once on the event loop: refused just the same, before any work.
+  await expect(server.sendText(bulky("mid", 100 * 1024), true)).rejects.toThrow(
+    "send queue too large",
+  );
+  expect(deflates).toBe(0);
+  expect(server.bufferedBytes).toBeLessThanOrEqual(LOGICAL_MESSAGE_LIMIT + 64 * 1024);
+  server.close();
+  await Promise.all(filling);
+}, 20_000);
+
+it("a closed channel refuses a large send without deflating it", async () => {
+  let deflates = 0;
+  const { server } = await connected(async (json) => {
+    deflates++;
+    return deflateRawSync(json);
+  });
+  server.close();
+  await expect(server.sendText(bulky("late", 2 * 1024 * 1024), true)).rejects.toThrow(
+    "Channel closed",
+  );
+  expect(deflates).toBe(0);
 });

@@ -59,6 +59,9 @@ export async function startRelayTransport(
     get relayMain() {
       return options.relayMain;
     },
+    get log() {
+      return options.log;
+    },
     store: options.store,
     auth,
     account: options.machineAccount,

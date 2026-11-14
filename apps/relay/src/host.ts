@@ -4,7 +4,7 @@ import { setMaxListeners } from "node:events";
 import type { KeyPair } from "@ace/secure-channel";
 import { hostId, keyPair } from "@ace/secure-channel";
 import type WebSocket from "ws";
-import { hostMessageChannel, type DeflateLater } from "./channel.ts";
+import { hostMessageChannel, type ChannelLog, type DeflateLater } from "./channel.ts";
 import type { HostChannel } from "./channel.ts";
 import type { ClientMessage } from "@ace/protocol";
 import { dial, relayAddress, sendFrame } from "./socket.ts";
@@ -67,6 +67,8 @@ export async function connectHostToRelay(options: {
   onRegistration?: (registered: boolean) => void;
   /** How client channels deflate large messages off the event loop; tests slow it down. */
   deflate?: DeflateLater;
+  /** Hears what client channels recover from on their own: a deflate that failed. */
+  log?: ChannelLog;
   /**
    * Serves HTTP requests ace's hosted relay forwards from `/m/<hostId>/…` (ADR 0122). Given,
    * the host registers with the `http` feature, so the relay sends it `http` tickets.
@@ -153,7 +155,7 @@ export async function connectHostToRelay(options: {
           slots.authorize(ticket);
           expire();
         },
-        options.deflate,
+        { deflate: options.deflate, log: options.log },
       );
       const opened = channel;
       channels.add(opened);
