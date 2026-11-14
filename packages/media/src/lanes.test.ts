@@ -53,7 +53,7 @@ describe("control frame reader", () => {
     const stream = new Uint8Array([
       ...bytesOf(pong, "normal"),
       ...bytesOf(
-        { type: "still.done", request: "s", width: 1, height: 1 },
+        { type: "still.done", request: "s", width: 1, height: 1, steps: [] },
         "normal",
         Uint8Array.of(9, 9),
       ),

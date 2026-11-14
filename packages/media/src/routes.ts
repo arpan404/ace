@@ -52,9 +52,12 @@ export type RouteCapabilities = {
   delivery: boolean;
 };
 
-/** Today's build: no route through ace-media is complete yet, so every setting acts as legacy. */
+/**
+ * Today's build: browser producers stream into ace-media (E4); recordings, stills and delivery
+ * still act as legacy.
+ */
 export const builtRouteCapabilities: RouteCapabilities = {
-  ingest: [],
+  ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
   recordings: false,
   stills: false,
   delivery: false,

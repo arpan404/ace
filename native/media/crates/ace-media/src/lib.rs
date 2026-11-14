@@ -2,12 +2,15 @@
 //! ace-media, the media process (ADR 0147). Pure decisions live in [`engine`], [`auth`] and
 //! [`probe`]'s merge rules; [`shell`] is the thin I/O around them.
 pub mod auth;
+pub mod encode;
 pub mod engine;
 pub mod framing;
 pub mod os;
 pub mod probe;
-#[cfg(unix)]
 pub mod record;
 pub mod secret;
 #[cfg(unix)]
 pub mod shell;
+#[cfg(unix)]
+pub mod stills;
+pub mod trials;

@@ -8,10 +8,13 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "libc",
+ "media-bitstream",
+ "media-chrome",
  "media-codec",
  "media-core",
  "media-mp4",
  "media-noise",
+ "media-vt",
  "media-wire",
  "serde_json",
  "subtle",
