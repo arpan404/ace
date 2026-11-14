@@ -42,6 +42,9 @@ for (let dir = 0; dir < 100; dir++) {
     ),
   );
 }
+// A checkout's files are usually older than its index: snapshots hash again only the files
+// changed shortly before or after the index was written, so let the generated files age.
+await new Promise((resolve) => setTimeout(resolve, 6_000));
 await git(repo, "add", "-A");
 await git(repo, "commit", "-qm", "Initial");
 // A working checkout: one edit and one new file, as a person's tree usually has.
