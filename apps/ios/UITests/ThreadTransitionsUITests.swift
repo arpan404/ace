@@ -103,18 +103,20 @@ import XCTest
         let app = launch()
         open("ios-pi", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.answer.", in: app))
-        // Retry sits under the last answer, Rewind under an earlier one, both in the long-press menu.
+        // Rewind sits under an earlier answer, Retry under the last, each in its long-press menu
+        // (never both in one). Rewind goes first: its question's Cancel closes it cleanly, where a
+        // tap to close a long-press menu can miss its backdrop.
         let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer."))
-        openMenu(of: answers.element(boundBy: answers.count - 1), in: app)
-        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 10))
-        screenshot("pi-retry-rewind")
-        // Close the menu by tapping above it: the middle of the screen can land on one of its rows.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.03)).tap()
-        XCTAssertTrue(app.buttons["Retry"].waitForNonExistence(timeout: 10))
         openMenu(of: answers.element(boundBy: 0), in: app)
         app.buttons["Rewind to here"].tap()
         XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
         screenshot("rewind-confirm")
+        app.alerts.firstMatch.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["rewind.confirm"].waitForNonExistence(timeout: 10))
+        openMenu(of: answers.element(boundBy: answers.count - 1), in: app)
+        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Rewind to here"].exists, "Retry's answer offers Retry, not Rewind")
+        screenshot("pi-retry-rewind")
     }
 
     func testBringBackFromAFork() {
