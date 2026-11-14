@@ -32,7 +32,13 @@
       "minimum": 100,
       "type": "integer"
     },
+    "link": {
+      "$ref": "https://ace.local/protocol/v1/MediaLinkHint.json"
+    },
     "nativeShown": {
+      "type": "boolean"
+    },
+    "paused": {
       "type": "boolean"
     },
     "width": {
