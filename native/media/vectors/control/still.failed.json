@@ -1,0 +1,8 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "still.failed",
+    "request": "source-1",
+    "reason": "value"
+  }
+}

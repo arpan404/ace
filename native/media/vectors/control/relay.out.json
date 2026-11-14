@@ -1,0 +1,7 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "relay.out",
+    "stream": "source-1"
+  }
+}

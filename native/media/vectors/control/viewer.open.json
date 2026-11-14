@@ -1,0 +1,27 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "viewer.open",
+    "viewer": "source-1",
+    "connection": "source-1",
+    "owner": {
+      "session": "source-1",
+      "device": "source-1",
+      "admission": {
+        "kind": "pairing",
+        "generation": 1
+      }
+    },
+    "issued": 1,
+    "source": "source-1",
+    "codecs": ["value"],
+    "viewport": {
+      "width": 1,
+      "height": 1,
+      "dpr": 1.5,
+      "scale": 1.5
+    },
+    "local": true,
+    "audio": true
+  }
+}

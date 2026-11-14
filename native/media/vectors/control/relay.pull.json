@@ -1,0 +1,7 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "relay.pull",
+    "stream": "source-1"
+  }
+}

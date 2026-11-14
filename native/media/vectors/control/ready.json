@@ -1,0 +1,36 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "ready",
+    "protocol": 1,
+    "version": "value",
+    "pid": 1,
+    "capabilities": {
+      "encoders": [
+        {
+          "codec": "value",
+          "hardware": true,
+          "backend": "value"
+        }
+      ],
+      "decoders": [
+        {
+          "codec": "value",
+          "hardware": true,
+          "backend": "value"
+        }
+      ],
+      "stills": true
+    },
+    "ingest": {
+      "socket": "value",
+      "websocketPort": 1
+    },
+    "control": {
+      "socket": "value"
+    },
+    "listen": {
+      "loopbackPort": 1
+    }
+  }
+}
