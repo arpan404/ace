@@ -113,10 +113,17 @@ export class MachineChildren implements RemoteChildren {
   /** When the scheduled poll runs, by the injected clock. */
   private dueAt = 0;
   /**
+   * When the last poll was set for. Each poll is set for at least one interval after the one
+   * before, so children come due poll by poll even if the clock stalls.
+   */
+  private lastSetFor = Number.NEGATIVE_INFINITY;
+  /**
    * Machines whose status calls fail, logged when that starts and when it ends. Which child is
    * asked when is the scheduler's (child-schedule.ts), not this.
    */
   private reach: RetryBackoff;
+  /** Status calls on their way. */
+  private running = new Set<Promise<void>>();
   /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
   private records = new Map<string, Map<string, ChildRecord>>();
   private schedule: ScheduleConfig;
@@ -394,7 +401,8 @@ export class MachineChildren implements RemoteChildren {
     if (this.cancelTimer && this.dueAt <= now + delay) return;
     this.cancelTimer?.();
     this.dueAt = now + delay;
-    const scheduledFor = now + delay;
+    const scheduledFor = Math.max(now, this.lastSetFor) + delay;
+    this.lastSetFor = scheduledFor;
     this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
       // A poll still running a poll from now (a slow call) never holds up the next: the next is
@@ -473,7 +481,12 @@ export class MachineChildren implements RemoteChildren {
         const row = rows.get(id);
         if (row) this.lost.keepSettled(row);
       }
-      for (const ids of plan.calls) calls.push(this.ask(machine, children, rows, ids));
+      for (const ids of plan.calls) {
+        const call = this.ask(machine, children, rows, ids);
+        this.running.add(call);
+        void call.finally(() => this.running.delete(call));
+        calls.push(call);
+      }
     }
     await Promise.all(calls);
     // Stops due, then the lease: replies read above have already renewed what reported.
@@ -481,6 +494,10 @@ export class MachineChildren implements RemoteChildren {
     this.liveness.lapse();
     for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
     this.results.drain();
+  }
+  /** Resolves once every status call on its way has come back and been applied. */
+  async flush(): Promise<void> {
+    while (this.running.size > 0) await Promise.allSettled([...this.running]);
   }
   /**
    * A machine's children as the scheduler sees them: every working child (lost ones are handed

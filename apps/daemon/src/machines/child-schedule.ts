@@ -14,7 +14,8 @@ import { RECHECK_POLLS, RECHECK_WINDOW_MS, recheckEveryPolls } from "./child-rec
  *   30 s).
  * Due children are taken earliest due first, so none starves. A child in a call that failed or
  * was refused, with others, is implicated: it is asked again at once, alone, and stays alone until
- * it has answered alone and for a time that doubles each time it is implicated (up to 5 minutes),
+ * it has answered alone and for a time that starts at 10 s and doubles each time it is
+ * implicated (up to an hour),
  * so a child that only fails beside others can't keep taking calls down. Only a child's own
  * failures, asked alone, back it off. An unpaired child is never asked and never counts as
  * checked.
@@ -73,7 +74,7 @@ export const defaultScheduleConfig = (pollMs: number, start: number): ScheduleCo
   start,
   retryCapMs: 30_000,
   idsPerCall: 16,
-  aloneCapMs: 5 * 60_000,
+  aloneCapMs: 60 * 60_000,
   callsPerTurn: 16,
 });
 
@@ -267,8 +268,13 @@ export function foldCall(
         suspect: true,
         implicated,
         implicatedAt: now,
+        // Ten seconds alone the first time, doubling each time after, up to an hour.
         aloneUntil:
-          now + Math.min(config.aloneCapMs, config.pollMs * 2 ** Math.min(implicated - 1, 30)),
+          now +
+          Math.min(
+            config.aloneCapMs,
+            RECHECK_POLLS * config.pollMs * 2 ** Math.min(implicated - 1, 30),
+          ),
       });
     } else {
       // Its own read failed, or the machine doesn't hold it: asked again later each time.
