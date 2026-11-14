@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -189,4 +189,105 @@ it("a reader that doesn't drain within the drain limit has its path closed, repo
   timers[0]?.run();
   expect(closed).toEqual(["closed"]);
   expect(writer.write(unit(3, true))).toBe(false);
+});
+
+/** A writer whose socket never reports `drain`: its high-water mark is above every backlog. */
+function roomyWriter(path: string, extra: Partial<ConstructorParameters<typeof IngestWriter>[0]>) {
+  return new IngestWriter({
+    socket: path,
+    token: new Uint8Array(32),
+    onClosed: () => {},
+    onKeyframe: () => {},
+    limit: 64 * 1024,
+    connect: (socket) =>
+      createConnection({ path: socket, writableHighWaterMark: 64 * 1024 * 1024 }),
+    ...extra,
+  });
+}
+
+it("a waiting keyframe goes once the backlog is written, even when the socket never says drain", async () => {
+  const server = await ingest();
+  const closed: string[] = [];
+  const writer = roomyWriter(server.path, {
+    onClosed: () => void closed.push("closed"),
+    after: () => () => {},
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 1024 * 1024));
+  writer.write(unit(2, true));
+  server.resume();
+  await until(() => server.received.some((frame) => frame.payload[0] === 2));
+  expect(
+    server.received.filter((frame) => frame.kind === 1).map((frame) => frame.payload[0]),
+  ).toEqual([1, 2]);
+  expect(closed).toEqual([]);
+});
+
+it("the drain limit looks at the real backlog: a socket that emptied is not cut", async () => {
+  const server = await ingest();
+  const closed: string[] = [];
+  const timers: (() => void)[] = [];
+  const writer = roomyWriter(server.path, {
+    onClosed: () => void closed.push("closed"),
+    after: (_ms, run) => {
+      timers.push(run);
+      return () => {};
+    },
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 1024 * 1024));
+  writer.write(unit(2, false));
+  server.resume();
+  await until(() => server.received.some((frame) => frame.payload[0] === 1));
+  timers[0]?.();
+  expect(closed).toEqual([]);
+  expect(writer.write(unit(3, true))).toBe(true);
+  writer.finish();
+  await until(server.ended);
+  expect(
+    server.received.filter((frame) => frame.kind === 1).map((frame) => frame.payload[0]),
+  ).toEqual([1, 3]);
+});
+
+it("a finish writes the waiting keyframe before the end frame", async () => {
+  const server = await ingest();
+  const writer = roomyWriter(server.path, {});
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 1024 * 1024));
+  writer.write(unit(2, true));
+  writer.finish();
+  server.resume();
+  await until(server.ended);
+  expect(server.received.map((frame) => [frame.kind, frame.payload[0]])).toEqual([
+    [5, 0],
+    [1, 1],
+    [1, 2],
+    [4, undefined],
+  ]);
+});
+
+it("a finish whose waiting keyframe can't go within the drain limit is a cut, not a clean end", async () => {
+  const server = await ingest();
+  const closed: string[] = [];
+  const timers: (() => void)[] = [];
+  const writer = roomyWriter(server.path, {
+    onClosed: () => void closed.push("closed"),
+    after: (_ms, run) => {
+      timers.push(run);
+      return () => {};
+    },
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 1024 * 1024));
+  writer.write(unit(2, true));
+  writer.finish();
+  for (const run of timers) run();
+  expect(closed).toEqual(["closed"]);
+  server.resume();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(server.received.some((frame) => frame.kind === 4)).toBe(false);
 });

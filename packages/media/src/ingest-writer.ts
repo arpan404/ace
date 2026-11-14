@@ -7,8 +7,10 @@ import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
  * source's single-use token; units follow in order, never coalesced. Every unit counts against
  * `limit` queued bytes, keyframes too: a delta that won't fit is dropped with what follows it to
  * the next keyframe, which is asked for once; a keyframe that won't fit waits, the newest only,
- * until the socket drains. A socket still not drained after `drainLimit` has its path closed as a
- * cut, reported through `onClosed`, so the route falls back. A stalled reader never grows the
+ * until the backlog written makes room (each write's completion is checked, not only `drain`,
+ * which a socket under its high-water mark never emits). A backlog still too big after
+ * `drainLimit` has its path closed as a cut, reported through `onClosed`, so the route falls
+ * back. A stalled reader never grows the
  * daemon and the stream stays decodable. `finish()` writes what is queued, then ends the
  * connection cleanly, which ace-media follows with the path's end marker. A connection that
  * fails, or that ace-media closes, is reported once.
@@ -53,9 +55,10 @@ export class IngestWriter {
     const socket = (options.connect ?? ((path) => createConnection(path)))(options.socket);
     this.#socket = socket;
     socket.on("error", () => {});
-    socket.on("drain", () => this.#drained());
+    socket.on("drain", () => this.#room());
     socket.once("close", () => {
-      const reported = !this.#ending && !this.#closed;
+      // A finish still holding its keyframe never got to its end frame: that is a cut too.
+      const reported = !this.#closed && (!this.#ending || this.#pending !== undefined);
       this.#closed = true;
       this.#stopWaiting();
       if (reported) options.onClosed();
@@ -73,7 +76,7 @@ export class IngestWriter {
   write(frame: MediaFrame): boolean {
     if (this.closed) return false;
     if (frame.kind !== 1) {
-      this.#socket.write(encodeMediaFrame(frame));
+      this.#write(encodeMediaFrame(frame));
       return true;
     }
     const keyframe = (frame.flags & 1) !== 0;
@@ -85,17 +88,26 @@ export class IngestWriter {
     }
     if (this.#skipping && !keyframe) return true;
     const bytes = encodeMediaFrame(frame);
-    const queued = this.#socket.writableLength;
-    // An empty socket takes any unit, so a keyframe bigger than the budget still goes.
-    if (queued === 0 || queued + bytes.length <= (this.#options.limit ?? ingestWriterLimit)) {
+    if (this.#fits(bytes.length)) {
       this.#skipping = false;
-      this.#socket.write(bytes);
+      this.#write(bytes);
       return true;
     }
     if (keyframe) this.#pending = bytes;
     else this.#ask();
     this.#wait();
     return true;
+  }
+
+  /** An empty socket takes any unit, so a keyframe bigger than the budget still goes. */
+  #fits(bytes: number): boolean {
+    const queued = this.#socket.writableLength;
+    return queued === 0 || queued + bytes <= this.#limit();
+  }
+
+  /** Each write's completion is a chance for a waiting keyframe to go. */
+  #write(bytes: Uint8Array): void {
+    this.#socket.write(bytes, () => this.#room());
   }
 
   /** Deltas are dropped to the next keyframe, asked for once. */
@@ -105,12 +117,14 @@ export class IngestWriter {
     this.#options.onKeyframe();
   }
 
-  /** Over the budget: the socket must drain within the limit, or the path is cut. */
+  /** Over the budget: the backlog must make room within the limit, or the path is cut. */
   #wait(): void {
     const after = this.#options.after ?? afterTimeout;
     this.#waiting = after(this.#options.drainLimit ?? ingestDrainLimit, () => {
+      // The backlog as it is now, not as it was: room made without a `drain` is still room.
+      this.#room();
+      if (!this.#waiting || this.#closed) return;
       this.#waiting = undefined;
-      if (this.#closed || this.#ending) return;
       this.close();
       this.#options.onClosed();
     });
@@ -122,14 +136,25 @@ export class IngestWriter {
     this.#pending = undefined;
   }
 
-  #drained(): void {
-    if (!this.#waiting || this.closed) return;
+  /** Room in the backlog: the waiting keyframe goes, then a finish's end frame. */
+  #room(): void {
+    if (!this.#waiting || this.#closed) return;
     const pending = this.#pending;
+    if (pending ? !this.#fits(pending.length) : this.#socket.writableLength > this.#limit()) return;
     this.#stopWaiting();
     if (pending) {
       this.#skipping = false;
-      this.#socket.write(pending);
+      this.#write(pending);
     }
+    if (this.#ending) this.#end();
+  }
+
+  #limit(): number {
+    return this.#options.limit ?? ingestWriterLimit;
+  }
+
+  #end(): void {
+    this.#socket.end(encodeMediaFrame({ ...control(4), payload: new Uint8Array(0) }));
   }
 
   /**
@@ -140,8 +165,10 @@ export class IngestWriter {
   finish(): void {
     if (this.closed) return;
     this.#ending = true;
+    // A waiting keyframe was accepted: it goes before the end frame, or the path is a cut.
+    if (this.#waiting && this.#pending) return;
     this.#stopWaiting();
-    this.#socket.end(encodeMediaFrame({ ...control(4), payload: new Uint8Array(0) }));
+    this.#end();
   }
 
   /** At once, dropping what is queued: ace-media sees that path cut. */
