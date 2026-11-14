@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import {
   formatAgo,
+  formatCountdown,
   headroomAlert,
   limitTime,
   resetCountdown,
-  roundEstimate,
   type AccountWindow,
   type PooledHeadroom,
   type RailUsage,
@@ -49,7 +49,7 @@ export function UsagePlace(props: { current: boolean }) {
           sideOffset={8}
           align="end"
           aria-label="Usage"
-          className="w-[26rem] max-w-[calc(100vw-24px)] px-3.5 py-2.5"
+          className="w-[24rem] max-w-[calc(100vw-24px)] px-3.5 py-2.5"
         >
           <UsageCard
             rail={usage.rail}
@@ -65,7 +65,7 @@ export function UsagePlace(props: { current: boolean }) {
 }
 
 /** One grid for every row of the card: label, bar, share left, when. */
-const cardGrid = "grid grid-cols-[6.5rem_minmax(0,1fr)_2.25rem_6.25rem] items-center gap-x-2.5";
+const cardGrid = "grid grid-cols-[6rem_minmax(0,1fr)_2.25rem_6rem] items-center gap-x-2.5";
 
 /**
  * The card: a provider whose every account is out, when one is, then each
@@ -148,7 +148,7 @@ function CardWindow(props: { window: AccountWindow; now: number }) {
         ? "Out"
         : `Back ${limitTime(window.resetsAt, now)}`
       : window.runsOutAt !== null
-        ? `Out ~${limitTime(roundEstimate(window.runsOutAt, now), now)}`
+        ? `Out in ${formatCountdown(window.runsOutAt - now)}`
         : (resetCountdown(window.resetsAt, now) ?? "");
   return (
     <div className={cn(cardGrid, "h-6 text-xs")}>

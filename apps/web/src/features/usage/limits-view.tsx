@@ -232,28 +232,43 @@ function AccountBlock(props: {
  */
 const rowGrid = cn(
   "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5",
-  "@min-[40rem]/limits:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_4rem_minmax(7rem,9.5rem)]",
+  "@min-[40rem]/limits:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_4rem_minmax(7rem,10rem)]",
 );
+
+/**
+ * What a row says at its right, and the words a screen reader hears. A pace that runs out
+ * before the reset is an estimate, so the row keeps it to "Out around Sun 9:00 PM" and the
+ * spoken name says the sentence in full.
+ */
+function windowWhen(window: AccountWindow, now: number): { text: string; spoken: string } {
+  const time = (at: number) => limitTime(at, now);
+  if (window.stale) {
+    const text = "Not used since its reset";
+    return { text, spoken: text };
+  }
+  if (window.leftPercent <= 0) {
+    const text =
+      window.resetsAt === null ? "Out, reset not reported" : `Out until ${time(window.resetsAt)}`;
+    return { text, spoken: text };
+  }
+  if (window.runsOutAt !== null) {
+    const at = time(roundEstimate(window.runsOutAt, now));
+    return { text: `Out around ${at}`, spoken: `Runs out around ${at}` };
+  }
+  if (window.leftPercent >= 100) return { text: "Fresh", spoken: "Fresh" };
+  if (window.resetsAt === null) {
+    const text = "Reset not reported";
+    return { text, spoken: text };
+  }
+  const text = `Resets ${time(window.resetsAt)}`;
+  return { text, spoken: text };
+}
 
 function WindowRow(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
-  const time = (at: number) => limitTime(at, now);
   const out = window.leftPercent <= 0;
   const runsOut = !window.stale && (out || window.runsOutAt !== null);
-  const fresh = !window.stale && window.leftPercent >= 100;
-  const when = window.stale
-    ? "Not used since its reset"
-    : out
-      ? window.resetsAt === null
-        ? "Out, reset not reported"
-        : `Out until ${time(window.resetsAt)}`
-      : window.runsOutAt !== null
-        ? `Runs out around ${time(roundEstimate(window.runsOutAt, now))}`
-        : fresh
-          ? "Fresh"
-          : window.resetsAt === null
-            ? "Reset not reported"
-            : `Resets ${time(window.resetsAt)}`;
+  const when = windowWhen(window, now);
   const cells = (
     <>
       <span title={window.label} className="truncate text-ui text-muted-foreground">
@@ -278,7 +293,7 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
           runsOut ? "text-status-failed" : "text-subtle-foreground",
         )}
       >
-        {when}
+        {when.text}
       </span>
     </>
   );
@@ -292,7 +307,7 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
           // A focusable group, so the keyboard opens its card too; its meter stays inside it.
           render={<div role="group" />}
           tabIndex={0}
-          aria-label={`${window.label}: ${window.stale ? "not used since its reset" : `${window.leftPercent}% left`}, ${when}`}
+          aria-label={`${window.label}: ${window.stale ? "not used since its reset" : `${window.leftPercent}% left`}, ${when.spoken}`}
           className={cn(
             rowGrid,
             "-mx-2 rounded-md px-2 py-1.5 transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
