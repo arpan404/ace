@@ -60,7 +60,13 @@ test("control boundaries reject malformed grants while opaque metadata retains u
   expect(ToMedia.parse(metadata)).toEqual(metadata);
   expect(ToMedia.safeParse({ type: "ping", id: "x".repeat(65) }).success).toBe(false);
   expect(
-    ToMedia.safeParse({ type: "source.epoch", source: "s", seq: 2 ** 53, epoch: 1 }).success,
+    ToMedia.safeParse({
+      type: "source.epoch",
+      source: "s",
+      seq: 2 ** 53,
+      epoch: 1,
+      followsPrivate: false,
+    }).success,
   ).toBe(false);
   expect(
     ToMedia.safeParse({

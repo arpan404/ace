@@ -86,7 +86,26 @@ describe("MediaSupervisor", () => {
     expect(child.stdin.types("normal")).toEqual(["init", "listen"]);
     expect(h.events.replays).toBe(1);
     expect(supervisor.health()).toBe("healthy");
-    expect(supervisor.capabilities()?.encoders[0]?.codec).toBe("h264");
+    expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
+  });
+
+  it("reports the capabilities a late trial adds, and forwards the change", async () => {
+    const h = await running();
+    const late = {
+      step: "jpeg-encode",
+      codec: "jpeg",
+      backend: "vaapi",
+      hardware: true,
+      zeroCopy: false,
+      state: "ok",
+      maxWidth: 16384,
+      maxHeight: 16384,
+    } as const;
+    h.host.last.send({ type: "capabilities.changed", capabilities: [late] });
+    await h.clock.advance(0);
+    expect(h.supervisor.capabilities()).toEqual([late]);
+    expect(h.supervisor.snapshot().capabilities).toEqual([late]);
+    expect(h.events.messages.map((message) => message.type)).toContain("capabilities.changed");
   });
 
   it("delivers whole egress frames however the bytes are split", async () => {

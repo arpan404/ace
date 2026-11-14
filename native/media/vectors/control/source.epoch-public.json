@@ -1,0 +1,10 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.epoch",
+    "source": "source-1",
+    "seq": 2,
+    "epoch": 2,
+    "followsPrivate": false
+  }
+}

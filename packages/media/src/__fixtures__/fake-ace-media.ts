@@ -95,7 +95,7 @@ process.stdin.on("data", (chunk: Uint8Array) => {
             protocol: 1,
             version: process.env.FAKE_MEDIA_VERSION ?? message.version,
             pid: process.pid,
-            capabilities: { encoders: [], decoders: [], stills: false },
+            capabilities: [],
             ingest: { socket: join(message.runtimeDir, "ingest.sock"), websocketPort: 0 },
             control: { socket: control },
             listen: { loopbackPort: 0 },

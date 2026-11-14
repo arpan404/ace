@@ -212,7 +212,7 @@ fn control_rejects_malformed_contracts_and_preserves_opaque_metadata()
 -> Result<(), Box<dyn std::error::Error>> {
     for bad in [
         json!({"type":"ping","id":"x".repeat(65)}),
-        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1}),
+        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1,"followsPrivate":false}),
         json!({"type":"record.epochs","source":"s","seq":0,"decided":4,"clear":[[4,2]],"discard":[]}),
         json!({"type":"unknown"}),
     ] {
