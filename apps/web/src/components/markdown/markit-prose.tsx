@@ -1,27 +1,12 @@
 import { useOptionalClient, useThreadMeta, useThreadStore } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";
-import {
-  isMarkitWebImage,
-  markitLinkTarget,
-  markitWorkerPath,
-  shouldResolveMarkitImage,
-} from "@ace/markit-web";
-import { useMarkit } from "@ace/markit-web/react";
+import { isMarkitWebImage, markitLinkTarget, shouldResolveMarkitImage } from "@ace/markit-web";
 import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
 import { contentHash, isCheckoutPath, readAceLink } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
-import { flushSync } from "react-dom";
+import { useCallback, useContext, useMemo } from "react";
 import {
   IssueOpener,
   PullRequestOpener,
@@ -31,17 +16,11 @@ import {
 } from "../web-link.tsx";
 import { displayName } from "../attachment-format.ts";
 import { LinkedFileOpener } from "../linked-file.tsx";
-import { applePlatform } from "@/lib/keymap.ts";
-import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
+import type { LinkClick } from "@/lib/web-links.ts";
 import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
-import { cn } from "@/lib/cn.ts";
-import { prefersReducedMotion } from "@/lib/motion.ts";
-import { updateInterval } from "./cadence.ts";
-import { blockRhythm } from "./rhythm.ts";
-import { renderMermaid } from "./mermaid-render.ts";
-import { StreamPace } from "./stream-pace.ts";
 import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
+import { MarkitView, type MarkitCallbacks } from "./markit-view.tsx";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -70,18 +49,6 @@ interface ProseProps {
 }
 
 type ForgeReferenceAddress = (reference: { kind: string; target: string }) => string | undefined;
-
-interface MarkitCallbacks {
-  onLink: (url: string) => void;
-  /** A web link clicked to open in the system's browser (⌘/Ctrl or middle click). */
-  onSystemLink: (url: string, click: LinkClick) => void;
-  onReference: (reference: { kind: string; target: string }) => void;
-  resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
-  /** After markit draws: the element it drew into, and whether that text was the final one. */
-  drawn?: ((element: HTMLElement, finalized: boolean) => void) | undefined;
-  /** Subscribes `refresh` to whenever images still without bytes may have them now. */
-  watchImages?: ((refresh: () => void) => () => void) | undefined;
-}
 
 /** What a click in prose can open, beyond the system browser. */
 interface LinkActions {
@@ -142,127 +109,6 @@ async function pageImage(url: string, signal: AbortSignal): Promise<Blob | null>
  * answer has no repository to point them at.
  */
 const proseFlavor = "agent";
-/** The scheme the theme provider put on the page, for a diagram drawn now. */
-const pageScheme = (): "light" | "dark" =>
-  document.documentElement.dataset.scheme === "dark" ? "dark" : "light";
-/** DESIGN.md code blocks: line numbers from 10 lines, folded to 20 past 22. */
-const codeChrome = { lineNumbersFrom: 10, collapseAfter: 20 };
-
-/** Applied renders sampled for tools/web-perf, mirroring the old markdown service's samples. */
-const perfSamples = (): Array<{ stream: string; chars: number; ms: number }> | undefined => {
-  const perf: unknown = Reflect.get(globalThis, "acePerf");
-  return typeof perf === "object" && perf !== null && "markit" in perf && Array.isArray(perf.markit)
-    ? (perf.markit as Array<{ stream: string; chars: number; ms: number }>)
-    : undefined;
-};
-
-/** One markit renderer for one element; text updates stream through it, never React state. */
-function MarkitView(props: {
-  markdown: string;
-  finalized: boolean;
-  stream: string;
-  className?: string | undefined;
-  callbacks: MarkitCallbacks;
-  flavor: "agent" | "github";
-}) {
-  // The message reads as plain text until markit's first render replaces it, so an answer is
-  // never blank: not while the worker starts, and not if it cannot run at all.
-  const [drawn, setDrawn] = useState(false);
-  const drawnRef = useRef(false);
-  const element = useRef<HTMLElement | null>(null);
-  const sentFinal = useRef(false);
-  const markit = useMarkit({
-    workerURL: markitWorkerPath(),
-    flavor: props.flavor,
-    code: codeChrome,
-    onLink: props.callbacks.onLink,
-    onReference: props.callbacks.onReference,
-    resolveImage: props.callbacks.resolveImage,
-    renderDiagram: (language: string, source: string) =>
-      language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
-    onRender: () => {
-      // markit drew in an animation frame, before paint; the placeholder goes in the same
-      // turn, or one frame would show the text twice.
-      if (!drawnRef.current) flushSync(() => setDrawn(true));
-      drawnRef.current = true;
-      if (element.current) props.callbacks.drawn?.(element.current, sentFinal.current);
-    },
-  });
-  const { markdown, finalized, stream } = props;
-  // A streaming message reaches markit 10 to 20 times a second, like the previous renderer
-  // (`cadence.ts`): each update can grow the row, which re-measures and re-follows the transcript.
-  const pace = useRef<StreamPace | undefined>(undefined);
-  const sampled = useRef(stream);
-  useEffect(() => {
-    sampled.current = stream;
-  }, [stream]);
-  useEffect(() => {
-    const paced = new StreamPace({
-      now: () => performance.now(),
-      schedule(delayMs, run) {
-        const timer = setTimeout(run, delayMs);
-        return () => clearTimeout(timer);
-      },
-      interval: (lastMs) => updateInterval(lastMs, prefersReducedMotion()),
-      send(text, done) {
-        sentFinal.current = done;
-        const started = performance.now();
-        return markit.render(text, { finalized: done }).then((patch) => {
-          if (patch.superseded || import.meta.env.MODE !== "perf") return;
-          perfSamples()?.push({
-            stream: sampled.current,
-            chars: text.length,
-            ms: performance.now() - started,
-          });
-        });
-      },
-    });
-    pace.current = paced;
-    return () => {
-      paced.dispose();
-      if (pace.current === paced) pace.current = undefined;
-    };
-  }, [markit]);
-  useEffect(() => {
-    pace.current?.push(markdown, finalized);
-  }, [markdown, finalized]);
-  const { watchImages } = props.callbacks;
-  useEffect(() => watchImages?.(() => markit.refreshImages()), [markit, watchImages]);
-  // The controller is stable; its ref callback attaches the renderer to this element.
-  const attach = useCallback(
-    (node: HTMLElement | null) => {
-      element.current = node;
-      markit.ref(node);
-    },
-    [markit],
-  );
-  // markit hands every plain click on a link to `onLink`, without the click. A ⌘/Ctrl or middle
-  // click on a web link is taken here first (capture runs before markit's listener) and opens
-  // in the system's browser, as `WebLink` does.
-  const { onSystemLink } = props.callbacks;
-  const systemClick = useCallback(
-    (event: MouseEvent<HTMLDivElement>) => {
-      if (!(event.target instanceof Element) || !asksForSystemBrowser(event, applePlatform)) return;
-      const href = event.target.closest("a[href]")?.getAttribute("href");
-      const target = href ? markitLinkTarget(href) : undefined;
-      if (target?.kind !== "web") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onSystemLink(target.href, event);
-    },
-    [onSystemLink],
-  );
-  return (
-    <div
-      className={cn("markit-ace", blockRhythm, props.className)}
-      onClickCapture={systemClick}
-      onAuxClickCapture={systemClick}
-    >
-      {!drawn && <p className="whitespace-pre-wrap">{markdown}</p>}
-      <div ref={attach} />
-    </div>
-  );
-}
 
 const fallbackStream = (props: ProseProps) => props.stream ?? `#${contentHash(props.text)}`;
 
