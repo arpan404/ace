@@ -130,18 +130,31 @@ interface Attempt {
   fresh: boolean;
 }
 
+/**
+ * A resend gets only what is left of the call's own deadline; with less than this left, or a
+ * tenth of the whole timeout, it isn't worth sending and the first failure stands.
+ */
+const MIN_RESEND_MS = 250;
+
 /** A JSON answer from a paired machine's listener; refusals keep their authored words. */
 export async function pinnedRequest(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
   route: PinnedRequest,
   options: MachineTransportOptions,
 ): Promise<unknown> {
+  // The call's one deadline, which any resend shares.
+  const deadlineAt = Date.now() + options.timeoutMs;
   try {
     return await pinnedOnce(profile, route, options, { fresh: false });
   } catch (error) {
-    // A read lost on a dropped kept-open connection: once more on a fresh one.
-    if (error instanceof StaleConnection && route.rereadable)
-      return pinnedOnce(profile, route, options, { fresh: true });
+    // A read lost on a dropped kept-open connection: once more on a fresh one, in time left.
+    const left = deadlineAt - Date.now();
+    if (
+      error instanceof StaleConnection &&
+      route.rereadable &&
+      left >= Math.max(MIN_RESEND_MS, options.timeoutMs / 10)
+    )
+      return pinnedOnce(profile, route, { ...options, timeoutMs: left }, { fresh: true });
     throw error;
   }
 }

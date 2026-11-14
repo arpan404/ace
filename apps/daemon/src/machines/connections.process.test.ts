@@ -267,7 +267,7 @@ test("an answer to the person reaches its machine at once while stops hold the u
  * A TCP proxy to `port` that can cut its open connections the way an expired NAT entry does: the
  * caller still holds them open, and the first bytes it sends are answered with a reset.
  */
-async function cuttingProxy(port: number) {
+async function cuttingProxy(port: number, resetAfterMs = 0) {
   const open = new Set<Socket>();
   const state = { cut: false, connections: 0 };
   const server = createServer((client) => {
@@ -281,8 +281,12 @@ async function cuttingProxy(port: number) {
     }
     client.on("data", (chunk: Buffer) => {
       if (pair.cut) {
-        client.resetAndDestroy();
-        upstream.destroy();
+        const reset = () => {
+          client.resetAndDestroy();
+          upstream.destroy();
+        };
+        if (resetAfterMs > 0) setTimeout(reset, resetAfterMs);
+        else reset();
       } else upstream.write(chunk);
     });
     upstream.on("data", (chunk: Buffer) => client.write(chunk));
@@ -493,4 +497,23 @@ test("a status answer full of agent results goes uncompressed, even to a caller 
     );
   });
   expect(coding).toBeUndefined();
+});
+
+test("a read sent again on a fresh connection keeps the call's own deadline", async () => {
+  // Reads are slow there; the dropped connection takes 800 ms of a 1 s call to reset.
+  const target = await busyMachine(1500, (asked) => asked.op === "status");
+  const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port), 800);
+  const profile = { ...target.profile, origin: proxy.origin };
+  const connections = pool();
+  await machineRequest(profile, { origin, call: { op: "describe" } }, { timeoutMs: 5000, connections });
+  proxy.cutAll();
+  const started = Date.now();
+  const failure = await machineRequest(
+    profile,
+    { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+    { timeoutMs: 1000, connections },
+  ).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(MachineFailure);
+  // Never much past the caller's own 1 s, however the time was spent.
+  expect(Date.now() - started).toBeLessThan(1300);
 });
