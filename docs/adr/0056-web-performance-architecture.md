@@ -16,7 +16,7 @@ ADR 0045 set budgets but left them unenforced. This ADR records where each kind 
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Socket, frame decode (Zod), projection, intents outbox | The client worker: one `SharedWorker` per origin; a dedicated `Worker` per tab where SharedWorker is missing; in the page where neither exists (tests) |
 | Store reads by selectors, React rendering              | The page, against mirrors of the worker's stores                                                                                                       |
-| Markdown lexing and code highlighting                  | The markdown worker (dedicated); a streaming message is lexed from its last settled block on, highlighting cached by content hash                      |
+| Markdown parsing and code highlighting                 | markit (Rust + Wasm) in its shared worker; each renderer sends only appended text and patches only the blocks that changed                             |
 | File diffs (an LCS per file)                           | The diff worker (dedicated), cached in memory and IndexedDB by content key                                                                             |
 | Very large diffs (flag `gpuText`)                      | The GPU: WebGPU, else WebGL2, else the virtualized DOM view                                                                                            |
 | Terminal drawing                                       | xterm.js with its WebGL renderer; the accessible DOM line screen where WebGL2 is missing                                                               |
@@ -60,7 +60,7 @@ Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounde
 | Thread list order                        | Deleted threads leave it                                                                                                                                      |
 | A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                                                     |
 | Sent commands nobody watches (tab)       | The newest 64                                                                                                                                                 |
-| Markdown documents                       | 400 unwatched documents and 16 MB (page); 64 open streams and 8 MB of text, highlight 512 and 4 MB (worker)                                                   |
+| Markdown documents                       | Finished answers kept drawn off the page: 200 and 12 MB, weighed as 8 bytes per character of text; heights of answers drawn before: 2,000                     |
 | File diffs                               | 600 diffs and 16 MiB estimated bytes in memory, including text hidden by folds, shown diffs held; 2,000 entries and 128 MB in IndexedDB, oldest use pruned    |
 | Terminal                                 | 1 M characters of raw output per watched PTY; unwatched ones released on exit, after 5 idle minutes or past 4; xterm scrollback 5,000                         |
 | Preview and device frames                | One object URL per view, revoked when replaced; nothing decoded or acked while hidden; 8 unwatched threads' state                                             |
@@ -72,7 +72,13 @@ The month-long soak found the first unbounded holder: every run stayed in the th
 
 ### Markdown and highlighting
 
-Markdown becomes top-level blocks, built in the markdown worker with highlighting cached per (language, code). An assistant message is a stream named by its id: the page sends the worker only the text appended since its last job, the worker keeps a settled head of finished blocks (each lexed once) and lexes only the open tail, and a reply carries the blocks that settled and the open ones, never the whole document. Blocks are keyed by position, so a settled block keeps its object and never renders again, and the open block keeps its key when it settles. Other prose (a file preview, a task prompt) is a stream named by the hash of its text, built once. Each stream has at most one job in flight, always for its newest text, and keeps its previous document on screen until the next is ready. No HTML string is ever produced; blocks render through the same safe React renderer as before. See the amendment of 2026-10-05.
+Prose is drawn by markit (`@ace/markit-web`, Rust compiled to Wasm), through `MarkitView` (`apps/web/src/components/markdown/markit-view.tsx`). Every renderer on the page shares one markit worker and owns a stream in it. When the text only grew, a renderer sends the worker only the appended text, and the worker returns the blocks from the first one that changed; settled blocks keep their DOM, and the open block is morphed in place. Code is highlighted in the same pass. Markit sanitises its own output: raw HTML outside the safe subset reads as text, links reach the browser only for http(s) and mailto, and images draw only bytes the host hands it. A streaming answer reaches markit at the pace of `cadence.ts` (`StreamPace`: 50–100 ms, from the last update's cost). Its plain text shows until markit's first render lands, and the swap happens in that frame, so an answer is never blank.
+
+A finished answer's renderer and the element it drew into outlive its row (`kept-answers.ts`). When the row unmounts (the reader switches threads, or the row leaves the virtualised range), the drawing goes into a bounded LRU keyed by flavour, colour scheme and stream (the item id, or the hash of the text for other prose), holding the text it drew. Mounting the same text again puts that element back in a layout effect, before the first paint: no plain-text frame, no worker job, no change in height, and code views, images, diagrams and file links stay as they were. A different text, a streaming answer or an answer already shown elsewhere draws afresh. Nothing is re-rendered or re-sanitised on the way back: the cache holds only what markit drew under the same flavour. An evicted renderer is destroyed, which frees its worker stream, object URLs and pending image jobs. An answer drawn before but no longer kept holds its last measured height (from a shared ResizeObserver, read without a layout pass) until markit's output is in, so the rows under it don't move.
+
+The long-thread check (`tools/web-perf/src/remount.ts`) scrolls a finished answer out of the transcript and back, then switches threads and returns. It fails on any plain-text frame, any markit render of that answer, or any change in its height.
+
+Follow-up: a markit API that takes appended text from the host directly would save the full-text comparison `MarkitRenderer.render` makes on each streamed update.
 
 ### Diffs
 
@@ -139,6 +145,8 @@ CI runs the bundle and soak budgets in the `check` job and the browser and memor
 Long-thread follow-up (2026-10-03): daemon snapshots window settled entity history independently of items and expose `entities.page`. Historical count no longer causes client failure. Item deletion also removes creation/hydration metadata, notifies item/order readers, and journals a tombstone so an in-flight older page cannot resurrect it.
 
 ## Amendment, 2026-10-05: hybrid streaming markdown
+
+Superseded: markit replaced the markdown worker, `BlockStream` and `MarkdownStore` described here. "Markdown and highlighting" above describes what runs now; this section stays as the record of why streaming became incremental.
 
 A streaming answer used to cost work proportional to the whole answer on every frame: the page hashed the full text on each render, the worker lexed the whole message for each job and cloned the whole token tree back, and the growing last block got a new key (the hash of its source) on each update, so React remounted its DOM. A 40 KB answer remounted 430 blocks and the worker's time per update grew 4.7× from the start of the answer to its end.
 
