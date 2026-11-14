@@ -400,16 +400,16 @@ export class ItemStore {
    * decoded here. Each is read leniently: one that is not a raw payload comes as its data.
    */
   *rawEntries(threadId: ThreadId, itemId: string, from: number): Generator<RawPayload> {
-    const head = this.statement("SELECT item_type FROM item_heads WHERE id = ? AND thread_id = ?").get(
-      itemId,
-      threadId,
-    );
+    const head = this.statement(
+      "SELECT item_type FROM item_heads WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
     if (!head) return;
     const path = head.item_type === "tool_call" ? "$.call.raw" : "$.raw";
     for (const row of this.statement(
       "SELECT e.value AS value, e.type AS type FROM items i, json_each(i.item, ?) e WHERE i.id = ? AND i.thread_id = ? AND e.key >= ? ORDER BY e.key",
     ).iterate(path, itemId, threadId, from)) {
-      const value: unknown = row.type === "object" || row.type === "array" ? JSON.parse(String(row.value)) : row.value;
+      const value: unknown =
+        row.type === "object" || row.type === "array" ? JSON.parse(String(row.value)) : row.value;
       const parsed = RawPayload.safeParse(value);
       yield parsed.success ? parsed.data : { type: "unreadable", data: value };
     }
