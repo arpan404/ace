@@ -1,0 +1,8 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "source.egress",
+    "source": "source-1",
+    "on": true
+  }
+}

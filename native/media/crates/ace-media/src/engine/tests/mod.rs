@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared helpers for the engine's behaviour tests.
+mod egress;
 mod grants;
 mod sources;
 
@@ -142,7 +143,10 @@ pub(super) fn ingest(engine: &mut Engine, conn: u64, frame: MediaFrame, now: Now
 }
 
 pub(super) fn engine() -> Engine {
-    Engine::new(Box::new(super::recorder::NoRecorders))
+    Engine::new(
+        Box::new(super::recorder::NoRecorders),
+        Box::new(super::egress::NoEgress),
+    )
 }
 
 pub(super) fn ticket(

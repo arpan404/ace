@@ -398,6 +398,15 @@ pub enum ToMedia {
         #[serde(rename = "source")]
         source: Id,
     },
+    /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
+    /// the daemon turns it on.
+    #[serde(rename = "source.egress")]
+    SourceEgress {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "on")]
+        on: bool,
+    },
     #[serde(rename = "media.ticket")]
     MediaTicket {
         #[serde(rename = "connection")]

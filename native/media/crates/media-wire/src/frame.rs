@@ -107,6 +107,18 @@ impl MediaFrame {
         Ok(frame)
     }
 }
+/// One egress frame: the 12-byte header (magic, source handle, sequence), then the frame.
+pub fn encode_egress(
+    handle: u32,
+    sequence: u32,
+    frame: &MediaFrame,
+) -> Result<Vec<u8>, InvalidFrame> {
+    let mut b = b"ACEE".to_vec();
+    b.extend_from_slice(&handle.to_be_bytes());
+    b.extend_from_slice(&sequence.to_be_bytes());
+    b.extend(frame.encode()?);
+    Ok(b)
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct Egress {
     pub handle: u32,
@@ -115,11 +127,7 @@ pub struct Egress {
 }
 impl Egress {
     pub fn encode(&self) -> Result<Vec<u8>, InvalidFrame> {
-        let mut b = b"ACEE".to_vec();
-        b.extend_from_slice(&self.handle.to_be_bytes());
-        b.extend_from_slice(&self.sequence.to_be_bytes());
-        b.extend(self.frame.encode()?);
-        Ok(b)
+        encode_egress(self.handle, self.sequence, &self.frame)
     }
     pub fn decode(b: &[u8]) -> Result<Self, InvalidFrame> {
         if b.len() < 56 || &b[..4] != b"ACEE" {

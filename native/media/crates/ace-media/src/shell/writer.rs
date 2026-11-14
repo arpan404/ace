@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! One task per outbound lane, so a slow reader of one lane never holds up another. Sending
-//! never blocks: each lane has a bound on queued bytes, and going past it, or the lane's write
-//! failing, ends the process (the supervisor restarts it).
+//! never blocks: each lane has a bound on queued bytes, and a send past it is refused. An empty
+//! lane always takes one frame whatever its size, so a frame larger than the bound (an 8 MiB
+//! keyframe on the 4 MiB egress lane) passes once the lane drains. For the normal and priority
+//! lanes a refused send, or the lane's write failing, ends the process (the supervisor restarts
+//! it); for egress a refused send only drops the frame.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -12,6 +15,8 @@ use tokio::task::JoinHandle;
 /// Queued bytes past which a lane is considered stuck.
 pub const NORMAL_LIMIT: usize = 32 * 1024 * 1024;
 pub const PRIORITY_LIMIT: usize = 1024 * 1024;
+/// Egress in flight; past it units are dropped by the gate, never fatal.
+pub const EGRESS_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct Overflow;
@@ -50,9 +55,12 @@ impl Writer {
         }
     }
 
+    /// Queues `bytes`. An empty lane always takes one frame, so a frame larger than the bound
+    /// (an 8 MiB keyframe on the 4 MiB egress lane) can still pass once the lane drains.
     pub fn send(&self, bytes: Vec<u8>) -> Result<(), Overflow> {
         let n = bytes.len();
-        if self.queued.fetch_add(n, Ordering::Relaxed) + n > self.limit {
+        let before = self.queued.fetch_add(n, Ordering::Relaxed);
+        if before > 0 && before + n > self.limit {
             self.queued.fetch_sub(n, Ordering::Relaxed);
             return Err(Overflow);
         }
@@ -86,6 +94,23 @@ mod tests {
             assert!(writer.send(vec![0; 600]).is_ok());
             assert!(writer.send(vec![0; 300]).is_ok());
             assert!(writer.send(vec![0; 200]).is_err());
+        });
+    }
+
+    #[test]
+    fn an_empty_lane_takes_one_frame_larger_than_its_bound_and_nothing_after_it() {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => panic!("runtime: {error}"),
+        };
+        runtime.block_on(async {
+            let (sink, _reader) = tokio::io::duplex(16);
+            let writer = Writer::spawn(sink, 1000);
+            assert!(writer.send(vec![0; 5000]).is_ok(), "empty lane");
+            assert!(writer.send(vec![0; 1]).is_err(), "behind the large frame");
         });
     }
 

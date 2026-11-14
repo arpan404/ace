@@ -148,6 +148,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  z.strictObject({ type: z.literal("source.egress"), source: id, on: z.boolean() }),
   z.strictObject({
     type: z.literal("media.ticket"),
     connection: id,
