@@ -218,9 +218,13 @@ import XCTest
         message.press(forDuration: 1)
         XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 10))
     }
+    /// Relaunches straight into `id`. The app reads the first `--spike-open`, so an earlier one is
+    /// replaced rather than kept.
     private func open(_ id: String, in app: XCUIApplication) {
         app.terminate()
-        app.launchArguments += ["--spike-open", id]
+        var arguments = app.launchArguments
+        if let at = arguments.firstIndex(of: "--spike-open"), at + 1 < arguments.count { arguments.removeSubrange(at...at + 1) }
+        app.launchArguments = arguments + ["--spike-open", id]
         app.launch()
     }
     private func launch() -> XCUIApplication {
