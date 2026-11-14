@@ -153,8 +153,9 @@ export function ComposerStrip(props: {
     target: props.requestTarget,
     sending: sending.length > 0,
     connection: offline || connection === "reconnecting",
-    held: !!heldTurn,
-    stopped: stopped.length > 0,
+    // A limit hold and commands left running are the copy's facts: only a current one says them.
+    held: fresh && !!heldTurn,
+    stopped: fresh && stopped.length > 0,
     waiting: wait !== undefined,
     queue: queued > 0 || queue.failed || !!held || !!editing,
     goal: !!goal,
