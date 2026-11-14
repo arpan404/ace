@@ -25,6 +25,8 @@ import Observation
     private(set) var off: Set<String>
     /// The route each machine reachable two ways is on (`MachineRoutePlan`), by host id.
     private(set) var plans: [String: MachineRoutePlan] = [:]
+    /// The machine the last pairing from this phone added, for its first run (`FirstRunView`).
+    private(set) var lastPaired: String?
     let inbox: MachineInbox
     /// The SDK directory's paired machines; `machines` is these plus unpaired account machines.
     @ObservationIgnored private var paired: [MachineEntry] = []
@@ -212,6 +214,7 @@ import Observation
         guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
         grants.set(paired.scopes, for: entry)
         saveGrants()
+        lastPaired = entry.hostId
         // Paired again while connected: the daemon closed the old credential's sockets, so the
         // runtime opens again with the new credential and grants.
         if let client = inbox.client(entry.hostId) {
