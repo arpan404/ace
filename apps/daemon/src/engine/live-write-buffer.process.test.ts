@@ -206,7 +206,8 @@ test("reconnecting inside a compacted delta batch replaces the tail with a snaps
 test("read snapshots are isolated and invalidated by local and cross-connection writes", async () => {
   const h = await streaming();
   const first = h.store.snapshotThread(h.id);
-  first.thread.title = "caller mutation";
+  // Shared by every reader, so frozen: no caller can change what the next one reads.
+  expect(() => Object.assign(first.thread, { title: "caller mutation" })).toThrow(TypeError);
   expect(h.store.snapshotThread(h.id).thread.title).not.toBe("caller mutation");
   expect(h.store.streamingMetrics().reads.hits).toBeGreaterThan(0);
   await h.append("fresh");

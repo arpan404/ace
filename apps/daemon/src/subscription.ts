@@ -178,13 +178,18 @@ export function subscribe(
           ? store.acquireThread(scope.threadId)
           : createThreadListView(store.listThreads());
       if (scope.kind === "thread") acquired = scope.threadId;
+      // A thread's snapshot is shared and frozen: send a copy of its top level with the head.
       const snapshotView =
         scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
       const head = store.headSeq();
-      snapshotView.seq = head;
       cursor = head;
       progressHead = head;
-      send({ type: "snapshot", subscriptionId: id, seq: head, view: snapshotView });
+      send({
+        type: "snapshot",
+        subscriptionId: id,
+        seq: head,
+        view: { ...snapshotView, seq: head },
+      });
     } else {
       if (scope.kind === "thread" && !store.getThread(scope.threadId))
         throw new Error("Unknown thread");
@@ -210,9 +215,8 @@ export function subscribe(
             scope.kind === "thread"
               ? store.snapshotThread(scope.threadId)
               : createThreadListView(store.listThreads());
-          view.seq = head;
           cursor = progressHead = head;
-          send({ type: "snapshot", subscriptionId: id, seq: head, view });
+          send({ type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } });
         } else deliver(events, head, true);
       }
     }

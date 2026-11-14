@@ -246,7 +246,7 @@ it("releasing and replacing large subscriptions cannot retain unlimited snapshot
   const { Interaction } = await import("@ace/protocol");
   const store = new Store(":memory:");
   const thread = createDevThread(store, store.createWorkspace("/synthetic", "Synthetic"));
-  const view = store.snapshotThread(thread.id);
+  const view = structuredClone(store.snapshotThread(thread.id));
   view.interactions.large = Interaction.parse({
     id: "large",
     threadId: thread.id,

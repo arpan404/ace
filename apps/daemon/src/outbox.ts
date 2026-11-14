@@ -122,7 +122,8 @@ export class Outbox {
       for (const frame of this.encoder.split(message)) this.sendOne(frame);
     } else if (message.type === "snapshot" || message.type === "entities.page") {
       const encoded = this.encoder.encode(message);
-      if (Buffer.byteLength(encoded) <= eventFrameBytes) this.sendOne(message);
+      const bytes = Buffer.byteLength(encoded);
+      if (bytes <= eventFrameBytes) this.sendSerialized(message, encoded, bytes);
       else {
         // The active-entity source may exceed the queue budget. Produce only the next
         // fragment when transport drains; serialized fragments share the admission cap.
@@ -198,7 +199,15 @@ export class Outbox {
       return;
     }
     const encoded = this.encoder.encode(message);
-    const charge = Buffer.byteLength(encoded);
+    this.sendSerialized(message, encoded, Buffer.byteLength(encoded));
+  }
+  /** Queue a message already encoded as `encoded`, of `charge` UTF-8 bytes. */
+  private sendSerialized(
+    message: ServerMessage | PluginServerMessage,
+    encoded: string,
+    charge: number,
+  ): void {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
     if (charge > (message.type === "events" ? eventFrameBytes : replyFrameBytes)) {
       this.resync();
       return;

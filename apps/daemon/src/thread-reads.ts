@@ -92,7 +92,8 @@ export class ThreadReads {
     }
   }
   snapshotThread(id: ThreadId): ThreadView {
-    return this.source.cache.read(id, "snapshot", () =>
+    // Shared and frozen: a snapshot is only encoded and sent, never changed.
+    return this.source.cache.readShared(id, "snapshot", () =>
       loadThreadSnapshot({
         acquire: () =>
           this.source.inTransaction()
