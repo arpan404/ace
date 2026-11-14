@@ -31,7 +31,7 @@ interface ThreadLook {
 export class SuitPreviews {
   private readonly threads = new Map<string, ThreadLook>();
   /** The thread whose preview is showing, and which Suit it shows. */
-  private showing: { threadId: string; suit: SuitId } | undefined;
+  private showing: { caller: McpAttribution; suit: SuitId } | undefined;
 
   private readonly port: SuitPort;
   constructor(port: SuitPort) {
@@ -44,7 +44,7 @@ export class SuitPreviews {
     const refused = await this.check(id, signal);
     if (refused) return refused;
     await this.port.preview(caller, id);
-    this.showing = { threadId: caller.threadId, suit: id };
+    this.showing = { caller, suit: id };
     return outcome(
       "previewing",
       id,
@@ -63,7 +63,7 @@ export class SuitPreviews {
     const refused = await this.check(suit, signal);
     if (refused) return refused;
     const { restore } = await this.port.keep(caller, suit);
-    if (this.showing?.threadId === caller.threadId) this.showing = undefined;
+    if (this.showing?.caller.threadId === caller.threadId) this.showing = undefined;
     this.threads.set(caller.threadId, { undo: { suit, restore } });
     return outcome("kept", suit, "Kept on the person's devices. revert once undoes it.");
   }
@@ -82,13 +82,14 @@ export class SuitPreviews {
     return outcome("reverted", undo.suit, "The look from before the keep is back.");
   }
 
-  /** A turn ended: its thread's preview, if still showing, ends with it. */
-  async turnEnded(caller: McpAttribution): Promise<void> {
-    if (this.ownPreview(caller)) await this.end(caller);
+  /** A turn ended (`run.ended`): its thread's preview, if still showing, ends with it. */
+  async turnEnded(threadId: string): Promise<void> {
+    const showing = this.showing;
+    if (showing?.caller.threadId === threadId) await this.end(showing.caller);
   }
 
   private ownPreview(caller: McpAttribution): SuitId | undefined {
-    return this.showing?.threadId === caller.threadId ? this.showing.suit : undefined;
+    return this.showing?.caller.threadId === caller.threadId ? this.showing.suit : undefined;
   }
 
   private async end(caller: McpAttribution): Promise<void> {

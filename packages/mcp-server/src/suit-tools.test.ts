@@ -74,7 +74,7 @@ function tool(library: Record<string, SuitProblem[]>) {
   return {
     ...world,
     library,
-    turnEnded: (thread: string) => previews.turnEnded(caller(thread)),
+    turnEnded: (thread: string) => previews.turnEnded(thread),
     async apply(args: { mode: string; id?: string }, thread = "thread-a") {
       const principal =
         principals.get(thread) ??
