@@ -186,7 +186,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 link: pictureLinkLimits,
               });
               const follow = new LinkFollow({
-                rate: () => view.rate(),
+                link: () => view.link(),
+                now: peer.now ?? (() => performance.now()),
                 apply: (settings) =>
                   service.request({ op: "stream.configure", deviceId, settings }, actor),
               });

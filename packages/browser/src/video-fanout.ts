@@ -59,6 +59,8 @@ interface Viewer<C extends VideoPiece> {
   /** A delta was dropped since the last keyframe this viewer got: it is falling behind. */
   dropping: boolean;
   playing: boolean;
+  /** The bytes in flight its link carries in time; the window's bytes bound it too. */
+  bound: number | undefined;
 }
 
 export class VideoFanout<C extends VideoPiece> {
@@ -83,7 +85,16 @@ export class VideoFanout<C extends VideoPiece> {
       needKey: true,
       dropping: false,
       playing: false,
+      bound: undefined,
     });
+  }
+  /**
+   * Holds a viewer's bytes in flight to `bytes` (what its link carries in time), within the
+   * window; undefined: the window alone. A lone keyframe may still exceed it.
+   */
+  bound(id: string, bytes: number | undefined): void {
+    const viewer = this.viewers.get(id);
+    if (viewer) viewer.bound = bytes;
   }
   remove(id: string): void {
     const viewer = this.viewers.get(id);
@@ -129,7 +140,7 @@ export class VideoFanout<C extends VideoPiece> {
         // Behind a waiting keyframe there is room for a window's worth of deltas; else drop.
         const head = viewer.queue[0];
         // The waiting keyframe may be bigger than the window on its own; deltas get the window.
-        const allowance = this.window.bytes + (head?.key ? head.bytes.length : 0);
+        const allowance = this.bytes(viewer) + (head?.key ? head.bytes.length : 0);
         if (
           head &&
           viewer.queue.length < this.window.frames &&
@@ -177,11 +188,14 @@ export class VideoFanout<C extends VideoPiece> {
   clear(): void {
     for (const id of this.viewers.keys()) this.remove(id);
   }
+  private bytes(viewer: Viewer<C>): number {
+    return Math.min(this.window.bytes, viewer.bound ?? Infinity);
+  }
   private fits(viewer: Viewer<C>, chunk: C): boolean {
     if (!viewer.inflight.length) return true;
     return (
       viewer.inflight.length < this.window.frames &&
-      viewer.inflightBytes + chunk.bytes.length <= this.window.bytes
+      viewer.inflightBytes + chunk.bytes.length <= this.bytes(viewer)
     );
   }
   private drop(viewer: Viewer<C>, encode: string): void {

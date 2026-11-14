@@ -1,38 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { LinkRate, outstandingSends } from "./link-rate.ts";
+import { hintedStart, LinkRate, linkFloor, outstandingSends } from "./link-rate.ts";
+import { simulate, type SimLink } from "../scripts/link-sim.ts";
 
-const limits = { min: 500_000, max: 16_000_000, initial: 4_000_000 };
-
-/**
- * A simulated link: chunks queue at `megabits`, then take `oneWay` ms each way. Sends 60 chunks
- * a second of the size the current rate allows, for `seconds`, and returns the rate each second.
- */
-let sequence = 0;
-function drive(rate: LinkRate, megabits: number, seconds: number, oneWay = 50, start = 0) {
-  const bytesPerMs = (megabits * 1e6) / 8 / 1000;
-  const acks: { at: number; sequence: number }[] = [];
-  let linkFreeAt = start;
-  const rates: number[] = [];
-  for (let at = start; at < start + seconds * 1000; at += 1000 / 60) {
-    while (acks.length && (acks[0]?.at ?? Infinity) <= at) {
-      const ack = acks.shift();
-      if (ack) rate.acknowledged(ack.sequence, ack.at);
-    }
-    const bytes = Math.round(rate.rate / 8 / 60);
-    rate.sent(++sequence, bytes, at);
-    linkFreeAt = Math.max(linkFreeAt, at) + bytes / bytesPerMs;
-    acks.push({ at: linkFreeAt + 2 * oneWay, sequence });
-    if (Math.round(at - start) % 1000 < 17 && at > start) rates.push(rate.rate);
-  }
-  return rates;
-}
+const limits = { min: linkFloor, max: 16_000_000, initial: 4_000_000 };
+const phone = { min: linkFloor, max: 16_000_000, initial: 1_500_000 };
+const link = (megabits: number, oneWayMs = 50, loss: Partial<SimLink> = {}): SimLink => ({
+  megabits,
+  oneWayMs,
+  ...loss,
+});
 
 describe("a viewer's link rate", () => {
   it("settles just under a link it overruns, without collapsing to the floor", () => {
     const rate = new LinkRate(limits);
-    const rates = drive(rate, 2, 20);
-    const settled = rates.slice(-5);
-    for (const value of settled) {
+    const rates = simulate(rate, { link: link(2), seconds: 20 });
+    for (const value of rates.slice(-5)) {
       expect(value).toBeLessThan(2_500_000);
       expect(value).toBeGreaterThan(1_000_000);
     }
@@ -40,23 +22,93 @@ describe("a viewer's link rate", () => {
 
   it("climbs on a roomy link and stays there", () => {
     const rate = new LinkRate(limits);
-    const rates = drive(rate, 100, 20);
-    expect(rates.at(-1)).toBe(limits.max);
+    expect(simulate(rate, { link: link(100), seconds: 20 }).at(-1)).toBe(limits.max);
   });
 
   it("falls when the link gets slower", () => {
     const rate = new LinkRate(limits);
-    drive(rate, 100, 10);
-    const rates = drive(rate, 3, 10, 50, 10_000);
+    simulate(rate, { link: link(100), seconds: 10 });
+    const rates = simulate(rate, { link: link(3), seconds: 10, start: 10_000 });
     expect(rates.at(-1)).toBeLessThan(3_300_000);
+  });
+
+  it("follows a 400 kbit/s 3G link down below the old 500 kbit/s floor, and holds above it", () => {
+    const rate = new LinkRate(phone);
+    const rates = simulate(rate, { link: link(0.4, 200), seconds: 30, fps: 5 }).slice(-15);
+    const mean = rates.reduce((sum, value) => sum + value, 0) / rates.length;
+    expect(mean).toBeLessThan(420_000);
+    expect(mean).toBeGreaterThan(300_000);
+    expect(Math.min(...rates)).toBeGreaterThan(200_000);
+  });
+
+  it("holds most of a lossy link: 2 % of chunks stalled a round trip are not read as a queue", () => {
+    const rate = new LinkRate(phone);
+    const lossy = link(1.6, 200, { lossEvery: 50, stallMs: 400 });
+    const rates = simulate(rate, { link: lossy, seconds: 30, fps: 15 }).slice(-20);
+    expect(rates.reduce((sum, value) => sum + value, 0) / rates.length).toBeGreaterThan(1_100_000);
+    expect(Math.min(...rates)).toBeGreaterThan(800_000);
+  });
+
+  it("a single retransmit stall out of a calm link does not cut the rate", () => {
+    const rate = new LinkRate(phone);
+    simulate(rate, { link: link(8, 150), seconds: 10, fps: 15 });
+    const before = rate.rate;
+    rate.sent(10_000, 2_000, 10_000);
+    // A retransmit timeout, backed off to a second: the chunk sent behind it waits too.
+    rate.acknowledged(10_000, 10_000 + 300 + 1_000);
+    rate.sent(10_001, 2_000, 10_050);
+    rate.acknowledged(10_001, 11_300);
+    expect(rate.rate).toBeGreaterThanOrEqual(before);
+  });
+
+  it("a lone late ack does not cut the rate", () => {
+    const rate = new LinkRate(phone);
+    simulate(rate, { link: link(8, 50), seconds: 5, fps: 30 });
+    const before = rate.rate;
+    rate.sent(50_000, 1_000, 5_000);
+    rate.acknowledged(50_000, 5_000 + 100 + 700);
+    expect(rate.rate).toBeGreaterThanOrEqual(before);
+  });
+
+  it("queueing that builds and lasts cuts the rate", () => {
+    const rate = new LinkRate(phone);
+    simulate(rate, { link: link(8, 50), seconds: 5, fps: 30 });
+    const before = rate.rate;
+    for (let index = 0; index < 40; index++) {
+      rate.sent(60_000 + index, 1_000, 5_000 + index * 50);
+      rate.acknowledged(60_000 + index, 5_000 + index * 50 + 100 + Math.min(300, index * 15));
+    }
+    expect(rate.rate).toBeLessThan(before);
+  });
+
+  it("a keyframe's own time on a thin link is not queueing", () => {
+    const rate = new LinkRate(phone);
+    simulate(rate, { link: link(0.8, 150), seconds: 10, fps: 5 });
+    const before = rate.rate;
+    // Half a second of the link in one chunk, every 600 ms, on an otherwise idle link.
+    const bytes = (800_000 / 8) * 0.5;
+    for (let index = 0; index < 6; index++) {
+      rate.sent(90_000 + index, bytes, 20_000 + index * 600);
+      rate.acknowledged(90_000 + index, 20_000 + index * 600 + 300 + 500);
+    }
+    expect(rate.rate).toBeGreaterThanOrEqual(before);
   });
 
   it("a dropped chunk cuts the rate at once", () => {
     const rate = new LinkRate(limits);
-    drive(rate, 100, 5);
+    simulate(rate, { link: link(100), seconds: 5 });
     const before = rate.rate;
     rate.dropped(5_100);
     expect(rate.rate).toBeLessThan(before * 0.7);
+  });
+
+  it("a drop while the oldest chunk is stalled on a loss does not cut", () => {
+    const rate = new LinkRate(phone);
+    simulate(rate, { link: link(8, 150), seconds: 10, fps: 15 });
+    const before = rate.rate;
+    rate.sent(70_000, 1_000, 10_000);
+    rate.dropped(10_000 + 300 + 500);
+    expect(rate.rate).toBe(before);
   });
 
   it("when acks stop, only the newest sends are remembered for the ack that comes later", () => {
@@ -74,7 +126,40 @@ describe("a viewer's link rate", () => {
 
   it("a high but steady round trip is not mistaken for a queue", () => {
     const rate = new LinkRate(limits);
-    const rates = drive(rate, 100, 20, 150);
-    expect(rates.at(-1)).toBe(limits.max);
+    expect(simulate(rate, { link: link(100, 150), seconds: 20 }).at(-1)).toBe(limits.max);
+  });
+
+  it("bounds the bytes in flight to the rate over a round trip plus 300 ms", () => {
+    const rate = new LinkRate(phone);
+    expect(rate.backlogBytes).toBeUndefined();
+    simulate(rate, { link: link(0.4, 200), seconds: 20, fps: 5 });
+    const rtt = rate.rtt ?? 0;
+    expect(rtt).toBeGreaterThan(300);
+    expect(rate.backlogBytes).toBe(Math.round((rate.rate / 8) * ((rtt + 300) / 1000)));
+  });
+});
+
+describe("a link hint", () => {
+  it("starts a thin link low, and is no longer a probe", () => {
+    const rate = new LinkRate(phone, { effectiveType: "3g" });
+    expect(rate.rate).toBe(400_000);
+    expect(rate.probing).toBe(false);
+    expect(new LinkRate(phone).probing).toBe(true);
+  });
+
+  it("never raises the start, and stays within the limits", () => {
+    expect(hintedStart(phone, { effectiveType: "4g", downlinkKbps: 100_000 })).toBe(1_500_000);
+    expect(hintedStart(phone, { effectiveType: "slow-2g" })).toBe(linkFloor);
+    expect(hintedStart(phone, { downlinkKbps: 1 })).toBe(linkFloor);
+    expect(hintedStart(phone, { downlinkKbps: Number.NaN, rttMs: -5 })).toBe(1_500_000);
+    expect(hintedStart(phone, { saveData: true })).toBe(300_000);
+    expect(hintedStart(phone, { rttMs: 450 })).toBe(400_000);
+    expect(hintedStart(phone, { downlinkKbps: 1_600 })).toBe(800_000);
+  });
+
+  it("only picks the start: the rate still climbs no faster than the link proves", () => {
+    const hinted = new LinkRate(phone, { effectiveType: "3g" });
+    const rates = simulate(hinted, { link: link(0.4, 200), seconds: 20, fps: 5 });
+    expect(Math.max(...rates)).toBeLessThan(600_000);
   });
 });

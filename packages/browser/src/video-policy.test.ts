@@ -42,14 +42,28 @@ describe("video encodes for a tab's viewers", () => {
     expect(plan.viewers.get("small")).not.toBe(plan.viewers.get("laptop"));
   });
 
-  it("a slow link costs bit rate, never frames", () => {
+  it("a slow link costs bit rate down to the 3G floor, and no lower", () => {
     const fast = planVideo(page, [viewer("fiber")]).encodes[0];
     const slow = planVideo(page, [viewer("phone", {}, 2_000_000)]).encodes[0];
     expect(fast?.fps).toBe(60);
-    expect(slow?.fps).toBe(60);
     expect(slow?.bitrate).toBe(2_000_000);
     expect(fast?.bitrate).toBeGreaterThan(2_000_000);
+    expect(planVideo(page, [viewer("3g", {}, 300_000)]).encodes[0]?.bitrate).toBe(300_000);
+    expect(minBitrate).toBe(150_000);
     expect(planVideo(page, [viewer("dial-up", {}, 1_000)]).encodes[0]?.bitrate).toBe(minBitrate);
+  });
+
+  it("a viewer's frame rate step sets its encode's, and a shared encode runs at the slowest", () => {
+    const thin = planVideo(page, [{ ...viewer("3g", {}, 400_000), fps: 8 }]).encodes[0];
+    expect(thin?.fps).toBe(8);
+    const shared = planVideo(page, [
+      viewer("fiber"),
+      { ...viewer("phone", {}, 3_000_000), fps: 30 },
+    ]);
+    expect(shared.encodes).toHaveLength(1);
+    expect(shared.encodes[0]?.fps).toBe(30);
+    // A new frame rate is applied in place, not as a new encoder.
+    expect(shared.encodes[0]?.key).toBe(planVideo(page, [viewer("fiber")]).encodes[0]?.key);
   });
 
   it("a shared encode runs at the slowest member's link, under the same key", () => {

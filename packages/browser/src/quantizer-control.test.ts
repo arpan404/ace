@@ -86,3 +86,34 @@ describe("ace's own rate control for quantizer-mode encoders", () => {
     expect(control.next(false)).toBe(before);
   });
 });
+
+describe("the keyframe cap", () => {
+  /** A keyframe that costs `bytesAt24` at quantizer 24, halving each +6. */
+  const keyAt = (control: QuantizerControl, bytesAt24: number) => {
+    const quantizer = control.next(true);
+    const bytes = bytesAt24 / 2 ** ((quantizer - 24) / 6);
+    control.observe(bytes, true);
+    return bytes;
+  };
+
+  it("holds a keyframe to half a second of a 3G link, judged from the last one", () => {
+    const control = new QuantizerControl(400_000, 5);
+    run(control, 20_000, 30);
+    // The first keyframe on a dense page runs far over: nothing has shown what one costs.
+    expect(keyAt(control, 400_000) * 8).toBeGreaterThan(400_000 * 0.5);
+    for (let index = 0; index < 3; index++) {
+      run(control, 20_000, 10);
+      expect(keyAt(control, 400_000) * 8).toBeLessThanOrEqual(400_000 * 0.5);
+    }
+  });
+
+  it("leaves a keyframe that fits as the deltas around it set it", () => {
+    const capped = new QuantizerControl(16_000_000, 60);
+    run(capped, 10_000, 30);
+    keyAt(capped, 5_000);
+    run(capped, 10_000, 10);
+    const plain = new QuantizerControl(16_000_000, 60);
+    run(plain, 10_000, 40);
+    expect(capped.next(true)).toBe(plain.next(true));
+  });
+});

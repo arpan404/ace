@@ -219,7 +219,8 @@ export function screenConnection(
               link: pictureLinkLimits,
             });
             const follow = new LinkFollow({
-              rate: () => view.rate(),
+              link: () => view.link(),
+              now,
               apply: async (settings) => {
                 const result = await manager.configureStream(sessionId, settings);
                 if (result.codec === "h264" || settings.codec !== "h264") {

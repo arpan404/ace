@@ -1,5 +1,5 @@
 import { encodePicture, type PictureChunk, type PictureKind } from "./stream-picture.ts";
-import { LinkRate, type LinkRateLimits } from "./link-rate.ts";
+import { LinkRate, type LinkHint, type LinkRateLimits } from "./link-rate.ts";
 import { VideoFanout, type VideoWindow } from "./video-fanout.ts";
 
 /** Forced keyframes for one viewer at most this often (ADR 0088's per-encode gap). */
@@ -39,6 +39,8 @@ export interface PictureViewerPorts {
   window?: VideoWindow;
   /** Follow this viewer's link (`link-rate.ts`) within these bounds; `rate` says where it is. */
   link?: LinkRateLimits;
+  /** What the viewer's client says about its link: it may start the rate lower. */
+  hint?: LinkHint;
 }
 
 /**
@@ -64,12 +66,16 @@ export class PictureViewer {
     this.#kind = kind;
     this.#sourceId = sourceId;
     this.#ports = ports;
-    this.#link = ports.link ? new LinkRate(ports.link) : undefined;
+    this.#link = ports.link ? new LinkRate(ports.link, ports.hint) : undefined;
     this.#fanout = new VideoFanout<Waiting>({
       keyframe: () => this.#askKeyframe(),
       playing: () => {},
       sent: (_id, sequence, bytes) => this.#link?.sent(sequence, bytes, this.#ports.now()),
-      dropped: () => this.#link?.dropped(this.#ports.now()),
+      dropped: () => {
+        if (!this.#link) return;
+        this.#link.dropped(this.#ports.now());
+        this.#fanout.bound("viewer", this.#link.backlogBytes);
+      },
       ...(ports.window ? { window: ports.window } : {}),
     });
   }
@@ -99,13 +105,21 @@ export class PictureViewer {
   /** The viewer showed pictures up to `sequence`; `keyframe`: its decoder needs a fresh start. */
   ack(streamId: string, sequence: number, keyframe = false): void {
     if (this.#closed || streamId !== this.#stream) return;
-    this.#link?.acknowledged(sequence, this.#ports.now());
+    if (this.#link) {
+      this.#link.acknowledged(sequence, this.#ports.now());
+      // What is in flight is bounded by what the link carries in time, not only the window.
+      this.#fanout.bound("viewer", this.#link.backlogBytes);
+    }
     this.#fanout.acknowledge("viewer", sequence);
     if (keyframe) this.#fanout.keyframe("viewer");
   }
   /** Bits per second this viewer's link carries now, when it is followed (`link`). */
   get rate(): number | undefined {
     return this.#link?.rate;
+  }
+  /** Whether that rate is still probing up from its start (`LinkRate.probing`). */
+  get probing(): boolean {
+    return this.#link?.probing ?? false;
   }
   /** The transport drained: retry what it refused. */
   flush(): void {

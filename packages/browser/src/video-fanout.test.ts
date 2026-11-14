@@ -126,6 +126,24 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received.at(-1)).toBe(next);
   });
 
+  it("a viewer's bytes in flight are held to what its link carries in time, within the window", () => {
+    const { fanout, keyframes, viewer } = setup({ frames: 60, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.bound("phone", 1_500);
+    fanout.publish("e1", key(1_000));
+    fanout.publish("e1", delta(400));
+    // 1,400 bytes are in flight: the next delta would pass the link's 1,500.
+    fanout.publish("e1", delta(400));
+    expect(phone.received.map((chunk) => chunk.bytes.length)).toEqual([1_000, 400]);
+    expect(keyframes).toEqual(["e1", "e1"]);
+    // A link that carries more lets the window hold more again.
+    fanout.bound("phone", undefined);
+    phone.ack();
+    fanout.publish("e1", key(1_000));
+    for (let index = 0; index < 5; index++) fanout.publish("e1", delta(400));
+    expect(phone.received).toHaveLength(2 + 6);
+  });
+
   it("a lone keyframe larger than the byte window still goes, and fills it", () => {
     const { fanout, viewer } = setup({ frames: 8, bytes: 1_000 });
     const phone = viewer("phone");
