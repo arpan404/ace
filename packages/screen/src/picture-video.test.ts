@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { CaptureEvents, VideoHost } from "@ace/browser";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { framePacket, type Frame } from "./frames.ts";
+import { SharedPictureVideos } from "./shared-picture-video.ts";
 import { PicturesToVideo } from "./picture-video.ts";
 
 // An H.264 High 5.1 decoder configuration (avcC) for a 1206×2622 picture, as WebCodecs gives it.
@@ -195,4 +196,59 @@ test("without an encoder-only Chrome, a JPEG-only session can't give a viewer vi
     frame: () => {},
   });
   expect(video.want(settings)).toBe(false);
+});
+
+test("equal session settings share one encode and leaving one viewer keeps the other playing", async () => {
+  const fake = encoder();
+  const pool = new SharedPictureVideos();
+  const first: Frame[] = [],
+    second: Frame[] = [];
+  const open = (frames: Frame[]) =>
+    pool.open({
+      host: () => fake.host,
+      sessionId: "session-1",
+      now: () => 5,
+      frame: (frame) => frames.push(frame),
+    });
+  const a = open(first),
+    b = open(second);
+  a.want(settings);
+  b.want(settings);
+  const input = jpeg(1);
+  a.push(input);
+  b.push(input);
+  await settle();
+  fake.emit(true);
+  expect(fake.pushed).toEqual([input.payload.toString("base64")]);
+  expect(first).toHaveLength(1);
+  expect(second[0]).toBe(first[0]);
+  a.close();
+  b.push(jpeg(2));
+  fake.emit(false);
+  expect(first).toHaveLength(1);
+  expect(second).toHaveLength(2);
+  b.close();
+});
+
+test("different bitrates use separate encodes and a viewer can rejoin the shared settings", async () => {
+  const fake = encoder();
+  const pool = new SharedPictureVideos();
+  const open = () =>
+    pool.open({ host: () => fake.host, sessionId: "session-1", now: () => 5, frame: () => {} });
+  const a = open(),
+    b = open();
+  a.want(settings);
+  b.want({ ...settings, bitrate: 900_000 });
+  const input = jpeg(1);
+  a.push(input);
+  b.push(input);
+  await settle();
+  expect(fake.encodes.map((specs) => specs[0]?.bitrate)).toEqual([2_000_000, 900_000]);
+  b.want(settings);
+  a.push(jpeg(2));
+  await settle();
+  // Rejoining an existing group opens no encoder; it follows that group's output.
+  expect(fake.encodes).toHaveLength(2);
+  a.close();
+  b.close();
 });

@@ -222,3 +222,86 @@ it("a request it can't read is refused at once rather than left unanswered", asy
     }),
   );
 });
+
+it("two connections to a JPEG session receive video from one shared encode", async () => {
+  const test = await manager({ FAKE_V2: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const description = Buffer.from(
+    "01640033ffe1001627640033ac13143c04c0149e6a9a81010103c20108f801000428ee3cb0",
+    "hex",
+  );
+  const feeds: string[] = [];
+  let encoders = 0;
+  const host: import("@ace/browser").VideoHost = {
+    supported: async () => ["avc1.42E033"],
+    open: async () => {
+      throw new Error("No tab capture");
+    },
+    encodePictures: async (width, height, events) => {
+      encoders++;
+      let encode = "";
+      return {
+        encodes: (specs) => {
+          encode = specs[0]?.key ?? "";
+        },
+        keyframe: () => {},
+        close: () => {},
+        pictures: {
+          width,
+          height,
+          push(data) {
+            feeds.push(data);
+            events.chunk({
+              encode,
+              codec: "avc1.42E033",
+              key: true,
+              codedWidth: width,
+              codedHeight: height,
+              description,
+              bytes: Buffer.from([0, 0, 0, 3, 0x25, 0xb8, 0]),
+            });
+          },
+        },
+      };
+    },
+  };
+  const outputs: StreamMessage[][] = [[], []];
+  const peers = outputs.map((output, index) => {
+    const assembler = new StreamAssembler();
+    const peer = screenConnection(test.screen, new Simulators("linux"), `viewer-${index}`, {
+      pictureEncoder: () => host,
+      send: () => {},
+      media: {
+        bufferedBytes: () => 0,
+        write: async (piece) => {
+          const envelope = assembler.push(piece);
+          const message = envelope && decodeStreamMessage(envelope);
+          if (message) output.push(message);
+        },
+      },
+    });
+    cleanups.push(async () => peer.close());
+    return peer;
+  });
+  for (const peer of peers) {
+    await peer.request({
+      type: "screen.request",
+      requestId: "sub",
+      operation: { op: "subscribe", sessionId: state.sessionId },
+    });
+    await peer.request({
+      type: "screen.request",
+      requestId: "video",
+      operation: {
+        op: "stream.configure",
+        sessionId: state.sessionId,
+        settings: { codec: "h264", maxWidth: 640, maxHeight: 640, fps: 60, bitrate: 2_000_000 },
+      },
+    });
+  }
+  await expect.poll(() => outputs.every((output) => output.length > 0)).toBe(true);
+  expect(encoders).toBe(1);
+  expect(feeds.length).toBeGreaterThan(0);
+  expect(outputs.map((output) => output[0]?.kind)).toEqual(["screen.frame", "screen.frame"]);
+});
