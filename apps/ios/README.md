@@ -264,7 +264,16 @@ prebuilt `MarkitCore.xcframework` into `Vendor/Markit`, checked against the SHA-
 `scripts/fetch-markit.ts`, so the build needs no Rust; `ACE_MARKIT_IOS_ZIP` points it at a local
 zip from markit's `scripts/release.sh`). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
 (`AceMarkdownTheme`): code blocks with Copy and a fold past 22 lines, diff fences, tables and
-math typeset as images without a web view. A streaming answer reaches markit 10 to 20 times a
+math typeset as images without a web view. Answers read in markit's agent flavour, as the web's
+do (`Views/Markdown/AnswerDiagram.swift`): GitHub's Markdown without forge references, `$…$`,
+`$$…$$`, `\(…\)` and `\[…\]` maths, and Mermaid fences drawn as diagrams by the forge pages'
+renderer (`Views/Forge/MermaidDiagram.swift`). Each diagram is drawn once per appearance, off
+screen and one at a time, and kept as a picture (`Models/DiagramRenders.swift`, the 8 most
+recent), so no web view stays in the transcript and a row scrolled back draws at once; a diagram
+flung past before its turn is never drawn. A finished answer's view kept on the thread's shelf
+while its row is off screen holds its waiting diagrams out of the queue until it shows again
+(`Models/RenderGate.swift`), so rows on screen never wait behind rows that left. Its source opens from its corner button or long press.
+Until drawn, or when it can't be, the fence shows as code. A streaming answer reaches markit 10 to 20 times a
 second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws
 when the thread captured it (`native.image`, the daemon's `image.resolve`). SwiftUI renders
 work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
@@ -498,6 +507,15 @@ Files' search and manage menu, the browser's Keyboard; `screenBar`) and anything
 file, an agent's transcript) stay in the panel, and the thread's bar keeps only its ⋯ and the
 panel button. The tab strip's own menu is a caret, so no two ⋯ sit together. As sheets on
 iPhone the screens are unchanged.
+
+A published visualization opens at full size, as the web's visualization tab does
+(`Sources/Views/Tools/VisualizationScreen.swift`, routed by `Models/MediaOpening.swift`): the
+page's full-screen button opens it as its own tab here, one tab per page, titled with the page
+(kind `visualization`, a page the shared rules open only with its item id, never from +), and
+full screen over the thread on iPhone or wherever the panel has no room. Either way it is a second
+live copy of the page, drawn from the thread's kept copy, re-read for the other appearance when
+the app switches between light and dark, with Copy source (the page as the agent wrote it,
+`native.media`'s `source`).
 
 Run and preview joins the panel when `ProjectScriptsView` (the projects branch) and this panel
 are on one branch. The shared rules already offer it as "Run and preview" (kind `preview`). Add:

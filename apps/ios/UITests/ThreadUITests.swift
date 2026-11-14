@@ -190,7 +190,8 @@ import XCTest
         app.revealRow("thread.ios-goal").tap()
         let goal = app.buttons["pill.goal"]
         XCTAssertTrue(goal.waitForExistence(timeout: 25))
-        XCTAssertEqual(goal.label, "Pursuing goal")
+        // Its progress reads beside its state, as the web's goal strip shows it.
+        XCTAssertEqual(goal.label, "Pursuing goal · 182K tokens · 32m 0s · 3 checks")
         goal.tap()
         XCTAssertTrue(app.staticTexts["Not met yet: the two refund tests still fail on a fixed clock"].waitForExistence(timeout: 10))
         screenshot("thread-goal")
@@ -205,7 +206,7 @@ import XCTest
         app.buttons["goal.resume"].tap()
         XCTAssertTrue(app.buttons["goal.pause"].waitForExistence(timeout: 10))
         app.buttons["goal.close"].tap()
-        XCTAssertEqual(app.buttons["pill.goal"].label, "Pursuing goal")
+        XCTAssertEqual(app.buttons["pill.goal"].label, "Pursuing goal · 182K tokens · 32m 0s · 3 checks")
         app.navigationBars.buttons.firstMatch.tap()
 
         // Confirmed, the goal clears and leaves the pill. (A second thread, so the first keeps its

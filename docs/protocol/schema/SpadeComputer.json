@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bot": {
+      "$ref": "https://ace.local/protocol/v1/SpadeBotId.json"
+    },
+    "browser": {
+      "properties": {
+        "tabs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SpadeComputerTab.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "tabs"
+      ],
+      "type": "object"
+    },
+    "driver": {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDriver.json"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/CoworkSharing.json"
+    },
+    "screen": {
+      "properties": {
+        "apps": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "personActive": {
+          "type": "boolean"
+        },
+        "since": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "apps"
+      ],
+      "type": "object"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "bot",
+    "driver",
+    "browser",
+    "screen"
+  ],
+  "type": "object"
+}

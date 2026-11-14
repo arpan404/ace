@@ -115,6 +115,32 @@ import XCTest
         screenshot("ipad-panel-browser")
     }
 
+    /// A published page's full-screen button opens it as its own tab beside the thread, titled
+    /// with the page; expanding it again shows the same tab.
+    func testAVisualizationOpensAsItsOwnTabBesideTheThread() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        app.revealRow("thread.ios-media").tap()
+        let expand = app.buttons["Open Interactive counter full screen"]
+        XCTAssertTrue(expand.waitForHittable(timeout: 25))
+        expand.tap()
+        // The tabs themselves, not each tab's close button (`<tab>.close`).
+        let tabs = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND NOT identifier ENDSWITH %@",
+                                                    "panel.tab.visualization:", ".close"))
+        let tab = tabs.firstMatch
+        XCTAssertTrue(tab.waitForHittable(timeout: 15))
+        XCTAssertEqual(tab.label, "Interactive counter")
+        XCTAssertTrue(tab.isSelected)
+        XCTAssertTrue(app.descendants(matching: .any)["visualization.screen"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["visualization.copy"].waitForHittable(timeout: 15))
+        XCTAssertFalse(app.buttons["Close"].exists, "the tab strip closes it, not a close button of its own")
+        XCTAssertTrue(app.textViews["composer.input"].exists, "the thread stays beside the page")
+        screenshot("ipad-panel-visualization")
+        expand.tap()
+        XCTAssertEqual(tabs.count, 1, "the same page opens the tab already open")
+    }
+
     func testInPortraitTheListStepsAsideForThePanelAndComesBackAfter() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .portrait

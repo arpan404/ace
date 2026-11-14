@@ -67,6 +67,9 @@ export const SettingsValues = z.object({
     .min(1)
     .max(4096)
     .refine((path) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path), "Absolute path")
+    .meta({
+      "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /.",
+    })
     .nullable(),
   /**
    * Whether Claude Code starts with Claude in Chrome (`--chrome`): `auto` follows

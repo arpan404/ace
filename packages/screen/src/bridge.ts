@@ -15,7 +15,6 @@ import {
 } from "@ace/browser/picture-channel";
 import { framePicture } from "./frame-picture.ts";
 import type { Frame } from "./frames.ts";
-import { PicturesToVideo } from "./picture-video.ts";
 import type { VideoHost } from "@ace/browser";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
@@ -202,7 +201,7 @@ export function screenConnection(
             const sessionId = operation.sessionId;
             const now = peer.now ?? (() => performance.now());
             // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
-            const converter = new PicturesToVideo({
+            const converter = manager.openPictureVideo({
               host: () => peer.pictureEncoder?.(),
               sessionId,
               now,
@@ -249,6 +248,8 @@ export function screenConnection(
                 if (follows.get(sessionId) === follow) follows.delete(sessionId);
               });
             } catch (error) {
+              converter.close();
+              follow.close();
               view.close();
               throw error;
             }

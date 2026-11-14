@@ -1070,6 +1070,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeRemoteRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerGet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDrive.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,

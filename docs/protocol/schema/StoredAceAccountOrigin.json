@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/StoredAceAccountOrigin.json",
+  "$ref": "https://ace.local/protocol/v1/AceAccountOrigin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-ace-constraint": "A former address of ace's backend is decoded as the current one."
+}

@@ -174,11 +174,12 @@ export class PicturesToVideo {
     const host = this.#options.host();
     if (!host) return;
     this.#opening = true;
+    const requested = this.#wanted;
     void picturesAsVideo({
       host,
       sessionId: this.#options.sessionId,
       first: frame,
-      settings: this.#wanted,
+      settings: requested,
       now: this.#options.now,
       frame: (encoded) => {
         if (!this.#closed) this.#options.frame(encoded);
@@ -190,6 +191,7 @@ export class PicturesToVideo {
       .then((video) => {
         if (this.#closed || !this.#wanted) return video?.close();
         this.#video = video;
+        if (this.#wanted !== requested) video?.configure(this.#wanted);
         // Pictures that came while it opened were held back: the encode starts from the newest.
         video?.push(this.#latest ?? frame);
       })

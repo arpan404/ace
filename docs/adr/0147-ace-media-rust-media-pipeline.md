@@ -1,6 +1,7 @@
 # 0147: ace-media, a Rust media pipeline
 
-Status: accepted. Date: 2026-11-14. Decided by: the owner.
+Status: accepted. Amended by [ADR 0148](0148-ace-media-gpu-accelerated.md) (GPU acceleration,
+NVENC). Date: 2026-11-14. Decided by: the owner.
 
 - **2026-11-13:** "lets use rust based pipeline for the video pipeline for spade. So we can also
   replace the bun streaming for heavy such work".

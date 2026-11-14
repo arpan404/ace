@@ -177,6 +177,11 @@ import Testing
         _ = try await until("the goal") {
             model.thread?.id == "ios-goal" && model.thread?.screen.goal?.title == "Pursuing goal" ? true : nil
         }
+        // The pill carries the goal's progress beside its state, as the web's goal strip does.
+        let progress = try await until("the goal's progress on the pill") {
+            model.thread?.screen.pill?.segments.first { $0.kind == "goal" }?.detail
+        }
+        #expect(progress == "182K tokens · 32m 0s · 3 checks")
         let stale = try await SpikeFixture.within("stale goal change answered") { await model.changeGoal("pause", epoch: sheetEpoch) }
         #expect(stale != nil, "a change from the left thread's sheet is refused")
         #expect(model.error == nil, "and said on the sheet, not screen-wide")
