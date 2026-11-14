@@ -315,29 +315,32 @@ test("a completion cut off by the connection completes on the next one", async (
   await endsAsFullSnapshot(h, tail.client);
 });
 
-test("a client closed while a thread holds only its tail restores it as owed and completes it", async () => {
+test("a client closed while a thread holds only its tail keeps no copy an older reader could resume", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   const long = oversized(h);
-  const kept = memory().storage;
+  const { values, storage: kept } = memory();
   const first = gated(h, { readSnapshots: kept });
   await ready(first.client);
   first.client.thread(h.thread.id);
   await vi.waitFor(() => expect(first.held()).toBe(1));
+  expect(first.client.cachedThread(h.thread.id)?.filling).toBe(true);
   await first.client.close();
+  // Nothing of the tail-only copy was written for that thread.
+  expect([...values.keys()].filter((key) => key.includes(`thread:${h.thread.id}`))).toEqual([]);
   append(h, [created(reply("after-close", "written while the app was closed"))]);
-  // The same database: the restored copy must not resume from its cursor.
-  const second = h.make({ openTail: screenTail, readSnapshots: kept });
+  // An older reader knows no `partial`: it would keep any record and drop the field.
+  for (const [key, value] of values)
+    values.set(
+      key,
+      JSON.parse(
+        JSON.stringify(value, (field, entry: unknown) => (field === "partial" ? undefined : entry)),
+      ),
+    );
+  // An older client, which never asks for a tail, against the same database.
+  const second = h.make({ readSnapshots: kept });
   await ready(second.client);
   const lease = second.client.thread(h.thread.id);
   await endsAsFullSnapshot(h, second.client);
   expect(textOf(lease.store.item("long"))).toBe(long);
-  const subscribes = second.faults.sent
-    .map((text) => JSON.parse(text) as { type: string; afterSeq?: unknown; tail?: unknown })
-    .filter((sent) => sent.type === "subscribe" && JSON.stringify(sent).includes('"thread"'));
-  expect(subscribes.length).toBeGreaterThan(0);
-  for (const sent of subscribes) {
-    expect(sent).not.toHaveProperty("afterSeq");
-    expect(sent).not.toHaveProperty("tail");
-  }
 });

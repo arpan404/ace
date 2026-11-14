@@ -205,7 +205,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         usageSnapshots: view.usageSnapshots,
         ...(view.queue && { queue: view.queue }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
-        // Only a tail: a copy kept or mirrored from it is completed from the full snapshot too.
+        // Only a tail: a tab's mirror shows it as owed too. Never written to disk (`#bind`).
         ...(this.#partial && { partial: { previews: [...this.#partial.previews] } }),
       },
       truncated: [...this.#clipped],

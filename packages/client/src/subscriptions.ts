@@ -279,7 +279,10 @@ export class Subscriptions {
       this.#persistence,
       `thread:${threadId}`,
       contentChanges((tap) => store.observe(tap)),
-      () => threadRecord(store.export(), entry.database),
+      // A store holding only a tail keeps nothing on disk: any reader, this build's or an older
+      // one that would drop the `partial` mark, then restores the thread as holding nothing and
+      // opens it fresh. A record from before stays a complete copy at its own, older cursor.
+      () => (store.filling ? undefined : threadRecord(store.export(), entry.database)),
       (value) => {
         const record = parseThreadRecord(value, threadId);
         if (!record || !store.restore(record.view, record.truncated)) return;
