@@ -24,7 +24,10 @@ async function until(condition: () => boolean): Promise<void> {
 const due = () => new Promise((resolve) => setImmediate(resolve));
 /** Whether a process exits within 5 s. */
 async function exits(tracked: Tracked | undefined): Promise<boolean> {
-  await Promise.race([tracked?.process.exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  await Promise.race([
+    tracked?.process.exited,
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
   return tracked?.gone ?? false;
 }
 /** Proof a process is running now: signal 0 reaches it and it has not reported an exit. */
@@ -102,7 +105,12 @@ async function observed(extra: ServerOptions = {}) {
       cwd: "/warm",
       ...(env ? { env } : {}),
       signal: new AbortController().signal,
-      aceMcp: { url: mcp.url, bearer: lease.bearer, signal: lease.principal.signal, end: lease.end },
+      aceMcp: {
+        url: mcp.url,
+        bearer: lease.bearer,
+        signal: lease.principal.signal,
+        end: lease.end,
+      },
       onFrame() {},
       onExit() {},
     });

@@ -90,9 +90,9 @@ it("Claude sessions read ace's skills from one copy, and shutdown removes it", a
   expect(one).toEqual([{ directory: expect.any(String), text: shipped }]);
   expect(two).toEqual(one);
   const [root] = await roots(dataDir);
-  expect(one?.[0]?.directory.startsWith(join(dataDir, builtinSkillSessionsDirectory, root ?? "-"))).toBe(
-    true,
-  );
+  expect(
+    one?.[0]?.directory.startsWith(join(dataDir, builtinSkillSessionsDirectory, root ?? "-")),
+  ).toBe(true);
 
   await first.session.close("shutdown");
   await second.session.close("shutdown");

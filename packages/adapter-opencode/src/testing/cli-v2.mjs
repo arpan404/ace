@@ -852,4 +852,6 @@ process.stdin.on("end", () => {
 // once asked to stop.
 const slowUnusedExit = Number(process.env.ACE_TEST_SLOW_UNUSED_EXIT_MS ?? 0);
 if (slowUnusedExit)
-  process.on("SIGTERM", () => setTimeout(() => process.exit(0), servedSession ? 0 : slowUnusedExit));
+  process.on("SIGTERM", () =>
+    setTimeout(() => process.exit(0), servedSession ? 0 : slowUnusedExit),
+  );

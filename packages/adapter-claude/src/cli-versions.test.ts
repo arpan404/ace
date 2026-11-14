@@ -22,10 +22,13 @@ async function installed(layout: string, content: string | Buffer = native) {
 }
 /** A probe that answers `reported` and counts how often the CLI was asked. */
 function asked(reported: () => string) {
-  const probe = Object.assign(async () => {
-    probe.count++;
-    return `${reported()} (Claude Code)`;
-  }, { count: 0 });
+  const probe = Object.assign(
+    async () => {
+      probe.count++;
+      return `${reported()} (Claude Code)`;
+    },
+    { count: 0 },
+  );
   return probe;
 }
 
@@ -36,7 +39,8 @@ it.each([
   const { path } = await installed(layout);
   const versions = new CliVersions(later);
   const probe = asked(() => "2.1.286");
-  for (let open = 0; open < 3; open++) expect(await versions.read(path, probe)).toContain("2.1.286");
+  for (let open = 0; open < 3; open++)
+    expect(await versions.read(path, probe)).toContain("2.1.286");
   expect(probe.count).toBe(1);
 });
 

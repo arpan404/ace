@@ -374,4 +374,3 @@ test("after OpenCode rebuilds the session's location, Stop goes through without 
     await mcp.close();
   }
 });
-

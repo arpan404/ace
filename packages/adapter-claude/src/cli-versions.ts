@@ -57,10 +57,10 @@ export class CliVersions {
   }
 }
 
+const settledTime = (time: bigint, started: bigint) =>
+  time / 1_000_000n + timestampSlackMs < started;
 async function fileIdentity(path: string) {
   const info = await stat(path, { bigint: true });
-  const settledTime = (time: bigint, started: bigint) =>
-    time / 1_000_000n + timestampSlackMs < started;
   return {
     file: [info.isFile(), info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":"),
     settled: (started: bigint) =>
