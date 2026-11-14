@@ -363,6 +363,19 @@ impl Transform {
         self.drained
     }
 
+    /// Waits up to `limit` for input credit. A fresh async MFT sends its first
+    /// `METransformNeedInput` a moment after streaming starts.
+    pub fn await_input(&mut self, limit: Duration) -> Result<bool, CodecError> {
+        let until = Instant::now() + limit;
+        while !self.wants_input()? {
+            if Instant::now() >= until {
+                return Ok(false);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Ok(true)
+    }
+
     /// Waits up to `limit` for the async queue to change.
     pub fn wait(&mut self, limit: Duration) -> Result<(), CodecError> {
         let until = Instant::now() + limit;
@@ -391,63 +404,5 @@ impl Drop for Transform {
             }
             let _ = self.activate.ShutdownObject();
         }
-    }
-}
-
-/// The bytes of a sample, appended to `out` after clearing it.
-pub(crate) fn sample_bytes(sample: &IMFSample, out: &mut Vec<u8>) -> Result<(), CodecError> {
-    out.clear();
-    // SAFETY: The buffer is locked, copied and unlocked here.
-    unsafe {
-        let buffer = sample
-            .ConvertToContiguousBuffer()
-            .ctx("ConvertToContiguousBuffer")?;
-        let mut data = std::ptr::null_mut();
-        let mut len = 0u32;
-        buffer.Lock(&mut data, None, Some(&mut len)).ctx("Lock")?;
-        if !data.is_null() {
-            out.extend_from_slice(std::slice::from_raw_parts(data, len as usize));
-        }
-        buffer.Unlock().ctx("Unlock")?;
-    }
-    Ok(())
-}
-
-/// A sample holding `bytes` in system memory, timed in 100 ns units.
-pub(crate) fn memory_sample(
-    bytes: &[u8],
-    pts_us: u64,
-    duration_us: u64,
-) -> Result<IMFSample, CodecError> {
-    // SAFETY: Fresh buffer of `bytes.len()`, filled under its lock.
-    unsafe {
-        let buffer = MFCreateMemoryBuffer(bytes.len() as u32).ctx("MFCreateMemoryBuffer")?;
-        let mut data = std::ptr::null_mut();
-        buffer.Lock(&mut data, None, None).ctx("Lock")?;
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
-        buffer.Unlock().ctx("Unlock")?;
-        buffer
-            .SetCurrentLength(bytes.len() as u32)
-            .ctx("SetCurrentLength")?;
-        timed_sample(&buffer, pts_us, duration_us)
-    }
-}
-
-pub(crate) fn timed_sample(
-    buffer: &IMFMediaBuffer,
-    pts_us: u64,
-    duration_us: u64,
-) -> Result<IMFSample, CodecError> {
-    // SAFETY: Attribute writes on a fresh sample.
-    unsafe {
-        let sample = MFCreateSample().ctx("MFCreateSample")?;
-        sample.AddBuffer(buffer).ctx("AddBuffer")?;
-        sample
-            .SetSampleTime((pts_us * 10) as i64)
-            .ctx("SetSampleTime")?;
-        sample
-            .SetSampleDuration((duration_us * 10) as i64)
-            .ctx("SetSampleDuration")?;
-        Ok(sample)
     }
 }

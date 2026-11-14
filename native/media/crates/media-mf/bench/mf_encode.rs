@@ -40,7 +40,7 @@ fn main() -> Result<(), media_codec::CodecError> {
         })
         .collect::<Result<_, _>>()?;
     let device = MfDevice::new().ok();
-    let mut encoder = MfEncoder::new(device.clone());
+    let mut encoder = MfEncoder::new(device.clone())?;
     encoder.configure(&EncodeSpec {
         codec: Codec::H264,
         size,

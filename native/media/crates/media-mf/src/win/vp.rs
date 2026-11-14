@@ -99,13 +99,17 @@ impl MfScaler {
                 "NV12 needs even dimensions".into(),
             ));
         }
-        let Some((video, context)) = &self.device.0.video else {
+        let device = self.device.clone();
+        let _lock = device.lock();
+        let Some((video, context)) = &device.0.video else {
             return Err(CodecError::Unsupported("no video processor".into()));
         };
         let key = (input.size, input.format, size);
         if self.processor.as_ref().is_none_or(|p| p.key != key) {
             self.processor = None;
+            // Views belong to the enumerator they were made with.
             self.inputs.clear();
+            self.outputs.clear();
             let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
                 InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
                 InputFrameRate: DXGI_RATIONAL {

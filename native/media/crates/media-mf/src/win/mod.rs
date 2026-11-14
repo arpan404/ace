@@ -8,6 +8,7 @@ mod device;
 mod encoder;
 mod mft;
 mod probe;
+mod samples;
 mod session;
 mod surface;
 mod variant;

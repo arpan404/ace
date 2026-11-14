@@ -6,66 +6,83 @@
 //! by the video processor first, on the GPU. The software MFT takes system-memory NV12, so a
 //! texture costs it one counted readback. Output: length-prefixed NAL units with an
 //! `avcC`/`hvcC` record on keyframes, like the other backends.
-use super::com::{Ctx, enter};
+//!
+//! Replacing a session (a new codec or size, a keyframe the MFT can't force, a stalled
+//! MFT) opens the new one first, drains the old one into the queue, then swaps; if the new
+//! one fails to open, the old one stays.
+mod input;
+
+use super::com::{Runtime, enter};
 use super::device::MfDevice;
-use super::mft::{Output, memory_sample, sample_bytes, timed_sample};
+use super::mft::Output;
+use super::samples::{InFlight, sample_bytes};
 use super::session::{Session, encoders, subtype};
-use super::surface::{MfFormat, MfSurface, Ring, Staging, read_back_with, upload_into};
+use super::surface::{MfSurface, Ring, Staging};
 use super::vp::MfScaler;
 use crate::Copies;
 use crate::nal::{ParameterSets, annexb_to_sample};
 use media_codec::*;
 use std::collections::VecDeque;
-use std::time::Duration;
-use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
-use windows::Win32::Media::MediaFoundation::{
-    MFCreateDXGISurfaceBuffer, MFSampleExtension_CleanPoint,
-};
-use windows_core::Interface;
+use std::time::{Duration, Instant};
+use windows::Win32::Media::MediaFoundation::{IMFSample, MFSampleExtension_CleanPoint};
 
-/// Frames an MFT may hold before input is refused.
-const MAX_PENDING: usize = 8;
+/// Pictures an MFT may hold before input is refused. Decoders size their pools from it.
+pub(crate) const IN_FLIGHT: usize = 8;
 const DRAIN_LIMIT: Duration = Duration::from_secs(2);
+/// Input held this long with no output means the MFT has stalled; it is replaced.
+const STALL: Duration = Duration::from_secs(1);
+/// Longest an `encode` waits for an async MFT's input request.
+const CREDIT_WAIT: Duration = Duration::from_millis(50);
 
 pub struct MfEncoder {
-    device: Option<MfDevice>,
+    // Declared first, and ended first in `Drop`: the MFT shuts down before the textures,
+    // device and Media Foundation it uses.
     session: Option<Session>,
+    in_flight: InFlight,
+    scaler: Option<MfScaler>,
+    uploads: Option<Ring>,
+    staging: Staging,
     output: VecDeque<EncodedUnit>,
     error: Option<CodecError>,
     sets: ParameterSets,
     annexb: Vec<u8>,
     sample: Vec<u8>,
     copies: Copies,
-    scaler: Option<MfScaler>,
-    uploads: Option<Ring>,
-    staging: Staging,
-    /// Textures an MFT may still read, with their presentation times.
-    pending: VecDeque<(u64, MfSurface)>,
-    in_flight: usize,
+    stalls: u32,
+    device: Option<MfDevice>,
+    _runtime: Runtime,
 }
 
 // SAFETY: Every COM member is a free-threaded Media Foundation or D3D11 object in the MTA
 // (`com.rs`) on a multithread-protected device (`device.rs`); one owner drives the encoder.
 unsafe impl Send for MfEncoder {}
 
+impl Drop for MfEncoder {
+    fn drop(&mut self) {
+        self.session = None;
+        self.in_flight.clear();
+    }
+}
+
 impl MfEncoder {
     /// With a device, hardware MFTs are tried first; without one, only software MFTs.
-    pub fn new(device: Option<MfDevice>) -> Self {
-        Self {
-            device,
+    pub fn new(device: Option<MfDevice>) -> Result<Self, CodecError> {
+        Ok(Self {
             session: None,
+            in_flight: InFlight::new(IN_FLIGHT),
+            scaler: None,
+            uploads: None,
+            staging: Staging::default(),
             output: VecDeque::new(),
             error: None,
             sets: ParameterSets::default(),
             annexb: Vec::new(),
             sample: Vec::new(),
             copies: Copies::default(),
-            scaler: None,
-            uploads: None,
-            staging: Staging::default(),
-            pending: VecDeque::new(),
-            in_flight: 0,
-        }
+            stalls: 0,
+            device,
+            _runtime: Runtime::start()?,
+        })
     }
 
     /// What the open MFT is: `MFT_ENUM_FLAG_HARDWARE`, never inferred.
@@ -83,130 +100,52 @@ impl MfEncoder {
         self.copies
     }
 
+    /// Times the watchdog replaced an MFT that held input for a second without output.
+    pub fn stalls(&self) -> u32 {
+        self.stalls
+    }
+
     fn adapter_vendor(&self) -> Option<crate::Vendor> {
         self.device.as_ref().map(|d| d.adapter().vendor)
     }
 
-    /// The input sample for `picture`, counting copies.
-    fn input(
-        &mut self,
-        picture: Picture,
-    ) -> Result<windows::Win32::Media::MediaFoundation::IMFSample, CodecError> {
-        let Some(session) = &self.session else {
-            return Err(CodecError::NotConfigured);
-        };
-        let spec = session.spec.clone();
-        let d3d = session.transform.d3d;
-        let pts = picture.pts_us();
-        let duration = 1_000_000 / u64::from(spec.fps);
-        let device = self.device.clone();
-        // A texture in the wrong size or format goes through the video processor.
-        let surface = match (MfSurface::of(&picture), &device) {
-            (Some(s), Some(device)) if !s.device.same(device) => {
-                return Err(CodecError::InvalidInput(
-                    "surface from another device".into(),
-                ));
+    /// Opens a session for `spec`, then drains and replaces the current one. On failure the
+    /// current session is untouched.
+    fn replace(&mut self, spec: &EncodeSpec) -> Result<(), CodecError> {
+        let listed = encoders(spec.codec, self.adapter_vendor())?;
+        let fresh = Session::open(&listed, spec, self.device.as_ref())?;
+        if self.session.is_some() {
+            // Whatever the old MFT still had is delivered; a failing drain loses only that.
+            if let Err(error) = self.drain_session() {
+                self.error.get_or_insert(error);
             }
-            (Some(s), _) if s.size == spec.size && s.format == MfFormat::Nv12 => Some(s.share()),
-            (Some(s), Some(device)) => Some(self.scaler(device)?.convert(s, spec.size)?),
-            (Some(_), None) => {
-                return Err(CodecError::InvalidInput("surface without a device".into()));
-            }
-            (None, _) => None,
-        };
-        let cpu = match picture {
-            Picture::Cpu(cpu) => Some(cpu),
-            Picture::Platform(_) => None,
-        };
-        match (surface, cpu, d3d) {
-            (Some(surface), _, true) => self.texture_sample(surface, pts, duration),
-            (Some(surface), _, false) => {
-                let cpu = read_back_with(&mut self.staging, &surface, pts)?;
-                self.copies.readbacks += 1;
-                self.cpu_sample(&cpu, duration)
-            }
-            (None, Some(cpu), true) => {
-                let device = device.ok_or(CodecError::NotConfigured)?;
-                let surface = if cpu.size() == spec.size && cpu.format() == PixelFormat::Nv12 {
-                    let ring = self.uploads.get_or_insert_with(|| {
-                        Ring::new(&device, spec.size, MfFormat::Nv12, MAX_PENDING)
-                    });
-                    if !ring.fits(spec.size, MfFormat::Nv12) {
-                        *ring = Ring::new(&device, spec.size, MfFormat::Nv12, MAX_PENDING);
-                    }
-                    let target = ring.acquire()?;
-                    upload_into(&mut self.staging, &cpu, &target)?;
-                    self.copies.uploads += 1;
-                    target
-                } else {
-                    let picture = Picture::Cpu(cpu);
-                    let out =
-                        self.scaler(&device)?
-                            .scale(&picture, spec.size.width, spec.size.height)?;
-                    self.copies.uploads += 1;
-                    MfSurface::of(&out)
-                        .ok_or(CodecError::NotConfigured)?
-                        .share()
-                };
-                self.texture_sample(surface, pts, duration)
-            }
-            (None, Some(cpu), false) => {
-                if cpu.size() != spec.size || cpu.format() != PixelFormat::Nv12 {
-                    return Err(CodecError::InvalidInput(
-                        "the software MFT takes NV12 at the encode size".into(),
-                    ));
-                }
-                self.cpu_sample(&cpu, duration)
-            }
-            (None, None, _) => Err(CodecError::InvalidInput(
-                "surface from another backend".into(),
-            )),
         }
+        self.session = Some(fresh);
+        self.in_flight.clear();
+        self.sets = ParameterSets::default();
+        Ok(())
     }
 
-    fn scaler(&mut self, device: &MfDevice) -> Result<&mut MfScaler, CodecError> {
-        if self.scaler.is_none() {
-            self.scaler = Some(MfScaler::new(device, MfFormat::Nv12)?);
-        }
-        self.scaler.as_mut().ok_or(CodecError::NotConfigured)
-    }
-
-    fn texture_sample(
-        &mut self,
-        surface: MfSurface,
-        pts: u64,
-        duration: u64,
-    ) -> Result<windows::Win32::Media::MediaFoundation::IMFSample, CodecError> {
-        // SAFETY: The texture is live and held in `pending` until the MFT is done with it.
-        let buffer = unsafe {
-            MFCreateDXGISurfaceBuffer(
-                &ID3D11Texture2D::IID,
-                &surface.texture,
-                surface.subresource,
-                false,
-            )
-        }
-        .ctx("MFCreateDXGISurfaceBuffer")?;
-        let sample = timed_sample(&buffer, pts, duration)?;
-        self.pending.push_back((pts, surface));
-        Ok(sample)
-    }
-
-    fn cpu_sample(
-        &mut self,
-        cpu: &CpuPicture,
-        duration: u64,
-    ) -> Result<windows::Win32::Media::MediaFoundation::IMFSample, CodecError> {
-        let size = cpu.size();
-        let (w, h) = (size.width as usize, size.height as usize);
-        self.sample.clear();
-        for (plane, rows) in cpu.planes().iter().zip([h, h / 2]) {
-            for y in 0..rows {
-                self.sample
-                    .extend_from_slice(&plane.data[y * plane.stride..y * plane.stride + w]);
+    /// Asks the current MFT for its delayed output and queues it.
+    fn drain_session(&mut self) -> Result<(), CodecError> {
+        let Some(session) = &mut self.session else {
+            return Ok(());
+        };
+        session.transform.drain()?;
+        let deadline = Instant::now() + DRAIN_LIMIT;
+        loop {
+            self.collect()?;
+            let Some(session) = &mut self.session else {
+                return Ok(());
+            };
+            if !session.transform.is_async() || session.transform.drained() {
+                return Ok(());
             }
+            if Instant::now() >= deadline {
+                return Err(CodecError::DeadlineExceeded);
+            }
+            session.transform.wait(Duration::from_millis(20))?;
         }
-        memory_sample(&self.sample, cpu.pts_us, duration)
     }
 
     /// Moves every ready output into the queue.
@@ -217,17 +156,18 @@ impl MfEncoder {
             };
             let capacity = session.spec.size.width * session.spec.size.height * 3 / 2;
             match session.transform.output(capacity)? {
-                Output::Empty => return Ok(()),
+                Output::Empty => {
+                    self.in_flight.sweep();
+                    return Ok(());
+                }
                 Output::StreamChange => session.renegotiate()?,
                 Output::Sample(sample) => self.finish(&sample)?,
             }
         }
     }
 
-    fn finish(
-        &mut self,
-        sample: &windows::Win32::Media::MediaFoundation::IMFSample,
-    ) -> Result<(), CodecError> {
+    fn finish(&mut self, sample: &IMFSample) -> Result<(), CodecError> {
+        self.in_flight.progressed(Instant::now());
         let Some(session) = &self.session else {
             return Ok(());
         };
@@ -246,17 +186,10 @@ impl MfEncoder {
         };
         let mut data = Vec::with_capacity(self.annexb.len());
         let found = annexb_to_sample(spec.codec, &self.annexb, &mut self.sets, &mut data);
-        let key = found.key || (clean && self.sets.complete(spec.codec));
-        let pts_us = (time.max(0) / 10) as u64;
-        self.in_flight = self.in_flight.saturating_sub(1);
-        // Encoders here never reorder (no B-frames): every texture at or before this
-        // time has been read.
-        while self.pending.front().is_some_and(|(p, _)| *p <= pts_us) {
-            self.pending.pop_front();
-        }
         if data.is_empty() {
             return Ok(());
         }
+        let key = found.key || (clean && self.sets.complete(spec.codec));
         self.output.push_back(EncodedUnit {
             codec: spec.codec,
             size: spec.size,
@@ -271,7 +204,7 @@ impl MfEncoder {
             } else {
                 None
             },
-            pts_us,
+            pts_us: (time.max(0) / 10) as u64,
             duration_us: if duration > 0 {
                 (duration / 10) as u64
             } else {
@@ -281,11 +214,29 @@ impl MfEncoder {
         Ok(())
     }
 
-    fn reset(&mut self) {
-        self.session = None;
-        self.pending.clear();
-        self.in_flight = 0;
-        self.sets = ParameterSets::default();
+    /// An async MFT that has held input for `STALL` with no output and no input request.
+    /// A synchronous MFT, or an async one asking for input, is waiting on us, not stalled
+    /// (an idle screen sends no pictures for seconds).
+    fn stalled(&mut self) -> Result<bool, CodecError> {
+        let Some(session) = &mut self.session else {
+            return Ok(false);
+        };
+        if !session.transform.is_async() || session.transform.wants_input()? {
+            return Ok(false);
+        }
+        Ok(self.in_flight.stalled(Instant::now(), STALL))
+    }
+
+    /// Whether the MFT will take a picture now, waiting a little for an async one.
+    fn ready_for_input(&mut self) -> Result<bool, CodecError> {
+        if self.in_flight.len() >= IN_FLIGHT {
+            return Ok(false);
+        }
+        let Some(session) = &mut self.session else {
+            return Err(CodecError::NotConfigured);
+        };
+        let frame = Duration::from_micros(1_000_000 / u64::from(session.spec.fps));
+        session.transform.await_input(frame.min(CREDIT_WAIT))
     }
 }
 
@@ -307,54 +258,57 @@ impl Encoder for MfEncoder {
                 return Ok(());
             }
         }
-        let listed = encoders(spec.codec, self.adapter_vendor())?;
-        let session = Session::open(&listed, spec, self.device.as_ref())?;
-        self.reset();
-        self.session = Some(session);
-        Ok(())
+        self.replace(spec)
     }
 
     fn encode(&mut self, picture: Picture, force_key: bool) -> Result<(), CodecError> {
         enter();
         self.copies = Copies::default();
-        let Some(session) = &mut self.session else {
+        let Some(session) = &self.session else {
             return Err(CodecError::NotConfigured);
         };
-        if picture.size() != session.spec.size && MfSurface::of(&picture).is_none() {
+        let spec = session.spec.clone();
+        if picture.size() != spec.size && MfSurface::of(&picture).is_none() {
             return Err(CodecError::InvalidInput(
                 "picture size differs from encode size".into(),
             ));
         }
-        session.transform.pump()?;
         self.collect()?;
-        let Some(session) = &mut self.session else {
-            return Err(CodecError::NotConfigured);
-        };
-        if self.in_flight >= MAX_PENDING || !session.transform.wants_input()? {
+        if self.stalled()? {
+            // The MFT holds input, gives nothing back and asks for nothing: start over.
+            self.replace(&spec)?;
+            self.stalls += 1;
+        }
+        if force_key
+            && !self
+                .session
+                .as_ref()
+                .is_some_and(|s| s.settings.force_key())
+        {
+            // An MFT that can't force a keyframe gets a new session, which opens on one.
+            self.replace(&spec)?;
+        }
+        if !self.ready_for_input()? {
             return Err(CodecError::Backpressure);
         }
-        if force_key && !session.settings.force_key() {
-            // An MFT that can't force one starts a new stream instead, which opens on a key.
-            let spec = session.spec.clone();
-            self.session = None;
-            self.configure(&spec)?;
-        }
-        let sample = self.input(picture)?;
+        let input = self.input(picture)?;
+        self.in_flight
+            .push(input.buffer.clone(), input.surface, Instant::now());
         let Some(session) = &mut self.session else {
             return Err(CodecError::NotConfigured);
         };
-        if !session.transform.input(&sample)? {
-            // A synchronous MFT that is full: drain, then try once more.
+        if !session.transform.input(&input.sample)? {
+            // A synchronous MFT that is full: take its output, then try once more.
             self.collect()?;
             let Some(session) = &mut self.session else {
                 return Err(CodecError::NotConfigured);
             };
-            if !session.transform.input(&sample)? {
-                self.pending.pop_back();
+            if !session.transform.input(&input.sample)? {
+                self.in_flight.cancel_last();
                 return Err(CodecError::Backpressure);
             }
         }
-        self.in_flight += 1;
+        drop(input.sample);
         self.collect()
     }
 
@@ -397,24 +351,6 @@ impl Encoder for MfEncoder {
 
     fn flush(&mut self) -> Result<(), CodecError> {
         enter();
-        let Some(session) = &mut self.session else {
-            return Ok(());
-        };
-        session.transform.drain()?;
-        let deadline = std::time::Instant::now() + DRAIN_LIMIT;
-        loop {
-            self.collect()?;
-            let Some(session) = &mut self.session else {
-                return Ok(());
-            };
-            if !session.transform.is_async() || session.transform.drained() {
-                break;
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(CodecError::DeadlineExceeded);
-            }
-            session.transform.wait(Duration::from_millis(20))?;
-        }
-        Ok(())
+        self.drain_session()
     }
 }

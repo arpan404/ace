@@ -76,6 +76,9 @@ impl Settings {
     }
 }
 
+/// How long a fresh async MFT may take to ask for its first input.
+const FIRST_INPUT: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub(crate) struct Session {
     pub transform: Transform,
     pub settings: Settings,
@@ -168,6 +171,14 @@ impl Session {
                 .ctx("SetInputType")?;
         }
         transform.start()?;
+        // A hardware MFT asks for its first input shortly after streaming starts; one that
+        // never asks is broken, and the next candidate is tried.
+        if transform.is_async() && !transform.await_input(FIRST_INPUT)? {
+            return Err(CodecError::Backend(format!(
+                "{} asked for no input within {FIRST_INPUT:?}",
+                transform.name
+            )));
+        }
         Ok(Self {
             transform,
             settings,

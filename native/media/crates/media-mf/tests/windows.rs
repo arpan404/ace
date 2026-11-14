@@ -124,7 +124,7 @@ fn decode_cpu(
     device: Option<MfDevice>,
     units: &[EncodedUnit],
 ) -> Result<Vec<CpuPicture>, CodecError> {
-    let mut decoder = MfDecoder::new(device, DecodeOutput::Cpu);
+    let mut decoder = MfDecoder::new(device, DecodeOutput::Cpu)?;
     let mut out = Vec::new();
     let mut pictures = Vec::new();
     for unit in units {
@@ -159,7 +159,7 @@ fn device() -> Option<MfDevice> {
 #[test]
 fn h264_frames_encode_and_decode_back_above_the_psnr_floor() -> Result<(), CodecError> {
     let device = device();
-    let mut encoder = MfEncoder::new(device.clone());
+    let mut encoder = MfEncoder::new(device.clone())?;
     encoder.configure(&spec(Codec::H264, 2_000_000))?;
     eprintln!(
         "encoder: {:?}, hardware {}",
@@ -195,7 +195,7 @@ fn h264_frames_encode_and_decode_back_above_the_psnr_floor() -> Result<(), Codec
 
 #[test]
 fn a_requested_keyframe_arrives_on_that_frame_and_nowhere_else() -> Result<(), CodecError> {
-    let mut encoder = MfEncoder::new(device());
+    let mut encoder = MfEncoder::new(device())?;
     encoder.configure(&spec(Codec::H264, 1_000_000))?;
     let units = encode_all(&mut encoder, 14, 0, |i| i == 7)?;
     let keys: Vec<usize> = units
@@ -217,7 +217,7 @@ fn a_requested_keyframe_arrives_on_that_frame_and_nowhere_else() -> Result<(), C
 
 #[test]
 fn a_bitrate_change_keeps_the_stream_and_changes_the_size_of_frames() -> Result<(), CodecError> {
-    let mut encoder = MfEncoder::new(device());
+    let mut encoder = MfEncoder::new(device())?;
     encoder.configure(&spec(Codec::H264, 150_000))?;
     let low = encode_all(&mut encoder, 40, 48, |_| false)?;
     encoder.configure(&spec(Codec::H264, 3_000_000))?;
@@ -255,7 +255,7 @@ fn a_bgra_texture_is_converted_and_scaled_on_the_gpu_before_encode() -> Result<(
         .collect();
     let bgra = CpuPicture::new(big, PixelFormat::Bgra8, [Plane { data, stride }], 0)?;
     let texture = upload(&device, &bgra)?;
-    let mut encoder = MfEncoder::new(Some(device.clone()));
+    let mut encoder = MfEncoder::new(Some(device.clone()))?;
     encoder.configure(&spec(Codec::H264, 2_000_000))?;
     encoder.encode(texture.into_picture(0), true)?;
     let copies = encoder.last_copies();
@@ -323,11 +323,46 @@ fn the_scaler_writes_nv12_at_the_asked_size_on_the_device() -> Result<(), CodecE
 }
 
 #[test]
+fn a_full_texture_pool_is_backpressure_and_no_picture_is_lost_or_decoded_twice()
+-> Result<(), CodecError> {
+    let Some(device) = device() else {
+        eprintln!("skipped: no D3D11 device here");
+        return Ok(());
+    };
+    let mut encoder = MfEncoder::new(None)?;
+    encoder.configure(&spec(Codec::H264, 1_000_000))?;
+    let units = encode_all(&mut encoder, 40, 0, |_| false)?;
+    let mut decoder = MfDecoder::new(Some(device), DecodeOutput::Surface)?;
+    let (mut held, mut seen, mut refused) = (Vec::new(), Vec::new(), 0);
+    let mut i = 0;
+    while i < units.len() {
+        match decoder.decode(&units[i]) {
+            Err(CodecError::Backpressure) => {
+                // The unit was not consumed: give pictures back and offer it again.
+                refused += 1;
+                assert!(refused < 100, "backpressure never cleared");
+                seen.extend(held.drain(..).map(|p: Picture| p.pts_us()));
+            }
+            result => {
+                held.extend(result?);
+                i += 1;
+            }
+        }
+    }
+    held.extend(decoder.drain()?);
+    seen.extend(held.iter().map(Picture::pts_us));
+    assert!(refused > 0, "holding every picture must fill the pool");
+    let expected: Vec<u64> = units.iter().map(|u| u.pts_us).collect();
+    assert_eq!(seen, expected, "every picture exactly once, in order");
+    Ok(())
+}
+
+#[test]
 fn a_decoder_refuses_a_stream_that_starts_without_a_keyframe() -> Result<(), CodecError> {
-    let mut encoder = MfEncoder::new(None);
+    let mut encoder = MfEncoder::new(None)?;
     encoder.configure(&spec(Codec::H264, 1_000_000))?;
     let units = encode_all(&mut encoder, 3, 0, |_| false)?;
-    let mut decoder = MfDecoder::new(None, DecodeOutput::Cpu);
+    let mut decoder = MfDecoder::new(None, DecodeOutput::Cpu)?;
     assert!(matches!(
         decoder.decode(&units[1]),
         Err(CodecError::InvalidInput(_))
@@ -338,7 +373,7 @@ fn a_decoder_refuses_a_stream_that_starts_without_a_keyframe() -> Result<(), Cod
 #[test]
 fn hevc_round_trips_where_the_machine_has_an_hevc_encoder() -> Result<(), CodecError> {
     let device = device();
-    let mut encoder = MfEncoder::new(device.clone());
+    let mut encoder = MfEncoder::new(device.clone())?;
     match encoder.configure(&spec(Codec::Hevc, 2_000_000)) {
         Err(e) => {
             eprintln!("skipped: no HEVC encoder MFT ({e})");
@@ -365,21 +400,17 @@ fn hevc_round_trips_where_the_machine_has_an_hevc_encoder() -> Result<(), CodecE
     }
     // Into textures as well, the way the probe and the pipeline decode.
     if let Some(device) = device {
-        let mut decoder = MfDecoder::new(Some(device), DecodeOutput::Surface);
-        // Pictures are pooled textures: each is checked and released before the next.
-        let mut count = 0;
+        let mut decoder = MfDecoder::new(Some(device), DecodeOutput::Surface)?;
+        // Held all at once: the pool covers what a caller may keep.
+        let mut pictures = Vec::new();
         for unit in &units {
-            if let Some(picture) = decoder.decode(unit)? {
-                let surface = MfSurface::of(&picture).ok_or(CodecError::NotConfigured)?;
-                assert_eq!(surface.size(), SIZE);
-                count += 1;
-            }
+            pictures.extend(decoder.decode(unit)?);
         }
-        for picture in decoder.drain()? {
-            assert_eq!(MfSurface::of(&picture).map(MfSurface::size), Some(SIZE));
-            count += 1;
+        pictures.extend(decoder.drain()?);
+        assert_eq!(pictures.len(), units.len());
+        for picture in &pictures {
+            assert_eq!(MfSurface::of(picture).map(MfSurface::size), Some(SIZE));
         }
-        assert_eq!(count, units.len());
     }
     Ok(())
 }
@@ -415,7 +446,7 @@ fn the_probe_reports_what_the_sessions_said_within_its_deadline() -> Result<(), 
             .is_some_and(|c| c.len() == "avc1.64001F".len())
     );
     // The session's own report: open the same encoder and compare.
-    let mut encoder = MfEncoder::new(MfDevice::new().ok());
+    let mut encoder = MfEncoder::new(MfDevice::new().ok())?;
     encoder.configure(&spec(Codec::H264, 2_000_000))?;
     assert_eq!(h264.hardware, encoder.hardware());
     assert!(

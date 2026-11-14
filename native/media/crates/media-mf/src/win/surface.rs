@@ -226,6 +226,7 @@ pub(crate) fn read_back_with(
 ) -> Result<CpuPicture, CodecError> {
     let device = &surface.device;
     let copy = staging.get(device, surface.size, surface.format)?;
+    let _lock = device.lock();
     let context = &device.0.context;
     // SAFETY: Same-sized, same-format resources on one device; the source subresource exists.
     unsafe {
@@ -290,6 +291,7 @@ pub(crate) fn upload_into(
     }
     let device = &target.device;
     let copy = staging.get(device, target.size, target.format)?;
+    let _lock = device.lock();
     let context = &device.0.context;
     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
     // SAFETY: A staging texture with CPU write access, mapped and unmapped here.

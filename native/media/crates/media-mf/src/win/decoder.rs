@@ -1,17 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `Decoder` over an H.264/HEVC decoder MFT. Given a device, a D3D11-aware decoder (DXVA)
 //! writes textures; `hardware` is true only when it did, on an adapter that isn't software.
-use super::com::{Ctx, enter};
+//!
+//! With a device, every picture lands in a pooled texture. A slot is reserved before the
+//! unit goes to the MFT, so a full pool is backpressure with the unit not consumed, and a
+//! decoded picture is never dropped: extra output waits in a queue for the next call.
+//! Live decoding never blocks waiting for an async MFT; `drain` does, up to two seconds.
+mod picture;
+
+use super::com::{Runtime, enter};
 use super::device::MfDevice;
-use super::mft::{Listed, Output, Transform, list, memory_sample, unpack, video_type};
-use super::session::{Settings, subtype};
-use super::surface::{MfFormat, Ring, Staging, read_back_with, upload_into};
+use super::encoder::IN_FLIGHT;
+use super::mft::{Output, Transform, list};
+use super::samples::memory_sample;
+use super::session::subtype;
+use super::surface::{MfFormat, MfSurface, Ring, Staging};
 use crate::Copies;
 use crate::nal::{ParameterSets, annexb_with_sets, sample_to_annexb, sets_from_record};
 use media_codec::*;
-use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+use picture::{choose_nv12, open_one};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 use windows::Win32::Media::MediaFoundation::*;
-use windows_core::Interface;
+
+/// Textures per stream: what a caller may hold (the encoder's in-flight depth), the
+/// reserved slot, and room for output that arrives several at once.
+const POOL: usize = IN_FLIGHT + 4;
+const DRAIN_LIMIT: Duration = Duration::from_secs(2);
 
 /// Where decoded pictures go.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,37 +48,51 @@ struct Open {
 }
 
 pub struct MfDecoder {
-    device: Option<MfDevice>,
-    output: DecodeOutput,
+    // Declared first, and ended first in `Drop`: the MFT shuts down before the textures,
+    // device and Media Foundation it uses.
     open: Option<Open>,
-    sets: ParameterSets,
-    input: Vec<u8>,
-    scratch: Vec<u8>,
+    ready: VecDeque<Picture>,
+    reserved: Option<MfSurface>,
     ring: Option<Ring>,
     staging: Staging,
+    error: Option<CodecError>,
+    sets: ParameterSets,
+    input: Vec<u8>,
     copies: Copies,
     hardware: bool,
     name: Option<String>,
+    output: DecodeOutput,
+    device: Option<MfDevice>,
+    _runtime: Runtime,
 }
 
 // SAFETY: As for `MfEncoder`: free-threaded MF and D3D11 objects, one owner.
 unsafe impl Send for MfDecoder {}
 
+impl Drop for MfDecoder {
+    fn drop(&mut self) {
+        self.open = None;
+    }
+}
+
 impl MfDecoder {
-    pub fn new(device: Option<MfDevice>, output: DecodeOutput) -> Self {
-        Self {
-            device,
-            output,
+    pub fn new(device: Option<MfDevice>, output: DecodeOutput) -> Result<Self, CodecError> {
+        Ok(Self {
             open: None,
-            sets: ParameterSets::default(),
-            input: Vec::new(),
-            scratch: Vec::new(),
+            ready: VecDeque::new(),
+            reserved: None,
             ring: None,
             staging: Staging::default(),
+            error: None,
+            sets: ParameterSets::default(),
+            input: Vec::new(),
             copies: Copies::default(),
             hardware: false,
             name: None,
-        }
+            output,
+            device,
+            _runtime: Runtime::start()?,
+        })
     }
 
     /// The last picture came from a hardware decoder: an MFT listed as hardware, or DXVA
@@ -101,197 +130,62 @@ impl MfDecoder {
         Err(last)
     }
 
-    fn picture(&mut self, sample: &IMFSample) -> Result<Picture, CodecError> {
-        let Some(open) = &self.open else {
-            return Err(CodecError::NotConfigured);
+    /// Holds a pool slot for the next picture. False when every slot is in use.
+    fn reserve(&mut self, size: Size) -> Result<bool, CodecError> {
+        let Some(device) = &self.device else {
+            return Ok(true);
         };
-        let size = open.size;
-        // SAFETY: Reads of a sample the MFT returned.
-        let (time, buffer) = unsafe {
-            (
-                sample.GetSampleTime().unwrap_or(0),
-                sample.GetBufferByIndex(0).ctx("buffer")?,
-            )
-        };
-        let pts = (time.max(0) / 10) as u64;
-        let device = self.device.clone();
-        if let (Ok(dxgi), Some(device)) = (buffer.cast::<IMFDXGIBuffer>(), &device) {
-            self.hardware = open.transform.hardware || !device.adapter().software;
-            let mut raw = std::ptr::null_mut();
-            // SAFETY: Documented way to reach the decoder's texture and slice.
-            let texture = unsafe {
-                dxgi.GetResource(&ID3D11Texture2D::IID, &mut raw)
-                    .ctx("GetResource")?;
-                ID3D11Texture2D::from_raw(raw)
-            };
-            let slice = unsafe { dxgi.GetSubresourceIndex() }.ctx("GetSubresourceIndex")?;
-            // The decoder recycles its texture array: copy the picture out on the GPU.
-            let ring = self
-                .ring
-                .get_or_insert_with(|| Ring::new(device, size, MfFormat::Nv12, 4));
-            if !ring.fits(size, MfFormat::Nv12) {
-                *ring = Ring::new(device, size, MfFormat::Nv12, 4);
+        if self.reserved.as_ref().is_some_and(|r| r.size() == size) {
+            return Ok(true);
+        }
+        self.reserved = None;
+        let ring = self
+            .ring
+            .get_or_insert_with(|| Ring::new(device, size, MfFormat::Nv12, POOL));
+        if !ring.fits(size, MfFormat::Nv12) {
+            *ring = Ring::new(device, size, MfFormat::Nv12, POOL);
+        }
+        match ring.acquire() {
+            Ok(slot) => {
+                self.reserved = Some(slot);
+                Ok(true)
             }
-            let target = ring.acquire()?;
-            let area = windows::Win32::Graphics::Direct3D11::D3D11_BOX {
-                left: 0,
-                top: 0,
-                front: 0,
-                right: size.width,
-                bottom: size.height,
-                back: 1,
+            Err(CodecError::Backpressure) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Takes output the MFT has ready, without waiting, into the queue. Stops when a pool
+    /// slot can't be held, leaving the rest in the MFT for the next call.
+    fn collect(&mut self) -> Result<(), CodecError> {
+        loop {
+            let Some(size) = self.open.as_ref().map(|o| o.size) else {
+                return Ok(());
             };
-            // SAFETY: Same-format NV12 resources on one device; the box is inside both.
-            unsafe {
-                device.0.context.CopySubresourceRegion(
-                    &target.texture,
-                    0,
-                    0,
-                    0,
-                    0,
-                    &texture,
-                    slice,
-                    Some(&area),
-                );
+            if !self.reserve(size)? {
+                return Ok(());
             }
-            return match self.output {
-                DecodeOutput::Surface => Ok(target.into_picture(pts)),
-                DecodeOutput::Cpu => {
-                    let cpu = read_back_with(&mut self.staging, &target, pts)?;
-                    self.copies.readbacks += 1;
-                    Ok(Picture::Cpu(cpu))
+            let Some(open) = &mut self.open else {
+                return Ok(());
+            };
+            let capacity = open.coded.width * open.coded.height * 3 / 2;
+            match open.transform.output(capacity)? {
+                Output::Empty => return Ok(()),
+                Output::StreamChange => {
+                    let (coded, stride) = choose_nv12(&open.transform, open.size)?;
+                    open.coded = coded;
+                    open.stride = stride;
                 }
-            };
-        }
-        self.hardware = open.transform.hardware;
-        let cpu = self.memory_picture(&buffer, pts)?;
-        match (self.output, device) {
-            (DecodeOutput::Surface, Some(device)) => {
-                let ring = self
-                    .ring
-                    .get_or_insert_with(|| Ring::new(&device, size, MfFormat::Nv12, 4));
-                if !ring.fits(size, MfFormat::Nv12) {
-                    *ring = Ring::new(&device, size, MfFormat::Nv12, 4);
+                Output::Sample(sample) => {
+                    let picture = self.picture(&sample)?;
+                    self.ready.push_back(picture);
                 }
-                let target = ring.acquire()?;
-                upload_into(&mut self.staging, &cpu, &target)?;
-                self.copies.uploads += 1;
-                Ok(target.into_picture(pts))
             }
-            _ => Ok(Picture::Cpu(cpu)),
         }
     }
 
-    /// NV12 out of a system-memory buffer, cropped to the stream's size.
-    fn memory_picture(
-        &mut self,
-        buffer: &IMFMediaBuffer,
-        pts: u64,
-    ) -> Result<CpuPicture, CodecError> {
-        let Some(open) = &self.open else {
-            return Err(CodecError::NotConfigured);
-        };
-        let (size, coded) = (open.size, open.coded);
-        let (w, h) = (size.width as usize, size.height as usize);
-        let mut y = vec![0u8; w * h];
-        let mut uv = vec![0u8; w * h / 2];
-        // SAFETY: The buffer is locked and read inside its reported length.
-        unsafe {
-            let mut data = std::ptr::null_mut();
-            let mut len = 0u32;
-            buffer.Lock(&mut data, None, Some(&mut len)).ctx("Lock")?;
-            let stride = open.stride.max(w);
-            let needed = stride * (coded.height as usize + h / 2 - 1) + w;
-            if data.is_null() || (len as usize) < needed {
-                let _ = buffer.Unlock();
-                return Err(CodecError::Backend("decoded buffer is too small".into()));
-            }
-            let bytes = std::slice::from_raw_parts(data, len as usize);
-            for row in 0..h {
-                y[row * w..(row + 1) * w].copy_from_slice(&bytes[row * stride..row * stride + w]);
-            }
-            let base = stride * coded.height as usize;
-            for row in 0..h / 2 {
-                let at = base + row * stride;
-                uv[row * w..(row + 1) * w].copy_from_slice(&bytes[at..at + w]);
-            }
-            buffer.Unlock().ctx("Unlock")?;
-        }
-        CpuPicture::new(
-            size,
-            PixelFormat::Nv12,
-            [
-                Plane { data: y, stride: w },
-                Plane {
-                    data: uv,
-                    stride: w,
-                },
-            ],
-            pts,
-        )
-    }
-}
-
-fn open_one(
-    listed: &Listed,
-    codec: Codec,
-    size: Size,
-    device: Option<&MfDevice>,
-) -> Result<Open, CodecError> {
-    let mut transform = Transform::open(listed, device, true)?;
-    Settings::of(&transform).low_latency();
-    // SAFETY: Type negotiation on the MFT we just opened.
-    unsafe {
-        let input = video_type(subtype(codec)?, size, 0)?;
-        transform
-            .mft
-            .SetInputType(0, &input, 0)
-            .ctx("SetInputType")?;
-    }
-    let (coded, stride) = choose_nv12(&transform, size)?;
-    transform.start()?;
-    Ok(Open {
-        transform,
-        codec,
-        size,
-        coded,
-        stride,
-    })
-}
-
-/// Selects the decoder's NV12 output type; returns its frame size and row stride.
-fn choose_nv12(transform: &Transform, size: Size) -> Result<(Size, usize), CodecError> {
-    for index in 0..64 {
-        // SAFETY: Enumerates offered types until the MFT runs out.
-        let Ok(offered) = (unsafe { transform.mft.GetOutputAvailableType(0, index) }) else {
-            break;
-        };
-        if unsafe { offered.GetGUID(&MF_MT_SUBTYPE) }.is_ok_and(|s| s == MFVideoFormat_NV12) {
-            unsafe { transform.mft.SetOutputType(0, &offered, 0) }.ctx("SetOutputType")?;
-            let (width, height) = unsafe { offered.GetUINT64(&MF_MT_FRAME_SIZE) }
-                .map(unpack)
-                .unwrap_or((size.width, size.height));
-            let stride = unsafe { offered.GetUINT32(&MF_MT_DEFAULT_STRIDE) }
-                .map(|s| s as i32 as isize)
-                .unwrap_or(width as isize)
-                .unsigned_abs();
-            let coded = Size {
-                width: width.max(size.width),
-                height: height.max(size.height),
-            };
-            return Ok((coded, stride.max(coded.width as usize)));
-        }
-    }
-    Err(CodecError::Unsupported(
-        "decoder offers no NV12 output".into(),
-    ))
-}
-
-impl Decoder for MfDecoder {
-    fn decode(&mut self, unit: &EncodedUnit) -> Result<Option<Picture>, CodecError> {
-        enter();
-        self.copies = Copies::default();
-        unit.size.validate()?;
+    /// The unit as Annex B in `self.input`, with parameter sets before a keyframe.
+    fn prepare(&mut self, unit: &EncodedUnit) -> Result<(), CodecError> {
         let codec = unit.codec;
         if let Some(record) = &unit.description {
             self.sets = sets_from_record(codec, record)
@@ -302,33 +196,91 @@ impl Decoder for MfDecoder {
                 let sets = unit.key.then_some(&self.sets);
                 sample_to_annexb(&unit.data, sets, &mut self.input).ok_or_else(|| {
                     CodecError::InvalidInput("malformed length-prefixed unit".into())
-                })?;
+                })
             }
             BitstreamFormat::AnnexB => {
                 self.sets.absorb(codec, &unit.data);
                 annexb_with_sets(codec, &unit.data, &self.sets, unit.key, &mut self.input);
+                Ok(())
             }
-            BitstreamFormat::Elementary => {
-                return Err(CodecError::Unsupported("elementary units".into()));
+            BitstreamFormat::Elementary => Err(CodecError::Unsupported("elementary units".into())),
+        }
+    }
+
+    /// Ends the stream and returns every picture not yet handed out (some decoders keep
+    /// one back even in low-latency mode). The next unit must be a keyframe. An error
+    /// partway keeps what was collected; the error comes back from the next `decode`.
+    pub fn drain(&mut self) -> Result<Vec<Picture>, CodecError> {
+        enter();
+        if let Err(error) = self.drain_open() {
+            self.error.get_or_insert(error);
+        }
+        self.open = None;
+        self.reserved = None;
+        Ok(self.ready.drain(..).collect())
+    }
+
+    fn drain_open(&mut self) -> Result<(), CodecError> {
+        let Some(open) = &mut self.open else {
+            return Ok(());
+        };
+        open.transform.drain()?;
+        let until = Instant::now() + DRAIN_LIMIT;
+        loop {
+            let before = self.ready.len();
+            self.collect()?;
+            let Some(open) = &mut self.open else {
+                return Ok(());
+            };
+            let finished = if open.transform.is_async() {
+                open.transform.drained()
+            } else {
+                // A synchronous MFT has run dry when a pass found nothing.
+                self.ready.len() == before
+            };
+            if finished {
+                return Ok(());
+            }
+            if Instant::now() >= until {
+                return Err(CodecError::DeadlineExceeded);
+            }
+            if self.ready.len() == before {
+                open.transform.wait(Duration::from_millis(20))?;
             }
         }
-        if self
+    }
+}
+
+impl Decoder for MfDecoder {
+    fn decode(&mut self, unit: &EncodedUnit) -> Result<Option<Picture>, CodecError> {
+        enter();
+        self.copies = Copies::default();
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+        unit.size.validate()?;
+        self.prepare(unit)?;
+        let new_stream = self
             .open
             .as_ref()
-            .is_none_or(|o| o.codec != codec || o.size != unit.size)
-        {
+            .is_none_or(|o| o.codec != unit.codec || o.size != unit.size);
+        if new_stream {
             if !unit.key {
                 return Err(CodecError::InvalidInput(
                     "a new stream must start at a keyframe".into(),
                 ));
             }
-            self.open = None;
-            self.open(codec, unit.size)?;
+            // The old stream's last pictures stay queued, ahead of the new stream's.
+            if self.open.is_some() {
+                self.drain_open()?;
+                self.open = None;
+            }
+            self.open(unit.codec, unit.size)?;
         }
-        std::mem::swap(&mut self.input, &mut self.scratch);
-        let sample = memory_sample(&self.scratch, unit.pts_us, unit.duration_us);
-        std::mem::swap(&mut self.input, &mut self.scratch);
-        let sample = sample?;
+        if !self.reserve(unit.size)? {
+            return Err(CodecError::Backpressure);
+        }
+        let sample = memory_sample(&self.input, unit.pts_us, unit.duration_us)?;
         if unit.key {
             // SAFETY: Attribute write on a sample we made.
             let _ = unsafe { sample.SetUINT32(&MFSampleExtension_CleanPoint, 1) };
@@ -337,73 +289,17 @@ impl Decoder for MfDecoder {
             return Err(CodecError::NotConfigured);
         };
         if !open.transform.input(&sample)? {
-            // A full decoder: take one picture out, then feed again.
-            let picture = self.next()?;
+            // A full decoder: take its output, then feed again. The unit is consumed only
+            // if the second try takes it.
+            self.collect()?;
             let Some(open) = &mut self.open else {
                 return Err(CodecError::NotConfigured);
             };
             if !open.transform.input(&sample)? {
                 return Err(CodecError::Backpressure);
             }
-            return Ok(picture);
         }
-        self.next()
-    }
-}
-
-impl MfDecoder {
-    /// Ends the stream and returns the pictures the decoder still held (some decoders keep
-    /// one back even in low-latency mode). The next unit must be a keyframe.
-    pub fn drain(&mut self) -> Result<Vec<Picture>, CodecError> {
-        enter();
-        let mut out = Vec::new();
-        let Some(open) = &mut self.open else {
-            return Ok(out);
-        };
-        open.transform.drain()?;
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            if let Some(picture) = self.next()? {
-                out.push(picture);
-                continue;
-            }
-            let Some(open) = &self.open else {
-                break;
-            };
-            if !open.transform.is_async()
-                || open.transform.drained()
-                || std::time::Instant::now() >= until
-            {
-                break;
-            }
-        }
-        self.open = None;
-        Ok(out)
-    }
-
-    fn next(&mut self) -> Result<Option<Picture>, CodecError> {
-        for _ in 0..4 {
-            let Some(open) = &mut self.open else {
-                return Err(CodecError::NotConfigured);
-            };
-            let capacity = open.coded.width * open.coded.height * 3 / 2;
-            match open.transform.output(capacity)? {
-                Output::Empty => {
-                    if open.transform.is_async() {
-                        open.transform.wait(std::time::Duration::from_millis(50))?;
-                        continue;
-                    }
-                    return Ok(None);
-                }
-                Output::StreamChange => {
-                    let size = open.size;
-                    let (coded, stride) = choose_nv12(&open.transform, size)?;
-                    open.coded = coded;
-                    open.stride = stride;
-                }
-                Output::Sample(sample) => return self.picture(&sample).map(Some),
-            }
-        }
-        Ok(None)
+        self.collect()?;
+        Ok(self.ready.pop_front())
     }
 }

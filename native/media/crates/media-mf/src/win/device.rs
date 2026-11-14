@@ -41,6 +41,8 @@ pub(crate) struct Inner {
     pub video: Option<(ID3D11VideoDevice, ID3D11VideoContext)>,
     pub manager: IMFDXGIDeviceManager,
     pub adapter: Adapter,
+    multithread: ID3D11Multithread,
+    // Declared last: Media Foundation shuts down after the device is released.
     _runtime: Runtime,
 }
 // SAFETY: The device is free-threaded. The immediate context is not, but the device is
@@ -86,6 +88,7 @@ impl MfDevice {
             context,
             video,
             manager,
+            multithread,
             _runtime: runtime,
         })))
     }
@@ -99,8 +102,25 @@ impl MfDevice {
         self.0.video.is_some()
     }
 
+    /// Holds the device's multithread lock for a sequence of context calls (map, copy,
+    /// unmap; video processor state and blit) so another thread's calls can't interleave.
+    /// The lock is recursive, as D3D11 documents.
+    pub(crate) fn lock(&self) -> DeviceLock<'_> {
+        // SAFETY: Balanced by `Leave` in the guard's drop.
+        unsafe { self.0.multithread.Enter() };
+        DeviceLock(&self.0.multithread)
+    }
+
     pub(crate) fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+pub(crate) struct DeviceLock<'a>(&'a ID3D11Multithread);
+impl Drop for DeviceLock<'_> {
+    fn drop(&mut self) {
+        // SAFETY: Balances the `Enter` in `MfDevice::lock`.
+        unsafe { self.0.Leave() };
     }
 }
 

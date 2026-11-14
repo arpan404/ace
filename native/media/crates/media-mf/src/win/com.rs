@@ -4,6 +4,9 @@ use media_codec::CodecError;
 use std::cell::Cell;
 use windows::Win32::Media::MediaFoundation::{MF_VERSION, MFSTARTUP_LITE, MFShutdown, MFStartup};
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use windows::Win32::System::LibraryLoader::{
+    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, SetDefaultDllDirectories,
+};
 
 thread_local! {
     static JOINED: Cell<bool> = const { Cell::new(false) };
@@ -23,10 +26,25 @@ pub(crate) fn enter() {
     });
 }
 
-/// One `MFStartup`, balanced by `MFShutdown` on drop. Media Foundation counts them.
+/// Once per process, before this crate makes Media Foundation, COM or WIC load anything:
+/// plain `LoadLibrary` calls search the application folder and System32 only, never the
+/// working directory or `PATH` (DLL planting). COM loads MFTs and WIC codecs by full
+/// registered path, so they are unaffected. The binary's own imports are covered by
+/// linking with `/DEPENDENTLOADFLAG:0x800` (`ace-media`'s build script).
+fn harden_dll_search() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: A documented process-wide flag; failure leaves the default order.
+        let _ = unsafe { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) };
+    });
+}
+
+/// One `MFStartup`, balanced by `MFShutdown` on drop. Media Foundation counts them, so
+/// every encoder, decoder and device holds its own and drops it last.
 pub(crate) struct Runtime(());
 impl Runtime {
     pub fn start() -> Result<Self, CodecError> {
+        harden_dll_search();
         enter();
         // SAFETY: Version constant from the SDK; lite mode skips the socket layer.
         unsafe { MFStartup(MF_VERSION, MFSTARTUP_LITE) }.ctx("MFStartup")?;
