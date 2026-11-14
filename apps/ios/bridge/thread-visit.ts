@@ -126,11 +126,12 @@ export class ThreadVisit {
   }
 
   /** The reload hooks `chat-cache.ts` drives for this phone's open thread. */
-  reloads(client: ClientCore): Pick<ChatCacheHost, "openThread" | "leave" | "reopen"> {
+  reloads(client: ClientCore): Pick<ChatCacheHost, "openThread" | "leave" | "reopen" | "letGo"> {
     let kept: AttachmentTray | undefined;
     let reloadEpoch = this.#epoch;
     return {
       openThread: () => this.#threadId,
+      letGo: (threadId) => this.#linger?.drop(threadId),
       leave: () => {
         // The message's files stay on it while the transcript is read again.
         kept = this.#session?.keepTray();

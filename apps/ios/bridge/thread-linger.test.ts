@@ -3,6 +3,7 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import { connect, fixture, pump, reset, sent, until } from "./thread-harness.ts";
 import { ThreadLinger, lingerLimit, lingerMs } from "./thread-linger.ts";
 import { ThreadVisit } from "./thread-visit.ts";
+import { handleCacheAction } from "./chat-cache.ts";
 
 /*
  * A thread the person just left stays followed a while (ADR 0146), so reopening it paints what
@@ -135,4 +136,33 @@ test("only the most recently left threads linger", async () => {
   visit.back();
   // Every thread was left; the two left longest ago are let go at once.
   expect(threadSubscriptions().dropped).toBe(2);
+});
+
+test("reloading a lingering thread from the machine lets it go, even when another is open", async () => {
+  const fake = fixture();
+  seed(fake, "kept");
+  seed(fake, "other");
+  const client = connect(fake);
+  visit = new ThreadVisit(
+    pump,
+    hooks,
+    undefined,
+    undefined,
+    undefined,
+    new ThreadLinger(new Clock().schedule),
+  );
+  await opened(client, "kept");
+  await opened(client, "other");
+  expect(threadSubscriptions().dropped).toBe(0);
+  await handleCacheAction(
+    { type: "cache.reload", threadId: "kept" },
+    {
+      client,
+      snapshots: { usage: async () => ({ threads: 0, bytes: 0 }) },
+      sink: pump,
+      ...visit.reloads(client),
+    },
+  );
+  // Read afresh next time: no subscription keeps the old copy.
+  expect(threadSubscriptions().dropped).toBe(1);
 });
