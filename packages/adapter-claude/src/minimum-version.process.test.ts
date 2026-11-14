@@ -41,39 +41,33 @@ test("a Claude Code older than ace's minimum is refused before it runs, naming b
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
-test("an unchanged Claude CLI reports its version once, and a replaced one is read again", async () => {
+test("a wrapper that selects its CLI from the environment is held to the minimum on every open", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-claude-version-"));
   roots.push(root);
-  const probes = join(root, "probes");
   const executable = join(root, "claude");
   const fake = new URL("./testing/cli.ts", import.meta.url).href;
-  // A real install is megabytes; a launcher this small would not be trusted to name its version.
-  const padding = `// ${"x".repeat(80 * 1024)}\n`;
-  const install = (version: string | undefined) =>
-    writeFile(
-      executable,
-      `#!${process.execPath}\n${padding}import { appendFileSync } from "node:fs";\n` +
-        `if (process.argv.includes("--version")) {\n  appendFileSync(${JSON.stringify(probes)}, "v");\n` +
-        (version ? `  console.log("${version} (Claude Code)");\n  process.exit(0);\n` : "") +
-        `}\nawait import(${JSON.stringify(fake)});\n`,
-    );
-  await install(undefined);
+  // A large launcher, unchanged between opens, whose answer depends on the session's environment.
+  await writeFile(
+    executable,
+    `#!${process.execPath}\n// ${"x".repeat(80 * 1024)}\n` +
+      `if (process.argv.includes("--version")) {\n` +
+      `  console.log(\`\${process.env.ACE_SELECTED_CLAUDE} (Claude Code)\`);\n  process.exit(0);\n}\n` +
+      `await import(${JSON.stringify(fake)});\n`,
+  );
   await chmod(executable, 0o755);
   const adapter = createClaudeAdapter({ executable });
-  const ctx = {
-    threadId: ThreadId.parse("versions"),
-    cwd: root,
-    signal: new AbortController().signal,
-    onFrame() {},
-    onExit() {},
-  };
-  for (let open = 0; open < 2; open++) await (await adapter.openSession(ctx)).close("shutdown");
-  expect(await readFile(probes, "utf8")).toBe("v");
-
-  await install("2.1.200");
-  await expect(adapter.openSession(ctx)).rejects.toMatchObject({
+  const open = (selected: string) =>
+    adapter.openSession({
+      threadId: ThreadId.parse("versions"),
+      cwd: root,
+      env: { ACE_SELECTED_CLAUDE: selected },
+      signal: new AbortController().signal,
+      onFrame() {},
+      onExit() {},
+    });
+  await (await open("2.1.286")).close("shutdown");
+  await expect(open("2.1.200")).rejects.toMatchObject({
     code: "cli_too_old",
     installed: "2.1.200",
   });
-  expect(await readFile(probes, "utf8")).toBe("vv");
 });
