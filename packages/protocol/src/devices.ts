@@ -1,3 +1,4 @@
+import { BrowserVideoRequest } from "./video-codecs.ts";
 import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
@@ -221,7 +222,11 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
   z.object({ op: z.literal("stream.keyframe"), ...target }),
   /** The device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by `devices.ack`. */
-  z.object({ op: z.literal("subscribe"), ...target }),
+  z.object({
+    op: z.literal("subscribe"),
+    ...target,
+    codecs: BrowserVideoRequest.shape.codecs.optional(),
+  }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({
     op: z.literal("controller"),

@@ -59,7 +59,7 @@ struct DeviceFrameChunk: Equatable, Sendable {
         }
         guard at == meta.count else { throw StreamEnvelopeError.invalidHeader }
         let codec = try ascii(reader.slice(28, codecLength))
-        guard codec == "jpeg" || isAVC(codec) else { throw StreamEnvelopeError.invalidHeader }
+        guard codec == "jpeg" || isAVC(codec) || VideoCapabilities.isHEVC(codec) else { throw StreamEnvelopeError.invalidHeader }
         let width = Int(reader.u16(16)), height = Int(reader.u16(18))
         guard (1...8192).contains(width), (1...8192).contains(height) else { throw StreamEnvelopeError.invalidHeader }
         // An f32 has fewer digits than the scale the daemon meant; its shortest form is that scale.

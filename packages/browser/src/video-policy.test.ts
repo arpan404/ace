@@ -67,6 +67,24 @@ describe("video encodes for a tab's viewers", () => {
     expect(plan.capture).toEqual({ width: 2560, height: 1600 });
   });
 
+  it("an H.264 fallback changes only that viewer while HEVC viewers keep their encode", () => {
+    const hevc = "hvc1.1.6.L153.B0";
+    const source = { ...page, codecs: [hevc, "avc1.42E033"] };
+    const desktop = viewer("desktop", {}, undefined, [hevc, "avc1.42E033"]);
+    const before = planVideo(source, [
+      desktop,
+      viewer("phone", {}, undefined, [hevc, "avc1.42E033"]),
+    ]);
+    const after = planVideo(source, [desktop, viewer("phone")]);
+    expect(after.viewers.get("desktop")).toBe(before.viewers.get("desktop"));
+    expect(after.encodes.find((encode) => encode.key === after.viewers.get("desktop"))?.codec).toBe(
+      hevc,
+    );
+    expect(after.encodes.find((encode) => encode.key === after.viewers.get("phone"))?.codec).toBe(
+      "avc1.42E033",
+    );
+  });
+
   it("each viewer gets the first codec it prefers that the encoder has", () => {
     const plan = planVideo({ ...page, codecs: ["vp8"] }, [
       viewer("both", {}, undefined, ["avc1.42E033", "vp8"]),

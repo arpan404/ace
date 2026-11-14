@@ -49,6 +49,7 @@ enum HostContract {
             "now": now, "uuid": uuid, "random": random, "randomBytes": randomBytes, "utf8Length": utf8Length,
             "previewHead": previewHead, "previewTail": previewTail, "latin1Base64": latin1Base64,
             "parseURL": parseURL, "trace": trace,
+            "video": ["decoders": ({ VideoCapabilities.decoders } as @convention(block) () -> [String])],
         ]
         return functions.merging(NativeBytes.functions()) { current, _ in current }
     }

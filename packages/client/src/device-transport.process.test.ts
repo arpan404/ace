@@ -51,6 +51,7 @@ it("authenticates a dedicated local device channel before forwarding human comma
   const address = server.address();
   if (typeof address === "string" || !address) throw new Error("Missing address");
   const hello = deferred<unknown>();
+  const subscribed = deferred<unknown>();
   server.on("connection", (socket) => {
     socket.on("message", (data) => {
       const frame = ClientMessage.parse(JSON.parse(data.toString()));
@@ -59,7 +60,8 @@ it("authenticates a dedicated local device channel before forwarding human comma
         socket.send(
           JSON.stringify({ type: "welcome", protocolVersion: 1, hostId: "host", headSeq: 0 }),
         );
-      } else if (frame.type === "devices.request")
+      } else if (frame.type === "devices.request") {
+        if (frame.operation.op === "subscribe") subscribed.resolve(frame.operation);
         socket.send(
           JSON.stringify({
             type: "devices.result",
@@ -68,6 +70,7 @@ it("authenticates a dedicated local device channel before forwarding human comma
             data: { devices: [], issues: [] },
           }),
         );
+      }
     });
   });
   const client = new DeviceClient({ id: () => "request-local", schedule });
@@ -90,6 +93,12 @@ it("authenticates a dedicated local device channel before forwarding human comma
   });
   await ready(client);
   expect(await client.request({ op: "list" })).toEqual({ devices: [], issues: [] });
+  await client.request({
+    op: "subscribe",
+    deviceId: "android:test",
+    codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
+  });
+  expect(await subscribed.promise).toMatchObject({ codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] });
 });
 
 it("routes paired phone credentials and device commands through the pinned encrypted relay", async () => {

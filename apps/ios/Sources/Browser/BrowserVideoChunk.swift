@@ -10,7 +10,7 @@ import Foundation
 ///     26 u16  coded height
 ///     28 u8   flags: bit 0 keyframe
 ///     29 u8   codec length, then its ASCII (a WebCodecs codec string)
-///     ..  u16  decoder description length (0: none; H.264's avcC on keyframes), then its bytes
+///     ..  u16  decoder description length (0: none; avcC or hvcC on keyframes), then its bytes
 ///     ..  u16  thread id length, then its UTF-8
 ///     ..  u16  tab id length (0: none), then its UTF-8
 struct BrowserVideoChunk: Equatable, Sendable {
@@ -23,7 +23,7 @@ struct BrowserVideoChunk: Equatable, Sendable {
     let codedHeight: Int
     let codec: String
     let key: Bool
-    /// The decoder description (H.264's avcC), on keyframes that need one.
+    /// The decoder description (avcC or hvcC), on keyframes that need one.
     let description: Data?
     let tabId: String?
     let bytes: Data
