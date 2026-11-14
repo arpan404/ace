@@ -76,6 +76,11 @@ enum SocketPayload: Sendable { case text(String), bytes(Data) }
 /// the JSC run loop. On its machine's `PinnedSession`, the upgrade can go over a connection the
 /// ticket exchange just opened; without one it has a session of its own.
 final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
+    /// From open to the upgrade's answer. A slow link (3G, about 400 ms a round trip) needs
+    /// TCP, TLS and the upgrade, under 2 s, with room for two lost SYNs; an address that never
+    /// answers then fails in seconds, so the SDK tries its next path or backs off, rather than
+    /// holding the machine for URLSession's 60 s. The relay's handshake has the same bound.
+    static let connectTimeout: TimeInterval = 10
     private let target: ConnectionTarget
     private let event: @Sendable (String, SocketPayload) -> Void
     /// Browser stream pieces are assembled here, on the session queue, and go to `streams`
@@ -87,11 +92,15 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var router = BinaryRouter()
     private var task: URLSessionWebSocketTask?
     private var ended = false
+    private let connectTimeout: TimeInterval
+    private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
 
     init(target: ConnectionTarget, session: PinnedSession? = nil, now: @escaping @Sendable () -> Date = { Date() },
+         connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
          streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
+        self.connectTimeout = connectTimeout
         self.event = event
         self.streams = streams
         self.session = session ?? PinnedSession(target: target, now: now)
@@ -105,6 +114,15 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
             task.maximumMessageSize = 2 * 1024 * 1024
             self.task = task
             LaunchTrace.mark("socket.open", target.endpoint.host ?? "")
+            // Cancelled once the socket opens or ends, so no stale deadline outlives it.
+            let deadline = DispatchWorkItem { [weak self] in
+                self?.queue.addOperation { [weak self] in
+                    guard let self, !self.ended, self.deadline != nil else { return }
+                    self.finish(1006)
+                }
+            }
+            self.deadline = deadline
+            DispatchQueue.global().asyncAfter(deadline: .now() + connectTimeout, execute: deadline)
             task.resume()
         }
     }
@@ -124,6 +142,8 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     }
     /// Lets the task go, and the session when it is this socket's own.
     private func end() {
+        deadline?.cancel()
+        deadline = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         if ownsSession { session.close() }
@@ -159,6 +179,8 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     }
     func opened(_ task: URLSessionWebSocketTask) {
         guard !ended, task === self.task else { return }
+        deadline?.cancel()
+        deadline = nil
         LaunchTrace.mark("socket.ready")
         event("open", .text(""))
         receive()

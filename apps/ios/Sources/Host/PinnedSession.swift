@@ -51,7 +51,8 @@ final class PinnedSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
 
     /// Nothing is cached, stored or waited for: the SDK owns retries and its own backoff, and a
     /// request on a network that can't reach the machine should fail now rather than sit
-    /// until some network can (`waitsForConnectivity` off).
+    /// until some network can (`waitsForConnectivity` off). The phone's network monitor wakes
+    /// the SDK when a network returns or changes, so nothing waits inside URLSession unseen.
     private static func configuration() -> URLSessionConfiguration {
         let config = URLSessionConfiguration.ephemeral
         config.tlsMinimumSupportedProtocolVersion = .TLSv12

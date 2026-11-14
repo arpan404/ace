@@ -75,6 +75,23 @@ import Testing
         #expect(first == "close 4003")
         #expect(server.requests.isEmpty)
     }
+    @Test func aSocketWhoseUpgradeIsNeverAnsweredClosesAtItsConnectDeadline() async throws {
+        let server = try LocalTLSServer()
+        server.silent = ["/"]
+        let port = try await server.start()
+        defer { server.stop() }
+        let target = ConnectionTarget(endpoint: URL(string: "wss://127.0.0.1:\(port)/")!, hostId: "host", deviceId: "device",
+                                      pin: server.pin, secretKey: "key")
+        let closed = Answer()
+        let socket = PinnedSocket(target: target, connectTimeout: 0.3) { kind, payload in
+            if case .text(let text) = payload, kind == "open" || kind == "close" { closed.give("\(kind) \(text)") }
+        }
+        let began = Date()
+        socket.open()
+        #expect(await closed.value() == "close 1006")
+        #expect(Date().timeIntervalSince(began) < 5, "the deadline, not URLSession's 60 s, ends the attempt")
+        #expect(server.requests.count == 1, "the upgrade reached the server, which never answered")
+    }
     @Test func aChangedPinIsRefusedOnTheMachineSession() async throws {
         let server = try LocalTLSServer()
         let port = try await server.start()
