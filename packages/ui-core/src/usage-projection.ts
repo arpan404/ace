@@ -102,6 +102,8 @@ export interface LimitWhen {
   runsOut: boolean;
 }
 
+const plain = (text: string, runsOut = false): LimitWhen => ({ text, spoken: text, runsOut });
+
 /**
  * When a window runs out, is out until, or resets. A run-out before the reset is an estimate, so
  * the row keeps it to "Out around Sun 9:00 PM" and the spoken words say the sentence in full.
@@ -113,7 +115,6 @@ export function limitWhen(
   locale?: string,
 ): LimitWhen {
   const time = (at: number) => limitTime(at, now, timeZone, locale);
-  const plain = (text: string, runsOut = false) => ({ text, spoken: text, runsOut });
   if (window.stale) return plain("Not used since its reset");
   if (window.leftPercent <= 0)
     return plain(
