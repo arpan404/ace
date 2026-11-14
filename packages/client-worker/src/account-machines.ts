@@ -37,12 +37,12 @@ export interface AccountMachineOptions {
    */
   grant(): Promise<string>;
   /**
-   * The daemon or the relay refused a grant `grant()` gave (`grant` undefined: a connection
-   * attempt ended before its welcome, whatever grant it held). An app that keeps grants drops
-   * it at once and returns true when it was a kept one, so the client tries once more with a
-   * fresh grant; false (or absent) makes the refusal final, as without a cache.
+   * The daemon or the relay refused `grant`, one `grant()` gave; never called for an ordinary
+   * drop. An app that keeps grants drops it if it is still the kept one, and returns true when
+   * it was kept for reuse, so the client tries once more with a fresh grant; false (or absent)
+   * makes the refusal final, as without a cache.
    */
-  grantRefused?(grant: string | undefined): boolean;
+  grantRefused?(grant: string): boolean;
   socket(url: string, protocols?: string[]): PortableSocket;
   /**
    * Hear network changes (a browser's `online`), each a cue to look for a better path (ADR
@@ -83,11 +83,11 @@ export interface AccountMachineOptions {
     /** A fresh device grant, sent on each open socket before its grant runs out (ADR 0114). */
     grant(): Promise<string>;
     /**
-     * The daemon or the relay refused a device grant this client presented (`grant` undefined:
-     * an attempt ended before its welcome). True when that grant came from the app's cache, so
-     * a fresh one is worth one more try (`AccountMachineOptions.grantRefused`).
+     * The daemon or the relay refused `grant`, a device grant this client presented. True when
+     * it came from the app's cache, so a fresh one is worth one more try
+     * (`AccountMachineOptions.grantRefused`).
      */
-    grantRefused?(grant: string | undefined): boolean;
+    grantRefused?(grant: string): boolean;
     /**
      * This install's pairing of the same daemon, when the account machine stands in for it
      * (ADR 0115): sends its outbox still holds are this client's to take over
@@ -189,6 +189,7 @@ export function accountRoutes(input: {
       schedule: (callback, delayMs) => input.scheduler.set(delayMs, callback),
       refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
       welcomed: () => gate.welcomed(),
+      grantRefused: (grant) => account.grantRefused?.(grant) ?? false,
     }),
   });
   const home = relay(input.relayUrl, "account");

@@ -125,13 +125,13 @@ export interface ClientOptions {
    */
   grant?(): Promise<string>;
   /**
-   * The daemon or the relay refused a device grant this connection presented, in a hello or a
-   * refresh (`grant` undefined: an attempt ended before its welcome, whatever grant it held).
-   * An app that keeps grants drops it at once, and returns true when it was a kept one: the
-   * connection then tries once more with a fresh grant instead of stopping. False or absent:
-   * the refusal is final, as before.
+   * The daemon or the relay refused `grant`, a device grant this connection presented, in a
+   * hello or a refresh. Always that exact grant: an ordinary drop or timeout never calls it. An
+   * app that keeps grants drops it if it is still the kept one, and returns true when it had
+   * been kept for reuse: the connection then tries once more with a fresh grant instead of
+   * stopping. False or absent: the refusal is final, as before.
    */
-  grantRefused?(grant: string | undefined): boolean;
+  grantRefused?(grant: string): boolean;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

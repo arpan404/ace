@@ -41,10 +41,16 @@ fixed 150 ms race stagger dialed every path every time.
    two minutes before it runs out, measured on a forward-only clock from its fetch and never
    past the five minutes a grant lives, so a browser clock minutes off cannot stretch it; the
    margin stays above the grant keeper's 60 s refresh lead. The daemon's or the relay's refusal
-   is the authority: the client reports every refused grant (`ClientOptions.grantRefused`: a
-   refused hello, a refused refresh, or an attempt that ended before its welcome), the cache
-   drops it at once, and a kept grant refused in a hello earns one retry with a fresh grant; a
-   fresh grant refused is final, as before.
+   is the authority, and only a refusal evicts a grant: the client names the exact grant it
+   presented (`ClientOptions.grantRefused`) when the daemon refuses a hello that carried it, or
+   refuses the socket's latest refresh (a late answer to an earlier refresh names nothing). An
+   ordinary drop or timeout names nothing, so a flaky link keeps reusing a healthy grant. A
+   browser can't tell the relay refusing a grant at the WebSocket upgrade from a dropped link,
+   so the relay route names a grant only after two attempts in a row that offered that same
+   grant failed before the relay opened. The cache drops a named grant only if it is still the
+   kept one, so one machine's refusal never evicts a newer grant another machine fetched. A
+   kept grant refused in a hello earns one retry with a fresh grant; a fresh grant refused is
+   final, as before.
 5. **Liveness scales to the link.** The pong deadline is four smoothed round trips, at least 2 s
    and at most 10 s. With a warm standby one miss fails over; without one, two misses in a row.
 6. **The race stagger scales too.** It is 1.5 times how long the last race took to open its
@@ -57,7 +63,13 @@ fixed 150 ms race stagger dialed every path every time.
    dropped within 25 s + 2 pong deadlines: 29 s on a fast link, 45 s at the 10 s cap (19 s
    before, when one miss was enough). A connect's single 120 s deadline is now one per stage (the socket
    opening; the hello waiting for its welcome): 30 s, or four times what that stage took last
-   time, at most 120 s. A daemon that says `starting` still gets the whole 120 s.
+   time, at most 120 s. A daemon that says `starting` still gets the whole 120 s. A wake
+   (`ClientApi.wake()`, when the app comes back to the front) probes the active socket at once,
+   and only the pong for the probe's own ping answers it: the daemon answers a socket's pings in
+   order, so the client pairs the nth pong with the nth ping, with nothing new on the wire. A
+   pong or any other frame already on its way before the wake proves nothing. So a socket that
+   died while the app was away, or at the wake, is dropped and redialed within 5 s of `wake()`.
+   The regular idle beat still counts any frame as liveness.
 
 The client keeps one link estimate, the active path's smoothed round trip, readable through
 `ClientApi.linkEstimate()` for other features.

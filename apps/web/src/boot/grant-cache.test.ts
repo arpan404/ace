@@ -149,3 +149,75 @@ test("a clock three minutes behind never presents a refused grant a second time"
   expect(hellos).toEqual(["grant-1", "grant-1", "grant-2"]);
   await client.close();
 });
+
+/** An account machine's client on `b`'s cache, whose sockets each open and then wait. */
+function machine(b: ReturnType<typeof backend>) {
+  const sockets: TransportEvents[] = [];
+  const client = new Client({
+    deviceId: DeviceId.parse("browser"),
+    transport: () => ({
+      open(events) {
+        sockets.push(events);
+        events.open();
+      },
+      send() {},
+      close() {},
+    }),
+    credential: async (): Promise<Credential> => ({ grant: await b.cache.grant("s") }),
+    grantRefused: (grant) => b.cache.refused(grant),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(delay, run) {
+        const timer = setTimeout(run, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0,
+    id: () => "id",
+    now: () => 0,
+    limits: { retryBaseMs: 1, retryCapMs: 1 },
+  });
+  return { client, last: () => sockets.at(-1), sockets };
+}
+
+test("five drops before the welcome on a healthy grant fetch it once, not five times", async () => {
+  const b = backend();
+  const m = machine(b);
+  await m.client.start();
+  await settle();
+  // A flaky link: every socket drops after its hello, before the welcome.
+  for (let drop = 0; drop < 5; drop++) {
+    m.last()?.close(1006, "gone");
+    await settle();
+  }
+  expect(m.sockets.length).toBeGreaterThanOrEqual(6);
+  expect(b.asked.length).toBeLessThanOrEqual(2);
+  await m.client.close();
+});
+
+test("a drop on one machine never evicts the grant another machine just fetched", async () => {
+  const b = backend();
+  const a = machine(b);
+  await a.client.start();
+  await settle();
+  const fetched = b.asked.length;
+  const other = machine(b);
+  await other.client.start();
+  await settle();
+  // Machine A drops before its welcome; machine B's next connect still finds the kept grant.
+  a.last()?.close(1006, "gone");
+  await settle();
+  other.last()?.close(1006, "gone");
+  await settle();
+  expect(b.asked.length).toBe(fetched);
+  await a.client.close();
+  await other.client.close();
+});
+
+test("a refusal of a grant that is no longer the kept one evicts nothing", async () => {
+  const b = backend();
+  await b.cache.grant("s");
+  expect(b.cache.refused("grant-0")).toBe(false);
+  expect(await b.cache.grant("s")).toBe("grant-1");
+  expect(b.asked).toHaveLength(1);
+});

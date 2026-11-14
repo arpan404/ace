@@ -21,13 +21,13 @@ export interface GrantCache {
   /** The grant for `session`: the kept one while it may still be used, else a fresh one. */
   grant(session: string): Promise<string>;
   /**
-   * The daemon or the relay refused `grant` (or an attempt ended before it was welcomed,
-   * `grant` undefined: the kept one, whatever it is): it is never offered again. True when it
-   * was offered again from the cache after the attempt it was fetched for, so a fresh grant may
-   * be worth one more try; false for a grant refused in the attempt it was fetched for, which a
-   * fresh one would not change.
+   * The daemon or the relay refused `grant`: if it is still the kept one, it is never offered
+   * again; any other grant (one already replaced, another machine's newer one) stays. True when
+   * it was offered again from the cache after the attempt it was fetched for, so a fresh grant
+   * may be worth one more try; false for a grant refused in the attempt it was fetched for,
+   * which a fresh one would not change.
    */
-  refused(grant: string | undefined): boolean;
+  refused(grant: string): boolean;
   /** Sign-out: forget every grant. */
   clear(): void;
 }
@@ -83,7 +83,7 @@ export function grantCache(
       return pending.grant;
     },
     refused(grant) {
-      if (!kept || (grant !== undefined && kept.token !== grant)) return false;
+      if (kept?.token !== grant) return false;
       const reused = kept.uses > 0;
       kept = undefined;
       return reused;

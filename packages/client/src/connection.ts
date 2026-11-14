@@ -278,9 +278,8 @@ export class Connection {
    * help. `error` is what the person should know while it retries (a version mismatch).
    */
   #lost(code: number, reason: string, error?: ClientError): void {
-    // An attempt that ended before its welcome may have been the relay refusing its grant at
-    // the upgrade, which reads as any drop: the next attempt asks for a fresh one.
-    if (this.state !== "ready") this.#options.grantRefused?.(this.#helloGrant);
+    // An ordinary drop says nothing about the grant: it stays (a relay refusing one at the
+    // upgrade is named by the relay route, `relayRoute.grantRefused`).
     this.#helloGrant = undefined;
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };

@@ -33,6 +33,12 @@ export interface RelayRouteOptions {
   refused?(reason: MachineCodeRefusal, message: string, lockedUntil?: number): void;
   /** The daemon welcomed this attempt (`machineCodeGate.welcomed`). */
   welcomed?(): void;
+  /**
+   * A grant the relay most likely refused (`ClientOptions.grantRefused`). A browser can't tell a
+   * relay refusing a grant at the WebSocket upgrade from a dropped link, so it is named only
+   * after two attempts in a row that offered that same grant failed before the relay opened.
+   */
+  grantRefused?(grant: string): boolean;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -57,6 +63,18 @@ export function relayRoute(options: RelayRouteOptions): {
   credential(): Promise<Credential>;
 } {
   let pending: Credential | undefined;
+  /** The grant the last attempt offered, when the relay failed before opening for it. */
+  let unopened: string | undefined;
+  /** An attempt offering `grant` failed before the relay opened: twice in a row names it. */
+  const upgradeFailed = (grant: string | undefined) => {
+    if (grant === undefined) return;
+    if (unopened !== grant) {
+      unopened = grant;
+      return;
+    }
+    unopened = undefined;
+    options.grantRefused?.(grant);
+  };
   return {
     async credential() {
       const credential = pending;
@@ -107,15 +125,24 @@ export function relayRoute(options: RelayRouteOptions): {
             }
             if (stamp !== epoch) return;
             const { connectPortableRelay } = await import("./portable-relay.ts");
-            const opened = await connectPortableRelay({
-              relayUrl: options.relayUrl,
-              pinnedFingerprint: options.hostId,
-              socket: options.socket,
-              grant: relayGrant(credential),
-              keys: options.keys ?? ephemeralRelayKeys,
-              schedule: options.schedule,
-              signal,
-            });
+            const grant = relayGrant(credential);
+            let opened: PortableRelay;
+            try {
+              opened = await connectPortableRelay({
+                relayUrl: options.relayUrl,
+                pinnedFingerprint: options.hostId,
+                socket: options.socket,
+                grant,
+                keys: options.keys ?? ephemeralRelayKeys,
+                schedule: options.schedule,
+                signal,
+              });
+            } catch (error) {
+              // A failure of this attempt, not one the connection called off.
+              if (stamp === epoch) upgradeFailed(grant);
+              throw error;
+            }
+            unopened = undefined;
             if (stamp !== epoch) {
               opened.close();
               return;
