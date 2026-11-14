@@ -55,6 +55,11 @@ const stallMs = 200;
 /** A second stall this soon after one is a queue after all. */
 const stallGapMs = 2_000;
 const rise = 1.08;
+/** A drain holds the rate to this share of what is delivered, for twice the round trip... */
+const drainShare = 0.5;
+/** ...and a link calm this many round trips is probed upward faster again, at `probeRise`. */
+const calmRtts = 3;
+const probeRise = 1.1;
 /** Before the link has first shown a queue, the rate climbs this fast (a slow start). */
 const startRise = 1.25;
 /** A queue lowers the rate to this share of what was delivered, but never below `deepest`. */
@@ -107,6 +112,15 @@ export class LinkRate {
   #dropped = false;
   /** No queue or drop seen yet: still finding what the link carries. */
   #starting = true;
+  /** The drain after the first cut: the rate it holds until when, and where it resumes. */
+  #drain: { until: number; hold: number; resume: number } | undefined;
+  #drained = false;
+  /** Round trips of chunks sent before this (the drain's end) carry the old queue. */
+  #freshFrom = -Infinity;
+  /** The drain ended: the next fresh sample replaces the floor and the smoothed round trip. */
+  #renewing = false;
+  /** Since when queueing has stayed below `calmMs`. */
+  #calmSince: number | undefined;
   /** The client's hint lowered the start: the link is known to be thin. */
   readonly #hinted: boolean;
   /** Since when queueing has stayed above `queuedMs`. */
@@ -140,12 +154,16 @@ export class LinkRate {
     return this.#starting && !this.#hinted;
   }
   /**
-   * The most bytes a viewer should have in flight: the rate for a round trip plus `backlogMs`.
+   * The most bytes a viewer should have in flight: the rate for the path's round trip (the
+   * floor) plus `backlogMs`.
    * Unbounded until a round trip is known.
    */
   get backlogBytes(): number | undefined {
-    if (this.#smoothed === undefined) return undefined;
-    return Math.round((this.#rate / 8) * ((this.#smoothed + backlogMs) / 1000));
+    // The path's round trip (the floor), not the smoothed one: a queue must not widen its own
+    // bound.
+    const rtt = this.#floor[0]?.rtt ?? this.#smoothed;
+    if (rtt === undefined) return undefined;
+    return Math.round((this.#rate / 8) * ((rtt + backlogMs) / 1000));
   }
   sent(sequence: number, bytes: number, at: number): void {
     if (this.#inflight.length >= outstandingSends) this.#inflight.shift();
@@ -221,6 +239,13 @@ export class LinkRate {
     this.#holdUntil = Math.max(this.#holdUntil, at + length);
   }
   #sample(rtt: number, sentAt: number, at: number): void {
+    if (sentAt < this.#freshFrom) return;
+    if (this.#renewing) {
+      this.#renewing = false;
+      this.#smoothed = rtt;
+      this.#floor = [{ at, rtt }];
+      return;
+    }
     if (sentAt < this.#stall.sentBefore && at <= this.#stall.until) return;
     if (this.#stalls(rtt, at, true)) return this.#stalled(at, rtt - (this.#smoothed ?? 0));
     const value = this.#smoothed === undefined ? rtt : this.#smoothed * 0.875 + rtt * 0.125;
@@ -257,7 +282,6 @@ export class LinkRate {
   #step(at: number, now = false): void {
     if (!now && at - this.#lastStep < stepMs) return;
     this.#lastStep = at;
-    const { min, max } = this.#limits;
     const rates = this.#deliveryRate(at);
     const delivered = rates.recent;
     const floor = this.#floor[0]?.rtt ?? 0;
@@ -265,12 +289,44 @@ export class LinkRate {
     const proven = this.#provenRate(at, delivered);
     if (queueing > queuedMs) this.#queuedSince ??= at;
     else this.#queuedSince = undefined;
+    if (queueing < calmMs) this.#calmSince ??= at;
+    else this.#calmSince = undefined;
     let rate = this.#rate;
+    // Waiting for a fresh round trip: only a drop (a link that stopped carrying) moves it.
+    if (this.#renewing && !this.#dropped) return;
+    if (this.#drain) {
+      this.#dropped = false;
+      if (at < this.#drain.until) return this.#settle(this.#drain.hold);
+      // Drained: the floor and the smoothed round trip start afresh from the first chunk sent
+      // from now. Until it is acked the rate holds, and the old round trip still bounds what
+      // is in flight.
+      this.#freshFrom = at;
+      this.#renewing = true;
+      this.#queuedSince = undefined;
+      this.#calmSince = undefined;
+      this.#holdUntil = at + stepMs;
+      const resume = this.#drain.resume;
+      this.#drain = undefined;
+      return this.#settle(resume);
+    }
     const cut = (to: number) => {
       this.#starting = false;
       rate = Math.max(rate * deepest, Math.min(rate, to));
       this.#holdUntil = at + (this.#smoothed ?? 0) + stepMs;
       this.#queuedSince = undefined;
+      if (this.#drained) return;
+      // The first cut drains what the start queued, for about a round trip, then resumes at
+      // what the link delivered: the start was a guess, so `deepest` doesn't hold it up.
+      this.#drained = true;
+      const before = this.#rate;
+      // What the link carries now: the last second, not a longer window from before it slowed.
+      const carried = delivered || before;
+      const resume = Math.min(before, carried * deliveredShare);
+      const hold = Math.min(resume, carried * drainShare);
+      // Half the rate for twice the measured round trip (which includes the queue) empties a
+      // queue up to a round trip long.
+      this.#drain = { until: at + Math.max(stepMs, 2 * (this.#smoothed ?? 0)), hold, resume };
+      rate = hold;
     };
     if (this.#dropped) cut(Math.min(rate, delivered || rate) * dropFall);
     else if (this.#queuedSince !== undefined) {
@@ -283,15 +339,21 @@ export class LinkRate {
       at - this.#lastRise >= (this.#smoothed ?? 0)
     ) {
       this.#lastRise = at;
+      const calm = this.#calmSince ?? at;
+      const probe = at - calm >= calmRtts * Math.max(stepMs, this.#smoothed ?? 0);
       rate = Math.max(
         rate,
         Math.min(
-          rate * (this.#starting ? startRise : rise),
+          rate * (this.#starting ? startRise : probe ? probeRise : rise),
           Math.max(this.#start, proven * headroom),
         ),
       );
     }
     this.#dropped = false;
+    this.#settle(rate);
+  }
+  #settle(rate: number): void {
+    const { min, max } = this.#limits;
     this.#rate = Math.round(Math.min(max, Math.max(min, rate)));
   }
 }

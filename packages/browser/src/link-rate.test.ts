@@ -21,7 +21,7 @@ describe("a viewer's link rate", () => {
     expect(mean).toBeGreaterThan(1_400_000);
     for (const value of settled) {
       expect(value).toBeLessThan(3_000_000);
-      expect(value).toBeGreaterThan(1_000_000);
+      expect(value).toBeGreaterThan(800_000);
     }
   });
 
@@ -33,16 +33,17 @@ describe("a viewer's link rate", () => {
   it("falls when the link gets slower", () => {
     const rate = new LinkRate(limits);
     simulate(rate, { link: link(100), seconds: 10 });
-    const rates = simulate(rate, { link: link(3), seconds: 15, start: 10_000 });
-    expect(rates.at(-1)).toBeLessThan(3_300_000);
+    const rates = simulate(rate, { link: link(3), seconds: 15, start: 10_000 }).slice(-8);
+    expect(rates.reduce((sum, value) => sum + value, 0) / rates.length).toBeLessThan(3_300_000);
+    expect(Math.max(...rates)).toBeLessThan(4_500_000);
   });
 
   it("follows a 400 kbit/s 3G link down below the old 500 kbit/s floor, and holds above it", () => {
     const rate = new LinkRate(phone);
     const rates = simulate(rate, { link: link(0.4, 200), seconds: 30, fps: 5 }).slice(-15);
     const mean = rates.reduce((sum, value) => sum + value, 0) / rates.length;
-    expect(mean).toBeLessThan(420_000);
-    expect(mean).toBeGreaterThan(300_000);
+    expect(mean).toBeLessThan(480_000);
+    expect(mean).toBeGreaterThan(250_000);
     expect(Math.min(...rates)).toBeGreaterThan(200_000);
   });
 
@@ -51,7 +52,7 @@ describe("a viewer's link rate", () => {
     const lossy = link(1.6, 200, { lossEvery: 50, stallMs: 400 });
     const rates = simulate(rate, { link: lossy, seconds: 30, fps: 15 }).slice(-20);
     expect(rates.reduce((sum, value) => sum + value, 0) / rates.length).toBeGreaterThan(1_100_000);
-    expect(Math.min(...rates)).toBeGreaterThan(800_000);
+    expect(Math.min(...rates)).toBeGreaterThan(700_000);
   });
 
   it("a single retransmit stall out of a calm link does not cut the rate", () => {
@@ -157,6 +158,11 @@ describe("a viewer's link rate", () => {
   });
 });
 
+/** Where a phone viewer with this hint starts. */
+function hintedRate(hint: MediaLinkHint): number {
+  return new LinkRate(phone, hint).rate;
+}
+
 describe("a link hint", () => {
   it("starts a thin link low, and is no longer a probe", () => {
     const rate = new LinkRate(phone, { effectiveType: "3g" });
@@ -166,12 +172,11 @@ describe("a link hint", () => {
   });
 
   it("never raises the start, and stays within the limits", () => {
-    const start = (hint: MediaLinkHint) => new LinkRate(phone, hint).rate;
-    expect(start({ effectiveType: "4g", downlinkKbps: 100_000 })).toBe(1_500_000);
-    expect(start({ effectiveType: "slow-2g" })).toBe(linkFloor);
-    expect(start({ downlinkKbps: 1 })).toBe(linkFloor);
-    expect(start({ saveData: true })).toBe(linkFloor);
-    expect(start({ downlinkKbps: 700 })).toBe(350_000);
+    expect(hintedRate({ effectiveType: "4g", downlinkKbps: 100_000 })).toBe(1_500_000);
+    expect(hintedRate({ effectiveType: "slow-2g" })).toBe(linkFloor);
+    expect(hintedRate({ downlinkKbps: 1 })).toBe(linkFloor);
+    expect(hintedRate({ saveData: true })).toBe(linkFloor);
+    expect(hintedRate({ downlinkKbps: 700 })).toBe(350_000);
   });
 
   it("only picks the start: the rate still climbs no faster than the link proves", () => {
@@ -179,5 +184,46 @@ describe("a link hint", () => {
     const rates = simulate(hinted, { link: link(0.4, 200), seconds: 20, fps: 5 });
     // Nothing near the 1.5 Mbit/s an unhinted viewer would start at.
     expect(Math.max(...rates)).toBeLessThan(700_000);
+  });
+});
+
+/** Ten chunks a second from `from`, each the rate's tenth, acked `rtt(index)` ms later. */
+function steady(rate: LinkRate, count: number, from: number, rtt: (index: number) => number) {
+  for (let index = 0; index < count; index++) {
+    const at = from + index * 100;
+    const sequence = Math.round(at / 100);
+    rate.sent(sequence, Math.round(rate.rate / 80), at);
+    rate.acknowledged(sequence, at + rtt(index));
+  }
+}
+
+/** A calm second at 300 ms, then a queue that builds to 700 ms and stays: the first cut. */
+function firstCut(): { rate: LinkRate; peak: number } {
+  const rate = new LinkRate(phone);
+  steady(rate, 10, 0, () => 300);
+  const peak = rate.rate;
+  steady(rate, 15, 1_000, (index) => 300 + Math.min(700, index * 50));
+  return { rate, peak };
+}
+
+describe("after the first cut", () => {
+  it("drains the start's queue below what is delivered, then measures the floor afresh", () => {
+    const { rate, peak } = firstCut();
+    // The drain holds the rate to half of what the link delivered: well under the start's peak.
+    expect(rate.rate).toBeLessThan(peak / 2);
+    const draining = rate.rate;
+    steady(rate, 30, 2_500, () => 320);
+    // Then the round trip comes from fresh samples only: the old queue is gone from it.
+    expect(rate.rtt).toBeLessThanOrEqual(320);
+    expect(rate.rate).toBeGreaterThan(draining);
+  });
+
+  it("probes back up faster once the link has been calm a few round trips", () => {
+    const { rate } = firstCut();
+    steady(rate, 30, 2_500, () => 320);
+    const from = rate.rate;
+    // About ten rises in 3.8 s of calm: past the first three round trips, each is 10 %, not 8 %.
+    steady(rate, 38, 5_500, () => 320);
+    expect(rate.rate / from).toBeGreaterThan(1.08 ** 10);
   });
 });

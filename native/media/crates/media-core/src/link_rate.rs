@@ -48,6 +48,12 @@ const CALM_MS: f64 = 30.0;
 const PERSIST_MS: f64 = 400.0;
 const STALL_MS: f64 = 200.0;
 const STALL_GAP_MS: f64 = 2_000.0;
+/// After the first cut the rate is held to this share of what is delivered for about a round
+/// trip (a drain), then the floor starts afresh; a link calm `CALM_RTTS` round trips is probed
+/// upward at `PROBE_RISE`.
+const DRAIN_SHARE: f64 = 0.5;
+const CALM_RTTS: f64 = 3.0;
+const PROBE_RISE: f64 = 1.1;
 
 /// Where a viewer's rate starts, from what its client says about its link, matching
 /// link-start.ts (K3): never above `limits.initial`, never below `limits.min`. The hint was
@@ -106,6 +112,12 @@ pub struct LinkRate {
     dropped: bool,
     starting: bool,
     queued_since: Option<f64>,
+    calm_since: Option<f64>,
+    /// (until, hold, resume) while the first cut's drain runs.
+    drain: Option<(f64, f64, f64)>,
+    drained: bool,
+    fresh_from: f64,
+    renewing: bool,
     stall_sent_before: f64,
     stall_until: f64,
     last_stall: f64,
@@ -136,6 +148,11 @@ impl LinkRate {
             dropped: false,
             starting: true,
             queued_since: None,
+            calm_since: None,
+            drain: None,
+            drained: false,
+            fresh_from: f64::NEG_INFINITY,
+            renewing: false,
             stall_sent_before: f64::NEG_INFINITY,
             stall_until: f64::NEG_INFINITY,
             last_stall: f64::NEG_INFINITY,
@@ -151,9 +168,14 @@ impl LinkRate {
     pub fn probing(&self) -> bool {
         self.starting && !self.hinted
     }
-    /// The most bytes a viewer should have in flight; unbounded until a round trip is known.
+    /// The most bytes a viewer should have in flight: the rate over the path's round trip (the
+    /// floor) plus `BACKLOG_MS`; unbounded until a round trip is known.
     pub fn backlog_bytes(&self) -> Option<usize> {
-        self.smoothed
+        // The path's round trip (the floor): a queue must not widen its own bound.
+        self.floor
+            .front()
+            .map(|c| c.1)
+            .or(self.smoothed)
             .map(|rtt| ((self.rate / 8.0) * ((rtt + BACKLOG_MS) / 1000.0)).round() as usize)
     }
     pub fn sent(&mut self, sequence: u64, bytes: usize, at: f64) {
@@ -234,6 +256,16 @@ impl LinkRate {
         self.hold_until = self.hold_until.max(at + length);
     }
     fn sample(&mut self, rtt: f64, sent_at: f64, at: f64) {
+        if sent_at < self.fresh_from {
+            return;
+        }
+        if self.renewing {
+            self.renewing = false;
+            self.smoothed = Some(rtt);
+            self.floor.clear();
+            self.floor.push_back((at, rtt));
+            return;
+        }
         if sent_at < self.stall_sent_before && at <= self.stall_until {
             return;
         }
@@ -302,6 +334,30 @@ impl LinkRate {
         } else {
             self.queued_since = None;
         }
+        if queueing < CALM_MS {
+            self.calm_since.get_or_insert(at);
+        } else {
+            self.calm_since = None;
+        }
+        // Waiting for a fresh round trip: only a drop moves the rate.
+        if self.renewing && !self.dropped {
+            return;
+        }
+        if let Some((until, hold, resume)) = self.drain {
+            self.dropped = false;
+            if at < until {
+                return self.settle(hold);
+            }
+            // Drained: the first chunk sent from now renews the floor and the smoothed round
+            // trip; until then the rate holds and the old round trip bounds what is in flight.
+            self.fresh_from = at;
+            self.renewing = true;
+            self.queued_since = None;
+            self.calm_since = None;
+            self.hold_until = at + STEP_MS;
+            self.drain = None;
+            return self.settle(resume);
+        }
         let mut rate = self.rate;
         let cut = if self.dropped {
             Some(rate.min(if delivered == 0.0 { rate } else { delivered }) * 0.6)
@@ -316,17 +372,43 @@ impl LinkRate {
             rate = (rate * 0.6).max(rate.min(to));
             self.hold_until = at + self.smoothed.unwrap_or(0.0) + STEP_MS;
             self.queued_since = None;
+            if !self.drained {
+                // The first cut drains the start's queue, then resumes at what was delivered.
+                self.drained = true;
+                // What the link carries now: the last second only.
+                let carried = if delivered == 0.0 {
+                    self.rate
+                } else {
+                    delivered
+                };
+                let resume = self.rate.min(carried * 0.9);
+                let hold = resume.min(carried * DRAIN_SHARE);
+                // Twice the measured round trip (queue included) empties a queue up to an RTT long.
+                let until = at + STEP_MS.max(2.0 * self.smoothed.unwrap_or(0.0));
+                self.drain = Some((until, hold, resume));
+                rate = hold;
+            }
         } else if self.queued_since.is_none()
             && queueing < CALM_MS
             && at >= self.hold_until
             && at - self.last_rise >= self.smoothed.unwrap_or(0.0)
         {
             self.last_rise = at;
-            rate = rate.max(
-                (rate * if self.starting { 1.25 } else { 1.08 }).min(self.start.max(proven * 1.3)),
-            );
+            let calm = self.calm_since.unwrap_or(at);
+            let probe = at - calm >= CALM_RTTS * STEP_MS.max(self.smoothed.unwrap_or(0.0));
+            let factor = if self.starting {
+                1.25
+            } else if probe {
+                PROBE_RISE
+            } else {
+                1.08
+            };
+            rate = rate.max((rate * factor).min(self.start.max(proven * 1.3)));
         }
         self.dropped = false;
+        self.settle(rate);
+    }
+    fn settle(&mut self, rate: f64) {
         self.rate = rate.clamp(self.limits.min, self.limits.max).round();
     }
 }

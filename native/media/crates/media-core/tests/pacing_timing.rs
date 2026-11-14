@@ -119,11 +119,11 @@ fn stale_and_reset_acks_do_not_change_link_estimate_and_drops_respect_bounds() {
     r.acknowledged(1, 100.0);
     assert_eq!(r.rtt(), None);
     assert_eq!(r.rate(), 1_500_000.0);
-    // One cut a hold: drops right after a cut come from the backlog it is still draining.
+    // The first cut drains (half the rate for a while); drops then say nothing new.
     for t in 0..30 {
         r.dropped(f64::from(t));
     }
-    assert_eq!(r.rate(), 900_000.0);
+    assert_eq!(r.rate(), 750_000.0);
     for t in 1..30 {
         r.dropped(f64::from(t) * 250.0);
     }

@@ -103,7 +103,7 @@ function video(sequence: number, bytes = 40_000): CapturedPicture {
   };
 }
 
-test("a device viewer whose acks come back slower and slower reads as a thinner link", async () => {
+test("a device viewer whose link slows reads as a thinner link", async () => {
   let now = 0;
   const channel = new PictureChannel(streamKinds.deviceFrame, {
     transport: { bufferedBytes: () => 0, write: async () => {} },
@@ -117,13 +117,16 @@ test("a device viewer whose acks come back slower and slower reads as a thinner 
     link: pictureLinkLimits,
   });
   expect(view.rate()).toBe(pictureLinkLimits.initial);
-  // A calm second: each 40 KB picture is acked 20 ms after it went out, and the rate climbs.
+  // Pictures the size the rate asks for, 60 a second, over a link of `megabits` and 20 ms.
   const acks: { at: number; sequence: number }[] = [];
-  const run = async (from: number, to: number, delay: (sequence: number) => number) => {
+  let linkFreeAt = 0;
+  const run = async (from: number, to: number, megabits: number) => {
     for (let sequence = from; sequence <= to; sequence++) {
-      view.push(video(sequence));
+      const bytes = Math.round((view.rate() ?? 0) / 8 / 60);
+      view.push(video(sequence, bytes));
       await new Promise((resolve) => setImmediate(resolve));
-      acks.push({ at: now + delay(sequence), sequence });
+      linkFreeAt = Math.max(linkFreeAt, now) + (bytes * 8) / (megabits * 1_000);
+      acks.push({ at: linkFreeAt + 20, sequence });
       now += 1000 / 60;
       while (acks[0] && acks[0].at <= now) {
         const ack = acks.shift();
@@ -131,11 +134,12 @@ test("a device viewer whose acks come back slower and slower reads as a thinner 
       }
     }
   };
-  await run(1, 60, () => 20);
+  // A calm, fast link: the rate climbs.
+  await run(1, 180, 100);
   const calm = view.rate() ?? 0;
   expect(calm).toBeGreaterThan(pictureLinkLimits.initial);
-  // Then a queue builds and stays: acks come back later and later, up to 400 ms late.
-  await run(61, 240, (sequence) => 20 + Math.min(400, (sequence - 60) * 8));
-  expect(view.rate()).toBeLessThan(calm);
+  // Then the link carries 2 Mbit/s: the rate follows it down.
+  await run(181, 720, 2);
+  expect(view.rate()).toBeLessThan(calm / 2);
   view.close();
 });

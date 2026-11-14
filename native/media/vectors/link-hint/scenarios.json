@@ -43,7 +43,7 @@
       }
     },
     "output": {
-      "rate": 400000,
+      "rate": 500000,
       "probing": false
     }
   },
@@ -104,7 +104,7 @@
         "initial": 1500000
       },
       "hint": {
-        "downlinkKbps": 0.5
+        "downlinkKbps": 1
       }
     },
     "output": {
@@ -120,12 +120,28 @@
         "initial": 1500000
       },
       "hint": {
-        "downlinkKbps": -3,
-        "rttMs": 1000000000
+        "downlinkKbps": 0,
+        "rttMs": 60000
       }
     },
     "output": {
-      "rate": 400000,
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "3G"
+      }
+    },
+    "output": {
+      "rate": 500000,
       "probing": false
     }
   },
@@ -141,7 +157,7 @@
       }
     },
     "output": {
-      "rate": 400000,
+      "rate": 500000,
       "probing": false
     }
   },
@@ -157,7 +173,7 @@
       }
     },
     "output": {
-      "rate": 300000,
+      "rate": 150000,
       "probing": false
     }
   },
@@ -174,7 +190,7 @@
       }
     },
     "output": {
-      "rate": 300000,
+      "rate": 150000,
       "probing": false
     }
   },

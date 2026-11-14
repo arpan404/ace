@@ -190,6 +190,27 @@ function simScenario(name: string, runs: SimRun[], limits = edgeLimits, hint?: L
 }
 
 const phoneLimits: LinkRateLimits = { min: linkFloor, max: 16_000_000, initial: 1_500_000 };
+/**
+ * Ten chunks a second, each the rate's tenth: a calm second at 300 ms, a queue that builds to
+ * 700 ms, then `calm` chunks of a calm link at 320 ms. Recorded as ops, replayed by the port.
+ */
+function drainScenario(name: string, calm: number) {
+  const rate = new LinkRate(phoneLimits);
+  const steps: { op: RateOp; output: ReturnType<typeof state> }[] = [];
+  const chunk = (index: number, rtt: number) => {
+    const at = index * 100;
+    const sent = { sequence: index, bytes: Math.round(rate.rate / 80), at };
+    rate.sent(sent.sequence, sent.bytes, sent.at);
+    steps.push({ op: { sent }, output: state(rate) });
+    rate.acknowledged(index, at + rtt);
+    steps.push({ op: { ack: { sequence: index, at: at + rtt } }, output: state(rate) });
+  };
+  for (let index = 0; index < 10; index++) chunk(index, 300);
+  for (let index = 0; index < 15; index++) chunk(10 + index, 300 + Math.min(700, index * 50));
+  for (let index = 0; index < calm; index++) chunk(25 + index, 320);
+  return { name, limits: phoneLimits, steps };
+}
+
 const sendAndAck = (sequence: number, bytes: number, at: number, rtt: number): RateOp[] => [
   { sent: { sequence, bytes, at } },
   { ack: { sequence, at: at + rtt } },
@@ -268,6 +289,10 @@ export function linkRateEdges() {
       phoneLimits,
       { effectiveType: "3g", downlinkKbps: 700, rttMs: 450 },
     ),
+    // The first cut drains the start's queue, then the floor starts afresh (ADR 0149).
+    drainScenario("drain after the first cut", 30),
+    // A link calm for a few round trips is probed upward faster again.
+    drainScenario("probing back up", 70),
     // Drops while a loss stalls the link: no cut.
     rateScenario(
       "a drop behind a stalled chunk",

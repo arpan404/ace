@@ -141,7 +141,10 @@ fn link_rate_replays_every_shared_decision() {
             rate.dropped(ack);
         }
         assert_eq!(rate.rate(), n(&row["output"], "rate"), "step {seq}");
-        assert!((rate.rtt().unwrap_or_default() - n(&row["output"], "rtt")).abs() < 1e-10);
+        match (rate.rtt(), row["output"]["rtt"].as_f64()) {
+            (Some(actual), Some(expected)) => assert!((actual - expected).abs() < 1e-10),
+            (actual, expected) => assert_eq!(actual, expected, "step {seq}"),
+        }
     }
 }
 #[test]
