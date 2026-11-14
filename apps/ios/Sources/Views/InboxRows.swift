@@ -68,7 +68,7 @@ struct InboxThreadRow: View {
         let pr = row.pr.map { "\($0.state) pull request #\($0.number)" }
         let work = row.work.map { "\($0.added) lines added, \($0.removed) lines removed" }
         // A snoozed row says when it wakes, as it shows it.
-        let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil
+        let wake = snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil
         return [row.title, meaning, wake, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
                 row.startedBy, row.browsing, row.computerUse, branch, pr, work]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
@@ -102,7 +102,7 @@ struct InboxRowHead: View {
             if row.browsing != nil { BrowserUseMark().foregroundStyle(AceDesign.Status.working) }
             if row.computerUse != nil { PebbleMark() }
             Spacer(minLength: AceDesign.Space.related)
-            if let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil {
+            if let wake = snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil {
                 HStack(spacing: AceDesign.Space.tight) {
                     AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
                     Text(wake).lineLimit(1)
@@ -278,7 +278,7 @@ struct InboxRowLine: View {
     let project: ProjectMarkLook?
     var body: some View {
         // Older bridges without the shared look keep their word.
-        let word = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(Self.wake) : look.icon == nil ? look.word : nil
+        let word = snoozed && look.level != "needs-you" ? Self.wake(row) : look.icon == nil ? look.word : nil
         let named = !row.project.isEmpty
         HStack(alignment: .center, spacing: AceDesign.Space.tight) {
             if named {
@@ -294,6 +294,13 @@ struct InboxRowLine: View {
         }
         .aceFont(InboxRowType.line, relativeTo: .footnote)
     }
+    /// What a snoozed row says it waits for: the event ("Until it needs you", "Until the PR
+    /// changes") when it sleeps until one, else its time; nil when it isn't snoozed.
+    static func wake(_ row: ThreadRow) -> String? {
+        if let event = row.snoozeWake, let first = event.first { return first.uppercased() + event.dropFirst() }
+        return row.snoozedUntil.map(wake)
+    }
+
     /// When a snoozed row wakes: "Until 3:00 PM" today, else with the weekday.
     static func wake(_ until: Double) -> String {
         let date = Date(timeIntervalSince1970: until / 1000)
