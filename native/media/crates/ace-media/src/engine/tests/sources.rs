@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Sources, ingest connections, epochs and the recording barrier.
+use super::super::egress::NoEgress;
 use super::super::recorder::{RecordSpec, Recorder, Recorders, Started};
 use super::super::*;
 use super::*;
@@ -245,7 +246,7 @@ fn failures(effects: &[Effect]) -> Vec<String> {
 #[test]
 fn recorded_frames_reach_the_recorder_only_once_their_epoch_is_decided_clear() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
@@ -289,7 +290,7 @@ fn recorded_frames_reach_the_recorder_only_once_their_epoch_is_decided_clear() {
 #[test]
 fn frames_held_past_the_bound_become_a_gap_and_never_reach_the_recorder() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
@@ -361,7 +362,7 @@ fn work_this_binary_does_not_do_yet_fails_at_once_so_the_daemon_falls_back() {
 #[test]
 fn finishing_closes_every_connection_and_recording() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
@@ -385,7 +386,7 @@ fn finishing_closes_every_connection_and_recording() {
 #[test]
 fn pointer_metadata_is_written_only_for_epochs_decided_clear() {
     let log: Log = Arc::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 3);
     send(
         &mut engine,
@@ -414,7 +415,7 @@ fn pointer_metadata_is_written_only_for_epochs_decided_clear() {
 #[test]
 fn decisions_that_overtake_their_record_start_still_apply() {
     let log: Log = Arc::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     // This recording's first decisions, out of order, ahead of record.start and even of
     // source.open on the normal lane.
     decide(&mut engine, 1, 2, json!([]), json!([[2, 2]]), NOW);
@@ -433,7 +434,7 @@ fn decisions_that_overtake_their_record_start_still_apply() {
 #[test]
 fn a_stopped_recordings_late_decisions_never_reach_the_next_one_on_the_source() {
     let log: Log = Arc::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 3);
     hello(&mut engine, 1, 3);
     start(&mut engine, "a", "/tmp/a");
@@ -467,7 +468,7 @@ fn a_stopped_recordings_late_decisions_never_reach_the_next_one_on_the_source() 
 #[test]
 fn a_second_live_recording_with_the_same_id_or_directory_is_refused() {
     let log: Log = Arc::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log)));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log)), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 3);
     open_tab(&mut engine, "s2", 2, 4);
     assert!(failures(&start(&mut engine, "r1", "/tmp/r1")).is_empty());
@@ -537,7 +538,7 @@ impl Recorders for FailingRecorders {
 
 #[test]
 fn a_recorder_error_reports_every_part_it_closed_before_the_failure() {
-    let mut engine = Engine::new(Box::new(FailingRecorders));
+    let mut engine = Engine::new(Box::new(FailingRecorders), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 3);
     hello(&mut engine, 1, 3);
     start(&mut engine, "r1", "/tmp/r1");

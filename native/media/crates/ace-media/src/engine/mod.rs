@@ -2,6 +2,7 @@
 //! ace-media's decisions, with no I/O: every control message and ingest frame goes in, and
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
+pub mod egress;
 pub mod grants;
 pub mod ledger;
 pub mod recorder;
@@ -10,6 +11,7 @@ pub mod sources;
 mod tests;
 
 use crate::secret::Vault;
+use egress::EgressSink;
 use grants::{Grant, Grants};
 use media_core::privacy::Decision;
 use media_wire::control::{EpochRange, FromMedia, Id, Level, ToMedia};
@@ -80,17 +82,19 @@ pub struct Engine {
     sources: Sources,
     grants: Grants,
     recorders: Box<dyn Recorders>,
+    egress: Box<dyn EgressSink>,
     bytes_out: u64,
     out: Vec<Effect>,
 }
 
 impl Engine {
-    pub fn new(recorders: Box<dyn Recorders>) -> Self {
+    pub fn new(recorders: Box<dyn Recorders>, egress: Box<dyn EgressSink>) -> Self {
         Self {
             vault: Vault::new(),
             sources: Sources::default(),
             grants: Grants::default(),
             recorders,
+            egress,
             bytes_out: 0,
             out: Vec::new(),
         }
@@ -141,7 +145,8 @@ impl Engine {
             ToMedia::SourcePicture { source, epoch, .. } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
-                self.sources.picture(source.get(), epoch, bytes, now, out);
+                self.sources
+                    .picture(source.get(), epoch, bytes, now, self.egress.as_mut(), out);
             }
             ToMedia::SourceEpoch {
                 source,
@@ -171,6 +176,7 @@ impl Engine {
                     .decide(&source, &recording, decision, now.mono_ms, out);
             }
             ToMedia::SourceClose { source } => self.sources.close_source(source.get(), vault, out),
+            ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::MediaTicket {
                 connection,
                 owner,
@@ -307,7 +313,8 @@ impl Engine {
 
     /// A frame from an ingest connection the engine admitted.
     pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
-        self.sources.ingest(conn, frame, now, &mut self.out);
+        self.sources
+            .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {

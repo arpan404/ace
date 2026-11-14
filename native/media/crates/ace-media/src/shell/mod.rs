@@ -5,6 +5,7 @@
 //! carries out the engine's effects in order. Exits within 1 s of stdin closing.
 mod budget;
 mod effects;
+mod egress;
 mod ingest;
 mod lanes;
 mod writer;
@@ -15,6 +16,7 @@ use crate::framing::{encode, read_control};
 use crate::probe::{CpuTrial, TRIAL_DEADLINE, probe};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
+use egress::EgressLane;
 use ingest::{Ingest, IngestEvent};
 use media_wire::control::{
     Control, ControlFrame, FromMedia, Ingest as IngestAddress, Lane, Listen, Protocol, ToMedia,
@@ -26,7 +28,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::{mpsc, oneshot};
-use writer::{NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
+use writer::{EGRESS_LIMIT, NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
 
 /// Exit codes the supervisor reads: 2 stops restarts until the daemon restarts.
 pub const EXIT_OK: i32 = 0;
@@ -199,13 +201,18 @@ async fn serve(
         }
     });
 
-    let mut engine = Engine::new(Box::new(crate::record::Mp4Recorders));
+    let egress_lane = EgressLane::default();
+    let mut engine = Engine::new(
+        Box::new(crate::record::Mp4Recorders),
+        Box::new(egress_lane.clone()),
+    );
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
     let mut priority_out: Option<Writer> = None;
     let mut priority_failed: Option<oneshot::Receiver<()>> = None;
     let mut egress_closed: Option<oneshot::Receiver<()>> = None;
+    let mut egress_failed: Option<oneshot::Receiver<()>> = None;
     let mut tick = tokio::time::interval(TICK);
     let mut lanes_pending = true;
 
@@ -222,6 +229,7 @@ async fn serve(
             _ = fired(&mut priority_failed) => break fail("the priority lane failed"),
             _ = &mut stdout.failed => break fail("stdout failed"),
             _ = fired(&mut egress_closed) => break fail("the egress lane closed"),
+            _ = fired(&mut egress_failed) => break fail("the egress lane failed"),
             up = &mut lanes, if lanes_pending => {
                 lanes_pending = false;
                 let Ok(up) = up else { break fail("lane authentication") };
@@ -244,11 +252,14 @@ async fn serve(
                 });
                 let (closed_tx, closed_rx) = oneshot::channel();
                 egress_closed = Some(closed_rx);
-                let mut egress = up.egress;
+                let (mut egress_read, egress_write) = up.egress.into_split();
+                let mut writer = Writer::spawn(egress_write, EGRESS_LIMIT);
+                egress_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
+                egress_lane.connect(writer);
                 tokio::spawn(async move {
-                    // Egress carries frames out only (G1); reading tells us when it drops.
+                    // Egress carries frames out only; reading tells us when it drops.
                     let mut byte = [0u8; 1];
-                    while matches!(egress.read(&mut byte).await, Ok(n) if n > 0) {}
+                    while matches!(egress_read.read(&mut byte).await, Ok(n) if n > 0) {}
                     let _ = closed_tx.send(());
                 });
             }
