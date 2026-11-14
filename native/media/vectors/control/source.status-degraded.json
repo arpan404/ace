@@ -1,0 +1,21 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.status",
+    "source": "source-1",
+    "status": "playing",
+    "acceleration": {
+      "steps": [
+        {
+          "step": "encode",
+          "backend": "chrome",
+          "hardware": false,
+          "readbacks": 1,
+          "uploads": 1
+        }
+      ],
+      "degraded": true,
+      "reason": "no-hardware-encoder"
+    }
+  }
+}

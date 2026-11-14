@@ -288,11 +288,18 @@ export class FakeMedia implements MediaChild {
           protocol: 1,
           version: this.behaviour.version,
           pid: this.pid,
-          capabilities: {
-            encoders: [{ codec: "h264", hardware: true, backend: "fake" }],
-            decoders: [],
-            stills: true,
-          },
+          capabilities: [
+            {
+              step: "encode",
+              codec: "avc1.640028",
+              backend: "vt",
+              hardware: true,
+              zeroCopy: true,
+              state: "ok",
+              maxWidth: 4096,
+              maxHeight: 2304,
+            },
+          ],
           ingest: { socket: "/fake/ingest", websocketPort: 4100 },
           control: { socket: "/fake/control" },
           listen: { loopbackPort: 4101 },

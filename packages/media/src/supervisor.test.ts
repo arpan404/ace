@@ -86,7 +86,40 @@ describe("MediaSupervisor", () => {
     expect(child.stdin.types("normal")).toEqual(["init", "listen"]);
     expect(h.events.replays).toBe(1);
     expect(supervisor.health()).toBe("healthy");
-    expect(supervisor.capabilities()?.encoders[0]?.codec).toBe("h264");
+    expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
+  });
+
+  it("treats capabilities.changed before ready as a protocol failure and never forwards it", async () => {
+    const h = harness();
+    h.host.behaviour.ready = false;
+    const supervisor = new MediaSupervisor(h.options);
+    supervisor.need();
+    await h.clock.advance(0);
+    h.host.last.send({ type: "capabilities.changed", capabilities: [] });
+    await h.clock.advance(0);
+    expect(h.host.last.killed).toBe(true);
+    expect(h.events.exits[0]).toMatchObject({ cause: "protocol", failure: true });
+    expect(h.events.messages).toEqual([]);
+    expect(supervisor.capabilities()).toBeUndefined();
+  });
+
+  it("reports the capabilities a late trial adds, and forwards the change", async () => {
+    const h = await running();
+    const late = {
+      step: "jpeg-encode",
+      codec: "jpeg",
+      backend: "vaapi",
+      hardware: true,
+      zeroCopy: false,
+      state: "ok",
+      maxWidth: 16384,
+      maxHeight: 16384,
+    } as const;
+    h.host.last.send({ type: "capabilities.changed", capabilities: [late] });
+    await h.clock.advance(0);
+    expect(h.supervisor.capabilities()).toEqual([late]);
+    expect(h.supervisor.snapshot().capabilities).toEqual([late]);
+    expect(h.events.messages.map((message) => message.type)).toContain("capabilities.changed");
   });
 
   it("delivers whole egress frames however the bytes are split", async () => {

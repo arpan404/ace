@@ -1,3 +1,4 @@
+pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Setting {
@@ -206,26 +207,6 @@ pub struct EncodeSpec {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CodecCapability {
-    #[serde(rename = "codec")]
-    pub codec: String,
-    #[serde(rename = "hardware")]
-    pub hardware: bool,
-    #[serde(rename = "backend")]
-    pub backend: String,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Capabilities {
-    #[serde(rename = "encoders")]
-    pub encoders: Vec<CodecCapability>,
-    #[serde(rename = "decoders")]
-    pub decoders: Vec<CodecCapability>,
-    #[serde(rename = "stills")]
-    pub stills: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Ingest {
     #[serde(rename = "socket")]
     pub socket: String,
@@ -395,6 +376,9 @@ pub enum ToMedia {
         seq: Sequence,
         #[serde(rename = "epoch")]
         epoch: u32,
+        /// The previous epoch was private, so reads within 100 ms of applying this one keep it.
+        #[serde(rename = "followsPrivate")]
+        follows_private: bool,
     },
     #[serde(rename = "record.epochs")]
     RecordEpochs {
@@ -587,13 +571,19 @@ pub enum FromMedia {
         #[serde(rename = "pid")]
         pid: u32,
         #[serde(rename = "capabilities")]
-        capabilities: Capabilities,
+        capabilities: Vec<Capability>,
         #[serde(rename = "ingest")]
         ingest: Ingest,
         #[serde(rename = "control")]
         control: Control,
         #[serde(rename = "listen")]
         listen: Listen,
+    },
+    /// The whole list again, after a trial finished late or a backend changed.
+    #[serde(rename = "capabilities.changed")]
+    CapabilitiesChanged {
+        #[serde(rename = "capabilities")]
+        capabilities: Vec<Capability>,
     },
     #[serde(rename = "pong")]
     Pong {
@@ -652,6 +642,13 @@ pub enum FromMedia {
             skip_serializing_if = "Option::is_none"
         )]
         attempts: Option<u32>,
+        #[serde(
+            rename = "acceleration",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        acceleration: Option<Acceleration>,
     },
     #[serde(rename = "source.want")]
     SourceWant {
@@ -980,7 +977,7 @@ impl<'de> Deserialize<'de> for Loopback {
     }
 }
 // Missing fields use serde's default; a present field must deserialize as T, never null.
-fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
