@@ -353,6 +353,7 @@ table, including timed-out trials and the ranking cache.
 | `source.epoch`     | priority | `source, seq, epoch, followsPrivate` (K2) (only for sources ace-media reads itself, where ace-media is the producer; see "Recording privacy barrier")                                                                                                                                                                                                        | —                                                                         |
 | `record.epochs`    | priority | `source, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order)                                                                                                                                                                                                                             | —                                                                         |
 | `source.close`     | normal   | `source`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
+| `source.egress`    | normal   | `source, on` (G1: send this source's units back on the egress lane; off until sent)                                                                                                                                                                                                                                                                          | —                                                                         |
 | `media.ticket`     | normal   | `connection, owner, issued, expiresAt` (single use, 30 s)                                                                                                                                                                                                                                                                                                    | the 32-byte ticket                                                        |
 | `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio`                                                                                                                                                                                                                                                   | —                                                                         |
 | `viewer.configure` | normal   | `viewer, viewport, audio`                                                                                                                                                                                                                                                                                                                                    | —                                                                         |
@@ -701,6 +702,29 @@ ace-media.
     and make stills through egress. Four corner combinations also run with ace-media killed
     mid-stream and with it unavailable. Each case asserts that a viewer gets pictures, a
     recording decodes, and a still returns.
+
+- **As built in G1** (`packages/media/src/{routes,route-watch,egress}.ts`; the engine's
+  `egress` module and the shell's egress lane in `ace-media`).
+  - **Telling ace-media.** The daemon turns a source's egress on or off with `source.egress`
+    (normal lane, after `source.open`; off by default). ace-media holds no route of its own.
+  - **Capabilities.** `mediaRoutes` takes `RouteCapabilities`: the source kinds whose
+    producers can stream into ace-media (E1–E4) and whether ace-media records (F1), makes stills
+    (F2) and serves viewers (D1). `builtRouteCapabilities` has none of them, so every `auto`
+    acts as `legacy` until the PR that lands a piece turns its flag on.
+  - **Watching.** `RouteWatch` keeps the current table. The daemon calls `update()` on a setting
+    change and from the supervisor's `replay` and `onExit`, and reconfigures the kinds
+    `onChange` lists, so a producer routed to a dead ace-media is pointed back at the daemon at
+    once.
+  - **Writer.** Each unit of a source with egress on takes the next sequence, sent or dropped.
+    Video goes through one `ChunkGate` per encode id; the first unit of an encode after egress
+    turns on must be a keyframe (else `source.keyframe` `resume`), and a refused send asks for
+    one with `drop`. Audio and pictures are never gated. An empty lane always takes one frame,
+    so a keyframe larger than 4 MiB still passes once the lane drains. A full egress never ends
+    the process; a dropped or failed egress lane does.
+  - **Router.** `EgressRouter` mints handles (from 1, never reused while the daemon lives),
+    dispatches each unit to the consumers the source's route keeps in the daemon, marks a
+    unit after a sequence gap, and counts invalid frames, unknown and closed handles, gaps, and
+    frames for a source whose route no longer has egress.
 
 ### Supervision (`@ace/media` `MediaSupervisor`)
 
