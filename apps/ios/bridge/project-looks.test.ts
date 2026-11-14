@@ -154,3 +154,18 @@ test("the machine's chosen mark is sent by icon name, and a machine that chose n
   await until(() => chosen.read("machine:identity") !== undefined, "chosen mark");
   expect(chosen.read("machine:identity")?.glyph).toBe("hard-drives");
 });
+
+test("the machine's own name travels with its identity, and a rename shows on the next connection", async () => {
+  const { daemon, client } = sheetFixture();
+  closers.push(() => client.close());
+  await client.start();
+  const sink = new RecordingSink();
+  closers.push(followMachineIdentity(client, sink));
+  await until(() => sink.read("machine:identity") !== undefined, "first identity");
+  const first = sink.read("machine:identity")?.name;
+  expect(typeof first).toBe("string");
+  // Renamed from another device while this phone is away.
+  daemon.services.settings.seed({ "host.displayName": "Studio Mac" });
+  daemon.disconnectAll();
+  await until(() => sink.read("machine:identity")?.name === "Studio Mac", "renamed identity");
+});
