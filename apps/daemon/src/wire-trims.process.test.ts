@@ -4,6 +4,8 @@ import { WebSocket } from "ws";
 import { AgentId, Item, ServerMessage, ThreadId, type ClientMessage } from "@ace/protocol";
 import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-deltas";
 import { wireTrims } from "@ace/projection/wire-trim";
+import { visibleHistoryOrder } from "@ace/projection";
+import { FakeDaemon, seedColdStartState } from "@ace/fake-daemon";
 import { fixture, token } from "./socket-test-support.ts";
 
 // A real daemon socket, read as text: what each client's hello asked for is what its frames
@@ -164,4 +166,100 @@ test("an item's raw payloads are refused where the thread is not readable, and a
     type: "error",
     code: "item_not_found",
   });
+});
+
+/** The `cold-legacy` thread of the fake daemon's cold-start fixture, as stored items. */
+function coldLegacyItems(): Item[] {
+  const fake = new FakeDaemon({ clock: () => 1000 });
+  seedColdStartState(fake);
+  const view = fake.snapshot({ kind: "thread", threadId: ThreadId.parse("cold-legacy") });
+  if (!view || view.kind !== "thread") throw new Error("Missing cold-legacy");
+  return view.itemOrder.flatMap((id) => view.items[id] ?? []);
+}
+
+/** What a transcript shows: its visible items in order, each by id and text. */
+function visible(items: readonly Item[]): string[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return visibleHistoryOrder(
+    items.map((item) => item.id),
+    (id) => byId.get(id),
+  ).map((id) => {
+    const item = byId.get(id);
+    const text =
+      item?.type === "message"
+        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
+        : item?.type === "notice"
+          ? item.text
+          : (item?.type ?? "");
+    return `${id}: ${text}`;
+  });
+}
+
+const itemsOf = (message: ServerMessage): Item[] => {
+  if (message.type === "snapshot" && message.view.kind === "thread") {
+    const { view } = message;
+    return view.itemOrder.flatMap((id) => view.items[id] ?? []);
+  }
+  if (message.type === "items.page") return message.items;
+  if (message.type === "events")
+    return message.events.flatMap((event) =>
+      event.payload.type === "item.created" ? [event.payload.item] : [],
+    );
+  return [];
+};
+
+test("a trimmed client shows the same transcript as a whole one: snapshot, replay and history page", async () => {
+  const { f, join } = await setup();
+  const stored = coldLegacyItems();
+  const whole = await join({});
+  const trimmed = await join({
+    trims: [wireTrims.rawOnDemand],
+    framing: ["lines", shortDeltasFraming],
+  });
+  const before = f.store.headSeq();
+  f.store.appendEvents(
+    f.thread.id,
+    stored.map((item) => ({ type: "item.created" as const, item })),
+  );
+  const transcript = async (client: Awaited<ReturnType<typeof join>>, tag: string) => {
+    // Live: the events each subscribed client was sent as the items were stored.
+    const live = itemsOf(parsed(await client.until(isEvents)));
+    // Replay: a new subscription resuming from before the items.
+    client.send({
+      type: "subscribe",
+      subscriptionId: `replay-${tag}`,
+      scope: { kind: "thread", threadId: f.thread.id },
+      afterSeq: before,
+    });
+    const replay = itemsOf(parsed(await client.until((text) => text.includes(`"replay-${tag}"`))));
+    // Snapshot: a new subscription from scratch.
+    client.send({
+      type: "subscribe",
+      subscriptionId: `fresh-${tag}`,
+      scope: { kind: "thread", threadId: f.thread.id },
+    });
+    const snapshot = itemsOf(
+      parsed(await client.until((text) => text.includes(`"fresh-${tag}"`) && text.includes('"snapshot"'))),
+    );
+    // History page: the newest items, as scrolling back reads them.
+    client.send({
+      type: "items.page",
+      requestId: `page-${tag}`,
+      threadId: f.thread.id,
+      before: Number.MAX_SAFE_INTEGER,
+      limit: 200,
+    });
+    const page = itemsOf(parsed(await client.until((text) => text.includes(`"page-${tag}"`))));
+    return { live, replay, snapshot, page };
+  };
+  const expected = visible(stored);
+  // The fixture's point: the system message is hidden and the replayed answer shown once.
+  expect(expected.some((line) => line.includes("Internal tool schemas"))).toBe(false);
+  expect(expected.filter((line) => line.includes("I checked the reconnect path."))).toHaveLength(1);
+  const wholeSeen = await transcript(whole, "whole");
+  const trimmedSeen = await transcript(trimmed, "trimmed");
+  for (const path of ["live", "replay", "snapshot", "page"] as const) {
+    expect(visible(wholeSeen[path]), `whole ${path}`).toEqual(expected);
+    expect(visible(trimmedSeen[path]), `trimmed ${path}`).toEqual(expected);
+  }
 });

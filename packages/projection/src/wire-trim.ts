@@ -1,5 +1,7 @@
 import type { Item, ServerMessage, Thread, ThreadListEntry } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { historyMessageIdentity, isRawHistoryItem } from "./history-visibility.ts";
+import { providerNotice } from "./provider-notices.ts";
 import { structuredCopy } from "./structured-copy.ts";
 
 /*
@@ -47,15 +49,31 @@ export function trimItem(item: Item): Item {
 
 /**
  * Whether clients only ever show this item's raw payloads, in its raw-frames view. They read the
- * rest for what a step says or how it is grouped, so those keep theirs: notices (refusals,
- * delivery errors, screen steps, native stderr) and tool calls that may be ace's own (MCP and
- * custom calls, whose results, arguments and measurements are read from `call.raw`).
+ * rest for what a step says or whether and how it shows, so those keep theirs:
+ * - notices (refusals, delivery errors, screen steps, retries, diagnostics, native stderr);
+ * - tool calls that may be ace's own (MCP and custom calls, whose results, arguments and
+ *   measurements are read from `call.raw`);
+ * - messages whose raw decides what the transcript shows: a provider's system message it hides,
+ *   the native identity that folds a replayed answer into the first, the native source of a
+ *   legacy provider notice. Asked of the readers themselves, so the rule follows them.
  */
 export function rawShownOnly(item: Item): boolean {
   if (item.type === "notice" || item.type === "artifact") return false;
+  if (item.type === "message") return !messageRawRead(item);
   if (item.type !== "tool_call") return true;
   const { call } = item;
   return call.kind !== "custom" && call.detail.kind !== "mcp" && call.detail.kind !== "custom";
+}
+
+/** Whether a reader of what a message is would answer differently without its raw payloads. */
+function messageRawRead(item: Extract<Item, { type: "message" }>): boolean {
+  if (!item.raw.length) return false;
+  const bare: Item = { ...item, raw: [] };
+  return (
+    isRawHistoryItem(item) !== isRawHistoryItem(bare) ||
+    historyMessageIdentity(item) !== historyMessageIdentity(bare) ||
+    providerNotice(item) !== providerNotice(bare)
+  );
 }
 
 /** `item` without raw payloads clients only show, marked so a view can read them back. */

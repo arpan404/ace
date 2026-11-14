@@ -2,7 +2,8 @@ import { DeliveryEvent, Item, ServerMessage, Thread } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { createThreadView } from "./index.ts";
 import { expandShortDeltas, shortDeltaJson } from "./short-deltas.ts";
-import { wireTrims, WireTrimmer } from "./wire-trim.ts";
+import { providerNotice } from "./provider-notices.ts";
+import { omitRaw, wireTrims, WireTrimmer } from "./wire-trim.ts";
 
 const frame = { type: "message_stop", data: { blob: "A".repeat(64) } };
 const base = { agentId: "a", createdAt: 1 };
@@ -92,6 +93,20 @@ describe("raw-on-demand", () => {
     const got = received([wireTrims.rawOnDemand]);
     expect(got.ace).toEqual(items.ace);
     expect(got.refusal).toEqual(items.refusal);
+  });
+
+  it("a legacy provider notice keeps the raw that says what it reports", () => {
+    const notice = Item.parse({
+      ...base,
+      id: "notice",
+      type: "message",
+      role: "user",
+      synthetic: true,
+      parts: [{ type: "text", text: "Command finished." }],
+      raw: [{ type: "projected.message", data: { metadata: { source: "shell" } } }],
+    });
+    expect(providerNotice(notice)).toBe("background_completion");
+    expect(providerNotice(omitRaw(notice))).toBe("background_completion");
   });
 
   it("a client that doesn't ask gets every item exactly as stored", () => {
