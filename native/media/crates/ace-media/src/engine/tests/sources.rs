@@ -76,19 +76,19 @@ fn a_reused_handle_and_an_origin_without_a_reader_end_the_source_at_once() {
         statuses(&reused),
         [("s2".into(), Status::Ended, Some("handle-reused".into()))]
     );
-    let simulator = send(
+    let scrcpy = send(
         &mut engine,
-        json!({ "type": "source.open", "source": "sim", "handle": 2, "epoch": 0,
-                "origin": { "kind": "simulator", "streamUrl": "http://x", "stillUrl": "http://y" } }),
+        json!({ "type": "source.open", "source": "android", "handle": 2, "epoch": 0,
+                "origin": { "kind": "scrcpy", "host": "127.0.0.1", "port": 27183 } }),
         &[1; 32],
         NOW,
     );
     assert_eq!(
-        statuses(&simulator),
+        statuses(&scrcpy),
         [
-            ("sim".into(), Status::Starting, None),
+            ("android".into(), Status::Starting, None),
             (
-                "sim".into(),
+                "android".into(),
                 Status::Ended,
                 Some("reader-unavailable".into())
             )

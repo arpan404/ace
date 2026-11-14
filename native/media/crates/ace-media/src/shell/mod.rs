@@ -9,6 +9,7 @@ mod egress;
 mod ingest;
 mod lanes;
 mod pictures;
+mod readers;
 mod writer;
 
 use crate::encode::worker::Output;
@@ -199,6 +200,7 @@ async fn serve(
         });
     }
     let (encoded_tx, mut encoded_rx) = mpsc::channel(256);
+    let mut readers = readers::Readers::new(encoded_tx.clone());
     let mut pictures = pictures::Pictures::new(shared.clone(), chrome, encoded_tx);
 
     let mut stdout = Writer::spawn(tokio::io::stdout(), NORMAL_LIMIT);
@@ -330,6 +332,7 @@ async fn serve(
                         connections: &mut connections,
                         lag: &lag,
                         pictures: &mut pictures,
+                        readers: &mut readers,
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
@@ -375,7 +378,7 @@ async fn serve(
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
             _ = tick.tick() => {
                 let now = clock.now();
-                engine.encoders_stuck(pictures.stuck(now.mono_ms));
+                engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
                 engine.tick(now);
             }
         }
@@ -385,6 +388,7 @@ async fn serve(
             connections: &mut connections,
             lag: &lag,
             pictures: &mut pictures,
+            readers: &mut readers,
             now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
