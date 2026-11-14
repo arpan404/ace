@@ -299,7 +299,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tab_unavailable: {
     message: "The browser tab could not be shown",
-    hint: "The tab was idle and did not come back this time; other tabs still work. Try the command again in a moment, and tell the person if it keeps failing.",
+    hint: "Idle tab did not come back; other tabs work. Snapshot first: a multi-step command may be part done. Redo only the rest; tell the person if it lasts.",
   },
   tab_limit: {
     message: "Browser tab limit reached",
