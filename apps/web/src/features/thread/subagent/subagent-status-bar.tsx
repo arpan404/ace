@@ -38,7 +38,8 @@ const outcomeGlyphs: Partial<Record<SubagentPhase, GlyphState>> = {
  *
  * It fits its own column, not the window (`@container/subagent-bar`): as the column narrows,
  * labelled actions keep only their icons, then the model and effort leave the provider mark
- * alone, so how it went keeps its words.
+ * alone, so how it went keeps its words. `stale` stands in for how it went while the copy isn't
+ * confirmed: no ticking time, no "Completed".
  */
 export function SubagentStatusBar(props: {
   provider: ProviderKind;
@@ -46,12 +47,14 @@ export function SubagentStatusBar(props: {
   model: string;
   effort?: string | undefined;
   phase: SubagentPhase;
+  /** "Reconnecting…", "Syncing…": said instead of the phase, which may be stale. */
+  stale?: string | undefined;
   startedAt: number;
   endedAt?: number | undefined;
   parent?: ParentLink | undefined;
   actions?: ReactNode;
 }) {
-  const glyph = outcomeGlyphs[props.phase];
+  const glyph = props.stale === undefined ? outcomeGlyphs[props.phase] : undefined;
   return (
     <div className="@container/subagent-bar min-w-0">
       <div
@@ -83,7 +86,9 @@ export function SubagentStatusBar(props: {
           )}
         </span>
         <span aria-hidden className={controlDivider} />
-        {props.phase === "running" ? (
+        {props.stale !== undefined ? (
+          <span className="min-w-0 shrink truncate text-muted-foreground">{props.stale}</span>
+        ) : props.phase === "running" ? (
           // The live line's own look: its time ticks through a ref, never a render.
           <WorkingIndicator from={props.startedAt} className="shrink-0 text-muted-foreground" />
         ) : (

@@ -21,12 +21,14 @@ import { runsNow } from "../composer/execution.ts";
 import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { useVisibleParent } from "@/lib/spade-host.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 
 /**
  * The bottom of a thread: its composer (`children`), unless ace delegated it and its whole tree
  * has ended. Then a status bar says how it went and leads back to the thread that delegated
  * it; ace still delivers a follow-up to it, so Continue brings the composer back, and Fork takes
- * the conversation over as a thread of its own.
+ * the conversation over as a thread of its own. Only on a confirmed copy: a cached "ended" may
+ * be working again, so until the daemon confirms it the composer stays.
  */
 export function DelegateBottom(props: {
   thread: Thread;
@@ -59,13 +61,14 @@ function Delegated(props: {
     [rootId],
   );
   const branch = useAgentFacts(thread.id, read, branchEqual);
+  const { fresh } = useThreadLiveState(thread.id);
   // Continue holds for the ended stretch it was pressed in; a later end shows the bar again.
   const [continued, setContinued] = useState<number>();
   // The daemon's status covers the whole tree and queued input; the branch adds how it ended.
   const listed = delegatedState(thread.status);
   const phase = subagentPhase(branch ? rollupSubagent(listed, branch.state) : listed);
   const end = branch?.end;
-  if (!subagentEnded(phase) || (continued !== undefined && continued === (end ?? 0)))
+  if (!fresh || !subagentEnded(phase) || (continued !== undefined && continued === (end ?? 0)))
     return props.children;
   const selection = runsNow(thread);
   const effort = optionEffort(selection.options);

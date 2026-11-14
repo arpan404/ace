@@ -1,7 +1,8 @@
+import { useThreadStore } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { useStopIntent } from "./use-stop-intent.ts";
-import { agentName, isRunning } from "@ace/ui-core";
+import { agentName, isRunning, type StopFence } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
 import { Suspense, useEffect, useEffectEvent, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -9,6 +10,8 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { agentStopFence } from "./agent-stop-fence.ts";
 import { stopLabel } from "./subagents.ts";
 
 /** The question asked before stopping subagents too: its dialog loads off the first paint. */
@@ -20,7 +23,9 @@ const Confirm = deferredComponent(() =>
  * Stop for one agent: it stops the agent and everything under it, so it says how many
  * subagents go with it and, when any do, asks before stopping them all. The agent tree and the
  * agent's own tab share it, so both ask the same way. The question's code warms while the
- * browser is idle and mounts on the first press, so a closed Stop never needs it.
+ * browser is idle and mounts on the first press, so a closed Stop never needs it. It names the
+ * run it was pressed in (`agentStopFence`), so a Stop that arrives late never ends a later run,
+ * and it waits while the thread's copy isn't confirmed: what it shows running may have ended.
  */
 export function StopAgent(props: {
   threadId: string;
@@ -43,6 +48,10 @@ export function StopAgent(props: {
 }) {
   const stop = useStopIntent();
   const toast = useToast();
+  const { fresh } = useThreadFreshness(props.threadId);
+  const store = useThreadStore(props.threadId);
+  // Read when the Stop is first pressed: the run the person chose to stop, even if they confirm later.
+  const [fence, setFence] = useState<StopFence>();
   const toasts = props.feedback === "toast";
   // Once per refusal, when it happens: the next press clears it.
   const refused = useEffectEvent(() =>
@@ -61,16 +70,19 @@ export function StopAgent(props: {
   if (props.agent.origin === "root" || (!props.pending && !isRunning(props.agent))) return null;
   const label = stopLabel(agentName(props.agent), props.subagents);
   const stopping = stop.busy;
-  const send = () => {
+  const pressed = () => (store ? agentStopFence(store, props.agent.id) : undefined);
+  const send = (named = fence) => {
     setAsking(false);
     void stop.send({
       type: "thread.interrupt",
       threadId: ThreadId.parse(props.threadId),
       agentId: props.agent.id,
       cascade: true,
+      ...named,
     });
   };
   const ask = () => {
+    setFence(pressed());
     setArmed(true);
     setAsking(true);
   };
@@ -78,12 +90,12 @@ export function StopAgent(props: {
     <Button
       size="sm"
       variant={props.variant ?? "secondary"}
-      disabled={stopping}
+      disabled={stopping || !fresh}
       aria-label={stopping ? undefined : label}
       {...(props.inTree ? { "data-stop": "", tabIndex: -1 } : {})}
       className={props.className}
       onKeyDown={props.onKeyDown}
-      onClick={asks ? ask : send}
+      onClick={asks ? ask : () => send(pressed())}
     >
       <StopIcon aria-hidden size={14} weight="fill" />
       {/* A narrow container may keep only the icon (`data-slot`), the name staying spoken. */}
@@ -113,7 +125,7 @@ export function StopAgent(props: {
             onOpenChange={setAsking}
             label={label}
             stopping={stopping}
-            onStop={send}
+            onStop={() => send()}
           />
         </Suspense>
       )}

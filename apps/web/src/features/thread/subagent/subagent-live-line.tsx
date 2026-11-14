@@ -7,7 +7,8 @@ import { ActivityLine } from "../items/live-head.tsx";
 /**
  * The live line heading a running subagent's work, as a thread's turn has: "Working for
  * 1m 12s · Running bun test", that it waits on the person, or that it has gone silent. Nothing
- * once it has ended.
+ * once it has ended. While the thread's copy isn't confirmed it says only that (`stale`), as a
+ * thread's own live line does: no "Working", no timer, no "Waiting on you".
  */
 export function SubagentLiveLine(props: {
   threadId: string;
@@ -15,6 +16,8 @@ export function SubagentLiveLine(props: {
   phase: SubagentPhase;
   /** Subagents of its own still running. */
   subagents: number;
+  /** "Reconnecting…", "Syncing…": the copy isn't confirmed, so its phase may be stale. */
+  stale?: string | undefined;
 }) {
   const { agent, phase } = props;
   const status = agent.status;
@@ -27,7 +30,10 @@ export function SubagentLiveLine(props: {
     status.state === "idle"
       ? undefined
       : describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
+  const { stale } = props;
   const activity = useMemo<TurnActivity | undefined>(() => {
+    if (stale !== undefined)
+      return { label: stale, tone: "held", elapsedFrom: undefined, current: undefined };
     if (phase === "human")
       return {
         label: "Waiting on you",
@@ -46,7 +52,7 @@ export function SubagentLiveLine(props: {
       current: undefined,
       subagents: props.subagents || undefined,
     };
-  }, [phase, agent.createdAt, props.subagents]);
+  }, [stale, phase, agent.createdAt, props.subagents]);
   if (!activity) return null;
   return (
     <div className="py-2">
