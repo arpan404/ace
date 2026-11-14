@@ -3,7 +3,6 @@ import { workerData, parentPort } from "node:worker_threads";
 import { z } from "zod";
 import { openArchiveReader } from "@ace/history-import";
 import { Store } from "./store.ts";
-import { storedTrustBuild } from "./stored-shape.ts";
 
 const input = z
   .object({
@@ -11,6 +10,7 @@ const input = z
     archivePath: z.string(),
     threadId: z.string(),
     at: z.number().int().nonnegative(),
+    storedTrustBuild: z.string().nullable(),
     cancellation: z.custom<SharedArrayBuffer>(
       (v) => v instanceof SharedArrayBuffer && v.byteLength === 4,
     ),
@@ -19,7 +19,7 @@ const input = z
 const cancelled = () => Atomics.load(new Int32Array(input.cancellation), 0) !== 0;
 // The daemon's own store runs the idle trust pass; this short-lived second connection doesn't.
 const store = new Store(input.databasePath, console.error, {
-  storedTrustBuild: storedTrustBuild(process.env.ACE_VERSION),
+  storedTrustBuild: input.storedTrustBuild ?? undefined,
   trustPass: { scheduler: () => () => {} },
 });
 const archive = openArchiveReader(input.archivePath, input.threadId);

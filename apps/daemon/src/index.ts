@@ -48,7 +48,7 @@ import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
-import { storedTrustBuild } from "./stored-shape.ts";
+import { runningBundle, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
 import { spawn } from "node:child_process";
@@ -344,7 +344,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       {
         now,
         lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
-        storedTrustBuild: storedTrustBuild(process.env.ACE_VERSION),
+        storedTrustBuild: storedTrustBuild(process.env.ACE_VERSION, runningBundle(process.argv[1])),
       },
     );
     // One admission gate for the server and the engine, closed before any service starts when

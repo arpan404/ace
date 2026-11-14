@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ThreadId } from "@ace/protocol";
@@ -6,6 +6,7 @@ import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message } from "./payload-test-support.ts";
 import { Store } from "./store.ts";
+import { runningBundle, storedTrustBuild } from "./stored-shape.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -130,4 +131,30 @@ it("thread items this build created read back as they were appended", () => {
   appendMessage(store, thread.id, "new item");
   const page = store.readItems(thread.id, Number.MAX_SAFE_INTEGER, 10);
   expect(page.items).toContainEqual(message("new item"));
+});
+
+/** The trust build key of a release running from `entry`. */
+const key = (entry: string, version = "1.2.3") => storedTrustBuild(version, runningBundle(entry));
+
+it("builds of one version with different code keep what the trust pass confirmed apart", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-trust-build-"));
+  cleanup.push(() => rmSync(home, { recursive: true, force: true }));
+  const release = (name: string, code: string) => {
+    mkdirSync(join(home, name));
+    const entry = join(home, name, "ace.mjs");
+    writeFileSync(entry, code);
+    return entry;
+  };
+  const first = release("first", 'import "./chunk-AAAA.mjs";');
+  const rebuilt = release("rebuilt", 'import "./chunk-AAAA.mjs";');
+  const patched = release("patched", 'import "./chunk-BBBB.mjs";');
+
+  expect(key(first)).toBeDefined();
+  expect(key(rebuilt)).toBe(key(first));
+  expect(key(patched)).not.toBe(key(first));
+  expect(key(first, "1.2.4")).not.toBe(key(first));
+  expect(key(first, "development")).toBeUndefined();
+  expect(
+    storedTrustBuild("1.2.3", runningBundle(join(import.meta.dirname, "index.ts"))),
+  ).toBeUndefined();
 });

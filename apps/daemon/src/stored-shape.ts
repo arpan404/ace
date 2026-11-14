@@ -1,15 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { Event } from "@ace/protocol";
 import { z } from "zod";
-import {
-  decodeStoredItem,
-  decodeStoredPayload,
-  storedEvent,
-  storedItem,
-  storedPayload,
-  type StoredTrust,
-} from "./stored-decode.ts";
+import type { StoredTrust } from "./stored-decode.ts";
 
 /**
  * Which stored rows this build may read back without validating them again (ADR 0125).
@@ -22,9 +17,9 @@ import {
  * before until the idle pass (`stored-trust-pass.ts`) confirms them.
  *
  * What the pass confirmed belongs to one build and one write generation.
- * - The build (`storedTrustBuild`) is the release version together with the decoders' code: the
- *   shape can't see a changed transform or decoder, so every new build checks again. A
- *   development daemon has no release version and never keeps what it confirmed.
+ * - The build (`storedTrustBuild`) is the release version together with the bundled code it
+ *   runs: the shape can't see a changed transform or decoder, so every new build checks again.
+ *   A daemon run from source never keeps what it confirmed.
  * - The generation is a counter that triggers in the database bump on every write to
  *   `stored_event_shape`, by any build, including builds from before the pass, so a build that
  *   recorded its own start in between invalidates the record.
@@ -39,16 +34,28 @@ export function storedEventShape(schemaVersion: number): string {
 }
 
 /**
- * The build key what the pass confirmed is kept under: the release version (`ACE_VERSION`)
- * and the code of the stored decoders. Undefined for a development daemon, so nothing it
- * confirms outlives it: its schemas can change without a new version.
+ * The build key what the pass confirmed is kept under: the release version (`ACE_VERSION`) and
+ * the bytes of the bundled daemon entry it runs from (`runningBundle`). The release bundles the
+ * daemon as `ace.mjs` with content-hashed chunks whose names the entry holds, so any change to
+ * the shipped code, a protocol transform included, changes the key, while a rebuild of the same
+ * code keeps it. Undefined for a daemon run from source, so nothing it confirms outlives it.
  */
-export function storedTrustBuild(version: string | undefined): string | undefined {
-  if (!version || version === "development") return undefined;
-  const decoders = [decodeStoredPayload, decodeStoredItem, storedPayload, storedItem, storedEvent];
-  return createHash("sha256")
-    .update(`${version}\n${decoders.map(String).join("\n")}`)
-    .digest("hex");
+export function storedTrustBuild(
+  version: string | undefined,
+  bundle: Uint8Array | undefined,
+): string | undefined {
+  if (!version || version === "development" || !bundle) return undefined;
+  return createHash("sha256").update(`${version}\n`).update(bundle).digest("hex");
+}
+
+/** The bundled daemon entry this process runs from (`ace.mjs`), or undefined from source. */
+export function runningBundle(entry: string | undefined): Uint8Array | undefined {
+  if (!entry || basename(entry) !== "ace.mjs") return undefined;
+  try {
+    return readFileSync(entry);
+  } catch {
+    return undefined;
+  }
 }
 
 const Recorded = z.object({ shape: z.string(), first_seq: z.number().int().nonnegative() });
