@@ -7,9 +7,9 @@ const certificate = {
   ACE_WINDOWS_PUBLISHER: "ace",
 };
 
-test("a signed Windows build signs ace's native addons and DLLs as well as its executables", () => {
+test("a signed Windows build signs executables including ace-media, native addons and DLLs", () => {
   const config = windowsSigningConfig(windowsSigning(certificate));
-  expect(config.signExts).toEqual([".node", ".dll"]);
+  expect(config.signExts).toEqual([".exe", ".node", ".dll"]);
   expect(config).toMatchObject({ signtoolOptions: { publisherName: ["ace"] } });
 });
 
@@ -24,7 +24,7 @@ test("Azure Trusted Signing signs the same files under the configured publisher"
       ACE_WINDOWS_PUBLISHER: "ace",
     }),
   );
-  expect(config.signExts).toEqual([".node", ".dll"]);
+  expect(config.signExts).toEqual([".exe", ".node", ".dll"]);
   expect(config).toMatchObject({ azureSignOptions: { publisherName: "ace" } });
 });
 
