@@ -102,7 +102,10 @@ it("a desktop page moves to ace's Chromium when the desktop's screen locks and s
 it("a page that cannot move off a locked desktop is tried again less and less often", async () => {
   const clock = new TestNavigationClock();
   const errors: unknown[] = [];
-  const f = await backendFixture({ navigationClock: clock, onError: (error) => errors.push(error) });
+  const f = await backendFixture({
+    navigationClock: clock,
+    onError: (error) => errors.push(error),
+  });
   expect(await f.open()).toMatchObject({ backend: "embedded" });
   let attempts = 0;
   // ace's Chromium cannot take the page (its reopened address refuses connections).

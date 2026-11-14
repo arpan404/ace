@@ -192,6 +192,18 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   reopens with `ace.tabs.open {tabId}` at its address. A dropped link the desktop re-adopts
   keeps discarded tabs listed as discarded; fresh views after a lost desktop reopen only the
   tabs that were not discarded. The person's own Chrome (ADR 0084) still has neither.
+  Amended 2026-11-14 (idle CPU): measured on an unwatched browser, the shown tab never went
+  idle, because "viewed" meant the backend's active tab, and a frozen page still composites its
+  CSS animations, so the GPU process and renderers kept drawing all day. Now, in ace's Chrome:
+  an idle tab **rests** after 30 seconds (its window minimized and focus emulation off, since
+  focus emulation keeps a minimized page drawing): its page is hidden and draws nothing, while
+  its scripts keep running as a background tab's do. Freezing rests the tab too. Waking shows
+  the tab again before anything touches it. The shown tab counts as viewed only while a viewer
+  takes its video, so an unwatched shown tab rests and freezes; it is never discarded, because
+  the live capture is attached to its page. A viewer arriving wakes it at once, and watching
+  counts as use of the tab. The desktop's views keep the old rule (its active view is shown on
+  screen) and have no rest step. Reopening tabs never fails because one page cannot load; that
+  page shows the browser's error page and keeps its address.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;

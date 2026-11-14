@@ -49,10 +49,12 @@ function chromeCpu(): Record<string, number> {
     .split("\n")
     .flatMap((line) => {
       const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line);
-      return match ? [{ pid: +match[1]!, ppid: +match[2]!, time: match[3]!, command: match[4]! }] : [];
+      return match
+        ? [{ pid: +match[1]!, ppid: +match[2]!, time: match[3]!, command: match[4]! }]
+        : [];
     });
   const mine = new Set([process.pid]);
-  for (let grew = true; grew; ) {
+  for (let grew = true; grew;) {
     grew = false;
     for (const row of rows)
       if (!mine.has(row.pid) && mine.has(row.ppid)) {
@@ -134,7 +136,10 @@ try {
   clock.offset += defaultTabLifecycle.freezeAfterMs + 1000;
   await measure("c: five animated tabs, idle past the freeze threshold");
   console.log(
-    JSON.stringify({ tabs: service.state("c").tabs?.map((tab) => tab.lifecycle), errors: errors.length }),
+    JSON.stringify({
+      tabs: service.state("c").tabs?.map((tab) => tab.lifecycle),
+      errors: errors.length,
+    }),
   );
 } finally {
   await service.close();
