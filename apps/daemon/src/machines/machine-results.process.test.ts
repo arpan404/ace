@@ -11,7 +11,7 @@ import {
 import { commandContext } from "../commands.ts";
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { digest } from "./child-views.ts";
-import { pairedMachines } from "./machine-test-support.ts";
+import { gatedTransport, pairedMachines } from "./machine-test-support.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 
@@ -243,4 +243,20 @@ it("a result arriving after its stopped parent was deleted ends once and is neve
     timeout: 20_000,
   });
   expect(parentInputs(pair).join("\n")).not.toContain(threadId);
+}, 60_000);
+
+it("a stopped parent's waiting result never makes the poll wake itself through the events it writes on the parent", async () => {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  const threadId = await settledUnderStoppedParent(pair);
+  // Each child update there wrote an agent.seen event on the parent here, which reaches the
+  // children as activity on the parent. Settled now, with only its waiting result left, the
+  // poll falls back to the slow re-check pace: 500 ms here, not the 50 ms poll.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const before = gated.statusCalls();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  expect(gated.statusCalls() - before).toBeLessThanOrEqual(6);
+  expect(receipts(pair)).toEqual([]);
+  // And it still arrives, once, when the person sends the parent on.
+  await resumedOnce(pair, threadId);
 }, 60_000);
