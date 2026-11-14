@@ -413,3 +413,38 @@ fn a_simulator_is_read_by_ace_media_its_units_stamped_with_the_source_epoch_and_
     assert_eq!(ended[0].frame.kind, 4, "the end marker");
     assert_eq!(ended[0].frame.flags & 8, 0, "a clean end");
 }
+
+#[test]
+fn a_simulators_encodes_go_to_its_reader_which_re_encodes_for_the_viewer() {
+    let lane = Lane::new(64);
+    let mut engine = with_lane(&lane);
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "sim", "handle": 4, "epoch": 1,
+                "origin": { "kind": "simulator",
+                            "streamUrl": "http://127.0.0.1:3100/stream.avcc",
+                            "stillUrl": "http://127.0.0.1:3100/frame.jpeg" } }),
+        &[2; 32],
+        NOW,
+    );
+    let reader = opened.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Read { token, .. }) => Some(*token),
+        _ => None,
+    });
+    let encodes = json!([{ "id": 1, "codec": "avc1.640033", "width": 588, "height": 1280,
+                           "fps": 60, "bitrate": 6000000 }]);
+    let configured = send(
+        &mut engine,
+        json!({ "type": "source.encodes", "source": "sim", "encodes": encodes }),
+        &[],
+        NOW,
+    );
+    let sent = configured.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Configure { token, encodes, .. }) => {
+            Some((*token, encodes.len()))
+        }
+        _ => None,
+    });
+    assert_eq!(sent, reader.map(|token| (token, 1)), "the reader's own token, no new encoder");
+    assert_eq!(statuses(&configured), []);
+}

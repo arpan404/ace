@@ -215,6 +215,8 @@ impl Records {
 
 /// The decoder configuration in effect: its parameter sets as Annex B, size and codec string.
 struct Config {
+    /// The avcC record as serve-sim sent it, for a decoder.
+    record: Vec<u8>,
     length_size: usize,
     parameters: Vec<u8>,
     width: u16,
@@ -280,6 +282,32 @@ impl Translator {
     }
 }
 
+impl Translator {
+    /// A unit as a decoder takes it (length-prefixed, its avcC on keyframes), for the
+    /// transcode; none before a description, or for anything but a unit.
+    pub fn source(&self, record: &Record, pts_us: u64) -> Option<media_codec::EncodedUnit> {
+        let (body, key) = match record {
+            Record::Key(body) => (body, true),
+            Record::Delta(body) => (body, false),
+            _ => return None,
+        };
+        let config = self.config.as_ref()?;
+        Some(media_codec::EncodedUnit {
+            codec: media_codec::Codec::H264,
+            size: media_codec::Size {
+                width: u32::from(config.width),
+                height: u32::from(config.height),
+            },
+            format: media_codec::BitstreamFormat::Avcc,
+            data: body.clone(),
+            key,
+            description: key.then(|| config.record.clone()),
+            pts_us,
+            duration_us: 0,
+        })
+    }
+}
+
 fn config(record: &[u8]) -> Result<Config, ReadError> {
     let avc = AvcConfig::parse(record).map_err(|_| ReadError::Stream("avcC is invalid"))?;
     let sps = avc
@@ -295,6 +323,7 @@ fn config(record: &[u8]) -> Result<Config, ReadError> {
         parameters.extend_from_slice(unit);
     }
     Ok(Config {
+        record: record.to_vec(),
         length_size: usize::from(avc.length_size),
         parameters,
         width: u16::try_from(width).map_err(|_| ReadError::Stream("picture too wide"))?,

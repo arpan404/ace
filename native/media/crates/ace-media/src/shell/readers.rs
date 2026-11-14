@@ -7,8 +7,8 @@
 //! picture encoders', under the source's encoder token.
 use super::pictures::Encoded;
 use crate::encode::worker::Output;
-use crate::serve_sim::{HttpBody, Records, Translator, loopback_url};
-use media_wire::frame::MediaFrame;
+use crate::serve_sim::{HttpBody, Record, Records, Translator, loopback_url};
+use media_wire::control::EncodeSpec;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
@@ -26,10 +26,12 @@ pub const STUCK_AFTER_MS: u64 = 2_000;
 
 enum Message {
     Key,
+    /// The encodes a viewer needs: one re-encodes the stream (macOS), none passes it through.
+    Configure(Vec<EncodeSpec>),
     Drain,
     /// The source's reader ends (the coordinator holds a sender of its own, for subscriptions).
     Close,
-    Frame(u32, MediaFrame),
+    Record(u32, Record),
     Ended(u32, String),
 }
 
@@ -96,6 +98,12 @@ impl Readers {
         }
     }
 
+    pub fn configure(&mut self, token: u64, encodes: Vec<EncodeSpec>) {
+        if let Some(handle) = self.threads.get(&token) {
+            let _ = handle.messages.send(Message::Configure(encodes));
+        }
+    }
+
     /// The source closed: every unit read has gone out already, so the reader says so at once.
     pub fn drain(&mut self, token: u64) {
         if let Some(handle) = self.threads.get(&token) {
@@ -129,6 +137,12 @@ struct Coordinator {
     active: Option<u32>,
     next: Option<(u32, Instant)>,
     streams: HashMap<u32, TcpStream>,
+    /// Each subscription's decoder configuration: each opens with its own description.
+    translators: HashMap<u32, Translator>,
+    #[cfg(target_os = "macos")]
+    transcode: Option<super::sim_transcode::Transcode>,
+    reported: Option<media_wire::capability::Acceleration>,
+    started: Instant,
 }
 
 impl Coordinator {
@@ -141,6 +155,11 @@ impl Coordinator {
             active: None,
             next: None,
             streams: HashMap::new(),
+            translators: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            transcode: None,
+            reported: None,
+            started: Instant::now(),
         }
     }
 
@@ -167,13 +186,120 @@ impl Coordinator {
         Ok(())
     }
 
+    fn transcoding(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        return self.transcode.is_some();
+        #[cfg(not(target_os = "macos"))]
+        return false;
+    }
+
+    /// One record of subscription `id`: the units out, passed through or re-encoded.
+    fn record(&mut self, id: u32, record: Record, out: &mut Vec<Output>) -> Result<(), String> {
+        if matches!(record, Record::Key(_)) && self.next.is_some_and(|(next, _)| next == id) {
+            if let Some(previous) = self.active.replace(id) {
+                self.end(previous);
+            }
+            self.next = None;
+        }
+        let translator = self.translators.entry(id).or_default();
+        if self.active != Some(id) {
+            // Not this subscription's turn yet, but its description is needed when it comes.
+            if matches!(record, Record::Description(_)) {
+                translator.frame(record).map_err(|e| format!("{e:?}"))?;
+            }
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(transcode) = &mut self.transcode {
+            if matches!(record, Record::Description(_)) {
+                translator.frame(record).map_err(|e| format!("{e:?}"))?;
+                return Ok(());
+            }
+            let pts = self.started.elapsed().as_micros() as u64;
+            let Some(unit) = translator.source(&record, pts) else {
+                return Ok(());
+            };
+            let mut frames = Vec::new();
+            transcode
+                .push(&unit, &mut frames)
+                .map_err(|e| format!("transcode: {e:?}"))?;
+            out.extend(frames.into_iter().map(Output::Unit));
+            let acceleration = transcode.acceleration();
+            if self.reported.as_ref() != Some(&acceleration) {
+                self.reported = Some(acceleration.clone());
+                out.push(Output::Report(acceleration));
+            }
+            return Ok(());
+        }
+        if let Some(frame) = translator.frame(record).map_err(|e| format!("{e:?}"))? {
+            out.push(Output::Unit(frame));
+        }
+        Ok(())
+    }
+
+    /// Units a re-encode finished between records.
+    fn poll(&mut self, out: &mut Vec<Output>) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(transcode) = &mut self.transcode {
+            let mut frames = Vec::new();
+            transcode
+                .poll(&mut frames)
+                .map_err(|e| format!("transcode: {e:?}"))?;
+            out.extend(frames.into_iter().map(Output::Unit));
+        }
+        let _ = out;
+        Ok(())
+    }
+
+    /// A viewer's encodes: re-encode at the first one's size and rate, or pass through. Either
+    /// way the stream starts again at a fresh IDR, which a decoder needs.
+    fn configure(&mut self, encodes: &[EncodeSpec]) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            match (encodes.first(), &mut self.transcode) {
+                (None, slot) => *slot = None,
+                (Some(spec), Some(transcode)) => transcode
+                    .configure(spec)
+                    .map_err(|e| format!("transcode: {e:?}"))?,
+                (Some(spec), slot) => {
+                    *slot = Some(
+                        super::sim_transcode::Transcode::new(spec)
+                            .map_err(|e| format!("transcode: {e:?}"))?,
+                    );
+                }
+            }
+            self.reported = None;
+        }
+        // Elsewhere the stream passes through: nothing routes a Simulator here off a Mac.
+        #[cfg(not(target_os = "macos"))]
+        let _ = encodes;
+        if self.next.is_none() {
+            self.subscribe()?;
+        }
+        Ok(())
+    }
+
+    /// A keyframe: the encoder's next picture while re-encoding, else a fresh subscription. The
+    /// active subscription goes on if a new one can't open; the next request tries again.
+    fn key(&mut self) {
+        #[cfg(target_os = "macos")]
+        if let Some(transcode) = &mut self.transcode {
+            return transcode.key();
+        }
+        if self.next.is_none() {
+            let _ = self.subscribe();
+        }
+    }
+
     fn end(&mut self, id: u32) {
+        self.translators.remove(&id);
         if let Some(stream) = self.streams.remove(&id) {
             let _ = stream.shutdown(Shutdown::Both);
         }
     }
 
     fn end_all(&mut self) {
+        self.translators.clear();
         for (_, stream) in self.streams.drain() {
             let _ = stream.shutdown(Shutdown::Both);
         }
@@ -204,61 +330,54 @@ fn run(
             coordinator.end(id);
             coordinator.next = None;
         }
-        let message = match messages.recv_timeout(Duration::from_millis(250)) {
-            Ok(message) => message,
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => break,
+        // While re-encoding, the encoder's own threads finish units between records.
+        let wait = if coordinator.transcoding() {
+            Duration::from_millis(4)
+        } else {
+            Duration::from_millis(250)
         };
-        match message {
-            Message::Frame(id, frame) => {
-                let key = frame.flags & 1 != 0;
-                if key && coordinator.next.is_some_and(|(next, _)| next == id) {
-                    if let Some(previous) = coordinator.active.replace(id) {
-                        coordinator.end(previous);
-                    }
-                    coordinator.next = None;
-                }
-                if coordinator.active == Some(id) && !send(Output::Unit(frame)) {
-                    break;
-                }
+        let mut out = Vec::new();
+        let step = match messages.recv_timeout(wait) {
+            Ok(Message::Record(id, record)) => coordinator.record(id, record, &mut out),
+            Ok(Message::Configure(encodes)) => coordinator.configure(&encodes),
+            Ok(Message::Key) => {
+                coordinator.key();
+                Ok(())
             }
-            Message::Key => {
-                if coordinator.next.is_none()
-                    && let Err(reason) = coordinator.subscribe()
-                {
-                    // The active subscription goes on; the next request tries again.
-                    let _ = reason;
-                }
-            }
-            Message::Ended(id, reason) => {
+            Ok(Message::Ended(id, reason)) => {
                 let first = coordinator.active.is_none()
                     && coordinator.next.is_some_and(|(next, _)| next == id);
                 if coordinator.active == Some(id) || first {
-                    let _ = send(Output::Failed(format!("reader-ended: {reason}")));
-                    break;
+                    Err(format!("ended: {reason}"))
+                } else {
+                    if coordinator.next.is_some_and(|(next, _)| next == id) {
+                        coordinator.next = None;
+                    }
+                    coordinator.end(id);
+                    Ok(())
                 }
-                if coordinator.next.is_some_and(|(next, _)| next == id) {
-                    coordinator.next = None;
-                }
-                coordinator.streams.remove(&id);
             }
-            Message::Drain => {
+            Ok(Message::Drain) => {
                 let _ = send(Output::Drained);
                 break;
             }
-            Message::Close => break,
+            Ok(Message::Close) | Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => coordinator.poll(&mut out),
+        };
+        if let Err(reason) = step {
+            let _ = send(Output::Failed(format!("reader-{reason}")));
+            break;
+        }
+        if !out.into_iter().all(&send) {
+            break;
         }
     }
     coordinator.end_all();
 }
 
-/// Reads one subscription until it ends, handing on each unit it carries.
+/// Reads one subscription until it ends, handing on each record it carries.
 fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>) {
-    let (mut http, mut records, mut translate) = (
-        HttpBody::default(),
-        Records::default(),
-        Translator::default(),
-    );
+    let (mut http, mut records) = (HttpBody::default(), Records::default());
     let (mut buffer, mut body, mut found) = (vec![0; 64 * 1024], Vec::new(), Vec::new());
     let reason = loop {
         let read = match stream.read(&mut buffer) {
@@ -273,23 +392,10 @@ fn subscription(id: u32, mut stream: TcpStream, own: Sender<Message>) {
         if let Err(error) = records.push(&body, &mut found) {
             break format!("{error:?}");
         }
-        let mut failed = None;
         for record in found.drain(..) {
-            match translate.frame(record) {
-                Ok(Some(frame)) => {
-                    if own.send(Message::Frame(id, frame)).is_err() {
-                        return;
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    failed = Some(format!("{error:?}"));
-                    break;
-                }
+            if own.send(Message::Record(id, record)).is_err() {
+                return;
             }
-        }
-        if let Some(reason) = failed {
-            break reason;
         }
         if http.finished() {
             break "serve-sim ended the stream".to_owned();

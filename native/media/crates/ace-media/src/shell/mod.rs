@@ -10,6 +10,8 @@ mod ingest;
 mod lanes;
 mod pictures;
 mod readers;
+#[cfg(target_os = "macos")]
+mod sim_transcode;
 mod writer;
 
 use crate::encode::worker::Output;
