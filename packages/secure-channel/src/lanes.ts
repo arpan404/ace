@@ -27,6 +27,13 @@ export function fragmentFlag(kind: FragmentKind, last: boolean, lane: Lane): num
   return kind + (last ? 1 : 0) + (lane === BULK ? BULK_LANE : 0);
 }
 
+/**
+ * Fragments of the other lane a reader accepts in a row while a lane holds a partial message.
+ * A sender gives a waiting bulk message a fragment after every eight interactive ones; well
+ * past that, the sender is starving a partial message the reader must keep in memory.
+ */
+export const MAX_PASSED_FRAGMENTS = 256;
+
 export interface AssembledMessage {
   kind: FragmentKind;
   data: Uint8Array;
@@ -54,6 +61,8 @@ interface Partial {
 export class FragmentAssembler {
   readonly #limits: AssemblerLimits;
   readonly #partial: (Partial | undefined)[] = [undefined, undefined];
+  /** Fragments of the other lane since each lane's partial message last grew. */
+  readonly #passed = [0, 0];
   constructor(limits: AssemblerLimits) {
     this.#limits = limits;
   }
@@ -72,6 +81,13 @@ export class FragmentAssembler {
     if (flag > 5 || (flag % 2 === 0 && plain.length !== FULL_FRAGMENT))
       throw new Error("Invalid encrypted fragment");
     const kind = (flag - (flag % 2)) as FragmentKind;
+    const other = lane === BULK ? INTERACTIVE : BULK;
+    this.#passed[lane] = 0;
+    if (this.#partial[other]) {
+      const passed = (this.#passed[other] ?? 0) + 1;
+      if (passed > MAX_PASSED_FRAGMENTS) throw new Error("Partial message starved");
+      this.#passed[other] = passed;
+    }
     const partial = this.#partial[lane] ?? { kind, size: 0, chunks: [] };
     if (partial.kind !== kind) throw new Error("Mixed fragment kinds");
     this.#partial[lane] = partial;
@@ -96,5 +112,6 @@ export class FragmentAssembler {
   clear(): void {
     for (const partial of this.#partial) for (const chunk of partial?.chunks ?? []) chunk.fill(0);
     this.#partial.fill(undefined);
+    this.#passed.fill(0);
   }
 }

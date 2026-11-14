@@ -45,7 +45,10 @@ function smaller(json: Uint8Array, deflated: Uint8Array): Uint8Array | undefined
   return undefined;
 }
 
-function deflateLater(json: Uint8Array): Promise<Uint8Array> {
+/** Deflates a large JSON message off the event loop; tests may slow it or make it fail. */
+export type DeflateLater = (json: Uint8Array) => Promise<Uint8Array>;
+
+export function deflateLater(json: Uint8Array): Promise<Uint8Array> {
   return new Promise((resolve, reject) =>
     deflateRaw(json, { level: 6 }, (error, result) => (error ? reject(error) : resolve(result))),
   );
@@ -140,9 +143,10 @@ export function hostMessageChannel(
   transport: Transport,
   onReceive: (message: ClientMessage | Uint8Array | string) => void,
   authorize: () => void,
+  deflate: DeflateLater = deflateLater,
 ): HostChannel {
   return Object.assign(
-    createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive),
+    createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive, deflate),
     { authorize },
   );
 }
@@ -153,6 +157,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   incoming: z.ZodType<Incoming>,
   outgoing: z.ZodType<Outgoing>,
   onReceive?: (message: Incoming | Uint8Array | string) => void,
+  deflate: DeflateLater = deflateLater,
 ): MessageChannel<Incoming, Outgoing> {
   let resolveClosed: (error: Error | undefined) => void;
   const closed = new Promise<Error | undefined>((resolve) => {
@@ -297,6 +302,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         plain[0] = fragmentFlag(message.kind, last, message.lane);
         plain.set(chunk, 1);
         message.offset += chunk.length;
+        queue.sent(message);
         try {
           await sendFrame(socket, seal(plain));
         } finally {
@@ -367,8 +373,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     });
   };
   /** JSON bytes, deflated first when asked and when that makes them smaller. */
-  const sendJson = (json: Uint8Array, deflate: boolean, lane: Lane): Promise<void> => {
-    if (!deflate || json.length < DEFLATE_THRESHOLD)
+  const sendJson = (json: Uint8Array, compress: boolean, lane: Lane): Promise<void> => {
+    if (!compress || json.length < DEFLATE_THRESHOLD)
       return enqueue(json, json.length, fragmentKinds.json, lane);
     if (json.length < ASYNC_DEFLATE_FROM) {
       const deflated = smaller(json, deflateRawSync(json, { level: 6 }));
@@ -376,12 +382,19 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       json.fill(0);
       return enqueue(deflated, deflated.length, fragmentKinds.deflated, lane);
     }
-    const later = deflateLater(json).then((result) => {
-      const deflated = smaller(json, result);
-      if (!deflated) return { data: json, kind: fragmentKinds.json };
-      json.fill(0);
-      return { data: deflated, kind: fragmentKinds.deflated };
-    });
+    // A deflate that fails sends the message as it is: compression is only ever a saving.
+    // A deflate that throws at once fails like one that rejects.
+    const later = Promise.resolve(json)
+      .then(deflate)
+      .then(
+        (result) => {
+          const deflated = smaller(json, result);
+          if (!deflated) return { data: json, kind: fragmentKinds.json };
+          json.fill(0);
+          return { data: deflated, kind: fragmentKinds.deflated };
+        },
+        () => ({ data: json, kind: fragmentKinds.json }),
+      );
     return enqueue(undefined, json.length, fragmentKinds.json, lane, later);
   };
   /** One whole message: binary bytes, or its JSON text (inflated and UTF-8 checked). */

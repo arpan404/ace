@@ -4,6 +4,7 @@ import {
   FULL_FRAGMENT,
   FragmentAssembler,
   INTERACTIVE,
+  MAX_PASSED_FRAGMENTS,
   fragmentFlag,
   fragmentKinds,
   type FragmentKind,
@@ -72,4 +73,14 @@ it("a binary message past its limit is refused", () => {
   const assembler = new FragmentAssembler({ lanes: true, ...limits });
   const pieces = fragments(filled(2 * FULL_FRAGMENT, 1), fragmentKinds.binary, BULK);
   expect(() => pieces.forEach((plain) => assembler.add(plain))).toThrow("Binary message too large");
+});
+
+it("a bulk partial message passed by too many interactive fragments ends the channel", () => {
+  const assembler = new FragmentAssembler({ lanes: true, ...limits });
+  const [first] = fragments(filled(2 * FULL_FRAGMENT, 1), fragmentKinds.json, BULK);
+  if (!first) throw new Error("Expected a fragment");
+  assembler.add(first);
+  const small = () => fragments(filled(10, 2), fragmentKinds.json, INTERACTIVE)[0] ?? filled(0, 0);
+  for (let index = 0; index < MAX_PASSED_FRAGMENTS; index++) assembler.add(small());
+  expect(() => assembler.add(small())).toThrow("Partial message starved");
 });
