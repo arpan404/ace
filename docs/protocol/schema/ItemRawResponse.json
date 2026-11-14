@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/ItemRawResponse.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "changed": {
+      "const": true,
+      "type": "boolean"
+    },
     "from": {
       "maximum": 9007199254740991,
       "minimum": 0,
@@ -26,6 +30,11 @@
       "minLength": 1,
       "type": "string"
     },
+    "revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
@@ -39,6 +48,7 @@
     "requestId",
     "threadId",
     "itemId",
+    "revision",
     "from",
     "raw"
   ],

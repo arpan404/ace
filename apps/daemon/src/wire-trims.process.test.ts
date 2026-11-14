@@ -382,14 +382,16 @@ const pageOf = (text: string) => {
   return answer;
 };
 
+/** One version of an item's payloads: 30 entries of about 60 KB, over one reply. */
+const revision = (tag: string) =>
+  Array.from({ length: 30 }, (_, index) => ({
+    type: "assistant",
+    data: { tag, index, text: "x".repeat(60_000) },
+  }));
+
 test("a cursor issued before the item's raw changed answers 'changed', never a mixed list", async () => {
   const { f, join } = await setup();
   const client = await join({ trims: [wireTrims.rawOnDemand] });
-  const revision = (tag: string) =>
-    Array.from({ length: 30 }, (_, index) => ({
-      type: "assistant",
-      data: { tag, index, text: "x".repeat(60_000) },
-    }));
   f.store.appendEvents(f.thread.id, [
     { type: "item.created", item: Item.parse({ ...reply, raw: revision("old") }) },
   ]);
@@ -445,17 +447,17 @@ test("an entry with an oversized name or type answers within the page limit and 
   ]);
   const read: { type: string; name?: string | undefined }[] = [];
   let from: number | undefined = 0;
-  let revision: string | undefined;
+  let cursor: string | undefined;
   for (let request = 0; from !== undefined; request++) {
     const text = await readRaw(client, f.thread.id, {
       requestId: `big-${request}`,
       from,
-      ...(revision ? { revision } : {}),
+      ...(cursor ? { revision: cursor } : {}),
     });
     expect(Buffer.byteLength(text)).toBeLessThan(1024 * 1024 + 1024);
     const page = pageOf(text);
     read.push(...page.raw);
-    revision = page.revision;
+    cursor = page.revision;
     from = page.next;
   }
   expect(read).toHaveLength(2);

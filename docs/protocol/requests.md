@@ -229,6 +229,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | itemId | yes | [ItemId.json](schema/ItemId.json) |  |
 | from | no | integer | {"default":0,"minimum":0,"maximum":9007199254740991} |
+| revision | no | string | {"minLength":1,"maxLength":128} |
 
 Example:
 
@@ -1487,7 +1488,7 @@ Example:
 
 ```json
 {
-  "key": "browser.backendLoss",
+  "key": "browser.profile",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"

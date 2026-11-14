@@ -67,7 +67,12 @@ those readers with and without the raw, so it follows them. The rule is `rawShow
 `packages/projection/src/wire-trim.ts`. A view reads the payloads with `item.raw`
 (`{threadId, itemId, from}` → the stored `raw`, or a tool call's `call.raw`, oldest first, from
 `from`, as many as fit 1 MiB and at least one, with `next` while more remain), under the same
-checks as reading the item: read scope and a thread the device may read.
+checks as reading the item: read scope and a thread the device may read. Each reply names the
+version of the payloads it is of (`revision`, a hash of them); a continuation of another version
+answers `changed` with none, and the reader starts again, so no list mixes two versions. An
+entry larger than 256 KiB comes with its long fields cut, each ending with its full length, so no
+reply passes the limit; storage keeps it whole. The raw view reads again when the step changes
+while it is open, and says a running step's payloads may not be final.
 
 **Hello framing `short-deltas`.** An events message names its thread once (`threadId`) and
 carries each streamed delta as `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`. The

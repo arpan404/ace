@@ -432,6 +432,8 @@ Example:
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | itemId | yes | [ItemId.json](schema/ItemId.json) |  |
+| revision | yes | string | {"minLength":1,"maxLength":128} |
+| changed | no | `true` |  |
 | from | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | raw | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 | next | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
@@ -440,11 +442,11 @@ Example:
 
 ```json
 {
-  "from": 5,
+  "from": 2,
   "itemId": "example",
-  "next": 7,
   "raw": [],
   "requestId": "example",
+  "revision": "example",
   "threadId": "example",
   "type": "item.raw"
 }

@@ -120,6 +120,13 @@
         "logs.maxBytes": {
           "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
         },
+        "media.encode": {
+          "enum": [
+            "auto",
+            "legacy"
+          ],
+          "type": "string"
+        },
         "notifications.pushGatewayUrl": {
           "examples": [
             "https://push.acehq.dev"
