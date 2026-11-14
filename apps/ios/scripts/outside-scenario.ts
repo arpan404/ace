@@ -5,7 +5,8 @@ import { OutsideGrantEntry } from "@ace/protocol";
  * Outside apps on the fixture's machine (ADR 0122): two connected apps and an ended one for
  * Settings › Connected apps, and a thread Claude started. `POST /review/outside` stages the
  * rest: `ask` opens a sign-in request (the approval sheet), `screen` has Claude use the
- * screen (the "Claude is using this Mac" line), `clear` ends both.
+ * screen (the "Claude is using this Mac" line), `clear` ends both. `elsewhere` is another
+ * client turning the relay on and adding its own URL; `home` puts both back.
  */
 
 const hour = 60 * 60_000;
@@ -77,7 +78,9 @@ export function seedOutside(daemon: FakeDaemon, now: number): void {
 }
 
 let asks = 0;
-export function outsideScenario(daemon: FakeDaemon, kind: "ask" | "screen" | "clear"): void {
+export type OutsideScenario = "ask" | "screen" | "clear" | "elsewhere" | "home";
+export function outsideScenario(daemon: FakeDaemon, kind: OutsideScenario): void {
+  if (kind === "elsewhere" || kind === "home") return addresses(daemon, kind === "elsewhere");
   if (kind === "ask")
     daemon.outside.ask({
       requestId: `ios-outside-ask-${++asks}`,
@@ -95,4 +98,23 @@ export function outsideScenario(daemon: FakeDaemon, kind: "ask" | "screen" | "cl
     daemon.outside.access = [];
     daemon.outside.useScreen([]);
   }
+}
+
+/** The relay and your own URL, as another client of the machine would change them. */
+function addresses(daemon: FakeDaemon, on: boolean): void {
+  const ownUrl = "https://ace.example.com";
+  daemon.services.settings.seed({
+    "remote.relayMcp": on,
+    "remote.mcpPublicUrl": on ? ownUrl : null,
+  });
+  daemon.outside.endpoints = [
+    { path: "local", url: "http://127.0.0.1:47811/mcp", on: true },
+    { path: "tailscale", url: null, on: false },
+    on
+      ? { path: "relay", url: "https://cloud.acehq.dev/mcp/ios-spike-host", on: true }
+      : { path: "relay", url: null, on: false },
+    on
+      ? { path: "custom", url: `${ownUrl}/mcp`, on: true }
+      : { path: "custom", url: null, on: false },
+  ];
 }

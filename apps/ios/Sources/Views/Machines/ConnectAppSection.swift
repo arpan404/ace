@@ -7,6 +7,8 @@ import SwiftUI
 struct ConnectAppSection: View {
     let model: ClientModel
     let machine: String
+    /// Bumped by the page's pull-to-refresh, so another client's change shows here too.
+    var refresh = 0
     @State private var addresses: OutsideAddresses?
     @State private var problem: String?
     @State private var saving = false
@@ -28,7 +30,7 @@ struct ConnectAppSection: View {
         }
         .insetRowBackground()
         .disabled(saving)
-        .task(id: model.connection) { await read() }
+        .task(id: "\(model.connection)|\(refresh)") { await read() }
         .alert("Your own URL", isPresented: $editing) {
             TextField("https://ace.example.com", text: $typed)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
