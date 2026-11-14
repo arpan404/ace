@@ -9,6 +9,11 @@ import type { FilesScope } from "./checkout-request.ts";
  */
 
 const newline = 0x0a;
+/**
+ * A page's text keeps every byte it can: a leading byte order mark stays (a default decoder
+ * drops it, and a part saved from that text would lose those 3 bytes).
+ */
+const pageText = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /**
  * Where a page of `bytes` should end: after its last line break, or (one line longer than a
@@ -44,11 +49,12 @@ export async function readPage(
   if (read.kind !== "file") throw new CheckoutError("missing", "Nothing is at this path any more.");
   const size = read.size ?? 0;
   const atEnd = input.offset + read.bytes.length >= size;
-  if (input.offset === 0 && !isText(read.bytes))
+  // A first part cut inside a character is still text: only the bytes it holds are judged.
+  if (input.offset === 0 && !isText(read.bytes, !atEnd))
     throw new CheckoutError("binary", "This file isn't text, so it can't be read in pages.");
   const end = pageEnd(read.bytes, atEnd);
   return {
-    text: new TextDecoder().decode(read.bytes.subarray(0, end)),
+    text: pageText.decode(read.bytes.subarray(0, end)),
     offset: input.offset,
     nextOffset: input.offset + end,
     size,

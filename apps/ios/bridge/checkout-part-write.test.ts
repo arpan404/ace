@@ -26,11 +26,11 @@ const big = Array.from({ length: 30_000 }, (_, line) => `event ${line} ${"x".rep
   "\n",
 );
 
-async function connect() {
+async function connect(seeded: Uint8Array = new TextEncoder().encode(big)) {
   const fake = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   fake.createThread({ id: thread, workspaceId: "ace", title: "Parts", provider: "claude" });
   fake.apply(thread, [facts.rootAgent("claude")]);
-  fake.checkouts.seedBytes(thread, path, new TextEncoder().encode(big));
+  fake.checkouts.seedBytes(thread, path, seeded);
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-parts-test"),
     expectedHostId: HostId.parse("ios-test-host"),
@@ -56,13 +56,32 @@ async function connect() {
       NativeFilesRequest.parse({ type: "native.files", scope: { threadId: thread }, operation }),
       new AbortController().signal,
     );
-  const whole = async () => {
+  const bytes = async () => {
     const parts: Uint8Array[] = [];
     const input = { threadId: ThreadId.parse(thread), op: "download", path, offset: 0 } as const;
-    for await (const bytes of downloadFile(owner, input, { timeoutMs: 30_000 })) parts.push(bytes);
-    return new TextDecoder().decode(Buffer.concat(parts));
+    for await (const part of downloadFile(owner, input, { timeoutMs: 30_000 })) parts.push(part);
+    return Buffer.concat(parts);
   };
-  return { ask, whole };
+  const whole = async () => new TextDecoder().decode(await bytes());
+  /** Every part as the phone reads them, at the file's current version. */
+  const pages = async () => {
+    const read: { text: string; offset: number; length: number; version: string }[] = [];
+    for (let offset = 0, done = false; !done;) {
+      const page = await ask({ op: "page", path, offset, version: read[0]?.version });
+      if (page.ok !== true) throw new Error(`page at ${offset}: ${String(page.message)}`);
+      const next = page.nextOffset as number;
+      read.push({
+        text: page.text as string,
+        offset,
+        length: next - offset,
+        version: page.version as string,
+      });
+      offset = next;
+      done = page.done === true;
+    }
+    return read;
+  };
+  return { ask, whole, bytes, pages };
 }
 
 test.each([
@@ -137,4 +156,56 @@ test("a part saved after the file changed names the newer version and writes not
   });
   expect(stale).toMatchObject({ ok: true, conflict: elsewhere.version });
   expect((await whole()).startsWith("EVENT 0")).toBe(true);
+});
+
+/** A BOM, CRLF lines, and a line of 3-byte characters longer than a part, so a part ends inside it. */
+const awkward = Buffer.concat([
+  Buffer.from([0xef, 0xbb, 0xbf]),
+  Buffer.from("line one\r\ncafé\r\n"),
+  Buffer.from(`${"€".repeat(100_000)}\r\n`),
+  Buffer.from(Array.from({ length: 3000 }, (_, row) => `row ${row} ü\r\n`).join("")),
+]);
+
+test("saving each part as it was read leaves the file byte for byte, BOM, CRLF and split characters included", async () => {
+  const { ask, bytes, pages } = await connect(awkward);
+  const read = await pages();
+  expect(read.length).toBeGreaterThan(2);
+  expect(read[0]?.text.startsWith("\uFEFFline one\r\n")).toBe(true);
+  // The long line is cut between whole characters, never inside one.
+  expect(read.some((part) => part.text.length > 0 && !part.text.endsWith("\n"))).toBe(true);
+  let version = read[0]?.version;
+  for (const part of read) {
+    const saved = await ask({ op: "part.write", path, ...part, version });
+    expect(saved).toMatchObject({ ok: true, version: expect.any(String) });
+    version = saved.version as string;
+    expect((await bytes()).equals(awkward)).toBe(true);
+  }
+});
+
+test("an edit in a CRLF part changes only the edited bytes", async () => {
+  const { ask, bytes, pages } = await connect(awkward);
+  const part = (await pages()).find((each) => each.text.includes("row 2000 ü\r\n"));
+  if (!part) throw new Error("no part holds row 2000");
+  const text = part.text.replace("row 2000 ü\r\n", "ROW 2000 Ü\r\n");
+  expect(await ask({ op: "part.write", path, ...part, text })).toMatchObject({ ok: true });
+  const expected = Buffer.from(
+    new TextDecoder("utf-8", { ignoreBOM: true })
+      .decode(awkward)
+      .replace("row 2000 ü\r\n", "ROW 2000 Ü\r\n"),
+  );
+  expect((await bytes()).equals(expected)).toBe(true);
+});
+
+test("a part that isn't valid UTF-8 is never saved, so bytes it couldn't show stay as they were", async () => {
+  // The stray byte sits in a later part: the first part reads as text, as a mostly-text file does.
+  const stray = Buffer.concat([
+    Buffer.from(Array.from({ length: 30_000 }, (_, row) => `row ${row} fine\n`).join("")),
+    Buffer.from([0x6f, 0x6b, 0xff, 0x62, 0x0a]),
+  ]);
+  const { ask, bytes, pages } = await connect(stray);
+  const part = (await pages()).at(-1);
+  if (!part) throw new Error("no part");
+  const saved = await ask({ op: "part.write", path, ...part, text: part.text.replace("ok", "OK") });
+  expect(saved).toMatchObject({ ok: false, code: "not_utf8" });
+  expect((await bytes()).equals(stray)).toBe(true);
 });

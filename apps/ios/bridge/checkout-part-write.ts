@@ -133,6 +133,7 @@ export async function writePart(
   let size: number;
   try {
     size = (await readAt(owner, threadId, edit, 0, signal)).size;
+    await assertTextPart(owner, threadId, edit, signal);
   } catch (error) {
     if (!(error instanceof CheckoutError) || error.code !== "changed") throw error;
     return { conflict: await currentVersion(owner, threadId, edit.path, signal) };
@@ -172,6 +173,44 @@ export async function writePart(
     const code = error instanceof CheckoutError ? error.code : checkoutError(error).code;
     if (code !== "CONFLICT" && code !== "changed") throw error;
     return { conflict: await currentVersion(owner, threadId, edit.path, signal) };
+  }
+}
+
+/**
+ * The part's old bytes are UTF-8 that its text gives back exactly. Bytes that aren't (a stray
+ * byte, another encoding) were shown with replacement characters, and saving that text would
+ * change bytes the person never touched, so such a part is never saved.
+ */
+async function assertTextPart(
+  owner: FilesOwner,
+  threadId: ThreadId,
+  edit: PartEdit,
+  signal: AbortSignal,
+): Promise<void> {
+  const strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  const parts: Uint8Array[] = [];
+  for await (const bytes of oldBytes(
+    owner,
+    threadId,
+    edit,
+    edit.offset,
+    edit.offset + edit.length,
+    signal,
+  ))
+    parts.push(bytes);
+  const whole = new Uint8Array(edit.length);
+  let at = 0;
+  for (const bytes of parts) {
+    whole.set(bytes, at);
+    at += bytes.length;
+  }
+  try {
+    strict.decode(whole);
+  } catch {
+    throw new CheckoutError(
+      "not_utf8",
+      "This part isn't plain UTF-8 text, so the phone can't save it without changing other bytes.",
+    );
   }
 }
 
