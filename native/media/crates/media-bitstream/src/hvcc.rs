@@ -69,6 +69,26 @@ impl HevcConfig {
         })
     }
 
+    /// The codec string of ISO/IEC 14496-15 Annex E: `hvc1.` profile space and profile,
+    /// the compatibility flags bit-reversed in hex, tier and level, then the constraint
+    /// bytes with trailing zero bytes left out.
+    pub fn codec_string(&self) -> String {
+        let g = &self.general;
+        let space = ["", "A", "B", "C"][usize::from(g[0] >> 6)];
+        let tier = if g[0] & 0x20 != 0 { 'H' } else { 'L' };
+        let compat = u32::from_be_bytes([g[1], g[2], g[3], g[4]]).reverse_bits();
+        let mut out = format!("hvc1.{space}{}.{compat:x}.{tier}{}", g[0] & 0x1f, g[11]);
+        let constraints = &g[5..11];
+        let used = constraints
+            .iter()
+            .rposition(|b| *b != 0)
+            .map_or(0, |i| i + 1);
+        for b in &constraints[..used] {
+            out.push_str(&format!(".{b:X}"));
+        }
+        out
+    }
+
     pub fn parse(record: &[u8]) -> Result<Self, BitstreamError> {
         let (head, mut rest) = record
             .split_at_checked(23)

@@ -1,0 +1,225 @@
+/* SPDX-License-Identifier: Apache-2.0
+ * Prints the sizes and field offsets media-vaapi's FFI types must match, as the rows of
+ * `layout_matches_va_h` in src/linux/ffi.rs. Uses the installed libva headers only; nothing
+ * is linked:
+ *   cc va_layout.c -o va_layout && ./va_layout
+ */
+#include <stddef.h>
+#include <stdio.h>
+#include <va/va.h>
+#include <va/va_drmcommon.h>
+#include <va/va_enc_h264.h>
+#include <va/va_enc_hevc.h>
+#include <va/va_enc_jpeg.h>
+#include <va/va_dec_jpeg.h>
+#include <va/va_vpp.h>
+
+#define S(t) printf("            (\"%s\", size_of::<%s>(), %zu),\n", #t, #t, sizeof(t))
+#define O(t, f) printf("            (\"%s.%s\", offset_of!(%s, %s), %zu),\n", #t, #f, #t, #f, offsetof(t, f))
+
+int main(void) {
+    printf("            // VA-API %d.%d\n", VA_MAJOR_VERSION, VA_MINOR_VERSION);
+    S(VAConfigAttrib);
+    S(VASurfaceAttrib);
+    S(VADRMPRIMESurfaceDescriptor);
+    S(VAImage);
+    S(VAImageFormat);
+    S(VACodedBufferSegment);
+    S(VAEncPackedHeaderParameterBuffer);
+    S(VAEncMiscParameterRateControl);
+    S(VAEncMiscParameterFrameRate);
+    S(VAEncMiscParameterHRD);
+    S(VAPictureH264);
+    S(VAEncSequenceParameterBufferH264);
+    S(VAEncPictureParameterBufferH264);
+    S(VAEncSliceParameterBufferH264);
+    S(VAPictureHEVC);
+    S(VAEncSequenceParameterBufferHEVC);
+    S(VAEncPictureParameterBufferHEVC);
+    S(VAEncSliceParameterBufferHEVC);
+    S(VARectangle);
+    S(VAProcColorProperties);
+    S(VAProcPipelineParameterBuffer);
+    S(VAPictureParameterBufferJPEGBaseline);
+    S(VAIQMatrixBufferJPEGBaseline);
+    S(VAHuffmanTableBufferJPEGBaseline);
+    S(VASliceParameterBufferJPEGBaseline);
+    S(VAEncPictureParameterBufferJPEG);
+    S(VAEncSliceParameterBufferJPEG);
+    S(VAQMatrixBufferJPEG);
+    O(VAImage, format);
+    O(VAImage, buf);
+    O(VAImage, width);
+    O(VAImage, data_size);
+    O(VAImage, num_planes);
+    O(VAImage, pitches);
+    O(VAImage, offsets);
+    O(VADRMPRIMESurfaceDescriptor, num_objects);
+    O(VADRMPRIMESurfaceDescriptor, objects);
+    O(VADRMPRIMESurfaceDescriptor, num_layers);
+    O(VADRMPRIMESurfaceDescriptor, layers);
+    O(VAEncPackedHeaderParameterBuffer, bit_length);
+    O(VAEncPackedHeaderParameterBuffer, has_emulation_bytes);
+    O(VAEncMiscParameterRateControl, initial_qp);
+    O(VAEncMiscParameterRateControl, min_qp);
+    O(VAEncMiscParameterRateControl, rc_flags);
+    O(VAEncMiscParameterRateControl, max_qp);
+    O(VAEncMiscParameterRateControl, target_frame_size);
+    O(VAEncSequenceParameterBufferH264, level_idc);
+    O(VAEncSequenceParameterBufferH264, intra_period);
+    O(VAEncSequenceParameterBufferH264, intra_idr_period);
+    O(VAEncSequenceParameterBufferH264, ip_period);
+    O(VAEncSequenceParameterBufferH264, bits_per_second);
+    O(VAEncSequenceParameterBufferH264, max_num_ref_frames);
+    O(VAEncSequenceParameterBufferH264, picture_width_in_mbs);
+    O(VAEncSequenceParameterBufferH264, picture_height_in_mbs);
+    O(VAEncSequenceParameterBufferH264, seq_fields);
+    O(VAEncSequenceParameterBufferH264, bit_depth_luma_minus8);
+    O(VAEncSequenceParameterBufferH264, num_ref_frames_in_pic_order_cnt_cycle);
+    O(VAEncSequenceParameterBufferH264, offset_for_non_ref_pic);
+    O(VAEncSequenceParameterBufferH264, offset_for_ref_frame);
+    O(VAEncSequenceParameterBufferH264, frame_cropping_flag);
+    O(VAEncSequenceParameterBufferH264, frame_crop_left_offset);
+    O(VAEncSequenceParameterBufferH264, frame_crop_bottom_offset);
+    O(VAEncSequenceParameterBufferH264, vui_parameters_present_flag);
+    O(VAEncSequenceParameterBufferH264, vui_fields);
+    O(VAEncSequenceParameterBufferH264, aspect_ratio_idc);
+    O(VAEncSequenceParameterBufferH264, sar_width);
+    O(VAEncSequenceParameterBufferH264, num_units_in_tick);
+    O(VAEncSequenceParameterBufferH264, time_scale);
+    O(VAEncPictureParameterBufferH264, ReferenceFrames);
+    O(VAEncPictureParameterBufferH264, coded_buf);
+    O(VAEncPictureParameterBufferH264, pic_parameter_set_id);
+    O(VAEncPictureParameterBufferH264, last_picture);
+    O(VAEncPictureParameterBufferH264, frame_num);
+    O(VAEncPictureParameterBufferH264, pic_init_qp);
+    O(VAEncPictureParameterBufferH264, num_ref_idx_l0_active_minus1);
+    O(VAEncPictureParameterBufferH264, chroma_qp_index_offset);
+    O(VAEncPictureParameterBufferH264, second_chroma_qp_index_offset);
+    O(VAEncPictureParameterBufferH264, pic_fields);
+    O(VAEncSliceParameterBufferH264, num_macroblocks);
+    O(VAEncSliceParameterBufferH264, macroblock_info);
+    O(VAEncSliceParameterBufferH264, slice_type);
+    O(VAEncSliceParameterBufferH264, pic_parameter_set_id);
+    O(VAEncSliceParameterBufferH264, idr_pic_id);
+    O(VAEncSliceParameterBufferH264, pic_order_cnt_lsb);
+    O(VAEncSliceParameterBufferH264, delta_pic_order_cnt_bottom);
+    O(VAEncSliceParameterBufferH264, delta_pic_order_cnt);
+    O(VAEncSliceParameterBufferH264, direct_spatial_mv_pred_flag);
+    O(VAEncSliceParameterBufferH264, num_ref_idx_active_override_flag);
+    O(VAEncSliceParameterBufferH264, num_ref_idx_l0_active_minus1);
+    O(VAEncSliceParameterBufferH264, RefPicList0);
+    O(VAEncSliceParameterBufferH264, RefPicList1);
+    O(VAEncSliceParameterBufferH264, luma_log2_weight_denom);
+    O(VAEncSliceParameterBufferH264, luma_weight_l0);
+    O(VAEncSliceParameterBufferH264, chroma_weight_l0_flag);
+    O(VAEncSliceParameterBufferH264, luma_weight_l1_flag);
+    O(VAEncSliceParameterBufferH264, cabac_init_idc);
+    O(VAEncSliceParameterBufferH264, slice_qp_delta);
+    O(VAEncSliceParameterBufferH264, disable_deblocking_filter_idc);
+    O(VAEncSliceParameterBufferH264, slice_beta_offset_div2);
+    O(VAEncSequenceParameterBufferHEVC, general_level_idc);
+    O(VAEncSequenceParameterBufferHEVC, general_tier_flag);
+    O(VAEncSequenceParameterBufferHEVC, intra_period);
+    O(VAEncSequenceParameterBufferHEVC, ip_period);
+    O(VAEncSequenceParameterBufferHEVC, bits_per_second);
+    O(VAEncSequenceParameterBufferHEVC, pic_width_in_luma_samples);
+    O(VAEncSequenceParameterBufferHEVC, pic_height_in_luma_samples);
+    O(VAEncSequenceParameterBufferHEVC, seq_fields);
+    O(VAEncSequenceParameterBufferHEVC, log2_min_luma_coding_block_size_minus3);
+    O(VAEncSequenceParameterBufferHEVC, max_transform_hierarchy_depth_intra);
+    O(VAEncSequenceParameterBufferHEVC, pcm_sample_bit_depth_luma_minus1);
+    O(VAEncSequenceParameterBufferHEVC, log2_max_pcm_luma_coding_block_size_minus3);
+    O(VAEncSequenceParameterBufferHEVC, vui_parameters_present_flag);
+    O(VAEncSequenceParameterBufferHEVC, vui_fields);
+    O(VAEncSequenceParameterBufferHEVC, aspect_ratio_idc);
+    O(VAEncSequenceParameterBufferHEVC, sar_width);
+    O(VAEncSequenceParameterBufferHEVC, vui_num_units_in_tick);
+    O(VAEncSequenceParameterBufferHEVC, vui_time_scale);
+    O(VAEncSequenceParameterBufferHEVC, min_spatial_segmentation_idc);
+    O(VAEncSequenceParameterBufferHEVC, max_bytes_per_pic_denom);
+    O(VAEncSequenceParameterBufferHEVC, max_bits_per_min_cu_denom);
+    O(VAEncSequenceParameterBufferHEVC, scc_fields);
+    O(VAEncPictureParameterBufferHEVC, reference_frames);
+    O(VAEncPictureParameterBufferHEVC, coded_buf);
+    O(VAEncPictureParameterBufferHEVC, collocated_ref_pic_index);
+    O(VAEncPictureParameterBufferHEVC, last_picture);
+    O(VAEncPictureParameterBufferHEVC, pic_init_qp);
+    O(VAEncPictureParameterBufferHEVC, diff_cu_qp_delta_depth);
+    O(VAEncPictureParameterBufferHEVC, pps_cb_qp_offset);
+    O(VAEncPictureParameterBufferHEVC, num_tile_columns_minus1);
+    O(VAEncPictureParameterBufferHEVC, column_width_minus1);
+    O(VAEncPictureParameterBufferHEVC, row_height_minus1);
+    O(VAEncPictureParameterBufferHEVC, log2_parallel_merge_level_minus2);
+    O(VAEncPictureParameterBufferHEVC, ctu_max_bitsize_allowed);
+    O(VAEncPictureParameterBufferHEVC, num_ref_idx_l0_default_active_minus1);
+    O(VAEncPictureParameterBufferHEVC, slice_pic_parameter_set_id);
+    O(VAEncPictureParameterBufferHEVC, nal_unit_type);
+    O(VAEncPictureParameterBufferHEVC, pic_fields);
+    O(VAEncPictureParameterBufferHEVC, hierarchical_level_plus1);
+    O(VAEncPictureParameterBufferHEVC, scc_fields);
+    O(VAEncSliceParameterBufferHEVC, num_ctu_in_slice);
+    O(VAEncSliceParameterBufferHEVC, slice_type);
+    O(VAEncSliceParameterBufferHEVC, slice_pic_parameter_set_id);
+    O(VAEncSliceParameterBufferHEVC, num_ref_idx_l0_active_minus1);
+    O(VAEncSliceParameterBufferHEVC, num_ref_idx_l1_active_minus1);
+    O(VAEncSliceParameterBufferHEVC, ref_pic_list0);
+    O(VAEncSliceParameterBufferHEVC, ref_pic_list1);
+    O(VAEncSliceParameterBufferHEVC, luma_log2_weight_denom);
+    O(VAEncSliceParameterBufferHEVC, delta_chroma_log2_weight_denom);
+    O(VAEncSliceParameterBufferHEVC, delta_luma_weight_l0);
+    O(VAEncSliceParameterBufferHEVC, chroma_offset_l1);
+    O(VAEncSliceParameterBufferHEVC, max_num_merge_cand);
+    O(VAEncSliceParameterBufferHEVC, slice_qp_delta);
+    O(VAEncSliceParameterBufferHEVC, slice_tc_offset_div2);
+    O(VAEncSliceParameterBufferHEVC, slice_fields);
+    O(VAEncSliceParameterBufferHEVC, pred_weight_table_bit_offset);
+    O(VAProcPipelineParameterBuffer, surface_region);
+    O(VAProcPipelineParameterBuffer, surface_color_standard);
+    O(VAProcPipelineParameterBuffer, output_region);
+    O(VAProcPipelineParameterBuffer, output_background_color);
+    O(VAProcPipelineParameterBuffer, output_color_standard);
+    O(VAProcPipelineParameterBuffer, pipeline_flags);
+    O(VAProcPipelineParameterBuffer, filter_flags);
+    O(VAProcPipelineParameterBuffer, filters);
+    O(VAProcPipelineParameterBuffer, num_filters);
+    O(VAProcPipelineParameterBuffer, forward_references);
+    O(VAProcPipelineParameterBuffer, rotation_state);
+    O(VAProcPipelineParameterBuffer, blend_state);
+    O(VAProcPipelineParameterBuffer, mirror_state);
+    O(VAProcPipelineParameterBuffer, additional_outputs);
+    O(VAProcPipelineParameterBuffer, input_surface_flag);
+    O(VAProcPipelineParameterBuffer, output_surface_flag);
+    O(VAProcPipelineParameterBuffer, input_color_properties);
+    O(VAProcPipelineParameterBuffer, output_color_properties);
+    O(VAProcPipelineParameterBuffer, processing_mode);
+    O(VAProcPipelineParameterBuffer, output_hdr_metadata);
+    O(VAPictureParameterBufferJPEGBaseline, components);
+    O(VAPictureParameterBufferJPEGBaseline, num_components);
+    O(VAPictureParameterBufferJPEGBaseline, color_space);
+    O(VAPictureParameterBufferJPEGBaseline, rotation);
+    O(VAIQMatrixBufferJPEGBaseline, quantiser_table);
+    O(VAHuffmanTableBufferJPEGBaseline, huffman_table);
+    O(VASliceParameterBufferJPEGBaseline, slice_data_offset);
+    O(VASliceParameterBufferJPEGBaseline, slice_data_flag);
+    O(VASliceParameterBufferJPEGBaseline, slice_horizontal_position);
+    O(VASliceParameterBufferJPEGBaseline, components);
+    O(VASliceParameterBufferJPEGBaseline, num_components);
+    O(VASliceParameterBufferJPEGBaseline, restart_interval);
+    O(VASliceParameterBufferJPEGBaseline, num_mcus);
+    O(VAEncPictureParameterBufferJPEG, picture_width);
+    O(VAEncPictureParameterBufferJPEG, coded_buf);
+    O(VAEncPictureParameterBufferJPEG, pic_flags);
+    O(VAEncPictureParameterBufferJPEG, sample_bit_depth);
+    O(VAEncPictureParameterBufferJPEG, num_scan);
+    O(VAEncPictureParameterBufferJPEG, num_components);
+    O(VAEncPictureParameterBufferJPEG, component_id);
+    O(VAEncPictureParameterBufferJPEG, quantiser_table_selector);
+    O(VAEncPictureParameterBufferJPEG, quality);
+    O(VAEncSliceParameterBufferJPEG, num_components);
+    O(VAEncSliceParameterBufferJPEG, components);
+    O(VAQMatrixBufferJPEG, load_chroma_quantiser_matrix);
+    O(VAQMatrixBufferJPEG, lum_quantiser_matrix);
+    O(VAQMatrixBufferJPEG, chroma_quantiser_matrix);
+    return 0;
+}

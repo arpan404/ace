@@ -91,6 +91,14 @@ impl AvcConfig {
         })
     }
 
+    /// The WebCodecs / RFC 6381 codec string, `avc1.PPCCLL`.
+    pub fn codec_string(&self) -> String {
+        format!(
+            "avc1.{:02x}{:02x}{:02x}",
+            self.profile, self.compatibility, self.level
+        )
+    }
+
     pub fn parse(record: &[u8]) -> Result<Self, BitstreamError> {
         let mut c = Cursor(record);
         if c.u8()? != 1 {

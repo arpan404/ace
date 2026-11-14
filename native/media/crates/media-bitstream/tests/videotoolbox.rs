@@ -46,6 +46,10 @@ fn vectors(codec: &str) -> Vec<Vector> {
         .collect()
 }
 
+fn hexs(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// The first `bits` bits of `a` and `b` agree.
 fn same_bits(a: &[u8], b: &[u8], bits: usize) -> bool {
     let (mut ra, mut rb) = (BitReader::new(a), BitReader::new(b));
@@ -100,6 +104,10 @@ fn avcc_records_round_trip_and_match_their_parameter_sets() {
         assert_eq!(record.to_bytes().unwrap(), v.record, "{}", v.name);
         let built = AvcConfig::from_parameter_sets(&v.sets[0], &v.sets[1]).unwrap();
         assert_eq!(built, record, "{}", v.name);
+        assert_eq!(
+            record.codec_string(),
+            format!("avc1.{}", hexs(&v.record[1..4]))
+        );
     }
 }
 
@@ -151,5 +159,8 @@ fn hvcc_records_round_trip_and_match_their_parameter_sets() {
         assert_eq!(built.arrays, record.arrays, "{}", v.name);
         assert_eq!(built.length_size, record.length_size, "{}", v.name);
         assert_eq!(built.chroma_format, record.chroma_format, "{}", v.name);
+        // Main profile, Main and Main 10 compatible, progressive, non-packed, frame only.
+        let level = record.general[11];
+        assert_eq!(record.codec_string(), format!("hvc1.1.6.L{level}.B0"));
     }
 }

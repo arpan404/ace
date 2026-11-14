@@ -10,3 +10,12 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+media-bitstream = { path = "../media-bitstream" }
+media-codec = { path = "../media-codec" }
+media-wire = { path = "../media-wire" }
+
+# libva is opened at run time (libva is MIT; nothing is linked).
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.8"
