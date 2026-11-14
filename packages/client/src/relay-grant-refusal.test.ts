@@ -44,7 +44,7 @@ function refusingRoute(grants: string[], upgrades: boolean[] = []) {
     relayUrl: "wss://relay.invalid",
     hostId: "A".repeat(52),
     credential: async () => ({ grant: grants.shift() ?? "grant-x" }),
-    socket: (...args) => failingSocket(upgrades.shift() ?? false)(...args),
+    socket: () => failingSocket(upgrades.shift() ?? false)(),
     schedule: (run, ms) => {
       const timer = setTimeout(run, ms);
       return () => clearTimeout(timer);
