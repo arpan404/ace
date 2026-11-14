@@ -39,6 +39,7 @@ async function locateCli(
     target.provider === "codex" ||
     target.provider === "opencode"
   ) {
+    const provider = target.provider;
     // The provider check already found the CLI and its login: no probe per title or branch.
     const path = await locateKnownCli(
       {
@@ -50,10 +51,10 @@ async function locateCli(
         needsLogin: target.provider !== "opencode",
       },
       (override) =>
-        discoverProvider(target.provider, {
+        discoverProvider(provider, {
           signal,
           env,
-          ...(override ? { overrides: { [target.provider]: override } } : {}),
+          ...(override ? { overrides: { [provider]: override } } : {}),
         }),
     );
     return path ? { path, env } : undefined;
