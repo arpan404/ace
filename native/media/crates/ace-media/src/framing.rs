@@ -6,7 +6,7 @@ use media_wire::control::{ControlFrame, FromMedia, Lane, ToMedia};
 use media_wire::frame::MediaFrame;
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 pub fn lane_limit(lane: Lane) -> usize {
     match lane {
@@ -70,6 +70,41 @@ pub fn encode(message: FromMedia, lane: Lane) -> io::Result<Vec<u8>> {
     frame
         .header(lane)
         .map_err(|_| invalid("outgoing control frame"))
+}
+
+pub const TOKEN_LEN: usize = 32;
+/// The largest hello: the biggest header, then the token.
+pub const HELLO_MAX: usize = MEDIA_HEADER_MAX + TOKEN_LEN;
+
+/// The token of a hello frame (kind 5, a 32-byte payload). Every copy made while decoding is
+/// wiped here; the caller wipes `bytes`.
+pub fn hello_token(bytes: &[u8]) -> Option<Zeroizing<[u8; TOKEN_LEN]>> {
+    let mut frame = MediaFrame::decode(bytes).ok()?;
+    let mut token = Zeroizing::new([0u8; TOKEN_LEN]);
+    let valid = frame.kind == 5 && frame.payload.len() == TOKEN_LEN;
+    if valid {
+        token.copy_from_slice(&frame.payload);
+    }
+    frame.payload.zeroize();
+    valid.then_some(token)
+}
+
+/// An ingest connection's first frame, which must be a hello. Reads at most [`HELLO_MAX`]
+/// bytes, into a buffer that is wiped whatever happens.
+pub async fn read_hello<R: AsyncRead + Unpin>(
+    reader: &mut R,
+) -> io::Result<Zeroizing<[u8; TOKEN_LEN]>> {
+    let mut head = Zeroizing::new([0u8; 12]);
+    reader.read_exact(&mut head[..]).await?;
+    let header = usize::from(u16::from_be_bytes([head[6], head[7]]));
+    let payload = u32::from_be_bytes([head[8], head[9], head[10], head[11]]) as usize;
+    if !(MEDIA_HEADER_MIN..=MEDIA_HEADER_MAX).contains(&header) || payload != TOKEN_LEN {
+        return Err(invalid("hello header"));
+    }
+    let mut frame = Zeroizing::new(vec![0u8; header + payload]);
+    frame[..12].copy_from_slice(&head[..]);
+    reader.read_exact(&mut frame[12..]).await?;
+    hello_token(&frame).ok_or_else(|| invalid("hello"))
 }
 
 /// The next `MediaFrame`, `None` at a clean end of stream.
@@ -149,6 +184,48 @@ mod tests {
             let ping = ping_frame();
             let mut reader = ping.as_slice();
             assert!(read_control(&mut reader, Lane::Priority).await.is_err());
+        });
+    }
+
+    fn hello_bytes(kind: u8, payload: Vec<u8>) -> Vec<u8> {
+        let frame = MediaFrame {
+            kind,
+            flags: 0,
+            age_us: 0,
+            width: 0,
+            height: 0,
+            display_width: 0,
+            display_height: 0,
+            scale: 1000,
+            rotation: 0,
+            codec: if kind == 5 { 0 } else { 1 },
+            encode: 0,
+            epoch: 0,
+            codec_string: String::new(),
+            description: Vec::new(),
+            extension: Vec::new(),
+            payload,
+        };
+        match frame.encode() {
+            Ok(bytes) => bytes,
+            Err(_) => panic!("frame did not encode"),
+        }
+    }
+
+    #[test]
+    fn a_hello_yields_its_token_and_anything_else_first_is_refused() {
+        run(async {
+            let bytes = hello_bytes(5, vec![6; 32]);
+            let mut reader = bytes.as_slice();
+            assert!(matches!(read_hello(&mut reader).await, Ok(t) if *t == [6; 32]));
+            let unit = hello_bytes(1, vec![6; 32]);
+            let mut reader = unit.as_slice();
+            assert!(read_hello(&mut reader).await.is_err(), "a unit first");
+            // A large first frame is refused from its header, before its payload is read.
+            let mut big = hello_bytes(1, vec![0; 1024]);
+            big.truncate(12);
+            let mut reader = big.as_slice();
+            assert!(read_hello(&mut reader).await.is_err(), "oversized");
         });
     }
 

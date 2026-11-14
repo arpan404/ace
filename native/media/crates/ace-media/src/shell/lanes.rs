@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The private control socket: accepts the priority and egress lanes once each, for the holder
 //! of the lane secret, and refuses every other connection by closing it without a word.
+use super::budget::Cap;
 use crate::auth::{HELLO_LEN, LANE_ACCEPTED, LaneAuth, SocketLane, Verdict};
 use crate::secret::LaneSecret;
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 
 /// How long a connection may take to send its hello.
 const HELLO_WITHIN: Duration = Duration::from_secs(5);
+/// Connections still sending their hello at once; more are closed at accept.
+const MAX_PENDING: usize = 8;
 
 pub struct Lanes {
     pub priority: UnixStream,
@@ -21,6 +24,7 @@ pub struct Lanes {
 pub fn serve(listener: UnixListener, secret: LaneSecret) -> oneshot::Receiver<Lanes> {
     let (done, lanes) = oneshot::channel();
     let auth = Arc::new(Mutex::new(LaneAuth::new(secret)));
+    let pending = Cap::new(MAX_PENDING);
     tokio::spawn(async move {
         let (accepted_tx, mut accepted) = mpsc::channel::<(SocketLane, UnixStream)>(2);
         let mut done = Some(done);
@@ -29,7 +33,12 @@ pub fn serve(listener: UnixListener, secret: LaneSecret) -> oneshot::Receiver<La
             tokio::select! {
                 connection = listener.accept() => {
                     let Ok((stream, _)) = connection else { continue };
-                    tokio::spawn(hello(stream, auth.clone(), accepted_tx.clone()));
+                    let Some(slot) = pending.take() else { continue };
+                    let (auth, accepted) = (auth.clone(), accepted_tx.clone());
+                    tokio::spawn(async move {
+                        hello(stream, auth, accepted).await;
+                        drop(slot);
+                    });
                 }
                 Some((lane, stream)) = accepted.recv() => {
                     match lane {

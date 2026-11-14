@@ -25,6 +25,52 @@ pub fn harden() {
     }
 }
 
+/// Refuses a runtime directory another user could reach: it must be a real directory (not a
+/// symlink), owned by this process's user, with mode 0700.
+#[cfg(unix)]
+pub fn private_dir(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| format!("runtime dir: {e}"))?;
+    if !meta.file_type().is_dir() {
+        return Err("runtime dir is not a directory".into());
+    }
+    // SAFETY: geteuid has no preconditions.
+    let user = unsafe { libc::geteuid() };
+    if meta.uid() != user {
+        return Err("runtime dir is owned by another user".into());
+    }
+    if meta.mode() & 0o777 != 0o700 {
+        return Err(format!(
+            "runtime dir mode is {:o}, not 700",
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
+}
+
+/// While held, new files and sockets are created owner-read-write only, so a socket is never
+/// reachable by anyone else between `bind` and a later `chmod`.
+#[cfg(unix)]
+pub struct PrivateUmask(libc::mode_t);
+
+#[cfg(unix)]
+impl PrivateUmask {
+    pub fn set() -> Self {
+        // SAFETY: umask has no preconditions; ace-media sets it only around its binds at start.
+        Self(unsafe { libc::umask(0o177) })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PrivateUmask {
+    fn drop(&mut self) {
+        // SAFETY: as above.
+        unsafe {
+            libc::umask(self.0);
+        }
+    }
+}
+
 /// Whether core dumps are off for this process.
 pub fn core_dumps_off() -> bool {
     #[cfg(unix)]
@@ -103,6 +149,29 @@ pub fn rss_bytes() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn only_a_private_directory_of_this_user_is_accepted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("am-private-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        if let Err(error) = std::fs::create_dir(&dir) {
+            panic!("dir: {error}");
+        }
+        let mode = |m| std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(m));
+        let _ = mode(0o755);
+        assert!(super::private_dir(&dir).is_err(), "readable by others");
+        let _ = mode(0o700);
+        assert!(super::private_dir(&dir).is_ok());
+        let link = dir.with_extension("link");
+        let _ = std::fs::remove_file(&link);
+        let _ = std::os::unix::fs::symlink(&dir, &link);
+        assert!(super::private_dir(&link).is_err(), "a symlink");
+        assert!(super::private_dir(&dir.join("missing")).is_err());
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn hardening_turns_core_dumps_off() {
         super::harden();
