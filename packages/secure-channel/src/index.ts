@@ -11,3 +11,16 @@ export {
   fragmentCost,
   readCredit,
 } from "./flow-credit.ts";
+export { InFlightCap, LANE_CREDIT_STEP, MIN_IN_FLIGHT } from "./send-pacing.ts";
+export {
+  BULK,
+  BULK_LANE,
+  FULL_FRAGMENT,
+  FragmentAssembler,
+  INTERACTIVE,
+  fragmentFlag,
+  fragmentKinds,
+  type AssembledMessage,
+  type FragmentKind,
+  type Lane,
+} from "./lanes.ts";

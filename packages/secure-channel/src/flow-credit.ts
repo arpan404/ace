@@ -50,6 +50,15 @@ export class FlowCredit {
   /** Counted cost received and not yet credited back (queued, or consumed and owed). */
   #unacked = 0;
   #owed = 0;
+  #step = CREDIT_STEP;
+
+  /**
+   * Return credit every `LANE_CREDIT_STEP` consumed from now on: this side announced lanes, and
+   * its peer's sender keeps less in flight, so it needs credit sooner (`send-pacing.ts`).
+   */
+  creditOften(step: number): void {
+    this.#step = Math.min(this.#step, step);
+  }
 
   /** Whether this side's sends are limited (it sent its start). */
   get limited(): boolean {
@@ -108,7 +117,7 @@ export class FlowCredit {
     }
     if (!this.#counting) return undefined;
     this.#owed += cost;
-    if (this.#owed < CREDIT_STEP) return undefined;
+    if (this.#owed < this.#step) return undefined;
     const credit = creditFragment(this.#owed);
     this.#unacked -= this.#owed;
     this.#owed = 0;
