@@ -982,7 +982,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   async #readCore<T>(
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
-      | { type: "items.fill"; threadId: string; before: number }
+      | ({ type: "items.fill"; threadId: string } & import("@ace/protocol").SnapshotFill)
       | { type: "output.read"; streamId: string; offset: number; limit: number }
       | {
           type: "threads.page";
@@ -1135,19 +1135,23 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    * (`ClientOptions.openTail`), so its window holds what a full snapshot would have.
    */
   async fillThread(threadId: string, options: RequestOptions = {}): Promise<void> {
-    const store = this.#subscriptions.held(threadId);
-    const before = store?.fillCursor;
-    if (!store || before === undefined) return;
-    const page = await this.#readCore(
-      { type: "items.fill", threadId, before },
-      (value) => {
-        const parsed = ItemsPage.parse(value);
-        if (parsed.threadId !== threadId) throw new ClientError("protocol");
-        return parsed;
-      },
-      options,
-    );
-    this.#subscriptions.held(threadId)?.fill(page, before);
+    // An answer read while an agent it does not carry changed is asked for again, a few times.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const request = this.#subscriptions.held(threadId)?.fillRequest;
+      if (!request) return;
+      const answer = await this.#readCore(
+        { type: "items.fill", threadId, ...request },
+        (value) => {
+          const parsed = CoreServerMessage.parse(value);
+          if (parsed.type !== "items.fill" || parsed.threadId !== threadId)
+            throw new ClientError("protocol");
+          return parsed;
+        },
+        options,
+      );
+      const result = this.#subscriptions.held(threadId)?.fill(answer, request);
+      if (result !== "stale") return;
+    }
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);

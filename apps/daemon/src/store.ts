@@ -1316,8 +1316,8 @@ export class Store {
   snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
     return this.threadReads.snapshotThread(id, tail);
   }
-  readSnapshotFill(id: ThreadId, before: number) {
-    return this.threadReads.readSnapshotFill(id, before);
+  readSnapshotFill(id: ThreadId, fill: import("@ace/protocol").SnapshotFill) {
+    return this.threadReads.readSnapshotFill(id, fill);
   }
   readEntityPage(
     threadId: ThreadId,

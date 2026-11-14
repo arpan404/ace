@@ -97,7 +97,10 @@ function shown(client: Client, threadId: ThreadId) {
     order: reader.order,
     items: reader.order.map((id) => reader.item(id)),
     seqs: reader.order.map((id) => reader.itemSeq?.(id)),
-    agents: reader.agentIds().map((id) => reader.agent(id)),
+    agents: reader
+      .agentIds()
+      .toSorted()
+      .map((id) => reader.agent(id)),
     runs: reader.runIds?.().map((id) => reader.run(id)),
     interactions: reader.interactionIds().map((id) => reader.interaction(id)),
     tasks: reader.taskIds().map((id) => reader.task(id)),
@@ -206,6 +209,72 @@ test("a small-tail open with busy subagents fills in to what a full snapshot sho
   });
   const roots = reference.store.order.filter((id) => id.startsWith("r"));
   expect(roots).toHaveLength(100);
+});
+
+const childAgent = (h: Harness, id: string, createdAt: number) => ({
+  type: "agent.created" as const,
+  agent: {
+    id: AgentId.parse(id),
+    threadId: h.thread.id,
+    parentId: root,
+    origin: "provider_subagent" as const,
+    fidelity: "full" as const,
+    native: { provider: "codex" as const },
+    cwd: h.directory,
+    status: { state: "idle" as const },
+    createdAt,
+    background: false,
+  },
+});
+
+/** Open the thread on a full-snapshot client and a small-tail one; the second fills to the first. */
+async function bothOpen(h: Harness) {
+  const full = h.make();
+  const tail = h.make({ openTail: screenTail });
+  await ready(full.client);
+  await ready(tail.client);
+  full.client.thread(h.thread.id);
+  await vi.waitFor(() => expect(full.client.cachedThread(h.thread.id)?.cursor).toBeDefined());
+  tail.client.thread(h.thread.id);
+  await vi.waitFor(
+    () => expect(shown(tail.client, h.thread.id)).toEqual(shown(full.client, h.thread.id)),
+    { timeout: 8_000 },
+  );
+  return { full, tail };
+}
+
+test("an older child referenced only by an item outside the tail is held after the fill", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  fill(h, 0);
+  h.daemon.store.appendEvents(h.thread.id, [childAgent(h, "early", 2)]);
+  h.daemon.store.appendEvents(h.thread.id, [
+    {
+      type: "item.created",
+      item: { ...replyItem("early-1", "early work"), agentId: AgentId.parse("early") },
+    },
+  ]);
+  // Over 200 settled agents since: the status window no longer holds the early child.
+  for (let index = 0; index < 260; index += 20)
+    h.daemon.store.appendEvents(
+      h.thread.id,
+      Array.from({ length: 20 }, (_, n) => childAgent(h, `late${index + n}`, 3)),
+    );
+  for (let index = 0; index < 60; index++)
+    h.daemon.store.appendEvents(h.thread.id, [reply(`r${index}`, `reply ${index} `.repeat(30))]);
+  const { tail } = await bothOpen(h);
+  expect(tail.client.cachedThread(h.thread.id)?.agent("early")).toBeDefined();
+});
+
+test("a newest reply too large for the tail is held whole after the fill", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  fill(h, 10);
+  const long = "a long answer line\n".repeat(3300);
+  h.daemon.store.appendEvents(h.thread.id, [reply("long", long)]);
+  const { tail } = await bothOpen(h);
+  const item = tail.client.cachedThread(h.thread.id)?.item("long");
+  expect(item?.type === "message" ? item.parts[0] : undefined).toMatchObject({ text: long });
 });
 
 test("a client asking for a small tail still opens a daemon that sends the full snapshot", async () => {

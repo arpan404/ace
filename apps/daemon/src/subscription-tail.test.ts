@@ -153,14 +153,13 @@ it("a small tail and its fill hold a full snapshot's items, root lane included, 
   const full = open(store, thread.id).view;
   const small = open(store, thread.id, { items: 30, bytes: 48 * 1024 }).view;
   expect(full.fill).toBeUndefined();
-  const before = small.fill;
-  if (before === undefined) throw new Error("No fill cursor");
-  const fill = store.readSnapshotFill(thread.id, before);
-  const seqs = { ...small.itemSeqs, ...fill.itemSeqs };
-  const held = [...new Set([...fill.items.map((item) => item.id), ...small.itemOrder])].toSorted(
-    (a, b) => (seqs[a] ?? 0) - (seqs[b] ?? 0),
-  );
-  expect(held).toEqual(full.itemOrder);
+  const request = small.fill;
+  if (request === undefined) throw new Error("No fill request");
+  const fill = store.readSnapshotFill(thread.id, request);
+  expect(fill.order).toEqual(full.itemOrder);
+  // Every item the full snapshot holds is either in the small snapshot or sent with the fill.
+  const sent = new Set<string>(fill.items.map((item) => item.id));
+  expect(fill.order.filter((id) => !sent.has(id) && !Object.hasOwn(small.items, id))).toEqual([]);
   expect(full.itemOrder.filter((id) => id.startsWith("m"))).toHaveLength(100);
   expect(fill.itemsBefore).toBe(full.itemsBefore);
 });

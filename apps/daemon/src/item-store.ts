@@ -494,7 +494,7 @@ export class ItemStore {
     rootAgentId: string | undefined,
     limit: number,
     byteLimit: number,
-  ): Omit<ItemsPage, "seq"> {
+  ): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
     const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
     // The root lane is the root agent's items and the thread's own (no agent): one indexed
     // read each, never one IN query, which would sort the whole lane.
@@ -550,6 +550,7 @@ export class ItemStore {
       items: kept.map((entry) => entry.item),
       itemSeqs: Object.fromEntries(kept.map((entry) => [entry.item.id, entry.seq])),
       itemsBefore: tail.before ?? null,
+      ...(preview && kept[0] ? { previewed: [kept[0].item.id] } : {}),
     };
   }
   page(

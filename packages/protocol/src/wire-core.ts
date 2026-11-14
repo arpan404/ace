@@ -53,6 +53,12 @@ const records = <T>(schema: z.ZodType<T>) =>
     });
 export const EntityCollection = z.enum(["agents", "runs", "interactions", "backgroundTasks"]);
 export type EntityCollection = z.infer<typeof EntityCollection>;
+/** What a snapshot cut to a tail lacks of a full one (`ThreadView.fill`, `items.fill`). */
+export const SnapshotFill = z.object({
+  before: seq.positive().nullable(),
+  whole: z.array(z.string().min(1)).max(200).optional(),
+});
+export type SnapshotFill = z.infer<typeof SnapshotFill>;
 export const ThreadView = z.object({
   /** Exclusive entity creation cursors. Active entities remain in every snapshot. */
   entitiesBefore: z.partialRecord(EntityCollection, seq.positive().nullable()).optional(),
@@ -71,10 +77,11 @@ export const ThreadView = z.object({
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
   /**
-   * On a snapshot cut to a `tail`: it holds fewer items than a full snapshot would. `items.fill`
-   * with this cursor reads the rest of what a full one holds.
+   * On a snapshot cut to a `tail`, when it holds less than a full snapshot would: `items.fill`
+   * with these reads the rest. `before` is this snapshot's `itemsBefore`; `whole` names the items
+   * it sent only as a bounded preview, which a full snapshot carries whole.
    */
-  fill: seq.positive().optional(),
+  fill: SnapshotFill.optional(),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -168,6 +175,22 @@ export const ItemsPage = z.object({
   omitted: z.array(OmittedItem).max(200).optional(),
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
+/**
+ * The answer to `items.fill`: a full snapshot's item ids (`order`) and agent ids, with the bodies
+ * of the items created before the fill's cursor or named `whole`, and of the agents those items
+ * need. Every other id names something the tail snapshot carried, or that arrived live since.
+ */
+export const ItemsFill = z.object({
+  seq,
+  threadId: ThreadId,
+  order: z.array(z.string().min(1)).max(200),
+  items: z.array(Item).max(200),
+  itemSeqs: records(seq.positive()),
+  itemsBefore: seq.positive().nullable(),
+  agentIds: z.array(z.string().min(1)).max(16384),
+  agents: records(Agent),
+});
+export type ItemsFill = z.infer<typeof ItemsFill>;
 export const EntitiesPage = z
   .discriminatedUnion("collection", [
     z.object({ collection: z.literal("agents"), entries: z.array(Agent).max(200) }),
@@ -356,15 +379,15 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     limit: seq.positive().max(200),
   }),
   /**
-   * The items a full thread snapshot holds that were created before `before` (a tail
-   * snapshot's `fill`), answered as an `items.page` whose `itemsBefore` is the full snapshot's.
-   * Together with the tail snapshot they are exactly a full snapshot's transcript, lane by lane.
+   * What a full thread snapshot holds that a snapshot cut to a tail did not carry (its `fill`),
+   * answered by `items.fill`. With that snapshot it is exactly a full snapshot's transcript and
+   * agents, lane by lane.
    */
   z.object({
     type: z.literal("items.fill"),
     requestId: z.string().min(1),
     threadId: ThreadId,
-    before: seq.positive(),
+    ...SnapshotFill.shape,
   }),
   z.object({
     type: z.literal("entities.page"),
@@ -534,6 +557,7 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     bytes: z.string(),
     eof: z.boolean(),
   }),
+  ItemsFill.extend({ type: z.literal("items.fill"), requestId: z.string() }),
   ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() })
     .refine(
       (page) =>
@@ -590,6 +614,7 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "error",
   "output.data",
   "items.page",
+  "items.fill",
   "threads.page",
   "entities.page",
   "entities.page.part",

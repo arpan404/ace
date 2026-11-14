@@ -172,9 +172,12 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
       }
       try {
         send({
-          type: "items.page",
+          type: "items.fill",
           requestId: message.requestId,
-          ...options.store.readSnapshotFill(message.threadId, message.before),
+          ...options.store.readSnapshotFill(message.threadId, {
+            before: message.before,
+            ...(message.whole ? { whole: message.whole } : {}),
+          }),
         });
       } catch {
         fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });

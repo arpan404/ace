@@ -130,11 +130,11 @@ for (const [label, items] of [
   // Then, behind the painted screen, one `items.fill` read for the rest of a full snapshot.
   const snapshot = opened[0];
   if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") continue;
-  const before = snapshot.view.fill;
+  const request = snapshot.view.fill;
   const pages: ServerMessage[] =
-    before === undefined
+    request === undefined
       ? []
-      : [{ type: "items.page", requestId: "fill", ...store.readSnapshotFill(thread, before) }];
+      : [{ type: "items.fill", requestId: "fill", ...store.readSnapshotFill(thread, request) }];
   console.log(
     `${"  then in the background".padEnd(44)} ${pages.length} fill read, ${kb(raw(pages))} (${kb(gzip(pages))} gz)`,
   );

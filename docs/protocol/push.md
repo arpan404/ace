@@ -3874,6 +3874,38 @@ Example:
 }
 ```
 
+### items.fill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| order | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
+| items | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Item.json"}} |
+| itemSeqs | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| agentIds | yes | array | {"maxItems":16384,"items":{"type":"string","minLength":1}} |
+| agents | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Agent.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| type | yes | `"items.fill"` |  |
+| requestId | yes | string |  |
+
+Example:
+
+```json
+{
+  "agentIds": [],
+  "agents": {},
+  "itemSeqs": {},
+  "items": [],
+  "itemsBefore": 1,
+  "order": [],
+  "requestId": "example",
+  "seq": 5,
+  "threadId": "example",
+  "type": "items.fill"
+}
+```
+
 ### items.page
 
 Semantic rule: itemSeqs holds the creation sequence of every item.
@@ -3895,9 +3927,9 @@ Example:
 {
   "itemSeqs": {},
   "items": [],
-  "itemsBefore": 4,
+  "itemsBefore": null,
   "requestId": "example",
-  "seq": 5,
+  "seq": 7,
   "threadId": "example",
   "type": "items.page"
 }
@@ -3949,7 +3981,7 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 6,
+    "grantTtlMs": 8,
     "ok": true
   },
   "type": "account.grant.refresh.result"

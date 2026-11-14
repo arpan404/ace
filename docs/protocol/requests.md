@@ -3721,16 +3721,18 @@ Example:
 | type | yes | `"items.fill"` |  |
 | requestId | yes | string | {"minLength":1} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| before | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| before | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| whole | no | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
 
 Example:
 
 ```json
 {
-  "before": 5,
+  "before": 6,
   "requestId": "example",
   "threadId": "example",
-  "type": "items.fill"
+  "type": "items.fill",
+  "whole": []
 }
 ```
 

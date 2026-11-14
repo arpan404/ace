@@ -325,7 +325,9 @@ export class Subscriptions {
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
       ...(this.#resumable(entry) ? { afterSeq: entry.store.cursor } : {}),
-      ...(this.#tail ? { tail: this.#tail.tail } : {}),
+      // Only a store holding nothing opens from a small tail: one holding a copy resumes or
+      // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers.
+      ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail.tail } : {}),
     });
   }
   /**
@@ -430,7 +432,7 @@ export class Subscriptions {
         return;
       }
       // A small tail paints first; the rest of a full snapshot follows in one fill read.
-      if (this.#tail && entry.store.fillCursor !== undefined) this.#tail.older(entry.threadId);
+      if (this.#tail && entry.store.fillRequest !== undefined) this.#tail.older(entry.threadId);
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

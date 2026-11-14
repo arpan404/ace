@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   EntitiesPage,
-  ItemsPage,
+  ItemsFill,
+  SnapshotFill,
   EntityCollection,
   Event,
   ItemId,
@@ -145,34 +146,70 @@ export class ThreadReads {
     const full = tail.items >= fullTail.items && tail.bytes >= fullTail.bytes;
     const key = full ? "snapshot" : JSON.stringify(["snapshot", tail.items, tail.bytes]);
     return this.source.cache.readShared(id, key, () => {
-      const view = this.loadSnapshot(id, tail);
-      // Cut short of a full snapshot with older items left: the rest is read by `items.fill`.
-      if (!full && view.itemsBefore !== null) view.fill = view.itemsBefore;
+      let previewed: readonly string[] = [];
+      const view = this.loadSnapshot(id, tail, (ids) => {
+        previewed = ids;
+      });
+      // A tail with older items left, or an item it could only preview, holds less than a full
+      // snapshot: `items.fill` reads the rest. One holding every item whole is a full snapshot.
+      if (!full && (view.itemsBefore !== null || previewed.length))
+        view.fill = {
+          before: view.itemsBefore,
+          ...(previewed.length ? { whole: [...previewed] } : {}),
+        };
       return view;
     });
   }
   /**
-   * What a full snapshot holds of the transcript created before `before` (a small snapshot's
-   * `fill`): with that snapshot, exactly a full snapshot's items, each lane's share kept.
+   * What a full snapshot holds beyond a snapshot cut to a tail (`fill`): its item and agent ids,
+   * with the bodies of the items created before `fill.before` or named in `fill.whole`, and of
+   * the agents those items need (the agents a full snapshot keeps for its items, and their
+   * parents). With that snapshot it is exactly a full snapshot's transcript and agents.
    */
-  readSnapshotFill(id: ThreadId, before: number): ItemsPage {
+  readSnapshotFill(id: ThreadId, fill: SnapshotFill): ItemsFill {
     this.source.flush();
     if (!this.source.readThread(id)) throw new Error("Unknown thread");
     const full = this.sharedSnapshot(id, fullTail);
     const seqs = full.itemSeqs ?? {};
-    const ids = full.itemOrder.filter((itemId) => (seqs[itemId] ?? before) < before);
+    const whole = new Set(fill.whole);
+    const before = fill.before;
+    const ids = full.itemOrder.filter(
+      (itemId) => whole.has(itemId) || (before !== null && (seqs[itemId] ?? before) < before),
+    );
+    const items = ids.flatMap((itemId) =>
+      Object.hasOwn(full.items, itemId) && full.items[itemId] ? [full.items[itemId]] : [],
+    );
+    const agents: ItemsFill["agents"] = {};
+    const need = items.flatMap((item) => (item.agentId ? [item.agentId] : []));
+    for (let index = 0; index < need.length; index++) {
+      const agentId = need[index] ?? "";
+      if (Object.hasOwn(agents, agentId) || !Object.hasOwn(full.agents, agentId)) continue;
+      const agent = full.agents[agentId];
+      if (!agent) continue;
+      Object.defineProperty(agents, agentId, {
+        value: agent,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+      if (agent.parentId) need.push(agent.parentId);
+    }
     return {
       threadId: id,
-      items: ids.flatMap((itemId) => {
-        const item = full.items[itemId];
-        return item ? [item] : [];
-      }),
+      seq: this.source.headSeq(),
+      order: [...full.itemOrder],
+      items,
       itemSeqs: Object.fromEntries(ids.map((itemId) => [itemId, seqs[itemId] ?? 0])),
       itemsBefore: full.itemsBefore,
-      seq: this.source.headSeq(),
+      agentIds: Object.keys(full.agents),
+      agents,
     };
   }
-  private loadSnapshot(id: ThreadId, tail: SnapshotTail): ThreadView {
+  private loadSnapshot(
+    id: ThreadId,
+    tail: SnapshotTail,
+    previewed: (ids: readonly string[]) => void,
+  ): ThreadView {
     return loadThreadSnapshot({
       acquire: () =>
         this.source.inTransaction()
@@ -181,8 +218,16 @@ export class ThreadReads {
       release: () => {
         if (!this.source.inTransaction()) this.releaseThread(id);
       },
-      items: (status) =>
-        this.source.payloads.tail(id, status.thread.rootAgentId, tail.items, tail.bytes),
+      items: (status) => {
+        const page = this.source.payloads.tail(
+          id,
+          status.thread.rootAgentId,
+          tail.items,
+          tail.bytes,
+        );
+        previewed(page.previewed ?? []);
+        return page;
+      },
       retainAgents: (view) => this.source.status.retainItemAgents(view),
     });
   }
