@@ -15,7 +15,7 @@ import {
   lockHeldMessage,
   newerDataMessage,
 } from "./exit-policy.ts";
-import type { LocalDaemon } from "./probe.ts";
+import type { AdmissionFacts, LocalDaemon } from "./probe.ts";
 import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
@@ -226,6 +226,10 @@ export class DaemonSupervisor {
         if (this.stale(generation)) return;
         if (found) return this.running(found, "external", generation);
       }
+    }
+    if (this.ports.prepareSpawn) {
+      await this.ports.prepareSpawn();
+      if (this.stale(generation)) return;
     }
     let spawned: Child;
     try {
@@ -452,12 +456,13 @@ export class DaemonSupervisor {
       // The request itself may run past the check's own deadline, so a late answer still
       // counts as one; it ends before the next check could send another.
       probe: async () => {
-        const ok = await this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs);
-        if (ok) void this.followAdmission(generation, daemon);
-        return ok;
+        const answer = await this.ports.health(daemon, healthTimeoutMs + healthIntervalMs);
+        if (answer.healthy) void this.followAdmission(generation, daemon, answer.admission);
+        return answer.healthy;
       },
       timers: this.ports.timers,
       now: () => this.ports.now(),
+      freezes: this.ports.freezes,
       log: (level, message, data) => {
         if (!this.stale(generation)) this.ports.log(level, message, data);
       },
@@ -483,13 +488,18 @@ export class DaemonSupervisor {
 
   /**
    * A paired client can pause or resume new work too (`admission.request`), so each health check
-   * reads admission again and the tray follows. A pause or drain of our own in flight wins.
+   * reads admission again and the tray follows: from the status answer itself, or with a second
+   * request to a daemon whose status predates it. A pause or drain of our own in flight wins.
    */
-  private async followAdmission(generation: number, daemon: LocalDaemon): Promise<void> {
+  private async followAdmission(
+    generation: number,
+    daemon: LocalDaemon,
+    known: AdmissionFacts | undefined,
+  ): Promise<void> {
     if (this.draining) return;
     const revision = this.maintenanceRevision;
     try {
-      const admission = await this.ports.maintenance(daemon);
+      const admission = known ?? (await this.ports.maintenance(daemon));
       // The tray's Pause is the person's own hold; an update or kill-all holds admission apart.
       const paused = personPaused(admission);
       if (

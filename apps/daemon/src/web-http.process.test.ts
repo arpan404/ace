@@ -1,8 +1,8 @@
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
 import { expect, test } from "vitest";
 import { webHttp } from "./web-http.ts";
 
@@ -78,7 +78,7 @@ test("a browser accepting brotli receives the exact renderer bytes", async ({ on
   expect(response.headers["content-encoding"]).toBe("br");
   expect(response.headers.vary).toBe("Accept-Encoding");
   expect(response.headers["content-type"]).toContain("text/html");
-  expect(response.headers["cache-control"]).toBe("no-store");
+  expect(response.headers["cache-control"]).toBe("no-cache");
   expect(Number(response.headers["content-length"])).toBe(response.body.length);
   expect(brotliDecompressSync(response.body).toString("utf8")).toBe(html);
 });
@@ -94,7 +94,7 @@ test("a browser accepting only gzip receives a gzip body matching the file", asy
   expect(gunzipSync(response.body).toString("utf8")).toBe(script);
 });
 
-test("built assets are cached for good while the page and icons are always fetched again", async ({
+test("built assets are cached for good while the page and icons are always revalidated", async ({
   onTestFinished,
 }) => {
   const { port, root } = await serveRenderer(onTestFinished);
@@ -102,9 +102,9 @@ test("built assets are cached for good while the page and icons are always fetch
   const script = await fetchRaw(port, "/assets/app.js");
   expect(script.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
   const page = await fetchRaw(port, "/t/some-thread");
-  expect(page.headers["cache-control"]).toBe("no-store");
+  expect(page.headers["cache-control"]).toBe("no-cache");
   const icon = await fetchRaw(port, "/favicon.svg");
-  expect(icon.headers["cache-control"]).toBe("no-store");
+  expect(icon.headers["cache-control"]).toBe("no-cache");
   const missing = await fetchRaw(port, "/assets/missing-0123.js");
   expect(missing.status).toBe(404);
   expect(missing.headers["cache-control"]).toBeUndefined();
@@ -231,4 +231,118 @@ test("other root files are not exposed; the page is served in their place", asyn
   const response = await fetchRaw(port, "/secret.png");
   expect(response.headers["content-type"]).toBe("text/html; charset=utf-8");
   expect(response.body.toString("utf8")).toBe(html);
+});
+
+test("a repeat load of an unchanged page is answered 304, and a rebuilt one in full", async ({
+  onTestFinished,
+}) => {
+  const { port, root } = await serveRenderer(onTestFinished);
+  const first = await fetchRaw(port, "/t/some-thread", { "accept-encoding": "br" });
+  const tag = first.headers.etag;
+  expect(tag).toMatch(/^".+"$/);
+  const again = await fetchRaw(port, "/t/other-thread", {
+    "accept-encoding": "br",
+    "if-none-match": String(tag),
+  });
+  expect(again.status).toBe(304);
+  expect(again.body.length).toBe(0);
+  expect(again.headers.etag).toBe(tag);
+  const rebuilt = `<html><body>${"new ace ".repeat(500)}</body></html>`;
+  await writeFile(join(root, "index.html"), rebuilt);
+  const fresh = await fetchRaw(port, "/", {
+    "accept-encoding": "br",
+    "if-none-match": String(tag),
+  });
+  expect(fresh.status).toBe(200);
+  expect(fresh.headers.etag).not.toBe(tag);
+  expect(brotliDecompressSync(fresh.body).toString("utf8")).toBe(rebuilt);
+});
+
+test("an asset the build compressed is served from its own copy in either coding", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  // Marked so the test can tell the build's copy from one compressed on the fly.
+  const marked = `${script}// built\n`;
+  await writeFile(join(root, "assets", "app.js.br"), brotliCompressSync(marked));
+  await writeFile(join(root, "assets", "app.js.gz"), gzipSync(marked));
+  const br = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br, gzip" });
+  expect(br.headers["content-encoding"]).toBe("br");
+  expect(Number(br.headers["content-length"])).toBe(br.body.length);
+  expect(brotliDecompressSync(br.body).toString("utf8")).toBe(marked);
+  const gz = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "gzip" });
+  expect(gz.headers["content-encoding"]).toBe("gzip");
+  expect(gunzipSync(gz.body).toString("utf8")).toBe(marked);
+  const raw = await fetchRaw(port, "/assets/app.js");
+  expect(raw.body.toString("utf8")).toBe(script);
+});
+
+test("a compressed copy older than its file is ignored", async ({ onTestFinished }) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const stale = join(root, "assets", "app.js.br");
+  await writeFile(stale, brotliCompressSync("stale"));
+  await utimes(stale, new Date(0), new Date(0));
+  const response = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(script);
+});
+
+test("a page rewritten at the same length with its timestamp kept gets a new tag and its new bytes", async ({
+  onTestFinished,
+}) => {
+  const { port, root, html } = await serveRenderer(onTestFinished);
+  const page = join(root, "index.html");
+  const before = await stat(page);
+  const first = await fetchRaw(port, "/", { "accept-encoding": "br" });
+  const tag = String(first.headers.etag);
+  // An update that names other chunks in the same number of bytes, its mtime restored.
+  const replaced = html.replace("hello ace ", "howdy ace ");
+  expect(replaced.length).toBe(html.length);
+  await writeFile(page, replaced);
+  await utimes(page, before.atime, before.mtime);
+  const again = await fetchRaw(port, "/", { "accept-encoding": "br", "if-none-match": tag });
+  expect(again.status).toBe(200);
+  expect(again.headers.etag).not.toBe(tag);
+  expect(brotliDecompressSync(again.body).toString("utf8")).toBe(replaced);
+  const plain = await fetchRaw(port, "/");
+  expect(plain.body.toString("utf8")).toBe(replaced);
+});
+
+test("a compressed copy that is a symlink out of the renderer is never served", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const outside = await mkdtemp(join(tmpdir(), "ace-web-outside-"));
+  onTestFinished(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, "secret.br"), brotliCompressSync("secret"));
+  await writeFile(join(outside, "secret.gz"), gzipSync("secret"));
+  await symlink(join(outside, "secret.br"), join(root, "assets", "app.js.br"));
+  await symlink(join(outside, "secret.gz"), join(root, "assets", "app.js.gz"));
+  const br = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(br.body).toString("utf8")).toBe(script);
+  const gz = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "gzip" });
+  expect(gunzipSync(gz.body).toString("utf8")).toBe(script);
+});
+
+test("a compressed copy is sent with the original's type, its own length and coding, and only where accepted", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const built = `${script}// built\n`;
+  await writeFile(join(root, "assets", "app.js.br"), brotliCompressSync(built));
+  const response = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(response.headers["content-encoding"]).toBe("br");
+  expect(response.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+  expect(response.headers.vary).toBe("Accept-Encoding");
+  expect(Number(response.headers["content-length"])).toBe(response.body.length);
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(built);
+  const refused = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br;q=0" });
+  expect(refused.headers["content-encoding"]).toBeUndefined();
+  expect(refused.body.toString("utf8")).toBe(script);
+});
+
+test("the page never comes from a compressed copy beside it", async ({ onTestFinished }) => {
+  const { port, root, html } = await serveRenderer(onTestFinished);
+  await writeFile(join(root, "index.html.br"), brotliCompressSync("<html>old page</html>"));
+  const response = await fetchRaw(port, "/", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(html);
 });

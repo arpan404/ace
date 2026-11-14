@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { AccessMode } from "@ace/protocol";
+import { forgetStoredTrust } from "./stored-shape.ts";
 
 const marker = "recorded-permission-modes-v1";
 const aceModes = `(${AccessMode.options.map((mode) => `'${mode}'`).join(",")})`;
@@ -28,6 +29,8 @@ function stale(column: string, at: string): string {
  */
 export function mapRecordedPermissionModes(db: DatabaseSync): void {
   if (db.prepare("SELECT 1 FROM upgrade_cleanup WHERE id=?").get(marker)) return;
+  // A raw rewrite of events: what the idle trust pass confirmed no longer holds (ADR 0125).
+  forgetStoredTrust(db);
   // The `type` column narrows the event scan without parsing every payload's JSON.
   db.exec(`
     UPDATE threads SET provider_metadata=${rewritePermission("provider_metadata", "$.permission")}

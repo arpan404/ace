@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -427,6 +428,11 @@ export const BrowserState = z.object({
   features: z.array(z.string().max(64)).max(32).optional(),
   /** Set while the live video can't start and is being retried; absent once video plays. */
   video: BrowserVideoStatus.optional(),
+  /**
+   * What the shown tab's live video runs on while ace-media carries it (ADR 0148). Beside `video`
+   * rather than in it: `video` exists only while the video is retrying.
+   */
+  acceleration: MediaAcceleration.optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({

@@ -204,6 +204,8 @@ try {
       ordinal = (ordinal + 37) % options.turns;
       reader.turnsPage({ threadId, before: Math.max(2, ordinal), limit: 50 });
     });
+    // What opening the thread's outline reads: the newest turns, at the largest page size.
+    measurement("turns.page.newest", () => reader.turnsPage({ threadId, limit: 100 }));
     let cursor: string | undefined;
     measurement("thread.search.common", () => {
       const page: ThreadSearchResponse = reader.threadSearch({

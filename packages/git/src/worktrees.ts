@@ -33,31 +33,34 @@ export async function createWorktree(
   return repository.serial(root, async () => {
     const { cli } = repository;
     checkCancellation(options.signal);
-    const valid = await cli.call(root, ["check-ref-format", `refs/heads/${options.branch}`], {
-      allowFailure: true,
-    });
-    if (!options.branch || options.branch.startsWith("-") || valid.exitCode !== 0) {
+    // Independent reads, all under the lock; failures still surface in this order.
+    const [valid, commit, exists, listed] = await Promise.allSettled([
+      cli.call(root, ["check-ref-format", `refs/heads/${options.branch}`], { allowFailure: true }),
+      repository.commit(root, options.baseRef),
+      cli.call(root, ["show-ref", "--verify", "--quiet", `refs/heads/${options.branch}`], {
+        allowFailure: true,
+      }),
+      repository.worktrees(root),
+    ]);
+    if (
+      !options.branch ||
+      options.branch.startsWith("-") ||
+      (valid.status === "fulfilled" && valid.value.exitCode !== 0)
+    ) {
       throw new GitError("invalid_ref", `Invalid branch name: ${options.branch}`);
     }
-    const sha = await repository.commit(root, options.baseRef);
-    const exists = await cli.call(
-      root,
-      ["show-ref", "--verify", "--quiet", `refs/heads/${options.branch}`],
-      { allowFailure: true },
-    );
-    if (exists.exitCode === 0 && !options.reuseBranch) {
+    settled(valid);
+    const sha = settled(commit);
+    const existing = settled(exists);
+    if (existing.exitCode === 0 && !options.reuseBranch) {
       throw new GitError("branch_exists", `Branch already exists: ${options.branch}`);
     }
-    if (exists.exitCode !== 0) await assertNoRefConflict(repository, root, options.branch);
+    if (existing.exitCode !== 0) await assertNoRefConflict(repository, root, options.branch);
     const path = resolve(options.path);
     // A worktree folder deleted by hand still holds its path and branch until its entry goes.
-    for (const stale of await missingBlockers(
-      await repository.worktrees(root),
-      path,
-      options.branch,
-    ))
+    for (const stale of await missingBlockers(settled(listed), path, options.branch))
       await forgetMissing(repository, root, stale);
-    const branchArgs = exists.exitCode === 0 ? [] : ["-b", options.branch];
+    const branchArgs = existing.exitCode === 0 ? [] : ["-b", options.branch];
     const staged = options.onProgress !== undefined || options.signal !== undefined;
     options.onProgress?.({ step: "creating" });
     try {
@@ -73,7 +76,7 @@ export async function createWorktree(
           ...branchArgs,
           "--",
           path,
-          exists.exitCode === 0 ? options.branch : sha,
+          existing.exitCode === 0 ? options.branch : sha,
         ],
         {
           write: true,
@@ -96,7 +99,7 @@ export async function createWorktree(
       if (isMutationUnavailable(error)) throw error;
       // The branch and checkout are one operation. Roll back only the exact resources
       // created here, preserving external edits or ref changes with compare-and-delete.
-      if (exists.exitCode !== 0) {
+      if (existing.exitCode !== 0) {
         const trees = await repository.worktrees(root);
         const owned = trees.find(
           (tree) =>
@@ -200,6 +203,12 @@ export async function removeWorktree(
   });
 }
 
+/** The value of a settled read, or its failure rethrown. */
+function settled<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === "rejected") throw result.reason;
+  return result.value;
+}
+
 function checkCancellation(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new GitError("git_cancelled", "Worktree creation cancelled");
 }
@@ -214,13 +223,14 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
   let total = 0;
   for (let index = 0; index < listing.stdout.length; index++)
     if (listing.stdout[index] === 0) total++;
+  const batch = checkoutBatch(total);
   let offset = 0;
   let completed = 0;
   let reported = 0;
   while (completed < total) {
     checkCancellation(options.signal);
     const start = offset;
-    const batchEnd = Math.min(completed + 128, total);
+    const batchEnd = Math.min(completed + batch, total);
     while (completed < batchEnd) {
       const end = listing.stdout.indexOf(0, offset);
       if (end <= offset) throw new GitError("malformed_output", "Invalid checkout path listing");
@@ -245,5 +255,19 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
   }
   if (offset !== listing.stdout.length)
     throw new GitError("malformed_output", "Invalid checkout path listing");
+  // A batch Git exited from without reading leaves its paths unwritten; never hand on a
+  // checkout with tracked files missing.
+  const missing = await cli.call(path, ["ls-files", "--deleted", "-z"]);
+  if (missing.stdout.length)
+    throw new GitError("git_failed", "The new worktree is missing files Git should have written");
   if (!total) options.onProgress?.({ step: "checking_out", percent: 100 });
+}
+
+/**
+ * Paths per `checkout-index` process. Paths go through stdin, so no argument limit applies;
+ * the batch only sets how often progress moves and cancellation is checked: about every 5%,
+ * and at least 1,024 paths so a large checkout is not dominated by process starts.
+ */
+function checkoutBatch(total: number): number {
+  return Math.min(8192, Math.max(1024, Math.ceil(total / 20)));
 }

@@ -16,6 +16,7 @@ import {
   nativeTheme,
   Notification,
   powerMonitor,
+  session,
   shell,
   type WebContents,
 } from "electron";
@@ -27,6 +28,7 @@ import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
+import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { localSpade } from "./spade/local.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
@@ -34,7 +36,8 @@ import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { bundledStallWorker, watchFreezes } from "./diagnostics/freeze-watch.ts";
-import { createStallOperation } from "@ace/diagnostics/stall";
+import { createStallOperation, systemHeartbeat } from "@ace/diagnostics/stall";
+import { startMainBeat } from "./diagnostics/main-beat.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
@@ -66,9 +69,11 @@ import { SettingsStore } from "./settings-store.ts";
 import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { QuitGate } from "./os/quit-gate.ts";
+import { shutDownBeforeQuit } from "./os/shutdown.ts";
 import { createMainWindow } from "./window/main-window.ts";
 import { captionSymbolColor } from "./window/options.ts";
 import { applyZoom } from "./window/zoom.ts";
+import { spellcheckLanguages } from "./window/spellcheck.ts";
 import {
   disableDnsPrefetching,
   isolateVisualizationSession,
@@ -134,6 +139,9 @@ else
     crashDumpDir,
   );
 
+/** Milliseconds since the app launched, for the launch steps the log records. */
+const sinceLaunchMs = () => Math.round(performance.now());
+
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -172,12 +180,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const daemonLog = logger("daemon");
   // Names what the main thread is doing, so a freeze is reported with its operation.
   const operation = createStallOperation();
+  // One timer notices the main thread freezing, for the stall watchdog and the daemon's
+  // health checks alike. Read on `Date.now`, the supervisor's clock.
+  const beat = startMainBeat({ clock: systemHeartbeat, now: Date.now });
   watchFreezes({
     log: logger("freeze"),
     directory: app.getPath("logs"),
     pid: process.pid,
     operation,
     spawn: bundledStallWorker(import.meta.url),
+    clock: beat.clock,
   });
   void logFreshStart(target, log, new Date());
   const info: AppInfo = {
@@ -203,6 +215,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     },
     env: process.env,
     log: logger("supervisor"),
+    sinceLaunch: () => performance.now(),
+    freezes: beat,
     daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
     ),
@@ -264,10 +278,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const quitGate = new QuitGate({
     shutDown: async () => {
       globalShortcut.unregisterAll();
-      // Before the daemon stops or the app goes: no client should keep showing this app's update.
-      await updateReport.withdraw();
-      await background.stop();
-      await runtime.stop();
+      // Before the daemon stops or the app goes: no client should keep showing this app's update,
+      // and the browser backend tells the daemon it is going. Both at once, then the daemon.
+      await shutDownBeforeQuit({
+        beforeDaemon: [() => updateReport.withdraw(), () => background.stop()],
+        daemon: () => runtime.stop(),
+      });
     },
     quit: () => {
       if (relaunch) relaunchAfterExit(relaunch);
@@ -275,6 +291,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     },
     timers,
     log: logger("quit"),
+  });
+  const daemonRunning = new Promise<void>((settle) => {
+    if (runtime.current().state === "running") return settle();
+    const stop = runtime.onStatus((status) => {
+      if (status.state !== "running") return;
+      stop();
+      settle();
+    });
   });
   const updates = appUpdates({
     version: info.version,
@@ -286,6 +310,11 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     random: Math.random,
     now: Date.now,
+    // Checks back off while nobody sees the app or it runs on battery (update-schedule.ts).
+    active: () =>
+      Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized()) &&
+      !powerMonitor.isOnBatteryPower(),
+    daemonRunning,
     report: (status) => {
       emit(contents(), "updates.status", status);
       updateReport.status(status);
@@ -381,8 +410,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
-    // Opening the app (launch, reopening its window, showing it again) asks for an update.
+    // Opening the app (reopening its window, showing or focusing it again) asks for an update
+    // once the last check is a while ago.
     window.on("show", () => updates.opened());
+    window.on("focus", () => updates.opened());
     const closing = window;
     // Browser views move to the parking window before the window (and its views) go.
     closing.on("close", () => background.windowClosing(closing));
@@ -487,30 +518,33 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
     if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
     installDaemonNetwork(network);
-    await isolateVisualizationSession();
+    // Windows and Linux load a dictionary per language: only the person's own (spellcheck.ts).
+    if (process.platform !== "darwin")
+      session.defaultSession.setSpellCheckerLanguages(
+        spellcheckLanguages(
+          app.getPreferredSystemLanguages(),
+          session.defaultSession.availableSpellCheckerLanguages,
+        ),
+      );
+    // The visualization session is locked while the renderer is served; both finish before the
+    // app window (the only place a visualization `<webview>` attaches) exists.
     const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
-    if (devUrl && !app.isPackaged) {
-      applyDevCsp(devUrl, remote, network);
-      rendererUrl = devUrl;
-    } else rendererUrl = await serveRenderer(paths.renderer, remote, network);
+    const served =
+      devUrl && !app.isPackaged
+        ? (applyDevCsp(devUrl, remote, network), Promise.resolve(devUrl))
+        : serveRenderer(paths.renderer, remote, network);
+    [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
-    // The page shows "Starting ace…" until its daemon answers, however long a first start
-    // takes. Only a real failure rejects; the page then shows its connection screen and
-    // reloads once the daemon is running again.
-    let missedConnection = false;
-    const connection = async () => {
-      try {
-        return await runtime.connection();
-      } catch (error) {
-        missedConnection = true;
-        throw error;
-      }
-    };
-    runtime.onStatus((status) => {
-      if (status.state !== "running" || !missedConnection) return;
-      missedConnection = false;
-      window?.webContents.reload();
+    // The page's hand-off once its daemon answers, and its reload after a missed one
+    // (`page-connection.ts`).
+    const handoff = createPageConnection({
+      connection: () => runtime.connection(),
+      onStatus: (listener) => runtime.onStatus(listener),
+      reload: () => window?.webContents.reload(),
+      handed: () =>
+        log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
     });
+    const connection = handoff.connection;
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
     // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
     // and the agents in it, is left alone.
@@ -691,6 +725,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     powerMonitor.on("shutdown", () => {
       systemShutdown = true;
     });
+    // Plugged in again: checks leave their battery back-off.
+    powerMonitor.on("on-ac", () => updates.opened());
     powerMonitor.on("resume", () => {
       background.wake();
       // Timers stall while the Mac sleeps; a wake is an opening too.
@@ -707,7 +743,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
         process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
       background: settings.get().background,
     });
-    if (!hidden) createWindow();
+    if (!hidden) {
+      createWindow();
+      window?.webContents.once("did-finish-load", () =>
+        log("info", "The page loaded", { sinceLaunchMs: sinceLaunchMs() }),
+      );
+    }
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
     // The daemon starts first: nothing the updater does can keep it from running.

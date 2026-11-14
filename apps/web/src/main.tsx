@@ -6,13 +6,19 @@ import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "r
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
-import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
+import {
+  defaultDaemonUrl,
+  forgetToken,
+  loadTarget,
+  type DaemonTarget,
+} from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
 import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
-import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
-import { useKeptQueries } from "./boot/kept-queries.ts";
+import { startClientWorker } from "./boot/worker-client.ts";
+import { afterFirstScreen, useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
+import { loadKeptQueries, useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
@@ -101,7 +107,7 @@ const app = (client: ClientApi, machines?: MachinePool) => (
  * lookups kept between sessions.
  */
 function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
-  const { pool, ensure } = useBrowserMachinePool(local, session);
+  const { pool, ensure } = useBrowserMachinePool(local, session, poolStart);
   const [queryClient] = useState(createQueryClient);
   useKeptQueries(queryClient, props.client, props.connection);
   const { target, hostId } = props.connection;
@@ -297,6 +303,14 @@ async function content(): Promise<ReactNode> {
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing #root");
 const daemonMode = import.meta.env.MODE !== "fake" && import.meta.env.MODE !== "perf";
+// A browser with a machine stored will connect to it: its client worker starts now, so its
+// script downloads while this one runs and React renders (the gate still decides where it
+// connects), and the lookups kept from its last session load their code while the gate
+// connects, so the app restores them as it mounts. Not awaited.
+if (daemonMode && !hasDesktopBridge() && loadTarget(stores).target) {
+  startClientWorker();
+  void loadKeptQueries().catch(() => {});
+}
 /** Start over at the connection screen without the stored token (from `BootFailure`). */
 const connectionSettings = daemonMode
   ? () => {
@@ -314,6 +328,14 @@ const startup = createStartup({
   },
   frame: nextFrame,
 });
+
+/**
+ * Other machines connect once the first screen is up, unless the address opens a view on one of
+ * them (`?machine=`), which needs the pool for that screen.
+ */
+const poolStart = new URLSearchParams(location.search).has("machine")
+  ? undefined
+  : afterFirstScreen(startup, (run) => whenIdle(run));
 
 async function start(root: Root) {
   // iOS covers the page with its keyboard instead of resizing it; the app shell ends above it.

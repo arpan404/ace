@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/ScreenState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acceleration": {
+      "$ref": "https://ace.local/protocol/v1/MediaAcceleration.json"
+    },
     "agentPointer": {
       "$ref": "https://ace.local/protocol/v1/AgentPointer.json"
     },

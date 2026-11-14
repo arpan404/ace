@@ -66,6 +66,11 @@ export interface DelegationDependencies {
   timeZone?: string;
   models: import("@ace/models").ModelCatalogApi;
   modelsReady?: Promise<void>;
+  /**
+   * Account limits read again when they are old, before a child's account is chosen by quota;
+   * it waits a few seconds at most itself.
+   */
+  freshLimits?(): Promise<void>;
   providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
   configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
@@ -79,6 +84,11 @@ export interface DelegationDependencies {
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
+  /**
+   * Brings the provider's installation and login facts up to date before admission reads
+   * them (`provider-facts.ts`): no client may be watching to have refreshed them.
+   */
+  refreshProvider?(provider: import("@ace/protocol").ProviderKind, account?: string): Promise<void>;
 }
 /** Durable execution owner shared by agent tools and host callers, independent of MCP transport. */
 export class DelegationService {
@@ -477,9 +487,14 @@ export class DelegationService {
     budget: ModelLoadBudget,
   ) {
     const request = delegationRequest(value);
+    await this.deps.refreshProvider?.(request.provider, request.accountId ?? request.instanceId);
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
     const accountId = namedAccountId(this.deps, request);
+    // A child is placed, or its named account refused, by quota: on readings no older than the
+    // cadence, read again only when they are older.
+    if (request.provider !== "acp" && this.deps.freshLimits)
+      await budget.wait(this.deps.freshLimits().catch(() => {}));
     const catalog = this.deps.models;
     const filter = {
       provider: request.provider,

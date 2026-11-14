@@ -76,6 +76,8 @@ it.runIf(process.platform === "darwin")(
       ].join("\n"),
     );
     const output: string[] = [];
+    const policy = daemonLaunchPolicy(systemLaunchPort());
+    await policy.ready();
     const child = spawnDaemon({
       home: root,
       resources: { entry, node: process.execPath, packaged: false },
@@ -83,7 +85,7 @@ it.runIf(process.platform === "darwin")(
       version: "0.0.0",
       env: {},
       onOutput: (line) => output.push(line),
-      prioritize: daemonLaunchPolicy(systemLaunchPort()),
+      prioritize: policy.wrap,
     });
     const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
     try {

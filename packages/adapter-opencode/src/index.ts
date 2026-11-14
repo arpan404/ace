@@ -33,6 +33,7 @@ export function createOpenCodeAdapter(
           },
           lease.server,
         );
+        lease.opened();
         return {
           ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get mcp() {

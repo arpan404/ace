@@ -242,15 +242,19 @@ export class TurnWriter {
           .sql("SELECT role,preview FROM long_items WHERE thread_id=? AND item_id=?")
           .get(event.threadId, p.itemId);
         if (row?.role) {
-          const preview = (
-            String(row.preview) + p.append.slice(0, Math.max(0, 1024 - String(row.preview).length))
-          ).slice(0, 1024);
-          this.data.run(
-            "UPDATE long_items SET preview=? WHERE thread_id=? AND item_id=?",
-            preview,
-            event.threadId,
-            p.itemId,
+          const stored = String(row.preview);
+          const preview = (stored + p.append.slice(0, Math.max(0, 1024 - stored.length))).slice(
+            0,
+            1024,
           );
+          // A full preview takes no more text: its row already holds this value.
+          if (preview !== stored)
+            this.data.run(
+              "UPDATE long_items SET preview=? WHERE thread_id=? AND item_id=?",
+              preview,
+              event.threadId,
+              p.itemId,
+            );
           this.preview(event, ordinal, String(row.role), preview, p.itemId);
         }
       }
@@ -398,7 +402,7 @@ export class TurnWriter {
   ): void {
     if (role === "user")
       this.data.run(
-        "UPDATE long_turns SET initiating=? WHERE thread_id=? AND ordinal=? AND (SELECT item_id FROM long_items WHERE thread_id=? AND ordinal=? AND role='user' ORDER BY created_seq LIMIT 1)=?",
+        "UPDATE long_turns SET initiating=? WHERE thread_id=? AND ordinal=? AND initiating IS NOT ?1 AND (SELECT item_id FROM long_items WHERE thread_id=? AND ordinal=? AND role='user' ORDER BY created_seq LIMIT 1)=?",
         preview,
         event.threadId,
         ordinal,
@@ -408,7 +412,7 @@ export class TurnWriter {
       );
     else
       this.data.run(
-        "UPDATE long_turns SET latest=? WHERE thread_id=? AND ordinal=? AND (SELECT item_id FROM long_items WHERE thread_id=? AND ordinal=? AND role='assistant' ORDER BY created_seq DESC LIMIT 1)=?",
+        "UPDATE long_turns SET latest=? WHERE thread_id=? AND ordinal=? AND latest IS NOT ?1 AND (SELECT item_id FROM long_items WHERE thread_id=? AND ordinal=? AND role='assistant' ORDER BY created_seq DESC LIMIT 1)=?",
         preview,
         event.threadId,
         ordinal,

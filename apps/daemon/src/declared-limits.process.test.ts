@@ -411,3 +411,54 @@ test("a missing agy shows no usage", async () => {
   expect(account?.quota.usageNotice).toBeUndefined();
   expect(logs).toEqual([]);
 });
+
+/** The Codex account's availability in an accounts list. */
+const codex = (accounts: readonly { provider: string; availability: string }[]) =>
+  accounts.find((account) => account.provider === "codex")?.availability;
+
+test("a client's first account list after an unattended stretch waits for the read under way", async () => {
+  let clock = 1_000_000;
+  const minute = 60_000;
+  let used = 100;
+  let blocked: (() => void) | undefined;
+  let block = false;
+  const reset = clock + 600 * minute;
+  const answer = () => ({
+    auth: "logged_in",
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: "codex",
+        primary: { usedPercent: used, windowDurationMins: 300, resetsAt: reset / 1000 },
+      },
+    },
+  });
+  const f = await harness(false, {
+    now: () => clock,
+    // The cap never passes in this test: only the read's own answer lets the list go.
+    after: () => () => {},
+    readCodexUsage: () =>
+      block
+        ? new Promise((resolve) => (blocked = () => resolve(answer())))
+        : Promise.resolve(answer()),
+  });
+  cleanups.push(() => f.close());
+  // Cleanups run last first: a read still blocked is answered before the daemon closes.
+  cleanups.push(async () => blocked?.());
+  await f.management.limits.refresh();
+  expect(codex(f.registry.summaries(clock))).toBe("exhausted");
+
+  // Ten minutes with no client: the account recovered, its stored reading still says spent.
+  clock += 10 * minute;
+  used = 4;
+  block = true;
+  const replies: unknown[] = [];
+  const listed = f.request(f.owner, { type: "accounts.list", requestId: f.rid() });
+  void listed.then((reply) => replies.push(reply));
+  await expect.poll(() => blocked !== undefined, { timeout: 10_000 }).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(replies).toEqual([]);
+  blocked?.();
+  const reply = await listed;
+  if (reply.type !== "accounts.list") throw new Error(JSON.stringify(reply));
+  expect(codex(reply.accounts)).toBe("available");
+});

@@ -2913,49 +2913,35 @@ Example:
 ```json
 {
   "state": {
-    "capabilities": {
-      "background": true,
-      "capture": {
-        "changeDriven": false,
-        "displays": false,
-        "windows": false
-      },
-      "codecs": [
-        "jpeg"
-      ],
-      "input": {
-        "keyboard": false,
-        "pointer": true,
-        "scroll": true,
-        "text": false
-      },
-      "maxSessions": 6,
-      "permissionEvents": false,
-      "permissions": {
-        "input": "n/a",
-        "screen": "denied"
-      },
-      "platform": "windows",
-      "semanticActions": [],
-      "uiTree": false,
-      "version": 2,
-      "watchOnly": "example"
+    "acceleration": {
+      "degraded": false,
+      "reason": "example",
+      "steps": []
+    },
+    "agentPointer": {
+      "at": 7,
+      "kind": "scroll",
+      "x": 3,
+      "y": 6
     },
     "controller": "none",
-    "indicator": true,
-    "lifecycle": "starting",
+    "error": "example",
+    "holder": {
+      "agentId": "example",
+      "threadId": "example"
+    },
+    "indicator": false,
+    "lifecycle": "failed",
     "permissions": {
       "accessibility": true,
-      "platform": "example",
-      "screenRecording": false
+      "screenRecording": true
     },
-    "personActive": false,
-    "sessionId": "umMj4ujzRYh9LZFDBN5l49F44V5_g75rK6ujVZcHFntMVUVd4cPYltBYJBK8Vne",
+    "sessionId": "mMj4ujzRYh9LZFDBN5l49F",
     "target": {
-      "bundleId": "example",
-      "kind": "window",
-      "windowId": 1
-    }
+      "kind": "chooser",
+      "restore": false
+    },
+    "threadId": "example"
   },
   "type": "screen.state"
 }
@@ -3017,11 +3003,9 @@ Example:
 ```json
 {
   "state": {
-    "agentPointer": {
-      "at": 5,
-      "kind": "type",
-      "x": 2,
-      "y": 7
+    "acceleration": {
+      "degraded": true,
+      "steps": []
     },
     "booting": true,
     "cleanupRequired": false,
@@ -3182,6 +3166,10 @@ Example:
 ```json
 {
   "state": {
+    "acceleration": {
+      "degraded": false,
+      "steps": []
+    },
     "backend": "user",
     "blocked": {
       "origin": "example",

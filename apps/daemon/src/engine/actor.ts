@@ -5,28 +5,29 @@ import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
 import { isStoreRetry } from "../store-busy.ts";
-import { ProviderPayload } from "@ace/provider-kit/payload";
+import { frameEnvelopeError } from "./frame-envelope.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
 const CursorSend = z.object({ kind: z.literal("send") });
 
-const frameSchema = z.object({
-  seq: z.number().int().nonnegative(),
-  t: z.number().nonnegative(),
-  dir: z.enum(["send", "recv", "stderr", "note"]),
-  channel: z.string(),
-  data: z.unknown(),
-  payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
-  usageAccount: z
-    .object({
-      id: z.string().min(1).max(512),
-      billingMode: z.enum(["api", "subscription", "unknown"]),
-    })
-    .optional(),
-});
 const sdkBody = z.object({ kind: z.string(), body: z.unknown() });
+type ArmedTimer = { at: number; armedAt: number };
+/**
+ * Whether the armed timer still serves a deadline at `at`, so re-arming it per batch is waste:
+ * the same deadline, still ahead, and a clock that has not stepped back since arming. It is
+ * re-armed at least once a second, which bounds how late a forward clock step leaves it.
+ */
+export function keepsTimer(armed: ArmedTimer | undefined, at: number, now: number): boolean {
+  return (
+    armed !== undefined &&
+    armed.at === at &&
+    now < at &&
+    now >= armed.armedAt &&
+    now - armed.armedAt < 1000
+  );
+}
 export interface EngineClock {
   now(): number;
   setTimer(callback: () => void, delay: number): () => void;
@@ -82,15 +83,16 @@ export class ThreadActor {
     },
   };
   private updatePressure(): void {
+    const frames = this.queued + this.pendingFrames.length;
+    const bytes = this.queuedBytes + this.pendingBytes;
     if (
-      this.backlog().frames >=
-        Math.min(256, Math.max(1, Math.floor(this.limits.maxQueuedFrames / 4))) ||
-      this.backlog().bytes >= this.limits.maxQueuedBytes / 4
+      frames >= Math.min(256, Math.max(1, Math.floor(this.limits.maxQueuedFrames / 4))) ||
+      bytes >= this.limits.maxQueuedBytes / 4
     )
       this.pressure = true;
     if (
-      this.backlog().frames <= Math.min(64, Math.floor(this.limits.maxQueuedFrames / 16)) &&
-      this.backlog().bytes <= this.limits.maxQueuedBytes / 16
+      frames <= Math.min(64, Math.floor(this.limits.maxQueuedFrames / 16)) &&
+      bytes <= this.limits.maxQueuedBytes / 16
     ) {
       this.pressure = false;
       for (const resolve of this.drains) resolve();
@@ -98,6 +100,8 @@ export class ThreadActor {
     }
   }
   private cancelTimer: (() => void) | undefined;
+  /** The deadline the armed timer fires at, and when it was armed. */
+  private armed: ArmedTimer | undefined;
   private stopped = false;
   private onRetire: ((actor: ThreadActor, generation: number) => void) | undefined;
   private draining: () => boolean;
@@ -292,15 +296,14 @@ export class ThreadActor {
   frame(frame: Frame, generation: number): Promise<void> {
     if (this.stopped || generation !== this.generation) return Promise.resolve();
     if (this.poisoned) return Promise.reject(new Error("Provider frame failed to commit"));
-    const result = frameSchema.safeParse(frame);
-    if (!result.success) {
+    const malformed = frameEnvelopeError(frame);
+    if (malformed !== undefined) {
       this.enqueue(() => {
-        throw result.error;
+        throw new Error(`Provider frame envelope is malformed: ${malformed}`);
       });
       return this.flush();
     }
-    const { payload, ...metadata } = result.data;
-    const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
+    const decoded = frame;
     let bytes: number;
     try {
       const certificate = decoded.payload;
@@ -330,8 +333,8 @@ export class ThreadActor {
       this.cancelBatch ??= this.batchScheduler.setTimer(() => this.sealFrames(), 1);
       if (
         this.draining() ||
-        this.backlog().frames >= this.limits.maxQueuedFrames ||
-        this.backlog().bytes >= this.limits.maxQueuedBytes ||
+        this.queued + this.pendingFrames.length >= this.limits.maxQueuedFrames ||
+        this.queuedBytes + this.pendingBytes >= this.limits.maxQueuedBytes ||
         this.pendingFrames.length >= 256 ||
         this.pendingBytes >= 262144
       )
@@ -483,12 +486,15 @@ export class ThreadActor {
       for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.schedule();
   }
-  schedule(): void {
+  private disarm(): void {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
-    if (this.stopped || this.poisoned) return;
+    this.armed = undefined;
+  }
+  schedule(): void {
+    if (this.stopped || this.poisoned) return this.disarm();
     const state = this.repo.state(this.id);
-    if (!state) return;
+    if (!state) return this.disarm();
     // Work left running after a done turn (a dev server, ADR 0109) lives in the provider's
     // process: it stays warm until that work ends or the thread is settled or archived.
     const leftRunning = Object.keys(state.indexes.runningTasks).some(
@@ -504,21 +510,29 @@ export class ThreadActor {
       this.repo.deadline(this.id, this.translator?.nextDeadline?.()),
       this.releaseAt(),
     ].filter((value): value is number => value !== undefined);
-    if (!deadlines.length) return;
+    if (!deadlines.length) return this.disarm();
+    const at = Math.min(...deadlines);
+    const armedAt = this.clock.now();
+    if (this.cancelTimer && keepsTimer(this.armed, at, armedAt)) return;
+    this.disarm();
+    this.armed = { at, armedAt };
     this.cancelTimer = this.clock.setTimer(
-      () =>
+      () => {
+        // Spent: the next `schedule` arms a new one, even for the same deadline.
+        this.cancelTimer = undefined;
+        this.armed = undefined;
         this.enqueue(() => {
           const now = this.clock.now();
           this.apply([...(this.translator?.tick(now) ?? []), { type: "tick" }]);
           const release = this.releaseAt();
           if (release !== undefined && now >= release) {
             this.idleDue = true;
-            this.cancelTimer?.();
-            this.cancelTimer = undefined;
+            this.disarm();
           }
           this.wake();
-        }),
-      Math.max(0, Math.min(...deadlines) - this.clock.now()),
+        });
+      },
+      Math.max(0, at - armedAt),
     );
   }
   /** Only a done tree has a release deadline; any live work clears it in `schedule`. */
@@ -546,7 +560,7 @@ export class ThreadActor {
     this.sealFrames();
     this.stopped = true;
     for (const id of this.inputLeases.keys()) this.releaseInput(id);
-    this.cancelTimer?.();
+    this.disarm();
     this.pressure = false;
     for (const resolve of this.drains) resolve();
     this.drains.clear();

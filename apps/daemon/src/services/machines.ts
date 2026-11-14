@@ -198,7 +198,10 @@ export function startMachines(context: ServiceContext): void {
     log: record("info"),
   });
 
+  // Bound once the children exist below: a machine answering again ends their wait on it.
+  let machineReachable: ((machine: string) => void) | undefined;
   const directory = new MachineDirectory({
+    reachable: (machine) => machineReachable?.(machine),
     profiles: () => {
       const profiles = new Profiles(config.dataDir);
       try {
@@ -296,7 +299,8 @@ export function startMachines(context: ServiceContext): void {
     host: (machine) => directory.host(machine),
     deliver: (parentThreadId, key, body, settled) => {
       const parent = store.getThread(parentThreadId);
-      if (!parent || parent.deletedAt !== undefined) return;
+      // Deleted for good: nothing can take it, so it ends here, never retried.
+      if (!parent || parent.deletedAt !== undefined) return "gone";
       // Not ready yet is a failure the poll retries, never a delivery.
       const delegations = services.agentControl?.delegations;
       if (!delegations) throw new Error("Agent control is not ready");
@@ -336,6 +340,14 @@ export function startMachines(context: ServiceContext): void {
           }
       });
     },
+    // A stopped parent's results wait for its next input, as a local child's do. A deleted one
+    // is never held: delivery finds it gone and ends what it was owed.
+    held: (parent) => {
+      const thread = store.getThread(parent);
+      if (!thread || thread.deletedAt !== undefined) return false;
+      const journal = services.agentControl?.delegations.journal;
+      return !!journal && (journal.stopped(parent) || journal.fenced(parent));
+    },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>
       services.agentControl?.delegations.journal.isDescendant(child, ancestor) ?? false,
@@ -346,6 +358,14 @@ export function startMachines(context: ServiceContext): void {
     log: record("warn"),
   });
   resources.own(() => children.close());
+  machineReachable = (machine) => children.machineReachable(machine);
+  // New input on a stopped parent may resume it: what waits for it is tried at once.
+  resources.own(
+    store.subscribe((events) => {
+      for (const thread of new Set(events.map((event) => event.threadId)))
+        children.threadChanged(thread);
+    }),
+  );
   resources.onShutdown(() => children.close());
   const jobs = new RemoteJobs({
     store,
