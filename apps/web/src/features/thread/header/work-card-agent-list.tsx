@@ -76,14 +76,15 @@ export function AgentListSection(props: {
       {settled.length > 0 && (
         <RowButton aria-expanded={open} onClick={() => setOpen(!open)}>
           <RowLabel>
-            {live.staleLabel ?? tally.map((part, index) => (
-              <Fragment key={part.text}>
-                {index > 0 && " · "}
-                <span className={part.quiet ? "text-subtle-foreground" : undefined}>
-                  {part.text}
-                </span>
-              </Fragment>
-            ))}
+            {live.staleLabel ??
+              tally.map((part, index) => (
+                <Fragment key={part.text}>
+                  {index > 0 && " · "}
+                  <span className={part.quiet ? "text-subtle-foreground" : undefined}>
+                    {part.text}
+                  </span>
+                </Fragment>
+              ))}
           </RowLabel>
           <RowCaret className={open ? "rotate-180" : undefined} />
         </RowButton>

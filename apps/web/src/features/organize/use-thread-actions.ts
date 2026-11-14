@@ -587,9 +587,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       // Only a confirmed list may say it runs: otherwise the delete goes unforced, and the daemon
       // refuses it if work still runs, offering Stop and delete from what is true now.
       const question =
-        status && currentNow(client)
-          ? deleteQuestion([{ title: entry.title, status }])
-          : undefined;
+        status && currentNow(client) ? deleteQuestion([{ title: entry.title, status }]) : undefined;
       confirmation.open({
         title: entry.title,
         running: question?.running ?? "",

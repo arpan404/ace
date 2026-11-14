@@ -26,7 +26,10 @@ export function useLiveConnection() {
  * The one rule behind every gate below: what a store holds is current only while the connection
  * is ready, the daemon has confirmed it and its subscription has caught up. Pure.
  */
-export function isCurrent(ready: boolean, copy: { unconfirmed?: boolean; syncing?: boolean } | undefined): boolean {
+export function isCurrent(
+  ready: boolean,
+  copy: { unconfirmed?: boolean; syncing?: boolean } | undefined,
+): boolean {
   return ready && copy?.unconfirmed !== true && copy?.syncing !== true;
 }
 
