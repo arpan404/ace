@@ -569,7 +569,9 @@ export class Store {
         }
         return result;
       } catch (error) {
-        this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // SQLite may already have rolled the whole transaction back itself (SQLITE_FULL, an
+        // I/O error): then no savepoint is left, and the outermost catch settles the rest.
+        if (this.db.isTransaction) this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         this.threads.discard();
         this.readCache.invalidate();
         this.rolledBack++;
@@ -598,7 +600,8 @@ export class Store {
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      // Always: SQLite may already have rolled back, and the outcomes must still settle.
+      this.rollBack();
       this.writtenThreads.clear();
       this.rolledBack++;
       this.sidebarReads.invalidate();
@@ -631,6 +634,22 @@ export class Store {
       }
     }
     return result;
+  }
+  /**
+   * Roll back the open transaction, if SQLite has not already done so itself (SQLITE_FULL, an
+   * I/O error). A failure to roll back is reported; the caller's own error is the one thrown.
+   */
+  private rollBack(): void {
+    if (!this.db.isTransaction) return;
+    try {
+      this.db.exec("ROLLBACK");
+    } catch (error) {
+      try {
+        this.onError(error);
+      } catch {
+        /* The caller rethrows its own error. */
+      }
+    }
   }
   private settle(
     settlements: { outcome: TransactionOutcome }[],
@@ -847,7 +866,7 @@ export class Store {
       this.db.exec("COMMIT");
       this.readCache.evict(this.writtenThreads);
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      this.rollBack();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       throw error;
