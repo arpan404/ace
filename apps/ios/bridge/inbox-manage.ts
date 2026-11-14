@@ -22,6 +22,7 @@ import { dispatchCommand, type Receipt } from "./commands.ts";
 import type { InboxOrganizer } from "./inbox-organize.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 import { preview } from "./presentation.ts";
+import { answerHistory, HistoryRequest } from "./history.ts";
 import { answerPalette, PaletteRequest } from "./palette.ts";
 
 /*
@@ -396,6 +397,9 @@ export function inboxRequests(
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
     const palette = PaletteRequest.safeParse(raw);
     if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
+    const history = HistoryRequest.safeParse(raw);
+    if (history.success)
+      return answerHistory(owner, organizer.entries(), history.data, requestId, clock.now());
     const link = AceLinkRequest.safeParse(raw);
     if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);

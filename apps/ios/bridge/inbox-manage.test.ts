@@ -275,6 +275,19 @@ test("search everything ranks commands, projects and threads by the palette's ru
   expect(projects.commands).toEqual([]);
 });
 
+test("history answers with the threads settled on the machine, not the ones still open", async () => {
+  const { sink, request } = await following((machine) => {
+    finished(machine, "rested");
+    finished(machine, "open");
+  });
+  await until(() => ids(sink).length === 2, "the inbox");
+  await request({ type: "inbox.bulk", action: "settle", threadIds: ["rested"] });
+  type Answer = { threads: { id: string; label: string; listed: boolean }[] };
+  const answer = (await request({ type: "history.query", query: "" })) as Answer;
+  expect(answer.threads.map((thread) => thread.id)).toEqual(["rested"]);
+  expect(answer.threads[0]).toMatchObject({ label: "This week", listed: true });
+});
+
 test("a delete still waiting on the machine is not done: its answer follows under the ticket", async () => {
   const { daemon, sink, request } = await following((machine) => {
     finished(machine, "a");
