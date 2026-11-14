@@ -106,6 +106,9 @@ struct Entry {
     handle: u32,
     /// The encode id of the latest video unit: what a keyframe request names.
     encode: u32,
+    /// The latest configuration record: a producer sends it only when it changes, so a
+    /// keyframe without one keeps the one before.
+    description: Vec<u8>,
     current: Current,
 }
 
@@ -168,6 +171,7 @@ impl Stills {
         let entry = Entry {
             handle,
             encode: 0,
+            description: Vec::new(),
             current: Current::Nothing,
         };
         self.current.insert(source.to_owned(), entry);
@@ -194,6 +198,9 @@ impl Stills {
         };
         if frame.kind == KIND_VIDEO {
             entry.encode = frame.encode;
+            if !frame.description.is_empty() {
+                entry.description.clone_from(&frame.description);
+            }
         }
         let current = &mut entry.current;
         let key = frame.flags & FLAG_KEYFRAME != 0;
@@ -209,10 +216,12 @@ impl Stills {
                     return;
                 }
                 self.next_group += 1;
+                let mut key = unit(frame, true, size);
+                key.description.clone_from(&entry.description);
                 *current = Current::Video {
                     group: self.next_group,
                     size,
-                    units: vec![unit(frame, true, size)],
+                    units: vec![key],
                     bytes: frame.payload.len(),
                 };
                 self.dispatch_waiting(source, out);
