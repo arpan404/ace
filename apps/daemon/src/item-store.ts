@@ -19,6 +19,7 @@ import {
   type Event,
   type ItemsPage,
   type OmittedItem,
+  type RawPayload,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
@@ -379,6 +380,16 @@ export class ItemStore {
       "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
     ).get(itemId, threadId);
     return row ? this.materialize(itemId, row.item, row.created_seq) : undefined;
+  }
+  /** An item's raw payloads as stored (a tool call's `call.raw`); undefined without the item. */
+  storedRaw(threadId: ThreadId, itemId: string): RawPayload[] | undefined {
+    const row = this.statement(
+      "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
+    if (!row) return undefined;
+    // Raw payloads take no text chunks, so the stored body alone holds them.
+    const item = storedItem(Number(row.created_seq), String(row.item), this.trust);
+    return item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
   }
   createdSeq(threadId: ThreadId, itemId: string): number | undefined {
     const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(

@@ -409,6 +409,9 @@ export class PayloadStore {
   stepItem(threadId: ThreadId, itemId: string): Item | undefined {
     return this.items.stepItem(threadId, itemId);
   }
+  storedRaw(threadId: ThreadId, itemId: string): RawPayload[] | undefined {
+    return this.items.storedRaw(threadId, itemId);
+  }
   itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
     return this.items.createdSeq(threadId, itemId);
   }

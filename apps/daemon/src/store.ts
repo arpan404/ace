@@ -1332,6 +1332,11 @@ export class Store {
     this.flushLiveWrites();
     return this.payloads.itemCreatedSeq(threadId, itemId);
   }
+  /** An item's raw payloads as stored, for `item.raw`; undefined without the item. */
+  itemRaw(threadId: ThreadId, itemId: string) {
+    this.flushLiveWrites();
+    return this.payloads.storedRaw(threadId, itemId);
+  }
   readItems(threadId: ThreadId, before: number, limit: number) {
     return this.threadReads.readItems(threadId, before, limit);
   }

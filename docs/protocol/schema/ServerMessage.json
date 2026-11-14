@@ -45,6 +45,9 @@
       "$ref": "https://ace.local/protocol/v1/TurnStepsResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ItemRawResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/IconsResolveResponse.json"
     },
     {

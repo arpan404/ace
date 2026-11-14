@@ -64,6 +64,7 @@ export class FakeLongThreadWire {
         "turns.page",
         "items.window",
         "turn.steps",
+        "item.raw",
         "thread.search",
         "thread.catchUp",
         "thread.readState",
@@ -87,6 +88,29 @@ export class FakeLongThreadWire {
         ? this.index.summaries(message.threadId)
         : [];
     switch (message.type) {
+      case "item.raw": {
+        const item = Object.hasOwn(host.view.items, message.itemId)
+          ? host.view.items[message.itemId]
+          : undefined;
+        if (!item) {
+          send({
+            type: "error",
+            requestId: message.requestId,
+            code: "item_not_found",
+            message: "item_not_found",
+          });
+          return true;
+        }
+        const raw = item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
+        send({
+          type: "item.raw",
+          requestId: message.requestId,
+          threadId: message.threadId,
+          itemId: message.itemId,
+          raw: structuredClone(raw),
+        });
+        return true;
+      }
       case "turn.steps":
         send(fakeTurnSteps(host, this.index, this.icons, message, seq));
         return true;

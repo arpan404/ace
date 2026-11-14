@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ItemRawResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "raw": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+      },
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "item.raw",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "itemId",
+    "raw"
+  ],
+  "type": "object"
+}

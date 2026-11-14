@@ -108,6 +108,11 @@ const ItemBase = z.object({
   complete: z.boolean().default(true),
   /** The source thread's, in a fork: ace's copy of its message, or a turn its provider brought. */
   inherited: InheritedItem.optional(),
+  /**
+   * Sent to a client whose hello asked for `raw-on-demand`: this item's raw payloads (a tool
+   * call's `call.raw`) were left out of the message, and `item.raw` reads them. Never stored.
+   */
+  rawOmitted: z.literal(true).optional(),
 });
 
 /** Agent-owned transcript entries always identify their owner. */

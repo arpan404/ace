@@ -21,7 +21,7 @@ import {
   type ClientMessage,
   type ServerMessage as Message,
 } from "@ace/protocol";
-import type { WireCodec } from "./wire-codec.ts";
+import { supportedFraming, type WireCodec } from "./wire-codec.ts";
 import {
   ClientError,
   type ClientOptions,
@@ -361,8 +361,9 @@ export class Connection {
       deviceId: this.#options.deviceId,
       ...(this.#options.installId ? { installId: this.#options.installId } : {}),
       trims: [...supportedWireTrims],
-      // A frame may hold several messages, one per line; #receiveFrame reads each in turn.
-      framing: ["lines"],
+      // A frame may hold several messages, one per line (#receiveFrame reads each in turn), and
+      // short deltas, which the codec makes whole.
+      framing: [...supportedFraming],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
       ...parseCredential(credential),

@@ -2929,6 +2929,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"html"` |  |
 | visualization | yes | [HtmlVisualization.json](schema/HtmlVisualization.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
@@ -2952,14 +2953,14 @@ Example:
   "type": "html",
   "visualization": {
     "document": {
-      "bytes": 3,
-      "delivery": "native_pdf",
-      "height": 2,
+      "bytes": 8,
+      "kind": "pdf",
       "mimeType": "example",
       "name": "example",
-      "sha256": "7807e661d601c92e7220473793283ed54640bd53a0ffb9691fb5a3beb0068864"
+      "sha256": "807e661d601c92e7220473793283ed54640bd53a0ffb9691fb5a3beb0068864f",
+      "width": 2
     },
-    "kit": 8,
+    "mode": "static",
     "title": "example"
   }
 }
@@ -2977,6 +2978,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"image"` |  |
 | image | yes | [SharedImage.json](schema/SharedImage.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
@@ -2992,10 +2994,10 @@ Example:
     "alt": "example",
     "attachment": {
       "bytes": 5,
-      "height": 4,
       "mimeType": "example",
       "name": "example",
-      "sha256": "8d762378076308cd0c3e8b0153cb84a8e4a9c4497b717779406a867e41a5b10b"
+      "sha256": "d762378076308cd0c3e8b0153cb84a8e4a9c4497b717779406a867e41a5b10b3",
+      "width": 4
     }
   },
   "type": "image"
@@ -3014,6 +3016,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"message"` |  |
 | role | yes | ["user","assistant"] |  |
 | parts | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -3041,8 +3044,15 @@ Example:
   },
   "id": "example",
   "notAnswered": "stopped",
+  "origin": {
+    "afterExit": false,
+    "commandId": "example",
+    "kind": "steer",
+    "lossy": false
+  },
   "parts": [],
-  "role": "user",
+  "raw": [],
+  "role": "assistant",
   "type": "message"
 }
 ```
@@ -3059,6 +3069,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"delegation.started"` |  |
 | origin | yes | `"ace"` |  |
 | childThreadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
@@ -3082,21 +3093,23 @@ Example:
   "agentId": "example",
   "childThreadId": "example",
   "createdAt": 3,
-  "generation": 2,
+  "generation": 8,
   "id": "example",
-  "model": "example",
   "origin": "ace",
-  "phase": "settled",
+  "outcome": null,
+  "phase": "cancelling",
   "provider": "codex",
   "raw": [],
+  "rawOmitted": true,
   "role": "example",
   "runId": "example",
   "status": {
-    "state": "unresponsive"
+    "agents": 3,
+    "state": "working"
   },
   "title": "example",
   "type": "delegation.started",
-  "updatedAt": 1
+  "updatedAt": 9
 }
 ```
 
@@ -3112,6 +3125,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"delegation.settled"` |  |
 | origin | yes | `"ace"` |  |
 | results | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationOutcome.json"}} |
@@ -3137,8 +3151,8 @@ Example:
   "origin": "ace",
   "results": [
     {
-      "before": 6,
-      "outcome": "failed",
+      "before": null,
+      "outcome": "completed",
       "result": "example",
       "threadId": "example",
       "truncated": true
@@ -3161,6 +3175,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"reasoning"` |  |
 | text | yes | string |  |
 | source | no | [TextSource.json](schema/TextSource.json) |  |
@@ -3176,12 +3191,7 @@ Example:
   "createdAt": 6,
   "id": "example",
   "raw": [],
-  "source": {
-    "bytes": 9,
-    "encoding": "utf-16le",
-    "streamId": "example"
-  },
-  "summary": true,
+  "rawOmitted": true,
   "text": "example",
   "type": "reasoning"
 }
@@ -3199,6 +3209,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"tool_call"` |  |
 | call | yes | [ToolCall.json](schema/ToolCall.json) |  |
 | measurement | no | [StepMeasurement.json](schema/StepMeasurement.json) |  |
@@ -3212,14 +3223,12 @@ Example:
     "agentId": "example",
     "detail": {
       "kind": "search",
-      "path": "example",
       "query": "example"
     },
-    "endedAt": 9,
     "id": "example",
-    "kind": "browser",
+    "kind": "file.write",
     "raw": [],
-    "startedAt": 6,
+    "startedAt": 0,
     "status": "awaiting_approval",
     "title": "example"
   },
@@ -3249,6 +3258,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"notice"` |  |
 | level | yes | ["info","warning","error"] |  |
 | commandId | no | [CommandId.json](schema/CommandId.json) |  |
@@ -3290,6 +3300,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"compaction"` |  |
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
@@ -3318,8 +3329,9 @@ Example:
     "threadId": "example"
   },
   "nativeId": "example",
-  "summary": "example",
-  "tokensBefore": 0,
+  "rawOmitted": true,
+  "tokensAfter": 7,
+  "tokensBefore": 9,
   "type": "compaction"
 }
 ```
@@ -16264,6 +16276,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"html"` |  |
 | visualization | yes | [HtmlVisualization.json](schema/HtmlVisualization.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
@@ -16285,16 +16298,18 @@ Example:
     "threadId": "example"
   },
   "raw": [],
+  "rawOmitted": true,
   "type": "html",
   "visualization": {
     "document": {
-      "bytes": 9,
+      "bytes": 6,
       "mimeType": "example",
       "name": "example",
-      "sha256": "60f651bd39d3cf4327862709bbe7735751a9111073b4f7c8742af294ee8755b3"
+      "sha256": "0f651bd39d3cf4327862709bbe7735751a9111073b4f7c8742af294ee8755b39",
+      "thumbnailAvailable": false
     },
-    "height": 87,
-    "kit": 6,
+    "kit": 9,
+    "mode": "static",
     "title": "example"
   }
 }
@@ -16312,6 +16327,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"image"` |  |
 | image | yes | [SharedImage.json](schema/SharedImage.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
@@ -16327,14 +16343,15 @@ Example:
   "image": {
     "alt": "example",
     "attachment": {
-      "bytes": 1,
+      "bytes": 7,
+      "delivery": "native_image",
       "mimeType": "example",
       "name": "example",
-      "sha256": "de4c3ffd65e8b7d8faf39468a94183b31a0d959ec0449f92ee650bb8c1b93d9d",
-      "width": 1
+      "sha256": "e4c3ffd65e8b7d8faf39468a94183b31a0d959ec0449f92ee650bb8c1b93d9dc"
     }
   },
   "nativeId": "example",
+  "rawOmitted": true,
   "type": "image"
 }
 ```
@@ -16351,6 +16368,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"message"` |  |
 | role | yes | ["user","assistant"] |  |
 | parts | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -16366,6 +16384,7 @@ Example:
 ```json
 {
   "agentId": "example",
+  "attachments": [],
   "createdAt": 2,
   "executionSource": {
     "nativeSessionId": "example",
@@ -16377,21 +16396,11 @@ Example:
   "inherited": {
     "threadId": "example"
   },
-  "mergedContext": {
-    "citations": [
-      {
-        "itemId": "example",
-        "threadId": "example"
-      }
-    ],
-    "patchApplied": false,
-    "sourceThreadId": "example",
-    "summary": "example"
-  },
+  "notAnswered": "stopped",
   "parts": [],
   "role": "assistant",
   "runId": "example",
-  "synthetic": true,
+  "synthetic": false,
   "type": "message"
 }
 ```
@@ -16408,6 +16417,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"delegation.started"` |  |
 | origin | yes | `"ace"` |  |
 | childThreadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
@@ -16432,27 +16442,25 @@ Example:
   "childThreadId": "example",
   "complete": true,
   "createdAt": 0,
-  "generation": 4,
+  "generation": 5,
   "id": "example",
+  "machine": {
+    "machine": "example",
+    "name": "example"
+  },
   "nativeId": "example",
   "origin": "ace",
-  "outcome": {
-    "before": null,
-    "outcome": "failed",
-    "result": "example",
-    "threadId": "example",
-    "truncated": false
-  },
-  "phase": "cancelling",
-  "provider": "cursor",
-  "raw": [],
+  "phase": "settled",
+  "provider": "acp",
   "role": "example",
   "status": {
-    "state": "done"
+    "on": "network",
+    "slotLimit": 1,
+    "state": "waiting"
   },
   "title": "example",
   "type": "delegation.started",
-  "updatedAt": 2
+  "updatedAt": 9
 }
 ```
 
@@ -16468,6 +16476,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"delegation.settled"` |  |
 | origin | yes | `"ace"` |  |
 | results | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationOutcome.json"}} |
@@ -16481,7 +16490,7 @@ Example:
   "agentId": "example",
   "complete": true,
   "createdAt": 8,
-  "delivery": "tool",
+  "delivery": "ace-input",
   "executionSource": {
     "nativeSessionId": "example",
     "selection": {
@@ -16493,19 +16502,14 @@ Example:
   },
   "id": "example",
   "origin": "ace",
+  "rawOmitted": true,
   "results": [
     {
       "before": null,
-      "failure": {
-        "accountLabel": "example",
-        "code": "example",
-        "message": "example",
-        "resetsAt": 9
-      },
-      "outcome": "cancelled",
+      "outcome": "completed",
       "result": "example",
       "threadId": "example",
-      "truncated": false
+      "truncated": true
     }
   ],
   "type": "delegation.settled"
@@ -16524,6 +16528,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"reasoning"` |  |
 | text | yes | string |  |
 | source | no | [TextSource.json](schema/TextSource.json) |  |
@@ -16559,6 +16564,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"tool_call"` |  |
 | call | yes | [ToolCall.json](schema/ToolCall.json) |  |
 | measurement | no | [StepMeasurement.json](schema/StepMeasurement.json) |  |
@@ -16570,21 +16576,21 @@ Example:
   "agentId": "example",
   "call": {
     "agentId": "example",
+    "backgroundTaskId": "example",
     "detail": {
-      "kind": "web.search",
-      "query": "example"
+      "kind": "ask_user"
     },
     "error": "example",
     "id": "example",
-    "kind": "ask_user",
+    "kind": "agent.message",
     "raw": [],
     "result": {
       "content": [],
-      "durationMs": 6,
-      "isError": true
+      "durationMs": 5,
+      "isError": false
     },
-    "startedAt": 8,
-    "status": "failed",
+    "startedAt": 4,
+    "status": "running",
     "title": "example"
   },
   "createdAt": 4,
@@ -16592,6 +16598,25 @@ Example:
   "inherited": {
     "itemId": "example",
     "threadId": "example"
+  },
+  "measurement": {
+    "confidence": "low",
+    "frames": 5,
+    "hitchRatioMsPerS": 2,
+    "hitchTimeMs": 5,
+    "hitches": [],
+    "layoutShift": 7,
+    "notes": [],
+    "refreshHz": 3,
+    "settleMs": 3,
+    "source": "browser-trace",
+    "target": {
+      "bundleId": "example",
+      "kind": "window",
+      "windowId": 3
+    },
+    "verdict": "no_change",
+    "windowMs": 3
   },
   "runId": "example",
   "type": "tool_call"
@@ -16610,6 +16635,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"notice"` |  |
 | level | yes | ["info","warning","error"] |  |
 | commandId | no | [CommandId.json](schema/CommandId.json) |  |
@@ -16632,93 +16658,23 @@ Example:
   "agentId": "example",
   "commandId": "example",
   "createdAt": 1,
+  "details": {
+    "code": "example",
+    "detail": "example",
+    "provider": "acp"
+  },
+  "diagnostic": false,
   "id": "example",
   "inherited": {
     "at": 0,
     "itemId": "example",
     "threadId": "example"
   },
-  "interactionId": "example",
-  "level": "warning",
-  "measurement": {
-    "captureOverheadPct": 1,
-    "confidence": "medium",
-    "droppedFrames": 7,
-    "effectiveFps": 4,
-    "filmstrip": {
-      "bytes": 2,
-      "delivery": "inline_text_and_path",
-      "height": 10,
-      "mimeType": "example",
-      "name": "example",
-      "sha256": "ffd1c99d6a80f6f6cecd8f72d24d32a4cc5a1dd330fff0ec40d74a21d8975725",
-      "width": 4
-    },
-    "frames": 1,
-    "hitches": [],
-    "hostLoad": 5,
-    "longTasks": [],
-    "notes": [],
-    "refreshHz": 3,
-    "repeat": {
-      "metrics": {
-        "droppedFrames": {
-          "median": 1,
-          "worst": 5
-        },
-        "effectiveFps": {
-          "median": 9,
-          "worst": 0
-        },
-        "frames": {
-          "median": 7,
-          "worst": 6
-        },
-        "hitchMs": {
-          "median": 1,
-          "worst": 0
-        },
-        "hostLoad": {
-          "median": 9,
-          "worst": 8
-        },
-        "longTaskMs": {
-          "median": 1,
-          "worst": 8
-        },
-        "refreshHz": {
-          "median": 7,
-          "worst": 9
-        },
-        "settleMs": {
-          "median": 5,
-          "worst": 2
-        },
-        "windowMs": {
-          "median": 7,
-          "worst": 1
-        }
-      },
-      "runs": [
-        {
-          "confidence": "low",
-          "verdict": "minor_hitches"
-        }
-      ]
-    },
-    "source": "browser-trace",
-    "target": {
-      "bundleId": "example",
-      "kind": "window",
-      "windowId": 1
-    },
-    "verdict": "janky",
-    "windowMs": 9
-  },
+  "level": "info",
   "nativeId": "example",
   "runId": "example",
   "text": "example",
-  "title": "example",
+  "toolCallId": "example",
   "type": "notice"
 }
 ```
@@ -16735,6 +16691,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"compaction"` |  |
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
@@ -16751,7 +16708,8 @@ Example:
   "inherited": {
     "threadId": "example"
   },
-  "summary": "example",
+  "raw": [],
+  "tokensAfter": 4,
   "type": "compaction"
 }
 ```
@@ -16768,6 +16726,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"unknown"` |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 | data | yes | any JSON value |  |
@@ -16800,6 +16759,7 @@ Example:
 | executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| rawOmitted | no | `true` |  |
 | type | yes | `"artifact"` |  |
 | filename | no | string | {"maxLength":256} |
 | flags | no | array | {"items":{"type":"string","enum":["executable","archive"]}} |
@@ -16814,7 +16774,8 @@ Example:
 ```json
 {
   "agentId": "example",
-  "bytes": 1,
+  "artifactId": "example",
+  "bytes": 0,
   "createdAt": 9,
   "id": "example",
   "mimeType": "example",
@@ -16834,6 +16795,54 @@ Example:
 
 ```json
 "example"
+```
+
+## ItemRawRequest
+
+[JSON Schema](schema/ItemRawRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"item.raw"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| itemId | yes | [ItemId.json](schema/ItemId.json) |  |
+
+Example:
+
+```json
+{
+  "itemId": "example",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "item.raw"
+}
+```
+
+## ItemRawResponse
+
+[JSON Schema](schema/ItemRawResponse.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"item.raw"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| itemId | yes | [ItemId.json](schema/ItemId.json) |  |
+| raw | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| truncated | no | boolean |  |
+
+Example:
+
+```json
+{
+  "itemId": "example",
+  "raw": [],
+  "requestId": "example",
+  "threadId": "example",
+  "truncated": false,
+  "type": "item.raw"
+}
 ```
 
 ## ItemsPage
@@ -37124,7 +37133,13 @@ Example:
     "id": "example",
     "type": "unknown"
   },
-  "seq": 10
+  "seq": 10,
+  "surface": {
+    "icon": {
+      "kind": "example"
+    },
+    "kind": "example"
+  }
 }
 ```
 
