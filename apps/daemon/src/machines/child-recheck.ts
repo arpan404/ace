@@ -37,42 +37,87 @@ export function recheckEveryPolls(agePolls: number | undefined): number {
 }
 
 /**
- * When each machine's settled children are next re-checked. Pure: the caller passes the time,
- * the poll interval and when each machine's youngest settled child settled.
+ * When each machine's settled children are next re-checked, and which of them still owe a check
+ * that only this daemon's memory can tell. Pure: the caller passes the time, the poll interval,
+ * when each machine's youngest settled child settled, and which re-checks were answered.
+ *
+ * The rule it keeps: no child sits on a slow pace, or leaves tracking, without a check answered
+ * after the last thing that could have reopened it unseen.
+ * - A daemon that just started knows nothing of what happened while it was down: every machine is
+ *   re-checked at the fast pace until each settled child saved there has been read once.
+ * - A re-check that failed is not a check: the machine stays due, asked again as soon as its
+ *   failure backoff allows.
+ * - A child reaching the end of the 24-hour window is kept for up to `graceMs` more, first in
+ *   line, until one check answered at that age; then it leaves tracking.
  */
 export class RecheckSchedule {
   private pollMs: number;
   private start: number;
   private last = new Map<string, number>();
   private polls = new Map<string, number>();
+  /** Per machine, the settled children saved at start not yet read since. */
+  private unread = new Map<string, Set<string>>();
+  /** Children read at or past the end of the window, by when they settled. */
+  private final = new Map<string, number>();
   constructor(pollMs: number, start: number) {
     this.pollMs = pollMs;
     this.start = start;
   }
+  /** How long past the window a child waits for its last check: two of the slowest intervals. */
+  get graceMs(): number {
+    return 2 * RECHECK_SLOWEST_POLLS * this.pollMs;
+  }
+  /** Whether the start pass for `machine` has begun; it begins once, with what was saved. */
+  started(machine: string): boolean {
+    return this.unread.has(machine);
+  }
+  /** The settled children saved for `machine` when this daemon first looked at it. */
+  begin(machine: string, ids: readonly string[]): void {
+    if (!this.unread.has(machine)) this.unread.set(machine, new Set(ids));
+  }
+  /** `ids` on `machine` answered a re-check at `now`; those past the window are done for good. */
+  answered(machine: string, ids: readonly { id: string; settledAt: number | null }[], now: number) {
+    this.last.set(machine, now);
+    this.polls.set(machine, 0);
+    const unread = this.unread.get(machine);
+    for (const { id, settledAt } of ids) {
+      unread?.delete(id);
+      if (settledAt !== null && now - settledAt >= RECHECK_WINDOW_MS) this.final.set(id, settledAt);
+    }
+  }
+  /** Children whose last check is done, so they leave tracking; older entries are forgotten. */
+  finished(now: number): string[] {
+    for (const [id, settledAt] of this.final)
+      if (settledAt < now - RECHECK_WINDOW_MS - this.graceMs) this.final.delete(id);
+    return [...this.final.keys()];
+  }
   /** When `machine` is due, its youngest child having settled at `latest`. */
   dueAt(machine: string, latest: number | null, now: number): number {
     const last = this.last.get(machine) ?? this.start;
-    const age = latest === null ? undefined : Math.max(0, now - latest) / this.pollMs;
-    return last + recheckEveryPolls(age) * this.pollMs;
+    return last + this.everyPolls(machine, latest, now) * this.pollMs;
   }
   /**
    * Whether a poll at `now` re-checks `machine`: its time has come by the clock, or as many polls
-   * have run since its last re-check, which holds even if the clock stalls.
+   * have run since its last answered re-check, which holds even if the clock stalls.
    */
   due(machine: string, latest: number | null, now: number): boolean {
     const polls = (this.polls.get(machine) ?? 0) + 1;
     this.polls.set(machine, polls);
-    const age = latest === null ? undefined : Math.max(0, now - latest) / this.pollMs;
-    return now >= this.dueAt(machine, latest, now) || polls >= recheckEveryPolls(age);
-  }
-  checked(machine: string, now: number): void {
-    this.last.set(machine, now);
-    this.polls.set(machine, 0);
+    return (
+      now >= this.dueAt(machine, latest, now) || polls >= this.everyPolls(machine, latest, now)
+    );
   }
   /** Machines with no settled child to re-check keep no schedule. */
   retain(machines: ReadonlySet<string>): void {
-    for (const machine of this.last.keys()) if (!machines.has(machine)) this.last.delete(machine);
-    for (const machine of this.polls.keys()) if (!machines.has(machine)) this.polls.delete(machine);
+    for (const map of [this.last, this.polls, this.unread])
+      for (const machine of map.keys()) if (!machines.has(machine)) map.delete(machine);
+  }
+  private everyPolls(machine: string, latest: number | null, now: number): number {
+    // Until every child saved at start has been read, whatever their age: the fast pace.
+    const unread = this.unread.get(machine);
+    if (!unread || unread.size > 0) return RECHECK_POLLS;
+    const age = latest === null ? undefined : Math.max(0, now - latest) / this.pollMs;
+    return recheckEveryPolls(age);
   }
 }
 /** Only children settled this recently are re-checked. */

@@ -49,6 +49,8 @@ export function machine(
     leaseMs?: number;
     /** The poll pace; the re-check and retry paces follow from it as in production. */
     pollMs?: number;
+    /** When this daemon starts by the test's clock, e.g. a restart hours after the last run. */
+    startAt?: number;
   } = {},
 ) {
   if (!homes.includes(home)) homes.push(home);
@@ -93,7 +95,7 @@ export function machine(
   const delivered: string[] = [];
   /** Scheduled polls: their delay, and when they come due by the test's clock. */
   const timers: { ms: number; at: number; run: () => void }[] = [];
-  const clock = { now: 1_000_000 };
+  const clock = { now: options.startAt ?? 1_000_000 };
   const holds: { next?: Promise<void> | undefined } = {};
   const holdNextStatus = () => {
     let release: (() => void) | undefined;

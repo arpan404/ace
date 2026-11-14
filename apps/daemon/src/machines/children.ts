@@ -28,7 +28,7 @@ import {
   RecheckSchedule,
   recheckOutcome,
 } from "./child-recheck.ts";
-import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
+import { ChildLedger, savedView, type ChildRow, type RecheckScope } from "./child-ledger.ts";
 import {
   heldMessageReason,
   monitoredChild,
@@ -77,6 +77,8 @@ export interface ChildrenDeps {
   device(machine: string): string | undefined;
   log(message: string, fields: Record<string, unknown>): void;
 }
+
+const recheckedRow = (row: ChildRow) => ({ id: row.id, settledAt: row.settled_at });
 
 /** At most this long between status calls to a machine that keeps failing them. */
 const UNREACHABLE_RETRY_CAP_MS = 30_000;
@@ -372,8 +374,13 @@ export class MachineChildren implements RemoteChildren {
         const wake = this.results.wakeAt(now);
         const waits: number[] = [];
         if (wake !== undefined) waits.push(Math.max(this.deps.pollMs, wake - now));
-        for (const { machine, latest } of this.ledger.recheckMachines(now - RECHECK_WINDOW_MS))
-          recheckAt = Math.min(recheckAt, this.rechecks.dueAt(machine, latest, now));
+        const scope = this.recheckScope(now);
+        for (const { machine, latest } of this.ledger.recheckMachines(scope)) {
+          this.beginPass(machine, scope);
+          // A machine failing its calls is asked again once its wait is over, not before.
+          const due = this.rechecks.dueAt(machine, latest, now);
+          recheckAt = Math.min(recheckAt, Math.max(due, this.reach.dueAt(machine) ?? due));
+        }
         if (recheckAt !== Number.POSITIVE_INFINITY)
           waits.push(Math.max(this.deps.pollMs, recheckAt - now));
         delay = waits.length ? Math.min(...waits) : undefined;
@@ -478,9 +485,11 @@ export class MachineChildren implements RemoteChildren {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.recheck(row, view);
             }
+            // Only an answered re-check counts: it sets the next one's time.
+            this.rechecks.answered(machine, rows.map(recheckedRow), now);
           } catch (error) {
-            // A settled child stays settled while its machine can't be asked; a later
-            // re-check tries again, later after each failure.
+            // A settled child stays settled while its machine can't be asked. This was no
+            // check: the machine stays due and is asked again once its failure wait is over.
             this.unreached(machine, error);
           }
         }),
@@ -502,27 +511,48 @@ export class MachineChildren implements RemoteChildren {
    * over.
    */
   private recheckDue(now: number): [string, ChildRow[]][] {
-    const since = now - RECHECK_WINDOW_MS;
+    const scope = this.recheckScope(now);
     const at = this.recheckPoll ? Math.max(now, this.dueAt) : now;
-    const machines = this.ledger.recheckMachines(since);
+    const machines = this.ledger.recheckMachines(scope);
     this.rechecks.retain(new Set(machines.map((entry) => entry.machine)));
+    for (const { machine } of machines) this.beginPass(machine, scope);
     const due = machines.filter(({ machine, latest }) => this.rechecks.due(machine, latest, at));
     if (due.length === 0) return [];
     const turn = ++this.turn;
-    // Every machine due, and on each the children checked longest ago: all are checked in turn.
+    // Every machine due, and on each the children past the window waiting for their last check,
+    // then those checked longest ago: all are checked in turn.
     return due.flatMap(({ machine }) => {
-      this.rechecks.checked(machine, now);
       if (!this.reach.due(machine, now)) return [];
-      const rows = this.ledger.recheckTurn(machine, since, RECHECK_PER_MACHINE);
+      const rows = this.ledger.recheckTurn(machine, scope, RECHECK_PER_MACHINE);
       this.ledger.markRechecked(
         rows.map((row) => row.id),
         turn,
       );
-      // A machine no longer paired as the child's device can't be asked about it.
+      // A machine no longer paired as the child's device can't be asked about it: nothing there
+      // can be learnt, so those count as read and never hold the machine on the fast pace.
       const lost = this.lostFrom(machine);
       const asked = lost ? rows.filter((row) => !lost(row)) : rows;
+      if (asked.length < rows.length)
+        this.rechecks.answered(
+          machine,
+          rows.filter((row) => !asked.includes(row)).map(recheckedRow),
+          now,
+        );
       return asked.length ? [[machine, asked] as [string, ChildRow[]]] : [];
     });
+  }
+  /** Which settled children the re-check tracks at `now` (see RecheckSchedule). */
+  private recheckScope(now: number): RecheckScope {
+    return {
+      since: now - RECHECK_WINDOW_MS - this.rechecks.graceMs,
+      expiry: now - RECHECK_WINDOW_MS,
+      finished: this.rechecks.finished(now),
+    };
+  }
+  /** The first time this daemon looks at a machine, what is saved there must all be read once. */
+  private beginPass(machine: string, scope: RecheckScope) {
+    if (!this.rechecks.started(machine))
+      this.rechecks.begin(machine, this.ledger.recheckIds(machine, scope));
   }
   /**
    * Which of a machine's children this machine can no longer reach: the pairing they were

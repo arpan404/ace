@@ -101,7 +101,14 @@ settle, and the caller must notice so the parent never reads done while it runs.
   every 5 minutes after that, so a day costs about 390 calls instead of 8,640. A child settling
   there brings its machine back to the fast pace. Work started again on a settled child is read
   within one interval of that pace (5 minutes at worst) when a machine has at most 16 settled
-  children in the window; with more, each is read every `ceil(n / 16)` intervals. On each machine
+  children in the window; with more, each is read every `ceil(n / 16)` intervals. No child sits on
+  the slow pace, or leaves tracking, without a check answered after the last thing that could
+  have reopened it unseen: a daemon that just started re-checks every machine at the fast pace
+  until each settled child saved there has been read once (within `ceil(n / 16)` times 10 s of
+  start); a re-check that failed is not a check, so the machine is asked again as soon as its
+  failure backoff allows (at most 30 s); and a child reaching the end of the 24 hours stays
+  tracked, first in line, for up to two slow intervals (10 minutes) until one check answered at
+  that age. A stop that was never confirmed takes its real end at the same pace. On each machine
   the children checked longest ago go first (a saved turn number), so every eligible child is
   checked in turn however many there are. A child
   found running again reopens: the parent's row shows it running and the parent waits until it
