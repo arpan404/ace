@@ -140,6 +140,15 @@ fn lock(_: *const u8, _: usize) -> bool {
 #[cfg(not(any(unix, windows)))]
 fn unlock(_: *const u8, _: usize) {}
 
+/// Best-effort page locking for other secret storage in the process (the lane secret, tickets
+/// and tokens): the caller keeps the allocation stable and unlocks it before freeing it.
+pub fn lock_memory(bytes: &[u8]) -> bool {
+    lock(bytes.as_ptr(), bytes.len())
+}
+pub fn unlock_memory(bytes: &[u8]) {
+    unlock(bytes.as_ptr(), bytes.len());
+}
+
 /// Install at process startup, before reading control payloads. Never formats PanicInfo.
 pub fn install_payload_free_panic_hook() {
     std::panic::set_hook(Box::new(|_| eprintln!("ace-media: panic")));
