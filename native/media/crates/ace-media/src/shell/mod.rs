@@ -8,8 +8,10 @@ mod effects;
 mod egress;
 mod ingest;
 mod lanes;
+mod pictures;
 mod writer;
 
+use crate::encode::worker::Output;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
@@ -81,7 +83,12 @@ pub async fn run(version: &str) -> i32 {
         Err(_) => return EXIT_PROTOCOL,
     };
     let ControlFrame {
-        message: ToMedia::Init { runtime_dir, .. },
+        message:
+            ToMedia::Init {
+                runtime_dir,
+                data_dir,
+                ..
+            },
         payload,
     } = init
     else {
@@ -101,7 +108,13 @@ pub async fn run(version: &str) -> i32 {
     let control_path = dir.join(format!("m{pid}c.sock"));
     let ingest_path = dir.join(format!("m{pid}i.sock"));
     let paths = [control_path.clone(), ingest_path.clone()];
-    let code = serve(version, &clock, stdin, secret, &control_path, &ingest_path).await;
+    let places = Places {
+        control: &control_path,
+        ingest: &ingest_path,
+        data: Path::new(&data_dir),
+        runtime: &dir,
+    };
+    let code = serve(version, &clock, stdin, secret, places).await;
     for path in paths {
         let _ = std::fs::remove_file(path);
     }
@@ -125,14 +138,26 @@ async fn fired<T>(rx: &mut Option<oneshot::Receiver<T>>) {
     }
 }
 
+/// Where ace-media keeps its sockets and finds its data.
+struct Places<'a> {
+    control: &'a Path,
+    ingest: &'a Path,
+    data: &'a Path,
+    runtime: &'a Path,
+}
+
 async fn serve(
     version: &str,
     clock: &Clock,
     mut stdin: tokio::io::Stdin,
     secret: LaneSecret,
-    control_path: &Path,
-    ingest_path: &Path,
+    places: Places<'_>,
 ) -> i32 {
+    let Places {
+        control: control_path,
+        ingest: ingest_path,
+        ..
+    } = places;
     let control = match bind_unix(control_path) {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("control socket: {error}")),
@@ -152,6 +177,7 @@ async fn serve(
         return fail("probe");
     };
     let (late_tx, mut late_rx) = mpsc::unbounded_channel();
+    let late_chrome = late_tx.clone();
     std::thread::spawn(move || {
         while let Ok(result) = late.recv() {
             if late_tx.send(result).is_err() {
@@ -159,6 +185,21 @@ async fn serve(
             }
         }
     });
+    // The last-resort encoder is tried only where no hardware encoder worked; its result comes
+    // after `ready`, as `capabilities.changed`.
+    let shared: crate::encode::platform::SharedCapabilities =
+        Arc::new(Mutex::new(capabilities.list()));
+    let profiles = places.runtime.join("chrome");
+    let chrome = crate::trials::chrome_options(&capabilities.list(), places.data, &profiles)
+        .filter(|_| std::fs::create_dir_all(&profiles).is_ok());
+    if let Some(options) = chrome.clone() {
+        let slot = capabilities.add_slot();
+        crate::trials::chrome_trial(options, TRIAL_DEADLINE, move |found| {
+            let _ = late_chrome.send((slot, vec![found]));
+        });
+    }
+    let (encoded_tx, mut encoded_rx) = mpsc::channel(256);
+    let mut pictures = pictures::Pictures::new(shared.clone(), chrome, encoded_tx);
 
     let mut stdout = Writer::spawn(tokio::io::stdout(), NORMAL_LIMIT);
     let ready = FromMedia::Ready {
@@ -288,6 +329,8 @@ async fn serve(
                         priority: priority_out.as_ref(),
                         connections: &mut connections,
                         lag: &lag,
+                        pictures: &mut pictures,
+                        now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
                     break EXIT_OK;
@@ -309,9 +352,18 @@ async fn serve(
                 }
                 None => {}
             },
+            Some((source, token, output)) = encoded_rx.recv() => match output {
+                Output::Unit(frame) => engine.encoded(&source, token, frame, clock.now()),
+                Output::Report(acceleration) => engine.encoder_steps(&source, token, acceleration),
+                Output::Failed(reason) => engine.encoder_failed(&source, token, &reason),
+                Output::Drained => engine.encoder_drained(&source, token),
+            },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
                 let list = capabilities.list();
+                if let Ok(mut shared) = shared.lock() {
+                    *shared = list.clone();
+                }
                 engine.capabilities_changed(&list);
                 let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
@@ -321,13 +373,19 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
-            _ = tick.tick() => engine.tick(clock.now()),
+            _ = tick.tick() => {
+                let now = clock.now();
+                engine.encoders_stuck(pictures.stuck(now.mono_ms));
+                engine.tick(now);
+            }
         }
         let mut outputs = Outputs {
             stdout: &stdout,
             priority: priority_out.as_ref(),
             connections: &mut connections,
             lag: &lag,
+            pictures: &mut pictures,
+            now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
             Step::Continue => {}

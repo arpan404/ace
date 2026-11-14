@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { decodeMediaFrame, encodeMediaFrame, decodeEgress, encodeEgress } from "@ace/media/frame";
+import {
+  decodeMediaFrame,
+  encodeMediaFrame,
+  decodeEgress,
+  egressEnd,
+  encodeEgress,
+  encodeEgressEnd,
+} from "@ace/media/frame";
 const fixtures = z
   .array(z.object({ kind: z.number(), hex: z.string(), egressHex: z.string() }))
   .parse(
@@ -63,4 +70,34 @@ test("shared frames preserve codec descriptions, extensions, epochs and source h
     trailing.set(bytes);
     expect(() => decodeMediaFrame(trailing)).toThrow();
   }
+});
+
+test("the egress end marker matches the shared bytes and says whether the stream was cut", () => {
+  const ends = z
+    .array(
+      z.object({
+        handle: z.number(),
+        sequence: z.number(),
+        interrupted: z.boolean(),
+        hex: z.string(),
+      }),
+    )
+    .parse(
+      JSON.parse(
+        readFileSync(
+          new URL("../../../native/media/vectors/frame/egress-end.json", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
+  expect(ends).toHaveLength(2);
+  for (const end of ends) {
+    const bytes = new Uint8Array(Buffer.from(end.hex, "hex"));
+    expect(encodeEgressEnd(end.handle, end.sequence, end.interrupted)).toEqual(bytes);
+    const egress = decodeEgress(bytes);
+    expect([egress.handle, egress.sequence]).toEqual([end.handle, end.sequence]);
+    expect(egressEnd(egress.frame)).toEqual({ interrupted: end.interrupted });
+  }
+  const unit = decodeMediaFrame(new Uint8Array(Buffer.from(fixtures[0]?.hex ?? "", "hex")));
+  expect(egressEnd(unit)).toBeUndefined();
 });

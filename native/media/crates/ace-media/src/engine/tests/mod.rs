@@ -2,6 +2,7 @@
 //! Shared helpers for the engine's behaviour tests.
 mod egress;
 mod grants;
+mod pictures;
 mod sources;
 mod stills;
 

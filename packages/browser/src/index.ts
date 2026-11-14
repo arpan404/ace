@@ -1,4 +1,5 @@
 export { BrowserService, type BrowserServiceOptions } from "./service.ts";
+export type { BrowserMedia } from "./media-video.ts";
 export { detectChromium, installChromium } from "./discovery.ts";
 export { connectBrowser } from "./bridge.ts";
 export type { ViewerSink } from "./viewer-sink.ts";
