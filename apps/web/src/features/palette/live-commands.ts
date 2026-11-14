@@ -12,6 +12,7 @@ import { approvalCopy } from "@ace/ui-core";
 import { useParams } from "@tanstack/react-router";
 import { useThreadSteps } from "@/features/home/index.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -25,14 +26,19 @@ const verbWords = {
   deny: "reject decline no",
 } as const;
 
-/** The open thread's oldest approval, answered in the same verbs its card offers. */
+/**
+ * The open thread's oldest approval, answered in the same verbs its card offers. None while the
+ * thread's copy isn't confirmed (its card can't be answered then either), and one picked just as
+ * the connection drops does nothing.
+ */
 function useApprovalCommands(threadId: string | undefined, close: () => void): PaletteCommand[] {
   const ids = useInteractions(threadId, isApproval);
   const id = ids?.[0] ?? "";
   const interaction = useInteraction(threadId, id);
   const sender = useIntentSender();
+  const { fresh, isFresh } = useThreadFreshness(threadId);
   const request = interaction?.request;
-  if (!threadId || !interaction || request?.kind !== "approval") return [];
+  if (!fresh || !threadId || !interaction || request?.kind !== "approval") return [];
   const copy = approvalCopy(request);
   const about = copy.command ?? copy.heading;
   return copy.decisions.map((decision): PaletteCommand => ({
@@ -44,6 +50,7 @@ function useApprovalCommands(threadId: string | undefined, close: () => void): P
     danger: decision.verb === "deny",
     run: () => {
       close();
+      if (!isFresh()) return;
       void sender
         .send({
           type: "interaction.resolve",
