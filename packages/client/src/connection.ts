@@ -69,6 +69,14 @@ const heartbeatMissed = "Heartbeat missed";
  * when nothing has measured the link yet; once measured, the path's own pong deadline.
  */
 const wakeProbeMs = 5000;
+/**
+ * The monotonic clock for liveness when the app passes none (`ClientOptions.monotonic`): this
+ * is the composition boundary, the only place the client reaches for one itself. A runtime
+ * without `performance` falls back to the wall clock, which the heartbeat keeps from going
+ * backwards.
+ */
+const defaultMonotonic: () => number =
+  typeof performance === "undefined" ? () => Date.now() : () => performance.now();
 /** Pings a socket may owe pongs for; past this, no more go out on it. */
 const maxUnansweredPings = 64;
 /** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
@@ -155,7 +163,11 @@ export class Connection {
     this.#deliver = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
-    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs, options.now);
+    this.#heartbeat = new Heartbeat(
+      options.scheduler,
+      limits.heartbeatMs,
+      options.monotonic ?? defaultMonotonic,
+    );
     this.#held = new HeldFrames(limits.frameBytes * 4);
     this.#fragments = new FragmentAssembly(
       limits.fragmentBytes,

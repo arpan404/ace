@@ -144,6 +144,15 @@ export interface ClientOptions {
   id(): string;
   /** Wall-clock milliseconds for connection timestamps and durable history expiry. */
   now?(): number;
+  /**
+   * Milliseconds on a clock that never goes backwards (`performance.now()` in a browser, a
+   * native host's uptime clock), for liveness deadlines: the heartbeat and wake probes (ADR
+   * 0150). It must be monotonic; a wall clock is not (it jumps when the device's time is set).
+   * The heartbeat still never lets time it reads go backwards. A clock that pauses while the
+   * device sleeps is fine: each wake measures its own deadline from then. None:
+   * `performance.now()`.
+   */
+  monotonic?(): number;
   /** Where connection drops and recoveries are reported. None: they go unreported. */
   report?(event: DiagnosticEvent): void;
   limits?: Partial<Limits>;

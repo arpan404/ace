@@ -44,6 +44,8 @@ async function ready(answering = false) {
       random: () => 0.5,
       id: () => "id",
       now: () => now,
+      // The heartbeat's monotonic clock: this test's manual time.
+      monotonic: () => now,
     },
     new WireCodec(),
     { ...defaultLimits, heartbeatMs: beatMs },

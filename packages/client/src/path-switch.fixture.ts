@@ -205,6 +205,8 @@ export async function connected(
     random: () => 0.5,
     id: () => `id-${++id}`,
     now: () => clock.now,
+    // The heartbeat's monotonic clock: the fixture's manual time.
+    monotonic: () => clock.now,
     limits: defaultLimits,
     ...(options.expectedHostId ? { expectedHostId: HostId.parse(options.expectedHostId) } : {}),
     ...(options.grant ? { grant: options.grant } : {}),

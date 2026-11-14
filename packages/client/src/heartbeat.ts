@@ -22,9 +22,10 @@ export const probeJoinMs = 300;
 
 /**
  * The shell of `heartbeat-machine.ts` for one connection: it sends the pings the machine asks
- * for, tells it what came back, and runs one timer for the machine's next deadline. Time is
- * `now` when given; it never runs behind a timer that already fired, so a connection without a
- * clock still keeps its deadlines, measured by the scheduler.
+ * for, tells it what came back, and runs one timer for the machine's next deadline. Its clock
+ * is required and must be monotonic (`ClientOptions.monotonic`); time fed to the machine never
+ * goes backwards even so: a source that jumps back carries on from where it was, as if no time
+ * passed in the jump, rather than freezing until it catches up.
  */
 export class Heartbeat {
   #scheduler: Scheduler;
@@ -33,12 +34,15 @@ export class Heartbeat {
   #events: HeartbeatEvents | undefined;
   #cancel: (() => void) | undefined;
   #clock: () => number;
-  /** The time of the last timer that fired: time never reads earlier. */
-  #floor = 0;
-  constructor(scheduler: Scheduler, intervalMs: number, now?: () => number) {
+  /** Added to the clock so the time read never goes backwards, and the last time read. */
+  #offset = 0;
+  #last = -Infinity;
+  /** The deadline the timer is armed for: an input that leaves it unchanged keeps the timer. */
+  #armedAt: number | undefined;
+  constructor(scheduler: Scheduler, intervalMs: number, clock: () => number) {
     this.#scheduler = scheduler;
     this.#config = { intervalMs, joinMs: probeJoinMs };
-    this.#clock = now ?? (() => 0);
+    this.#clock = clock;
   }
   start(events: HeartbeatEvents): void {
     this.#events = events;
@@ -69,7 +73,10 @@ export class Heartbeat {
     this.#events = undefined;
   }
   #now(): number {
-    return Math.max(this.#clock(), this.#floor);
+    const raw = this.#clock() + this.#offset;
+    if (raw < this.#last) this.#offset += this.#last - raw;
+    this.#last = Math.max(raw, this.#last);
+    return this.#last;
   }
   #feed(input: HeartbeatInput): void {
     const { state, effects } = stepHeartbeat(this.#state, input, this.#config);
@@ -90,15 +97,18 @@ export class Heartbeat {
     }
     this.#arm();
   }
-  /** One timer, for the machine's next deadline. */
+  /** One timer, for the machine's next deadline; kept as it is while that doesn't change. */
   #arm(): void {
+    const at = nextAt(this.#state);
+    if (at === this.#armedAt && (this.#cancel || at === undefined)) return;
     this.#cancel?.();
     this.#cancel = undefined;
-    const at = nextAt(this.#state);
+    this.#armedAt = at;
     if (at === undefined) return;
     this.#cancel = this.#scheduler.set(Math.max(0, at - this.#now()), () => {
       this.#cancel = undefined;
-      this.#floor = Math.max(this.#floor, at);
+      this.#armedAt = undefined;
+      // A timer that fires early (the scheduler's clock runs ahead) is armed again for the rest.
       this.#feed({ type: "timer", now: this.#now() });
     });
   }

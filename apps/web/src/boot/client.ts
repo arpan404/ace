@@ -49,6 +49,8 @@ export function browserClientOptions(options: {
     random: () => Math.random(),
     id: () => crypto.randomUUID(),
     now: () => Date.now(),
+    // Liveness deadlines run on a clock that never jumps (ADR 0150).
+    monotonic: () => performance.now(),
     ...(options.report ? { report: options.report } : {}),
   };
 }
