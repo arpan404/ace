@@ -48,6 +48,7 @@ export type NewThreadOwner = Pick<
   | "onMessage"
   | "connectionState"
   | "connectionGeneration"
+  | "pendingSends"
 >;
 
 /** The first message's files: the project's tray, and handing its draft scope to the thread. */
@@ -377,7 +378,11 @@ export class NewThread {
     // The new thread takes only these files: none joins until it is saved or refused.
     tray?.lock("Wait for the thread to start, then add files.");
     const worktree = payload.type === "thread.create" && payload.mode === "worktree";
-    if (worktree) this.worktrees.follow(action.commandId);
+    if (worktree)
+      this.worktrees.follow(action.commandId, {
+        message: action.text,
+        workspaceId: action.workspaceId,
+      });
     try {
       await submitCommand(
         this.#owner,

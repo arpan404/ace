@@ -42,7 +42,8 @@ const ComposeAction = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("worktree"),
     commandId: z.string().min(8).max(64),
-    action: z.enum(["cancel", "local", "retry", "continue"]),
+    /** `dismiss`: the person took the message back to New thread; the daemon forgets the start. */
+    action: z.enum(["cancel", "local", "retry", "continue", "dismiss"]),
   }),
 ]);
 export class ComposeActions {
@@ -79,6 +80,10 @@ export class ComposeActions {
       },
       memory,
     );
+  }
+  /** Stop following worktree starts; for a session that ends. */
+  close(): void {
+    this.newThread.worktrees.close();
   }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);

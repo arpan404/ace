@@ -3,10 +3,13 @@ import SwiftUI
 /// A new thread's worktree as it is made, after Send (the web's `WorktreeCreationCard`): the
 /// heading, a line per step reached (checkout with its percent, a finished step with its time),
 /// why it stopped, the daemon's log behind More details, and Don't use worktree, Cancel, Retry
-/// and Continue as the daemon offers them. The thread opens on its own once it exists.
+/// and Continue as the daemon offers them, and Back to New thread once it stopped. The thread
+/// opens on its own once it exists.
 struct WorktreeStartView: View {
     let card: WorktreeStartCard
     let act: (String) -> Void
+    /// Back to New thread with the words, once the start stopped; nil while it can't.
+    var back: (() -> Void)? = nil
     @State private var details: Bool?
     var body: some View {
         // A failed setup script's output is what the person needs: it opens with the card.
@@ -65,6 +68,14 @@ struct WorktreeStartView: View {
                         }
                     }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                }
+                if let back {
+                    Button("Back to New thread", action: back)
+                        .buttonStyle(.borderless)
+                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                        .frame(minHeight: AceDesign.Size.tap)
+                        .accessibilityHint("Puts your message back in New thread and forgets this start")
+                        .accessibilityIdentifier("worktree.back")
                 }
             }
             .padding(AceDesign.Space.feedSide)

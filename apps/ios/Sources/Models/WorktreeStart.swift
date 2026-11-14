@@ -32,6 +32,22 @@ struct WorktreeStartCard: Codable, Sendable, Equatable {
     let sending: String
     /// The daemon's redacted log, newest last.
     let details: [String]
+    /// The words the person sent and the project it starts in, for Back to New thread.
+    var message: String? = nil
+    var workspaceId: String? = nil
+    /// It stopped with nothing on its way: Back to New thread is offered. Nil from older bridges.
+    var canReturn: Bool? = nil
+
+    /// New thread's draft when the person takes a stopped start back: its words, on its machine
+    /// and project, in a worktree again. A fresh command id is made when it is sent.
+    func returnedDraft(machineId: String) -> NewThreadDraft {
+        var draft = NewThreadDraft()
+        draft.machineId = machineId
+        draft.projectId = workspaceId
+        draft.worktree = true
+        draft.text = message ?? ""
+        return draft
+    }
 }
 
 /// One start's report: its card, and the thread made (in the worktree or on the local checkout).

@@ -47,4 +47,26 @@ import Testing
         #expect(NewThreadWait.next(outcome: ComposeOutcome(ok: false, id: nil, message: ""), worktree: nil, listed: { _ in true })
             == .refused("The thread didn't start."))
     }
+
+    @Test func backToNewThreadReturnsTheWordsInAWorktreeDraftOnTheStartsMachineAndProject() {
+        var stopped = card
+        stopped.message = "Fix the export"
+        stopped.workspaceId = "ace"
+        stopped.canReturn = true
+        let draft = stopped.returnedDraft(machineId: "studio")
+        #expect(draft.text == "Fix the export")
+        #expect(draft.machineId == "studio")
+        #expect(draft.projectId == "ace")
+        #expect(draft.worktree)
+        // A fresh draft: sending it again is a new start, never a replay of the one given up.
+        #expect(draft.commandId == nil)
+    }
+
+    @Test func aCardFromAnOlderBridgeDecodesWithNothingToTakeBack() throws {
+        let json = #"{"type":"compose.worktree","id":"c-1","card":{"headline":"Worktree cancelled","running":false,"failed":false,"steps":[],"note":"","refused":"","locked":false,"actions":[],"sending":"","details":[]}}"#
+        guard case .worktree(_, let read) = try JSONDecoder().decode(ComposePatch.self, from: Data(json.utf8)) else {
+            Issue.record("not a worktree card"); return
+        }
+        #expect(read.card?.canReturn != true)
+    }
 }

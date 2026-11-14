@@ -13,7 +13,8 @@ struct NewThreadSheet: View {
     /// The draft, opened once for this showing of the sheet (`NewThreadSheetHost`).
     let drafts: NewThreadDraftModel
     /// The start was saved on this phone under this command id on this machine.
-    let saved: (_ machineId: String, _ commandId: String) -> Void
+    /// The start is saved on this phone, with the draft as it was sent.
+    let saved: (_ machineId: String, _ commandId: String, _ sent: NewThreadDraft) -> Void
     var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -392,7 +393,7 @@ struct NewThreadSheet: View {
             if admitted {
                 suggester.sent()
                 drafts.admitted()
-                saved(machineId, commandId)
+                saved(machineId, commandId, sending)
                 dismiss()
             } else {
                 // A refused handoff waits for the person: it no longer starts by itself.

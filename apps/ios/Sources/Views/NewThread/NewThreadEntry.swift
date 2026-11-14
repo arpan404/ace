@@ -14,18 +14,20 @@ struct NewThreadEntry: ViewModifier {
     @State private var awaiting: (machineId: String, commandId: String)?
     /// Why the last start didn't happen, once its receipt said so.
     @State private var refused: String?
-    /// A start whose worktree card the person swiped away.
-    @State private var hiddenCard: String?
-    /// The worktree card of the start being waited on, while New thread's sheet is closed.
-    private var worktreeCard: WorktreeStartCard? {
-        guard !composing, let awaiting, hiddenCard != awaiting.commandId else { return nil }
-        return inbox.client(awaiting.machineId)?.compose.worktrees[awaiting.commandId]?.card
-    }
+    /// The start whose worktree card was shown after Send: shown once, then from its Unsent row.
+    @State private var shownCard: String?
+    /// The draft as it was sent, kept until its thread exists, so a refusal can give it back.
+    @State private var sent: NewThreadDraft?
+    /// The refused start's machine and command, for Edit in New thread.
+    @State private var refusedStart: (machineId: String, commandId: String)?
 
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $composing) {
-                NewThreadSheetHost(inbox: inbox, saved: { machineId, commandId in awaiting = (machineId, commandId) }, initialProject: project.isEmpty ? nil : project)
+                NewThreadSheetHost(inbox: inbox, saved: { machineId, commandId, draft in
+                    awaiting = (machineId, commandId)
+                    sent = draft
+                }, initialProject: project.isEmpty ? nil : project)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .task(id: awaiting?.commandId) {
@@ -36,36 +38,39 @@ struct NewThreadEntry: ViewModifier {
                 var idle = 0
                 waiting: while idle < 600 {
                     let worktree = client.compose.worktrees[id]
+                    // While its card is on screen the card opens the thread itself.
+                    let carded = inbox.startCard == InboxKey(machineId: awaiting.machineId, id: id)
                     switch NewThreadWait.next(outcome: client.compose.started[id], worktree: worktree, listed: { client.inbox[$0] != nil }) {
                     case .open(let threadId):
-                        open(InboxKey(machineId: awaiting.machineId, id: threadId))
+                        if !carded { open(InboxKey(machineId: awaiting.machineId, id: threadId)) }
+                        sent = nil
                         break waiting
                     case .refused(let message):
+                        refusedStart = awaiting
                         refused = message
                         break waiting
                     case .wait:
-                        if worktree?.card == nil || hiddenCard == id { idle += 1 }
+                        if worktree?.card != nil, shownCard != id, !composing {
+                            shownCard = id
+                            inbox.startCard = InboxKey(machineId: awaiting.machineId, id: id)
+                        }
+                        // A start whose card was put away waits in Unsent, where its row opens it.
+                        if worktree?.card == nil || !carded { idle += 1 }
                     }
                     try? await Task.sleep(for: .milliseconds(100))
                     if Task.isCancelled { return }
                 }
                 self.awaiting = nil
             }
-            // The worktree being made, from Send until the thread opens; swiping it away leaves
-            // the start to go on, its row in the inbox.
-            .sheet(isPresented: Binding(get: { worktreeCard != nil }, set: { if !$0 { hiddenCard = awaiting?.commandId } })) {
-                if let awaiting, let card = worktreeCard {
-                    NavigationStack {
-                        WorktreeStartView(card: card) { action in
-                            inbox.client(awaiting.machineId)?.composeAction(["kind": "worktree", "commandId": awaiting.commandId, "action": action])
-                        }
-                        .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { SheetClose() }
-                    }
-                    .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-                }
-            }
+            // The worktree being made, from Send until the thread opens, and again from its
+            // Unsent row; Back to New thread opens the sheet on the words it took back.
+            .modifier(WorktreeStartSheet(inbox: inbox, open: open) { draft in
+                NewThreadDraftStore.standard().seed(draft)
+                composing = true
+            })
             .alert("The thread didn't start", isPresented: Binding(get: { refused != nil }, set: { if !$0 { refused = nil } })) {
+                // The words go back to New thread and the refused start leaves Unsent.
+                if sent != nil { Button("Edit in New thread") { editRefused() } }
                 Button("Close", role: .cancel) { refused = nil }
             } message: { Text(refused ?? "") }
             // A handoff waits for a machine that can take it and for the sheet to be free.
@@ -75,6 +80,24 @@ struct NewThreadEntry: ViewModifier {
                 takeHandoff()
             }
             .onChange(of: catalogueKey) { _, _ in writeCatalogue() }
+    }
+
+    /// A refused start's draft back in New thread, under a new command id, and out of Unsent.
+    private func editRefused() {
+        refused = nil
+        guard var draft = sent else { return }
+        sent = nil
+        draft.commandId = nil
+        draft.autoSend = false
+        draft.handoff = nil
+        // Its files went up with the start; the words come back, the files are picked again.
+        draft.files = []
+        if let start = refusedStart, let client = inbox.client(start.machineId) {
+            Task { _ = await client.dismissSend(start.commandId) }
+        }
+        refusedStart = nil
+        NewThreadDraftStore.standard().seed(draft)
+        composing = true
     }
 
     private struct HandoffWake: Equatable { let active: Bool; let composing: Bool; let machines: [String] }
@@ -143,7 +166,7 @@ struct NewThreadEntry: ViewModifier {
 /// result away, and opening a draft clears copies and takes back a draft set aside.
 private struct NewThreadSheetHost: View {
     @Bindable var inbox: MachineInbox
-    let saved: (_ machineId: String, _ commandId: String) -> Void
+    let saved: (_ machineId: String, _ commandId: String, _ sent: NewThreadDraft) -> Void
     let initialProject: String?
     @State private var drafts: NewThreadDraftModel?
 

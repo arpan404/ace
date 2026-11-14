@@ -618,6 +618,9 @@ interface WorktreeCard {
   refused: string;
   actions: { id: string; label: string }[];
   details: string[];
+  message: string;
+  workspaceId: string;
+  canReturn: boolean;
 }
 /** The start's card as last sent: null once it says nothing, undefined before any patch. */
 const worktreeCard = (id: string) =>
@@ -685,4 +688,41 @@ test("a worktree that can't be made is refused with the daemon's reason, not its
   });
   const card = await until(() => worktreeCard("draft-tree-0003"));
   expect(card).toMatchObject({ failed: true, headline: "Couldn't create the worktree" });
+});
+
+test("a worktree start still in the outbox is followed again by a New thread that starts later", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0004");
+  await until(() => worktreeCard("draft-tree-0004")?.running);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0004", action: "cancel" });
+  await until(() => worktreeCard("draft-tree-0004")?.headline === "Worktree cancelled");
+  // The app starts again on the same outbox: nothing is sent, yet the card comes back.
+  native.frames.length = 0;
+  if (!client) throw new Error("no client");
+  const later = new ComposeActions(client, pump, (text, limit) => text.slice(0, limit), Date.now);
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0004");
+    return shown?.headline === "Worktree cancelled" && shown;
+  });
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Retry"]);
+  expect(card.message).toBe("Fix the export");
+  expect(card.workspaceId).toBe("ace");
+  expect(card.canReturn).toBe(true);
+  later.close();
+});
+
+test("Back to New thread forgets the stopped start on the daemon and its card goes", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0005");
+  await until(() => worktreeCard("draft-tree-0005")?.running);
+  // While it is being made there is nothing to go back with: Cancel comes first.
+  expect(worktreeCard("draft-tree-0005")?.canReturn).toBe(false);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "cancel" });
+  await until(() => worktreeCard("draft-tree-0005")?.canReturn);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "dismiss" });
+  await until(() => worktreeCard("draft-tree-0005") === null);
+  const asked = sent.filter((text) => text.includes('"action":"dismiss"'));
+  expect(asked).toHaveLength(1);
 });
