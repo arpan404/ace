@@ -4,9 +4,12 @@ import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 /**
  * A producer in the daemon writing to ace-media's ingest socket (an Android device's scrcpy
  * units, forwarded unchanged while its route says ace-media). The hello goes first with the
- * source's single-use token; units follow in order, never coalesced. Past `limit` queued bytes
- * deltas are dropped to the next keyframe and one is asked for, so a stalled reader never grows
- * the daemon and the stream stays decodable. `finish()` writes what is queued, then ends the
+ * source's single-use token; units follow in order, never coalesced. Every unit counts against
+ * `limit` queued bytes, keyframes too: a delta that won't fit is dropped with what follows it to
+ * the next keyframe, which is asked for once; a keyframe that won't fit waits, the newest only,
+ * until the socket drains. A socket still not drained after `drainLimit` has its path closed as a
+ * cut, reported through `onClosed`, so the route falls back. A stalled reader never grows the
+ * daemon and the stream stays decodable. `finish()` writes what is queued, then ends the
  * connection cleanly, which ace-media follows with the path's end marker. A connection that
  * fails, or that ace-media closes, is reported once.
  */
@@ -17,17 +20,31 @@ export type IngestWriterOptions = {
   token: Uint8Array;
   onClosed: () => void;
   onKeyframe: () => void;
-  /** Most bytes queued before deltas are dropped. */
+  /** Most bytes queued before units are dropped. */
   limit?: number;
+  /** Longest the socket may stay over the budget before the path is closed. */
+  drainLimit?: number;
   connect?: (path: string) => Socket;
+  /** Runs `run` after `ms`; returns a cancel. */
+  after?: (ms: number, run: () => void) => () => void;
 };
 
 export const ingestWriterLimit = 4 * 1024 * 1024;
+export const ingestDrainLimit = 2_000;
+
+function afterTimeout(ms: number, run: () => void): () => void {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+}
 
 export class IngestWriter {
   readonly #socket: Socket;
   readonly #options: IngestWriterOptions;
   #skipping = false;
+  /** The newest keyframe that didn't fit, written once the socket drains. */
+  #pending: Uint8Array | undefined;
+  /** Cancels the drain limit while the socket is over the budget. */
+  #waiting: (() => void) | undefined;
   #ending = false;
   #closed = false;
 
@@ -36,9 +53,11 @@ export class IngestWriter {
     const socket = (options.connect ?? ((path) => createConnection(path)))(options.socket);
     this.#socket = socket;
     socket.on("error", () => {});
+    socket.on("drain", () => this.#drained());
     socket.once("close", () => {
       const reported = !this.#ending && !this.#closed;
       this.#closed = true;
+      this.#stopWaiting();
       if (reported) options.onClosed();
     });
     socket.write(encodeMediaFrame({ ...control(5), payload: options.token.slice() }));
@@ -53,20 +72,64 @@ export class IngestWriter {
   /** Queues one unit; false once closed or finishing. */
   write(frame: MediaFrame): boolean {
     if (this.closed) return false;
-    const keyframe = (frame.flags & 1) !== 0;
-    if (frame.kind === 1) {
-      if (
-        this.#socket.writableLength > (this.#options.limit ?? ingestWriterLimit) &&
-        !this.#skipping
-      ) {
-        this.#skipping = true;
-        this.#options.onKeyframe();
-      }
-      if (this.#skipping && !keyframe) return true;
-      this.#skipping = false;
+    if (frame.kind !== 1) {
+      this.#socket.write(encodeMediaFrame(frame));
+      return true;
     }
-    this.#socket.write(encodeMediaFrame(frame));
+    const keyframe = (frame.flags & 1) !== 0;
+    // Waiting for a drain: the newest keyframe replaces the one held, deltas are dropped.
+    if (this.#waiting) {
+      if (keyframe) this.#pending = encodeMediaFrame(frame);
+      else if (!this.#pending) this.#ask();
+      return true;
+    }
+    if (this.#skipping && !keyframe) return true;
+    const bytes = encodeMediaFrame(frame);
+    const queued = this.#socket.writableLength;
+    // An empty socket takes any unit, so a keyframe bigger than the budget still goes.
+    if (queued === 0 || queued + bytes.length <= (this.#options.limit ?? ingestWriterLimit)) {
+      this.#skipping = false;
+      this.#socket.write(bytes);
+      return true;
+    }
+    if (keyframe) this.#pending = bytes;
+    else this.#ask();
+    this.#wait();
     return true;
+  }
+
+  /** Deltas are dropped to the next keyframe, asked for once. */
+  #ask(): void {
+    if (this.#skipping) return;
+    this.#skipping = true;
+    this.#options.onKeyframe();
+  }
+
+  /** Over the budget: the socket must drain within the limit, or the path is cut. */
+  #wait(): void {
+    const after = this.#options.after ?? afterTimeout;
+    this.#waiting = after(this.#options.drainLimit ?? ingestDrainLimit, () => {
+      this.#waiting = undefined;
+      if (this.#closed || this.#ending) return;
+      this.close();
+      this.#options.onClosed();
+    });
+  }
+
+  #stopWaiting(): void {
+    this.#waiting?.();
+    this.#waiting = undefined;
+    this.#pending = undefined;
+  }
+
+  #drained(): void {
+    if (!this.#waiting || this.closed) return;
+    const pending = this.#pending;
+    this.#stopWaiting();
+    if (pending) {
+      this.#skipping = false;
+      this.#socket.write(pending);
+    }
   }
 
   /**
@@ -77,6 +140,7 @@ export class IngestWriter {
   finish(): void {
     if (this.closed) return;
     this.#ending = true;
+    this.#stopWaiting();
     this.#socket.end(encodeMediaFrame({ ...control(4), payload: new Uint8Array(0) }));
   }
 
@@ -84,6 +148,7 @@ export class IngestWriter {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    this.#stopWaiting();
     this.#socket.destroy();
   }
 }

@@ -138,3 +138,55 @@ it("ace-media closing the connection is reported once, and nothing more is taken
   expect(writer.write(unit(1, true))).toBe(false);
   expect(closed).toEqual(["closed"]);
 });
+
+it("a keyframe that won't fit waits for the reader to drain, and only the newest one goes", async () => {
+  const server = await ingest();
+  const writer = new IngestWriter({
+    socket: server.path,
+    token: new Uint8Array(32),
+    onClosed: () => {},
+    onKeyframe: () => {},
+    limit: 64 * 1024,
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 256 * 1024));
+  // Past the budget: keyframes count too. Only the newest waits; deltas behind it are dropped.
+  writer.write(unit(2, true));
+  writer.write(unit(3, false));
+  writer.write(unit(4, true));
+  writer.write(unit(5, false));
+  server.resume();
+  await until(() => server.received.length >= 3);
+  writer.write(unit(6, false));
+  writer.finish();
+  await until(server.ended);
+  expect(
+    server.received.filter((frame) => frame.kind === 1).map((frame) => frame.payload[0]),
+  ).toEqual([1, 4, 6]);
+});
+
+it("a reader that doesn't drain within the drain limit has its path closed, reported as a cut", async () => {
+  const server = await ingest();
+  const closed: string[] = [];
+  const timers: { ms: number; run: () => void }[] = [];
+  const writer = new IngestWriter({
+    socket: server.path,
+    token: new Uint8Array(32),
+    onClosed: () => void closed.push("closed"),
+    onKeyframe: () => {},
+    limit: 64 * 1024,
+    after: (ms, run) => {
+      timers.push({ ms, run });
+      return () => {};
+    },
+  });
+  await until(server.connected);
+  server.pause();
+  writer.write(unit(1, true, 256 * 1024));
+  writer.write(unit(2, true));
+  expect(timers.map((timer) => timer.ms)).toEqual([2_000]);
+  timers[0]?.run();
+  expect(closed).toEqual(["closed"]);
+  expect(writer.write(unit(3, true))).toBe(false);
+});

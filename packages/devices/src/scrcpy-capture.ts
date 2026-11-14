@@ -233,6 +233,7 @@ export async function scrcpyCapture(options: {
                   keyframe();
                 },
                 onKeyframe: () => keyframe(),
+                after: runtime.after,
               });
               const keyed = Promise.withResolvers<number | null>();
               awaitingKey = { writer, started: keyed.resolve, failed: keyed.reject };
