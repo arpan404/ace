@@ -45,10 +45,14 @@ export class LimitsSchedule {
   readerGone(id: string): void {
     this.readers.delete(id);
   }
-  /** The periodic check: reads when limits matter now or a known reset has passed. */
-  tick(): void {
-    if (this.stopped) return;
-    if (this.readers.size || this.options.busy() || this.resetPassed()) void this.refresh();
+  /**
+   * The periodic check: reads when limits matter now or a known reset has passed. Resolves when
+   * the reading it started (or joined) ends, at once when it reads nothing.
+   */
+  tick(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    if (this.readers.size || this.options.busy() || this.resetPassed()) return this.refresh();
+    return Promise.resolve();
   }
   private stale(): boolean {
     return this.lastAt === undefined || this.options.now() - this.lastAt >= this.options.intervalMs;
