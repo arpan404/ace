@@ -47,11 +47,13 @@ encryption, as a separate fragment kind; inflation is capped at the logical mess
 **Machine calls: zstd or deflate for status and describe.** `POST /v1/machine-calls` between
 daemons (ADR 0078) compresses only `status` and `describe` bodies of 1 KiB or more, each alone,
 in both directions (`apps/daemon/src/machines/call-encoding.ts`). The decision is per body, not
-per op: a request is an origin and thread ids; an answer is compressed only when every field in
-it is on a list known to carry no secret (thread state, title, step, result; a machine's name,
-projects, levels and account labels). A status answer holding a pending request for the person
-(a browser tab's URL, an elicitation link, which can carry a code or token) or any field the
-list doesn't name goes as it is, as browser messages do on the socket. The device token being a
+per op: a request is an origin and thread ids; an answer is compressed only when it matches a
+strict shape (`apps/daemon/src/machines/compressible-answers.ts`) in which every object rejects
+unknown keys at any depth and every string is a named field known to carry no secret (ids, names,
+labels, codes, and text an agent wrote: thread titles, steps, results, notices). A status answer
+holding a pending request for the person (a browser tab's URL, an elicitation link, which can
+carry a code or token), a field of the wrong type, or a field a newer build added anywhere goes
+as it is, as browser messages do on the socket, until the shape names it. The device token being a
 header doesn't change this: it is the URLs beside attacker-influenced text that the rule keeps
 apart. The caller offers `Accept-Encoding: zstd, deflate` on those calls and
 the target answers with zstd when offered (both ends are Bun or Node 26), deflate otherwise. A

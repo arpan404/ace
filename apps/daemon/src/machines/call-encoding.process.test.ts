@@ -42,6 +42,9 @@ const bigAnswer = {
     threadId: `child-${index}`,
     state: "working",
     title: "Review the open pull requests and summarize them",
+    elapsedSeconds: 30,
+    status: { state: "working", agents: 1 },
+    requests: [],
   })),
 };
 
