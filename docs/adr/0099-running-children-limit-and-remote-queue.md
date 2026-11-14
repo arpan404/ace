@@ -106,26 +106,36 @@ settle, and the caller must notice so the parent never reads done while it runs.
   - a child whose own read failed (asked alone) waits a backoff that doubles from one poll to
     30 s, whatever its neighbours do, and is asked at its own pace again once it answers; a
     failed read is no check.
-    Due children are taken earliest due first, sixteen to a call, at most 16 calls a turn per
-    machine. A child in a call that failed or was refused beside others is implicated: it is asked
+    Due children are taken earliest due first, then those asked longest ago, sixteen to a call, at
+    most 16 calls a turn per machine; more due than fits waits for the next turn, first in line
+    then. A child in a call that failed or was refused beside others is implicated: it is asked
     alone at once, and stays alone until it has answered alone and for 10 s doubling to an hour each
     time it is implicated, so a child that only fails beside others can't keep taking calls down.
-    Whether a child is asked alone is saved with it and outlives a restart. The calls of a turn run
-    at once, each on its own deadline, and each answer is applied as it arrives; a child with a call
-    on its way is skipped, so a slow call never holds up the next poll or another machine.
+    Whether a child is asked alone is saved with it and outlives a restart. A child's failed read
+    counts as the machine's when nothing else there answered around it; the machine answering again
+    (any call getting through) ends that wait, but never the wait of a child whose own read failed
+    while its machine answered others. The calls of a turn run at once, each on its own deadline,
+    and each answer is applied as it arrives; a child with a call on its way is skipped, so a slow
+    call never holds up the next poll or another machine. A pairing linked, linked again or removed
+    in Settings plans again a poll later.
     No child leaves tracking without a check answered at or after its 24-hour mark (its `settled_at`
     is cleared then), never on a timer, across restarts too. A machine no longer paired as the
-    child's device is no answer: the child is never asked, costs no calls, and is read again once
-    its machine is paired back; still unpaired at its 24-hour mark, its parent asks the person, as
-    for a working child whose pairing went. A child its machine says it doesn't hold (`not_found`)
-    is the machine's answer for it.
-    Bounds, with n children tracked on a machine: a child that answers when asked alone is asked
-    within `ceil(n / 16) + 1` turns of coming due, plus one call's deadline when a call it shared
-    failed; work started again on a settled child is read within its own interval (5 minutes at
-    most) plus that. At a 1 s poll a machine costs at most `60 W + 6 S` calls a minute for W
-    working and S settled children, never past 16 a turn (960 a minute); with only healthy and
-    failing children, `60 * ceil(W_h / 16) + 6 S + 2 F` a minute once the F failing ones reach the
-    cap. These are checked as properties of the scheduler on generated machines. A child
+    child's device is no answer: the child is never asked and costs no calls, its pairing is looked
+    at again at least every slowest interval, and it is read again once its machine is paired back;
+    still unpaired at its 24-hour mark, its parent asks the person, as for a working child whose
+    pairing went. A child its machine says it doesn't hold (`not_found`) is the machine's answer
+    for it.
+    Bounds, with n children tracked on a machine, at a 1 s poll: a child that answers when asked
+    alone is asked within `ceil(n / 16)` turns of coming due when every other child there is asked
+    alone, `ceil(n / 256)` when none is (16 and 1 turns for n = 256; 63 and 4 for n = 1,000), plus
+    one call's deadline when a call it shared failed. With more working children than one turn
+    holds, each is read every `ceil(n / 256)` polls instead of every poll. Work started again on a
+    settled child is read within its own interval (5 minutes at most) plus that. A machine costs at
+    most `60 W + 6 S` calls a minute for W working and S settled children, never past 16 a turn (960
+    a minute); with only healthy and failing children, `60 * ceil(W_h / 16) + 6 S + 2 F` a minute
+    once the F failing ones reach the 30 s cap. These are checked as properties of the scheduler on
+    generated machines of up to 1,000 children, and again on the real ledger driven only by its own
+    timers.
     found running again reopens: the parent's row shows it running and the parent waits until it
     settles again. One that ran and settled with a different result hands the parent that result;
     changes that leave the outcome and result alone (a title, a pin) are ignored. Work started

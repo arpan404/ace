@@ -109,8 +109,16 @@ export function machine(
       },
     };
   };
-  /** `error` makes every status call fail with it, as a machine refusing or unreachable. */
-  const reads: { error?: unknown } = {};
+  /**
+   * `error` makes every status call fail with it, as a machine refusing or unreachable.
+   * `decide` answers each call by the ids it asks about: an error to fail it with, or nothing to
+   * answer it. `answered` runs after each answered call, as the directory's recovery callback.
+   */
+  const reads: {
+    error?: unknown;
+    decide?: (ids: readonly string[]) => unknown;
+    answered?: (machine: string) => void;
+  } = {};
   const answers = {
     resend: async (_machine: string): Promise<ResendAnswer> => "taken",
     /** How the machine takes a cancel; by default it says it stopped nothing (never confirms). */
@@ -152,13 +160,17 @@ export function machine(
     status: async (_machine, _parent, ids) => {
       asked.push([...ids]);
       if (reads.error) throw reads.error;
+      const refusal = reads.decide?.(ids);
+      if (refusal) throw refusal;
       const read = ids.flatMap((id) => {
         const view = views.get(id);
         return view ? [view] : [];
       });
       const held = holds.next;
       holds.next = undefined;
-      return held ? held.then(() => read) : read;
+      if (held) await held;
+      reads.answered?.(_machine);
+      return read;
     },
     cancel: async (_machine, _parent, id) => {
       cancels.push(id);
