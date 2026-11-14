@@ -89,6 +89,20 @@ describe("MediaSupervisor", () => {
     expect(supervisor.capabilities()?.[0]?.codec).toBe("avc1.640028");
   });
 
+  it("treats capabilities.changed before ready as a protocol failure and never forwards it", async () => {
+    const h = harness();
+    h.host.behaviour.ready = false;
+    const supervisor = new MediaSupervisor(h.options);
+    supervisor.need();
+    await h.clock.advance(0);
+    h.host.last.send({ type: "capabilities.changed", capabilities: [] });
+    await h.clock.advance(0);
+    expect(h.host.last.killed).toBe(true);
+    expect(h.events.exits[0]).toMatchObject({ cause: "protocol", failure: true });
+    expect(h.events.messages).toEqual([]);
+    expect(supervisor.capabilities()).toBeUndefined();
+  });
+
   it("reports the capabilities a late trial adds, and forwards the change", async () => {
     const h = await running();
     const late = {

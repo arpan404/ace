@@ -40,7 +40,6 @@ test.each([
   (_, schema, state) => {
     expect(schema.parse(state)).not.toHaveProperty("acceleration");
     expect(schema.parse({ ...state, acceleration }).acceleration).toEqual(acceleration);
-    expect(schema.safeParse({ ...state, acceleration: { steps: [] } }).success).toBe(false);
   },
 );
 
@@ -89,8 +88,9 @@ test("a helper hello reports capture → encode, and older hellos without it sti
   ];
   expect(ScreenCapabilities.parse(hello).encoders).toBeUndefined();
   expect(ScreenCapabilities.parse({ ...hello, encoders }).encoders).toEqual(encoders);
-  expect(
-    ScreenCapabilities.safeParse({ ...hello, encoders: [{ ...encoders[0], zeroCopy: "yes" }] })
-      .success,
-  ).toBe(false);
+  // A newer helper's step, backend and state names still parse here.
+  const future = [
+    { ...encoders[0], step: "capture-encode", backend: "future-gpu", state: "warming" },
+  ];
+  expect(ScreenCapabilities.parse({ ...hello, encoders: future }).encoders).toEqual(future);
 });

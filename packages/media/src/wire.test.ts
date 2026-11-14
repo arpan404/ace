@@ -118,3 +118,32 @@ test.each(BoundaryCases)("shared control boundary: $name", ({ direction, accept,
   expect(parsed.success).toBe(accept);
   if (parsed.success) expect(parsed.data).toEqual(input);
 });
+
+const FrameVectors = z
+  .array(
+    z.strictObject({
+      name: z.string(),
+      direction: z.enum(["ToMedia", "FromMedia"]),
+      lane: z.enum(["normal", "priority"]),
+      hex: z.string(),
+    }),
+  )
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL("../../../native/media/vectors/control-frames/k2.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+test.each(FrameVectors)("shared control frame bytes: $name", ({ direction, lane, hex }) => {
+  const bytes = Uint8Array.from(Buffer.from(hex, "hex"));
+  const { message, payload } = (direction === "ToMedia" ? decodeToMedia : decodeFromMedia)(
+    bytes,
+    lane,
+  );
+  const encoded = encodeControl(message, payload, lane);
+  expect(Buffer.from(encoded.header).toString("hex") + Buffer.from(payload).toString("hex")).toBe(
+    hex,
+  );
+});
