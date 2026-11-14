@@ -163,6 +163,10 @@ export class LiveVideo {
   has(id: string): boolean {
     return this.viewers.has(id);
   }
+  /** Someone is shown this video now. */
+  watched(): boolean {
+    return this.viewers.size > 0;
+  }
   /** The screencast size an open capture fed by pictures needs; undefined: none needed. */
   pictures(): { width: number; height: number } | undefined {
     const pictures = this.capture?.handle.pictures;

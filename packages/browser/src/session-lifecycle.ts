@@ -11,14 +11,18 @@ export interface LifecycleSchedule {
 }
 
 /**
- * Freezes idle tabs (`Page.setWebLifecycleState`) and discards those idle past the discard
- * threshold (#953), as the pure policy says. Discarding drops the page; the tab reopens at its
- * address on next use, its page state reported lost. A backend that cannot discard leaves such
- * a tab frozen.
+ * Rests idle tabs (their page hidden, drawing nothing), freezes them
+ * (`Page.setWebLifecycleState`) and discards those idle past the discard threshold (#953), as
+ * the pure policy says. A frozen tab rests too: a frozen page still composites its CSS
+ * animations. Discarding drops the page; the tab reopens at its address on next use, its page
+ * state reported lost. A backend that cannot discard leaves such a tab frozen, and one that
+ * cannot rest leaves its idle pages drawing until they freeze. `viewed`: the person is looking
+ * at this tab now; `shownId`: the tab the live capture shows.
  */
 export async function settleIdleTabs(
   runtimes: readonly TabRuntime[],
-  viewedId: string,
+  viewed: (runtime: TabRuntime) => boolean,
+  shownId: string,
   now: number,
   policy: TabLifecyclePolicy,
   pinned: (runtime: TabRuntime) => boolean,
@@ -28,7 +32,9 @@ export async function settleIdleTabs(
     runtimes.map((runtime) => ({
       tabId: runtime.id,
       lifecycle: runtime.lifecycle,
-      viewed: runtime.id === viewedId,
+      resting: tabs?.resting?.(runtime.id) ?? false,
+      viewed: viewed(runtime),
+      shown: runtime.id === shownId,
       busy: runtime.busy,
       pinned: pinned(runtime),
       lastActiveAt: runtime.lastActiveAt,
@@ -41,11 +47,13 @@ export async function settleIdleTabs(
     const runtime = runtimes.find((candidate) => candidate.id === tabId);
     if (!runtime) continue;
     try {
-      if (to === "discarded" && tabs?.discard) {
+      if (to === "resting") await tabs?.rest?.(tabId, true);
+      else if (to === "discarded" && tabs?.discard) {
         await tabs.discard(tabId);
         runtime.lifecycle = "discarded";
         changed = true;
       } else if (runtime.lifecycle === "live") {
+        await tabs?.rest?.(tabId, true);
         await runtime.page.cdp.send("Page.setWebLifecycleState", { state: "frozen" });
         runtime.lifecycle = "frozen";
         changed = true;
@@ -58,13 +66,16 @@ export async function settleIdleTabs(
 }
 
 /**
- * Brings an idle tab back before anything touches it: a frozen page runs again, a discarded
- * one reopens at its address. Says which, or `false` when the tab was live.
+ * Brings an idle tab back before anything touches it: a resting page is shown again, a frozen
+ * one runs again, a discarded one reopens at its address. Says which of the last two, or
+ * `false` when the tab was live (resting or not).
  */
 export async function wakeTab(
   runtime: TabRuntime,
   tabs: BrowserBackendTabs | undefined,
 ): Promise<false | "thawed" | "reopened"> {
+  // A tab never stays hidden under a command: the screencast, screenshots and input need frames.
+  if (tabs?.resting?.(runtime.id)) await tabs.rest?.(runtime.id, false);
   if (runtime.lifecycle === "live") return false;
   if (runtime.lifecycle === "discarded") {
     if (!tabs?.revive) throw new Error("Browser tab unavailable");

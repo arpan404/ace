@@ -164,6 +164,17 @@ export class BrowserSession {
     // A recording needs frames whether or not anyone watches.
     this.live.require(() => this.recordings.active);
     this.live.onVideoStatus(() => this.emit());
+    // Watching counts as using the shown tab: it idles from when the person looks away, and a
+    // tab that rested or froze unwatched is brought back as soon as someone watches it.
+    this.live.onWatched((watched) => {
+      if (this.closed) return;
+      const shown = this.tabs.viewed();
+      shown?.seen();
+      if (!watched || !shown) return;
+      // A frozen or dropped page is captured afresh once it runs again, as a newly shown tab is.
+      if (shown.lifecycle !== "live") this.recapture("Tab capture failed");
+      else void this.wakeIdle(shown.id).catch(() => {});
+    });
     this.persist();
     this.scheduleLifecycle();
   }
@@ -853,6 +864,7 @@ export class BrowserSession {
       // A dialog, a download still arriving or a recording keeps a tab as it is.
       void settleIdleTabs(
         this.tabs.all(),
+        (tab) => this.watching(tab),
         this.tabs.viewedId(),
         this.options.now(),
         lifecycle.policy,
@@ -864,6 +876,14 @@ export class BrowserSession {
         })
         .finally(() => this.scheduleLifecycle());
     });
+  }
+  /**
+   * The person looks at this tab now. The desktop shows its active tab in its own view; ace's
+   * Chrome is seen only through a viewer's video, so its active tab nobody watches idles too.
+   */
+  private watching(tab: TabRuntime): boolean {
+    if (tab.id !== this.tabs.viewedId()) return false;
+    return this.options.backendKind !== "headless" || this.live.watched();
   }
   /** A download still arriving in this tab: the tab must not freeze, discard or close under it. */
   private downloading(tabId: string): boolean {

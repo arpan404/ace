@@ -50,6 +50,7 @@ export class LiveCapture {
   private queue: Promise<void> = Promise.resolve();
   private needed: () => boolean = () => false;
   private videoStatus: () => void = () => {};
+  private watchListener: (watched: boolean) => void = () => {};
   /** `start` seeds after its own first sync; a later resume seeds in `begin`. */
   private starting = false;
   constructor(
@@ -80,6 +81,21 @@ export class LiveCapture {
   /** Told whenever `video.status()` changes (the video can't start, or plays again). */
   onVideoStatus(listener: () => void): void {
     this.videoStatus = listener;
+  }
+  /** Told when the first viewer starts watching the video, and when the last one stops. */
+  onWatched(listener: (watched: boolean) => void): void {
+    this.watchListener = listener;
+  }
+  /** Someone is shown the live video now. */
+  watched(): boolean {
+    return this.video.watched();
+  }
+  /** Runs a change to the video's viewers, and says if that started or ended all watching. */
+  private viewersChange(change: () => void): void {
+    const before = this.video.watched();
+    change();
+    const after = this.video.watched();
+    if (before !== after) this.watchListener(after);
   }
   /** Frames are also needed while this holds (a recording), viewers or not. */
   require(needed: () => boolean): void {
@@ -165,20 +181,22 @@ export class LiveCapture {
   subscribe(id: string, sink: ViewerSink, capture?: CaptureViewer): () => void {
     if (!this.sinks.has(id) && this.sinks.size >= 64) throw new Error("Browser subscriber limit");
     this.sinks.set(id, sink);
-    this.video.remove(id);
-    if (capture) this.configureVideo(id, sink, capture);
+    this.viewersChange(() => {
+      this.video.remove(id);
+      if (capture) this.configureVideo(id, sink, capture);
+    });
     this.tickVideo();
     return () => {
       if (this.sinks.get(id) !== sink) return;
       this.sinks.delete(id);
-      this.video.remove(id);
+      this.viewersChange(() => this.video.remove(id));
       this.tickVideo();
     };
   }
   /** What a viewer shows changed (`browser.capture`). */
   configure(id: string, capture: CaptureViewer): void {
     const sink = this.sinks.get(id);
-    if (sink) this.configureVideo(id, sink, capture);
+    if (sink) this.viewersChange(() => this.configureVideo(id, sink, capture));
   }
   /** A viewer that joined again starts over at a keyframe. */
   replay(id: string): void {

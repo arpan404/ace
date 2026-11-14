@@ -248,6 +248,13 @@ export interface BrowserBackendTabs {
   revive?(tabId: string): Promise<void>;
   /** Whether the tab is listed without a page, discarded and not yet revived. */
   discarded?(tabId: string): boolean;
+  /**
+   * Hides an idle tab's page so it draws nothing (ace's Chrome minimizes its window), or shows
+   * it again. Its scripts keep running, as a background tab's do (ADR 0083).
+   */
+  rest?(tabId: string, resting: boolean): Promise<void>;
+  /** Whether the tab's page is hidden by `rest`. */
+  resting?(tabId: string): boolean;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {

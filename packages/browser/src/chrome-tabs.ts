@@ -27,6 +27,8 @@ const Navigated = z.object({
     url: z.string(),
     urlFragment: z.string().optional(),
     parentId: z.string().optional(),
+    /** On Chrome's error page (`chrome-error://`): the address that failed to load. */
+    unreachableUrl: z.string().optional(),
   }),
 });
 const SameDocument = z.object({ frameId: z.string(), url: z.string() });
@@ -42,6 +44,7 @@ const WindowOpen = z.object({
 });
 const Info = z.object({ targetInfo: z.object({ title: z.string(), url: z.string() }) });
 const Detached = z.object({ sessionId: z.string() });
+const TargetWindow = z.object({ windowId: z.number().int() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 const Binding = z.object({ name: z.string() });
 /** Headless Chrome shows no print dialog: `window.print()` asks ace to save a PDF instead. */
@@ -83,6 +86,12 @@ interface Tab {
   /** Idle long enough that its page was dropped; it reopens at its address on next use. */
   discarded?: boolean | undefined;
   reviving?: Promise<void> | undefined;
+  /** Asked to rest: its page is (or is about to be) hidden, drawing nothing. */
+  resting?: boolean | undefined;
+  /** Its window is minimized now. */
+  minimized?: boolean | undefined;
+  /** Rest and wake changes, one at a time, so the last one asked for wins. */
+  restQueue?: Promise<void> | undefined;
   release(): void;
   stops: (() => void)[];
 }
@@ -182,7 +191,12 @@ export class ChromeTabs {
     await Promise.all(tabs.map((tab) => this.reopen(tab)));
     this.request.changed?.();
   }
-  /** Loads a recreated tab's last address; a slow page fails on its own without the others. */
+  /**
+   * Loads a recreated tab's last address. The tab is back whether or not its page loads: a page
+   * whose server is gone (a stopped dev server) or that is slow shows what a browser would, and
+   * neither fails the other tabs nor the restart, which would otherwise be tried again and again.
+   * Only the browser closing under it fails.
+   */
   private async reopen(tab: Tab): Promise<void> {
     if (tab.url === "about:blank") return;
     const deadline = new AbortController();
@@ -192,6 +206,8 @@ export class ChromeTabs {
     );
     try {
       await navigateCdp(tab.cdp, tab.url, AbortSignal.any([this.request.signal, deadline.signal]));
+    } catch (error) {
+      if (this.request.signal.aborted || this.stopped) throw error;
     } finally {
       cancel();
     }
@@ -397,6 +413,39 @@ export class ChromeTabs {
   discarded(id: string): boolean {
     return this.tabs.get(id)?.discarded === true;
   }
+  /**
+   * Hides an idle tab's page by minimizing its window, or shows it again. A hidden page draws no
+   * frames (no compositing, no `requestAnimationFrame`), which a frozen page still does for its
+   * CSS animations; its scripts keep running. Focus emulation, which every shown tab has, keeps
+   * a minimized page drawing, so a resting tab gives it up and gets it back when shown. Changes
+   * apply in the order asked.
+   */
+  rest(id: string, resting: boolean): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab) return Promise.resolve();
+    tab.resting = resting;
+    const run = (tab.restQueue ?? Promise.resolve()).then(async () => {
+      // A later call asked otherwise, and applies after this one.
+      if (tab.resting !== resting || !tab.target || tab.discarded) return;
+      if ((tab.minimized === true) === resting) return;
+      const binding = tab.binding;
+      const { windowId } = TargetWindow.parse(await tab.cdp.send("Browser.getWindowForTarget"));
+      if (resting) await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: false });
+      await tab.cdp.send("Browser.setWindowBounds", {
+        windowId,
+        bounds: { windowState: resting ? "minimized" : "normal" },
+      });
+      if (!resting) await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      if (tab.binding === binding) tab.minimized = resting;
+    });
+    tab.restQueue = run.catch(() => {});
+    return run;
+  }
+  /** Whether the tab's page is hidden by `rest`, or still minimized after a wake that failed. */
+  resting(id: string): boolean {
+    const tab = this.tabs.get(id);
+    return tab?.resting === true || tab?.minimized === true;
+  }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {
     const tab = this.tabs.get(id);
@@ -568,7 +617,10 @@ export class ChromeTabs {
     on("Page.frameNavigated", (raw) => {
       const parsed = Navigated.safeParse(raw);
       if (!parsed.success || parsed.data.frame.parentId) return;
-      tab.url = (parsed.data.frame.url + (parsed.data.frame.urlFragment ?? "")).slice(0, 8192);
+      // A page that failed to load keeps its address, as a browser's address bar does, so a
+      // reload or a restart tries it again rather than Chrome's error page.
+      const { frame } = parsed.data;
+      tab.url = (frame.unreachableUrl ?? frame.url + (frame.urlFragment ?? "")).slice(0, 8192);
       this.navigated(tab);
     });
     on("Page.navigatedWithinDocument", (raw) => {
@@ -648,6 +700,9 @@ export class ChromeTabs {
     if (!host || this.stopped) throw new Error("Browser closed");
     tab.target = target;
     tab.binding++;
+    // A new target opens in a new, shown window.
+    tab.resting = false;
+    tab.minimized = false;
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       tab.popups.arrived(popup),

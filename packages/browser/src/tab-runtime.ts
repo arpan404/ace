@@ -358,6 +358,10 @@ export class TabRuntime {
     this.lastActiveAt = this.host.options.now();
     this.cursor.personActed();
   }
+  /** The person watched this tab: its idle time starts over. */
+  seen(): void {
+    this.lastActiveAt = this.host.options.now();
+  }
   private touch(actor: Actor): void {
     this.lastActiveAt = this.host.options.now();
     this.drivenBy =
