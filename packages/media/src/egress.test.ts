@@ -190,3 +190,31 @@ it("a draining handle keeps the route it was opened with while the kind's route 
   expect(marks(a.got.deliver)).toEqual([1]);
   expect(router.drops().unrouted).toBe(1);
 });
+
+it("a unit lost anywhere in a handle's life makes its end marker interrupted, even when the marker follows on", () => {
+  const { router } = routed(allLegacy);
+  const ended: boolean[] = [];
+  const a = consumers();
+  const handle = router.open("a", "tab", {
+    ...a.sinks,
+    end: (end) => void ended.push(end.interrupted),
+  });
+  router.push(encodeEgress(handle, 0, frame(1)));
+  // Sequence 1 was dropped in ace-media; 2 arrives, and the marker carries the next, 3.
+  router.push(encodeEgress(handle, 2, frame(3)));
+  router.push(encodeEgressEnd(handle, 3, false));
+  expect(marks(a.got.deliver)).toEqual([1, 3]);
+  expect(ended).toEqual([true]);
+});
+
+it("a handle whose first unit isn't its first sequence lost units before it", () => {
+  const { router } = routed(allLegacy);
+  const ended: boolean[] = [];
+  const handle = router.open("a", "tab", {
+    ...consumers().sinks,
+    end: (end) => void ended.push(end.interrupted),
+  });
+  router.push(encodeEgress(handle, 2, frame(1)));
+  router.push(encodeEgressEnd(handle, 3, false));
+  expect(ended).toEqual([true]);
+});

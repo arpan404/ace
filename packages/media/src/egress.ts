@@ -52,6 +52,8 @@ type Open = {
   kind: SourceKind;
   consumers: LegacyConsumers;
   next: number | undefined;
+  /** A unit went missing at some point in the handle's life: its stream isn't whole. */
+  lost: boolean;
   /** This handle's own route while it differs from its kind's (a source draining). */
   route: (() => SourceRoute) | undefined;
 };
@@ -88,7 +90,7 @@ export class EgressRouter {
   ): number {
     if (this.#nextHandle > maxHandle) throw new Error("Egress handles exhausted");
     const handle = this.#nextHandle++;
-    this.#open.set(handle, { source, kind, consumers, next: undefined, route });
+    this.#open.set(handle, { source, kind, consumers, next: undefined, lost: false, route });
     return handle;
   }
 
@@ -118,8 +120,8 @@ export class EgressRouter {
     const end = egressEnd(egress.frame);
     if (end) {
       // Ordered after every unit of the handle, so it goes whatever the route now says.
-      const whole = egress.sequence === (open.next ?? 0);
-      open.consumers.end?.({ interrupted: end.interrupted || !whole });
+      if (egress.sequence !== (open.next ?? 0)) open.lost = true;
+      open.consumers.end?.({ interrupted: end.interrupted || open.lost });
       return;
     }
     // A route that moved the producer back to the daemon has no egress: frames ace-media sent
@@ -131,6 +133,7 @@ export class EgressRouter {
     }
     const lost = open.next === undefined ? 0 : (egress.sequence - open.next) >>> 0;
     this.#drops.gaps += lost;
+    if (lost > 0 || (open.next === undefined && egress.sequence !== 0)) open.lost = true;
     open.next = (egress.sequence + 1) >>> 0;
     const unit: EgressUnit = {
       source: open.source,
