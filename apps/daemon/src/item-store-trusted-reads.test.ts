@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
 import { AgentId, AgentItem, ItemId, type ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
@@ -157,4 +158,68 @@ it("a page at its byte budget keeps the items that fit and pages the rest", () =
   expect(fitting.items).toEqual(whole.items.slice(-2));
   expect(fitting.itemsBefore).not.toBeNull();
   expect(store.readItemPage(thread, head, 200, budget - 1).items).toEqual(whole.items.slice(-1));
+});
+
+/**
+ * A connection whose batched tail read lets `during` run on another connection once it has read
+ * its first row: the moment a second writer could commit between two separate statements.
+ */
+function interleaved(path: string, during: () => void): DatabaseSync {
+  const db = new DatabaseSync(path);
+  const prepare = db.prepare.bind(db);
+  let ran = false;
+  db.prepare = (sql: string) => {
+    const statement = prepare(sql);
+    if (!sql.includes("json_each") || !sql.includes("item_text_chunks")) return statement;
+    const iterate = statement.iterate.bind(statement);
+    statement.iterate = (...values: SQLInputValue[]) => {
+      const rows = iterate(...values);
+      return (function* () {
+        for (const row of rows) {
+          yield row;
+          if (!ran) {
+            ran = true;
+            during();
+          }
+        }
+      })() as ReturnType<StatementSync["iterate"]>;
+    };
+    return statement;
+  };
+  return db;
+}
+
+it("a snapshot never adds chunks to a body another connection completed while it read", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-item-concurrent-"));
+  cleanup.push(() => rmSync(home, { recursive: true, force: true }));
+  const path = join(home, "events.sqlite");
+  const writer = new Store(path, console.error, { eventShape: "writer" });
+  const workspace = writer.createWorkspace("/repo", "Repo", 1);
+  const thread = createDevThread(writer, workspace).id;
+  writer.appendEvents(thread, [{ type: "item.created", item: streaming("live", "message") }]);
+  for (const append of ["hel", "lo"])
+    writer.appendEvents(thread, [
+      { type: "item.delta", itemId: liveId, agentId: owner, field: "text", append },
+    ]);
+  writer.close();
+
+  // What completing the item commits: the whole text in the body, and its chunks gone.
+  const done = JSON.stringify({ ...message("live", "hello"), complete: true });
+  const other = new DatabaseSync(path);
+  cleanup.push(() => other.close());
+  const complete = () => {
+    other.exec("BEGIN IMMEDIATE");
+    other.prepare("UPDATE items SET item = ? WHERE id = 'live'").run(done);
+    other.prepare("UPDATE item_heads SET size = ? WHERE id = 'live'").run(Buffer.byteLength(done));
+    other.exec("DELETE FROM item_text_chunks WHERE item_id = 'live'; COMMIT");
+  };
+  const reader = new Store(path, console.error, {
+    eventShape: "writer",
+    database: interleaved(path, complete),
+  });
+  cleanup.push(() => reader.close());
+  const live = reader.snapshotThread(thread).items.live;
+  expect(live).toMatchObject({ type: "message", parts: [{ type: "text", text: "hello" }] });
+  // The completion did land, so the read raced it rather than running before it.
+  expect(other.prepare("SELECT COUNT(*) AS n FROM item_text_chunks").get()?.n).toBe(0);
 });

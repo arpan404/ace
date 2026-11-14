@@ -225,25 +225,30 @@ export class ItemStore {
     return item;
   }
   /**
-   * Whole items by id, each as `materialize` gives it: one read of the bodies and one of their
-   * chunks. An id with no body throws.
+   * Whole items by id, each as `materialize` gives it. Bodies and their chunks come from one
+   * statement, so from one snapshot: a completion committed meanwhile (which folds the chunks
+   * into the body and deletes them) is seen whole or not at all. An id with no body throws.
    */
   private materializeAll(ids: readonly string[]): Map<string, Item> {
-    const list = JSON.stringify(ids);
-    const chunks = new Map<string, Record<string, unknown>[]>();
-    for (const row of this.statement(
-      "SELECT c.item_id, c.seq, c.field, c.append FROM json_each(?) j JOIN item_text_chunks c ON c.item_id = j.value ORDER BY c.item_id, c.seq",
-    ).iterate(list)) {
-      const id = String(row.item_id);
-      const rows = chunks.get(id);
-      if (rows) rows.push(row);
-      else chunks.set(id, [row]);
-    }
     const bodies = new Map<string, Record<string, unknown>>();
+    const chunks = new Map<string, Record<string, unknown>[]>();
+    // Each item's body row (kind 0) comes before its chunks (kind 1), in sequence order.
     for (const row of this.statement(
-      "SELECT i.id, i.item, i.created_seq FROM json_each(?) j JOIN items i ON i.id = j.value",
-    ).iterate(list))
-      bodies.set(String(row.id), row);
+      `SELECT j.value AS id, 0 AS kind, i.item, i.created_seq, NULL AS seq, NULL AS field, NULL AS append
+         FROM json_each(?1) j JOIN items i ON i.id = j.value
+       UNION ALL
+       SELECT j.value, 1, NULL, NULL, c.seq, c.field, c.append
+         FROM json_each(?1) j JOIN item_text_chunks c ON c.item_id = j.value
+       ORDER BY 1, 2, 5`,
+    ).iterate(JSON.stringify(ids))) {
+      const id = String(row.id);
+      if (row.kind === 0) bodies.set(id, row);
+      else {
+        const rows = chunks.get(id);
+        if (rows) rows.push(row);
+        else chunks.set(id, [row]);
+      }
+    }
     const items = new Map<string, Item>();
     for (const id of ids) {
       const row = bodies.get(id);
