@@ -76,3 +76,22 @@ enum SpikeConfiguration {
         return url
     }
 }
+
+/// `--spike-unpaired`'s own storage and defaults, emptied once per launch before anything reads
+/// them: its machines, drafts and notification settings never touch the app's real ones.
+enum UnpairedScratch {
+    static let suite = "app.ace.spike.unpaired"
+    static let root: URL = {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ace-spike-unpaired", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        return root
+    }()
+    /// The suite, emptied with `root` before its first read.
+    static var defaults: UserDefaults {
+        _ = root
+        guard let defaults = UserDefaults(suiteName: suite) else { preconditionFailure("UserDefaults refused the suite \(suite)") }
+        return defaults
+    }
+}

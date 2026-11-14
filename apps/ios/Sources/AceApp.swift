@@ -12,11 +12,17 @@ import QuartzCore
     /// The person's ace account, for the header's avatar and Settings › Profile alike.
     @State private var account = AceAccountModel()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
-    @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
-        let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
-        // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
-        LegacyTakeBacks.drain(databases: directory, into: drafts)
-        return drafts
+    @State private var drafts = AceApp.makeDrafts()
+    /// The app's drafts. A `--spike-unpaired` launch keeps its own in scratch storage and runs no
+    /// migration, so the app's real databases and defaults stay as they were.
+    private static func makeDrafts() -> ThreadDrafts? {
+        if SpikeConfiguration.unpaired { return ThreadDrafts(url: UnpairedScratch.root.appendingPathComponent("thread-drafts.json")) }
+        return (try? ProductionApp.storageDirectory()).map { directory in
+            let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+            // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
+            LegacyTakeBacks.drain(databases: directory, into: drafts)
+            return drafts
+        }
     }
     init() {
         // The system bar's titles on the approved scale, for every stack in the app.
@@ -99,18 +105,15 @@ import QuartzCore
             started = true
         }
     }
-    /// A fresh install: an empty machine list in its own scratch storage and defaults, so nothing
-    /// a fixture launch paired leaks in and nothing here reaches the fixtures.
+    /// A fresh install: an empty machine list in its own scratch storage and defaults
+    /// (`UnpairedScratch`), so nothing a fixture launch paired leaks in and nothing here reaches
+    /// the fixtures.
     private func startUnpaired() async {
         guard unpaired == nil else { return }
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ace-spike-unpaired", isDirectory: true)
-        try? FileManager.default.removeItem(at: root)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let suite = "app.ace.spike.unpaired"
-        UserDefaults.standard.removePersistentDomain(forName: suite)
+        let root = UnpairedScratch.root
         let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: ProductionApp.machineDirectory(in: root)),
                                      storage: root.appendingPathComponent("machines", isDirectory: true),
-                                     defaults: UserDefaults(suiteName: suite) ?? .standard,
+                                     defaults: UnpairedScratch.defaults,
                                      makeClient: { ClientModel(now: { Date().timeIntervalSince1970 * 1000 }) })
         unpaired = machines
         await machines.load()
