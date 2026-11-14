@@ -5,7 +5,8 @@ import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTreeWork } from "@/features/panels/index.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { syncingLabel, useLiveConnection, useLiveList } from "@/lib/live-connection.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useSubagentFocus } from "../subagent/focus.ts";
@@ -44,11 +45,15 @@ function ThreadFamily(props: { threadId: string; onClose: Close }) {
 
 function ParentThreadRow(props: { threadId: string; onClose: Close }) {
   const parent = useSidebarThread(props.threadId);
+  // The parent's status is its list entry: only a confirmed list may say it.
+  const listed = useLiveList();
+  const connection = useLiveConnection();
   const now = useNow();
   const navigate = useNavigate();
   const machine = useMachineSearch();
   const title = parent?.title ?? "Parent thread";
-  const status = parent && threadRowStatus(parent, now);
+  const status =
+    parent && (listed ? threadRowStatus(parent, now) : (connection.staleLabel ?? syncingLabel));
   return (
     <RowButton
       aria-label={`Open parent ${title}${status ? `, ${status}` : ""}`}
@@ -114,10 +119,10 @@ function AgentFamily(props: { threadId: string; agentId: string; onClose: Close 
   const agent = useAgent(props.threadId, props.agentId);
   const parent = useAgent(props.threadId, agent?.parentId ?? "");
   const { work } = useTreeWork(props.threadId);
-  const live = useLiveConnection();
+  const live = useThreadLiveState(props.threadId);
   const open = useOpenSubagent();
   if (!agent || !parent) return null;
-  const status = agentWords(parent, work, live.fresh);
+  const status = agentWords(parent, work, live);
   const parentRow =
     parent.origin === "root" ? (
       <ParentThreadRow threadId={props.threadId} onClose={props.onClose} />

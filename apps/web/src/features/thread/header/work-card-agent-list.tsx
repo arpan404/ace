@@ -5,7 +5,7 @@ import { agentName, agentTally, agentTallyParts, agentWorkState } from "@ace/ui-
 import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useTreeWork } from "@/features/panels/index.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { RowButton, RowCaret, RowLabel, RowStatic, RowSub, Section } from "./work-card-parts.tsx";
 
@@ -19,7 +19,8 @@ const page = 5;
  * The Agents section: `children` (a parent row) above the parent agent's subagents, running
  * first, settled behind their own toggle. The toggle counts what happened to the whole group,
  * what still runs or waits first ("2 working · 25 finished · 1 failed"): an agent with work
- * pending under it is never counted finished. Nothing to show, no section.
+ * pending under it is never counted finished. Nothing to show, no section. While the thread's
+ * copy isn't confirmed the toggle and every row say so ("Reconnecting…") instead of a state.
  */
 export function AgentListSection(props: {
   threadId: string;
@@ -34,7 +35,7 @@ export function AgentListSection(props: {
   );
   const ids = useThread(props.threadId, ["agents"], read, arrayEqual) ?? none;
   const { work, agents } = useTreeWork(props.threadId);
-  const live = useLiveConnection();
+  const live = useThreadLiveState(props.threadId);
   const byId = new Map<string, Agent>(agents.map((agent) => [agent.id, agent]));
   const running: Agent[] = [];
   const settled: Agent[] = [];
@@ -75,7 +76,7 @@ export function AgentListSection(props: {
       {settled.length > 0 && (
         <RowButton aria-expanded={open} onClick={() => setOpen(!open)}>
           <RowLabel>
-            {tally.map((part, index) => (
+            {live.staleLabel ?? tally.map((part, index) => (
               <Fragment key={part.text}>
                 {index > 0 && " · "}
                 <span className={part.quiet ? "text-subtle-foreground" : undefined}>
@@ -115,11 +116,11 @@ function SiblingRow(props: {
   onClose: Close;
 }) {
   const agent = useAgent(props.threadId, props.agentId);
-  const live = useLiveConnection();
+  const live = useThreadLiveState(props.threadId);
   const open = useOpenSubagent();
   if (!agent) return null;
   const name = agentName(agent);
-  const status = agentWords(agent, props.work, live.fresh);
+  const status = agentWords(agent, props.work, live);
   const words = (
     <>
       <ProviderIcon
@@ -154,8 +155,16 @@ function SiblingRow(props: {
   );
 }
 
-/** An agent's status with everything under it: never "Done" while its branch still runs. */
-export function agentWords(agent: Agent, work: Work, fresh: boolean): string {
-  const state = agentWorkState(agent, work, { fresh });
+/**
+ * An agent's status with everything under it: never "Done" while its branch still runs, and
+ * only the stale wording while the thread's copy isn't confirmed.
+ */
+export function agentWords(
+  agent: Agent,
+  work: Work,
+  live: { fresh: boolean; staleLabel: string | undefined },
+): string {
+  if (!live.fresh && live.staleLabel) return live.staleLabel;
+  const state = agentWorkState(agent, work, { fresh: live.fresh });
   return !state.running && agent.status.state === "idle" ? "Done" : state.label;
 }
