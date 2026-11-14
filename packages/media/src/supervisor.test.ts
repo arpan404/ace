@@ -213,6 +213,17 @@ describe("MediaSupervisor", () => {
     expect(h.supervisor.snapshot().phase).toBe("idle");
   });
 
+  it("counts an idle shutdown that closes its lanes and exits as no failure", async () => {
+    const h = await running();
+    h.release();
+    await h.clock.advance(60_000);
+    h.host.last.lane("priority").source.end();
+    h.host.last.exit(0, null);
+    await h.clock.advance(0);
+    expect(h.events.exits[0]).toMatchObject({ cause: "idle", failure: false });
+    expect(h.supervisor.snapshot().recentFailures).toBe(0);
+  });
+
   it("keeps running when a new need arrives before the idle timeout", async () => {
     const h = await running();
     h.release();

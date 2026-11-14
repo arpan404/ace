@@ -106,7 +106,7 @@ export interface MediaChild {
   kill(): void;
 }
 export interface MediaHost {
-  spawn(command: string): MediaChild;
+  spawn(binary: string): MediaChild;
   connect(path: string): Promise<LaneSocket>;
 }
 export interface MediaClock {
@@ -454,7 +454,8 @@ export class MediaSupervisor {
       });
       for (const lane of [priority.frames, egress.frames])
         lane.onEnd(() => {
-          if (!run.dead) this.#kill(run, "lane-closed");
+          // During an idle shutdown ace-media closes its lanes itself; the grace timer still runs.
+          if (!run.dead && !run.stopping) this.#kill(run, "lane-closed");
         });
       run.up = true;
       run.healthySince = this.options.clock.now();
@@ -721,10 +722,17 @@ function settle(run: Run, message: FromMedia): void {
 }
 
 /** The real host: ace-media as an owned child process, its lanes over `node:net`. */
-export function nodeMediaHost(env: NodeJS.ProcessEnv): MediaHost {
+export function nodeMediaHost(
+  env: NodeJS.ProcessEnv,
+  launch: (binary: string) => { command: string; args: string[] } = (binary) => ({
+    command: binary,
+    args: [],
+  }),
+): MediaHost {
   return {
-    spawn(command) {
-      const child = spawnRawSupervised({ command, env, name: "ace-media" });
+    spawn(binary) {
+      const { command, args } = launch(binary);
+      const child = spawnRawSupervised({ command, args, env, name: "ace-media" });
       return {
         pid: child.pid,
         stdin: nodeByteSink(child.stdin),
@@ -737,3 +745,12 @@ export function nodeMediaHost(env: NodeJS.ProcessEnv): MediaHost {
     connect: connectLane,
   };
 }
+
+/** The wall clock and timers, for the daemon. */
+export const systemMediaClock: MediaClock = {
+  now: () => performance.now(),
+  setTimeout(callback, ms) {
+    const timer = setTimeout(callback, ms);
+    return () => clearTimeout(timer);
+  },
+};

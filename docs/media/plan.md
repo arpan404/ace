@@ -163,6 +163,11 @@ pub enum Picture { Cpu(CpuPicture), Platform(PlatformPicture) } // PlatformPictu
     daemon sends it in `init`'s binary payload over stdin, which is already private to the two
     processes. ace-media compares in constant time, wipes its copy once both lanes are up, and
     takes no further lane connections until it restarts.
+  - **Lane hello** (`packages/media/src/lanes.ts`). A socket lane's first 37 bytes are `"ACEL"`,
+    a u8 lane tag (1 priority, 2 egress) and the 32-byte lane secret. ace-media answers one byte,
+    `0x01`, and the connection then carries that lane's frames. On a wrong secret, an unknown or
+    repeated tag, or a connection after both lanes are up, it closes the connection without
+    answering, and the supervisor treats that as a lane failure.
 - **Frames** (all lanes except egress). `u32 BE frame length` (the bytes after this field, at
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
@@ -609,6 +614,25 @@ ace-media.
   - a priority lane that drops causes a kill and a restart.
 - **Rule.** The supervisor never blocks agent tools: every call that needs ace-media has a
   deadline and a fallback.
+- **As built in M6** (`packages/media/src/supervisor.ts`).
+  - **Setting gate.** `need()` does nothing while every media setting is `legacy`, the default,
+    so nothing starts ace-media until a setting turns `auto`.
+  - **Sends.** `send()` returns false while ace-media isn't up with both lanes, or when a
+    revocation already covers the grant. The caller falls back; sources and recordings come back
+    through `replay`, which runs once both lanes are up and `listen` is sent.
+  - **Revocations.** `revoke()` writes to the priority lane and drops queued, unwritten grants it
+    covers (same device and admission with `issued` at most the revocation's, the connection,
+    or the stream), zeroing their payloads. It resolves `answered`, `killed` (the process is
+    gone, so every socket is) or `not-running`.
+  - **Exits.** `onExit` lists the stills, connections, sources and recordings the process held,
+    for their owners to fail or replay, and says whether the exit counted as a failure. An idle
+    shutdown and `dispose()` don't count. Secret payloads (`init`, `media.ticket`,
+    `source.open`, `relay.keys`, `listen`) are zeroed after their write callback, or when
+    they're dropped unwritten.
+  - **Binary.** `mediaBinaryPath` resolves `ACE_MEDIA_PATH`, then `media/ace-media(.exe)` under
+    the bundle root of the daemon's entry (the release folder or the desktop app's resources,
+    as `@ace/service/spade-layout` defines), then the source tree's release build, then its
+    debug build.
 
 ## Helper changes
 
