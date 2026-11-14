@@ -119,9 +119,26 @@ impl Sps {
 
     /// The displayed size: macroblocks minus the cropping window (§7.4.2.1.1).
     pub fn frame_size(&self) -> (u32, u32) {
+        let (w, h) = self.coded_size();
+        let (unit_x, unit_y) = self.crop_units();
+        let c = self.crop.unwrap_or_default();
+        let cut = |unit: u32, a: u32, b: u32| u64::from(unit) * (u64::from(a) + u64::from(b));
+        (
+            u64::from(w).saturating_sub(cut(unit_x, c.left, c.right)) as u32,
+            u64::from(h).saturating_sub(cut(unit_y, c.top, c.bottom)) as u32,
+        )
+    }
+
+    /// Macroblocks × 16, before cropping.
+    fn coded_size(&self) -> (u32, u32) {
         let map_units = if self.frame_mbs_only { 1 } else { 2 };
-        let w = (self.pic_width_in_mbs_minus1 + 1) * 16;
-        let h = (self.pic_height_in_map_units_minus1 + 1) * 16 * map_units;
+        let w = (self.pic_width_in_mbs_minus1.min(1023) + 1) * 16;
+        let h = (self.pic_height_in_map_units_minus1.min(1023) + 1) * 16 * map_units;
+        (w, h)
+    }
+
+    /// `CropUnitX` and `CropUnitY` (§7.4.2.1.1).
+    fn crop_units(&self) -> (u32, u32) {
         let (sub_w, sub_h) = match self.chroma_format_idc() {
             1 => (2, 2),
             2 => (2, 1),
@@ -133,11 +150,24 @@ impl Sps {
         } else {
             (sub_w, sub_h * (2 - u32::from(self.frame_mbs_only)))
         };
-        let c = self.crop.unwrap_or_default();
-        (
-            w.saturating_sub(unit_x * (c.left + c.right)),
-            h.saturating_sub(unit_y * (c.top + c.bottom)),
-        )
+        (unit_x, unit_y)
+    }
+
+    /// The cropping window must leave at least one sample each way (§7.4.2.1.1).
+    fn check_crop(&self) -> Result<(), BitstreamError> {
+        let Some(c) = self.crop else { return Ok(()) };
+        let (w, h) = self.coded_size();
+        let (ux, uy) = self.crop_units();
+        let within = |unit: u32, a: u32, b: u32, side: u32| {
+            u64::from(unit) * (u64::from(a) + u64::from(b)) < u64::from(side)
+        };
+        if within(ux, c.left, c.right, w) && within(uy, c.top, c.bottom, h) {
+            Ok(())
+        } else {
+            Err(BitstreamError::Invalid(
+                "cropping window outside the picture",
+            ))
+        }
     }
 
     /// Parses a whole SPS NAL unit (header byte included, no start code).
@@ -209,7 +239,7 @@ impl Sps {
         };
         let vui = if r.flag()? { Some(Vui::read(r)?) } else { None };
         r.trailing()?;
-        Ok(Self {
+        let sps = Self {
             profile_idc,
             constraint_flags,
             level_idc,
@@ -226,7 +256,9 @@ impl Sps {
             direct_8x8_inference,
             crop,
             vui,
-        })
+        };
+        sps.check_crop()?;
+        Ok(sps)
     }
 
     pub fn rbsp(&self) -> Vec<u8> {

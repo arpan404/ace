@@ -203,12 +203,48 @@ impl Sps {
             _ => (1, 1),
         };
         let c = self.conformance.unwrap_or_default();
+        let cut = |unit: u32, a: u32, b: u32| u64::from(unit) * (u64::from(a) + u64::from(b));
         (
-            self.pic_width_in_luma_samples
-                .saturating_sub(sub_w * (c.left + c.right)),
-            self.pic_height_in_luma_samples
-                .saturating_sub(sub_h * (c.top + c.bottom)),
+            u64::from(self.pic_width_in_luma_samples).saturating_sub(cut(sub_w, c.left, c.right))
+                as u32,
+            u64::from(self.pic_height_in_luma_samples).saturating_sub(cut(sub_h, c.top, c.bottom))
+                as u32,
         )
+    }
+
+    /// A nonzero size in whole coding blocks, and a conformance window that leaves at least
+    /// one sample each way (§7.4.3.2.1).
+    fn check_geometry(&self) -> Result<(), BitstreamError> {
+        let min_cb = 1u32 << (self.log2_min_luma_coding_block_size_minus3 + 3);
+        let (w, h) = (
+            self.pic_width_in_luma_samples,
+            self.pic_height_in_luma_samples,
+        );
+        if w == 0 || h == 0 || !w.is_multiple_of(min_cb) || !h.is_multiple_of(min_cb) {
+            return Err(BitstreamError::Invalid(
+                "picture size not a multiple of the coding block",
+            ));
+        }
+        let Some(c) = self.conformance else {
+            return Ok(());
+        };
+        let (sub_w, sub_h) = match self.chroma_array_type() {
+            1 => (2u64, 2u64),
+            2 => (2, 1),
+            _ => (1, 1),
+        };
+        let within = |unit: u64, a: u32, b: u32, side: u32| {
+            unit * (u64::from(a) + u64::from(b)) < u64::from(side)
+        };
+        if within(sub_w, c.left, c.right, self.pic_width_in_luma_samples)
+            && within(sub_h, c.top, c.bottom, self.pic_height_in_luma_samples)
+        {
+            Ok(())
+        } else {
+            Err(BitstreamError::Invalid(
+                "conformance window outside the picture",
+            ))
+        }
     }
 
     pub fn parse(nal: &[u8]) -> Result<Self, BitstreamError> {
@@ -289,7 +325,7 @@ impl Sps {
             return Err(BitstreamError::Unsupported("SPS extensions"));
         }
         r.trailing()?;
-        Ok(Self {
+        let sps = Self {
             vps_id,
             max_sub_layers_minus1,
             temporal_id_nesting,
@@ -321,7 +357,9 @@ impl Sps {
             strong_intra_smoothing_enabled,
             vui,
             extension_present,
-        })
+        };
+        sps.check_geometry()?;
+        Ok(sps)
     }
 
     pub fn rbsp(&self) -> Vec<u8> {

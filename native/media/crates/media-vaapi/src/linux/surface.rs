@@ -312,7 +312,8 @@ pub struct DmaBufPlane {
 }
 
 /// A DMA-BUF as PipeWire describes it (`SPA_DATA_DmaBuf`): a DRM format, its objects and
-/// planes.
+/// planes. `size` 0 on an object means the producer didn't give one. See
+/// [`formats::check_dmabuf`] for what is accepted.
 #[derive(Clone, Debug)]
 pub struct DmaBuf<'fd> {
     pub size: Size,
@@ -325,18 +326,25 @@ impl Surface {
     /// Imports a DMA-BUF as a surface (`VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2`): the
     /// driver maps the same memory, nothing is copied. The fds may be closed afterwards.
     pub fn import(device: &Arc<Device>, buf: &DmaBuf<'_>) -> Result<Self, CodecError> {
-        buf.size.validate()?;
-        let format = formats::from_drm(buf.drm_format)
-            .ok_or_else(|| CodecError::Unsupported("DMA-BUF format VA can't import".into()))?;
-        if buf.objects.is_empty()
-            || buf.objects.len() > 4
-            || buf.planes.is_empty()
-            || buf.planes.len() > 4
-        {
-            return Err(CodecError::InvalidInput(
-                "DMA-BUF needs 1–4 objects and planes".into(),
-            ));
-        }
+        let objects: Vec<formats::ObjectLayout> = buf
+            .objects
+            .iter()
+            .map(|o| formats::ObjectLayout {
+                size: o.size,
+                modifier: o.modifier,
+            })
+            .collect();
+        let planes: Vec<formats::PlaneLayout> = buf
+            .planes
+            .iter()
+            .map(|p| formats::PlaneLayout {
+                object: p.object,
+                offset: p.offset,
+                pitch: p.pitch,
+            })
+            .collect();
+        // Geometry is checked here, never left to the driver to misread.
+        let format = formats::check_dmabuf(buf.size, buf.drm_format, &objects, &planes)?;
         let mut desc = VADRMPRIMESurfaceDescriptor {
             fourcc: format.va_fourcc,
             width: buf.size.width,

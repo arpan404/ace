@@ -246,7 +246,7 @@ pub fn parse(jpeg: &[u8]) -> Result<Header, CodecError> {
                         id: c[0],
                         h: c[1] >> 4,
                         v: c[1] & 15,
-                        quant: c[2] & 3,
+                        quant: c[2],
                     })
                     .collect();
                 if width == 0 || height == 0 {
@@ -262,6 +262,9 @@ pub fn parse(jpeg: &[u8]) -> Result<Header, CodecError> {
                 while let Some((&pq_tq, tail)) = rest.split_first() {
                     if pq_tq >> 4 != 0 {
                         return Err(unsupported("16-bit quantization tables"));
+                    }
+                    if pq_tq & 15 > 3 {
+                        return Err(bad("quantization table id above 3"));
                     }
                     let values = tail.get(..64).ok_or_else(|| bad("short DQT"))?;
                     let mut t = [0u8; 64];
@@ -313,6 +316,7 @@ pub fn parse(jpeg: &[u8]) -> Result<Header, CodecError> {
                 if scan.len() != components.len() {
                     return Err(unsupported("more than one scan"));
                 }
+                check_tables(&components, &quant, &scan)?;
                 let end = scan_end(jpeg, pos);
                 return Ok(Header {
                     width,
@@ -330,6 +334,42 @@ pub fn parse(jpeg: &[u8]) -> Result<Header, CodecError> {
             _ => {} // APPn, COM and others carry nothing VA needs.
         }
     }
+}
+
+/// Every index a VA decoder will follow must point at something the file defined: frame
+/// components with sane sampling and loaded quantization tables, and a scan naming each
+/// frame component once with Huffman tables 0 or 1.
+fn check_tables(
+    components: &[Component],
+    quant: &[Option<[u8; 64]>; 4],
+    scan: &[ScanComponent],
+) -> Result<(), CodecError> {
+    if components.is_empty() || components.len() > 4 {
+        return Err(bad("frame needs one to four components"));
+    }
+    for (i, c) in components.iter().enumerate() {
+        if !(1..=4).contains(&c.h) || !(1..=4).contains(&c.v) {
+            return Err(bad("sampling factor outside 1–4"));
+        }
+        if quant.get(usize::from(c.quant)).is_none_or(Option::is_none) {
+            return Err(bad("component uses a quantization table never defined"));
+        }
+        if components[..i].iter().any(|o| o.id == c.id) {
+            return Err(bad("two components with one id"));
+        }
+    }
+    for (i, s) in scan.iter().enumerate() {
+        if s.dc > 1 || s.ac > 1 {
+            return Err(unsupported("Huffman table selector above 1"));
+        }
+        if !components.iter().any(|c| c.id == s.selector) {
+            return Err(bad("scan names a component the frame doesn't have"));
+        }
+        if scan[..i].iter().any(|o| o.selector == s.selector) {
+            return Err(bad("scan names a component twice"));
+        }
+    }
+    Ok(())
 }
 
 /// The first marker after `from` that isn't stuffing or a restart marker.
@@ -442,6 +482,36 @@ mod tests {
         assert_eq!(h.ac[1], ac_chroma());
         assert_eq!(out.len() - h.scan_data.end, 2);
         assert_eq!(h.scan_data.len(), 7);
+    }
+
+    /// Byte offset of the first `marker` segment's body.
+    fn segment_body(jpeg: &[u8], marker: u8) -> usize {
+        jpeg.windows(2).position(|w| w == [0xff, marker]).unwrap() + 4
+    }
+
+    #[test]
+    fn indices_the_driver_would_follow_must_point_at_defined_tables() {
+        let good = cpu_jpeg(32, 32);
+        assert!(parse(&good).is_ok());
+        let sof = segment_body(&good, 0xc0);
+        let sos = segment_body(&good, 0xda);
+        let cases: [(usize, u8, &str); 6] = [
+            (sos + 2, 0x21, "DC selector 2"),
+            (sos + 2, 0x12, "AC selector 2"),
+            (sos + 1, 9, "scan names component 9"),
+            (sof + 6 + 2, 3, "component 1 uses table 3, never defined"),
+            (sof + 6 + 1, 0x52, "sampling factor 5"),
+            (sos + 3, 1, "scan names component 1 twice"),
+        ];
+        for (at, value, what) in cases {
+            let mut bad = good.clone();
+            bad[at] = value;
+            assert!(parse(&bad).is_err(), "{what}");
+        }
+        let mut no_quant = good.clone();
+        let dqt = segment_body(&no_quant, 0xdb);
+        no_quant[dqt] = 0x05;
+        assert!(parse(&no_quant).is_err(), "table id 5");
     }
 
     #[test]

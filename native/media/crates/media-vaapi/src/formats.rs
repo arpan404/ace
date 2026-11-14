@@ -76,6 +76,99 @@ pub fn for_pixel(format: PixelFormat) -> Option<SurfaceFormat> {
     }
 }
 
+/// `DRM_FORMAT_MOD_LINEAR`.
+pub const DRM_FORMAT_MOD_LINEAR: u64 = 0;
+
+/// One plane of a DMA-BUF: the object it lives in, where, and its row pitch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaneLayout {
+    pub object: u32,
+    pub offset: u32,
+    pub pitch: u32,
+}
+
+/// One memory object: its size in bytes (0 when the producer didn't say) and modifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectLayout {
+    pub size: u32,
+    pub modifier: u64,
+}
+
+fn refuse(what: &str) -> media_codec::CodecError {
+    media_codec::CodecError::InvalidInput(format!("DMA-BUF: {what}"))
+}
+
+/// Checks a DMA-BUF's geometry before any driver sees it, and gives its surface format.
+///
+/// - The format is one VA imports here (XRGB/ARGB/XBGR/ABGR 8888, NV12).
+/// - Every object has an explicit modifier, the same for all: `DRM_FORMAT_MOD_INVALID`
+///   (an implicit layout) is refused, because importing it as linear would misread a tiled
+///   buffer. Captures negotiate explicit modifiers from `vaQuerySurfaceAttributes`.
+/// - The plane count is the format's (RGB 1, NV12 2), or twice that for a non-linear
+///   modifier, whose extra planes are compression metadata.
+/// - Each main plane's pitch holds a row (width × bytes per sample), and when the object's
+///   size is known, `offset + pitch × rows` fits inside it. Metadata planes start inside
+///   their object.
+pub fn check_dmabuf(
+    size: media_codec::Size,
+    drm_format: u32,
+    objects: &[ObjectLayout],
+    planes: &[PlaneLayout],
+) -> Result<SurfaceFormat, media_codec::CodecError> {
+    size.validate()?;
+    let format = from_drm(drm_format).ok_or_else(|| {
+        media_codec::CodecError::Unsupported("DMA-BUF format VA can't import".into())
+    })?;
+    if objects.is_empty() || objects.len() > 4 {
+        return Err(refuse("needs one to four memory objects"));
+    }
+    let modifier = objects[0].modifier;
+    if modifier == DRM_FORMAT_MOD_INVALID {
+        return Err(refuse("implicit modifier (DRM_FORMAT_MOD_INVALID)"));
+    }
+    if objects.iter().any(|o| o.modifier != modifier) {
+        return Err(refuse("objects with different modifiers"));
+    }
+    let (w, h) = (u64::from(size.width), u64::from(size.height));
+    // (row bytes, rows) per main plane.
+    let main: &[(u64, u64)] = match format.pixel {
+        PixelFormat::Nv12 => {
+            if w % 2 != 0 || h % 2 != 0 {
+                return Err(refuse("NV12 needs even sizes"));
+            }
+            &[(w, h), (w, h / 2)]
+        }
+        _ => &[(w * 4, h)],
+    };
+    let expected = if modifier == DRM_FORMAT_MOD_LINEAR {
+        main.len()
+    } else {
+        main.len() * 2
+    };
+    if planes.len() != main.len() && planes.len() != expected {
+        return Err(refuse("plane count doesn't match the format"));
+    }
+    for (i, plane) in planes.iter().enumerate() {
+        let object = objects
+            .get(plane.object as usize)
+            .ok_or_else(|| refuse("plane names no object"))?;
+        let known = u64::from(object.size);
+        let offset = u64::from(plane.offset);
+        if let Some(&(row, rows)) = main.get(i) {
+            let pitch = u64::from(plane.pitch);
+            if pitch < row {
+                return Err(refuse("pitch shorter than a row"));
+            }
+            if known != 0 && offset + pitch * rows > known {
+                return Err(refuse("plane runs past its object"));
+            }
+        } else if known != 0 && offset >= known {
+            return Err(refuse("metadata plane outside its object"));
+        }
+    }
+    Ok(format)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +177,129 @@ mod tests {
     fn fourccs_are_little_endian_character_codes() {
         assert_eq!(VA_FOURCC_NV12, 0x3231_564e);
         assert_eq!(DRM_FORMAT_XRGB8888, 0x3432_5258);
+    }
+
+    const LINEAR: ObjectLayout = ObjectLayout {
+        size: 0,
+        modifier: DRM_FORMAT_MOD_LINEAR,
+    };
+
+    fn plane(object: u32, offset: u32, pitch: u32) -> PlaneLayout {
+        PlaneLayout {
+            object,
+            offset,
+            pitch,
+        }
+    }
+
+    const HD: media_codec::Size = media_codec::Size {
+        width: 1920,
+        height: 1080,
+    };
+
+    #[test]
+    fn well_formed_captures_are_accepted() {
+        let sized = ObjectLayout {
+            size: 7680 * 1080,
+            modifier: DRM_FORMAT_MOD_LINEAR,
+        };
+        assert_eq!(
+            check_dmabuf(HD, DRM_FORMAT_XRGB8888, &[sized], &[plane(0, 0, 7680)]),
+            Ok(BGRX)
+        );
+        let nv12 = ObjectLayout {
+            size: 2048 * 1080 * 3 / 2,
+            modifier: DRM_FORMAT_MOD_LINEAR,
+        };
+        assert_eq!(
+            check_dmabuf(
+                HD,
+                DRM_FORMAT_NV12,
+                &[nv12],
+                &[plane(0, 0, 2048), plane(0, 2048 * 1080, 2048)]
+            ),
+            Ok(NV12)
+        );
+        // A tiled, compressed buffer: two main planes and their metadata planes.
+        let tiled = ObjectLayout {
+            size: 0,
+            modifier: 0x0100_0000_0000_0006,
+        };
+        let planes = [plane(0, 0, 7680), plane(0, 1 << 24, 512)];
+        assert_eq!(
+            check_dmabuf(HD, DRM_FORMAT_ARGB8888, &[tiled], &planes),
+            Ok(BGRX)
+        );
+    }
+
+    #[test]
+    fn malformed_geometry_is_refused_before_the_driver() {
+        let refused = |objects: &[ObjectLayout], planes: &[PlaneLayout], format: u32| {
+            matches!(
+                check_dmabuf(HD, format, objects, planes),
+                Err(media_codec::CodecError::InvalidInput(_))
+            )
+        };
+        let x = DRM_FORMAT_XRGB8888;
+        let implicit = ObjectLayout {
+            size: 0,
+            modifier: DRM_FORMAT_MOD_INVALID,
+        };
+        assert!(
+            refused(&[implicit], &[plane(0, 0, 7680)], x),
+            "implicit modifier"
+        );
+        assert!(refused(&[LINEAR], &[plane(0, 0, 7676)], x), "short pitch");
+        assert!(
+            refused(&[LINEAR], &[plane(0, 0, 7680), plane(0, 0, 7680)], x),
+            "RGB with two planes"
+        );
+        assert!(
+            refused(&[LINEAR], &[plane(0, 0, 1920)], DRM_FORMAT_NV12),
+            "NV12 with one plane"
+        );
+        assert!(
+            refused(&[LINEAR], &[plane(1, 0, 7680)], x),
+            "plane names a missing object"
+        );
+        let small = ObjectLayout {
+            size: 7680 * 1079,
+            modifier: DRM_FORMAT_MOD_LINEAR,
+        };
+        assert!(
+            refused(&[small], &[plane(0, 0, 7680)], x),
+            "plane past its object"
+        );
+        let huge = ObjectLayout {
+            size: u32::MAX,
+            modifier: DRM_FORMAT_MOD_LINEAR,
+        };
+        assert!(
+            refused(&[huge], &[plane(0, u32::MAX, u32::MAX)], x),
+            "offset + pitch × rows overflow"
+        );
+        let other = ObjectLayout {
+            size: 0,
+            modifier: 2,
+        };
+        assert!(
+            refused(&[LINEAR, other], &[plane(0, 0, 7680)], x),
+            "mixed modifiers"
+        );
+        assert!(refused(&[], &[plane(0, 0, 7680)], x), "no objects");
+        let odd = media_codec::Size {
+            width: 1919,
+            height: 1080,
+        };
+        assert!(matches!(
+            check_dmabuf(
+                odd,
+                DRM_FORMAT_NV12,
+                &[LINEAR],
+                &[plane(0, 0, 2048), plane(0, 0, 2048)]
+            ),
+            Err(_)
+        ));
     }
 
     #[test]

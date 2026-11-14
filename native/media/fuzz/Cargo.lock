@@ -91,6 +91,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "media-bitstream"
+version = "0.1.0"
+
+[[package]]
 name = "media-codec"
 version = "0.1.0"
 dependencies = [
@@ -109,6 +113,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "libjpeg-turbo-rs",
+ "media-bitstream",
  "media-codec",
  "zune-core",
  "zune-jpeg",
