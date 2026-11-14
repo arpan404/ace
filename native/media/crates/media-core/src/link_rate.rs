@@ -168,15 +168,19 @@ impl LinkRate {
     pub fn probing(&self) -> bool {
         self.starting && !self.hinted
     }
-    /// The most bytes a viewer should have in flight: the rate over the path's round trip (the
-    /// floor) plus `BACKLOG_MS`; unbounded until a round trip is known.
+    /// The most bytes a viewer should have in flight (ADR 0150): the rate over the path's round
+    /// trip (the floor) plus max(`BACKLOG_MS`, that round trip plus `STALL_MS`), so one tail-loss
+    /// recovery never drops deltas; unbounded until a round trip is known.
     pub fn backlog_bytes(&self) -> Option<usize> {
         // The path's round trip (the floor): a queue must not widen its own bound.
         self.floor
             .front()
             .map(|c| c.1)
             .or(self.smoothed)
-            .map(|rtt| ((self.rate / 8.0) * ((rtt + BACKLOG_MS) / 1000.0)).round() as usize)
+            .map(|rtt| {
+                ((self.rate / 8.0) * ((rtt + BACKLOG_MS.max(rtt + STALL_MS)) / 1000.0)).round()
+                    as usize
+            })
     }
     pub fn sent(&mut self, sequence: u64, bytes: usize, at: f64) {
         if self.inflight.len() >= OUTSTANDING_SENDS {

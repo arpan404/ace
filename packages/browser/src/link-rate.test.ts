@@ -148,16 +148,22 @@ describe("a viewer's link rate", () => {
     expect(simulate(rate, { link: link(100, 150), seconds: 20 }).at(-1)).toBe(limits.max);
   });
 
-  it("bounds the bytes in flight to the rate over the path's round trip plus 300 ms", () => {
+  it("bounds the bytes in flight to the rate over the round trip plus one tail-loss stall", () => {
     const rate = new LinkRate(phone);
     expect(rate.backlogBytes).toBeUndefined();
-    simulate(rate, { link: link(0.4, 200), seconds: 20, fps: 5 });
-    const rtt = rate.rtt ?? 0;
-    expect(rtt).toBeGreaterThan(300);
-    const bound = rate.backlogBytes ?? 0;
-    expect(bound).toBeLessThanOrEqual(Math.round((rate.rate / 8) * ((rtt + 300) / 1000)));
-    expect(bound).toBeGreaterThan(Math.round((rate.rate / 8) * 0.3));
+    for (let index = 0; index < 5; index++) {
+      rate.sent(index, 100, index * 100);
+      rate.acknowledged(index, index * 100 + 300);
+    }
+    // ADR 0150: RTT + max(300 ms, RTT + 200 ms), the 200 ms being TCP's minimum RTO.
+    expect(rate.backlogBytes).toBe(Math.round((rate.rate / 8) * ((300 + 300 + 200) / 1000)));
+    const short = new LinkRate(phone);
+    short.sent(0, 100, 0);
+    short.acknowledged(0, 50);
+    // A short round trip keeps the 300 ms floor of slack.
+    expect(short.backlogBytes).toBe(Math.round((short.rate / 8) * ((50 + 300) / 1000)));
   });
+
 
   it("a queue doesn't widen its own bound: it is the path's round trip, not the queued one", () => {
     const rate = new LinkRate({ ...phone, initial: 1_000_000 });

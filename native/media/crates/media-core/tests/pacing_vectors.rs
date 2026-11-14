@@ -370,11 +370,18 @@ fn link_rate_replays_edges_the_3g_link_loss_stalls_queueing_and_hints() {
             let out = &step["output"];
             assert_eq!(rate.rate(), n(out, "rate"), "{name} step {index}");
             assert_eq!(rate.probing(), b(out, "probing"), "{name} step {index}");
-            assert_eq!(
-                rate.backlog_bytes().map(|v| v as u64),
-                out["backlogBytes"].as_u64(),
-                "{name} step {index}"
-            );
+            // A byte count from float round trips: a last-bit difference may flip a .5 tie.
+            match (rate.backlog_bytes(), out["backlogBytes"].as_u64()) {
+                (Some(actual), Some(expected)) => {
+                    assert!(
+                        (actual as i64 - expected as i64).abs() <= 1,
+                        "{name} step {index}"
+                    )
+                }
+                (actual, expected) => {
+                    assert_eq!(actual.map(|v| v as u64), expected, "{name} step {index}")
+                }
+            }
             match (rate.rtt(), out["rtt"].as_f64()) {
                 (Some(actual), Some(expected)) => {
                     assert!((actual - expected).abs() < 1e-10, "{name} step {index}")

@@ -75,7 +75,7 @@ const dropFall = 0.7;
 const headroom = 1.3;
 /** A delivered rate is remembered this long as proof of what the link carries. */
 const provenWindowMs = 30_000;
-/** Bytes in flight may hold the link's rate for its round trip plus this long, no more. */
+/** Bytes in flight may hold the link's rate for its round trip plus at least this long. */
 export const backlogMs = 300;
 
 /**
@@ -159,16 +159,17 @@ export class LinkRate {
     return this.#starting && !this.#hinted;
   }
   /**
-   * The most bytes a viewer should have in flight: the rate for the path's round trip (the
-   * floor) plus `backlogMs`.
-   * Unbounded until a round trip is known.
+   * The most bytes a viewer should have in flight (ADR 0150, amending ADR 0149): the rate for the
+   * path's round trip (the floor) plus max(`backlogMs`, the round trip plus `stallMs`). One TCP
+   * tail-loss recovery takes about a round trip plus the 200 ms minimum RTO, and a stall that
+   * long must not drop deltas. Unbounded until a round trip is known.
    */
   get backlogBytes(): number | undefined {
     // The path's round trip (the floor), not the smoothed one: a queue must not widen its own
     // bound.
     const rtt = this.#floor[0]?.rtt ?? this.#smoothed;
     if (rtt === undefined) return undefined;
-    return Math.round((this.#rate / 8) * ((rtt + backlogMs) / 1000));
+    return Math.round((this.#rate / 8) * ((rtt + Math.max(backlogMs, rtt + stallMs)) / 1000));
   }
   sent(sequence: number, bytes: number, at: number): void {
     if (this.#inflight.length >= outstandingSends) this.#inflight.shift();
