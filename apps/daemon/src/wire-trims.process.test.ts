@@ -125,7 +125,13 @@ test("trimmed and whole clients of one thread each get their own encoding of the
   expect(rebuilt).toEqual(sent);
 
   // The raw payloads it went without are one read away, under the item's own access.
-  trimmed.send({ type: "item.raw", requestId: "r", threadId: f.thread.id, itemId: reply.id });
+  trimmed.send({
+    type: "item.raw",
+    requestId: "r",
+    threadId: f.thread.id,
+    itemId: reply.id,
+    from: 0,
+  });
   const answer = ServerMessage.parse(
     JSON.parse(await trimmed.until((text) => text.includes('"requestId":"r"'))),
   );
@@ -148,6 +154,7 @@ test("an item's raw payloads are refused where the thread is not readable, and a
     requestId: "hidden",
     threadId: ThreadId.parse("hidden"),
     itemId: reply.id,
+    from: 0,
   });
   expect(
     JSON.parse(await client.until((text) => text.includes('"requestId":"hidden"'))),
@@ -180,7 +187,7 @@ function coldLegacyItems(): Item[] {
 
 /** What a transcript shows: its visible items in order, each by id and text. */
 function visible(items: readonly Item[]): string[] {
-  const byId = new Map(items.map((item) => [item.id, item]));
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
   return visibleHistoryOrder(
     items.map((item) => item.id),
     (id) => byId.get(id),
@@ -240,7 +247,11 @@ test("a trimmed client shows the same transcript as a whole one: snapshot, repla
       scope: { kind: "thread", threadId: f.thread.id },
     });
     const snapshot = itemsOf(
-      parsed(await client.until((text) => text.includes(`"fresh-${tag}"`) && text.includes('"snapshot"'))),
+      parsed(
+        await client.until(
+          (text) => text.includes(`"fresh-${tag}"`) && text.includes('"snapshot"'),
+        ),
+      ),
     );
     // History page: the newest items, as scrolling back reads them.
     client.send({
@@ -273,12 +284,20 @@ test("raw payloads beyond one reply are read page by page, every one exactly onc
     type: "assistant",
     data: { index, text: String(index % 10).repeat(60_000) },
   }));
-  f.store.appendEvents(f.thread.id, [{ type: "item.created", item: { ...reply, raw: many } }]);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: Item.parse({ ...reply, raw: many }) },
+  ]);
   const read: unknown[] = [];
   let from: number | undefined = 0;
   let pages = 0;
   while (from !== undefined) {
-    client.send({ type: "item.raw", requestId: `p${pages}`, threadId: f.thread.id, itemId: reply.id, from });
+    client.send({
+      type: "item.raw",
+      requestId: `p${pages}`,
+      threadId: f.thread.id,
+      itemId: reply.id,
+      from,
+    });
     const answer = ServerMessage.parse(
       JSON.parse(await client.until((text) => text.includes(`"requestId":"p${pages}"`))),
     );
@@ -299,13 +318,22 @@ test("a client that reconnects asking for another trim gets that encoding, not t
   const first = await join({});
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item: reply }]);
   f.store.appendEvents(f.thread.id, [
-    { type: "item.delta", itemId: reply.id, agentId: AgentId.parse("root"), field: "text", append: "!" },
+    {
+      type: "item.delta",
+      itemId: reply.id,
+      agentId: AgentId.parse("root"),
+      field: "text",
+      append: "!",
+    },
   ]);
   // The whole encodings of both events are cached now, from the first client.
   expect(await first.until(isEvents)).toContain(JSON.stringify(raw));
   expect(await first.until(isEvents)).toContain('"payload":{"type":"item.delta"');
   await first.close();
-  const again = await join({ trims: [wireTrims.rawOnDemand], framing: ["lines", shortDeltasFraming] });
+  const again = await join({
+    trims: [wireTrims.rawOnDemand],
+    framing: ["lines", shortDeltasFraming],
+  });
   again.send({
     type: "subscribe",
     subscriptionId: "resume",
