@@ -200,6 +200,47 @@ const finishedChain = (): Scenario[] =>
     ],
   }));
 
+/** Six delegates that finished before the Summary opened, so a kept copy paints all six at once. */
+const settledIds = Array.from({ length: 6 }, (_, index) => `thread-settled-${index}`);
+const settledTree = (): Scenario[] => [
+  {
+    thread: {
+      id: "thread-settled",
+      workspaceId: "acme",
+      title: "Settled delegates",
+      provider: "claude",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("claude"),
+          facts.turn("root"),
+          ...settledIds.flatMap((id, index) =>
+            delegated(`settled-${index}`, id, `Settled ${index}`),
+          ),
+          facts.endTurn("root"),
+        ],
+      },
+    ],
+  },
+  ...settledIds.map((id, index): Scenario => ({
+    thread: {
+      id,
+      workspaceId: "acme",
+      title: `Settled ${index}`,
+      provider: "claude",
+      parentThreadId: "thread-settled",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [facts.rootAgent("claude"), facts.turn("root"), facts.endTurn("root")],
+      },
+    ],
+  })),
+];
+
 test("a delegated thread whose first snapshot hasn't come is syncing: never done, and neither is anything above it", async () => {
   const gate: Gate = { held: false, queue: [], newWires: true };
   const app = harness({ client: (daemon) => gatedClient(daemon, memoryReadSnapshots(), gate) });
@@ -229,6 +270,33 @@ test("a delegated thread whose first snapshot hasn't come is syncing: never done
   });
   await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
   expect(build.getAttribute("aria-label")).not.toMatch(/syncing/);
+});
+
+test("facts settling from a kept copy fold at once: no finished row plays an exit", async () => {
+  const gate: Gate = { held: false, queue: [], newWires: true };
+  const app = harness({ client: (daemon) => gatedClient(daemon, memoryReadSnapshots(), gate) });
+  for (const scenario of settledTree()) app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-settled");
+  let work = await openWorkPanel();
+  // The first look confirms the delegates and folds them.
+  await within(work).findByRole("treeitem", { name: "6 done" });
+
+  // Closed, the Summary lets the delegated threads go; what the client keeps is unconfirmed.
+  await closeSummary();
+  gate.held = true;
+  work = await openWorkPanel();
+  expect((await agentRow(work, "Settled 0")).getAttribute("aria-label")).toBe("Settled 0: syncing");
+  expect(within(work).queryByRole("treeitem", { name: "6 done" })).toBeNull();
+
+  // The daemon confirms them: nothing finished while the person watched, so the fold shows at
+  // once. No row fades out and the done line does not rise in.
+  act(() => {
+    gate.held = false;
+    for (const deliver of gate.queue.splice(0)) deliver();
+  });
+  const done = await within(work).findByRole("treeitem", { name: "6 done" });
+  expect(work.querySelector(".fx-fade-out")).toBeNull();
+  expect(done.closest("li")?.className ?? "").not.toContain("fx-rise-in");
 });
 
 test("when the focused agent finishes and folds into the done line, focus moves to that line", async () => {

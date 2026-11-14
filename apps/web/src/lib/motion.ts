@@ -102,7 +102,7 @@ export interface ListRow<T> {
   delay: number;
 }
 
-export interface ListMotionOptions {
+export interface ListMotionOptions<T> {
   /**
    * Rows leaving together go one after another, this many ms apart, top first. The spread is
    * squeezed so the last row has left within `staggerSpanMs` of the change, however many leave.
@@ -110,6 +110,12 @@ export interface ListMotionOptions {
   exitStagger?: number;
   /** Above this many rows entering or leaving at once, a change shows at once. */
   bulkAt?: number;
+  /**
+   * Rows leaving for this reason are a reset, not news: the new list shows at once, with no exit.
+   * A list that paints stored facts first (marked unconfirmed) uses it so the settle into its
+   * folds doesn't animate rows that were never current.
+   */
+  snapWhen?: (leaving: readonly T[]) => boolean;
 }
 
 export interface ListMotion<T> {
@@ -156,15 +162,15 @@ const noKeys: ReadonlySet<string> = new Set();
 
 /**
  * Choreography for a keyed list: new rows rise in, removed rows fade out where they were, and
- * the rows between slide to their new places. A first fill, a bulk change (filter flip) or
- * reduced motion just shows the new list.
+ * the rows between slide to their new places. A first fill, a bulk change (filter flip), a
+ * settle the caller marks with `snapWhen`, or reduced motion just shows the new list.
  */
 export function useListMotion<T>(
   items: readonly T[],
   keyOf: (item: T) => string,
-  options: ListMotionOptions = {},
+  options: ListMotionOptions<T> = {},
 ): ListMotion<T> {
-  const { exitStagger = 0, bulkAt = bulkChange } = options;
+  const { exitStagger = 0, bulkAt = bulkChange, snapWhen } = options;
   const reduced = useReducedMotion();
   const [state, setState] = useState<ListState<T>>(() => ({
     items,
@@ -179,7 +185,12 @@ export function useListMotion<T>(
     if (sameKeys(state.keys, keys)) setState({ ...state, items, keys });
     else {
       const change = diffList(state.keys, keys, bulkAt);
-      const animate = !reduced && !change.bulk;
+      const leaving = change.left.flatMap(({ index }) => {
+        const item = state.items[index];
+        return item === undefined ? [] : [item];
+      });
+      const snap = snapWhen !== undefined && leaving.length > 0 && snapWhen(leaving);
+      const animate = !reduced && !change.bulk && !snap;
       const present = new Set(keys);
       const wave = state.movedAt + 1;
       const delays = exitDelays(change.left.length, exitStagger);

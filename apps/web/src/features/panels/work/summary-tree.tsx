@@ -183,7 +183,8 @@ const foldStagger = 40;
 /**
  * One level of the tree. Under a parent, finished siblings fold into one "N done" row that opens
  * in place; the tree's own roots always show. Rows that leave fade out where they were, one
- * after another, before the level closes up; rows that arrive rise in.
+ * after another, before the level closes up; rows that arrive rise in. A level whose facts just
+ * became current is not a live finish: it settles at once, with nothing playing an exit.
  */
 function Branch(props: {
   nodes: readonly ForestNode[];
@@ -199,10 +200,12 @@ function Branch(props: {
         : foldFinished(parent, nodes),
     [parent, nodes],
   );
-  // However many agents a sync finishes at once, each fold plays: the stagger bounds the time.
+  // Facts the client kept paint first, as rows that are still syncing; when the daemon confirms
+  // them the level re-groups into its folds. That settle is a reset, not agents finishing while
+  // the person watched, so it shows at once. Only later folds play their exits.
   const { rows } = useListMotion(level, levelKey, {
     exitStagger: foldStagger,
-    bulkAt: Number.POSITIVE_INFINITY,
+    snapWhen: (leaving) => leaving.some((row) => row.kind === "node" && row.node.unconfirmed),
   });
   // A leaving row is drawn from its latest state, so an agent that just finished doesn't pulse
   // on its way out.
