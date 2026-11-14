@@ -94,11 +94,30 @@ extension XCUIApplication {
     var newThreadButton: XCUIElement { buttons["inbox.compose"].firstMatch }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {
-        XCTAssertTrue(inboxReady.waitForExistence(timeout: timeout))
+        XCTAssertTrue(waitForInbox(timeout: timeout), "the Threads list never showed its Inbox control")
         let row = buttons[identifier]
         bringToMiddle(row)
         XCTAssertTrue(row.isHittable, "\(identifier) never showed in the inbox")
         return row
+    }
+    /// Waits for the Threads list. Back from a thread the list keeps its place, so scrolled down
+    /// its first row, the Inbox control, is out of view and unloaded: the list is dragged back to
+    /// its top, down its own column, as a person would.
+    @MainActor func waitForInbox(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let rows = buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-"))
+        while Date() < deadline {
+            if inboxReady.exists { return true }
+            let row = rows.firstMatch
+            if row.exists, row.isHittable, frame.width > 0 {
+                let x = min(max(row.frame.midX / frame.width, 0.05), 0.95)
+                coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3))
+                    .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.85)))
+            } else {
+                _ = inboxReady.waitForExistence(timeout: 1)
+            }
+        }
+        return inboxReady.exists
     }
     /// Taps one of Inbox, Snoozed and Settled. They are the Threads list's first row, so a list
     /// scrolled down has them out of view: it is dragged back to its top first, as a person would.
