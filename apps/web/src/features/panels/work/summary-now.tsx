@@ -1,11 +1,11 @@
 import type { LinkedPullRequest, Thread, TurnSummary } from "@ace/protocol";
 import {
-  forestAsker,
   forestNow,
+  mainAgentError,
   nowLine,
   optionEffort,
   providerNames,
-  type AgentForestNode,
+  summaryAsker,
   type AgentForest,
   type ThreadWork,
 } from "@ace/ui-core";
@@ -39,13 +39,6 @@ function ModelChip(props: { thread: Pick<Thread, "execution" | "provider" | "acp
   );
 }
 
-/** The request the asker waits on: its own, or for a delegate, its thread's main agent's. */
-function askOf(asker: AgentForestNode, works: ReadonlyMap<string, ThreadWork>) {
-  const own = works.get(asker.threadId)?.interactions.find((i) => i.agentId === asker.agent.id);
-  if (own || !asker.childThread) return own;
-  return works.get(asker.childThread)?.interactions.find((i) => i.agentId === asker.childRoot?.id);
-}
-
 /**
  * Now: one short line in text-md 500 and one grey line. It names who needs the person and what
  * they ask, with Open to that agent's thread; else how long the thread has worked and what works,
@@ -63,12 +56,8 @@ export function SummaryNow(props: {
 }) {
   const now = useNow();
   const openSubagent = useOpenSubagent();
-  const roots = props.forest.roots;
-  const asker = forestAsker(roots);
-  const identity = useAgentIdentity(asker?.threadId ?? "", asker?.agent);
-  const main = roots[0];
-  const rootAgent = main?.kind === "agent" ? main.agent : undefined;
-  const isMain = asker?.agent.origin === "root" && asker.threadId === props.threadId;
+  const asker = summaryAsker(props.threadId, props.forest, props.works);
+  const identity = useAgentIdentity(asker?.node.threadId ?? "", asker?.node.agent);
   const line = nowLine({
     status: props.thread.status,
     // The whole tree, not just the thread's own status: never done while any branch is live.
@@ -80,23 +69,12 @@ export function SummaryNow(props: {
     },
     prs: props.prs,
     now,
-    asker: asker && {
-      name: identity.name,
-      root: isMain,
-      request: askOf(asker, props.works)?.request,
-    },
-    error: rootAgent?.status.state === "failed" ? rootAgent.status.error.message : undefined,
+    asker: asker && { name: identity.name, root: asker.root, request: asker.request },
+    error: mainAgentError(props.forest),
   });
   const tone = line.tone === "plain" ? undefined : line.tone;
-  const open =
-    asker && !isMain
-      ? () =>
-          openSubagent({
-            threadId: asker.threadId,
-            agentId: asker.agent.id,
-            childThreadId: asker.agent.machine ? undefined : asker.agent.childThreadId,
-          })
-      : undefined;
+  const target = asker?.open;
+  const open = target ? () => openSubagent(target) : undefined;
   return (
     <div className="flex min-w-0 flex-col gap-[2px] px-2 pt-1">
       <div className="flex min-w-0 items-center gap-2">

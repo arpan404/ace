@@ -172,3 +172,26 @@ test("a held turn never hides work that is live, or a request", () => {
   });
   expect(asking?.status?.label).toBe("Approve");
 });
+
+test("a goal's pill carries its progress, as the web's goal strip does", () => {
+  const goal = {
+    objective: "every test passes",
+    status: "active" as const,
+    tokensUsed: 182_000,
+    tokenBudget: 500_000,
+    timeUsedSeconds: 1_920,
+    checks: 3,
+  };
+  const pill = livePill({ activity: undefined, queued: 0, goal, requestShown: false });
+  expect(pill?.segments[0]).toMatchObject({
+    label: "Pursuing goal",
+    detail: "182K / 500K tokens · 32m 0s · 3 checks",
+  });
+  const fresh = livePill({
+    activity: undefined,
+    queued: 0,
+    goal: { objective: "ship", status: "active" },
+    requestShown: false,
+  });
+  expect(fresh?.segments[0]?.detail).toBeUndefined();
+});

@@ -1,0 +1,498 @@
+{
+  "scenarios": [
+    {
+      "input": {
+        "connection": "local",
+        "pressure": -1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 12000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 16000000
+      }
+    },
+    {
+      "input": {
+        "connection": "local",
+        "pressure": 0,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 12000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 16000000
+      }
+    },
+    {
+      "input": {
+        "connection": "local",
+        "pressure": 1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 10666667
+      }
+    },
+    {
+      "input": {
+        "connection": "local",
+        "pressure": 2,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 6000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 8000000
+      }
+    },
+    {
+      "input": {
+        "connection": "local",
+        "pressure": 3,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 4800000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 6400000
+      }
+    },
+    {
+      "input": {
+        "connection": "local",
+        "pressure": 4,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 4800000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 6400000
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": -1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 2560,
+        "fps": 60,
+        "bitrate": 10000000
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": 0,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 2560,
+        "fps": 60,
+        "bitrate": 10000000
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": 1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 5333333
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 2560,
+        "fps": 60,
+        "bitrate": 6666667
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": 2,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 4000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 2560,
+        "fps": 60,
+        "bitrate": 5000000
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": 3,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1088,
+        "maxHeight": 2176,
+        "fps": 60,
+        "bitrate": 3200000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1536,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 4000000
+      }
+    },
+    {
+      "input": {
+        "connection": "remote",
+        "pressure": 4,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1088,
+        "maxHeight": 2176,
+        "fps": 60,
+        "bitrate": 3200000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1536,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 4000000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": -1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1080,
+        "maxHeight": 2160,
+        "fps": 60,
+        "bitrate": 5000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1920,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 6000000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": 0,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1080,
+        "maxHeight": 2160,
+        "fps": 60,
+        "bitrate": 5000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1920,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 6000000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": 1,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1080,
+        "maxHeight": 2160,
+        "fps": 60,
+        "bitrate": 3333333
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1920,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 4000000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": 2,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 1080,
+        "maxHeight": 2160,
+        "fps": 60,
+        "bitrate": 2500000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1920,
+        "maxHeight": 1920,
+        "fps": 60,
+        "bitrate": 3000000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": 3,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 832,
+        "maxHeight": 1664,
+        "fps": 60,
+        "bitrate": 2000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1472,
+        "maxHeight": 1472,
+        "fps": 60,
+        "bitrate": 2400000
+      }
+    },
+    {
+      "input": {
+        "connection": "relay",
+        "pressure": 4,
+        "panel": {
+          "width": 2001,
+          "height": 3001
+        }
+      },
+      "device": {
+        "codec": "h264",
+        "maxWidth": 832,
+        "maxHeight": 1664,
+        "fps": 60,
+        "bitrate": 2000000
+      },
+      "screen": {
+        "codec": "h264",
+        "maxWidth": 1472,
+        "maxHeight": 1472,
+        "fps": 60,
+        "bitrate": 2400000
+      }
+    }
+  ],
+  "common": [
+    {
+      "input": [],
+      "output": {
+        "codec": "jpeg",
+        "maxWidth": 1920,
+        "maxHeight": 2160,
+        "fps": 30,
+        "bitrate": 4000000
+      }
+    },
+    {
+      "input": [
+        {
+          "codec": "h264",
+          "maxWidth": 2048,
+          "maxHeight": 3008,
+          "fps": 60,
+          "bitrate": 12000000
+        },
+        {
+          "codec": "h264",
+          "maxWidth": 2048,
+          "maxHeight": 3008,
+          "fps": 60,
+          "bitrate": 12000000
+        },
+        {
+          "codec": "h264",
+          "maxWidth": 2048,
+          "maxHeight": 3008,
+          "fps": 60,
+          "bitrate": 8000000
+        }
+      ],
+      "output": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 8000000
+      }
+    },
+    {
+      "input": [
+        {
+          "codec": "h264",
+          "maxWidth": 2048,
+          "maxHeight": 3008,
+          "fps": 60,
+          "bitrate": 12000000
+        }
+      ],
+      "output": {
+        "codec": "h264",
+        "maxWidth": 2048,
+        "maxHeight": 3008,
+        "fps": 60,
+        "bitrate": 12000000
+      }
+    }
+  ]
+}

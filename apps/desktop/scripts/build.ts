@@ -12,6 +12,7 @@ import {
   stageLinuxScreenHelper,
 } from "@ace/release";
 import { stageBunRuntime } from "@ace/release/daemon-runtime";
+import { stageAceMedia } from "@ace/release/ace-media";
 import { stageSpadeServer } from "@ace/release/spade-server";
 import { ReleaseTarget } from "@ace/protocol";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
@@ -120,6 +121,15 @@ log(
     env: process.env,
   })}`,
 );
+
+log("ace-media");
+await stageAceMedia({
+  repo,
+  root: dist,
+  target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+  version: appVersion,
+  env: process.env,
+});
 
 log("ripgrep");
 await stageRipgrep(join(dist, "bin"));

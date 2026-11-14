@@ -11,13 +11,31 @@ struct CatalogReply: Decodable {
     let entries: [Entry]
     let stale: Bool
 }
+/// A Skills and commands page's read (`bridge/catalog-page.ts`): a stale first answer is
+/// `refreshing`, and asking again with `settle` answers once discovery ends or the retries run out.
+struct CatalogPageReply: Decodable {
+    let entries: [CatalogReply.Entry]
+    let stale: Bool
+    let refreshing: Bool
+    let notice: String?
+}
+extension ClientModel {
+    /// Reads a catalog page, showing the first answer at once and the settled one after it.
+    func catalogPage(_ target: [String: Any], show: (CatalogPageReply) -> Void) async throws {
+        let request = target.merging(["type": "catalog.page"]) { _, page in page }
+        let first = try await service(request, as: CatalogPageReply.self)
+        show(first)
+        guard first.refreshing, !Task.isCancelled else { return }
+        show(try await service(request.merging(["settle": true]) { _, settle in settle }, as: CatalogPageReply.self))
+    }
+}
 struct ThreadCatalogView: View {
     let model: ClientModel
     let threadId: String
     @State private var entries: [CatalogReply.Entry] = []
     @State private var query = ""
     @State private var problem: String?
-    @State private var stale = false
+    @State private var notice: String?
     @State private var loaded = false
     @State private var loading = false
     private var filtered: [CatalogReply.Entry] { entries.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) } }
@@ -27,7 +45,7 @@ struct ThreadCatalogView: View {
             ServiceProblem(message: problem)
             if problem != nil { Button("Retry") { Task { await read() } }.buttonStyle(.textAction()).disabled(loading) }
             if !loaded && problem == nil { SkeletonRows(label: "Reading skills and commands") }
-            if stale { Text("Showing cached entries. Refresh when your machine is available.") }
+            if let notice { QuietSectionRow { QuietRowText(title: notice, tone: AceDesign.Ink.muted) } }
             ForEach(filtered) { entry in
                 NavigationLink { CatalogInvokeView(model: model, threadId: threadId, entry: entry) } label: {
                     QuietSectionRow {
@@ -37,8 +55,12 @@ struct ThreadCatalogView: View {
                     }
                 }
             }
-            if loaded && !entries.isEmpty && filtered.isEmpty { Text("No matching skills or commands.").foregroundStyle(AceDesign.Ink.muted) }
-            if loaded && entries.isEmpty && problem == nil { Text("No skills or commands available for this thread.") }
+            if loaded && !entries.isEmpty && filtered.isEmpty {
+                QuietSectionRow { QuietRowText(title: "No matching skills or commands.", tone: AceDesign.Ink.muted) }
+            }
+            if loaded && entries.isEmpty && problem == nil && notice == nil {
+                QuietSectionRow { QuietRowText(title: "No skills or commands available for this thread.", tone: AceDesign.Ink.muted) }
+            }
             }.padding(.vertical, AceDesign.Space.related)
         }
         .buttonStyle(.plain)
@@ -52,9 +74,10 @@ struct ThreadCatalogView: View {
         loading = true
         defer { loading = false }
         do {
-            let reply = try await model.service(["type": "catalog.list", "threadId": threadId, "limit": 512], as: CatalogReply.self)
-            entries = reply.entries; stale = reply.stale; problem = nil; loaded = true
-        } catch { problem = error.localizedDescription }
+            try await model.catalogPage(["threadId": threadId]) { reply in
+                entries = reply.entries; notice = reply.notice; problem = nil; loaded = true
+            }
+        } catch { notice = nil; problem = error.localizedDescription }
     }
 }
 private struct CatalogInvokeView: View {

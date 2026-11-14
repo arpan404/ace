@@ -12,14 +12,14 @@ import Foundation
         default: Issue.record("Unexpected patch \(patch)")
         }
     }
-    private func header(_ path: String, file: String, version: String, pages: Int) -> String {
+    private func header(_ path: String, file: String, version: String, pages: Int, part: Int = 0, onward: Bool = false) -> String {
         """
-        {"type":"changes.file","threadId":"t","epoch":1,"file":"\(file)","path":"\(path)","version":"\(version)","state":"ready","message":"","binary":false,"pages":\(pages),"rows":3,"remaining":0,"complete":true,"cut":false,"empty":false,"viewed":false}
+        {"type":"changes.file","threadId":"t","epoch":1,"file":"\(file)","path":"\(path)","version":"\(version)","state":"ready","message":"","binary":false,"pages":\(pages),"rows":3,"remaining":0,"complete":true,"cut":\(onward),"part":\(part),"onward":\(onward),"empty":false,"viewed":false}
         """
     }
-    private func page(_ path: String, file: String, version: String, index: Int, rows: [(Int, String)]) -> String {
+    private func page(_ path: String, file: String, version: String, index: Int, rows: [(Int, String)], part: Int = 0) -> String {
         let lines = rows.map { "{\"i\":\($0.0),\"kind\":\"add\",\"old\":null,\"new\":\($0.0 + 1),\"text\":\"\($0.1)\",\"length\":\($0.1.count),\"clipped\":false,\"count\":null}" }
-        return "{\"type\":\"changes.page\",\"threadId\":\"t\",\"epoch\":1,\"file\":\"\(file)\",\"path\":\"\(path)\",\"version\":\"\(version)\",\"index\":\(index),\"layout\":\"unified\",\"lines\":[\(lines.joined(separator: ","))]}"
+        return "{\"type\":\"changes.page\",\"threadId\":\"t\",\"epoch\":1,\"file\":\"\(file)\",\"path\":\"\(path)\",\"version\":\"\(version)\",\"index\":\(index),\"part\":\(part),\"layout\":\"unified\",\"lines\":[\(lines.joined(separator: ","))]}"
     }
     private func summary(open: [String]) -> String {
         let paths = open.map { "\"\($0)\"" }.joined(separator: ",")
@@ -49,6 +49,20 @@ import Foundation
         try apply(page("a.ts", file: "f1", version: "v2", index: 0, rows: [(0, "new")]), to: sheets)
         file = try #require(sheets.files["a.ts"])
         #expect(sheets.rows(file).map(\.text) == ["new"])
+    }
+
+    @Test func theNextPartOfALongFileReplacesThePartShownAndIgnoresItsLatePages() throws {
+        let sheets = ThreadSheetsModel()
+        try apply(header("big.jsonl", file: "f1", version: "v1", pages: 1, onward: true), to: sheets)
+        try apply(page("big.jsonl", file: "f1", version: "v1", index: 0, rows: [(0, "part one")]), to: sheets)
+        try apply(header("big.jsonl", file: "f1", version: "v1", pages: 1, part: 1), to: sheets)
+        var file = try #require(sheets.files["big.jsonl"])
+        #expect(sheets.rows(file).isEmpty, "the part read on from lets its rows go")
+        try apply(page("big.jsonl", file: "f1", version: "v1", index: 0, rows: [(0, "late part one")]), to: sheets)
+        try apply(page("big.jsonl", file: "f1", version: "v1", index: 0, rows: [(0, "part two")], part: 1), to: sheets)
+        file = try #require(sheets.files["big.jsonl"])
+        #expect(sheets.rows(file).map(\.text) == ["part two"])
+        #expect(file.onward == false)
     }
 
     @Test func aFileNoLongerOpenGoesWithItsPages() throws {

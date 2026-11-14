@@ -1,0 +1,17 @@
+{
+  "name": "@ace/media",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./wire": "./src/wire.ts",
+    "./frame": "./src/frame.ts",
+    "./key-block": "./src/key-block.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

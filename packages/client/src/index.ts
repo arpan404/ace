@@ -95,6 +95,8 @@ export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
 /** Bounded wire base64 to bytes, natively where the engine can. */
 export { decodeBase64 } from "./base64.ts";
+/** SHA-256 fed in parts, for an upload's hash without holding the file. */
+export { Sha256 } from "./sha256.ts";
 export {
   connectionLost,
   downloadFile,

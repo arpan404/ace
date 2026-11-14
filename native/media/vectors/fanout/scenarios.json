@@ -1,0 +1,103 @@
+{
+  "steps": [
+    {
+      "sequence": 0,
+      "key": true,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 1,
+      "key": false,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 2,
+      "key": false,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 3,
+      "key": true,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 4,
+      "key": false,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 5,
+      "key": false,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 6,
+      "key": true,
+      "bytes": {
+        "length": 10
+      }
+    },
+    {
+      "sequence": 7,
+      "key": false,
+      "bytes": {
+        "length": 10
+      }
+    }
+  ],
+  "ack": {
+    "after": 5,
+    "sequence": 4
+  },
+  "events": [
+    {
+      "keyframe": "e"
+    },
+    {
+      "sent": 0
+    },
+    {
+      "id": "v",
+      "playing": true
+    },
+    {
+      "sent": 1
+    },
+    {
+      "dropped": "v"
+    },
+    {
+      "keyframe": "e"
+    },
+    {
+      "dropped": "v"
+    },
+    {
+      "keyframe": "e"
+    },
+    {
+      "sent": 3
+    },
+    {
+      "sent": 6
+    },
+    {
+      "dropped": "v"
+    },
+    {
+      "keyframe": "e"
+    }
+  ]
+}

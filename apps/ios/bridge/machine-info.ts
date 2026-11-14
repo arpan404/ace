@@ -52,6 +52,8 @@ export class MachineProviders {
   #pump: PatchPump;
   #wanted = false;
   #loading = false;
+  /** Asked again while a read was out: one more read follows it, so the newest answer shows. */
+  #again = false;
   #stop: () => void;
   /** The last rows read, kept on screen when a later read fails. */
   #last: { providers: unknown[]; absent: unknown[]; version: string | null } | undefined;
@@ -83,7 +85,10 @@ export class MachineProviders {
     this.#stop();
   }
   async #load(): Promise<void> {
-    if (this.#loading) return;
+    if (this.#loading) {
+      this.#again = true;
+      return;
+    }
     this.#loading = true;
     try {
       const [providers, accounts, identity] = await Promise.allSettled([
@@ -124,6 +129,10 @@ export class MachineProviders {
       }));
     } finally {
       this.#loading = false;
+      if (this.#again) {
+        this.#again = false;
+        void this.#load();
+      }
     }
   }
 }

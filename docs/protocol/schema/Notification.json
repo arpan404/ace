@@ -32,6 +32,11 @@
       "minimum": 0,
       "type": "integer"
     },
+    "cursor": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "id": {
       "maxLength": 200,
       "minLength": 1,

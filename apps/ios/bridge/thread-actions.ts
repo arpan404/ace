@@ -1,5 +1,5 @@
 import { AccessMode, KnownSpeed } from "@ace/protocol";
-import { otherAnswer, type QuestionDraft } from "@ace/ui-core";
+import { messageQuoteLimit, otherAnswer, type QuestionDraft } from "@ace/ui-core";
 import { z } from "zod";
 import { References } from "./composer-references.ts";
 import { Picked } from "./thread-attachments.ts";
@@ -178,6 +178,29 @@ export const ThreadAction = z.discriminatedUnion("type", [
   /** The next message's browser annotations: remove one (the rest close ranks) or all. */
   z.object({ type: z.literal("annotation.remove"), id: z.string().min(1).max(128) }),
   z.object({ type: z.literal("annotation.clear") }),
+  /** Reply to the words between `start` and `end` (UTF-16) of an agent's message, or let go. */
+  z.object({
+    type: z.literal("quote.add"),
+    message: z.string().max(1_000_000),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("quote.remove"), id: z.string().min(1).max(128) }),
+  /** The quotes the phone kept with the thread's draft, given back when the thread opens. */
+  z.object({
+    type: z.literal("quote.restore"),
+    quotes: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          text: z.string().min(1).max(1_000_000),
+          before: z.string().max(4096),
+          after: z.string().max(4096),
+        }),
+      )
+      .max(messageQuoteLimit),
+  }),
+  z.object({ type: z.literal("quote.clear") }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
 

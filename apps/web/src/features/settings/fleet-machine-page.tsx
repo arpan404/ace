@@ -9,8 +9,7 @@ import { MachineScope } from "@/lib/machine-scope.tsx";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { ConnectedApps } from "@/features/connected-apps/index.ts";
 import { ConnectApp } from "./connect-app.tsx";
-import { linkersOf } from "./data/fleet-links.ts";
-import { machineState } from "./data/fleet-words.ts";
+import { clientDependents, machineState, type Dependents } from "@ace/ui-core/fleet-map";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { MoreOptions } from "./fleet-more.tsx";
 import { ReachRows } from "./fleet-reach.tsx";
@@ -36,14 +35,14 @@ const back = (
 );
 
 /** What reaches `machine` now: this window (for another machine), its devices and its linkers. */
-function dependentsOf(machine: Machine, fleet: Fleet): string[] {
-  return [
-    ...(machine.primary ? [] : ["This window"]),
-    ...(fleet.devices.get(machine.id)?.data ?? [])
-      .filter((device) => !device.self)
-      .map((device) => device.name),
-    ...linkersOf(machine.id, fleet.facts).map((linker) => linker.name),
-  ];
+function dependentsOf(machine: Machine, fleet: Fleet): Dependents {
+  return clientDependents({
+    machine: machine.id,
+    devices: fleet.joined,
+    machines: fleet.facts,
+    read: fleet.reads,
+    viewer: machine.primary ? undefined : "This window",
+  });
 }
 
 /**

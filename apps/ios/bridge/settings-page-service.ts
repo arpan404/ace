@@ -2,6 +2,7 @@ import type { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
+import { SettingsIndexRequest, settingsIndex } from "./settings-index.ts";
 import {
   readSettingsModels,
   readSettingsPage,
@@ -27,6 +28,7 @@ const PageRequest = z.discriminatedUnion("type", [
   SettingsModelsRequest,
   SettingsModelStar,
   SettingsScopeRequest,
+  SettingsIndexRequest,
 ]);
 export type PageRequest = z.infer<typeof PageRequest>;
 
@@ -51,5 +53,7 @@ export function answerSettingsPage(
       return starSettingsModel(ports, request.key);
     case "settings.scope":
       return Promise.resolve(readSettingsScope(request));
+    case "settings.index":
+      return Promise.resolve(settingsIndex());
   }
 }

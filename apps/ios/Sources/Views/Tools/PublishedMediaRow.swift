@@ -8,7 +8,7 @@ enum PublishedMedia {
     case picture(UIImage)
 }
 
-private struct PublishedMediaReply: Decodable { let kind: String; let document: String?; let data: String? }
+private struct PublishedMediaReply: Decodable { let kind: String; let document: String?; let source: String?; let data: String? }
 
 /// Reads one thread's published media through the owning connection, keeping what it read so a
 /// row that scrolls back into view draws at once instead of fetching again, and its pages'
@@ -63,7 +63,7 @@ private struct PublishedMediaReply: Decodable { let kind: String; let document: 
         if PerfProbe.enabled, !fetched.insert(key(itemId, scheme)).inserted { PerfProbe.add("media.refetches", 1) }
         let reply = try await model.service(["type": "native.media", "threadId": threadId, "itemId": itemId, "scheme": scheme == .dark ? "dark" : "light"], as: PublishedMediaReply.self)
         let media: PublishedMedia
-        if reply.kind == "html", let html = reply.document { media = .page(CanvasPage(document: html)) }
+        if reply.kind == "html", let html = reply.document { media = .page(CanvasPage(document: html, source: reply.source ?? "")) }
         else if let encoded = reply.data, let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
             media = .picture(await image.byPreparingForDisplay() ?? image)
         } else { throw ServiceFailure(message: "The attachment couldn't be decoded.") }

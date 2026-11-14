@@ -3,7 +3,7 @@ import SwiftUI
 /// The places at the foot of the iPad sidebar, where a regular window (iPad, the unfolded iPhone
 /// Duo, a large iPhone turned) keeps them instead of the tab bar, in the web rail's order: Threads,
 /// Chats and Search switch the place, then a short hairline, then Pull requests, Automations,
-/// Skills and Settings, which open over it. Bare glyphs on one glass capsule; the place showing
+/// Skills, More (Usage, History and Archived) and Settings, which open over it. Bare glyphs on one glass capsule; the place showing
 /// sits on a filled capsule. A phone has the system tab bar instead.
 struct SidebarPlaces: View {
     @Binding var tab: InboxTab
@@ -13,7 +13,9 @@ struct SidebarPlaces: View {
     var needsYou: (InboxTab) -> Bool = { _ in false }
     @Namespace private var fill
 
-    private static let others: [SearchPlace] = [.pulls, .automations, .skills, .settings]
+    private static let others: [SearchPlace] = [.pulls, .automations, .skills]
+    /// The rail's quieter places, one menu between Skills and Settings.
+    private static let more: [SearchPlace] = [.usage, .history, .archived]
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
@@ -22,18 +24,17 @@ struct SidebarPlaces: View {
                 .frame(width: AceTheme.Dimensions.border, height: AceDesign.Size.icon)
                 .padding(.horizontal, AceDesign.Space.tight)
                 .accessibilityHidden(true)
-            ForEach(Self.others) { place in
-                Button { open(place) } label: {
-                    AceIcon(place.icon, size: AceDesign.Size.barIcon)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                        .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
-                        .contentShape(AceShape.capsule)
-                        .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.navButton)
+            ForEach(Self.others) { place in placeButton(place) }
+            Menu {
+                ForEach(Self.more) { place in
+                    Button(place.title, ace: place.icon) { open(place) }
+                        .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(place.title)
-                .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
-            }
+            } label: { placeGlyph(.dotsThree) }
+            .buttonStyle(.plain)
+            .accessibilityLabel("More")
+            .accessibilityIdentifier("sidebar.more")
+            placeButton(.settings)
         }
         // Only the chosen fill slides; the tab it opens shows at once, as the tab bar's do.
         .animation(.default, value: tab)
@@ -43,6 +44,21 @@ struct SidebarPlaces: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.row)
         .padding(.vertical, AceDesign.Space.related)
+    }
+
+    private func placeButton(_ place: SearchPlace) -> some View {
+        Button { open(place) } label: { placeGlyph(place.icon) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(place.title)
+            .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
+    }
+
+    private func placeGlyph(_ icon: AceIcon.Name) -> some View {
+        AceIcon(icon, size: AceDesign.Size.barIcon)
+            .foregroundStyle(AceDesign.Ink.muted)
+            .frame(width: AceDesign.Size.navButton, height: AceDesign.Size.navButton)
+            .contentShape(AceShape.capsule)
+            .tapBand(drawn: AceDesign.Size.navButton, width: AceDesign.Size.navButton)
     }
 
     private func switchItem(_ place: InboxTab) -> some View {

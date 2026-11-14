@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/NativeToolStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "state": {
+      "anyOf": [
+        {
+          "enum": [
+            "ready",
+            "unavailable",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "string",
+          "x-ace-constraint": "Any other state a newer daemon sends is decoded as unknown."
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "state"
+  ],
+  "type": "object"
+}

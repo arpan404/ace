@@ -5,7 +5,8 @@ import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { CommandId, DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
-import { manyActions, snapshotFrames } from "./many-actions.ts";
+import { manyActions } from "./many-actions.ts";
+import { socketFrames } from "./socket-frames.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
@@ -19,7 +20,7 @@ import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
 import { seedChats } from "./chats-scenario.ts";
-import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
+import { seedMessageAttachments, seedNativeMedia, seedRichAnswer } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
@@ -38,7 +39,7 @@ import { seedForks } from "./fork-scenario.ts";
 import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
-import { seedAppUpdate, seedStorage } from "./storage-scenario.ts";
+import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
 import { seedSkills } from "./skills-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
@@ -82,6 +83,7 @@ daemon.services.settings.seed({
 });
 seedStorage(daemon, Date.now());
 seedAppUpdate(daemon);
+seedMachineUpdate(daemon);
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
@@ -274,6 +276,7 @@ seedForgeBrowse(daemon, Date.now());
 // PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
 seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
+seedRichAnswer(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
@@ -504,7 +507,7 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of snapshotFrames(text)) {
+            for (const frame of socketFrames(text)) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
