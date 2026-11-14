@@ -191,11 +191,12 @@ function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
 /** Who owns it, what it runs, how long, and what you can do about it. */
 function ShellHeader(props: { scope: string; task: BackgroundTask; command: string }) {
   const { task } = props;
-  const running = task.status === "running";
-  const now = useSeconds(running);
-  const { send, intent, error } = useIntentSender();
-  // A task that was running when last seen may have ended: Stop waits for a confirmed copy.
+  // A task that was running when last seen may have ended: while the thread's copy isn't
+  // current its state reads the stale wording, no age ticks, and Stop waits.
   const live = useThreadFreshness(props.scope);
+  const running = task.status === "running";
+  const now = useSeconds(running && live.fresh);
+  const { send, intent, error } = useIntentSender();
   const client = useClient();
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
@@ -216,8 +217,8 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
         {props.command}
       </code>
       <span className="shrink-0">
-        {state[task.status]}
-        {age && ` · ${age.replace(/ \d+s$/, "")}`}
+        {live.staleLabel ?? state[task.status]}
+        {!live.staleLabel && age && ` · ${age.replace(/ \d+s$/, "")}`}
       </span>
       <span className="flex-1" />
       {(intent?.state === "failed" || !!error) && (
