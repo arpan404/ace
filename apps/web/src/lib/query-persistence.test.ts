@@ -6,7 +6,7 @@ import {
   keptForgeLimit,
   persistQueries,
   queryRecordKey,
-  queryUnconfirmed,
+  restoredUnconfirmed,
   restoreQueries,
 } from "./query-persistence.ts";
 
@@ -332,12 +332,12 @@ test("a thread's queue and latest turn are kept, newest only, and unconfirmed un
   expect(next.queries.getQueryData(["queue", "t1", 3])).toBeUndefined();
   expect(next.queries.getQueryData(["thread-turns", "t1", "latest", 40])).toEqual({ ordinal: 2 });
   // Shown at once, but nothing may act on it before the daemon answers.
-  expect(queryUnconfirmed(next.queries, queue)).toBe(true);
+  expect(restoredUnconfirmed(next.queries, next.queries.getQueryData(queue))).toBe(true);
   expect(await observe(next.queries, queue, { threadId: "t1", revision: 4, fresh: true })).toEqual({
     threadId: "t1",
     revision: 4,
   });
-  expect(queryUnconfirmed(next.queries, queue)).toBe(false);
+  expect(restoredUnconfirmed(next.queries, next.queries.getQueryData(queue))).toBe(false);
   next.stop();
 });
 
@@ -348,6 +348,8 @@ test("a queue read this session is confirmed", async () => {
     queryKey: ["queue", "t2", 1],
     queryFn: async () => ({ revision: 1 }),
   });
-  expect(queryUnconfirmed(now.queries, ["queue", "t2", 1])).toBe(false);
+  expect(restoredUnconfirmed(now.queries, now.queries.getQueryData(["queue", "t2", 1]))).toBe(
+    false,
+  );
   now.stop();
 });

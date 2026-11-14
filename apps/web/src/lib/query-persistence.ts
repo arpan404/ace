@@ -62,7 +62,7 @@ export const keptForgeMs = 2 * 60 * 60_000;
  * Per-thread lookups an open asks for at once: the queue page (`["queue", threadId, revision]`)
  * and the latest turn's digest (`["thread-turns", threadId, "latest", cursor]`). Only each
  * thread's newest read of each is kept, under its own allowance. Restored, one is shown as it
- * was and is unconfirmed (`queryUnconfirmed`) until the daemon answers it again: a queue read
+ * was and is unconfirmed (`restoredUnconfirmed`) until the daemon answers it again: a queue read
  * back from disk is never acted on before that.
  */
 export const keptThreadLookupLimit = 64;
@@ -76,18 +76,20 @@ function threadLookup(key: QueryKey): string | undefined {
   return undefined;
 }
 
-/** When each query a client restored from disk was read, until it is read again. */
-const restoredAt = new WeakMap<QueryClient, Map<string, number>>();
+/** Each value a client restored from disk: the query it was put in, and when it was read. */
+const restoredAt = new WeakMap<QueryClient, WeakMap<object, { hash: string; at: number }>>();
 /**
- * Whether the data `queries` holds for `key` is still the copy read back from disk, which the
- * daemon has not confirmed since. Anything that acts on it (a queued message, an approval)
- * waits until this is false.
+ * Whether `data`, a value a view shows (its query's own, or placeholder data carried over from
+ * another key), is still a copy read back from disk that the daemon has not answered since: its
+ * query has not been read again. Anything that acts on it (a queued message, an approval) waits
+ * until this is false.
  */
-export function queryUnconfirmed(queries: QueryClient, key: QueryKey): boolean {
-  const query = queries.getQueryCache().find({ queryKey: key, exact: true });
-  if (!query) return false;
-  const at = restoredAt.get(queries)?.get(query.queryHash);
-  return at !== undefined && query.state.dataUpdatedAt === at;
+export function restoredUnconfirmed(queries: QueryClient, data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const restored = restoredAt.get(queries)?.get(data);
+  if (!restored) return false;
+  const query = queries.getQueryCache().get(restored.hash);
+  return query === undefined || query.state.dataUpdatedAt === restored.at;
 }
 
 /** Whether `key` names a PR panel read that is kept between sessions. */
@@ -232,9 +234,10 @@ export function restoreQueries(queries: QueryClient, kept: QueryRecord["queries"
     queries.setQueryData(entry.key, entry.data, { updatedAt: entry.at });
     const hash = queries.getQueryCache().find({ queryKey: entry.key, exact: true })?.queryHash;
     if (hash) restored.add(hash);
-    if (hash && threadLookup(entry.key) !== undefined) {
-      const held = restoredAt.get(queries) ?? new Map<string, number>();
-      held.set(hash, entry.at);
+    const data = queries.getQueryData(entry.key);
+    if (hash && threadLookup(entry.key) !== undefined && typeof data === "object" && data) {
+      const held = restoredAt.get(queries) ?? new WeakMap<object, { hash: string; at: number }>();
+      held.set(data, { hash, at: entry.at });
       restoredAt.set(queries, held);
     }
   }
