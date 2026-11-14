@@ -15,6 +15,7 @@ import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 import { waitForOutput } from "@ace/provider-kit/flow-control";
 import { transientFailure } from "./recovery-failure.ts";
+import { installationIdentity } from "./installation.ts";
 import type { LaunchedTree, TreeLeader } from "./launched-tree.ts";
 import type { WindowsTreeMember } from "@ace/provider-kit/process-identity";
 export { eventSession } from "./boundaries.ts";
@@ -118,6 +119,11 @@ export class OpenCodeServer {
     };
     this.runtime = runtime(options.runtime);
   }
+  /** The executable this server's process was started from, once discovery found it. */
+  get installedAs(): { path: string; identity: string | undefined } | undefined {
+    return this.installed;
+  }
+  private installed: { path: string; identity: string | undefined } | undefined;
   /**
    * A spare started before its session gets that session's credential here, before any request
    * can carry it. Clients made at startup share the array, so they redact it too.
@@ -212,6 +218,8 @@ export class OpenCodeServer {
           throw Object.assign(new Error("OpenCode is not installed"), { code: "not_configured" });
         expected = cli.version ?? "";
         if (!version(expected)) throw versionRefusal(cli.version);
+        // Read before the spawn: a file replaced after this no longer matches what runs.
+        this.installed = { path: cli.path, identity: await installationIdentity(cli.path) };
         const password = this.runtime.entropy(32);
         this.authorization = basicAuthorization(password);
         this.secrets = [

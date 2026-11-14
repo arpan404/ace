@@ -73,7 +73,7 @@ export async function setup(
       discover: async () => ({
         opencode: {
           installed: true,
-          path: cli,
+          path: extra.discovery?.overrides?.opencode ?? cli,
           version,
           auth: "unknown",
           loginHint: "opencode auth login",

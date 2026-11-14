@@ -106,6 +106,7 @@ const publish = (type, data, directory = "/one", extra = {}) => {
 const nativeMcp = new Map();
 let toolCatalog = [];
 let readinessRequested = false;
+let servedSession = false;
 let readinessRefusals = 0;
 const transforms = [];
 let readiness;
@@ -501,6 +502,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (path === "/api/session" && req.method === "POST") {
+    servedSession = true;
     const id = `session-${++serial}`,
       info = {
         id,
@@ -846,3 +848,8 @@ process.stdin.on("end", () => {
   for (const stream of streams) stream.end();
   server.close();
 });
+// ACE_TEST_SLOW_UNUSED_EXIT_MS: a server that never created a session takes this long to exit
+// once asked to stop.
+const slowUnusedExit = Number(process.env.ACE_TEST_SLOW_UNUSED_EXIT_MS ?? 0);
+if (slowUnusedExit)
+  process.on("SIGTERM", () => setTimeout(() => process.exit(0), servedSession ? 0 : slowUnusedExit));
