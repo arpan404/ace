@@ -21,6 +21,7 @@ import { loadIdentity } from "../tls-identity.ts";
 import { pinnedKeepAliveAgent } from "../client-access.ts";
 import { MachineConnections } from "./connections.ts";
 import { MachineDirectory } from "./directory.ts";
+import { SavedPairings } from "./saved-pairings.ts";
 import { FleetLinks } from "./fleet-links.ts";
 import { Profiles } from "../cli/profiles.ts";
 import { TransferClient } from "../transfers/client.ts";
@@ -281,11 +282,21 @@ test("an answer to the person reaches its machine at once while stops hold the u
  * A TCP proxy to `port` that can cut its open connections the way an expired NAT entry does: the
  * caller still holds them open, and the first bytes it sends are answered with a reset.
  */
-async function cuttingProxy(port: number, resetAfterMs = 0) {
+async function cuttingProxy(port: number, resetAfterMs = 0, holdNewMs = 0) {
   const open = new Set<Socket>();
   const state = { cut: false, connections: 0 };
   const server = createServer((client) => {
     state.connections++;
+    // Connections after the first are held a while before they reach the machine, as a slow
+    // handshake would be.
+    const hold = state.connections > 1 ? holdNewMs : 0;
+    const waiting: Buffer[] = [];
+    let ready = hold === 0;
+    if (!ready)
+      setTimeout(() => {
+        ready = true;
+        for (const chunk of waiting.splice(0)) upstream.write(chunk);
+      }, hold);
     const upstream = createConnection({ host: "127.0.0.1", port });
     const pair = { client, upstream, cut: false };
     for (const socket of [client, upstream]) {
@@ -301,7 +312,8 @@ async function cuttingProxy(port: number, resetAfterMs = 0) {
         };
         if (resetAfterMs > 0) setTimeout(reset, resetAfterMs);
         else reset();
-      } else upstream.write(chunk);
+      } else if (ready) upstream.write(chunk);
+      else waiting.push(chunk);
     });
     upstream.on("data", (chunk: Buffer) => client.write(chunk));
     cuts.add(pair);
@@ -801,8 +813,10 @@ test("a transfer client holding a pairing removed since reaches nothing when it 
     token: token("a"),
   });
   // The transfer pool, as the transfers service makes it: it reads the pairings it may serve.
-  const connections = new MachineConnections({ schedule, current: saved.list });
+  const pairings = new SavedPairings(saved.home);
+  const connections = new MachineConnections({ schedule, saved: pairings });
   cleanups.push(() => connections.close());
+  cleanups.push(() => pairings.close());
   const [profile] = saved.list();
   if (!profile) throw new Error("No pairing saved");
   const client = new TransferClient(
@@ -842,4 +856,53 @@ test("a status read arrives at once while thirty-two slow describes and session 
   ).resolves.toEqual({ ok: true });
   expect(Date.now() - sent).toBeLessThan(500);
   await Promise.all(slow);
+});
+
+test("a read sent again after a dropped connection ends with its pairing, before it can be sent", async () => {
+  const target = await busyMachine(0);
+  // The resend's new connection takes 600 ms to reach the machine.
+  const proxy = await cuttingProxy(Number(new URL(target.profile.origin).port), 0, 600);
+  const profile = { ...target.profile, origin: proxy.origin };
+  const connections = pool();
+  const read = { origin, call: { op: "status" as const, threadIds: [ThreadId.parse("child-1")] } };
+  await machineRequest(profile, read, { timeoutMs: 5000, connections });
+  proxy.cutAll();
+  const resent = machineRequest(profile, read, { timeoutMs: 5000, connections }).catch(
+    (error: unknown) => error,
+  );
+  // While the resend's connection is still on its way, the machine is unpaired.
+  await expect.poll(() => proxy.state.connections).toBe(2);
+  connections.retain([]);
+  expect(await resent).toBeInstanceOf(MachineFailure);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(target.arrived.map((entry) => entry.op)).toEqual(["status"]);
+});
+
+test("a call queued while its pairing is removed outside the daemon is never sent when a socket frees", async () => {
+  const target = await busyMachine(1500);
+  const saved = pairingHome(target.profile);
+  const pairings = new SavedPairings(saved.home);
+  const connections = new MachineConnections({ schedule, saved: pairings });
+  cleanups.push(() => connections.close());
+  cleanups.push(() => pairings.close());
+  const [profile] = saved.list();
+  if (!profile) throw new Error("No pairing saved");
+  const long = Array.from({ length: 32 }, () =>
+    machineRequest(profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }).catch(
+      (error: unknown) => error,
+    ),
+  );
+  await expect.poll(() => target.arrived.length).toBe(32);
+  const queued = machineRequest(profile, { origin, call: followUp }, { timeoutMs: 10_000, connections }).catch(
+    (error: unknown) => error,
+  );
+  // `ace remote remove` in another process: nothing in this daemon is told.
+  const table = new Profiles(saved.home);
+  table.remove("studio");
+  table.close();
+  // The tool calls end and free their sockets; the queued call is checked as it gets one.
+  await Promise.all(long);
+  expect(await queued).toBeInstanceOf(MachineNotSent);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(target.arrived.map((entry) => entry.op)).not.toContain("message");
 });

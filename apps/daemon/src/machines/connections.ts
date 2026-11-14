@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Agent } from "node:https";
-import { pinnedKeepAliveAgent, type PinnedSessions } from "../client-access.ts";
+import { pinnedAgent, pinnedKeepAliveAgent, type PinnedSessions } from "../client-access.ts";
 import type { RemoteProfile } from "../cli/profiles.ts";
 
 /** What a connection is opened for: where, the key it must present, and the token it carries. */
@@ -26,6 +26,11 @@ export interface ConnectionLease {
    * fails as on a dropped connection. Absent for a connection of the call's own.
    */
   ended?: AbortSignal;
+  /**
+   * Whether the pairing is still the one saved now, asked when the request is handed its
+   * socket, immediately before any byte is written. Absent for a connection of the call's own.
+   */
+  current?(): boolean;
   /** Given back with the answer's headers, when an answer came. */
   release(answer?: AnswerHeaders): void;
 }
@@ -38,10 +43,11 @@ export interface AnswerHeaders {
 export interface MachineConnectionsDeps {
   schedule(ms: number, run: () => void): () => void;
   /**
-   * The pairings saved now, read on every lease, for a pool whose callers may hold a profile
-   * across a wait (transfer clients). Without it the pool serves what `retain` was last given.
+   * The pairings saved now (SavedPairings), looked at on every lease and every socket hand-over:
+   * a pairing no longer saved, whoever still holds its profile, is refused and its connections
+   * end. Without it the pool serves what `retain` was last given.
    */
-  current?(): readonly ConnectionProfile[];
+  saved?: { keys(): ReadonlySet<string> };
 }
 
 /** Idle connections close this long before the other machine says it would close them. */
@@ -68,6 +74,8 @@ interface Entry {
   ended: AbortController;
   sessions: PinnedSessions;
   idleMs: number;
+  /** One-use connections of this pairing (a read sent again on a fresh connection). */
+  fresh: Set<Agent>;
 }
 
 /** How long an idle connection is kept, from the other machine's `Keep-Alive: timeout=N`. */
@@ -92,28 +100,17 @@ export class MachineConnections {
   private deps: MachineConnectionsDeps;
   private entries = new Map<string, Entry>();
   /** The pairings it may serve, once told: any other profile is refused. */
-  private known: Set<string> | undefined;
+  private known: ReadonlySet<string> | undefined;
+  /** The saved keys last seen, so an unchanged set costs nothing. */
+  private seen: ReadonlySet<string> | undefined;
   private closed = false;
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
   }
   lease(profile: ConnectionProfile, use: ConnectionLane = "work"): ConnectionLease {
-    if (this.deps.current) this.retain(this.deps.current());
     const key = connectionKey(profile);
-    // A pairing removed or replaced since its holder read it is refused: nothing is sent.
-    if (this.closed || (this.known && !this.known.has(key))) return endedLease(profile);
-    let entry = this.entries.get(key);
-    if (!entry) {
-      let session: Buffer | undefined;
-      entry = {
-        lanes: { reads: lane(), work: lane(), urgent: lane() },
-        ended: new AbortController(),
-        sessions: { get: () => session, set: (next) => void (session = next) },
-        idleMs: IDLE_DEFAULT_MS,
-      };
-      this.entries.set(key, entry);
-    }
-    const held = entry;
+    const held = this.entry(key);
+    if (!held) return endedLease(profile);
     const at = held.lanes[use];
     at.cancelIdle?.();
     at.cancelIdle = undefined;
@@ -125,6 +122,7 @@ export class MachineConnections {
     return {
       agent,
       ended: held.ended.signal,
+      current: () => this.isCurrent(key, held),
       release: (answer) => {
         if (released) return;
         released = true;
@@ -141,9 +139,64 @@ export class MachineConnections {
       },
     };
   }
+  /**
+   * A connection of its own for one request, still this pairing's: ending the pairing ends it,
+   * and it is checked at hand-over as any other. For a read sent again after its kept-open
+   * connection was dropped.
+   */
+  leaseFresh(profile: ConnectionProfile): ConnectionLease {
+    const key = connectionKey(profile);
+    const held = this.entry(key);
+    if (!held) return endedLease(profile);
+    const agent = pinnedAgent(profile.fingerprint);
+    held.fresh.add(agent);
+    return {
+      agent,
+      ended: held.ended.signal,
+      current: () => this.isCurrent(key, held),
+      release: () => {
+        held.fresh.delete(agent);
+        agent.destroy();
+      },
+    };
+  }
+  /** The pairing's connections, made on first use; undefined when it isn't saved now. */
+  private entry(key: string): Entry | undefined {
+    this.refresh();
+    // A pairing removed or replaced since its holder read it is refused: nothing is sent.
+    if (this.closed || (this.known && !this.known.has(key))) return undefined;
+    let entry = this.entries.get(key);
+    if (!entry) {
+      let session: Buffer | undefined;
+      entry = {
+        lanes: { reads: lane(), work: lane(), urgent: lane() },
+        ended: new AbortController(),
+        sessions: { get: () => session, set: (next) => void (session = next) },
+        idleMs: IDLE_DEFAULT_MS,
+        fresh: new Set(),
+      };
+      this.entries.set(key, entry);
+    }
+    return entry;
+  }
+  /** Whether `entry` is still the connections of a pairing saved now. */
+  private isCurrent(key: string, entry: Entry): boolean {
+    this.refresh();
+    return !entry.ended.signal.aborted && this.entries.get(key) === entry;
+  }
+  /** What is saved now, when the pool can see it: any pairing gone from it ends here. */
+  private refresh() {
+    const keys = this.deps.saved?.keys();
+    if (keys && keys !== this.seen) {
+      this.seen = keys;
+      this.retainKeys(keys);
+    }
+  }
   /** Drops connections to machines no longer paired as they were (unpaired, new pin or token). */
   retain(profiles: readonly ConnectionProfile[]): void {
-    const keep = new Set(profiles.map(connectionKey));
+    this.retainKeys(new Set(profiles.map(connectionKey)));
+  }
+  private retainKeys(keep: ReadonlySet<string>): void {
     this.known = keep;
     for (const [key, entry] of this.entries)
       if (!keep.has(key)) {
@@ -164,6 +217,8 @@ export class MachineConnections {
  */
 function drop(entry: Entry) {
   entry.ended.abort();
+  for (const agent of entry.fresh) agent.destroy();
+  entry.fresh.clear();
   for (const at of Object.values(entry.lanes)) {
     at.cancelIdle?.();
     at.cancelIdle = undefined;
@@ -181,7 +236,7 @@ function endedLease(profile: ConnectionProfile): ConnectionLease {
   return { agent, ended: ended.signal, release: () => {} };
 }
 
-function connectionKey(profile: ConnectionProfile): string {
+export function connectionKey(profile: ConnectionProfile): string {
   return createHash("sha256")
     .update(`${profile.origin}\0${profile.fingerprint}\0${profile.token}`)
     .digest("hex");

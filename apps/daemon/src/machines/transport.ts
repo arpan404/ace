@@ -174,7 +174,10 @@ function pinnedOnce(
   { fresh }: Attempt,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
-  const pooled = fresh ? undefined : options.connections?.lease(profile, route.lane ?? "work");
+  // A resend takes a fresh connection, still from the pool, so ending the pairing ends it too.
+  const pooled = fresh
+    ? options.connections?.leaseFresh(profile)
+    : options.connections?.lease(profile, route.lane ?? "work");
   const lease: ConnectionLease = pooled ?? oneShot(profile);
   const agent = lease.agent;
   const data = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
@@ -240,7 +243,16 @@ function pinnedOnce(
     let received = 0;
     const count = (chunk: Buffer) => void (received += chunk.length);
     request.on("socket", (socket) => {
+      // Nothing is written before the request has its socket. Then, immediately before the
+      // first byte, the pairing must still be the one saved: one removed while the request
+      // waited (unlinked, re-paired, `ace remote remove`) gets nothing sent.
+      if (lease.current && !lease.current()) {
+        request.destroy();
+        finish(new MachineNotSent("offline", undefined, "Machine call never sent: unpaired"));
+        return;
+      }
       assigned = true;
+      request.end(data);
       socket.on("data", count);
       request.once("close", () => socket.off("data", count));
       // A kept-open connection is already up: what is written to it may reach the machine.
@@ -310,6 +322,5 @@ function pinnedOnce(
         );
       });
     });
-    request.end(data);
   });
 }
