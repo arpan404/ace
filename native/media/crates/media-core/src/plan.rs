@@ -60,7 +60,8 @@ pub fn viewer_picture(source: &Source<'_>, viewport: &Viewport) -> Picture {
     }
 }
 pub fn bitrate_ceiling(picture: Picture, fps: f64) -> f64 {
-    (f64::from(picture.width) * f64::from(picture.height) * fps * 0.06)
+    // Fewer frames each carry more of the motion, as in `scale::frames_bpp`.
+    (f64::from(picture.width) * f64::from(picture.height) * fps * 0.06 * (60.0 / fps).sqrt())
         .clamp(LINK_FLOOR, 16_000_000.0)
         .round()
 }

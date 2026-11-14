@@ -64,7 +64,10 @@ export const maxEncodes = 4;
 const shareSlack = 1.25;
 /** A live view runs at this rate while its link carries it (ADR 0088 amendment, ADR 0149). */
 export const videoFps = 60;
-/** Bits per pixel per frame a picture gets at most: sharp text, more is wasted. */
+/**
+ * Bits per pixel per frame a picture gets at most at 60 fps: sharp text, more is wasted. At a
+ * lower frame rate each frame carries more of the motion, as in `video-scale.ts`.
+ */
 const ceilingBpp = 0.06;
 export const minBitrate = linkFloor;
 export const maxBitrate = 16_000_000;
@@ -88,7 +91,13 @@ export function viewerPicture(
 /** The most bits per second a picture of this size is worth at this frame rate. */
 export function bitrateCeiling(picture: { width: number; height: number }, fps = videoFps): number {
   return Math.round(
-    Math.min(maxBitrate, Math.max(minBitrate, picture.width * picture.height * fps * ceilingBpp)),
+    Math.min(
+      maxBitrate,
+      Math.max(
+        minBitrate,
+        picture.width * picture.height * fps * ceilingBpp * Math.sqrt(videoFps / fps),
+      ),
+    ),
   );
 }
 

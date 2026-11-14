@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserCdp, CaptureEvents, VideoHost } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
 import { LiveVideo } from "./live-video.ts";
+import type { LinkHint } from "./link-rate.ts";
 import type { VideoEncode } from "./video-policy.ts";
 
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
@@ -26,11 +27,14 @@ const retinaPane: CaptureViewer = {
   video: { codecs: ["avc1.42E033"] },
 };
 
-async function firstEncode(local: boolean): Promise<VideoEncode | undefined> {
+async function firstEncode(local: boolean, hint?: LinkHint): Promise<VideoEncode | undefined> {
   const encoder = fakeHost();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
-  video.add("viewer", { send: () => true }, retinaPane, undefined, local);
+  video.add("viewer", { send: () => true }, retinaPane, undefined, {
+    local,
+    ...(hint ? { hint } : {}),
+  });
   for (let index = 0; index < 4; index++) {
     video.tick({ width: 659, height: 825 });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -49,7 +53,16 @@ describe("the first picture a viewer gets", () => {
   it("a viewer elsewhere starts with a smaller picture its unproven link can carry", async () => {
     const encode = await firstEncode(false);
     expect(encode?.width).toBeLessThan(1318);
+    expect(encode?.fps).toBe(60);
     expect(encode?.bitrate).toBeLessThanOrEqual(1_500_000);
+  });
+
+  it("a viewer whose client says it is on 3G starts at a low step: fewer frames first", async () => {
+    const encode = await firstEncode(false, { effectiveType: "3g" });
+    expect(encode?.fps).toBe(5);
+    expect(encode?.bitrate).toBe(400_000);
+    // Its keyframe fits half a second of the link: the picture is smaller, not mushy.
+    expect((encode?.width ?? 0) * (encode?.height ?? 0) * 0.25).toBeLessThanOrEqual(200_000);
   });
 });
 
