@@ -1,5 +1,6 @@
 import {
   Client,
+  screenTail,
   type ClientOptions,
   type Credential,
   type Storage,
@@ -37,6 +38,8 @@ export function browserClientOptions(options: {
     ...(options.grant ? { grant: options.grant } : {}),
     storage: options.storage,
     ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
+    // A thread paints from one screenful; the rest of its window pages in behind it.
+    openTail: screenTail,
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);

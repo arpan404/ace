@@ -6,6 +6,7 @@ import type { Store } from "./store.ts";
 import { sidebarSubscription } from "./sidebar-subscription.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
 import { routeThread } from "./thread-routes.ts";
+import type { SnapshotTail } from "./thread-reads.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -81,6 +82,7 @@ export function subscribe(
   paced = false,
   encoder = new WireEncoder(),
   placement?: SidebarPlacement,
+  tail?: SnapshotTail,
 ): () => void {
   if (scope.kind === "threads" && scope.window) {
     const window = sidebarSubscription(
@@ -191,7 +193,9 @@ export function subscribe(
       if (scope.kind === "thread") acquired = scope.threadId;
       // A thread's snapshot is shared and frozen: send a copy of its top level with the head.
       const snapshotView =
-        scope.kind === "thread" ? store.snapshotThread(scope.threadId) : structuredClone(view);
+        scope.kind === "thread"
+          ? store.snapshotThread(scope.threadId, tail)
+          : structuredClone(view);
       const head = store.headSeq();
       cursor = head;
       progressHead = head;
@@ -232,7 +236,7 @@ export function subscribe(
         ) {
           const view =
             scope.kind === "thread"
-              ? store.snapshotThread(scope.threadId)
+              ? store.snapshotThread(scope.threadId, tail)
               : createThreadListView(store.listThreads());
           cursor = progressHead = head;
           send({ type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } });

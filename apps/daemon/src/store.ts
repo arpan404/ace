@@ -1313,8 +1313,8 @@ export class Store {
     return this.threadReads.acquireThread(id);
   }
   /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
-  snapshotThread(id: ThreadId): ThreadView {
-    return this.threadReads.snapshotThread(id);
+  snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
+    return this.threadReads.snapshotThread(id, tail);
   }
   readEntityPage(
     threadId: ThreadId,

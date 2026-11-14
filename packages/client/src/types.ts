@@ -139,7 +139,20 @@ export interface ClientOptions {
   /** Where connection drops and recoveries are reported. None: they go unreported. */
   report?(event: DiagnosticEvent): void;
   limits?: Partial<Limits>;
+  /**
+   * A thread's first snapshot carries only its newest items, at most `items` in at most `bytes`,
+   * so it paints after one small message; older items then page in behind it up to
+   * `limits.items`. Status, agents, approvals and queue always arrive whole. None: the
+   * daemon's full snapshot. A daemon that predates the field sends the full one anyway.
+   */
+  openTail?: OpenTail;
 }
+export interface OpenTail {
+  items: number;
+  bytes: number;
+}
+/** A screenful: what an app's first paint of a thread needs, about 48 KB at most. */
+export const screenTail: OpenTail = { items: 30, bytes: 48 * 1024 };
 export interface Limits {
   intents: number;
   threads: number;

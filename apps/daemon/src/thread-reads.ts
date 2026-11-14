@@ -17,6 +17,14 @@ import type { FrozenThread } from "./thread-cache.ts";
 import { readHistoryBlob } from "./history-storage.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
 
+/** How much transcript a thread snapshot carries: its newest items, by count and bytes. */
+export interface SnapshotTail {
+  items: number;
+  bytes: number;
+}
+/** What a snapshot carries when the subscriber asks for no smaller tail. */
+export const fullTail: SnapshotTail = { items: 200, bytes: 1024 * 1024 };
+
 interface ThreadReadSource {
   db: DatabaseSync;
   cache: ThreadReadCache;
@@ -124,12 +132,20 @@ export class ThreadReads {
    * top level is the caller's own and carries the current head, as a fresh read would: a
    * cached snapshot describes the thread through now, since any write to it evicts the entry.
    */
-  snapshotThread(id: ThreadId): ThreadView {
-    const view = this.sharedSnapshot(id);
+  snapshotThread(id: ThreadId, tail: SnapshotTail = fullTail): ThreadView {
+    const view = this.sharedSnapshot(id, tail);
     return { ...view, seq: this.source.headSeq() };
   }
-  private sharedSnapshot(id: ThreadId): ThreadView {
-    return this.source.cache.readShared(id, "snapshot", () =>
+  /**
+   * Only the transcript is bounded by `tail`: status, agents, interactions and queue are read
+   * whole, so a small snapshot shows the same state as a full one.
+   */
+  private sharedSnapshot(id: ThreadId, tail: SnapshotTail): ThreadView {
+    const key =
+      tail.items === fullTail.items && tail.bytes === fullTail.bytes
+        ? "snapshot"
+        : JSON.stringify(["snapshot", tail.items, tail.bytes]);
+    return this.source.cache.readShared(id, key, () =>
       loadThreadSnapshot({
         acquire: () =>
           this.source.inTransaction()
@@ -139,7 +155,7 @@ export class ThreadReads {
           if (!this.source.inTransaction()) this.releaseThread(id);
         },
         items: (status) =>
-          this.source.payloads.tail(id, status.thread.rootAgentId, 200, 1024 * 1024),
+          this.source.payloads.tail(id, status.thread.rootAgentId, tail.items, tail.bytes),
         retainAgents: (view) => this.source.status.retainItemAgents(view),
       }),
     );

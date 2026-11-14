@@ -303,6 +303,22 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     /** Request an explicit completion acknowledgement for paced resubscription. */
     paced: z.boolean().optional(),
     afterSeq: seq.optional(),
+    /**
+     * For a thread: any snapshot this subscription sends carries only the newest transcript
+     * items, at most `items` of them in at most `bytes`; status, agents, interactions and queue
+     * stay whole. Older items are read by `items.page` from the snapshot's `itemsBefore`. A
+     * daemon that does not know the field sends its full snapshot.
+     */
+    tail: z
+      .object({
+        items: z.number().int().min(1).max(200),
+        bytes: z
+          .number()
+          .int()
+          .min(1024)
+          .max(1024 * 1024),
+      })
+      .optional(),
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
   z.object({ type: z.literal("command"), command: Command }),

@@ -1,3 +1,4 @@
+import { TailFill } from "./tail-fill.ts";
 import { z } from "zod";
 import { KeptHistory } from "./kept-history.ts";
 import { SendOps } from "./send-ops.ts";
@@ -186,6 +187,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
+  #tailFill: TailFill;
   constructor(options: ClientOptions) {
     options = { ...options };
     this.options = options;
@@ -345,6 +347,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options.id,
       () => this.state === "ready",
       this.#persistence(),
+      options.openTail && {
+        tail: options.openTail,
+        older: (threadId) => this.#tailFill.start(threadId),
+      },
+    );
+    this.#tailFill = new TailFill(
+      (threadId) => this.#subscriptions.held(threadId),
+      (threadId, limit) => this.loadOlder(threadId, limit),
+      // Up to what a full snapshot would have held, never the whole of a larger window.
+      Math.min(limits.items, 200),
     );
     this.#sidebar = new Sidebar(
       limits,

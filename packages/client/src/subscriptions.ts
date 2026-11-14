@@ -2,7 +2,7 @@ import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol"
 import { parseThreadRecord, threadRecord } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
-import { ClientError, type Limits } from "./types.ts";
+import { ClientError, type Limits, type OpenTail } from "./types.ts";
 
 /** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
 export const inactiveThreadBytes = 16 * 1024 * 1024;
@@ -35,6 +35,11 @@ interface Cached {
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
 }
+/** Threads open with a small tail (`ClientOptions.openTail`); `older` pages in the rest. */
+export interface TailOpen {
+  tail: OpenTail;
+  older(threadId: string): void;
+}
 export interface ThreadSubscription {
   store: ThreadStore;
   release(): void;
@@ -60,13 +65,16 @@ export class Subscriptions {
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #tail: TailOpen | undefined;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
     persistence?: Persistence,
+    tail?: TailOpen,
   ) {
+    this.#tail = tail;
     this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
@@ -317,6 +325,7 @@ export class Subscriptions {
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
       ...(this.#resumable(entry) ? { afterSeq: entry.store.cursor } : {}),
+      ...(this.#tail ? { tail: this.#tail.tail } : {}),
     });
   }
   /**
@@ -420,6 +429,8 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
+      // A small tail paints first; what a full snapshot would have held follows by pages.
+      if (this.#tail && entry.store.itemsBefore != null) this.#tail.older(entry.threadId);
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);
