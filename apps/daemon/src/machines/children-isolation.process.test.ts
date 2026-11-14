@@ -72,10 +72,16 @@ async function remote(name: string, decide: (ids: readonly string[]) => Answer) 
         if (answer === "not_found")
           return response
             .writeHead(404)
-            .end(JSON.stringify({ error: "not_found", message: "No such thread from that machine." }));
-        response.writeHead(200).end(
-          JSON.stringify({ threads: ids.flatMap((id) => (views.get(id) ? [views.get(id)] : [])) }),
-        );
+            .end(
+              JSON.stringify({ error: "not_found", message: "No such thread from that machine." }),
+            );
+        response
+          .writeHead(200)
+          .end(
+            JSON.stringify({
+              threads: ids.flatMap((id) => (views.get(id) ? [views.get(id)] : [])),
+            }),
+          );
       });
     },
     delay: systemDeliveryRuntime.delay,
@@ -140,7 +146,11 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
     log: () => {},
   });
   cleanups.push(() => ledger.close());
-  const add = (machine: Awaited<ReturnType<typeof remote>>, id: string, state: "working" | "done" = "working") => {
+  const add = (
+    machine: Awaited<ReturnType<typeof remote>>,
+    id: string,
+    state: "working" | "done" = "working",
+  ) => {
     ledger.add({
       id: ThreadId.parse(id),
       requestKey: `parent:${id}`,
@@ -172,7 +182,9 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
 
 it("a child that takes calls down with it is never batched with one that answers, round after round", async () => {
   // Any call asking about child-a with another loses its connection; each answers alone.
-  const studio = await remote("studio", (ids) => (ids.length > 1 && ids.includes("child-a") ? "drop" : "answer"));
+  const studio = await remote("studio", (ids) =>
+    ids.length > 1 && ids.includes("child-a") ? "drop" : "answer",
+  );
   const h = await parentWatching([studio]);
   h.add(studio, "child-a", "done");
   h.add(studio, "child-b", "done");
@@ -192,7 +204,10 @@ it("a child that takes calls down with it is never batched with one that answers
 });
 
 it("a healthy child's view arrives while fifteen reads beside it hang, and another machine's turn goes on", async () => {
-  const unknown = Array.from({ length: 15 }, (_, index) => `stuck-${String(index).padStart(2, "0")}`);
+  const unknown = Array.from(
+    { length: 15 },
+    (_, index) => `stuck-${String(index).padStart(2, "0")}`,
+  );
   // Any call naming one of them is refused as not_found; each of them alone never answers.
   const studio = await remote("studio", (ids) => {
     if (ids.length > 1 && ids.some((id) => unknown.includes(id))) return "not_found";

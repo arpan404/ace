@@ -94,41 +94,38 @@ settle, and the caller must notice so the parent never reads done while it runs.
 - _Work started on that machine_ (the person there messages the thread). Pairing is one-way:
   the caller holds a device token for the target, the target has no route or credential back
   (ADR 0078), so a push would need a new channel. The caller instead keeps re-checking recently
-  settled children with the ordinary `status` call: each child from when it settles until a
-  check after its 24-hour mark is answered, at most 16 per machine per check (one call each), in rounds: a round reads every child tracked
-  on the machine, one call every 10 s until it is done. The wait between rounds follows the
-  machine's youngest settled child: 10 s for its first 2 minutes, then 30 s until 10 minutes, a
-  minute until an hour, 2.5 minutes until 4 hours, and 5 minutes after that, so one settled child
-  costs about 390 calls a day instead of 8,640. A child settling there brings its machine back to
-  the fast pace. No child sits on the slow pace, or leaves tracking, without a check answered
-  after the last thing that could have reopened it unseen:
-  - a daemon that just started reads every machine's children in a fast first round;
-  - a re-check that failed is not a check: the machine is asked again as soon as its failure
-    backoff allows (at most 30 s), however long it stays unreachable;
-  - a child past its 24 hours, or a stop not yet confirmed, keeps its machine on the fast pace;
-  - a child leaves tracking only once a check made at or after its 24-hour mark is answered
-    (its `settled_at` is cleared then), never on a timer, across restarts too;
-  - a machine that is no longer paired as the child's device is not an answer: the child is
-    never asked and never counted as checked, costs no calls, and is read again once its machine
-    is paired back. If it reaches its 24-hour mark still unpaired, its parent asks the person, as
-    for a working child whose pairing went: pair the machine again to keep watching it, or stop
-    watching it, when it keeps the result it ended with;
-  - a child its machine says it doesn't hold (`not_found`, which refuses the whole call) is read
-    alone from then on, so the rest of its call are read; that is the machine's answer for it;
-  - no child starves: a round asks every child once, those it has not asked yet always ahead of
-    children whose reads failed (past-24-hour children first only as a tie-break), and children
-    whose reads failed go in a call of their own, so they never take down another's read;
-  - a child whose own reads keep failing while its machine answers others backs off on its own,
-    doubling to the same 30 s cap, and is asked at the base pace again once it answers; the
-    machine itself backs off only when nothing asked of it in a poll answered.
-    A child that would answer is asked within `ceil(n / 16)` turns of its round starting, n being
-    the children tracked on its machine, however many others keep failing; turns are 10 s apart
-    during a round, or the machine's failure wait (at most 30 s) when nothing it was asked answered.
-    Work started again on a settled child is read within one wait plus one round: at most
-    5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
-    and after a restart within `ceil(n / 16)` × 10 s. On each machine
-    the children checked longest ago go first (a saved turn number), so every eligible child is
-    checked in turn however many there are. A child
+  settled children with the ordinary `status` call, each child from when it settles until a
+  check after its 24-hour mark is answered. Which children are read when is decided by a pure
+  scheduler (`apps/daemon/src/machines/child-schedule.ts`) from each child's own state:
+  - a working child is read on every turn, one turn a poll;
+  - a settled child is read after an interval that grows with its own age: 10 s for its first
+    2 minutes, then 30 s until 10 minutes, a minute until an hour, 2.5 minutes until 4 hours,
+    and 5 minutes after that (about 390 calls a day for one settled child instead of 8,640);
+    one past its 24 hours, or whose stop is unconfirmed, every 10 s;
+  - a daemon that just started reads every saved child once, 10 s after start;
+  - a child whose own read failed (asked alone) waits a backoff that doubles from one poll to
+    30 s, whatever its neighbours do, and is asked at its own pace again once it answers; a
+    failed read is no check.
+  Due children are taken earliest due first, sixteen to a call, at most 16 calls a turn per
+  machine. A child in a call that failed or was refused beside others is implicated: it is asked
+  alone at once, and stays alone until it has answered alone and for 10 s doubling to an hour each
+  time it is implicated, so a child that only fails beside others can't keep taking calls down.
+  Whether a child is asked alone is saved with it and outlives a restart. The calls of a turn run
+  at once, each on its own deadline, and each answer is applied as it arrives; a child with a call
+  on its way is skipped, so a slow call never holds up the next poll or another machine.
+  No child leaves tracking without a check answered at or after its 24-hour mark (its `settled_at`
+  is cleared then), never on a timer, across restarts too. A machine no longer paired as the
+  child's device is no answer: the child is never asked, costs no calls, and is read again once
+  its machine is paired back; still unpaired at its 24-hour mark, its parent asks the person, as
+  for a working child whose pairing went. A child its machine says it doesn't hold (`not_found`)
+  is the machine's answer for it.
+  Bounds, with n children tracked on a machine: a child that answers when asked alone is asked
+  within `ceil(n / 16) + 1` turns of coming due, plus one call's deadline when a call it shared
+  failed; work started again on a settled child is read within its own interval (5 minutes at
+  most) plus that. At a 1 s poll a machine costs at most `60 W + 6 S` calls a minute for W
+  working and S settled children, never past 16 a turn (960 a minute); with only healthy and
+  failing children, `60 * ceil(W_h / 16) + 6 S + 2 F` a minute once the F failing ones reach the
+  cap. These are checked as properties of the scheduler on generated machines. A child
     found running again reopens: the parent's row shows it running and the parent waits until it
     settles again. One that ran and settled with a different result hands the parent that result;
     changes that leave the outcome and result alone (a title, a pin) are ignored. Work started

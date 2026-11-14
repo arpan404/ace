@@ -22,7 +22,7 @@ import type { RequestMirror } from "./mirror.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
 import { ChildResults, type ChildResultsDeps } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
-import { RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS, recheckOutcome } from "./child-recheck.ts";
+import { RECHECK_SLOWEST_POLLS, recheckOutcome } from "./child-recheck.ts";
 import {
   asksAlone,
   defaultScheduleConfig,
@@ -497,7 +497,7 @@ export class MachineChildren implements RemoteChildren {
   }
   /** Resolves once every status call on its way has come back and been applied. */
   async flush(): Promise<void> {
-    while (this.running.size > 0) await Promise.allSettled([...this.running]);
+    while (this.running.size > 0) await Promise.allSettled(this.running);
   }
   /**
    * A machine's children as the scheduler sees them: every working child (lost ones are handed
