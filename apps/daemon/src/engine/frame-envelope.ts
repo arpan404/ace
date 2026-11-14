@@ -10,6 +10,7 @@ const billingModes = new Set<unknown>(["api", "subscription", "unknown"]);
  * adapter bug that must still fail the session visibly.
  */
 export function frameEnvelopeError(frame: Frame): string | undefined {
+  if (typeof frame !== "object" || frame === null) return "frame";
   if (!Number.isSafeInteger(frame.seq) || frame.seq < 0) return "seq";
   if (typeof frame.t !== "number" || !Number.isFinite(frame.t) || frame.t < 0) return "t";
   if (!directions.has(frame.dir)) return "dir";

@@ -17,6 +17,7 @@ it.each<[string, Frame]>([
 
 const bad = (fields: Record<string, unknown>) => ({ ...frame, ...fields }) as unknown as Frame;
 it.each<[string, Frame, string]>([
+  ["no envelope at all", null as unknown as Frame, "frame"],
   ["a negative sequence", bad({ seq: -1 }), "seq"],
   ["a fractional sequence", bad({ seq: 1.5 }), "seq"],
   ["an unsafe sequence", bad({ seq: 2 ** 53 }), "seq"],
