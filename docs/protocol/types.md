@@ -5689,6 +5689,8 @@ Example:
 | nativeShown | no | boolean |  |
 | cursor | no | object | {"properties":{"fill":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"outline":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["fill","outline"]} |
 | audio | no | boolean |  |
+| paused | no | boolean |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
 | devicePixelRatio | yes | number | {"minimum":1,"maximum":4} |
@@ -5698,8 +5700,9 @@ Example:
 ```json
 {
   "devicePixelRatio": 3,
-  "height": 102,
-  "width": 100
+  "height": 105,
+  "paused": true,
+  "width": 106
 }
 ```
 
@@ -6029,9 +6032,12 @@ Example:
       "fill": "#24CF32",
       "outline": "#33FA6E"
     },
-    "devicePixelRatio": 2,
-    "height": 102,
-    "width": 108
+    "devicePixelRatio": 3,
+    "height": 107,
+    "link": {
+      "expensive": true
+    },
+    "width": 106
   }
 }
 ```
@@ -12093,6 +12099,7 @@ Example:
 | --- | --- | --- | --- |
 | op | yes | `"subscribe"` |  |
 | deviceId | yes | [AppDeviceId.json](schema/AppDeviceId.json) |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 
 Example:
 
@@ -19847,6 +19854,54 @@ Example:
   "state": "example",
   "step": "example",
   "zeroCopy": false
+}
+```
+
+## MediaLinkHint
+
+[JSON Schema](schema/MediaLinkHint.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| effectiveType | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":16},{"type":"string","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| downlinkKbps | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–10000000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| rttMs | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–60000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| saveData | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| expensive | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| constrained | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+
+Example:
+
+```json
+{
+  "downlinkKbps": 7,
+  "expensive": true,
+  "rttMs": 9
+}
+```
+
+### Variant 2
+
+Semantic rule: A link that isn't an object is ignored, as if there were no hint.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| effectiveType | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":16},{"type":"string","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| downlinkKbps | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–10000000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| rttMs | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–60000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| saveData | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| expensive | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| constrained | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+
+Example:
+
+```json
+{
+  "effectiveType": "example",
+  "expensive": false,
+  "rttMs": 7
 }
 ```
 
@@ -29489,6 +29544,7 @@ Example:
 | --- | --- | --- | --- |
 | op | yes | `"subscribe"` |  |
 | sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| link | no | [MediaLinkHint.json](schema/MediaLinkHint.json) |  |
 
 Example:
 

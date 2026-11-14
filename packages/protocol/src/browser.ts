@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -485,6 +486,13 @@ export const BrowserCaptureViewport = z.object({
    * gets the page's sound as stream kind `browserAudio`. Absent or false: muted, no audio bytes.
    */
   audio: z.boolean().optional(),
+  /**
+   * The view is hidden or backgrounded (ADR 0149): while true it is sent no video and no
+   * sound. Its next picture after false is a keyframe. Absent: showing.
+   */
+  paused: z.boolean().optional(),
+  /** What the client knows of its link; it only lowers where the viewer's video starts. */
+  link: MediaLinkHint.optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),

@@ -31,7 +31,7 @@ export function SkillProposal(props: {
         {editing
           ? `${props.botName} suggests a change to the skill `
           : `${props.botName} suggests a new skill, `}
-        <span className="font-mono text-[0.92em]">{proposal.name}</span>.
+        <span className="font-mono">{proposal.name}</span>.
       </p>
       {proposal.why && <p className="mt-1 text-muted-foreground">{proposal.why}</p>}
       {open && <SkillText proposal={proposal} />}
