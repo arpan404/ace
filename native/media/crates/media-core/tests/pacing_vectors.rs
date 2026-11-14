@@ -39,13 +39,90 @@ fn gate_replays_every_shared_decision() {
         );
     }
 }
+fn picture_link(i: &Value) -> PictureLink {
+    PictureLink {
+        link: n(i, "link"),
+        pixels: n(i, "pixels"),
+        fps: n(i, "fps"),
+        now: n(i, "now"),
+        probing: b(i, "probing"),
+    }
+}
+fn same_step(actual: Step, expected: &Value, what: &str) {
+    assert!(
+        (actual.scale - n(expected, "scale")).abs() < 1e-14,
+        "{what}: {actual:?} vs {expected}"
+    );
+    assert_eq!(actual.fps, n(expected, "fps"), "{what}");
+}
 #[test]
 fn scale_replays_every_shared_decision() {
     let mut scale = PictureScale::default();
     for row in rows(&load("scale")) {
+        same_step(
+            scale.update(picture_link(&row["input"])),
+            &row["output"],
+            "scale",
+        );
+    }
+}
+#[test]
+fn scale_steps_replay_frame_rate_first_then_size_and_the_probing_ladder() {
+    for scenario in rows(&load("scale-steps")) {
+        let name = s(scenario, "name");
+        let mut scale = PictureScale::default();
+        for (index, step) in rows(&scenario["steps"]).iter().enumerate() {
+            let actual = scale.update(picture_link(&step["input"]));
+            same_step(actual, &step["output"], &format!("{name} step {index}"));
+        }
+    }
+}
+#[test]
+fn quantizer_cap_replays_keyframes_held_to_half_a_second() {
+    let v = load("quantizer-cap");
+    let mut q = QuantizerControl::new(n(&v, "bitrate"), n(&v, "fps"));
+    for (index, row) in rows(&v["steps"]).iter().enumerate() {
         let i = &row["input"];
-        let actual = scale.update(n(i, "link"), n(i, "pixels"), n(i, "fps"), n(i, "now"));
-        assert!((actual - row["output"].as_f64().unwrap_or_default()).abs() < 1e-14);
+        let key = b(i, "key");
+        assert_eq!(q.next(key), n(&row["output"], "next"), "step {index}");
+        q.observe(u(i, "bytes") as usize, key);
+        if let Some(settled) = row["output"].get("settled") {
+            assert_eq!(q.settled(), settled.as_f64(), "step {index}");
+        }
+        if let Some(rate) = i["retarget"].as_f64() {
+            q.retarget(rate, n(&v, "fps"));
+        }
+    }
+}
+fn hint(v: &Value) -> LinkHint {
+    LinkHint {
+        effective_type: v["effectiveType"].as_str().map(str::to_owned),
+        downlink_kbps: v["downlinkKbps"].as_f64(),
+        rtt_ms: v["rttMs"].as_f64(),
+        save_data: v["saveData"].as_bool().unwrap_or(false),
+        expensive: v["expensive"].as_bool().unwrap_or(false),
+        constrained: v["constrained"].as_bool().unwrap_or(false),
+    }
+}
+fn limits(v: &Value) -> Limits {
+    Limits {
+        min: n(v, "min"),
+        max: n(v, "max"),
+        initial: n(v, "initial"),
+    }
+}
+#[test]
+fn link_hints_replay_the_start_they_pick() {
+    for row in rows(&load("link-hint")) {
+        let i = &row["input"];
+        let rate = LinkRate::with_hint(limits(&i["limits"]), Some(&hint(&i["hint"])));
+        assert_eq!(rate.rate(), n(&row["output"], "rate"), "{}", i["hint"]);
+        assert_eq!(
+            rate.probing(),
+            b(&row["output"], "probing"),
+            "{}",
+            i["hint"]
+        );
     }
 }
 #[test]
@@ -127,7 +204,13 @@ fn strings(v: &Value) -> Vec<&str> {
 }
 #[test]
 fn plan_replays_sizes_groups_rates_and_assignments() {
-    let v = load("plan");
+    replay_plan(&load("plan"));
+}
+#[test]
+fn plan_replays_stepped_viewers_frame_rates_in_place() {
+    replay_plan(&load("plan-steps"));
+}
+fn replay_plan(v: &Value) {
     let i = &v["input"];
     let source = &i["source"];
     let codecs = strings(&source["codecs"]);
@@ -154,7 +237,8 @@ fn plan_replays_sizes_groups_rates_and_assignments() {
             },
             codecs,
             link: n(v, "link"),
-            scale: 1.0,
+            scale: v["scale"].as_f64().unwrap_or(1.0),
+            fps: v["fps"].as_f64().unwrap_or(60.0),
         })
         .collect();
     let plan = plan_video(&source, &viewers);
@@ -163,6 +247,18 @@ fn plan_replays_sizes_groups_rates_and_assignments() {
         json!({"encodes":encodes,"capture":{"width":plan.capture.width,"height":plan.capture.height},"viewers":plan.viewers}),
         v["output"]
     );
+}
+#[test]
+fn link_capped_replays_a_view_held_to_its_link_step() {
+    for row in rows(&load("link-capped")) {
+        let i = &row["input"];
+        let step = i["step"].as_object().map(|_| Step {
+            scale: n(&i["step"], "scale"),
+            fps: n(&i["step"], "fps"),
+        });
+        let actual = link_capped(settings(&i["asked"]), i["rate"].as_f64(), step);
+        assert_eq!(actual, settings(&row["output"]), "{i}");
+    }
 }
 fn record(event: Event, events: &mut Vec<Value>) {
     match event {
@@ -239,6 +335,8 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                 viewer.flush(send, event);
             } else if op.get("assign").is_some() {
                 viewer.assign(Some(1), event);
+            } else if let Some(bound) = op.get("bound") {
+                viewer.bound(bound.as_u64().map(|v| v as usize));
             } else {
                 panic!("{name}: unknown op {op}");
             }
@@ -247,13 +345,11 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
     }
 }
 #[test]
-fn link_rate_replays_wraparound_stale_acks_empty_frames_and_the_outstanding_bound() {
+fn link_rate_replays_edges_the_3g_link_loss_stalls_queueing_and_hints() {
     for scenario in rows(&load("link-rate-edges")) {
         let name = s(scenario, "name");
-        let mut rate = LinkRate::new(Limits {
-            initial: 1_000_000.0,
-            ..Limits::default()
-        });
+        let given = scenario.get("hint").map(hint);
+        let mut rate = LinkRate::with_hint(limits(&scenario["limits"]), given.as_ref());
         for (index, step) in rows(&scenario["steps"]).iter().enumerate() {
             let op = &step["op"];
             if let Some(sent) = op.get("sent") {
@@ -269,6 +365,12 @@ fn link_rate_replays_wraparound_stale_acks_empty_frames_and_the_outstanding_boun
             }
             let out = &step["output"];
             assert_eq!(rate.rate(), n(out, "rate"), "{name} step {index}");
+            assert_eq!(rate.probing(), b(out, "probing"), "{name} step {index}");
+            assert_eq!(
+                rate.backlog_bytes().map(|v| v as u64),
+                out["backlogBytes"].as_u64(),
+                "{name} step {index}"
+            );
             match (rate.rtt(), out["rtt"].as_f64()) {
                 (Some(actual), Some(expected)) => {
                     assert!((actual - expected).abs() < 1e-10, "{name} step {index}")

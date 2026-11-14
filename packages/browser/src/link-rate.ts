@@ -252,15 +252,16 @@ export class LinkRate {
   }
   /** Bits per second delivered over the last `deliveryWindowMs`, and over `cutWindowMs`. */
   #deliveryRate(at: number): { recent: number; longer: number } {
-    while (this.#delivered.length && (this.#delivered[0]?.at ?? at) < at - cutWindowMs) {
-      this.#cutBytes -= this.#delivered.shift()?.bytes ?? 0;
-      this.#recent = Math.max(0, this.#recent - 1);
-    }
+    // Out of the recent window first, so nothing leaves the longer one still counted as recent.
     while (
       this.#recent < this.#delivered.length &&
       (this.#delivered[this.#recent]?.at ?? at) < at - deliveryWindowMs
     )
       this.#deliveredBytes -= this.#delivered[this.#recent++]?.bytes ?? 0;
+    while (this.#recent > 0 && (this.#delivered[0]?.at ?? at) < at - cutWindowMs) {
+      this.#cutBytes -= this.#delivered.shift()?.bytes ?? 0;
+      this.#recent--;
+    }
     return {
       recent: (this.#deliveredBytes * 8 * 1000) / deliveryWindowMs,
       longer: (this.#cutBytes * 8 * 1000) / cutWindowMs,

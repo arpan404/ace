@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Run via native/media/bench/fanout. Wall time is an upper bound on single-thread CPU time.
 use media_core::{
-    fanout::*, gate::ChunkGate, keyframes::EncodePacer, link_rate::*, scale::PictureScale,
+    fanout::*,
+    gate::ChunkGate,
+    keyframes::EncodePacer,
+    link_rate::*,
+    scale::{PictureLink, PictureScale},
 };
 use serde_json::json;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
@@ -92,7 +96,13 @@ fn main() {
                 rate.acknowledged(ack, at);
                 viewer.acknowledge(ack, |_| accepts, track(rate, at, &mut sent, &mut dropped));
             }
-            black_box(scale.update(rate.rate(), 1920.0 * 1080.0, 60.0, at));
+            black_box(scale.update(PictureLink {
+                link: rate.rate(),
+                pixels: 1920.0 * 1080.0,
+                fps: 60.0,
+                now: at,
+                probing: rate.probing(),
+            }));
             black_box(pacer.frame(at, false));
             black_box(gate.offer(piece.key, || accepts));
             black_box(viewer.backlogged());

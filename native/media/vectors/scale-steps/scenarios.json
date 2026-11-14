@@ -1,0 +1,546 @@
+[
+  {
+    "name": "step order at 16000000",
+    "steps": [
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 6000000",
+    "steps": [
+      {
+        "input": {
+          "link": 6000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 4000000",
+    "steps": [
+      {
+        "input": {
+          "link": 4000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 2500000",
+    "steps": [
+      {
+        "input": {
+          "link": 2500000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 2100000",
+    "steps": [
+      {
+        "input": {
+          "link": 2100000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 8
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 1600000",
+    "steps": [
+      {
+        "input": {
+          "link": 1600000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.84,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 1000000",
+    "steps": [
+      {
+        "input": {
+          "link": 1000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.5927039999999999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 800000",
+    "steps": [
+      {
+        "input": {
+          "link": 800000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.5927039999999999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 400000",
+    "steps": [
+      {
+        "input": {
+          "link": 400000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "step order at 150000",
+    "steps": [
+      {
+        "input": {
+          "link": 150000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.3512980316159999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 16000000",
+    "steps": [
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 6000000",
+    "steps": [
+      {
+        "input": {
+          "link": 6000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 4000000",
+    "steps": [
+      {
+        "input": {
+          "link": 4000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.84,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 2500000",
+    "steps": [
+      {
+        "input": {
+          "link": 2500000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 2100000",
+    "steps": [
+      {
+        "input": {
+          "link": 2100000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.5927039999999999,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 1600000",
+    "steps": [
+      {
+        "input": {
+          "link": 1600000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.4978713599999999,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 1000000",
+    "steps": [
+      {
+        "input": {
+          "link": 1000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 800000",
+    "steps": [
+      {
+        "input": {
+          "link": 800000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.3512980316159999,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 400000",
+    "steps": [
+      {
+        "input": {
+          "link": 400000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.3512980316159999,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing at 150000",
+    "steps": [
+      {
+        "input": {
+          "link": 150000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.3512980316159999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "a measured link that thins and recovers",
+    "steps": [
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 100,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 1100,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.84,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 400000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 1300,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.84,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 400000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 2400,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 2500,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 5500,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 60
+        }
+      }
+    ]
+  },
+  {
+    "name": "probing ends at the first queue",
+    "steps": [
+      {
+        "input": {
+          "link": 1500000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.4978713599999999,
+          "fps": 60
+        }
+      },
+      {
+        "input": {
+          "link": 2000000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 200,
+          "probing": true
+        },
+        "output": {
+          "scale": 0.4978713599999999,
+          "fps": 60
+        }
+      },
+      {
+        "input": {
+          "link": 1200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 400,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      },
+      {
+        "input": {
+          "link": 1200000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 1500,
+          "probing": false
+        },
+        "output": {
+          "scale": 0.7055999999999999,
+          "fps": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "a view that asks for 30 fps",
+    "steps": [
+      {
+        "input": {
+          "link": 16000000,
+          "pixels": 4096000,
+          "fps": 30,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      },
+      {
+        "input": {
+          "link": 1000000,
+          "pixels": 4096000,
+          "fps": 30,
+          "now": 0,
+          "probing": false
+        },
+        "output": {
+          "scale": 1,
+          "fps": 30
+        }
+      }
+    ]
+  }
+]

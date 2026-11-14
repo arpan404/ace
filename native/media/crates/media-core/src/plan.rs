@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Reconfiguration-time encode planning. Allocation occurs only when the plan changes.
+//! Reconfiguration-time encode planning, matching video-policy.ts. Allocation occurs only when
+//! the plan changes. Bit and frame rates change in place: only a new size is a new encode key.
+use crate::link_rate::LINK_FLOOR;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Picture {
     pub width: u32,
@@ -26,6 +28,8 @@ pub struct VideoViewer<'a> {
     pub codecs: &'a [&'a str],
     pub link: f64,
     pub scale: f64,
+    /// The frame rate its link carries (`scale::PictureScale`); 60 without one.
+    pub fps: f64,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct Encode {
@@ -55,31 +59,36 @@ pub fn viewer_picture(source: &Source<'_>, viewport: &Viewport) -> Picture {
         height: even(source.height * scale),
     }
 }
-pub fn bitrate_ceiling(picture: Picture) -> f64 {
-    (f64::from(picture.width) * f64::from(picture.height) * 60.0 * 0.06)
-        .clamp(500_000.0, 16_000_000.0)
+pub fn bitrate_ceiling(picture: Picture, fps: f64) -> f64 {
+    (f64::from(picture.width) * f64::from(picture.height) * fps * 0.06)
+        .clamp(LINK_FLOOR, 16_000_000.0)
         .round()
 }
-pub fn encode_settings(codec: &str, picture: Picture, link: f64) -> Encode {
+pub fn encode_settings(codec: &str, picture: Picture, link: f64, fps: f64) -> Encode {
     Encode {
-        key: format!("{codec}/{}x{}/60", picture.width, picture.height),
+        key: format!("{codec}/{}x{}", picture.width, picture.height),
         codec: codec.to_owned(),
         width: picture.width,
         height: picture.height,
-        fps: 60,
-        bitrate: link.min(bitrate_ceiling(picture)).max(500_000.0).round() as u32,
+        fps: fps as u32,
+        bitrate: link
+            .min(bitrate_ceiling(picture, fps))
+            .max(LINK_FLOOR)
+            .round() as u32,
     }
 }
 struct Wanted<'a> {
     id: &'a str,
     codec: &'a str,
     link: f64,
+    fps: f64,
     full: Picture,
     picture: Picture,
 }
 struct Group<'a> {
     codec: &'a str,
     link: f64,
+    fps: f64,
     picture: Picture,
     members: Vec<&'a str>,
 }
@@ -103,6 +112,7 @@ pub fn plan_video(source: &Source<'_>, viewers: &[VideoViewer<'_>]) -> Plan {
                 id: v.id,
                 codec,
                 link: v.link,
+                fps: v.fps,
                 full,
                 picture: Picture {
                     width: even(f64::from(full.width) * v.scale),
@@ -132,6 +142,7 @@ pub fn plan_video(source: &Source<'_>, viewers: &[VideoViewer<'_>]) -> Plan {
             groups.push(Group {
                 codec: v.codec,
                 link: v.link,
+                fps: v.fps,
                 picture: v.picture,
                 members: Vec::new(),
             });
@@ -147,6 +158,7 @@ pub fn plan_video(source: &Source<'_>, viewers: &[VideoViewer<'_>]) -> Plan {
         if let Some(index) = index {
             groups[index].members.push(v.id);
             groups[index].link = groups[index].link.min(v.link);
+            groups[index].fps = groups[index].fps.min(v.fps);
         }
     }
     let mut plan = Plan {
@@ -155,7 +167,7 @@ pub fn plan_video(source: &Source<'_>, viewers: &[VideoViewer<'_>]) -> Plan {
         viewers: Vec::with_capacity(viewers.len()),
     };
     for group in groups {
-        let encode = encode_settings(group.codec, group.picture, group.link);
+        let encode = encode_settings(group.codec, group.picture, group.link, group.fps);
         for member in group.members {
             plan.viewers.push((member.to_owned(), encode.key.clone()));
         }

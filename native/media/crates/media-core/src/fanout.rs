@@ -40,6 +40,8 @@ pub struct Viewer {
     need_key: bool,
     dropping: bool,
     playing: bool,
+    /// Bytes in flight its link carries in time (`LinkRate::backlog_bytes`); the window bounds it too.
+    bound: Option<usize>,
 }
 impl Viewer {
     pub fn new(window: Window) -> Self {
@@ -54,7 +56,16 @@ impl Viewer {
             need_key: true,
             dropping: false,
             playing: false,
+            bound: None,
         }
+    }
+    /// Holds bytes in flight to what the link carries in time, within the window (ADR 0149).
+    pub fn bound(&mut self, bytes: Option<usize>) {
+        self.bound = bytes;
+    }
+    fn bytes(&self) -> usize {
+        self.bound
+            .map_or(self.window.bytes, |b| b.min(self.window.bytes))
     }
     pub fn assign(&mut self, encode: Option<u64>, mut event: impl FnMut(Event)) {
         if self.encode == encode {
@@ -113,7 +124,7 @@ impl Viewer {
                 && self
                     .inflight_bytes
                     .checked_add(piece.bytes)
-                    .is_some_and(|total| total <= self.window.bytes))
+                    .is_some_and(|total| total <= self.bytes()))
     }
     pub fn publish(
         &mut self,
@@ -136,8 +147,7 @@ impl Viewer {
         } else if !self.queue.is_empty() || !self.fits(piece) {
             // Sizes near usize::MAX saturate the allowance and refuse the delta; nothing wraps.
             let allowance = self
-                .window
-                .bytes
+                .bytes()
                 .saturating_add(self.queue.front().filter(|p| p.key).map_or(0, |p| p.bytes));
             if !self.queue.is_empty()
                 && self.queue.len() < self.window.frames
