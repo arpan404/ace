@@ -43,6 +43,8 @@ export interface ChildResultsDeps {
 /** A failed delivery is tried again after 1 s, doubling, at most a minute apart. */
 export const DELIVERY_RETRY_MS = 1000;
 export const DELIVERY_RETRY_CAP_MS = 60_000;
+/** What waits on a stopped parent is asked about at least this often. */
+export const PARKED_CHECK_MS = 60_000;
 
 /**
  * What the parents of children on other machines are owed (results and notices), and handing
@@ -52,10 +54,18 @@ export class ChildResults {
   private deps: ChildResultsDeps;
   private outbox: ChildOutbox;
   private backoff = new RetryBackoff(DELIVERY_RETRY_MS, DELIVERY_RETRY_CAP_MS);
-  /** Entries waiting on a stopped parent, by key, with that parent. */
-  private parked = new Map<string, string>();
+  /**
+   * Entries waiting on a stopped parent, by key: that parent, and whether to ask about it again
+   * (it had activity, or the periodic check came round). Others are passed over untouched.
+   */
+  private parked = new Map<string, { parent: string; ask: boolean }>();
   /** An entry may be deliverable now: one was queued, a wait holds one, or a parent resumed. */
   private ready: boolean;
+  /**
+   * When parked entries are asked about anyway. A parent fenced by a stopped ancestor is freed by
+   * that ancestor's new work, which writes nothing on the parent's own thread.
+   */
+  private parkedCheckAt = Number.POSITIVE_INFINITY;
   constructor(deps: ChildResultsDeps) {
     this.deps = deps;
     this.outbox = new ChildOutbox(deps.store);
@@ -63,21 +73,27 @@ export class ChildResults {
     this.ready = this.outbox.hasUnsent() || deps.ledger.hasUndelivered();
   }
   /**
-   * When the poll should next try to deliver: now when something may be deliverable, else when
-   * the soonest failed delivery is due again, undefined while all that is unsent waits on stopped
-   * parents (resumed() wakes them) or nothing is.
+   * When the poll should next try to deliver: now when something may be deliverable, else the
+   * soonest of a failed delivery's retry and the periodic check of what waits on stopped parents;
+   * undefined when nothing is owed.
    */
   wakeAt(now: number): number | undefined {
     if (this.ready) return now;
-    return this.backoff.nextDue();
+    const times = [this.backoff.nextDue(), this.parked.size ? this.parkedCheckAt : undefined];
+    const due = times.filter((time): time is number => time !== undefined);
+    return due.length ? Math.min(...due) : undefined;
   }
-  /** The parent may take what waits for it now (it was resumed): true when something did. */
+  /**
+   * The parent had activity (new input may have resumed it): what waits for it is asked about on
+   * the next drain. True only the first time since that drain, so a parent streaming events
+   * wakes the poll once, not on every batch.
+   */
   resumed(parent: string): boolean {
     let any = false;
-    for (const [key, of] of this.parked)
-      if (of === parent) {
+    for (const entry of this.parked.values())
+      if (entry.parent === parent && !entry.ask) {
+        entry.ask = true;
         any = true;
-        this.backoff.retryNow(key);
       }
     if (any) this.ready = true;
     return any;
@@ -156,17 +172,38 @@ export class ChildResults {
    */
   drain(): void {
     const now = this.deps.now();
+    const retry = this.backoff.nextDue();
+    const checkParked = this.parked.size > 0 && this.parkedCheckAt <= now;
+    // Nothing queued, no retry due and no parent to ask about: there is nothing to walk.
+    if (!this.ready && !(retry !== undefined && retry <= now) && !checkParked) return;
+    if (checkParked) for (const entry of this.parked.values()) entry.ask = true;
+    const seen = new Set<string>();
     this.ready = false;
-    for (const entry of this.outbox.unsent()) {
-      if (entry.kind === "result" && this.deps.waiting(ThreadId.parse(entry.child))) {
-        this.ready = true;
-        continue;
+    try {
+      for (const entry of this.outbox.unsent()) {
+        seen.add(entry.key);
+        if (entry.kind === "result" && this.deps.waiting(ThreadId.parse(entry.child))) {
+          this.ready = true;
+          continue;
+        }
+        // Still waiting on its stopped parent, with nothing since to say it was resumed.
+        if (this.parked.get(entry.key)?.ask === false) continue;
+        const parent = ThreadId.parse(entry.parent);
+        if (this.park(entry, parent)) continue;
+        if (!this.backoff.due(entry.key, now)) continue;
+        this.attempt(entry, parent, now);
       }
-      const parent = ThreadId.parse(entry.parent);
-      if (this.park(entry, parent)) continue;
-      if (!this.backoff.due(entry.key, now)) continue;
-      this.attempt(entry, parent, now);
+    } catch (error) {
+      // The outbox could not be read through (a busy store): the next poll drains it again.
+      this.ready = true;
+      throw error;
     }
+    // Entries no longer unsent (a wait read them, say) keep no retry deadline and wait for nothing.
+    this.backoff.retain(seen);
+    for (const key of this.parked.keys()) if (!seen.has(key)) this.parked.delete(key);
+    if (this.parked.size === 0) this.parkedCheckAt = Number.POSITIVE_INFINITY;
+    else if (checkParked || this.parkedCheckAt === Number.POSITIVE_INFINITY)
+      this.parkedCheckAt = now + PARKED_CHECK_MS;
   }
   /** True while the entry's parent is stopped; logged once when it starts waiting. */
   private park(entry: OutboxEntry, parent: ThreadId): boolean {
@@ -181,13 +218,15 @@ export class ChildResults {
       this.parked.delete(entry.key);
       return false;
     }
+    // A parked entry has no retry deadline: it goes when its parent is resumed, not on a timer.
+    this.backoff.forget(entry.key);
     if (!this.parked.has(entry.key))
       this.deps.log("Machine result waits for its stopped parent", {
         id: entry.child,
         parent: entry.parent,
         kind: entry.kind,
       });
-    this.parked.set(entry.key, entry.parent);
+    this.parked.set(entry.key, { parent: entry.parent, ask: false });
     return true;
   }
   private attempt(entry: OutboxEntry, parent: ThreadId, now: number): void {

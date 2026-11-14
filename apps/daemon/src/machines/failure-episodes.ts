@@ -11,6 +11,14 @@ export class FailureEpisodes {
     this.open.set(key, { attempts, outcome });
     return { log: episode?.outcome !== outcome, attempts };
   }
+  /** Whether the key is in a failure episode. */
+  failing(key: string): boolean {
+    return this.open.has(key);
+  }
+  /** Drops every episode whose key starts with `prefix`, as for a pairing that is gone. */
+  forgetPrefix(prefix: string): void {
+    for (const key of this.open.keys()) if (key.startsWith(prefix)) this.open.delete(key);
+  }
   /** Ends the key's episode; the failed attempts it had, 0 when none was open. */
   succeeded(key: string): number {
     const attempts = this.open.get(key)?.attempts ?? 0;
@@ -23,6 +31,7 @@ export class FailureEpisodes {
  * Calls a remote parent or this daemon's poll repeats about once a second, which read and change
  * nothing: a success is not logged per call, only a failure episode's start and end.
  */
+export const routineOps = ["status", "describe", "command.jobs"] as const;
 export function routineCall(op: string): boolean {
-  return op === "status" || op === "describe" || op === "command.jobs";
+  return (routineOps as readonly string[]).includes(op);
 }

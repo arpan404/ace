@@ -59,13 +59,15 @@ test("a stopped parent's result waits untried and quiet, and reaches it at once 
   const h = machine();
   h.stopped.add(parent);
   h.report(h.add("child"), done("Finished while the parent was stopped"));
-  for (let poll = 0; poll < 5; poll++) {
-    await h.fire();
+  await h.fire();
+  for (let poll = 0; poll < 4; poll++) {
     h.clock.now += 60_000;
+    await h.fire();
   }
   expect(h.attempts).toEqual([]);
   expect(logged(h, "Machine result waits for its stopped parent")).toHaveLength(1);
-  // Nothing to try until the parent is resumed: only the slow re-check pace is left.
+  // Nothing to try until the parent is resumed: only the slow re-check pace is left, and the
+  // waiting result is asked about once a minute, never every poll.
   expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
 
   h.stopped.delete(parent);

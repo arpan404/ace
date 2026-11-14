@@ -14,7 +14,7 @@ import {
   type MachineTransport,
   type MachineTransportOptions,
 } from "./transport.ts";
-import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
+import { FailureEpisodes, routineCall, routineOps } from "./failure-episodes.ts";
 
 export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
@@ -153,13 +153,21 @@ export class MachineDirectory {
     const profile = this.deps.profiles().find((entry) => entry.name === machine);
     const op = "tool" in call ? call.tool : call.op;
     if (!profile) {
+      // A pairing that is gone keeps no failure runs.
+      this.failing.forgetPrefix(`${machine}:`);
       this.deps.log("Machine call refused here", { machine, op, outcome: "unknown_machine" });
       throw new MachineFailure("refused", "unauthorized", `No paired machine named ${machine}.`);
     }
+    // Runs are kept per machine and routine op: other calls are logged every time, and one op
+    // failing while another works never flips a run back and forth.
+    const routine = routineCall(op);
+    const key = `${machine}:${op}`;
     try {
       const result = await this.deps.transport(profile, { origin, call }, options);
-      const failures = this.failing.succeeded(machine);
-      if (failures > 0) this.deps.reachable?.(machine);
+      // Any call getting through means the machine is reachable: loops waiting on it go now.
+      if (routineOps.some((each) => this.failing.failing(`${machine}:${each}`)))
+        this.deps.reachable?.(machine);
+      const failures = routine ? this.failing.succeeded(key) : 0;
       if (failures > 0)
         this.deps.log("Machine calls to another device work again", {
           machine,
@@ -167,7 +175,7 @@ export class MachineDirectory {
           attempts: failures + 1,
         });
       // Routine reads (status polls, descriptions) succeed quietly; work and changes are logged.
-      else if (!routineCall(op))
+      else if (!routine)
         this.deps.log("Machine call to another device", {
           machine,
           op,
@@ -183,15 +191,15 @@ export class MachineDirectory {
         if (this.groups() !== before) this.deps.served?.();
       }
       const outcome = failure.refusal ?? failure.kind;
-      const episode = this.failing.failed(machine, outcome);
+      const episode = routine ? this.failing.failed(key, outcome) : undefined;
       // A routine read failing again the same way is the same failure, already logged.
-      if (episode.log || !routineCall(op))
+      if (!episode || episode.log)
         this.deps.log("Machine call to another device failed", {
           machine,
           op,
           fromThread: origin.threadId,
           outcome,
-          attempts: episode.attempts,
+          ...(episode ? { attempts: episode.attempts } : {}),
         });
       throw failure;
     }

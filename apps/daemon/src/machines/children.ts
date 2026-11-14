@@ -97,11 +97,15 @@ export class MachineChildren implements RemoteChildren {
   /** Why a message to the child is still unanswered, until it is answered. */
   private held = new Map<string, string>();
   private cancelTimer: (() => void) | undefined;
+  /** When the scheduled poll runs, by the injected clock. */
+  private dueAt = 0;
   private polling = false;
   /** Polls since settled children were last re-checked for work started on their machine. */
   private sinceRecheck = 0;
   /** The next poll comes at the slow re-check pace, so it re-checks settled children. */
   private slowPace = false;
+  /** When settled children were last re-checked, by the injected clock. */
+  private lastRecheckAt = Number.NEGATIVE_INFINITY;
   /**
    * Machines whose status calls fail, each asked again later after every failure and at once
    * when another call to it gets through; logged when that starts and when it ends.
@@ -356,12 +360,14 @@ export class MachineChildren implements RemoteChildren {
    * such as a busy store, is logged and polled again.
    */
   private arm() {
-    if (this.closed || this.cancelTimer) return;
+    if (this.closed) return;
     const slow = this.deps.pollMs * RECHECK_POLLS;
+    const now = this.deps.now();
     let delay: number | undefined = this.deps.pollMs;
+    let onlySettled = false;
     try {
       if (!this.ledger.hasUnsettled() && !this.ledger.anyMessages()) {
-        const now = this.deps.now();
+        onlySettled = true;
         const wake = this.results.wakeAt(now);
         const waits: number[] = [];
         if (wake !== undefined) waits.push(Math.max(this.deps.pollMs, wake - now));
@@ -372,8 +378,13 @@ export class MachineChildren implements RemoteChildren {
       this.deps.log("Machine children poll failed", { error });
     }
     if (delay === undefined) return;
-    // With only settled children to re-check, the poll comes at the slower re-check pace.
-    this.slowPace = delay >= slow;
+    // A poll already due as soon stays; new work that needs an earlier one replaces it.
+    if (this.cancelTimer && this.dueAt <= now + delay) return;
+    this.cancelTimer?.();
+    // With only settled children watched, a poll re-checks them once the re-check pace has
+    // passed, whatever brings it sooner (a retry due, say).
+    this.slowPace = delay >= slow || (onlySettled && now + delay >= this.lastRecheckAt + slow);
+    this.dueAt = now + delay;
     this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
       void this.poll()
@@ -383,12 +394,11 @@ export class MachineChildren implements RemoteChildren {
   }
   /**
    * Something happened on this thread (new input, say): results waiting for it as a stopped
-   * parent are tried again at once.
+   * parent are asked about on the next poll, at most `pollMs` away. A poll already set sooner
+   * stays, so a parent streaming events never pushes the poll back.
    */
   threadChanged(thread: string): void {
     if (this.closed || !this.results.resumed(thread)) return;
-    this.cancelTimer?.();
-    this.cancelTimer = undefined;
     this.arm();
   }
   /** Another call to the machine got through: status calls to it go on the next poll. */
@@ -489,6 +499,7 @@ export class MachineChildren implements RemoteChildren {
   private recheckDue(now: number): [string, ChildRow[]][] {
     if (!this.slowPace && ++this.sinceRecheck < RECHECK_POLLS) return [];
     this.sinceRecheck = 0;
+    this.lastRecheckAt = now;
     const since = now - RECHECK_WINDOW_MS;
     const turn = ++this.turn;
     // Every machine, and on each the children checked longest ago: all are checked in turn.

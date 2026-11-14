@@ -340,8 +340,11 @@ export function startMachines(context: ServiceContext): void {
           }
       });
     },
-    // A stopped parent's results wait for its next input, as a local child's do.
+    // A stopped parent's results wait for its next input, as a local child's do. A deleted one
+    // is never held: delivery finds it gone and ends what it was owed.
     held: (parent) => {
+      const thread = store.getThread(parent);
+      if (!thread || thread.deletedAt !== undefined) return false;
       const journal = services.agentControl?.delegations.journal;
       return !!journal && (journal.stopped(parent) || journal.fenced(parent));
     },

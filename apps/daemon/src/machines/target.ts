@@ -264,10 +264,13 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         op: "tool" in call ? call.tool : call.op,
         capability: typeof capability === "string" ? capability : "any",
       };
+      // Episodes only for the few routine ops: any other call is logged every time anyway, and
+      // its many tool names would each keep an entry.
       const key = `${device.id}:${fields.op}`;
+      const routine = routineCall(fields.op);
       try {
         const result = await run(device, parsed.data, signal);
-        const refused = refusals.succeeded(key);
+        const refused = routine ? refusals.succeeded(key) : 0;
         // A remote parent polls status about once a second: routine reads that succeed are not
         // logged per call, only when they work again after being refused.
         if (refused > 0)
@@ -276,17 +279,17 @@ export function createMachineTarget(deps: MachineTargetDeps) {
             outcome: "ok",
             attempts: refused + 1,
           });
-        else if (!routineCall(fields.op))
+        else if (!routine)
           deps.log("Machine call from another device", { ...fields, outcome: "ok" });
         return { status: 200, body: result };
       } catch (error) {
         const refusal = error instanceof TargetRefusal ? error : new TargetRefusal("unavailable");
-        const episode = refusals.failed(key, refusal.code);
-        if (episode.log || !routineCall(fields.op))
+        const episode = routine ? refusals.failed(key, refusal.code) : { log: true, attempts: 1 };
+        if (episode.log)
           deps.log("Machine call from another device refused", {
             ...fields,
             outcome: refusal.code,
-            attempts: episode.attempts,
+            ...(routine ? { attempts: episode.attempts } : {}),
           });
         return { status: refusal.status, body: refusal.body() };
       }

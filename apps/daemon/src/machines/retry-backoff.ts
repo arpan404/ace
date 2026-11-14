@@ -39,6 +39,14 @@ export class RetryBackoff {
     const episode = this.episodes.get(key);
     if (episode) episode.dueAt = Number.NEGATIVE_INFINITY;
   }
+  /** Drops the key's episode without counting it as a success: nothing waits on it now. */
+  forget(key: string): void {
+    this.episodes.delete(key);
+  }
+  /** Drops every episode whose key is not in `keys`: what is no longer tried keeps no deadline. */
+  retain(keys: ReadonlySet<string>): void {
+    for (const key of this.episodes.keys()) if (!keys.has(key)) this.episodes.delete(key);
+  }
   /** Whether the key is in a failure episode. */
   failing(key: string): boolean {
     return this.episodes.has(key);
