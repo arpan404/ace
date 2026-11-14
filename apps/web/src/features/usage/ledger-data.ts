@@ -6,11 +6,11 @@
 import type { ClientApi } from "@ace/client";
 import { UsageQuery, type UsageDimension, type UsageRow } from "@ace/protocol";
 import {
+  canonicalLedgerRead,
   dayRange,
   ledgerLines,
-  ledgerTop,
   machineLedgerLines,
-  previousSpan,
+  readLedgerGroup,
   type LedgerGroup,
   type LedgerLine,
   type LedgerRead,
@@ -19,9 +19,6 @@ import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { Machine } from "@/lib/machines.ts";
 import type { UsageFilters, UsageSpan } from "./usage-data.ts";
-
-/** Values read per machine before ranking; the ledger shows the top ones and "Show all". */
-const valueLimit = 200;
 
 async function query(
   client: ClientApi,
@@ -45,36 +42,19 @@ async function query(
   return (await client.request({ type, query: parsed }, { signal })).result.rows;
 }
 
-async function readGroup(
+const readGroup = (
   client: ClientApi,
   span: UsageSpan,
   filters: UsageFilters,
   group: LedgerGroup,
   signal: AbortSignal,
-): Promise<LedgerRead> {
-  const before = previousSpan(span.from, span.to);
-  if (group === "machine") {
-    const [series, previous] = await Promise.all([
-      query(client, "series", span, ["day"], filters, signal, 1000),
-      query(client, "summary", before, [], filters, signal, 1),
-    ]);
-    return { totals: series, previous, series };
-  }
-  // Models are read with their provider, so a legacy bare id and its provider-prefixed one can be
-  // named as one catalog model before they are summed.
-  const by: UsageDimension[] = group === "model" ? ["model", "provider"] : [group];
-  const totals = await query(client, "summary", span, by, filters, signal, valueLimit);
-  // Days and the span before only for the values that can show; the rest rank by totals alone.
-  const top = [...new Set(totals.flatMap((row) => row.dimensions[group] ?? []))].slice(0, 50);
-  if (!top.length) return { totals, previous: [], series: [] };
-  const shown = { ...filters, [group]: top };
-  const trended = { ...filters, [group]: top.slice(0, ledgerTop) };
-  const [previous, series] = await Promise.all([
-    query(client, "summary", before, by, shown, signal, valueLimit),
-    query(client, "series", span, ["day", ...by], trended, signal, 1000),
-  ]);
-  return { totals, previous, series };
-}
+): Promise<LedgerRead> =>
+  readLedgerGroup(
+    (kind, at, groupBy, scoped, limit) => query(client, kind, at, groupBy, scoped, signal, limit),
+    span,
+    filters,
+    group,
+  );
 
 export interface LedgerResult {
   /** Undefined while loading, or when no machine in scope records this group. */
@@ -119,24 +99,9 @@ export function useLedger(
   // At most a few hundred rows per machine: summing them each render costs less than a memo.
   const named =
     group === "model" && canonicalModel
-      ? data.map((read) => read && canonicalRead(read, canonicalModel))
+      ? data.map((read) => read && canonicalLedgerRead(read, canonicalModel))
       : data;
   return { lines: sumLines(online, named, group, days), loading };
-}
-
-/** Every row's model under its catalog id. */
-function canonicalRead(
-  read: LedgerRead,
-  canonical: (provider: string, model: string) => string,
-): LedgerRead {
-  const name = (rows: readonly UsageRow[]) =>
-    rows.map((row) => {
-      const model = row.dimensions.model;
-      if (!model) return row;
-      const id = canonical(row.dimensions.provider ?? "", model);
-      return id === model ? row : { ...row, dimensions: { ...row.dimensions, model: id } };
-    });
-  return { totals: name(read.totals), previous: name(read.previous), series: name(read.series) };
 }
 
 function sumLines(

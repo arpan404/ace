@@ -212,6 +212,23 @@ import SQLite3
         // Its outbox database is the machine's own: the warm runtime was bound before any host call.
         #expect(database(in: root) != root)
     }
+    @Test func theUsageLedgerFromTheBridgeReachesTheScreenGroupedByProviderAndOpensToAccounts() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until("connected") { model.connection == "ready" }
+        let reads = UsageMachineReads(machines: [MachineSession(hostId: "ios-spike-host", client: model)], name: { _ in "Mac" })
+        // The days the screen's own report chose, as the Usage screen passes them on.
+        var report: UsageReportReply?
+        _ = await reads.report(days: 30, provider: nil, fresh: true) { report = $0 }
+        let span = try #require(report)
+        let ledger = try #require(await reads.ledger(group: "provider", filters: [:], machine: nil, parent: nil, from: span.from, to: span.to))
+        #expect(!ledger.rows.isEmpty)
+        #expect(ledger.next?.value == "account")
+        #expect(ledger.groups.map(\.label).contains("Project"))
+        #expect(ledger.coverage.complete)
+    }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
                          credential: { "{\"token\":\"ios-spike-token\"}" })

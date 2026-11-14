@@ -32,14 +32,17 @@ extension ClientModel {
     func setAutoSettle(_ threadId: String, _ enabled: Bool) async -> Bool {
         await inboxCommand(["kind": "autoSettle", "threadId": threadId, "enabled": enabled])
     }
-    /// Puts a snooze back as it was (Undo of a settle), or wakes the thread (`nil`).
+    /// Puts a snooze back as it was (Undo of a settle), or wakes the thread (`nil`). `wake` is the
+    /// event it slept until ("needs_you", "pr"), `until` then its backstop.
     /// Resolves with nil once the machine took it (a snooze it finds already over counts as
     /// taken), else its refusal in words.
-    func snooze(_ threadId: String, until: Double?) async -> String? {
+    func snooze(_ threadId: String, until: Double?, wake: String? = nil) async -> String? {
         guard canOperate else { return "This phone can only view this machine." }
         let id = admissions.nextId()
+        var snoozeAt: [String: Any] = ["kind": "snoozeAt", "threadId": threadId, "until": until.map { $0 as Any } ?? NSNull()]
+        if let wake { snoozeAt["wake"] = wake }
         return await receipts.wait(id: id) {
-            action(["type": "inbox", "action": ["kind": "snoozeAt", "threadId": threadId, "until": until.map { $0 as Any } ?? NSNull()], "requestId": id])
+            action(["type": "inbox", "action": snoozeAt, "requestId": id])
         }
     }
     /// Moves the thread to another of this machine's projects; the row moves at once.

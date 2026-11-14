@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import {
   accountView,
+  limitWhen,
   resetCountdown,
   staleReadingMs,
   usageAccounts,
@@ -97,6 +98,16 @@ export interface UsageLimitWindow {
   /** Its reading is older than a fresh limit (`staleReadingMs`). */
   old: boolean;
   pace: UsageLimitPace | null;
+  /**
+   * What the row says at its right, as web's Limits does: "Out around Sun 9:00 PM" (red) when
+   * this pace runs out before the reset, else when it is out until or resets (`limitWhen`).
+   */
+  when: { text: string; spoken: string; runsOut: boolean };
+  /**
+   * What is left at the reset if use carries on at this pace, 0 to 100: the bar's marker, with
+   * what the pace still uses between it and what is left. Null when it runs out first or can't say.
+   */
+  leftAtReset: number | null;
 }
 
 export interface UsageLimitAccount {
@@ -202,6 +213,8 @@ export function combineLimits(request: UsageLimitsCombineRequest, now: number): 
           observedAt: window.observedAt,
           stale: window.stale,
           old: now - window.observedAt > staleReadingMs,
+          when: limitWhen(window, now),
+          leftAtReset: window.stale ? null : window.leftAtReset,
           pace:
             window.pace === "ahead"
               ? { label: "Ahead of pace", token: "needsYou" }

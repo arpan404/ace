@@ -246,6 +246,74 @@ describe("inbox snooze expiry", () => {
   });
 });
 
+describe("snoozing until an event", () => {
+  type Row = {
+    group: string | null;
+    snoozeEvents: { id: string; label: string; detail: string }[];
+    snoozeWake: string | null;
+  };
+  const rowOf = (sink: RecordingSink, id: string) =>
+    (sink.read(`inbox:${id}`) as { row: Row } | undefined)?.row;
+  const pr = {
+    number: 196,
+    state: "open" as const,
+    url: "https://github.com/acme/ace/pull/196",
+    repo: { forge: "github" as const, host: "github.com", owner: "acme", name: "ace" },
+    updatedAt: 0,
+  };
+
+  test("a working thread snoozed until it needs you says so, and comes back when its turn ends", async () => {
+    const { daemon, client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "busy",
+        workspaceId: "ace",
+        title: "Busy",
+        provider: "codex",
+        hasSentMessage: true,
+      });
+      seed.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+    });
+    await until(() => rowOf(sink, "busy")?.snoozeEvents.length === 1, "offered");
+    expect(rowOf(sink, "busy")?.snoozeEvents).toEqual([
+      {
+        id: "needs_you",
+        label: "Until it needs you",
+        detail: "Returns on a question, a failure or when it finishes",
+      },
+    ]);
+    inboxAction(client, { kind: "snooze", threadId: "busy", preset: "needs_you" }, "s1", sink);
+    await until(() => groups(sink).snoozed?.includes("busy") === true, "snoozed");
+    expect(rowOf(sink, "busy")?.snoozeWake).toBe("until it needs you");
+    daemon.apply("busy", [facts.endTurn("root")]);
+    await until(() => groups(sink).snoozed === undefined, "woke");
+    expect(rowOf(sink, "busy")?.snoozeWake).toBeNull();
+  });
+
+  test("a finished thread with a confirmed pull request can sleep until the PR changes", async () => {
+    const { client, sink } = await following((seed) => {
+      seed.createThread({
+        id: "shipped",
+        workspaceId: "ace",
+        title: "Shipped",
+        provider: "codex",
+        hasSentMessage: true,
+        details: { linkedPrs: [pr] },
+      });
+      seed.apply("shipped", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+      finished(seed, "plain", "Plain");
+    });
+    await until(() => rowOf(sink, "shipped")?.snoozeEvents.length === 1, "offered");
+    // Neither working nor linked to a pull request: only the times.
+    expect(rowOf(sink, "plain")?.snoozeEvents).toEqual([]);
+    expect(rowOf(sink, "shipped")?.snoozeEvents.map((choice) => choice.label)).toEqual([
+      "Until the PR changes",
+    ]);
+    inboxAction(client, { kind: "snooze", threadId: "shipped", preset: "pr" }, "s2", sink);
+    await until(() => groups(sink).snoozed?.includes("shipped") === true, "snoozed");
+    expect(rowOf(sink, "shipped")?.snoozeWake).toBe("until the PR changes");
+  });
+});
+
 describe("inbox attention", () => {
   type Look = {
     level: string;

@@ -3,8 +3,7 @@ import {
   limitDetails,
   railBars,
   joinNames,
-  limitTime,
-  roundEstimate,
+  limitWhen,
   type AccountLimits,
   type AccountWindow,
   type UsageLimits,
@@ -235,40 +234,10 @@ const rowGrid = cn(
   "@min-[40rem]/limits:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_4rem_minmax(7rem,10rem)]",
 );
 
-/**
- * What a row says at its right, and the words a screen reader hears. A pace that runs out
- * before the reset is an estimate, so the row keeps it to "Out around Sun 9:00 PM" and the
- * spoken name says the sentence in full.
- */
-function windowWhen(window: AccountWindow, now: number): { text: string; spoken: string } {
-  const time = (at: number) => limitTime(at, now);
-  if (window.stale) {
-    const text = "Not used since its reset";
-    return { text, spoken: text };
-  }
-  if (window.leftPercent <= 0) {
-    const text =
-      window.resetsAt === null ? "Out, reset not reported" : `Out until ${time(window.resetsAt)}`;
-    return { text, spoken: text };
-  }
-  if (window.runsOutAt !== null) {
-    const at = time(roundEstimate(window.runsOutAt, now));
-    return { text: `Out around ${at}`, spoken: `Runs out around ${at}` };
-  }
-  if (window.leftPercent >= 100) return { text: "Fresh", spoken: "Fresh" };
-  if (window.resetsAt === null) {
-    const text = "Reset not reported";
-    return { text, spoken: text };
-  }
-  const text = `Resets ${time(window.resetsAt)}`;
-  return { text, spoken: text };
-}
-
 function WindowRow(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
-  const out = window.leftPercent <= 0;
-  const runsOut = !window.stale && (out || window.runsOutAt !== null);
-  const when = windowWhen(window, now);
+  const when = limitWhen(window, now);
+  const runsOut = when.runsOut;
   const cells = (
     <>
       <span title={window.label} className="truncate text-ui text-muted-foreground">

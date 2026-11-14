@@ -63,7 +63,8 @@ struct DeviceCatalogSheet: View {
 
     private func row(_ tile: DeviceTile) -> some View {
         Button { Task { await start(tile) } } label: {
-            InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
+            // One that can't boot (offline, not authorized, already booting) says what it needs instead.
+            InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.hint ?? tile.detail) {
                 if booting == tile.id { WorkingMark(label: "Booting") }
             }
             .frame(minHeight: AceDesign.Size.rowLine)
@@ -71,7 +72,7 @@ struct DeviceCatalogSheet: View {
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(AceTheme.Colours.separator)
-        .disabled(booting != nil || !model.canOperate)
+        .disabled(booting != nil || !model.canOperate || tile.bootable == false)
         .accessibilityIdentifier("devices.catalog.row")
     }
 

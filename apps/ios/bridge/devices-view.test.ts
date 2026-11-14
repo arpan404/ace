@@ -136,6 +136,60 @@ test("running devices list first; the Start sheet groups the rest by kind and na
   expect(filtered.groups.map((group) => group.label)).toEqual(["iPad"]);
 });
 
+test("only a shut-down device that isn't booting can be booted; one that can't says what it needs", () => {
+  const offline = AppDevice.parse({
+    ...pixel,
+    id: "android:emulator-5554",
+    name: "Pixel 8",
+    state: "offline",
+  });
+  const booting = DeviceState.parse({
+    device: ipad,
+    enabled: true,
+    lifecycle: "starting",
+    booting: true,
+    controller: "none",
+  });
+  const shown = view([live(), booting], {
+    snapshot: {
+      connected: true,
+      inventoryLoaded: true,
+      devices: [iphone, ipad, pixel, offline],
+      states: [live(), booting],
+      issues: [],
+      enabled: true,
+    },
+  });
+  const tiles = new Map(
+    shown.groups.flatMap((group) => group.rows).map((tile) => [tile.name, tile]),
+  );
+  expect(tiles.get("Pixel 9")).toMatchObject({ bootable: true, hint: null });
+  expect(tiles.get("iPad Air 13-inch")).toMatchObject({ bootable: false, hint: null });
+  expect(tiles.get("Pixel 8")).toMatchObject({
+    bootable: false,
+    hint: "Pixel 8 is offline. Reconnect it, or restart its emulator, then refresh.",
+  });
+});
+
+test("devices turned off on the machine say so, and how to turn them on", () => {
+  const shown = view([], {
+    snapshot: {
+      connected: true,
+      inventoryLoaded: true,
+      devices: [],
+      states: [],
+      issues: [],
+      enabled: false,
+    },
+  });
+  expect(shown.enabled).toBe(false);
+  expect(shown.off).toEqual({
+    title: "Simulators and emulators are off",
+    line: "They're turned off for this machine. Turn them on to watch and drive them here and let this thread's agents use them.",
+  });
+  expect(view([live()]).off).toBeNull();
+});
+
 test("the agent's newest action reads as a caption at the point it landed, with its provider", () => {
   const device = view([
     live({

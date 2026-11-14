@@ -23,6 +23,22 @@ import Testing
         #expect(order.firstIndex(of: "needs-you") ?? 0 < order.firstIndex(of: "working") ?? 0)
         #expect(model.inboxLayout.snooze.map(\.id) == ["hour", "tomorrow", "monday"])
     }
+    @Test func aWorkingThreadSnoozedUntilItNeedsYouSaysSoInSnoozedAndWakesBack() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        try await until("working row arrives") { model.inbox["ios-tree"]?.snoozeEvents?.isEmpty == false }
+        // The menu leads with the event, then the times, as web lists them.
+        let choices = SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox["ios-tree"])
+        #expect(choices.map(\.id) == ["needs_you", "hour", "tomorrow", "monday"])
+        #expect(choices.first?.detail == "Returns on a question, a failure or when it finishes")
+        #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-tree", preset: "needs_you") })
+        try await until("row moves to Snoozed") { section(model, of: "ios-tree")?.key == "snoozed" }
+        let row = try #require(model.inbox["ios-tree"])
+        #expect(InboxRowLine.wake(row) == "Until it needs you")
+        #expect(try await SpikeFixture.within("wake admitted") { await model.wake("ios-tree") })
+        try await until("row wakes into Working") { section(model, of: "ios-tree")?.key == "working" }
+        #expect(model.inbox["ios-tree"]?.snoozeWake == nil)
+    }
     @Test func snoozeWakeArchiveAndUndoAreAdmittedDurablyAndMoveTheRowCanonically() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
