@@ -1,7 +1,6 @@
 import type { SuitDetail, SuitFont, SuitManifest } from "@ace/protocol/suits";
 import {
   customPalette,
-  suitBaseThemes,
   themeSources,
   type Palette,
   type Scheme,
@@ -20,7 +19,8 @@ import { defaultTranslucency } from "../translucency.ts";
 
 const schemes: readonly Scheme[] = ["light", "dark"];
 
-export const suitBaseTheme = (manifest: SuitManifest): ThemeId => suitBaseThemes[manifest.base];
+/** Suit bases are the built-in theme ids. */
+export const suitBaseTheme = (manifest: SuitManifest): ThemeId => manifest.base;
 
 /** The schemes a Suit has, light first. */
 export function suitSchemes(manifest: SuitManifest): Scheme[] {

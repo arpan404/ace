@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import type { ClientApi } from "@ace/client";
-import type { SuitDetail, SuitSummary } from "@ace/protocol/suits";
+import type { SuitDetail, SuitId, SuitSummary } from "@ace/protocol/suits";
+import { wantedSuit } from "./applied-suit.ts";
 import { useTheme } from "../theme-provider.tsx";
 import { daemonSuitChannel, suitTransport, type SuitTransport } from "./suit-transport.ts";
 
@@ -27,6 +28,8 @@ interface Library {
   detail(summary: SuitSummary): SuitDetail | undefined;
   /** Read `summary`'s detail if it isn't read yet. */
   want(summary: SuitSummary): void;
+  /** An agent's preview on top of the device setting; undefined when none runs. */
+  preview: SuitId | null | undefined;
 }
 const LibraryContext = createContext<Library | undefined>(undefined);
 
@@ -45,7 +48,8 @@ export function SuitLibraryProvider(props: {
   children: ReactNode;
 }) {
   const { transport } = props;
-  const { appearance, reportSuits } = useTheme();
+  const { appearance, update, reportSuits } = useTheme();
+  const [preview, setPreview] = useState<SuitId | null | undefined>(undefined);
   const [heard, setHeard] = useState<readonly SuitSummary[] | undefined>(undefined);
   // With no channel to the daemon there are no Suits, and the theme shows.
   const summaries = transport ? heard : noSuits;
@@ -75,8 +79,22 @@ export function SuitLibraryProvider(props: {
     setWanted((known) => (known.has(key) ? known : new Set(known).add(key)));
   }, []);
 
-  // The picked Suit is always wanted; Settings asks for the rest to draw their swatches.
-  const picked = summaries?.find((summary) => summary.id === appearance.suit);
+  // An agent's preview shows until it ends; a keep or revert becomes this device's setting.
+  useEffect(() => {
+    if (!transport) return;
+    return transport.watchActive((active) => {
+      if (active.preview) {
+        setPreview(active.suitId);
+        return;
+      }
+      setPreview(undefined);
+      update({ suit: active.suitId });
+    });
+  }, [transport, update]);
+
+  // The wanted Suit is always read; Settings asks for the rest to draw their swatches.
+  const wantedId = wantedSuit(appearance.suit, preview);
+  const picked = summaries?.find((summary) => summary.id === wantedId);
   const pickedKey = picked ? versionKey(picked) : undefined;
   const toRead = useMemo(() => {
     const keys = new Set(wanted);
@@ -105,8 +123,8 @@ export function SuitLibraryProvider(props: {
 
   const pickedDetail = pickedKey ? details.get(pickedKey) : undefined;
   useEffect(() => {
-    reportSuits({ summaries, detail: pickedDetail });
-  }, [reportSuits, summaries, pickedDetail]);
+    reportSuits({ summaries, detail: pickedDetail, preview });
+  }, [reportSuits, summaries, pickedDetail, preview]);
 
   const value = useMemo<Library>(
     () => ({
@@ -114,8 +132,9 @@ export function SuitLibraryProvider(props: {
       failed,
       detail: (summary) => details.get(versionKey(summary)),
       want,
+      preview,
     }),
-    [summaries, failed, details, want],
+    [summaries, failed, details, want, preview],
   );
   return <LibraryContext.Provider value={value}>{props.children}</LibraryContext.Provider>;
 }
@@ -126,6 +145,7 @@ const noLibrary: Library = {
   failed: false,
   detail: () => undefined,
   want: () => {},
+  preview: undefined,
 };
 
 export function useSuitLibrary(): Library {

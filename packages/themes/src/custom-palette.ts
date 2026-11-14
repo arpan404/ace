@@ -44,18 +44,6 @@ export type CustomScheme = { [K in CustomColourField]?: string | undefined } & {
   glass?: GlassMaterial | null | undefined;
 };
 
-/** The built-in theme each Suit base name starts from. */
-export const suitBaseThemes = {
-  graphite: "ace",
-  midnight: "midnight",
-  paper: "paper",
-  slate: "harbor",
-  // No built-in contrast or aurora theme yet: the nearest ones stand in.
-  contrast: "ace",
-  aurora: "dusk",
-} as const satisfies Record<string, ThemeId>;
-export type SuitBaseName = keyof typeof suitBaseThemes;
-
 const colour = (value: unknown): string | undefined =>
   typeof value === "string" && parseOpaqueColor(value) ? value : undefined;
 

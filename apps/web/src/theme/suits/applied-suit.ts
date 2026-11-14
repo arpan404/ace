@@ -6,8 +6,15 @@ import type { SuitDetail, SuitId, SuitSummary } from "@ace/protocol/suits";
  * falls back to the chosen theme. Until the daemon has answered, the Suit the boot cache last
  * applied stands in, so a reload keeps its look. Pure.
  */
+/**
+ * The Suit this device asks for: an agent's preview while one runs (undefined when none does),
+ * else the device setting.
+ */
+export const wantedSuit = (setting: SuitId | null, preview: SuitId | null | undefined) =>
+  preview === undefined ? setting : preview;
+
 export interface SuitInputs {
-  /** `appearance.suit` on this device. */
+  /** The Suit this device asks for (`wantedSuit`). */
   setting: SuitId | null;
   /** `?suit=off` this session (`suits-off.ts`). */
   off: boolean;

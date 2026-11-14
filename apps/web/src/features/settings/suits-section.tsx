@@ -106,6 +106,8 @@ function SuitRow(props: { summary: SuitSummary }) {
 
 /** One sentence on what's on screen, when it isn't simply the picked Suit. */
 function statusNote(input: {
+  /** An agent's preview: the Suit's name, null for the theme, undefined when none runs. */
+  previewName: string | null | undefined;
   pickedName: string | undefined;
   pickedReady: boolean;
   showing: boolean;
@@ -113,6 +115,8 @@ function statusNote(input: {
   themeName: string;
 }): string | undefined {
   if (input.suitsOff) return `Suits are off for this session, so ${input.themeName} shows.`;
+  if (input.previewName !== undefined)
+    return `An agent is previewing ${input.previewName ?? input.themeName} until it keeps or reverts it.`;
   if (input.showing)
     return "The Suit sets colours, fonts and shape. Theme and Accent apply again when it's off.";
   if (input.pickedName && !input.pickedReady)
@@ -121,10 +125,13 @@ function statusNote(input: {
 }
 
 export function SuitsSection() {
-  const { summaries, failed } = useSuitLibrary();
+  const { summaries, failed, preview } = useSuitLibrary();
   const { appearance, suit, suitsOff } = useTheme();
   const picked = summaries?.find((summary) => summary.id === appearance.suit);
+  const previewed = preview ? summaries?.find((summary) => summary.id === preview) : undefined;
   const note = statusNote({
+    previewName:
+      preview === undefined ? undefined : preview === null ? null : (previewed?.name ?? preview),
     pickedName: picked?.name,
     pickedReady: picked ? suitReady(picked) : true,
     showing: suit !== null,

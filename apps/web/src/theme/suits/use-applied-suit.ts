@@ -3,13 +3,15 @@ import { z } from "zod";
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import { SuitDetail, type SuitId, type SuitSummary } from "@ace/protocol/suits";
 import { bootAppearanceKey } from "../appearance.ts";
-import { appliedSuit } from "./applied-suit.ts";
+import { appliedSuit, wantedSuit } from "./applied-suit.ts";
 
 /** What the Suit library has told this page so far (`SuitLibraryProvider` reports it). */
 export interface SuitReport {
   summaries: readonly SuitSummary[] | undefined;
-  /** The picked Suit's detail, once read. */
+  /** The wanted Suit's detail, once read. */
   detail: SuitDetail | undefined;
+  /** An agent's preview on top of the device setting; undefined when none runs. */
+  preview: SuitId | null | undefined;
 }
 
 const BootSuit = z.object({ suit: SuitDetail });
@@ -29,11 +31,15 @@ export function useAppliedSuit(
   off: boolean,
 ) {
   const [cached] = useState(() => cachedSuit(storage));
-  const [report, setReport] = useState<SuitReport>({ summaries: undefined, detail: undefined });
+  const [report, setReport] = useState<SuitReport>({
+    summaries: undefined,
+    detail: undefined,
+    preview: undefined,
+  });
   const applied = useMemo(
     () =>
       appliedSuit({
-        setting,
+        setting: wantedSuit(setting, report.preview),
         off,
         summaries: report.summaries,
         detail: report.detail,
@@ -42,5 +48,5 @@ export function useAppliedSuit(
     [setting, off, report, cached],
   );
   const reportSuits = useCallback((next: SuitReport) => setReport(next), []);
-  return { applied, reportSuits };
+  return { applied, preview: report.preview, reportSuits };
 }
