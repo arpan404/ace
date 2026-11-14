@@ -58,8 +58,26 @@ struct AceAccountView: View {
             }
             browserFailure
             if model.account != nil, let machines { accountMachines(machines) }
+            legal
         }
     }
+
+    /// The same pages web's Profile links to, opened in the system browser.
+    private var legal: some View {
+        Section {
+            ForEach(Self.legalPages, id: \.id) { page in
+                if let url = URL(string: page.url) {
+                    Link(page.title, destination: url).accessibilityIdentifier("account.legal.\(page.id)")
+                }
+            }
+        }
+        .insetRowBackground()
+    }
+
+    private static let legalPages = [
+        (id: "terms", title: "Terms of service", url: "https://acehq.dev/terms-of-service"),
+        (id: "privacy", title: "Privacy policy", url: "https://acehq.dev/privacy-policy"),
+    ]
 
     private var profileSection: some View {
         Section {

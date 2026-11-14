@@ -203,6 +203,19 @@ struct EventRow: Codable, Sendable, Equatable {
     let count: Int
     /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
     var fenced: Bool? = nil
+    /// A message another thread's agent sent (`kind` "sent"): who sent it and its bubble.
+    var sent: SentBy? = nil
+    /// The thread that sent a message, as the bridge read it (`@ace/ui-core` `sentBy`).
+    struct SentBy: Codable, Sendable, Equatable {
+        /// Empty when ace doesn't know the sender: the line then opens nothing.
+        let threadId: String
+        /// The sender's machine when it isn't this one; empty for this machine.
+        let hostId: String
+        /// "Sent by <title as recorded>", "Sent from another thread", with " · <machine>" when remote.
+        let line: String
+        /// Its words, without ace's frame, as the person's bubble draws them.
+        let bubble: BubbleLine
+    }
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
