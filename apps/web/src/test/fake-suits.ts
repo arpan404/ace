@@ -20,7 +20,10 @@ export function fakeSuit(
     },
     manifest: parsed,
     sceneUrl: null,
+    sceneUrls: {},
     assets: {},
+    css: null,
+    ornaments: {},
   };
 }
 

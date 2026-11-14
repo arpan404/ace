@@ -40,7 +40,8 @@
     "./agent-status": "./src/agent-status.ts",
     "./entities": "./src/entities.ts",
     "./ace-account": "./src/ace-account.ts",
-    "./suits": "./src/suits.ts"
+    "./suits": "./src/suits.ts",
+    "./suit-parts": "./src/suit-parts.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

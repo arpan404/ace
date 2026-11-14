@@ -1,4 +1,13 @@
 import { z } from "zod";
+import {
+  SuitLabels,
+  SuitLayout,
+  SuitOrnament,
+  SuitRegion,
+  SuitScenes,
+  SuitOrnamentSlot,
+  SuitSceneRegion,
+} from "./suit-parts.ts";
 
 /*
  * Suits (ADR 0150): looks an agent makes for ace. A Suit is a folder the daemon keeps per user:
@@ -116,16 +125,31 @@ export const SuitManifest = z.looseObject({
     .optional(),
   /** True when the folder has `scene.js`; set by the daemon on read, not trusted from the file. */
   scene: z.boolean().default(false),
+  /** Where things sit (ADR 0150 "Layout"); each value from a fixed set. */
+  layout: SuitLayout.optional(),
+  /** Static, sanitised SVG or HTML placed in named slots. */
+  ornaments: z.array(SuitOrnament).max(16).optional(),
+  /** Short labels in fixed places; status words are never replaceable. */
+  labels: SuitLabels.optional(),
+  /** A scene per region; `scene.js` alone means `{ app: "scene.js" }`. */
+  scenes: SuitScenes.optional(),
+  /** How much of each region's scene or background shows through its surface, 0–1. */
+  reveal: z.partialRecord(SuitRegion, z.number().min(0).max(1)).optional(),
 });
 export type SuitManifest = z.infer<typeof SuitManifest>;
 
 /** One failed check, phrased so an agent can fix it. */
 export const SuitProblem = z.object({
   scheme: z.enum(["light", "dark"]).nullable(),
-  /** e.g. "contrast", "glass-floor", "accent-fit", "schema", "asset", "scene". */
+  /**
+   * e.g. "contrast", "glass-floor", "accent-fit", "schema", "asset", "scene", "css" (a refused
+   * rule in suit.css), "ornament", and the live checks "live-contrast", "protected", "overflow".
+   */
   check: z.string(),
-  /** The palette field or file the problem is in, when there is one. */
+  /** The palette field, file or part the problem is in, when there is one. */
   field: z.string().nullable(),
+  /** 1-based line in the file named by `field`, for suit.css and ornaments. */
+  line: z.number().int().positive().optional(),
   message: z.string(),
 });
 export type SuitProblem = z.infer<typeof SuitProblem>;
@@ -199,8 +223,18 @@ export const SuitDetail = z.object({
   manifest: SuitManifest,
   /** Daemon URL of `scene.js`'s sandbox page, or null without a scene. */
   sceneUrl: z.string().nullable(),
-  /** Asset path → daemon URL, for fonts. */
+  /** The sandbox page per region with a scene; `app` matches `sceneUrl`. */
+  sceneUrls: z.partialRecord(SuitSceneRegion, z.string()).default({}),
+  /** Asset path → daemon URL, for fonts and images. */
   assets: z.record(z.string(), z.string()),
+  /**
+   * suit.css after the daemon's sanitiser: only `[data-part]` selectors, scoped to
+   * `[data-suit="<id>"]`, asset URLs rewritten to `assets`. Null without suit.css. Clients wrap it
+   * in `@layer suit` and never apply the raw file.
+   */
+  css: z.string().nullable().default(null),
+  /** Sanitised ornament markup by slot, ready to insert. */
+  ornaments: z.partialRecord(SuitOrnamentSlot, z.string()).default({}),
 });
 export type SuitDetail = z.infer<typeof SuitDetail>;
 

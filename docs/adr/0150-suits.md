@@ -104,9 +104,96 @@ plugins.
 ## Consequences
 
 - People get any look they can describe, and ace's state markers stay readable in all of them.
-- Raw CSS overrides are not supported. Any look reaches ace through tokens and scenes, so UI
-  refactors never break a Suit.
-- Restyling components themselves (custom panes, replaced rows) is out of scope; that would be a
-  plugin capability with its own ADR.
+- Raw CSS reaches ace only through the published parts below, so a UI refactor that keeps the
+  parts keeps every Suit working.
+- New panes and behaviour (code running beside the UI) stay out of scope; that would be a plugin
+  capability with its own ADR. Everything visual is in scope.
 - A scene costs one iframe and one canvas at 30 fps at most, paused whenever the window isn't in
   use. A benchmark records its frame time and battery cost on the Mac.
+
+## Full customisation (amended 2026-11-14)
+
+The owner reviewed the first build: colours and one backdrop are not enough. A Suit must be able
+to restyle every visible part of ace (rail, sidebar, header, transcript, messages, tool rows, code,
+composer, menus, settings) and move the layout, and it must render exactly as intended. This
+amendment replaces "Raw CSS overrides are not supported".
+
+### Parts: a published styling contract
+
+- Every visible region and repeated element carries `data-part="<name>"`, with its state in
+  `data-state` (`active`, `selected`, `open`, `disabled`, `working`, `waiting`, …) and its variant
+  in `data-variant`. The names are a versioned list in `@ace/protocol/suit-parts`
+  (`suitParts`), documented with a sentence each in `docs/design/suit-parts.md`.
+- Parts are public API. Renaming or removing one is a breaking change: it needs an alias for one
+  release and a note in the parts doc. A test walks the rendered app and fails when a listed part
+  is missing, so the list never drifts from the UI.
+- Class names, DOM depth and Tailwind utilities are not part of the contract. A Suit that
+  targets them is refused (see "suit.css").
+
+### suit.css
+
+- A Suit may ship `suit.css`. It is parsed (never applied as text), and only rules whose
+  selectors are built from `[data-part]`, `[data-state]`, `[data-variant]`, `[data-scheme]`,
+  pseudo-classes and pseudo-elements survive. Every rule is scoped to `[data-suit="<id>"]` and
+  placed in `@layer suit`.
+- Refused: `@import`, `url()` to anything but the Suit's own `assets/`, `expression`, `behavior`,
+  `-moz-binding`, `content` with `attr()` of hidden data, and any selector naming a class, id or
+  element. Each refusal comes back as a `SuitProblem` with the line, so an agent can fix it.
+- Allowed: anything visual. Backgrounds (gradients, patterns, bundled images), borders, radius,
+  shadows, filters, backdrop filters, fonts, letter spacing, text transform, `::before` and
+  `::after` decoration, transitions and keyframe animations (bounded: see "Guard").
+- Region backgrounds are first-class: the sidebar, rail, header, transcript, composer and every
+  floating layer each read `--suit-<part>-background` and friends, so a Suit can give the sidebar
+  its own image or pattern without CSS at all.
+
+### Layout
+
+`suit.json` gains `layout`, each from a fixed set so the app stays usable:
+
+- `sidebar`: `left` or `right`; `rail`: `shown`, `hidden` or `merged` into the sidebar;
+  `sidebarWidth` and `transcriptWidth` within ranges.
+- `composer`: `docked` or `floating`; `header`: `bar`, `minimal` or `hidden` (title moves into
+  the sidebar).
+- `messages`: `bubbles`, `flat` or `cards`; `toolRows`: `compact`, `detailed` or `terminal`.
+
+### Ornaments
+
+- `ornaments` places static, sanitised SVG or HTML (no script, no event handlers, no external
+  references) into named slots: sidebar header and footer, transcript top, empty states, the
+  composer's top edge and the window's corners. This is how a Suit adds hazard stripes, stamps,
+  title plates or a logo of its own.
+- Short labels in fixed places (the composer placeholder, empty-state lines, the Working word)
+  may be replaced from `labels`, a fixed map with a length cap. Status words stay ace's.
+
+### Scenes per region
+
+`scenes` maps a region (`app`, `sidebar`, `header`, `composer`) to a scene file. Each runs in
+its own sandboxed iframe under the same rules, budget and watchdog as the app scene, sharing one
+30 fps clock. Each region sets how much of its scene shows (`--suit-<part>-scene-opacity`),
+within what the readability checks allow, so a backdrop is as visible as the Suit wants.
+
+### Guard
+
+ace's own `@layer guard` comes after `@layer suit` and keeps the state of an agent readable
+whatever a Suit does:
+
+- the approval strip, the Working line, waiting and failed markers, thread status icons and
+  focus rings keep `display`, `visibility`, `opacity: 1`, a minimum size and ace's colours;
+- no animation on them, `pointer-events` intact, never covered by an ornament or scene;
+- Suit animations stop under Reduce motion, and infinite animations are limited to parts the
+  contract marks decorative.
+
+### Shown perfectly: checked in the browser
+
+Static checks cannot see what CSS produces, so every apply also runs a live check in the client:
+it renders the Suit, reads the computed colours of every text-bearing part over its actual
+background (scene frames included), measures that protected parts are visible and unobscured,
+and checks that nothing overflows its region at three window sizes. The result comes back to the
+agent through `suit_apply` as `SuitProblem`s plus screenshots of the app in the Suit, so the
+agent fixes what the person would have seen before the person ever sees it.
+
+### On the fly
+
+The daemon watches each Suit folder; any saved change re-runs the checks and pushes the new Suit
+to every client, which swaps it without a reload. An agent editing `suit.css` sees each save
+land in the open app.

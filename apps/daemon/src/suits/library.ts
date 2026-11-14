@@ -135,7 +135,12 @@ export class SuitLibrary {
     for (const path of read.plan.read)
       if (path.startsWith("assets/")) assets[path] = base + encodeSuitPath(path);
     const sceneUrl = read.plan.read.includes("scene.js") ? `${base}scene.html` : null;
-    return { op: "read", suit: { summary, manifest, sceneUrl, assets } };
+    const sceneUrls: SuitDetail["sceneUrls"] = sceneUrl ? { app: sceneUrl } : {};
+    // suit.css, ornaments and region scenes are served once the sanitiser lands (ADR 0150).
+    return {
+      op: "read",
+      suit: { summary, manifest, sceneUrl, sceneUrls, assets, css: null, ornaments: {} },
+    };
   }
 
   /** Every check again on the folder as it is on disk now, past any cache. */
