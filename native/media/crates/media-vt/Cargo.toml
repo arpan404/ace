@@ -10,3 +10,79 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+media-codec = { path = "../media-codec" }
+media-wire = { path = "../media-wire" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "CFBase",
+  "CFData",
+  "CFDictionary",
+  "CFNumber",
+  "CFString",
+  "CFArray",
+] }
+objc2-core-media = { version = "0.3", default-features = false, features = [
+  "std",
+  "CMBase",
+  "CMBlockBuffer",
+  "CMFormatDescription",
+  "CMSampleBuffer",
+  "CMTime",
+  "CMAttachment",
+  "objc2-core-video",
+] }
+objc2-core-video = { version = "0.3", default-features = false, features = [
+  "std",
+  "CVBase",
+  "CVBuffer",
+  "CVImageBuffer",
+  "CVPixelBuffer",
+  "CVPixelBufferPool",
+  "CVReturn",
+  "CVPixelBufferIOSurface",
+  "objc2-io-surface",
+] }
+objc2-io-surface = { version = "0.3", default-features = false, features = [
+  "std",
+  "IOSurfaceRef",
+  "IOSurfaceTypes",
+  "objc2-core-foundation",
+] }
+objc2-video-toolbox = { version = "0.3", default-features = false, features = [
+  "std",
+  "VTBase",
+  "VTSession",
+  "VTCompressionSession",
+  "VTCompressionProperties",
+  "VTDecompressionSession",
+  "VTDecompressionProperties",
+  "VTPixelTransferSession",
+  "VTPixelTransferProperties",
+  "VTErrors",
+  "VTVideoEncoderList",
+  "objc2-core-media",
+  "objc2-core-video",
+] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[example]]
+name = "vt_probe"
+path = "bench/vt_probe.rs"
+
+[[example]]
+name = "encode"
+path = "bench/encode.rs"
+
+[[example]]
+name = "vt_still"
+path = "bench/vt_still.rs"
+
+[[example]]
+name = "vt_alloc"
+path = "bench/vt_alloc.rs"
