@@ -6,13 +6,18 @@ import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "r
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
-import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
+import {
+  defaultDaemonUrl,
+  forgetToken,
+  loadTarget,
+  type DaemonTarget,
+} from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
 import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { afterFirstScreen, useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
-import { useKeptQueries } from "./boot/kept-queries.ts";
+import { loadKeptQueries, useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
@@ -297,6 +302,10 @@ async function content(): Promise<ReactNode> {
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing #root");
 const daemonMode = import.meta.env.MODE !== "fake" && import.meta.env.MODE !== "perf";
+// A browser with a machine stored keeps lookups from its last session: their code downloads
+// while the gate connects, so the app restores them as it mounts. Not awaited.
+if (daemonMode && !hasDesktopBridge() && loadTarget(stores).target)
+  void loadKeptQueries().catch(() => {});
 /** Start over at the connection screen without the stored token (from `BootFailure`). */
 const connectionSettings = daemonMode
   ? () => {
