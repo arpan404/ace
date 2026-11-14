@@ -43,6 +43,8 @@ final class Listener {
             data.append(contentsOf: buffer[0..<got])
         }
     }
+    /// Ends the accepted connection, as ace-media dropping it.
+    func drop() { if connection >= 0 { close(connection); connection = -1 } }
     deinit { if connection >= 0 { close(connection) }; close(fd); unlink(path) }
 }
 

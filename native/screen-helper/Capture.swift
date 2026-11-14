@@ -38,55 +38,42 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let started = runtime.nanos()
         guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
             timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage, quality: jpegQuality(changed.quality)) else { return }
-        routeLock.lock()
         lock.lock(); let published = sequence; sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
-        writer.publish(packet, sessionId: sessionId); lastLegacy = published
-        routeLock.unlock()
+        ingest.legacyStill(published) { writer.publish(packet, sessionId: sessionId) }
     }
     // Video goes to ace-media's ingest while the daemon routes it there (`stream.configure`'s
-    // `ingest`), else to the daemon's socket. Stills always take the daemon's socket. The route
-    // is read and the unit written under one lock, so a switch has an exact boundary: the
-    // sequence of the last unit the previous path took.
-    private let routeLock = NSLock()
-    private var ingest: IngestWriter?
-    private var lastLegacy: UInt64?
-    private var lastIngest: UInt64?
+    // `ingest`), else to the daemon's socket; stills always take the daemon's socket. The route
+    // owns its writers: a replaced one drains before it closes, and only the current one's
+    // failure moves video back.
+    private lazy var ingest: IngestRoute = {
+        let route = IngestRoute(legacy: { [weak self] unit in
+            guard let self, let packet = legacyFramePacket(unit, sessionId: self.sessionId, version: self.version) else { return }
+            self.writer.publish(packet, sessionId: self.sessionId)
+        }, now: { [runtime] in runtime.nanos() })
+        route.onKeyframe = { [weak self] in self?.requestKeyframe() }
+        // The connection to ace-media failed: video is back on the daemon's socket, and the
+        // daemon hears it with the boundary, so it stops waiting for egress.
+        route.onClosed = { [weak self, sessionId] boundary in
+            self?.requestKeyframe()
+            var event: [String: Any] = ["event": "stream.ingest", "sessionId": sessionId, "state": "closed"]
+            event["boundary"] = boundary as Any? ?? NSNull()
+            guard let line = try? JSONSerialization.data(withJSONObject: event) else { return }
+            DispatchQueue.main.async { FileHandle.standardOutput.write(line + Data([10])) }
+        }
+        return route
+    }()
     /// The epoch new pictures are stamped with; read and set on `queue`.
     private var epoch: UInt32 = 0
-    private func route(_ unit: EncodedVideo) {
-        routeLock.lock(); defer { routeLock.unlock() }
-        if let ingest {
-            guard let frame = ingestFrame(unit, now: runtime.nanos()), ingest.write(frame, keyframe: unit.keyframe) else { return }
-            lastIngest = unit.sequence
-        } else if let packet = legacyFramePacket(unit, sessionId: sessionId, version: version) {
-            writer.publish(packet, sessionId: sessionId); lastLegacy = unit.sequence
-        }
+    private func route(_ unit: EncodedVideo) { ingest.publish(unit) }
+    /// Points video at ace-media (`target`) or the daemon's socket (nil). After a switch, the
+    /// last sequence the previous path took; the new path starts at a keyframe.
+    func routeVideo(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
+        let moved = try ingest.route(to: target)
+        if moved.switched { requestKeyframe() }
+        return moved
     }
-    /// Points video at `next` (nil: the daemon's socket). Returns the last sequence the previous
-    /// path took. The new path starts at a keyframe.
-    func switchIngest(to next: IngestWriter?) -> UInt64? {
-        routeLock.lock()
-        let previous = ingest
-        let boundary = previous == nil ? lastLegacy : lastIngest
-        ingest = next
-        if next != nil { lastIngest = nil }
-        routeLock.unlock()
-        previous?.finish()
-        requestKeyframe()
-        return boundary
-    }
-    /// The ingest connection failed or ace-media closed it: video goes back to the daemon's
-    /// socket at once. Returns the boundary, or nil when `failed` was no longer in use.
-    func ingestClosed(_ failed: IngestWriter) -> UInt64?? {
-        routeLock.lock()
-        guard ingest === failed else { routeLock.unlock(); return nil }
-        ingest = nil
-        let boundary = lastIngest
-        routeLock.unlock()
-        requestKeyframe()
-        return .some(boundary)
-    }
-    func ingestKeyframe() { requestKeyframe() }
+    var ingesting: Bool { ingest.ingesting }
+    func closeIngest() { ingest.close() }
     /// A new epoch for pictures captured from now on; returns once it applies.
     func setEpoch(_ next: UInt32) async {
         await withCheckedContinuation { continuation in queue.async { self.epoch = next; continuation.resume() } }
@@ -318,8 +305,7 @@ struct ShareableContent {
         self.output = output; self.configuration = (filter, config); self.target = target
         do { if request.version == 1 || request.capture == true { try await setCapturing(true) } } catch { self.stream = nil; self.configuration = nil; self.output = nil; self.target = nil; throw error }
     }
-    /// The ingest connection in use and the address it was opened for.
-    private var ingest: (writer: IngestWriter, socket: String, token: Data)?
+
     /// Applies `stream.configure`: settings, then where video goes and the epoch. Each request is
     /// the whole state, so an absent `ingest` means the daemon's socket. The reply says where
     /// video now goes and, after a switch, the last sequence the previous path took.
@@ -335,31 +321,11 @@ struct ShareableContent {
         if let epoch { await output.setEpoch(epoch) }
         try await applyStreamSettings(settings)
         var data: [String: Any] = ["codec": settings.codec]
-        if let address, let token {
-            if ingest?.socket != address.socket || ingest?.token != token {
-                let writer = try IngestWriter(path: address.socket, token: token, onClosed: { [weak self] in
-                    Task { @MainActor in self?.ingestFailed() }
-                }, onKeyframe: { [weak output] in output?.ingestKeyframe() })
-                ingest = (writer, address.socket, token)
-                let boundary = output.switchIngest(to: writer)
-                data["switched"] = true; data["boundary"] = boundary as Any? ?? NSNull()
-            }
-        } else if ingest != nil {
-            ingest = nil
-            let boundary = output.switchIngest(to: nil)
-            data["switched"] = true; data["boundary"] = boundary as Any? ?? NSNull()
-        }
-        data["ingest"] = ingest == nil ? "off" : "on"
+        let target = address.flatMap { address in token.map { (socket: address.socket, token: $0) } }
+        let moved = try output.routeVideo(to: target)
+        if moved.switched { data["switched"] = true; data["boundary"] = moved.boundary as Any? ?? NSNull() }
+        data["ingest"] = output.ingesting ? "on" : "off"
         return data
-    }
-    /// The connection to ace-media failed: video is back on the daemon's socket. The daemon hears
-    /// it as an event, with the boundary, so it stops waiting for egress.
-    private func ingestFailed() {
-        guard let current = ingest, let output, let boundary = output.ingestClosed(current.writer) else { return }
-        ingest = nil
-        var event: [String: Any] = ["event": "stream.ingest", "sessionId": output.sessionId, "state": "closed"]
-        event["boundary"] = boundary as Any? ?? NSNull()
-        if let line = try? JSONSerialization.data(withJSONObject: event) { FileHandle.standardOutput.write(line + Data([10])) }
     }
     private func applyStreamSettings(_ settings: StreamSettings) async throws {
         guard let configuration, let output else { throw HelperError("Invalid stream settings", code: "bounds") }
@@ -487,7 +453,7 @@ struct ShareableContent {
         try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         if let output { writer.retire(output.sessionId) }
-        if let ingest { self.ingest = nil; _ = output?.switchIngest(to: nil); ingest.writer.close() }
+        output?.closeIngest()
         contentInset = 0
         stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; captureWindow = nil; settings = nil; output = nil; allowed.removeAll(); cachedContent = nil; resolver.invalidate()
     }
