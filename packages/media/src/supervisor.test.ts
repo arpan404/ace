@@ -487,7 +487,7 @@ describe("MediaSupervisor", () => {
     h.supervisor.send({ type: "record.stop", recording: "rec-2" });
     h.host.last.send({ type: "record.done", recording: "rec-2", parts: [] });
     h.host.last.send(
-      { type: "still.done", request: "still-1", width: 1, height: 1 },
+      { type: "still.done", request: "still-1", width: 1, height: 1, steps: [] },
       new Uint8Array(4),
     );
     h.supervisor.send({

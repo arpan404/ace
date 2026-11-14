@@ -66,7 +66,7 @@ export function AgentPointerMark(props: {
           strokeLinejoin="round"
         />
       </svg>
-      <span className="mt-3 -ml-1 grid size-5 place-items-center overflow-hidden rounded-full bg-foreground text-[10px] font-semibold text-background shadow-sm">
+      <span className="mt-3 -ml-1 grid size-5 place-items-center overflow-hidden rounded-full bg-foreground text-2xs font-semibold text-background shadow-sm">
         {props.mark}
       </span>
     </span>

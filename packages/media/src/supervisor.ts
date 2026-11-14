@@ -144,6 +144,14 @@ export class MediaSupervisor {
     return this.#accepting() ? this.#run?.capabilities : undefined;
   }
 
+  /**
+   * Where producers stream into the running process (`ready.ingest`). It changes on every start,
+   * so producers are given it again with each configure.
+   */
+  ingest(): Ready["ingest"] | undefined {
+    return this.#accepting() ? this.#run?.ready?.ingest : undefined;
+  }
+
   snapshot(): MediaSnapshot {
     const run = this.#run;
     const phase = this.#phase();

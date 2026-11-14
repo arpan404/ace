@@ -134,16 +134,44 @@ struct ConnectedApps: Decodable, Sendable {
 
 private struct ProjectList: Decodable, Sendable { let projects: [ConnectedApps.Project] }
 
+/// Connect an app on one machine (`bridge/outside-addresses.ts`): each address an outside
+/// client can use, then the command a terminal agent's person runs.
+struct OutsideAddresses: Decodable, Sendable, Equatable {
+    struct Row: Decodable, Sendable, Equatable, Identifiable {
+        /// local, tailscale, relay or custom.
+        let path: String
+        let title: String
+        /// What Copy copies; nil while it can't serve.
+        let url: String?
+        /// The address, why it can't serve, or Off; nil when the machine didn't say.
+        let state: String?
+        let problem: Bool
+        let note: String?
+        /// Its own switch; nil for paths without one.
+        let on: Bool?
+        /// Your own URL as saved.
+        let ownUrl: String?
+        var id: String { path }
+    }
+    let rows: [Row]
+    let enroll: String
+}
+
 extension ClientModel {
     func connectedApps(machine: String) async throws -> ConnectedApps {
         let reply = try await service(outside(["op": "grants"], machine: machine), as: Reply<ConnectedApps>.self)
         guard let value = reply.value else { throw OutsideRefusal(message: reply.message ?? "\(machine) couldn't list connected apps.") }
         return value
     }
+    func outsideAddresses(machine: String) async throws -> OutsideAddresses {
+        let reply = try await service(outside(["op": "addresses"], machine: machine), as: Reply<OutsideAddresses>.self)
+        guard let value = reply.value else { throw OutsideRefusal(message: reply.message ?? "Couldn't read its addresses.") }
+        return value
+    }
     func outsideProjects(machine: String) async -> [ConnectedApps.Project] {
         (try? await service(outside(["op": "projects"], machine: machine), as: Reply<ProjectList>.self))?.value?.projects ?? []
     }
-    /// revoke, update, stopScreen or decide; nil when the machine took it, else the refusal in words.
+    /// revoke, update, stopScreen, decide, setPath or setPublicUrl; nil when the machine took it, else the refusal in words.
     func outsideChange(_ request: [String: Any], machine: String) async -> String? {
         do {
             let reply = try await service(outside(request, machine: machine), as: Reply<Empty>.self)

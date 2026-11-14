@@ -321,6 +321,9 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/MediaLinkHint.json"
+        },
         "op": {
           "const": "subscribe",
           "type": "string"

@@ -50,6 +50,7 @@ import {
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
+import { mediaVideoHosts } from "./media-video.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -517,11 +518,15 @@ export class BrowserService {
       };
       opening = request;
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
+      const media = this.options.media;
       const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
         new BrowserSession({
           threadId: options.threadId,
           backend: opened,
           backendKind: kind,
+          ...(media
+            ? { mediaVideo: mediaVideoHosts(media, () => ({ threadId: options.threadId })) }
+            : {}),
           dir,
           now: this.now,
           id: this.id,
@@ -529,6 +534,7 @@ export class BrowserService {
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },
+          embeddedAvailable: () => this.embedded !== undefined,
           ...(this.options.userChromeStorageReads
             ? {
                 storageReads: () =>
