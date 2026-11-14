@@ -69,6 +69,25 @@ function replayFrames(events: Event[], encoder: WireEncoder): Event[][] {
   return frames;
 }
 
+/** A thread replay at or under this many bytes is sent without weighing a snapshot against it. */
+const replayCompareBytes = 16 * 1024;
+/**
+ * `message` when it costs fewer bytes than a replay of `replayBytes` and holds every item
+ * created after `afterSeq`: the client then keeps the history it holds (ADR 0062) instead of
+ * reading it again.
+ */
+function smallerSnapshot(
+  message: ServerMessage,
+  afterSeq: number,
+  replayBytes: number,
+  encoder: WireEncoder,
+): ServerMessage | undefined {
+  if (message.type !== "snapshot" || message.view.kind !== "thread") return undefined;
+  const before = message.view.itemsBefore;
+  if (before !== null && before > afterSeq + 1) return undefined;
+  return Buffer.byteLength(encoder.encode(message)) < replayBytes ? message : undefined;
+}
+
 /** Delivery covers (afterSeq, throughSeq], including events filtered out by scope. */
 export function subscribe(
   store: SubscriptionStore,
@@ -228,18 +247,31 @@ export function subscribe(
               })
               .filter((event) => event.seq <= head);
         const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
+        const snapshot = (): ServerMessage => {
+          const view =
+            scope.kind === "thread"
+              ? store.snapshotThread(scope.threadId, tail)
+              : createThreadListView(store.listThreads());
+          return { type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } };
+        };
+        // A thread's replay after a long streamed turn is mostly deltas: when a snapshot of the
+        // thread now costs fewer bytes, it is sent instead (the client resumes its held
+        // transcript from it, ADR 0062). Small replays skip the comparison.
+        const cheaper =
+          scope.kind === "thread" && bytes > replayCompareBytes
+            ? smallerSnapshot(snapshot(), afterSeq, bytes, encoder)
+            : undefined;
         if (
           overflows ||
           events.length > replayLimit ||
           bytes > replayFrameBytes * 2 ||
           events.some((event) => encoder.eventBytes(event) > replayFrameBytes)
         ) {
-          const view =
-            scope.kind === "thread"
-              ? store.snapshotThread(scope.threadId, tail)
-              : createThreadListView(store.listThreads());
           cursor = progressHead = head;
-          send({ type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } });
+          send(cheaper ?? snapshot());
+        } else if (cheaper) {
+          cursor = progressHead = head;
+          send(cheaper);
         } else deliver(events, head, true);
       }
     }

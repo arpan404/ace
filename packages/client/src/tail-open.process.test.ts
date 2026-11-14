@@ -175,3 +175,43 @@ test("a client asking for a small tail still opens a daemon that sends the full 
   expect(older.faults.sent.some((text) => text.includes('"items.page"'))).toBe(false);
   expect(shown(client, h.thread.id)).toEqual(shown(reference.client, h.thread.id));
 });
+
+test("a resume after a long streamed turn ends where a fresh open does", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  fill(h, 40);
+  const { client, faults, scheduler } = h.make({ openTail: screenTail });
+  const lease = await open(client, h.thread.id, 40);
+  const opened = faults.sent.length;
+  faults.disconnect();
+  h.daemon.store.appendEvents(h.thread.id, [reply("long", "", false)]);
+  for (let batch = 0; batch < 60; batch++)
+    h.daemon.store.appendEvents(
+      h.thread.id,
+      Array.from({ length: 50 }, () => ({
+        type: "item.delta" as const,
+        itemId: ItemId.parse("long"),
+        agentId: root,
+        field: "text" as const,
+        append: "streamed words ",
+      })),
+    );
+  h.daemon.store.appendEvents(h.thread.id, [
+    { type: "item.updated", item: replyItem("long", "streamed words ".repeat(3000)) },
+  ]);
+  scheduler.advance(250);
+  await when(client.connectionState(), (state) => state === "ready");
+  await when(
+    lease.store.select(["cursor", "sync"], (reader) => [reader.cursor, reader.syncing]),
+    ([cursor, syncing]) => cursor === h.daemon.store.headSeq() && !syncing,
+  );
+  expect(faults.sent.slice(opened).some((text) => text.includes('"afterSeq"'))).toBe(true);
+
+  const fresh = h.make();
+  await open(fresh.client, h.thread.id, 41);
+  await when(
+    lease.store.select(["order"], (reader) => reader.order.length),
+    (length) => length === 41,
+  );
+  expect(shown(client, h.thread.id)).toEqual(shown(fresh.client, h.thread.id));
+});

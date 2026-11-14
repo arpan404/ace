@@ -7,6 +7,7 @@ import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
+import type { SnapshotTail } from "./thread-reads.ts";
 import { message } from "./payload-test-support.ts";
 
 const cleanup: (() => void)[] = [];
@@ -23,7 +24,13 @@ function setup() {
 }
 let subscriptions = 0;
 /** What a client reads from the wire after reconnecting at `afterSeq`. */
-function reconnect(store: Store, threadId: ThreadId, afterSeq: number, replayLimit = 100) {
+function reconnect(
+  store: Store,
+  threadId: ThreadId,
+  afterSeq: number,
+  replayLimit = 100,
+  tail?: SnapshotTail,
+) {
   const encoder = new WireEncoder();
   const wire: ServerMessage[] = [];
   const stop = subscribe(
@@ -37,6 +44,8 @@ function reconnect(store: Store, threadId: ThreadId, afterSeq: number, replayLim
     () => () => {},
     false,
     encoder,
+    undefined,
+    tail,
   );
   cleanup.push(stop);
   return wire;
@@ -62,4 +71,65 @@ it("a thread whose missed events pass the replay limit gets a snapshot", () => {
   if (events?.type !== "events") throw new Error("No events");
   expect(events.events).toHaveLength(4);
   expect(events.throughSeq).toBe(store.headSeq());
+});
+
+/** One long streamed turn: a reply built from `deltas` text deltas, then completed. */
+function streamTurn(store: Store, threadId: ThreadId, id: string, deltas: number) {
+  const reply = { ...message(id, ""), complete: false };
+  store.appendEvents(threadId, [{ type: "item.created", item: reply }]);
+  for (let index = 0; index < deltas; index += 50)
+    store.appendEvents(
+      threadId,
+      Array.from({ length: Math.min(50, deltas - index) }, () => ({
+        type: "item.delta" as const,
+        itemId: reply.id,
+        agentId: reply.agentId,
+        field: "text" as const,
+        append: "streamed words ",
+      })),
+    );
+  store.appendEvents(threadId, [
+    { type: "item.updated", item: { ...message(id, "streamed words ".repeat(deltas)) } },
+  ]);
+}
+const bytes = (wire: ServerMessage[]) =>
+  wire.reduce((total, sent) => total + Buffer.byteLength(JSON.stringify(sent)), 0);
+
+it("a resume after a long streamed turn costs no more than a snapshot and shows the same thread", () => {
+  const { store, a } = setup();
+  for (let index = 0; index < 20; index++)
+    store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+  const cursor = store.headSeq();
+  streamTurn(store, a.id, "long", 4000);
+  const resumed = reconnect(store, a.id, cursor, 5000);
+  const fresh = reconnect(store, a.id, store.headSeq() + 1, 5000);
+  expect(fresh.map((sent) => sent.type)).toEqual(["snapshot"]);
+  expect(bytes(resumed)).toBeLessThanOrEqual(bytes(fresh));
+  const [snapshot] = resumed;
+  if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") throw new Error("No view");
+  const [expected] = fresh;
+  if (expected?.type !== "snapshot") throw new Error("No view");
+  expect(snapshot).toEqual({ ...expected, subscriptionId: snapshot.subscriptionId });
+});
+
+it("a short resume still replays its events", () => {
+  const { store, a } = setup();
+  for (let index = 0; index < 20; index++)
+    store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+  const cursor = store.headSeq();
+  streamTurn(store, a.id, "short", 30);
+  expect(reconnect(store, a.id, cursor, 5000).map((sent) => sent.type)).toEqual(["events"]);
+});
+
+it("a resume whose small snapshot would not reach the cursor replays instead", () => {
+  const { store, a } = setup();
+  for (let index = 0; index < 20; index++)
+    store.appendEvents(a.id, [{ type: "item.created", item: message(`old${index}`) }]);
+  const cursor = store.headSeq();
+  for (let index = 0; index < 8; index++) streamTurn(store, a.id, `new${index}`, 200);
+  const tail = { items: 3, bytes: 64 * 1024 };
+  // Answered by snapshot, the held items before the cursor would be dropped and read again.
+  expect(reconnect(store, a.id, cursor, 5000, tail).map((sent) => sent.type)).toContain("events");
+  // A snapshot that holds everything after the cursor is still preferred.
+  expect(reconnect(store, a.id, cursor, 5000).map((sent) => sent.type)).toEqual(["snapshot"]);
 });
