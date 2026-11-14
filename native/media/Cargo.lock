@@ -10,6 +10,7 @@ dependencies = [
  "libc",
  "media-codec",
  "media-core",
+ "media-mp4",
  "media-noise",
  "media-wire",
  "serde_json",

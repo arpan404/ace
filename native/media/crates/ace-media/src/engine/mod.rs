@@ -58,11 +58,13 @@ pub(crate) fn log(out: &mut Vec<Effect>, level: Level, message: &str, id: &Id) {
     );
 }
 
-/// The two clocks the core is given: ace-media's own monotonic milliseconds, for holding
-/// bounds, and the daemon's wall clock in milliseconds, for ticket expiry.
+/// The two clocks the core is given: ace-media's own monotonic clock (milliseconds for holding
+/// bounds, microseconds for timing recorded samples) and the daemon's wall clock in
+/// milliseconds, for ticket expiry.
 #[derive(Clone, Copy, Debug)]
 pub struct Now {
     pub mono_ms: u64,
+    pub mono_us: u64,
     pub wall_ms: u64,
 }
 
@@ -143,14 +145,8 @@ impl Engine {
             ToMedia::SourcePicture { source, epoch, .. } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
-                self.sources.picture(
-                    source.get(),
-                    epoch,
-                    bytes,
-                    now.mono_ms,
-                    self.egress.as_mut(),
-                    out,
-                );
+                self.sources
+                    .picture(source.get(), epoch, bytes, now, self.egress.as_mut(), out);
             }
             ToMedia::SourceEpoch {
                 source,
@@ -162,6 +158,7 @@ impl Engine {
                 .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out),
             ToMedia::RecordEpochs {
                 source,
+                recording,
                 seq,
                 decided,
                 clear,
@@ -175,9 +172,10 @@ impl Engine {
                     clear: ranges(clear),
                     discard: ranges(discard),
                 };
-                self.sources.decide(&source, decision, now.mono_ms, out);
+                self.sources
+                    .decide(&source, &recording, decision, now.mono_ms, out);
             }
-            ToMedia::SourceClose { source } => self.sources.close(source.get(), vault, out),
+            ToMedia::SourceClose { source } => self.sources.close_source(source.get(), vault, out),
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::MediaTicket {
                 connection,
@@ -278,15 +276,22 @@ impl Engine {
                     max_bytes: max_bytes.get(),
                     pointer_track,
                 };
-                self.sources
-                    .record_start(&spec, &recording, self.recorders.as_mut(), out);
+                self.sources.record_start(
+                    &spec,
+                    &recording,
+                    self.recorders.as_mut(),
+                    now.mono_ms,
+                    out,
+                );
             }
             ToMedia::RecordCut { recording, .. } => self.sources.record_cut(recording.get()),
             ToMedia::RecordMeta {
                 recording,
                 epoch,
                 data,
-            } => self.sources.record_meta(recording.get(), epoch, &data),
+            } => self
+                .sources
+                .record_meta(recording.get(), epoch, data, now, out),
             ToMedia::RecordStop { recording } => self.sources.record_stop(&recording, out),
             // Stills are F2's; the daemon falls back to its legacy still maker.
             ToMedia::StillTake { request, .. } => normal(
@@ -308,13 +313,8 @@ impl Engine {
 
     /// A frame from an ingest connection the engine admitted.
     pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
-        self.sources.ingest(
-            conn,
-            frame,
-            now.mono_ms,
-            self.egress.as_mut(),
-            &mut self.out,
-        );
+        self.sources
+            .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {
