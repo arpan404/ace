@@ -41,6 +41,26 @@ struct FirstRunTests {
         #expect(FirstRunRoute(step: "update") == .page(start: "update"))
     }
 
+    @MainActor @Test func doneIsKeptOnlyWhenTheComputerSavesIt() async throws {
+        let saved = try reply(screen(offer: false, ready: 1, installed: [row("claude", "Ready", "done", ready: true, step: nil)], missing: []))
+        #expect(await FirstRunReply.dismissal { saved } == nil)
+    }
+
+    @MainActor @Test func doneThatTheComputerRefusesSaysWhyAndCanBeTriedAgain() async throws {
+        let refused = try reply(#"{"ok":false,"message":"This computer doesn't share its coding agents with this phone."}"#)
+        #expect(await FirstRunReply.dismissal { refused } == "This computer doesn't share its coding agents with this phone.")
+    }
+
+    @MainActor @Test func doneThatNeverReachesTheComputerIsNotTakenAsSaved() async {
+        var sent = 0
+        let problem = await FirstRunReply.dismissal {
+            sent += 1
+            throw ServiceFailure(message: "The request timed out.", transport: true)
+        }
+        #expect(sent == 1)
+        #expect(problem == FirstRunReply.notKept)
+    }
+
     @Test func aComputerThatWontListItsAgentsSaysWhy() throws {
         let refused = try reply(#"{"ok":false,"message":"This computer doesn't share its coding agents with this phone."}"#)
         #expect(throws: ServiceFailure.self) { try refused.page() }

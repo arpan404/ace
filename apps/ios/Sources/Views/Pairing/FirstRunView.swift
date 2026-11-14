@@ -30,6 +30,17 @@ struct FirstRunReply: Decodable {
         guard ok, let screen else { throw ServiceFailure(message: message ?? "Couldn't read this computer's agents.") }
         return screen
     }
+
+    /// Records Done or Skip on the computer with `send`; why it wasn't kept, or nil when it was.
+    @MainActor static func dismissal(_ send: @MainActor () async throws -> FirstRunReply) async -> String? {
+        do {
+            let reply = try await send()
+            return reply.ok ? nil : reply.message ?? Self.notKept
+        } catch {
+            return Self.notKept
+        }
+    }
+    static let notKept = "The computer didn't save that setup is done. Check the connection and try again."
 }
 
 /// Where a row leads: the existing sign-in page, or the provider's page with its install or
@@ -58,6 +69,8 @@ struct FirstRunView: View {
     @State private var page: FirstRunData?
     @State private var problem: String?
     @State private var leaving = false
+    /// Done or Skip that the computer didn't keep, shown with Try again.
+    @State private var dismissProblem: String?
     @State private var checking = false
 
     var body: some View {
@@ -87,6 +100,16 @@ struct FirstRunView: View {
                     .insetRowBackground()
                     .redacted(reason: .placeholder)
                     .accessibilityLabel("Checking this computer's agents")
+            }
+            if let dismissProblem {
+                Section {
+                    ServiceProblem(message: dismissProblem)
+                    Button("Try again") { Task { await finish() } }.buttonStyle(.textAction()).disabled(leaving)
+                        .accessibilityIdentifier("setup.dismiss.retry")
+                    Button("Leave without saving") { leave() }.buttonStyle(.textAction()).disabled(leaving)
+                        .accessibilityIdentifier("setup.dismiss.leave")
+                } footer: { Text("This page opens again the next time you pair this computer.") }
+                .insetRowBackground()
             }
             if let problem {
                 Section {
@@ -191,7 +214,11 @@ struct FirstRunView: View {
         leaving = true
         defer { leaving = false }
         if model.canOperate {
-            _ = try? await model.service(["type": "setup.dismiss", "dismissed": true], as: FirstRunReply.self)
+            let problem = await FirstRunReply.dismissal {
+                try await model.service(["type": "setup.dismiss", "dismissed": true], as: FirstRunReply.self)
+            }
+            withAnimation { dismissProblem = problem }
+            if problem != nil { return }
         }
         leave()
     }
