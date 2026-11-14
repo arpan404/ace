@@ -1,10 +1,12 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
 import { FrameDecoder, Recording, type RecordingArtifact } from "./index.ts";
-import { framePacket, type Frame } from "./frames.ts";
-import { deferred, frame } from "./testing/support.ts";
+import { type Frame } from "./frames.ts";
+import { deferred, frame as testFrame } from "./testing/support.ts";
 it("recordings stream every queued frame through stop, publish an artifact and keep files private", async () => {
   const directory = await mkdtemp(join(tmpdir(), "screen-recording-"));
   const published: RecordingArtifact[] = [];
@@ -12,9 +14,9 @@ it("recordings stream every queued frame through stop, publish an artifact and k
     const recorder = await Recording.open(directory, "recording", async (artifact) => {
       published.push(artifact);
     });
-    recorder.push(frame(1));
-    recorder.push(frame(2));
-    recorder.push(frame(3));
+    recorder.push(testFrame(1));
+    recorder.push(testFrame(2));
+    recorder.push(testFrame(3));
     const artifact = await recorder.stop();
     const bytes = await readFile(artifact.path);
     const sequences: number[] = [];
@@ -37,14 +39,14 @@ it("recording byte limits finish with complete packets and stop accepting more f
       directory,
       "capped",
       async () => {},
-      frame(1).packet.length,
+      testFrame(1).packet.length,
     );
-    recorder.push(frame(1));
-    recorder.push(frame(2));
+    recorder.push(testFrame(1));
+    recorder.push(testFrame(2));
     const artifact = await recorder.stop();
-    recorder.push(frame(3));
-    expect(await readFile(artifact.path)).toEqual(frame(1).packet);
-    expect(artifact.bytes).toBe(frame(1).packet.length);
+    recorder.push(testFrame(3));
+    expect(await readFile(artifact.path)).toEqual(testFrame(1).packet);
+    expect(artifact.bytes).toBe(testFrame(1).packet.length);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -62,14 +64,14 @@ it("recording quota releases capture before a stalled artifact publisher complet
       publishing.resolve();
       await release.promise;
     },
-    frame(1).packet.length,
+    testFrame(1).packet.length,
     () => {
       captureReleased = true;
     },
   );
   try {
-    recorder.push(frame(1));
-    recorder.push(frame(2));
+    recorder.push(testFrame(1));
+    recorder.push(testFrame(2));
     await publishing.promise;
     expect(captureReleased).toBe(true);
   } finally {
@@ -77,44 +79,38 @@ it("recording quota releases capture before a stalled artifact publisher complet
   }
   try {
     const artifact = await recorder.stop();
-    expect(await readFile(artifact.path)).toEqual(frame(1).packet);
+    expect(await readFile(artifact.path)).toEqual(testFrame(1).packet);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-const h264 = (sequence: number, keyframe = false): Frame => {
-  const source = frame(sequence);
-  const header = { ...source.header, codec: "h264" as const, keyframe };
-  return { header, payload: source.payload, packet: framePacket(header, source.payload) };
-};
-
-it("overflow omits the dependent deltas through the next keyframe and records the gap", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "screen-recording-"));
-  try {
-    const recorder = await Recording.open(
-      directory,
-      "overflow",
-      async () => {},
-      50 * 1024 * 1024,
-      () => {},
-      h264(2).packet.length,
-    );
-    recorder.push(h264(1, true));
-    recorder.push(h264(2));
-    recorder.push(h264(3)); // queue is full
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    recorder.push(h264(4)); // space returned, but this delta depends on 3
-    recorder.push(h264(5, true));
-    recorder.push(h264(6));
-    const artifact = await recorder.stop();
-    const sequences: number[] = [];
-    const decoder = new FrameDecoder((value) => sequences.push(value.header.sequence));
-    decoder.push(await readFile(artifact.path));
-    decoder.end();
-    expect(sequences).toEqual([1, 2, 5, 6]);
-    expect(artifact.gaps).toEqual([{ first: 3, last: 4 }]);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+const run = promisify(execFile);
+it.skipIf(process.platform !== "darwin")(
+  "every real H.264 access unit admitted during an outstanding write decodes after stop",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "screen-recording-codec-"));
+    try {
+      const frames: Frame[] = [];
+      const decoder = new FrameDecoder((frame) => frames.push(frame));
+      decoder.push(
+        await readFile(new URL("./testing/fixtures/h264-deltas.ace-screen", import.meta.url)),
+      );
+      decoder.end();
+      expect(frames).toHaveLength(12);
+      expect(frames.filter((frame) => frame.header.keyframe)).toHaveLength(1);
+      const recorder = await Recording.open(directory, "codec", async () => {});
+      // No await between pushes: every delta arrives while the first fs write is outstanding.
+      for (const frame of frames) recorder.push(frame);
+      const artifact = await recorder.stop();
+      const { stdout } = await run("swift", [
+        new URL("./testing/decode-recording.swift", import.meta.url).pathname,
+        artifact.path,
+      ]);
+      expect(Number(stdout.trim())).toBe(frames.length);
+      expect(artifact.gaps).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
