@@ -23,6 +23,8 @@ const LAST_FRAME_TICKS: u64 = 3_000;
 /// Audio whose capture time strays this far past where its packets put it starts again there
 /// (the source was silent, or packets were lost).
 const AUDIO_SLIP_TICKS: u64 = 9_600;
+/// The least a part may be bounded to, so it always has room for a fragment and its index.
+pub const MIN_PART_BYTES: u64 = 64 * 1024;
 /// Pointer and lease lines kept while no part is open.
 const MAX_WAITING_LINES: usize = 1_024;
 const KIND_AUDIO: u8 = 2;
@@ -37,6 +39,8 @@ pub enum Out {
     Bytes(Vec<u8>),
     /// Append one line to the open part's pointer track.
     Line(String),
+    /// The open part got no fragment: remove it (its number is used again).
+    Discard { index: u32 },
     /// The open part is complete.
     Close(Closed),
 }
@@ -108,10 +112,11 @@ pub struct Assembler {
 }
 
 impl Assembler {
-    /// Parts start at `first_index` and hold at most `max_bytes` (never above 512 MiB).
+    /// Parts start at `first_index` and hold at most `max_bytes`, kept between 64 KiB and
+    /// 512 MiB. A group larger than the bound still gets a part of its own.
     pub fn new(first_index: u32, max_bytes: u64, pointer: bool) -> Self {
         Self {
-            limit: max_bytes.clamp(1, PART_LIMIT),
+            limit: max_bytes.clamp(MIN_PART_BYTES, PART_LIMIT),
             pointer,
             next_index: first_index,
             part: None,
@@ -255,6 +260,12 @@ impl Assembler {
         let Some(mut part) = self.part.take() else {
             return;
         };
+        if part.fragments == 0 {
+            self.next_index = part.index;
+            self.gaps_ahead += part.gaps;
+            out.push(Out::Discard { index: part.index });
+            return;
+        }
         if let Ok(index) = part.muxer.finish() {
             part.bytes += index.len() as u64;
             out.push(Out::Bytes(index));

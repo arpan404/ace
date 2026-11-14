@@ -351,7 +351,7 @@ table, including timed-out trials and the ranking cache.
 | `source.codecs`    | normal   | `source, codecs[]` (what the producer's encoder supports, from its probe)                                                                                                                                                                                                                                                                                    | —                                                                         |
 | `source.picture`   | normal   | `source, ageMs, epoch` (private-context screencast frame, ADR 0147 §2.2)                                                                                                                                                                                                                                                                                     | the base64 JPEG text as received                                          |
 | `source.epoch`     | priority | `source, seq, epoch, followsPrivate` (K2) (only for sources ace-media reads itself, where ace-media is the producer; see "Recording privacy barrier")                                                                                                                                                                                                        | —                                                                         |
-| `record.epochs`    | priority | `source, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order)                                                                                                                                                                                                                             | —                                                                         |
+| `record.epochs`    | priority | `source, recording, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order, for that recording only)                                                                                                                                                                                         | —                                                                         |
 | `source.close`     | normal   | `source`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
 | `media.ticket`     | normal   | `connection, owner, issued, expiresAt` (single use, 30 s)                                                                                                                                                                                                                                                                                                    | the 32-byte ticket                                                        |
 | `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio`                                                                                                                                                                                                                                                   | —                                                                         |
@@ -1299,25 +1299,40 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
 - **Time.** A sample's time is when it was captured on ace-media's monotonic clock: arrival
   less the frame's `age`. Video uses 90 kHz and never goes backwards. Every part starts at 0.
 - **Parts.** `part-NNNN.mp4` in the recording's directory, and `part-NNNN.jsonl` for the
-  pointer track when `pointerTrack` is set. `record.start.maxBytes` bounds each part (capped at
-  512 MiB); the daemon keeps any total budget itself, from the `record.part` sizes. A part also
+  pointer track when `pointerTrack` is set. `record.start.maxBytes` bounds each part (kept between
+  64 KiB and 512 MiB, so a part always holds a whole fragment; a part that got none is
+  removed rather than closed); the daemon keeps any total budget itself, from the `record.part` sizes. A part also
   ends at `record.cut`, when the picture's configuration changes, and when audio first appears
   in a part without an audio track. Each closed part is reported with `record.part`;
   `record.done.parts` lists every part this process wrote.
 - **Writes.** A fragment is one unbuffered `write`, so `kill -9` keeps every earlier fragment.
   A part is synced when it closes, not per fragment (on macOS a sync is `F_FULLFSYNC`, which
   would stall the engine's loop).
-- **Recovery.** On `record.start` the directory's parts are scanned by box headers only
+- **The directory** is created 0700, or an existing one of this user tightened to 0700; a
+  symlink or another user's directory fails `directory-invalid`. Part files are created new,
+  owner-only, with `O_NOFOLLOW`. Two live recordings may not share an id
+  (`recording-exists`) or a directory (`directory-in-use`).
+- **Recovery** (`record/recover.rs`). On `record.start` only regular files named
+  `part-<n>.mp4` (four or more digits) that begin with this muxer's `ftyp`
+  (`media_mp4::FILE_TYPE`) are touched, opened with `O_NOFOLLOW`; anything else is left, but
+  its number is never reused. They are scanned by box headers only
   (`media_mp4::recovery_prefix_by`): a part a crash cut is truncated to its last whole
-  fragment, one with no fragment is removed, and every remaining part is reported with
-  `record.part` before the recording continues in the next index with one gap counted.
-- **The pointer track.** `record.meta` waits until the barrier decides its epoch
-  (`Barrier::decided`); it is written for a clear epoch and dropped for a discarded or
-  forgotten one. Lines are `{"t": ms from the part's start, "epoch", "data"}`.
-- **Decisions before their recording.** `record.epochs` rides the priority lane and can overtake
-  `source.open` and `record.start`. Up to 64 per source are kept (and answered); at
-  `record.start` only the run from seq 0 is applied, so a stopped recording's stragglers never
-  reach the next one.
+  fragment and its pointer track to the whole lines within that time, one with no fragment is
+  removed with its track, and every remaining part is reported with `record.part` before the
+  recording continues in the next index with one gap counted.
+- **Failures.** On a recorder error every part `finish` closed that wasn't reported yet goes
+  out as `record.part` before `record.failed`.
+- **The pointer track.** The daemon stamps `record.meta` with `ReadStamper`, as a read-time
+  producer stamps a frame, so a change reaching it within 100 ms of a resume keeps the private
+  epoch. ace-media holds it until the barrier decides that epoch (`Barrier::decided`); it is
+  written for a clear epoch and dropped for a discarded or forgotten one. Lines are `{"t": ms from the part's start, "epoch", "data"}`.
+- **Decisions name their recording.** `record.epochs` carries `recording` (a contract change in
+  F1), and a recording's barrier takes only its own: `seq` restarts with every recording, and a
+  source's epochs may restart when it is reopened, so a stopped recording's late decisions
+  must never reach the next one. They ride the priority lane and can overtake `source.open` and
+  `record.start`: up to 64 per recording not yet started are kept (and answered) and handed to
+  its barrier at `record.start`; those for a recording that ended in this process (the last
+  4,096 remembered) are dropped. The daemon's `MediaRecording` sends nothing once it ended.
 - **The daemon side** (`packages/media`): `epochs.ts` (`EpochLedger`, the decision rule, and
   `ReadStamper`, checked against `vectors/privacy/read-stamping.json`); `tee.ts`, the frames
   the daemon has copied into ace-media's ingest, stamped at read time and acknowledged at once,

@@ -1,4 +1,10 @@
-import { EpochLedger, epochIntervalMs, type EpochDecision, type IssuedEpoch } from "./epochs.ts";
+import {
+  EpochLedger,
+  ReadStamper,
+  epochIntervalMs,
+  type EpochDecision,
+  type IssuedEpoch,
+} from "./epochs.ts";
 import type { MediaClock } from "./supervisor-host.ts";
 import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
@@ -48,6 +54,8 @@ export type RecordingEnd =
 export class MediaRecording {
   readonly #options: MediaRecordingOptions;
   readonly #ledger: EpochLedger;
+  /** Which epoch a pointer or lease change belongs to, by the same rule a producer stamps by. */
+  readonly #stamper: ReadStamper;
   readonly #parts = new Map<number, RecordedPart>();
   #beat: (() => void) | undefined;
   #stopping = false;
@@ -61,6 +69,7 @@ export class MediaRecording {
       private: options.private(),
       now: options.clock.now(),
     });
+    this.#stamper = new ReadStamper(options.epoch);
   }
 
   /** The epoch the source is in now, for reopening it in a new ace-media process. */
@@ -95,6 +104,7 @@ export class MediaRecording {
 
   /** The producer applied `epoch`. */
   acknowledged(epoch: number): void {
+    if (this.#ended) return;
     this.#decision(this.#ledger.acknowledged(epoch, this.#options.clock.now()));
   }
 
@@ -112,13 +122,17 @@ export class MediaRecording {
     }
   }
 
-  /** `record.meta` for the pointer track, stamped with the epoch it happened in. */
+  /**
+   * `record.meta` for the pointer track. It is stamped as a read-time producer stamps a frame:
+   * within 100 ms of an epoch that follows a private one it still gets the private epoch, so a
+   * change from the private moment that reaches the daemon just after the resume is dropped.
+   */
   meta(data: unknown): void {
     if (this.#ended || !this.#options.pointerTrack) return;
     this.#options.send({
       type: "record.meta",
       recording: this.#options.recording,
-      epoch: this.#ledger.current,
+      epoch: this.#stamper.stamp(this.#options.clock.now()),
       data,
     });
   }
@@ -162,12 +176,15 @@ export class MediaRecording {
       this.#decision(expired);
       this.#options.keyframe();
     }
-    this.#options.issue(this.#ledger.issue(now, this.#options.private()));
+    const issued = this.#ledger.issue(now, this.#options.private());
+    this.#stamper.apply(issued.epoch, issued.followsPrivate, now);
+    this.#options.issue(issued);
   }
 
   #decision(decision: EpochDecision | undefined): void {
     if (!decision) return;
-    this.#options.send({ type: "record.epochs", source: this.#options.source, ...decision });
+    const { source, recording } = this.#options;
+    this.#options.send({ type: "record.epochs", source, recording, ...decision });
   }
 
   #end(end: RecordingEnd): void {

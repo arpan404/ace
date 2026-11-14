@@ -28,6 +28,8 @@ const CODEC_JPEG: u8 = 7;
 pub const MAX_PENDING_META: usize = 1_024;
 /// Decisions kept for a source that isn't recording yet, and sources they are kept for.
 pub const MAX_EARLY_DECISIONS: usize = 64;
+/// Ended recordings remembered, so their late decisions are dropped rather than kept.
+pub const MAX_ENDED_RECORDINGS: usize = 4_096;
 
 /// A frame with when it was captured on ace-media's clock: its arrival less the producer's age.
 pub struct Timed {
@@ -43,10 +45,22 @@ struct Meta {
 
 struct Recording {
     id: Id,
+    directory: String,
     barrier: Barrier<Timed>,
     recorder: Box<dyn Recorder>,
     /// Pointer and lease changes, written only once their epoch is decided clear.
     meta: VecDeque<Meta>,
+    /// Parts already sent as `record.part`.
+    reported: HashSet<u32>,
+}
+
+impl Recording {
+    fn report(&mut self, out: &mut Vec<Effect>, closed: Vec<Part>) {
+        for part in &closed {
+            self.reported.insert(part.index);
+        }
+        parts(out, &self.id, closed);
+    }
 }
 
 struct Source {
@@ -74,6 +88,33 @@ pub struct Sources {
     /// `record.epochs` that overtook their `record.start` (or `source.open`): the priority lane
     /// is read first, so a recording's first decisions can arrive before it exists.
     early: HashMap<String, Vec<Decision>>,
+    /// Recordings that ended in this process, newest last: their late decisions are dropped.
+    ended: EndedRecordings,
+}
+
+/// A bounded memory of ended recording ids.
+#[derive(Default)]
+struct EndedRecordings {
+    order: VecDeque<String>,
+    set: HashSet<String>,
+}
+
+impl EndedRecordings {
+    fn insert(&mut self, id: &str) {
+        if !self.set.insert(id.to_owned()) {
+            return;
+        }
+        self.order.push_back(id.to_owned());
+        if self.order.len() > MAX_ENDED_RECORDINGS
+            && let Some(old) = self.order.pop_front()
+        {
+            self.set.remove(&old);
+        }
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.set.contains(id)
+    }
 }
 
 fn status(
@@ -173,9 +214,8 @@ impl Sources {
         }
     }
 
-    /// `source.close`: the source and anything kept for its next recording.
+    /// `source.close`.
     pub fn close_source(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
-        self.early.remove(id);
         self.close(id, vault, out);
     }
 
@@ -191,7 +231,7 @@ impl Sources {
             out.push(Effect::CloseIngest(conn));
         }
         if let Some(recording) = source.recording.take() {
-            finish(recording, out);
+            finish(recording, &mut self.ended, out);
         }
     }
 
@@ -265,32 +305,50 @@ impl Sources {
         );
     }
 
-    /// `record.epochs`: the daemon's decisions, applied in `seq` order by the source's barrier.
-    pub fn decide(&mut self, id: &Id, decision: Decision, now: u64, out: &mut Vec<Effect>) {
-        let recording = self
+    /// `record.epochs`: the daemon's decisions for one recording, applied in `seq` order by its
+    /// barrier. Decisions name their recording, so a stopped recording's stragglers never reach
+    /// the next one on the same source. Ones for a recording that hasn't started yet are kept
+    /// for it; ones for a recording that ended are dropped. Every one is answered.
+    pub fn decide(
+        &mut self,
+        id: &Id,
+        recording: &Id,
+        decision: Decision,
+        now: u64,
+        out: &mut Vec<Effect>,
+    ) {
+        let live = self
             .by_id
             .get_mut(id.get())
-            .and_then(|s| s.recording.as_mut());
-        let Some(recording) = recording else {
-            let early = self.early.len() < MAX_SOURCES || self.early.contains_key(id.get());
-            if early {
-                let kept = self.early.entry(id.get().to_owned()).or_default();
-                if kept.len() < MAX_EARLY_DECISIONS {
-                    kept.push(decision.clone());
-                }
+            .and_then(|s| s.recording.as_mut())
+            .filter(|r| r.id == *recording);
+        if let Some(live) = live {
+            live.barrier.decide(decision, now, &mut self.events);
+            return self.release(id.get(), out);
+        }
+        let key = recording.get();
+        let running = self
+            .by_id
+            .values()
+            .any(|s| s.recording.as_ref().is_some_and(|r| r.id == *recording));
+        let keep = !running
+            && !self.ended.contains(key)
+            && (self.early.len() < MAX_SOURCES || self.early.contains_key(key));
+        if keep {
+            let kept = self.early.entry(key.to_owned()).or_default();
+            if kept.len() < MAX_EARLY_DECISIONS {
+                kept.push(decision.clone());
             }
-            return priority(
-                out,
-                FromMedia::EpochsApplied {
-                    source: id.clone(),
-                    seq: sequence(decision.seq),
-                    written: sequence(0),
-                    dropped: sequence(0),
-                },
-            );
-        };
-        recording.barrier.decide(decision, now, &mut self.events);
-        self.release(id.get(), out);
+        }
+        priority(
+            out,
+            FromMedia::EpochsApplied {
+                source: id.clone(),
+                seq: sequence(decision.seq),
+                written: sequence(0),
+                dropped: sequence(0),
+            },
+        );
     }
 
     /// A frame from an ingest connection. The first must be a hello with an unused token of an
@@ -466,15 +524,24 @@ impl Sources {
         {
             failure = Some(reason);
         }
-        let Some(recording) = &source.recording else {
+        let Some(recording) = &mut source.recording else {
             return;
         };
-        parts(out, &recording.id, closed);
+        recording.report(out, closed);
         if let Some(reason) = failure {
             let recording = source.recording.take();
             if let Some(recording) = recording {
-                // Close what was written; the recording itself has failed.
-                let _ = recording.recorder.finish();
+                self.ended.insert(recording.id.get());
+                // Close what was written and report every part not yet reported; the
+                // recording itself has failed.
+                let reported = recording.reported;
+                if let Ok(all) = recording.recorder.finish() {
+                    let unreported = all
+                        .into_iter()
+                        .filter(|p| !reported.contains(&p.index))
+                        .collect();
+                    parts(out, &recording.id, unreported);
+                }
                 normal(
                     out,
                     FromMedia::RecordFailed {
@@ -494,7 +561,7 @@ impl Sources {
         now: u64,
         out: &mut Vec<Effect>,
     ) {
-        let early = self.early.remove(spec.source).unwrap_or_default();
+        let early = self.early.remove(recording.get()).unwrap_or_default();
         let fail = |out: &mut Vec<Effect>, reason: &str| {
             normal(
                 out,
@@ -504,6 +571,22 @@ impl Sources {
                 },
             )
         };
+        let clash = self
+            .by_id
+            .values()
+            .filter_map(|s| s.recording.as_ref())
+            .find_map(|r| {
+                if r.id == *recording {
+                    Some("recording-exists")
+                } else if r.directory == spec.directory {
+                    Some("directory-in-use")
+                } else {
+                    None
+                }
+            });
+        if let Some(reason) = clash {
+            return fail(out, reason);
+        }
         let Some(source) = self.by_id.get_mut(spec.source) else {
             return fail(out, "unknown-source");
         };
@@ -516,20 +599,16 @@ impl Sources {
                 recorder,
                 recovered,
             }) => {
+                let reported = recovered.iter().map(|p| p.index).collect();
                 parts(out, recording, recovered);
                 let mut barrier = Barrier::new(source.epoch, Limits::default());
                 if source.stamper.is_some() {
                     barrier.issued(source.epoch);
                 }
-                // Only a run from seq 0 is this recording's: later ones may be a previous
-                // recording's, still in flight when it stopped. They were answered already.
-                let mut early = early;
-                early.sort_by_key(|d| d.seq);
+                // Decisions that overtook this record.start: they name this recording, so
+                // all are its own, and the barrier orders them. They were answered already.
                 let mut applied = Vec::new();
-                for (expected, decision) in early.into_iter().enumerate() {
-                    if decision.seq != expected as u64 {
-                        break;
-                    }
+                for decision in early {
                     barrier.decide(decision, now, &mut applied);
                 }
                 self.events.extend(
@@ -539,6 +618,8 @@ impl Sources {
                 );
                 source.recording = Some(Recording {
                     id: recording.clone(),
+                    directory: spec.directory.to_owned(),
+                    reported,
                     barrier,
                     recorder,
                     meta: VecDeque::new(),
@@ -600,7 +681,7 @@ impl Sources {
             .values_mut()
             .find(|s| s.recording.as_ref().is_some_and(|r| r.id == *recording));
         match source.and_then(|s| s.recording.take()) {
-            Some(r) => finish(r, out),
+            Some(r) => finish(r, &mut self.ended, out),
             None => normal(
                 out,
                 FromMedia::RecordFailed {
@@ -630,7 +711,7 @@ impl Sources {
     pub fn finish_all(&mut self, out: &mut Vec<Effect>) {
         for source in self.by_id.values_mut() {
             if let Some(recording) = source.recording.take() {
-                finish(recording, out);
+                finish(recording, &mut self.ended, out);
             }
         }
     }
@@ -672,7 +753,8 @@ fn parts(out: &mut Vec<Effect>, recording: &Id, parts: Vec<Part>) {
     }
 }
 
-fn finish(recording: Recording, out: &mut Vec<Effect>) {
+fn finish(recording: Recording, ended: &mut EndedRecordings, out: &mut Vec<Effect>) {
+    ended.insert(recording.id.get());
     let message = match recording.recorder.finish() {
         Ok(parts) => FromMedia::RecordDone {
             recording: recording.id,

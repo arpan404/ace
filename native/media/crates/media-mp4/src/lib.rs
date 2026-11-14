@@ -10,6 +10,10 @@ mod recovery;
 use boxes::Boxes;
 pub use recovery::{Prefix, fragment_end, recovery_prefix, recovery_prefix_by};
 
+/// The `ftyp` box every part starts with (major brand iso6, compatible iso6 and mp41): how a
+/// recorder tells its own parts from other files.
+pub const FILE_TYPE: [u8; 24] = *b"\0\0\0\x18ftypiso6\0\0\0\0iso6mp41";
+
 /// Maximum complete part size, including its final random-access index.
 pub const PART_LIMIT: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

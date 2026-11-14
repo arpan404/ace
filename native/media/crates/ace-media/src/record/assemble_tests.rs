@@ -79,6 +79,10 @@ impl Disk {
                     };
                     self.lines.entry(open).or_default().push(l);
                 }
+                Out::Discard { index } => {
+                    assert_eq!(self.open.take(), Some(index));
+                    self.parts.remove(&index);
+                }
                 Out::Close(c) => {
                     assert_eq!(self.open.take(), Some(c.index));
                     assert_eq!(c.bytes, self.parts[&c.index].len() as u64);
@@ -153,18 +157,18 @@ fn each_keyframe_starts_a_fragment_written_when_the_next_one_seals_it() {
 
 #[test]
 fn a_part_closes_before_passing_its_bound_and_the_next_starts_at_a_keyframe() {
-    let limit = 4_000;
+    let limit = MIN_PART_BYTES;
     let mut a = Assembler::new(5, limit, false);
     let mut out = Vec::new();
     let mut disk = Disk::default();
     for gop in 0..12u64 {
         let at = 1_000_000 + gop * 500_000;
         assert_eq!(
-            a.frame(&picture(true, vec![gop as u8; 600]), at, &mut out),
+            a.frame(&picture(true, vec![gop as u8; 12_000]), at, &mut out),
             Ok(())
         );
         assert_eq!(
-            a.frame(&picture(false, vec![9; 300]), at + 250_000, &mut out),
+            a.frame(&picture(false, vec![9; 6_000]), at + 250_000, &mut out),
             Ok(())
         );
         disk.take(&mut out);
@@ -338,4 +342,23 @@ fn pictures_mp4_cannot_hold_end_the_recording() {
         ..picture(true, vec![0xff, 0xd8])
     };
     assert_eq!(a.frame(&jpeg, 0, &mut Vec::new()), Err("unsupported-codec"));
+}
+
+#[test]
+fn an_absurdly_small_bound_still_gives_every_part_a_whole_fragment() {
+    let mut a = Assembler::new(0, 1, false);
+    let mut out = Vec::new();
+    let mut disk = Disk::default();
+    for gop in 0..8u64 {
+        let frame = picture(true, vec![gop as u8; 30_000]);
+        assert_eq!(a.frame(&frame, 1_000_000 + gop * 100_000, &mut out), Ok(()));
+        disk.take(&mut out);
+    }
+    a.finish(&mut out);
+    disk.take(&mut out);
+    // 64 KiB parts of two 30 KB groups each, never an index with nothing to index.
+    assert_eq!(disk.parts.len(), 4);
+    for part in disk.parts.values() {
+        assert_eq!(fragments(part).len(), 2);
+    }
 }

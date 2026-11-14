@@ -70,6 +70,18 @@ fn id_of(sample: &[u8]) -> Option<u16> {
 }
 
 fn video(id: u16, key: bool, epoch: u32) -> Vec<u8> {
+    video_sized(id, key, epoch, 0)
+}
+
+/// [`video`] with `filler` bytes of filler data (H.264 NAL type 12), which decoders skip.
+fn video_sized(id: u16, key: bool, epoch: u32, filler: usize) -> Vec<u8> {
+    let mut payload = tagged(id);
+    if filler > 0 {
+        payload.extend_from_slice(&(filler as u32 + 2).to_be_bytes());
+        payload.push(0x0c);
+        payload.extend(std::iter::repeat_n(0xff, filler));
+        payload.push(0x80);
+    }
     let frame = MediaFrame {
         kind: 1,
         flags: u32::from(key) | if key { 4 } else { 0 },
@@ -86,7 +98,7 @@ fn video(id: u16, key: bool, epoch: u32) -> Vec<u8> {
         codec_string: "avc1.64000b".into(),
         description: if key { avcc() } else { Vec::new() },
         extension: Vec::new(),
-        payload: tagged(id),
+        payload,
     };
     frame
         .encode()
@@ -193,7 +205,7 @@ impl Run {
     }
 
     fn decide(&mut self, seq: u64, decided: u32, clear: Value, discard: Value) {
-        let message = json!({ "type": "record.epochs", "source": "s1", "seq": seq,
+        let message = json!({ "type": "record.epochs", "source": "s1", "recording": "r1", "seq": seq,
                               "decided": decided, "clear": clear, "discard": discard });
         let _ = self
             .priority
@@ -475,12 +487,13 @@ fn a_recording_cut_by_kill_plays_to_its_last_fragment_and_continues() {
 #[test]
 fn a_long_recording_rolls_into_parts_within_its_bound() {
     let dir = directory("rollover");
-    let max = 8_000;
+    // The least a part may be bounded to; frames of about 2 KB fill it every ~30.
+    let max = 64 * 1024;
     let mut run = Run::start("rollover", 1, &dir, max);
     run.decide(0, 1, json!([[1, 1]]), json!([]));
     let mut id = 0u16;
     while id < 300 {
-        run.produce(&video(id, id.is_multiple_of(10), 1));
+        run.produce(&video_sized(id, id.is_multiple_of(10), 1, 2_000));
         run.produce(&audio(1));
         pace();
         id += 1;

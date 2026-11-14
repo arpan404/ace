@@ -56,6 +56,7 @@ it("issues an epoch every 100 ms and sends each decision once the producer ackno
   expect(sent.at(-1)).toEqual({
     type: "record.epochs",
     source: "s1",
+    recording: "r1",
     seq: 0,
     decided: 1,
     clear: [[1, 1]],
@@ -112,4 +113,35 @@ it("a recording ace-media fails, or can't stop, ends with its reason and the par
   gone.media.start();
   up = false;
   expect(await gone.media.stop()).toMatchObject({ ok: false, reason: "media-unavailable" });
+});
+
+it("stamps a pointer change from just after a resume with the private epoch", async () => {
+  let secret = false;
+  const { media, clock, sent } = recording({ private: () => secret });
+  media.start();
+  await clock.advance(50);
+  secret = true;
+  media.privacy(); // epoch 2, private
+  await clock.advance(20);
+  secret = false;
+  media.privacy(); // epoch 3 follows the private one
+  const metaEpochs = () => sent.flatMap((m) => (m.type === "record.meta" ? [m.epoch] : []));
+  // The 100 ms beat's epoch, inside the window, doesn't shorten it.
+  await clock.advance(99);
+  media.meta({ x: 1 });
+  expect(metaEpochs()).toEqual([2]);
+  await clock.advance(1);
+  media.meta({ x: 2 });
+  expect(metaEpochs().at(-1)).toBeGreaterThan(2);
+});
+
+it("a recording that ended sends nothing more for late acknowledgements", async () => {
+  const { media, clock, sent } = recording();
+  media.start();
+  await clock.advance(100);
+  media.message({ type: "record.failed", recording: "r1", reason: "disk-full" });
+  const before = sent.length;
+  media.acknowledged(2);
+  await clock.advance(500);
+  expect(sent.length).toBe(before);
 });

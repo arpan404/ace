@@ -153,6 +153,7 @@ impl Engine {
                 .epoch(&source, &seq, epoch, follows_private, now.mono_ms, out),
             ToMedia::RecordEpochs {
                 source,
+                recording,
                 seq,
                 decided,
                 clear,
@@ -166,7 +167,8 @@ impl Engine {
                     clear: ranges(clear),
                     discard: ranges(discard),
                 };
-                self.sources.decide(&source, decision, now.mono_ms, out);
+                self.sources
+                    .decide(&source, &recording, decision, now.mono_ms, out);
             }
             ToMedia::SourceClose { source } => self.sources.close_source(source.get(), vault, out),
             ToMedia::MediaTicket {
