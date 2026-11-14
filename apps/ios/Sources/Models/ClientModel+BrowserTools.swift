@@ -43,6 +43,10 @@ extension ClientModel {
     }
     func browserProceed(_ tabId: String, url: String) { browserTool(["kind": "certificate", "tabId": tabId, "url": url]) }
     func browserReopen() { browserTool(["kind": "reopen"]) }
+    /// Run this thread's browser on another engine (embedded or headless); its pages load again there.
+    func browserEngine(_ engine: String) { browserTool(["kind": "engine", "engine": engine]) }
+    /// Watch mode: follow the agent from tab to tab until the agents stop working.
+    func browserWatch(_ on: Bool) { browserTool(["kind": "watch", "on": on]) }
 
     // The page's own commands (`bridge/browser-page-tools.ts`).
     func browserMute(_ tabId: String, _ muted: Bool) { browserTool(["kind": "mute", "tabId": tabId, "muted": muted]) }

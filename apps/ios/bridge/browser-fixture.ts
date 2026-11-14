@@ -26,7 +26,10 @@ export async function liveBrowser(
     read?: ChunkReader;
     names?: Record<string, string>;
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
-    context?: Pick<BrowserThreadContext, "files" | "stage" | "annotations">;
+    context?: Pick<
+      BrowserThreadContext,
+      "files" | "stage" | "annotations" | "threadState" | "observeThreads"
+    >;
   } = {},
 ) {
   const { daemon, client } = sheetFixture();
