@@ -16,6 +16,7 @@ export async function verifyNatives(
 ): Promise<void> {
   // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
   const required = [
+    join(dist, "media", platform === "win32" ? "ace-media.exe" : "ace-media"),
     join(dist, "bin", platform === "win32" ? "rg.exe" : "rg"),
     // The Windows main process's tree stop and Job Objects bind kernel32 through it.
     ...(mainProcessNeedsKoffi(platform)
@@ -35,7 +36,7 @@ export async function verifyNatives(
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
   for (const found of await mismatchedBinaries(
-    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade"]
+    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade", "media"]
       .map((name) => join(dist, name))
       .filter((path) => existsSync(path)),
     platform,

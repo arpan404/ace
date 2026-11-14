@@ -92,7 +92,7 @@ export function windowsSigning(env: NodeJS.ProcessEnv): WindowsSigning {
 /** electron-builder's `win` signing settings for `signing`; empty for an unsigned build. */
 export function windowsSigningConfig(signing: WindowsSigning): Record<string, unknown> {
   // Native addons and libraries (descriptor.node and any staged .dll) are signed too.
-  const signExts = [".node", ".dll"];
+  const signExts = [".exe", ".node", ".dll"];
   if (signing.kind === "certificate")
     return {
       signExts,

@@ -59,3 +59,17 @@ export async function collectLicenses(inputs: string[], output: string): Promise
     .join("\n");
   await writeFile(join(output, thirdPartyLicensesFile), body);
 }
+
+/** M0 has no external crates. Fail closed when its lockfile grows until notices are listed. */
+export async function collectMediaLicenses(repo: string, output: string): Promise<void> {
+  const lock = await readFile(join(repo, "native/media/Cargo.lock"), "utf8");
+  if (/^source\s*=/m.test(lock))
+    throw new Error(
+      "ace-media gained third-party crates: update its license listing before packaging",
+    );
+  await writeFile(
+    join(output, thirdPartyLicensesFile),
+    "ace-media: Apache-2.0. This build has no third-party crate dependencies.\n\n" +
+      (await readFile(join(repo, "LICENSE"), "utf8")),
+  );
+}
