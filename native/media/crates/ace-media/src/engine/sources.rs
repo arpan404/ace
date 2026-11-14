@@ -182,13 +182,14 @@ impl Sources {
         token: &[u8],
         vault: &mut Vault,
         now: u64,
+        egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
         if self.handles.contains(&handle) {
             log(out, Level::Warn, "source handle reused", id);
             return status(out, id, Status::Ended, Some("handle-reused"), None);
         }
-        self.close(id.get(), vault, out);
+        self.close(id.get(), vault, egress, out);
         if self.by_id.len() >= MAX_SOURCES || self.handles.len() >= MAX_HANDLES {
             log(out, Level::Warn, "source.open refused: source limit", id);
             return status(out, id, Status::Ended, Some("source-limit"), None);
@@ -250,11 +251,24 @@ impl Sources {
     }
 
     /// `source.close`.
-    pub fn close_source(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
-        self.close(id, vault, out);
+    pub fn close_source(
+        &mut self,
+        id: &str,
+        vault: &mut Vault,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
+        self.close(id, vault, egress, out);
     }
 
-    pub fn close(&mut self, id: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+    /// Closes a source; a producer still streaming into it, or its encoder, ends with a marker.
+    pub fn close(
+        &mut self,
+        id: &str,
+        vault: &mut Vault,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(mut source) = self.by_id.remove(id) else {
             return;
         };
@@ -264,6 +278,9 @@ impl Sources {
         if let Some(conn) = source.ingest.take() {
             self.bindings.remove(&conn);
             out.push(Effect::CloseIngest(conn));
+            source.egress.end(source.handle, false, egress);
+        } else if source.encoding {
+            source.egress.end(source.handle, false, egress);
         }
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
@@ -339,11 +356,18 @@ impl Sources {
         );
     }
 
-    pub fn encoder_failed(&mut self, id: &str, reason: &str, out: &mut Vec<Effect>) {
+    pub fn encoder_failed(
+        &mut self,
+        id: &str,
+        reason: &str,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(source) = self.by_id.get_mut(id).filter(|s| s.encoding) else {
             return;
         };
         source.encoding = false;
+        source.egress.end(source.handle, true, egress);
         source.status = Status::Ended;
         status(out, &source.id, Status::Ended, Some(reason), None);
         out.push(Effect::Encode(EncodeEffect::Close {
@@ -508,10 +532,11 @@ impl Sources {
                 if let Some(source) = self.by_id.get_mut(&id) {
                     source.ingest = None;
                     source.status = Status::Ended;
+                    source.egress.end(source.handle, false, egress);
                     status(out, &source.id, Status::Ended, None, None);
                 }
             }
-            _ => self.unbind(conn, now.mono_ms, out),
+            _ => self.unbind(conn, now.mono_ms, egress, out),
         }
     }
 
@@ -543,7 +568,13 @@ impl Sources {
     }
 
     /// The producer's connection ended without an end-of-source frame.
-    pub fn ingest_closed(&mut self, conn: IngestId, now: u64, out: &mut Vec<Effect>) {
+    pub fn ingest_closed(
+        &mut self,
+        conn: IngestId,
+        now: u64,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(id) = self.bindings.remove(&conn) else {
             return;
         };
@@ -551,6 +582,7 @@ impl Sources {
             return;
         };
         source.ingest = None;
+        source.egress.end(source.handle, true, egress);
         source.drops += 1;
         source.status = Status::Retrying;
         status(
@@ -566,9 +598,15 @@ impl Sources {
         self.release(&id, out);
     }
 
-    fn unbind(&mut self, conn: IngestId, now: u64, out: &mut Vec<Effect>) {
+    fn unbind(
+        &mut self,
+        conn: IngestId,
+        now: u64,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
         out.push(Effect::CloseIngest(conn));
-        self.ingest_closed(conn, now, out);
+        self.ingest_closed(conn, now, egress, out);
     }
 
     fn unit(

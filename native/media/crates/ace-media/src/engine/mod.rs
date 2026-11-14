@@ -201,6 +201,7 @@ impl Engine {
                     &payload,
                     vault,
                     now.mono_ms,
+                    self.egress.as_mut(),
                     out,
                 );
                 match self.sources.handle(source.get()) {
@@ -255,7 +256,8 @@ impl Engine {
                     .decide(&source, &recording, decision, now.mono_ms, out);
             }
             ToMedia::SourceClose { source } => {
-                self.sources.close_source(source.get(), vault, out);
+                self.sources
+                    .close_source(source.get(), vault, self.egress.as_mut(), out);
                 self.stills.close(source.get(), out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
@@ -437,11 +439,13 @@ impl Engine {
 
     /// A JPEG source's encoder could not run: the source ends, so the daemon takes it back.
     pub fn encoder_failed(&mut self, source: &str, reason: &str) {
-        self.sources.encoder_failed(source, reason, &mut self.out);
+        self.sources
+            .encoder_failed(source, reason, self.egress.as_mut(), &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {
-        self.sources.ingest_closed(conn, now.mono_ms, &mut self.out);
+        self.sources
+            .ingest_closed(conn, now.mono_ms, self.egress.as_mut(), &mut self.out);
     }
 
     /// A client presented a ticket on the direct listener (D1).
