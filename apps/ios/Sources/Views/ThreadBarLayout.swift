@@ -3,13 +3,18 @@ import CoreGraphics
 /// How the thread's bar shares its width. UIKit measures the title at the width it's given and
 /// can't shrink it, so when the title and the trailing buttons together are wider than the bar,
 /// UIKit folds the trailing buttons, ⋯ with them, into its "More" button. To avoid that, the
-/// title takes only what is left after every trailing button, and Chat and Changes stay beside ⋯
-/// only while the title keeps a readable width. Otherwise they move into ⋯
-/// (`ThreadDestination.menuScreens`). The bar's glyphs keep their default size at every text
-/// size (`barGlyph()`), so these widths hold at every text size.
+/// title takes only what is left after every trailing button, a few points held back, and Chat
+/// and Changes stay beside ⋯ only while the title keeps a readable width. Otherwise they move
+/// into ⋯ (`ThreadDestination.menuScreens`). The bar's glyphs keep their default size at every
+/// text size (`barGlyph()`), so these widths hold at every text size.
 struct ThreadBarLayout: Equatable {
-    /// The narrowest title kept beside Chat and Changes: three buttons' worth.
-    static let minimumTitle: CGFloat = 3 * AceDesign.Size.tap
+    /// The narrowest title kept beside Chat and Changes: two and a half buttons' worth, which
+    /// the smallest iPhone (375 pt) clears with room to spare.
+    static let minimumTitle: CGFloat = 2.5 * AceDesign.Size.tap
+    /// Room held back beside the page switch in case the glass that groups it with ⋯ insets it
+    /// more than estimated: a title a few points narrower costs a letter, a bar a few points
+    /// too full costs ⋯.
+    static let switchSlack: CGFloat = AceDesign.Space.related
 
     /// Chat and Changes sit beside ⋯; false puts them in ⋯.
     let switchInBar: Bool
@@ -28,7 +33,7 @@ struct ThreadBarLayout: Equatable {
             return
         }
         // A glyph per page and the glass's inset around them, then the gap that groups them with ⋯.
-        let pageSwitch = CGFloat(pages) * (AceDesign.Size.pill + 2) + 2 * AceDesign.Space.related
+        let pageSwitch = CGFloat(pages) * (AceDesign.Size.pill + 2) + 2 * AceDesign.Space.related + Self.switchSlack
         let beside = Self.heading(pageWidth: pageWidth, leading: leadingTitle, trailing: buttons + pageSwitch)
         switchInBar = beside >= Self.minimumTitle
         headingWidth = switchInBar ? beside : without

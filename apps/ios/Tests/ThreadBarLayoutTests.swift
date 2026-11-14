@@ -20,6 +20,16 @@ import CoreGraphics
         }
     }
 
+    @Test func theSmallestIPhoneKeepsChatAndChangesWithRoomToSpare() {
+        // 375 pt (iPhone SE, mini) with a margin: a bar 16 pt narrower still keeps them.
+        for width: CGFloat in [375, 359] {
+            let bar = phone(width)
+            #expect(bar.switchInBar, "\(width)pt keeps the switch")
+            #expect(bar.headingWidth >= ThreadBarLayout.minimumTitle)
+        }
+        #expect(phone(375).headingWidth - ThreadBarLayout.minimumTitle >= 16, "375 pt is well clear of the threshold")
+    }
+
     @Test func atAccessibilityTextSizesChatAndChangesMoveIntoTheMenuAndTheTitleTakesTheirRoom() {
         for width in phones {
             let large = phone(width, largeText: true)
