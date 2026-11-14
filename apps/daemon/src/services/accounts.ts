@@ -5,12 +5,10 @@ import { cursorHosts } from "./cursor-hosts.ts";
 import { warmup } from "./warmup.ts";
 import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
 import type { ProviderLoginSessions } from "@ace/accounts";
-import { AccountManagement } from "../account-management.ts";
+import { AccountManagement, freshLimitsWaitMs, limitsRefreshMs } from "../account-management.ts";
 import { providerMigrationSafety } from "../account-leases.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
-/** How often every account's limits are re-read where the CLI can say without a turn. */
-const limitsRefreshMs = 5 * 60_000;
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAccounts(context: ServiceContext) {
@@ -57,6 +55,8 @@ export async function startAccounts(context: ServiceContext) {
     cursorEnv: options.engine?.cursor?.env ?? process.env,
     resolveAcpLogin: (identity, env) =>
       services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
+    freshen: (signal) =>
+      services.accountManagement?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
   });
 }
 export function startAccountManagement(context: ServiceContext): void {
@@ -89,6 +89,7 @@ export function startAccountManagement(context: ServiceContext): void {
       services.providerStatuses?.publish();
     },
     models: () => services.models,
+    limitsBusy: () => services.engine?.limitsMatter() ?? false,
     cursor() {
       const binding = services.cursorAccounts;
       const registry = services.accountRegistry;
@@ -115,14 +116,11 @@ export function startAccountManagement(context: ServiceContext): void {
   });
   services.accountManagement = management;
   const initialized = warmup(context, "accountManagement", () => management.initialize());
-  // Re-read limits well within the staleness window, so a reading is never old for long and
-  // an account that reset or bought more lets its held threads go without anyone asking.
-  let reading: Promise<void> | undefined;
+  // Re-read limits well within the staleness window while they matter (a held thread, working
+  // agents, a client reading them), so an account that reset or bought more lets its held
+  // threads go without anyone asking; otherwise only once a known reset has passed.
   const refresh = setInterval(() => {
-    reading ??= initialized
-      .then(() => management.refreshLimits())
-      .catch(() => {})
-      .finally(() => (reading = undefined));
+    void initialized.then(() => management.limits.tick()).catch(() => {});
   }, limitsRefreshMs);
   refresh.unref();
   resources.own(async () => {
@@ -142,6 +140,14 @@ export function createAccountsSession(context: SocketContext): SocketService {
       }
     },
     async handle(message, device) {
+      // A client reading account data shows limits: they stay fresh while it stays connected,
+      // and its first answer waits a moment for readings older than the refresh interval.
+      const fresh =
+        message.type === "accounts.list" ||
+        message.type === "accounts.status" ||
+        message.type === "provider.accounts.list"
+          ? context.options.accountManagement?.limits.reader(context.sessionId, freshLimitsWaitMs)
+          : undefined;
       const request = ProviderAccountsRequest.safeParse(message);
       if (request.success) {
         const scope = request.data.type === "provider.accounts.list" ? "read" : "operate";
@@ -165,6 +171,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
               const management = context.options.accountManagement;
               const login = context.options.providerLogin;
               if (!management || !login) throw new Error("Unavailable");
+              await fresh;
               const result = await providerAccounts(management, login, device, request.data);
               if (context.connected() && context.authorize(scope)) context.send(result);
             } catch (cause) {
@@ -229,7 +236,10 @@ export function createAccountsSession(context: SocketContext): SocketService {
         }
         const accounts = context.options.accounts;
         const task = (async () => {
-          await context.options.accountManagement?.refreshLimits();
+          // Facts from after the ask, then this client counts as reading limits.
+          const limits = context.options.accountManagement?.limits;
+          await limits?.refreshAfter();
+          await limits?.reader(context.sessionId, freshLimitsWaitMs);
           if (!accounts) throw new Error("Accounts unavailable");
           const listed = await accounts.handle({
             type: "accounts.list",
@@ -278,6 +288,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
       else if (pending >= 8) reject("accounts_busy", "Too many account requests");
       else {
         pending++;
+        const accounts = context.options.accounts;
         const task = (
           management.success
             ? handleAccountRequest(
@@ -287,7 +298,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
                 device,
                 management.data,
               )
-            : context.options.accounts.handle(message)
+            : (fresh ?? Promise.resolve()).then(() => accounts.handle(message))
         )
           .then((result) => {
             if (context.connected() && context.authorize(scope)) context.send(result);

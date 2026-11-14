@@ -66,6 +66,11 @@ export interface DelegationDependencies {
   timeZone?: string;
   models: import("@ace/models").ModelCatalogApi;
   modelsReady?: Promise<void>;
+  /**
+   * Account limits read again when they are old, before a child's account is chosen by quota;
+   * it waits a few seconds at most itself.
+   */
+  freshLimits?(): Promise<void>;
   providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
   configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
@@ -486,6 +491,10 @@ export class DelegationService {
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
     const accountId = namedAccountId(this.deps, request);
+    // A child is placed, or its named account refused, by quota: on readings no older than the
+    // cadence, read again only when they are older.
+    if (request.provider !== "acp" && this.deps.freshLimits)
+      await budget.wait(this.deps.freshLimits().catch(() => {}));
     const catalog = this.deps.models;
     const filter = {
       provider: request.provider,
