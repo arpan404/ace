@@ -48,6 +48,7 @@ test("a main session is signalled every 500 ms only while it has a media connect
   const time = manualClock();
   const sent: ToMedia[] = [];
   const stop = pumpSessionLinks(links, time.clock, (message) => void sent.push(message));
+  links.started("phone");
   links.sample("phone", 400, 2_000);
   time.advance(1_000);
   expect(sent).toEqual([]);
@@ -68,6 +69,8 @@ test("a main session is signalled every 500 ms only while it has a media connect
 
 test("the round trip is smoothed and the backlog is the latest, one signal per session", () => {
   const links = new SessionLinks();
+  links.started("phone");
+  links.started("laptop");
   links.received(opened("c1", "phone"));
   links.received(opened("c2", "phone"));
   links.received(opened("c3", "laptop"));
@@ -85,6 +88,8 @@ test("the round trip is smoothed and the backlog is the latest, one signal per s
 
 test("a session with no round trip yet, an ended session, or a restarted ace-media says nothing", () => {
   const links = new SessionLinks();
+  links.started("phone");
+  links.started("laptop");
   links.received(opened("c1", "phone"));
   links.received(opened("c2", "laptop"));
   expect(links.signals()).toEqual([]);
@@ -103,6 +108,7 @@ test("a session with no round trip yet, an ended session, or a restarted ace-med
 
 test("every signal is a valid wire message, whatever the samples were", () => {
   const links = new SessionLinks();
+  links.started("phone");
   links.received(opened("c1", "phone"));
   links.sample("phone", Number.NaN, 1);
   links.sample("phone", -5, 1);
@@ -110,4 +116,41 @@ test("every signal is a valid wire message, whatever the samples were", () => {
   links.sample("phone", 1e12, Number.POSITIVE_INFINITY);
   links.sample("phone", 0.4, -3);
   for (const signal of links.signals()) expect(ToMedia.parse(signal)).toEqual(signal);
+});
+
+test("an ended session never comes back from a late sample or connection", () => {
+  const links = new SessionLinks();
+  links.started("phone");
+  links.received(opened("c1", "phone"));
+  links.sample("phone", 300, 0);
+  links.ended("phone");
+  links.sample("phone", 300, 0);
+  links.received(opened("c2", "phone"));
+  links.sample("unknown", 300, 0);
+  links.received(opened("c3", "unknown"));
+  expect(links.signals()).toEqual([]);
+  // A session that starts again is a new one, with no round trip yet.
+  links.started("phone");
+  links.received(opened("c4", "phone"));
+  expect(links.signals()).toEqual([]);
+});
+
+test("a send that throws stops neither the pump nor the other sessions' signals", () => {
+  const links = new SessionLinks();
+  const time = manualClock();
+  for (const [session, connection] of [
+    ["phone", "c1"],
+    ["laptop", "c2"],
+  ] as const) {
+    links.started(session);
+    links.received(opened(connection, session));
+    links.sample(session, 100, 0);
+  }
+  const sent: string[] = [];
+  pumpSessionLinks(links, time.clock, (message) => {
+    if (message.session === "phone") throw new Error("socket gone");
+    sent.push(message.session);
+  });
+  time.advance(1_500);
+  expect(sent).toEqual(["laptop", "laptop", "laptop"]);
 });

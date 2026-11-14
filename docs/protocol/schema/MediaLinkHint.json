@@ -1,31 +1,157 @@
 {
   "$id": "https://ace.local/protocol/v1/MediaLinkHint.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "constrained": {
-      "type": "boolean"
+  "anyOf": [
+    {
+      "properties": {
+        "constrained": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "downlinkKbps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-ace-constraint": "Rounded to a whole number and clamped to 0–10000000."
+            },
+            {
+              "type": "number",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "effectiveType": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "expensive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "rttMs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-ace-constraint": "Rounded to a whole number and clamped to 0–60000."
+            },
+            {
+              "type": "number",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "saveData": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        }
+      },
+      "type": "object"
     },
-    "downlinkKbps": {
-      "maximum": 10000000,
-      "minimum": 0,
-      "type": "integer"
-    },
-    "effectiveType": {
-      "maxLength": 16,
-      "minLength": 1,
-      "type": "string"
-    },
-    "expensive": {
-      "type": "boolean"
-    },
-    "rttMs": {
-      "maximum": 60000,
-      "minimum": 0,
-      "type": "integer"
-    },
-    "saveData": {
-      "type": "boolean"
+    {
+      "properties": {
+        "constrained": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "downlinkKbps": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-ace-constraint": "Rounded to a whole number and clamped to 0–10000000."
+            },
+            {
+              "type": "number",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "effectiveType": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "expensive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "rttMs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-ace-constraint": "Rounded to a whole number and clamped to 0–60000."
+            },
+            {
+              "type": "number",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        },
+        "saveData": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "boolean",
+              "x-ace-constraint": "A value that doesn't parse is ignored, as if absent."
+            }
+          ]
+        }
+      },
+      "type": "object",
+      "x-ace-constraint": "A link that isn't an object is ignored, as if there were no hint."
     }
-  },
-  "type": "object"
+  ]
 }

@@ -5,7 +5,12 @@ import type { FromMedia, ToMedia } from "./wire.ts";
  * The main session's link, told to ace-media (ADR 0149, K3): for every main session that has a
  * media connection, its smoothed round trip and the bytes queued to it, every 500 ms. Video
  * reads it to yield the link as soon as the conversation slows. `SessionLinks` is pure; the
- * pump at the bottom is its timer.
+ * pump at the bottom is its timer. Both are parts for D1/D2, which wire them to the main
+ * sessions and the supervisor; nothing runs them yet.
+ *
+ * A session is known from `started` until `ended`. Anything about a session outside that (a
+ * late sample, a `connection.open` racing its end) is ignored, so an ended session never comes
+ * back and the map holds only live sessions.
  */
 
 export const sessionLinkEveryMs = 500;
@@ -21,12 +26,19 @@ export class SessionLinks {
   /** Each open media connection's main session. */
   readonly #connections = new Map<string, string>();
 
+  /** A main session began: it is signalled once it has a round trip and a media connection. */
+  started(session: string): void {
+    if (!this.#sessions.has(session))
+      this.#sessions.set(session, { rttMs: undefined, backlogBytes: 0, connections: 0 });
+  }
+
   /** ace-media's word on its connections: one opened for a session, or one closed. */
   received(message: FromMedia): void {
     if (message.type === "connection.open") {
-      if (this.#connections.has(message.connection)) return;
+      const entry = this.#sessions.get(message.owner.session);
+      if (!entry || this.#connections.has(message.connection)) return;
       this.#connections.set(message.connection, message.owner.session);
-      this.#session(message.owner.session).connections++;
+      entry.connections++;
     } else if (message.type === "connection.closed") {
       const session = this.#connections.get(message.connection);
       if (session === undefined) return;
@@ -38,8 +50,8 @@ export class SessionLinks {
 
   /** One round trip measured on a main session, with the bytes queued to it now. */
   sample(session: string, rttMs: number, backlogBytes: number): void {
-    if (!Number.isFinite(rttMs) || rttMs < 0) return;
-    const entry = this.#session(session);
+    const entry = this.#sessions.get(session);
+    if (!entry || !Number.isFinite(rttMs) || rttMs < 0) return;
     entry.rttMs = entry.rttMs === undefined ? rttMs : entry.rttMs + (rttMs - entry.rttMs) * rttGain;
     entry.backlogBytes = Number.isFinite(backlogBytes) ? Math.max(0, backlogBytes) : 0;
   }
@@ -71,15 +83,6 @@ export class SessionLinks {
     }
     return out;
   }
-
-  #session(session: string): Session {
-    let entry = this.#sessions.get(session);
-    if (!entry) {
-      entry = { rttMs: undefined, backlogBytes: 0, connections: 0 };
-      this.#sessions.set(session, entry);
-    }
-    return entry;
-  }
 }
 
 /** Sends `links.signals()` every 500 ms until the returned stop is called. */
@@ -92,8 +95,14 @@ export function pumpSessionLinks(
   let cancel = clock.setTimeout(tick, sessionLinkEveryMs);
   function tick(): void {
     if (stopped) return;
-    for (const message of links.signals()) send(message);
+    // The next tick is booked first, so a send that throws never stops the signal.
     cancel = clock.setTimeout(tick, sessionLinkEveryMs);
+    for (const message of links.signals())
+      try {
+        send(message);
+      } catch {
+        // One session's failed send doesn't keep the others from theirs.
+      }
   }
   return () => {
     stopped = true;

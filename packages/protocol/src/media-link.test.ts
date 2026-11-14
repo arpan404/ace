@@ -64,16 +64,36 @@ test("a later client's link names still parse: open effective types, unknown fie
     expect(parsed.data.viewport?.link).toEqual({ effectiveType: "5g" });
 });
 
+/** The hint a subscribe kept, or a failure if the subscribe itself was refused. */
+function kept(hint: unknown) {
+  const parsed = subscribe(hint);
+  if (!parsed.success || parsed.data.type !== "browser.subscribe") throw new Error("refused");
+  return parsed.data.viewport?.link;
+}
+
+test("a computed number is rounded and an out-of-range one clamped, keeping the hint", () => {
+  expect(kept({ downlinkKbps: 1.1 * 1_000, rttMs: 412.6 })).toEqual({
+    downlinkKbps: 1_100,
+    rttMs: 413,
+  });
+  expect(kept({ downlinkKbps: 1e12, rttMs: -5 })).toEqual({ downlinkKbps: 10_000_000, rttMs: 0 });
+});
+
+test.each([
+  ["a null field", { rttMs: null, saveData: true }],
+  ["a string round trip", { rttMs: "400", saveData: true }],
+  ["an empty effective type", { effectiveType: "", saveData: true }],
+  ["an overlong effective type", { effectiveType: "x".repeat(17), saveData: true }],
+  ["a numeric flag", { expensive: 1, saveData: true }],
+])("a hint with %s still subscribes, without that field", (_, hint) => {
+  expect(kept(hint)).toEqual({ saveData: true });
+});
+
 test.each([
   ["an explicit null", null],
-  ["a null field", { rttMs: null }],
-  ["a negative downlink", { downlinkKbps: -1 }],
-  ["a fractional round trip", { rttMs: 1.5 }],
-  ["a downlink past 10 Gbit/s", { downlinkKbps: 10_000_001 }],
-  ["a round trip past a minute", { rttMs: 60_001 }],
-  ["an empty effective type", { effectiveType: "" }],
-  ["an overlong effective type", { effectiveType: "x".repeat(17) }],
-  ["a numeric flag", { saveData: 1 }],
-])("a link hint with %s is refused at the boundary", (_, hint) => {
-  expect(subscribe(hint).success).toBe(false);
+  ["a number", 3],
+  ["a string", "3g"],
+  ["an array", [{ rttMs: 400 }]],
+])("a link that is %s still subscribes, without a hint", (_, hint) => {
+  expect(kept(hint)).toBeUndefined();
 });

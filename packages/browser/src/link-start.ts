@@ -25,9 +25,11 @@ export function hintedStart(
 ): number {
   if (!hint) return ceiling;
   if (hint.saveData || hint.constrained) return floor;
-  if (hint.effectiveType && slowTypes.has(hint.effectiveType)) return floor;
+  // Matched in any case: `3G` from one client means what `3g` does from another.
+  const type = hint.effectiveType?.toLowerCase();
+  if (type && slowTypes.has(type)) return floor;
   let start = ceiling;
-  if (hint.effectiveType === "3g") start = Math.min(start, thinStart);
+  if (type === "3g") start = Math.min(start, thinStart);
   if (hint.rttMs !== undefined && hint.rttMs >= longRttMs) start = Math.min(start, thinStart);
   if (hint.expensive) start = Math.min(start, meteredStart);
   if (hint.downlinkKbps !== undefined)

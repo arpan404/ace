@@ -196,6 +196,8 @@ describe("a viewer's link hint", () => {
     const unhinted = (await startRate(phone())) ?? 0;
     for (const link of [
       { effectiveType: "3g" },
+      { effectiveType: "3G" },
+      { effectiveType: "Slow-2G" },
       { effectiveType: "slow-2g" },
       { saveData: true },
       { constrained: true },

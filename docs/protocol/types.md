@@ -6033,12 +6033,11 @@ Example:
       "outline": "#33FA6E"
     },
     "devicePixelRatio": 3,
-    "height": 108,
+    "height": 107,
     "link": {
-      "constrained": false,
-      "effectiveType": "example"
+      "expensive": true
     },
-    "width": 102
+    "width": 106
   }
 }
 ```
@@ -19762,21 +19761,47 @@ Example:
 
 [JSON Schema](schema/MediaLinkHint.json), input validation.
 
+### Variant 1
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| effectiveType | no | string | {"minLength":1,"maxLength":16} |
-| downlinkKbps | no | integer | {"minimum":0,"maximum":10000000} |
-| rttMs | no | integer | {"minimum":0,"maximum":60000} |
-| saveData | no | boolean |  |
-| expensive | no | boolean |  |
-| constrained | no | boolean |  |
+| effectiveType | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":16},{"type":"string","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| downlinkKbps | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–10000000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| rttMs | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–60000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| saveData | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| expensive | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| constrained | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
 
 Example:
 
 ```json
 {
-  "downlinkKbps": 2,
-  "saveData": false
+  "downlinkKbps": 7,
+  "expensive": true,
+  "rttMs": 9
+}
+```
+
+### Variant 2
+
+Semantic rule: A link that isn't an object is ignored, as if there were no hint.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| effectiveType | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":16},{"type":"string","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| downlinkKbps | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–10000000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| rttMs | no | union | {"anyOf":[{"type":"number","x-ace-constraint":"Rounded to a whole number and clamped to 0–60000."},{"type":"number","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| saveData | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| expensive | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+| constrained | no | union | {"anyOf":[{"type":"boolean"},{"type":"boolean","x-ace-constraint":"A value that doesn't parse is ignored, as if absent."}]} |
+
+Example:
+
+```json
+{
+  "effectiveType": "example",
+  "expensive": false,
+  "rttMs": 7
 }
 ```
 

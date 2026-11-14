@@ -44,6 +44,9 @@ const Viewport = z.strictObject({
 /**
  * What a client says about its link (ADR 0149, K3): the client's word, bounded by type. It only
  * picks a viewer's starting step and never raises a rate above what the link has measured.
+ * Strict, unlike the lenient client-facing `MediaLinkHint` (`@ace/protocol`): the daemon builds
+ * this field by field from the parsed client hint, dropping absent fields, and never passes the
+ * client's object through, or an extra field from a newer client would fail `viewer.open`.
  */
 const LinkHint = z.strictObject({
   /** `navigator.connection.effectiveType`; an open string, so a later value parses. */
