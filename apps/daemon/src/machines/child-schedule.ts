@@ -10,10 +10,14 @@ import { RECHECK_POLLS, RECHECK_WINDOW_MS, recheckEveryPolls } from "./child-rec
  * - a settled child, after an interval that grows with its age (10 s at first, up to 5 minutes),
  *   from its last answered check; one past its 24 h mark, or whose stop is unconfirmed, every
  *   10 s; one this daemon has not checked since it started, 10 s after start;
- * - a child whose last read failed, when its own backoff ends (doubling from one poll to 30 s).
- * Due children are taken earliest due first, so none starves. A suspect child (its last call
- * failed or was refused for another's sake) is asked alone until it answers alone; the rest share
- * calls. An unpaired child is never asked and never counts as checked.
+ * - a child whose own read failed (asked alone), when its backoff ends (doubling from one poll to
+ *   30 s).
+ * Due children are taken earliest due first, so none starves. A child in a call that failed or
+ * was refused, with others, is implicated: it is asked again at once, alone, and stays alone until
+ * it has answered alone and for a time that doubles each time it is implicated (up to 5 minutes),
+ * so a child that only fails beside others can't keep taking calls down. Only a child's own
+ * failures, asked alone, back it off. An unpaired child is never asked and never counts as
+ * checked.
  */
 
 /** One child as the ledger and the pairings have it now. */
@@ -34,12 +38,18 @@ export interface ChildRecord {
   lastAnsweredAt?: number;
   /** When it was last asked. */
   lastAskedAt?: number;
-  /** Reads of it that failed in a row. */
+  /** Reads of it alone that failed in a row. */
   failures: number;
   /** Not asked again before this, after a failure. */
   retryAt?: number;
-  /** Its last call failed, or was refused for another's sake: asked alone until it answers. */
+  /** It was in a call that failed or was refused with others: alone until it answers alone. */
   suspect: boolean;
+  /** When it was last implicated; it is asked again, alone, at once after that. */
+  implicatedAt?: number;
+  /** Times it was implicated; each doubles how long it stays alone. */
+  implicated: number;
+  /** Alone until this, even after answering alone. */
+  aloneUntil?: number;
   /** A call asking about it is on its way. */
   inFlight: boolean;
 }
@@ -52,6 +62,8 @@ export interface ScheduleConfig {
   retryCapMs: number;
   /** Children per call, the call's own limit. */
   idsPerCall: number;
+  /** The longest a child implicated again and again stays alone. */
+  aloneCapMs: number;
   /** Calls per turn per machine. */
   callsPerTurn: number;
 }
@@ -61,12 +73,23 @@ export const defaultScheduleConfig = (pollMs: number, start: number): ScheduleCo
   start,
   retryCapMs: 30_000,
   idsPerCall: 16,
+  aloneCapMs: 5 * 60_000,
   callsPerTurn: 16,
 });
 
 export type Records = ReadonlyMap<string, ChildRecord>;
 
-const blank = (): ChildRecord => ({ failures: 0, suspect: false, inFlight: false });
+const blank = (): ChildRecord => ({ failures: 0, suspect: false, implicated: 0, inFlight: false });
+
+/** Whether `record`'s child goes in a call of its own at `now`. */
+export function asksAlone(record: ChildRecord | undefined, now: number): boolean {
+  if (!record) return false;
+  return (
+    record.suspect ||
+    record.failures > 0 ||
+    (record.aloneUntil !== undefined && now < record.aloneUntil)
+  );
+}
 
 /** When `child` is next due, or undefined when it is never asked (unpaired) or asked now. */
 export function dueAt(
@@ -79,8 +102,13 @@ export function dueAt(
   const rec = record ?? blank();
   // A failed read is not a read: asked again when its own wait is over.
   if (rec.failures > 0 && rec.retryAt !== undefined) return rec.retryAt;
-  // A child refused for another's sake is asked again, alone, at once.
-  if (rec.suspect && rec.lastAskedAt !== undefined && rec.failures === 0) return rec.lastAskedAt;
+  // Implicated and not answered since: asked again, alone, at once.
+  if (
+    rec.suspect &&
+    rec.implicatedAt !== undefined &&
+    (rec.lastAnsweredAt === undefined || rec.lastAnsweredAt < rec.implicatedAt)
+  )
+    return rec.implicatedAt;
   if (!child.settled)
     return rec.lastAskedAt === undefined ? config.start : rec.lastAskedAt + config.pollMs;
   const fast = RECHECK_POLLS * config.pollMs;
@@ -119,7 +147,7 @@ export function planTurn(
   const calls: string[][] = [];
   let open: string[] | undefined;
   for (const { child } of due) {
-    if (records.get(child.id)?.suspect) {
+    if (asksAlone(records.get(child.id), now)) {
       if (calls.length >= config.callsPerTurn) break;
       calls.push([child.id]);
       continue;
@@ -202,27 +230,30 @@ export function foldCall(
       ended.push(id);
   };
   for (const id of ids) {
-    const rec = { ...(records.get(id) ?? blank()), inFlight: false };
+    const rec: ChildRecord = { ...(records.get(id) ?? blank()), inFlight: false };
     if (outcome.kind === "answered") {
+      const { retryAt: _retryAt, ...rest } = rec;
+      // Answered alone: it may share calls again once its time alone is over.
+      next.set(id, { ...rest, failures: 0, lastAnsweredAt: now, suspect: ids.length > 1 && rec.suspect });
+      answered(id);
+    } else if (ids.length > 1) {
+      // Failed or refused beside others: nobody can tell whose doing it was. Each is asked
+      // again alone, at once, and stays alone longer each time this happens to it.
+      const implicated = rec.implicated + 1;
       next.set(id, {
         ...rec,
-        failures: 0,
-        suspect: false,
-        lastAnsweredAt: now,
-        ...{ retryAt: undefined },
+        suspect: true,
+        implicated,
+        implicatedAt: now,
+        aloneUntil: now + Math.min(config.aloneCapMs, config.pollMs * 2 ** Math.min(implicated - 1, 30)),
       });
-      answered(id);
-    } else if (outcome.kind === "not_found" && ids.length > 1) {
-      // Refused for one child's sake: each is asked alone next, at once.
-      next.set(id, { ...rec, suspect: true });
     } else {
-      // Failed, or the machine doesn't hold this child: asked alone, later after each time.
+      // Its own read failed, or the machine doesn't hold it: asked again later each time.
       const failures = rec.failures + 1;
       next.set(id, {
         ...rec,
         failures,
         retryAt: now + backoff(failures, config),
-        suspect: true,
         ...(outcome.kind === "not_found" ? { lastAnsweredAt: now } : {}),
       });
       // The machine saying it doesn't hold the child is its answer for it.
