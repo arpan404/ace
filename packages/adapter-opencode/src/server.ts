@@ -118,6 +118,17 @@ export class OpenCodeServer {
     };
     this.runtime = runtime(options.runtime);
   }
+  /**
+   * A spare started before its session gets that session's credential here, before any request
+   * can carry it. Clients made at startup share the array, so they redact it too.
+   */
+  addSecret(secret: string): void {
+    this.options = {
+      ...this.options,
+      secrets: ServerSecrets.parse([...(this.options.secrets ?? []), secret]),
+    };
+    if (!this.secrets.includes(secret)) this.secrets.push(secret);
+  }
   subscribe(consumer: ServerConsumer): () => void {
     if (this.consumers.size >= 128) throw new Error("OpenCode session limit reached");
     this.routes.clear();

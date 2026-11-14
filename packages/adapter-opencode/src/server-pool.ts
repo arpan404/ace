@@ -2,6 +2,7 @@ import { mcpReadyPluginDirectory } from "./mcp-ready.ts";
 import { z } from "zod";
 import type { SessionContext } from "@ace/engine-api";
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
+import { runtime } from "./runtime.ts";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
 const Environment = z
   .record(z.string().max(256), z.string().max(32768).optional())
@@ -14,9 +15,15 @@ type Entry = {
   scoped: boolean;
   closing?: Promise<void>;
 };
+/** A started server no session has used yet, waiting for the next one with its configuration. */
+type Spare = { server: OpenCodeServer; env: NodeJS.ProcessEnv | undefined; expire(): void };
+/** A spare outlives the last activity of its configuration by this long, then stops. */
+export const spareIdleMs = 10 * 60_000;
+const spareLimit = 8;
 /** Account identity owns transport lifetime; a session's abort owns only that session. */
 export class ServerPool {
   private entries = new Map<string, Entry>();
+  private spares = new Map<string, Spare>();
   private anonymous = new WeakMap<NodeJS.ProcessEnv, string>();
   private serial = 0;
   private closed = false;
@@ -27,9 +34,12 @@ export class ServerPool {
   assertOpen(): void {
     if (this.closed) throw new Error("OpenCode adapter is closed");
   }
-  async acquire(
-    ctx: SessionContext,
-  ): Promise<{ server: OpenCodeServer; release(): Promise<void> }> {
+  async acquire(ctx: SessionContext): Promise<{
+    server: OpenCodeServer;
+    release(): Promise<void>;
+    /** The session opened on this server; a scoped one readies a spare for the next. */
+    opened(): void;
+  }> {
     if (this.closed) throw new Error("OpenCode adapter is closed");
     const connection = ctx.aceMcp
       ? AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer })
@@ -47,12 +57,17 @@ export class ServerPool {
       key = this.anonymous.get(ctx.env) ?? `anonymous:${++this.serial}`;
       this.anonymous.set(ctx.env, key);
     }
-    if (ctx.executable) key += `:binary:${ctx.executable}`;
+    let launch = ctx.executable ? `:binary:${ctx.executable}` : "";
     // Skills are process-wide config: a process started without them never serves a session
     // that has them.
     const skillDirectories = ctx.builtinSkills?.directories ?? [];
-    if (skillDirectories.length) key += `:skills:${JSON.stringify(skillDirectories)}`;
-    // Native MCP config is process-wide. Never share its bearer between sessions.
+    if (skillDirectories.length) launch += `:skills:${JSON.stringify(skillDirectories)}`;
+    key += launch;
+    // Everything a scoped server is started with except the session's credential. Its
+    // environment is compared separately.
+    const configuration = ctx.instanceId === undefined ? `default${launch}` : key;
+    // ace's MCP server is one name per location, so a process serves one session's bearer.
+    // Never share it between sessions.
     if (connection) key = `mcp:${++this.serial}`;
     const accountKey = key;
     const selectGeneration = () => {
@@ -73,7 +88,7 @@ export class ServerPool {
       this.assertOpen();
       key = selectGeneration();
     }
-    const serverOptions: ServerOptions = {
+    const credentialFree: ServerOptions = {
       ...this.options,
       discovery: {
         ...this.options.discovery,
@@ -83,12 +98,17 @@ export class ServerPool {
           : {}),
       },
       ...(skillDirectories.length ? { skillDirectories } : {}),
-      ...(connection
-        ? {
-            mcpReadyPlugin: mcpReadyPluginDirectory(),
-            secrets: [...(this.options.secrets ?? []), connection.bearer],
-          }
-        : {}),
+      ...(connection ? { mcpReadyPlugin: mcpReadyPluginDirectory() } : {}),
+    };
+    const serverOptions: ServerOptions = connection
+      ? { ...credentialFree, secrets: [...(this.options.secrets ?? []), connection.bearer] }
+      : credentialFree;
+    // Taken only once the session has a place, so a refused open never strands a running spare.
+    const server = () => {
+      const spare = connection ? this.takeSpare(configuration, env) : undefined;
+      // A spare never served anyone: it gets this session's credential and nothing else's.
+      if (spare && connection) spare.addSecret(connection.bearer);
+      return spare ?? new OpenCodeServer(serverOptions);
     };
     let entry = this.entries.get(key);
     if (!entry) {
@@ -101,7 +121,7 @@ export class ServerPool {
         // Reserve the replacement before awaiting shutdown, keeping concurrent opens bounded.
         entry = {
           accountKey,
-          server: new OpenCodeServer(serverOptions),
+          server: server(),
           env,
           users: 1,
           scoped: !!connection,
@@ -111,7 +131,7 @@ export class ServerPool {
       } else {
         entry = {
           accountKey,
-          server: new OpenCodeServer(serverOptions),
+          server: server(),
           env,
           users: 1,
           scoped: !!connection,
@@ -125,12 +145,17 @@ export class ServerPool {
     }
     const acquired = entry;
     let released = false;
+    if (connection) this.extendSpare(configuration);
     return {
       server: acquired.server,
+      opened: () => {
+        if (connection) this.warm(configuration, env, credentialFree);
+      },
       release: () => {
         if (!released) {
           released = true;
           acquired.users--;
+          if (connection) this.extendSpare(configuration);
         }
         if (acquired.users > 0) return Promise.resolve();
         acquired.closing ??= acquired.server.close().then(() => {
@@ -142,8 +167,58 @@ export class ServerPool {
   }
   async close(): Promise<void> {
     this.closed = true;
-    await Promise.all([...this.entries.values()].map((entry) => entry.server.close()));
+    const spares = [...this.spares.values()];
+    this.spares.clear();
+    for (const spare of spares) spare.expire();
+    await Promise.all(
+      [...this.entries.values(), ...spares].map((holder) => holder.server.close()),
+    );
     this.entries.clear();
+  }
+  /**
+   * Starts one credential-free server for the next scoped session with this configuration,
+   * after a session's own server is up, so the two never start at once.
+   */
+  private warm(configuration: string, env: NodeJS.ProcessEnv | undefined, options: ServerOptions) {
+    const current = this.spares.get(configuration);
+    if (this.closed || (current && sameEnvironment(current.env, env))) return;
+    if (current) this.retireSpare(configuration);
+    if (this.spares.size >= spareLimit) return;
+    const server = new OpenCodeServer(options);
+    const spare: Spare = { server, env, expire: () => {} };
+    this.spares.set(configuration, spare);
+    this.extendSpare(configuration);
+    // A spare that cannot start is dropped; the next session starts its own server as before.
+    void server.ready().catch(() => {
+      if (this.spares.get(configuration) === spare) this.retireSpare(configuration);
+    });
+  }
+  private takeSpare(
+    configuration: string,
+    env: NodeJS.ProcessEnv | undefined,
+  ): OpenCodeServer | undefined {
+    const spare = this.spares.get(configuration);
+    if (!spare || !sameEnvironment(spare.env, env)) return undefined;
+    this.spares.delete(configuration);
+    spare.expire();
+    return spare.server;
+  }
+  /** A spare stops once its configuration has seen no session open or close for a while. */
+  private extendSpare(configuration: string): void {
+    const spare = this.spares.get(configuration);
+    if (!spare) return;
+    spare.expire();
+    const scheduled = runtime(this.options.runtime).schedule(() => {
+      if (this.spares.get(configuration) === spare) this.retireSpare(configuration);
+    }, spareIdleMs);
+    spare.expire = scheduled;
+  }
+  private retireSpare(configuration: string): void {
+    const spare = this.spares.get(configuration);
+    if (!spare) return;
+    this.spares.delete(configuration);
+    spare.expire();
+    void spare.server.close().catch(() => {});
   }
 }
 function sameEnvironment(
