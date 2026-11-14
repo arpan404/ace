@@ -145,6 +145,10 @@ export class Store {
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
   private readonly readCache: ThreadReadCache;
+  /** Rows the event writer changed, each on behalf of the thread of the event it wrote. */
+  private attributedChanges = 0;
+  /** Threads the open transaction's events wrote: their cached reads end when it commits. */
+  private writtenThreads = new Set<ThreadId>();
   private readonly wal: WalMaintenance;
   private transactions = 0;
   private eventRows = 0;
@@ -185,8 +189,9 @@ export class Store {
     this.db = options.database ?? new DatabaseSync(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
+      // Other connections' commits, and local rows written outside the event writer.
       version: () =>
-        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
+        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.totalChanges() - this.attributedChanges}`,
       inTransaction: () => this.transactionEvents !== undefined,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
@@ -581,11 +586,13 @@ export class Store {
       this.db.exec("COMMIT");
       this.threads.commit();
       this.transactions++;
-      this.readCache.invalidate();
+      this.readCache.evict(this.writtenThreads);
+      this.writtenThreads.clear();
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
       this.db.exec("ROLLBACK");
+      this.writtenThreads.clear();
       this.rolledBack++;
       this.sidebarReads.invalidate();
       this.settle(this.settlements.splice(0), "rolledBack");
@@ -831,12 +838,14 @@ export class Store {
         cancelled,
       );
       this.db.exec("COMMIT");
+      this.readCache.evict(this.writtenThreads);
     } catch (error) {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
       this.sidebarReads.invalidate();
       throw error;
     } finally {
+      this.writtenThreads.clear();
       this.installingHistory = false;
     }
   }
@@ -1094,9 +1103,16 @@ export class Store {
     return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));
   }
   /** One write of the event writer, in a transaction with the write hooks. */
+  private totalChanges(): number {
+    return Number(this.statement("SELECT total_changes() AS n").get()?.n);
+  }
   private writeEvents(write: () => Event[]): Event[] {
     return this.transaction(() => {
+      // Rows the writer changes belong to the threads of its events; hooks' writes are not.
+      const before = this.totalChanges();
       const events = write();
+      this.attributedChanges += this.totalChanges() - before;
+      for (const event of events) this.writtenThreads.add(event.threadId);
       this.transactionEvents?.push(...events);
       for (const hook of this.writeHooks) hook(events);
       return events;

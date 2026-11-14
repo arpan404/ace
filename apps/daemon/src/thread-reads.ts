@@ -92,7 +92,7 @@ export class ThreadReads {
     }
   }
   snapshotThread(id: ThreadId): ThreadView {
-    return this.source.cache.read(`snapshot:${id}`, () =>
+    return this.source.cache.read(id, "snapshot", () =>
       loadThreadSnapshot({
         acquire: () =>
           this.source.inTransaction()
@@ -117,12 +117,15 @@ export class ThreadReads {
     const thread = this.source.readThread(threadId);
     if (!thread) throw new Error("Unknown thread");
     // Built here from entity rows read in this build's shape (`entity-shape.ts`): not parsed again.
-    return this.source.cache.read(
-      JSON.stringify(["entities", threadId, collection, before, limit]),
-      (): EntitiesPage => ({
-        ...this.source.status.page(thread, collection, before, limit),
-        seq: this.source.headSeq(),
-      }),
+    return this.current(
+      this.source.cache.read(
+        threadId,
+        JSON.stringify(["entities", collection, before, limit]),
+        (): EntitiesPage => ({
+          ...this.source.status.page(thread, collection, before, limit),
+          seq: this.source.headSeq(),
+        }),
+      ),
     );
   }
   getInteraction(id: string) {
@@ -131,10 +134,12 @@ export class ThreadReads {
   readItems(threadId: ThreadId, before: number, limit: number) {
     this.source.flush();
     if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
-    return this.source.cache.read(JSON.stringify(["items", threadId, before, limit]), () => ({
-      ...this.source.payloads.page(threadId, before, limit),
-      seq: this.source.headSeq(),
-    }));
+    return this.current(
+      this.source.cache.read(threadId, JSON.stringify(["items", before, limit]), () => ({
+        ...this.source.payloads.page(threadId, before, limit),
+        seq: this.source.headSeq(),
+      })),
+    );
   }
   outputThread(streamId: string) {
     return this.source.payloads.liveStreamThread(streamId);
@@ -142,12 +147,15 @@ export class ThreadReads {
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     this.source.flush();
     if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
-    return this.source.cache.read(
-      JSON.stringify(["wireItems", threadId, before, limit, byteLimit]),
-      () => ({
-        ...this.source.payloads.wirePage(threadId, before, limit, byteLimit),
-        seq: this.source.headSeq(),
-      }),
+    return this.current(
+      this.source.cache.read(
+        threadId,
+        JSON.stringify(["wireItems", before, limit, byteLimit]),
+        () => ({
+          ...this.source.payloads.wirePage(threadId, before, limit, byteLimit),
+          seq: this.source.headSeq(),
+        }),
+      ),
     );
   }
   /** `readItemPage` for agents and previews: one oversized item never fails the page. */
@@ -155,23 +163,34 @@ export class ThreadReads {
     this.source.flush();
     if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     const payloads = this.source.payloads;
-    return this.source.cache.read(
-      JSON.stringify(["boundedItems", threadId, before, limit, byteLimit]),
-      () => ({
-        ...boundedItemPage(
-          {
-            page: (from, count, bytes) => payloads.wirePage(threadId, from, count, bytes),
-            newestBefore: (from) => payloads.newestBefore(threadId, from),
-            hasItemBefore: (from) => payloads.hasItemBefore(threadId, from),
-          },
-          threadId,
-          before,
-          limit,
-          byteLimit,
-        ),
-        seq: this.source.headSeq(),
-      }),
+    return this.current(
+      this.source.cache.read(
+        threadId,
+        JSON.stringify(["boundedItems", before, limit, byteLimit]),
+        () => ({
+          ...boundedItemPage(
+            {
+              page: (from, count, bytes) => payloads.wirePage(threadId, from, count, bytes),
+              newestBefore: (from) => payloads.newestBefore(threadId, from),
+              hasItemBefore: (from) => payloads.hasItemBefore(threadId, from),
+            },
+            threadId,
+            before,
+            limit,
+            byteLimit,
+          ),
+          seq: this.source.headSeq(),
+        }),
+      ),
     );
+  }
+  /**
+   * A cached page is the thread as of now: any write to the thread since it was read evicted
+   * it. So it carries the current head, as a fresh read would.
+   */
+  private current<T extends { seq: number }>(page: T): T {
+    page.seq = this.source.headSeq();
+    return page;
   }
   readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
     return this.source.payloads.streamed.read(blobRef, offset, limit);
