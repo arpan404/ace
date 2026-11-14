@@ -1,4 +1,5 @@
 import type { DaemonProcess } from "./child.ts";
+import type { EndpointWatch } from "./readiness.ts";
 import type { FreezeSignal } from "./watchdog.ts";
 import type { AdmissionFacts, Health, LocalDaemon } from "./probe.ts";
 
@@ -14,6 +15,8 @@ export interface SupervisorPorts {
    * spawning, so adopting a daemon that already runs never waits on it.
    */
   prepareSpawn?: (() => Promise<void>) | undefined;
+  /** Watches the home's endpoint file while a start waits (`readiness.ts`); else it polls. */
+  watchEndpoint?: (() => EndpointWatch | undefined) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
   /**

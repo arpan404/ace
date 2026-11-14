@@ -6,6 +6,7 @@ import { DoctorReport, providerSummaries, type ProviderSummary } from "../../sha
 import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { loginShellPath } from "./login-path.ts";
+import { watchEndpointFile } from "./endpoint-watch.ts";
 import {
   daemonHealth,
   findRunningDaemon,
@@ -148,6 +149,7 @@ export class DaemonRuntime {
             const [path] = await Promise.all([this.path, launchPolicy.ready()]);
             this.resolvedPath = path;
           },
+          watchEndpoint: () => watchEndpointFile(home),
           find: async () => {
             const found = await findRunningDaemon(home);
             if (!looked) launchStep("Looked for a running daemon", { found: Boolean(found) });
