@@ -181,16 +181,23 @@ export class ItemStore {
    * `storedItem`); each text chunk is trusted by its own sequence the same way.
    */
   private materialize(id: string, body: unknown, created: unknown): Item {
-    const item = storedItem(Number(created), String(body), this.trust.from);
+    // Stream rows instead of retaining their objects.
+    return this.withChunks(
+      storedItem(Number(created), String(body), this.trust.from),
+      this.statement(
+        "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+      ).iterate(id),
+    );
+  }
+  /** `item` with its unmerged text chunks, in sequence order, applied. */
+  private withChunks(item: Item, chunks: Iterable<Record<string, unknown>>): Item {
     let field: unknown;
     // Set from the first chunk when every chunk is trusted: the field `applyDelta` takes as is.
     let trustedField: ReturnType<typeof storedTextChunk>["field"] | undefined;
     let trusted = true;
     const appends: string[] = [];
-    // Stream rows instead of retaining their objects. Accepted fields share one append target.
-    for (const row of this.statement(
-      "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
-    ).iterate(id)) {
+    // Accepted fields share one append target.
+    for (const row of chunks) {
       field ??= row.field;
       if (Number(row.seq) >= this.trust.from) {
         const chunk = storedTextChunk(row.field, row.append);
@@ -216,6 +223,40 @@ export class ItemStore {
     if (delta.type !== "item.delta") throw new Error("Invalid text delta");
     applyDelta(item, delta.field, delta.append);
     return item;
+  }
+  /**
+   * Whole items by id, each as `materialize` gives it: one read of the bodies and one of their
+   * chunks. An id with no body throws.
+   */
+  private materializeAll(ids: readonly string[]): Map<string, Item> {
+    const list = JSON.stringify(ids);
+    const chunks = new Map<string, Record<string, unknown>[]>();
+    for (const row of this.statement(
+      "SELECT c.item_id, c.seq, c.field, c.append FROM json_each(?) j JOIN item_text_chunks c ON c.item_id = j.value ORDER BY c.item_id, c.seq",
+    ).iterate(list)) {
+      const id = String(row.item_id);
+      const rows = chunks.get(id);
+      if (rows) rows.push(row);
+      else chunks.set(id, [row]);
+    }
+    const bodies = new Map<string, Record<string, unknown>>();
+    for (const row of this.statement(
+      "SELECT i.id, i.item, i.created_seq FROM json_each(?) j JOIN items i ON i.id = j.value",
+    ).iterate(list))
+      bodies.set(String(row.id), row);
+    const items = new Map<string, Item>();
+    for (const id of ids) {
+      const row = bodies.get(id);
+      if (!row) throw new Error("Missing item body");
+      items.set(
+        id,
+        this.withChunks(
+          storedItem(Number(row.created_seq), String(row.item), this.trust.from),
+          chunks.get(id) ?? [],
+        ),
+      );
+    }
+    return items;
   }
   wirePage(
     threadId: ThreadId,
@@ -492,13 +533,9 @@ export class ItemStore {
     while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
     // A newest item larger than the whole budget still shows, as its bounded text preview.
     const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
+    const whole = preview ? undefined : this.materializeAll(tail.kept.map((entry) => entry.id));
     const kept = tail.kept.flatMap((entry) => {
-      const item = preview
-        ? this.stepItem(threadId, entry.id)
-        : this.materializeRow(
-            entry.id,
-            this.statement("SELECT item, created_seq FROM items WHERE id = ?").get(entry.id),
-          );
+      const item = whole ? whole.get(entry.id) : this.stepItem(threadId, entry.id);
       return item ? [{ item, seq: entry.seq ?? 0 }] : [];
     });
     return {

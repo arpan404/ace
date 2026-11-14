@@ -119,6 +119,16 @@ it("text still streaming reads back with every chunk it was sent", () => {
   expect(thinking).toMatchObject({ complete: false, text });
 });
 
+it("a thread snapshot shows the same items as a full item page, in creation order", () => {
+  const { open } = setup();
+  const store = open("writer");
+  const thread = seed(store);
+  const page = store.readItems(thread, store.headSeq() + 1, 200).items;
+  const snapshot = store.snapshotThread(thread);
+  expect(snapshot.items).toEqual(Object.fromEntries(page.map((item) => [item.id, item])));
+  expect(snapshot.itemOrder).toEqual(page.map((item) => item.id));
+});
+
 it("a page at its byte budget keeps the items that fit and pages the rest", () => {
   const { open } = setup();
   const store = open("writer");
