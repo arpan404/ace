@@ -248,3 +248,26 @@ test("an archive decided before a later run started is refused, and archives onc
   });
   expect(h.store.getThread(id)?.archivedAt).toBeDefined();
 });
+
+test("an archive decided before a message was queued behind the running turn is refused", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames);
+  cleanups.push(h.close);
+  const id = await h.create();
+  const decided = h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 }).at(-1)?.seq ?? 0;
+  // Another device queues a message behind the turn: no transcript item exists for it yet.
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "after this" }],
+      delivery: "queue",
+    }),
+  ).toMatchObject({ ok: true });
+  expect(h.engine.queue(id).messages).toHaveLength(1);
+  expect(h.command({ type: "thread.archive", threadId: id, beforeSeq: decided })).toMatchObject({
+    ok: false,
+    error: "thread_changed",
+  });
+  expect(h.store.getThread(id)?.archivedAt).toBeUndefined();
+});

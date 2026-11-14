@@ -27,7 +27,8 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
 import { retireUncertainInputs } from "./stale-inputs.ts";
-import { workStartedSince } from "../thread-fence.ts";
+import { workChangedSince } from "../thread-fence.ts";
+import { threadTree } from "./thread-liveness.ts";
 import { guestRefusal, hostRefusal } from "./guest-admission.ts";
 
 export function engineHandler(
@@ -364,10 +365,19 @@ export function engineHandler(
           threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
             if (!repo.store.getThread(threadId)) return fail("thread_not_found");
-            if (p.beforeSeq !== undefined && workStartedSince(repo.store, threadId, p.beforeSeq))
-              return fail("thread_changed");
-            const at = now();
-            repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
+            const archived = threadId;
+            // One transaction: nothing can start in the tree between the check and the archive.
+            const changed = repo.store.atomic(() => {
+              if (
+                p.beforeSeq !== undefined &&
+                workChangedSince(repo.store, threadTree(repo, archived), p.beforeSeq)
+              )
+                return true;
+              const at = now();
+              repo.store.appendEvents(archived, [{ type: "thread.updated", archivedAt: at }], at);
+              return false;
+            });
+            if (changed) return fail("thread_changed");
             return { commandId: command.id, ok: true };
           }
           if (repo.store.getThread(threadId)?.deletedAt !== undefined)
