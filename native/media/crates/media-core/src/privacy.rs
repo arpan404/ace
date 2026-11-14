@@ -145,9 +145,15 @@ impl Verdicts {
     }
 
     fn discards_within(&self, from: u64, to: u64) -> bool {
+        self.first_discard(from, to).is_some()
+    }
+
+    /// The lowest discarded epoch in `[from, to]`.
+    fn first_discard(&self, from: u64, to: u64) -> Option<u64> {
         self.ranges
             .iter()
-            .any(|&(a, b, v)| v == Verdict::Discard && a <= to && b >= from)
+            .find(|&&(a, b, v)| v == Verdict::Discard && a <= to && b >= from)
+            .map(|&(a, _, _)| a.max(from))
     }
 
     /// Forgets ranges wholly below `floor`, and the oldest past `cap`. Returns the first epoch
@@ -202,10 +208,29 @@ impl<T> Lane<T> {
 /// The running fragment: where its video keyframe was. A frame of either track belongs to it
 /// while no discarded epoch lies between the keyframe's epoch and the frame's, and no break
 /// (an interruption or an overflow) lies between them in arrival order.
+///
+/// Breaks only ever matter relative to the keyframe, so the fragment keeps just the nearest
+/// one on each side, and the first discard at or after its epoch: its state is constant in
+/// size however long decisions stall or breaks accumulate.
 #[derive(Clone, Copy, Debug)]
 struct Fragment {
     epoch: u64,
     index: u64,
+    /// The last break at or before the keyframe: earlier arrivals are cut off from it.
+    begin: u64,
+    /// The first break after the keyframe: arrivals from it on are cut off.
+    end: Option<u64>,
+    /// The first discarded epoch at or after `epoch` known so far.
+    discard: Option<u64>,
+}
+
+impl Fragment {
+    fn holds(&self, epoch: u64, index: u64) -> bool {
+        epoch >= self.epoch
+            && self.discard.is_none_or(|d| epoch < d)
+            && index >= self.begin
+            && self.end.is_none_or(|e| index < e)
+    }
 }
 
 /// The barrier for one recorded source. A new ace-media process starts a new barrier at the
@@ -229,9 +254,10 @@ pub struct Barrier<T> {
     audio: Lane<T>,
     held_bytes: usize,
     next_index: u64,
-    /// Breaks in arrival order: a break `m` separates indices below `m` from those at or above.
-    breaks: VecDeque<u64>,
+    /// The latest time any input carried; an earlier one counts as this.
+    now: u64,
     /// A fragment may only start at a keyframe arriving at or after this index: the last break.
+    /// A break `m` separates arrivals below `m` from those at or above it.
     restart_index: u64,
     fragment: Option<Fragment>,
     /// A pending keyframe request: the arrival index when it was asked and the lowest epoch that
@@ -257,7 +283,7 @@ impl<T> Barrier<T> {
             audio: Lane::new(start),
             held_bytes: 0,
             next_index: 0,
-            breaks: VecDeque::new(),
+            now: 0,
             restart_index: 0,
             fragment: None,
             asked: None,
@@ -276,6 +302,7 @@ impl<T> Barrier<T> {
     /// arrived before still drain into the running fragment; nothing after joins it, and the
     /// next fragment starts only at a keyframe that arrives from now on.
     pub fn interrupt(&mut self, now: u64, out: &mut Vec<Event<T>>) {
+        let now = self.clock(now);
         self.enforce(now, out);
         self.add_break(self.next_index, out);
         self.pump(out, &mut (0, 0));
@@ -284,6 +311,7 @@ impl<T> Barrier<T> {
 
     /// A frame arrived from the producer.
     pub fn frame(&mut self, frame: Frame<T>, now: u64, out: &mut Vec<Event<T>>) {
+        let now = self.clock(now);
         self.enforce(now, out);
         let epoch = u64::from(frame.epoch);
         if self.ceiling.is_some_and(|c| epoch > c) {
@@ -313,6 +341,7 @@ impl<T> Barrier<T> {
 
     /// Time passed with nothing arriving: drop frames held past the age bound.
     pub fn tick(&mut self, now: u64, out: &mut Vec<Event<T>>) {
+        let now = self.clock(now);
         self.enforce(now, out);
         self.pump(out, &mut (0, 0));
         self.prune();
@@ -323,6 +352,7 @@ impl<T> Barrier<T> {
     /// [`MAX_PENDING_DECISIONS`] early ones are refused, which can only stall the recording
     /// into a gap, never release a frame.
     pub fn decide(&mut self, decision: Decision, now: u64, out: &mut Vec<Event<T>>) {
+        let now = self.clock(now);
         self.enforce(now, out);
         if decision.seq < self.next_seq {
             return;
@@ -345,6 +375,18 @@ impl<T> Barrier<T> {
         self.video.held.len() + self.audio.held.len()
     }
 
+    /// Everything the barrier keeps: held frames, early decisions and decided epoch ranges.
+    /// Bounded by the hold limits, [`MAX_PENDING_DECISIONS`] and [`MAX_VERDICT_RANGES`].
+    pub fn retained(&self) -> usize {
+        self.held() + self.pending.len() + self.verdicts.ranges.len()
+    }
+
+    /// Time never goes back: callers' clocks may jitter, the hold bound must not.
+    fn clock(&mut self, now: u64) -> u64 {
+        self.now = self.now.max(now);
+        self.now
+    }
+
     fn apply(&mut self, d: Decision, out: &mut Vec<Event<T>>) {
         self.next_seq = d.seq + 1;
         let decided = u64::from(d.decided);
@@ -359,6 +401,13 @@ impl<T> Barrier<T> {
         let top = self.undecided.saturating_sub(1);
         for (a, b) in clipped(&d.discard, self.floor, top) {
             self.verdicts.set(a, b, Verdict::Discard);
+        }
+        if let Some(f) = &mut self.fragment {
+            let found = self.verdicts.first_discard(f.epoch.max(self.floor), top);
+            f.discard = match (f.discard, found) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
         }
         // Video will have to restart past a discard it hasn't reached: ask now, so the
         // keyframe is on its way. Frames before the discard still write in the old fragment.
@@ -416,12 +465,7 @@ impl<T> Barrier<T> {
     }
 
     fn belongs(&self, epoch: u64, index: u64) -> bool {
-        self.fragment.is_some_and(|f| {
-            let (lo, hi) = (index.min(f.index), index.max(f.index));
-            epoch >= f.epoch
-                && !self.verdicts.discards_within(f.epoch, epoch)
-                && !self.breaks.iter().any(|&m| lo < m && m <= hi)
-        })
+        self.fragment.is_some_and(|f| f.holds(epoch, index))
     }
 
     /// Whether held audio can be written or dropped now. Audio that the running fragment can't
@@ -455,7 +499,14 @@ impl<T> Barrier<T> {
             return;
         }
         if frame.keyframe && index >= self.restart_index {
-            self.fragment = Some(Fragment { epoch, index });
+            let top = self.undecided.saturating_sub(1);
+            self.fragment = Some(Fragment {
+                epoch,
+                index,
+                begin: self.restart_index,
+                end: None,
+                discard: self.verdicts.first_discard(epoch, top),
+            });
             self.gap_marked = false;
             if self
                 .asked
@@ -505,7 +556,7 @@ impl<T> Barrier<T> {
                 .lane(oldest)
                 .held
                 .front()
-                .is_some_and(|h| now.saturating_sub(h.at) > hold_ms);
+                .is_some_and(|h| now - h.at > hold_ms);
             if !over_bytes && !aged {
                 return;
             }
@@ -521,10 +572,14 @@ impl<T> Barrier<T> {
     /// Frames arriving from `index` on can't join the running fragment, and the next one starts
     /// only at a keyframe among them.
     fn add_break(&mut self, index: u64, out: &mut Vec<Event<T>>) {
-        if self.breaks.back() != Some(&index) {
-            self.breaks.push_back(index);
-        }
         self.restart_index = self.restart_index.max(index);
+        if let Some(f) = &mut self.fragment {
+            if index <= f.index {
+                f.begin = f.begin.max(index);
+            } else {
+                f.end = Some(f.end.map_or(index, |e| e.min(index)));
+            }
+        }
         if !self.gap_marked {
             self.gap_marked = true;
             out.push(Event::Gap);
@@ -546,19 +601,10 @@ impl<T> Barrier<T> {
 
     fn prune(&mut self) {
         let mut floor = self.video.done.min(self.audio.done);
-        let mut low_index = self.next_index;
         for lane in [&self.video, &self.audio] {
             if let Some(h) = lane.held.front() {
                 floor = floor.min(u64::from(h.frame.epoch));
-                low_index = low_index.min(h.index);
             }
-        }
-        if let Some(f) = self.fragment {
-            floor = floor.min(f.epoch);
-            low_index = low_index.min(f.index);
-        }
-        while self.breaks.front().is_some_and(|&m| m <= low_index) {
-            self.breaks.pop_front();
         }
         if let Some(forgotten) = self.verdicts.prune(floor, MAX_VERDICT_RANGES) {
             self.floor = self.floor.max(forgotten);
