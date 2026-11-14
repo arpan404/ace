@@ -237,29 +237,29 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
           staleLabel !== undefined
             ? undefined
             : !subagentEnded(phase)
-            ? stoppable && (
-                <StopAgent
-                  threadId={threadId}
-                  agent={agent}
-                  pending
-                  variant="ghost"
-                  feedback="toast"
-                  className={barAction}
-                  subagents={node ? countSubagents(node) : 0}
-                />
-              )
-            : // Only its parent can run it again; a read-only thread can't be asked. It is its
-              // own ending that is retried, not a failure further down its branch.
-              (agent.status.state === "failed" || agent.status.state === "interrupted") &&
-              !meta?.continuation && (
-                // A resumed subagent that ends again can be asked about again.
-                <AskParentRetry
-                  key={branch?.end ?? 0}
-                  threadId={threadId}
-                  agent={agent}
-                  direct={props.root}
-                />
-              )
+              ? stoppable && (
+                  <StopAgent
+                    threadId={threadId}
+                    agent={agent}
+                    pending
+                    variant="ghost"
+                    feedback="toast"
+                    className={barAction}
+                    subagents={node ? countSubagents(node) : 0}
+                  />
+                )
+              : // Only its parent can run it again; a read-only thread can't be asked. It is its
+                // own ending that is retried, not a failure further down its branch.
+                (agent.status.state === "failed" || agent.status.state === "interrupted") &&
+                !meta?.continuation && (
+                  // A resumed subagent that ends again can be asked about again.
+                  <AskParentRetry
+                    key={branch?.end ?? 0}
+                    threadId={threadId}
+                    agent={agent}
+                    direct={props.root}
+                  />
+                )
         }
       />
     </ComposerDock>
