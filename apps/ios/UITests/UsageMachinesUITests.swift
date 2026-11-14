@@ -59,7 +59,8 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
         app.launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.buttons["thread.ios-spike-host-9922.ios-approval"].waitForExistence(timeout: 30))
+        // Both machines' threads are listed; the approval row may sit below the fold.
+        app.revealRow("thread.ios-spike-host-9922.ios-approval")
         app.openBrowseDestination("library.usage")
         app.buttons["Cost"].tap()
 
