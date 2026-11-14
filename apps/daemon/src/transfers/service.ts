@@ -73,7 +73,7 @@ export function startTransfers(context: ServiceContext): void {
   // Probes, calls and chunks to one machine share one kept-open, pinned connection.
   // The pairings saved now, through one kept-open reader that re-reads only when they change:
   // a transfer holding one removed since, here or by `ace remote remove`, is refused.
-  const saved = new SavedPairings(config.dataDir);
+  const saved = new SavedPairings(config.dataDir, record("warn"));
   resources.own(() => saved.close());
   const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());

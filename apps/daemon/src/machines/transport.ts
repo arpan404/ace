@@ -121,6 +121,18 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
     options,
   );
 
+/**
+ * Whether the lease's pairing is still saved, asked inside a socket callback: nothing thrown may
+ * escape it, so a check that fails for any reason counts as not current and nothing is sent.
+ */
+function stillCurrent(lease: ConnectionLease): boolean {
+  try {
+    return lease.current ? lease.current() : true;
+  } catch {
+    return false;
+  }
+}
+
 /** A connection for this request alone, closed once it is answered. */
 function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
   const agent = pinnedAgent(profile.fingerprint);
@@ -246,7 +258,7 @@ function pinnedOnce(
       // Nothing is written before the request has its socket. Then, immediately before the
       // first byte, the pairing must still be the one saved: one removed while the request
       // waited (unlinked, re-paired, `ace remote remove`) gets nothing sent.
-      if (lease.current && !lease.current()) {
+      if (!stillCurrent(lease)) {
         request.destroy();
         finish(new MachineNotSent("offline", undefined, "Machine call never sent: unpaired"));
         return;

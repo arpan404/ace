@@ -206,7 +206,7 @@ export function startMachines(context: ServiceContext): void {
   let machineReachable: ((machine: string) => void) | undefined;
   // One kept-open, pinned connection per paired machine, so a call costs one round trip.
   // Every socket hand-over checks the pairing is still saved, through one kept-open reader.
-  const saved = new SavedPairings(config.dataDir);
+  const saved = new SavedPairings(config.dataDir, record("warn"));
   resources.own(() => saved.close());
   const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());

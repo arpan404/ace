@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, renameSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request as httpsRequest } from "node:https";
 import type { TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import {
   DeviceId,
   DeviceToken,
@@ -912,4 +913,99 @@ test("a call queued while its pairing is removed outside the daemon is never sen
   expect(await queued).toBeInstanceOf(MachineNotSent);
   await new Promise((resolve) => setTimeout(resolve, 500));
   expect(target.arrived.map((entry) => entry.op)).not.toContain("message");
+});
+
+/** A machine whose tool calls wait, and a pool reading its pairing from a saved file. */
+async function savedPool() {
+  const target = await busyMachine(1500);
+  const saved = pairingHome(target.profile);
+  const pairings = new SavedPairings(saved.home);
+  const connections = new MachineConnections({ schedule, saved: pairings });
+  cleanups.push(() => connections.close());
+  cleanups.push(() => pairings.close());
+  const [profile] = saved.list();
+  if (!profile) throw new Error("No pairing saved");
+  return { target, saved, connections, profile, file: join(saved.home, "cli-profiles.sqlite") };
+}
+
+for (const [change, run] of [
+  [
+    "replaced by one without it",
+    (file: string) => {
+      const other = mkdtempSync(join(tmpdir(), "ace-other-pairings-"));
+      cleanups.push(() => rmSync(other, { recursive: true, force: true }));
+      new Profiles(other).close();
+      renameSync(join(other, "cli-profiles.sqlite"), file);
+    },
+  ],
+  [
+    "deleted and made again",
+    (file: string) => {
+      rmSync(file);
+      new Profiles(join(file, "..")).close();
+    },
+  ],
+] as const)
+  test(`a call queued while the pairings file is ${change} is never sent, and the pool ends`, async () => {
+    const h = await savedPool();
+    const long = Array.from({ length: 32 }, () =>
+      machineRequest(
+        h.profile,
+        { origin, call: browserCall },
+        { timeoutMs: 10_000, connections: h.connections },
+      ).catch((error: unknown) => error),
+    );
+    await expect.poll(() => h.target.arrived.length).toBe(32);
+    const queued = machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 10_000, connections: h.connections },
+    ).catch((error: unknown) => error);
+    run(h.file);
+    await Promise.all(long);
+    expect(await queued).toBeInstanceOf(MachineNotSent);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(h.target.arrived.map((entry) => entry.op)).not.toContain("message");
+    // The pairing's connections ended: every socket there is closed, and nothing more is sent.
+    expect([...h.target.sockets].every((socket) => socket.destroyed)).toBe(true);
+    const later = await machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 2000, connections: h.connections },
+    ).catch((error: unknown) => error);
+    expect(later).toBeInstanceOf(MachineNotSent);
+  });
+
+test("a pairings file locked by another writer fails the call as never sent, and the next one goes", async () => {
+  const h = await savedPool();
+  const crashes: unknown[] = [];
+  const crash = (error: unknown) => crashes.push(error);
+  process.on("uncaughtException", crash);
+  cleanups.push(() => void process.off("uncaughtException", crash));
+  // Warm the pool, then an `ace` CLI write holds the file while the next call is handed its socket.
+  await machineRequest(
+    h.profile,
+    { origin, call: followUp },
+    { timeoutMs: 5000, connections: h.connections },
+  );
+  const writer = new DatabaseSync(h.file);
+  writer.exec("BEGIN EXCLUSIVE");
+  const blocked = await machineRequest(
+    h.profile,
+    { origin, call: followUp },
+    { timeoutMs: 5000, connections: h.connections },
+  ).catch((error: unknown) => error);
+  writer.exec("COMMIT");
+  writer.close();
+  expect(blocked).toBeInstanceOf(MachineNotSent);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(crashes).toEqual([]);
+  // The lock is gone: the pool was not ended for it, and the next call goes.
+  await expect(
+    machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 5000, connections: h.connections },
+    ),
+  ).resolves.toEqual({ ok: true });
 });
