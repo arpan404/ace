@@ -308,6 +308,42 @@ test("a turn that changed many files mounts only the files near the view, and li
   expect(within(panel).getAllByRole("region").length).toBeLessThan(20);
 });
 
+test("a thousand rows over a few files mount only the files near the view", async () => {
+  const { app, panel } = await openChanges("test-done");
+  const scroller = panel.querySelector<HTMLElement>("[data-diff-scroller]");
+  if (scroller) scroller.style.overflowY = "auto";
+  // Ten files of 100 lines: each under the per-file 400-row threshold, 1,000 rows in all.
+  const paths = Array.from({ length: 10 }, (_, n) => `packages/fixtures/src/mid-${n}.ts`);
+  act(() =>
+    app.daemon.apply("thread-cold-start", [
+      facts.turn("root"),
+      facts.tool("root", "edit-mid", {
+        kind: "file.edit",
+        title: "Add fixtures",
+        detail: {
+          kind: "file.edit",
+          changes: paths.map((path, n) => ({
+            path,
+            kind: "add" as const,
+            newText: Array.from({ length: 100 }, (_, line) => `export const m${n}_${line} = 1;`)
+              .join("\n")
+              .concat("\n"),
+          })),
+        },
+      }),
+      facts.toolDone("root", "edit-mid"),
+      facts.endTurn("root"),
+    ]),
+  );
+  expect(
+    await within(panel).findByRole("region", { name: paths[0] ?? "" }, { timeout: 10_000 }),
+  ).toBeTruthy();
+  expect(within(panel).queryByRole("region", { name: paths[9] ?? "" })).toBeNull();
+  const nodes = panel.querySelector("[data-diff-scroller]")?.querySelectorAll("*").length ?? 0;
+  // About 1,600 with the files near the view mounted; over 5,000 with all ten.
+  expect(nodes).toBeLessThan(2_500);
+});
+
 async function comment(panel: HTMLElement, path: string, line: RegExp, text: string) {
   const block = await within(panel).findByRole("region", { name: path });
   const row = within(block).getByText(codeText(line));
