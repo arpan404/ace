@@ -79,6 +79,7 @@ enum SpikeConfiguration {
 
 /// `--spike-unpaired`'s own storage and defaults, emptied once per launch before anything reads
 /// them: its machines, drafts and notification settings never touch the app's real ones.
+/// Settings changed inside this mode (views' own `@AppStorage`) still use the app's standard defaults.
 enum UnpairedScratch {
     static let suite = "app.ace.spike.unpaired"
     static let root: URL = {
