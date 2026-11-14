@@ -1,11 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import {
-  shallowEqual,
-  useItem,
-  useThread,
-  useThreadField,
-  type ThreadRecord,
-} from "@ace/client-react";
+import { useItem, useThread } from "@ace/client-react";
+import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { Item } from "@ace/protocol";
 import {
   eventCounts,

@@ -1,4 +1,5 @@
-import { useSidebarThread, useThreadField, type ThreadRecord } from "@ace/client-react";
+import { useSidebarThread } from "@ace/client-react";
+import { useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { AccountView } from "@ace/ui-core";
 import { useMachineAccountViews, useMachineThreadAccount } from "@/lib/machine-accounts.ts";
 

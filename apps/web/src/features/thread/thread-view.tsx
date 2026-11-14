@@ -1,12 +1,6 @@
 import { startedByWords } from "@ace/ui-core/outside-clients";
-import {
-  shallowEqual,
-  useInteractions,
-  useThreadError,
-  useThreadField,
-  useThreadMeta,
-  type ThreadRecord,
-} from "@ace/client-react";
+import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
+import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { ForkPoint } from "@ace/protocol";
 import {
   lazy,

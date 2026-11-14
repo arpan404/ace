@@ -1,4 +1,5 @@
-import { useOptionalClient, useThreadField, useThreadStore } from "@ace/client-react";
+import { useOptionalClient, useThreadStore } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadCheckoutRoot, threadWorkspaceId } from "@/lib/thread-fields.ts";
 import type { ClientApi } from "@ace/client";
 import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";

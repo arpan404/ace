@@ -1,4 +1,4 @@
-import { useThreadField } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadRootAgentId } from "@/lib/thread-fields.ts";
 import { ToolSurface, type Item, type TurnStep } from "@ace/protocol";
 import { useMemo } from "react";

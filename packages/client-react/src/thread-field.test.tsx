@@ -4,7 +4,8 @@ import { DeviceId } from "@ace/protocol";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { Profiler } from "react";
 import { afterEach, expect, test } from "vitest";
-import { ClientProvider, useThreadField, useThreadMeta, type ThreadRecord } from "./index.ts";
+import { ClientProvider, useThreadMeta } from "./index.ts";
+import { useThreadField, type ThreadRecord } from "./thread-field.ts";
 
 const clients: Client[] = [];
 afterEach(async () => {

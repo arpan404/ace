@@ -1,7 +1,7 @@
 export { ClientProvider, useClient, useNotifyBatch, useOptionalClient } from "./context.ts";
 export { frameBatch, immediate } from "./batch.ts";
 export type { NotifyBatch } from "./batch.ts";
-export { useSelection, arrayEqual, shallowEqual } from "./selection.ts";
+export { useSelection, arrayEqual } from "./selection.ts";
 export { OptionalLeaseScope, useThreadRoom, useThreadStore, useSidebarStore } from "./leases.ts";
 export { windowSource } from "./window-source.ts";
 export { ThreadWindowProvider, useThreadWindow } from "./window-context.ts";
@@ -9,7 +9,6 @@ export type { ThreadWindow } from "./window-source.ts";
 export {
   useThread,
   useStoreSelect,
-  useThreadField,
   useThreadMeta,
   useThreadError,
   useThreadSyncing,
@@ -20,7 +19,7 @@ export {
   useTask,
   useTaskIds,
 } from "./thread.ts";
-export type { HistoryPager, ThreadRecord } from "./thread.ts";
+export type { HistoryPager } from "./thread.ts";
 export { useAgentTree, agentTree, treeEqual } from "./tree.ts";
 export type { AgentTreeNode } from "./tree.ts";
 export { useInteractions, useInteraction, useItemInteraction } from "./interactions.ts";

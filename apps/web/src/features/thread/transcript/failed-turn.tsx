@@ -1,4 +1,5 @@
-import { useClient, useItem, useThreadField } from "@ace/client-react";
+import { useClient, useItem } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadModel, threadProvider } from "@/lib/thread-fields.ts";
 import { failedTurnView, resendPayload } from "@ace/ui-core";
 import { useState } from "react";

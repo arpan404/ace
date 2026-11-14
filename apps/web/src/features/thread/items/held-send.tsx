@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import { useThread, useThreadField } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadStatus } from "@/lib/thread-fields.ts";
 import { ArrowClockwiseIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";

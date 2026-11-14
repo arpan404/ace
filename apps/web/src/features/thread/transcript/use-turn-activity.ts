@@ -1,5 +1,6 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadField, useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadProvider, threadRootAgentId, threadStatus } from "@/lib/thread-fields.ts";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";

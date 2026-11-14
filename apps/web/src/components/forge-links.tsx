@@ -1,4 +1,4 @@
-import { useThreadField } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadWorkspaceId } from "@/lib/thread-fields.ts";
 import type { ForgeIssueRef, ForgePrRef } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";

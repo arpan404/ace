@@ -1,6 +1,6 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { mergeReceipts } from "@ace/ui-core";
-import { useThreadField } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadRootAgentId } from "@/lib/thread-fields.ts";
 import { useMemo, useState } from "react";
 import { useServerQueue } from "@/lib/server-queue.ts";

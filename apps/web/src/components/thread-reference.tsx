@@ -1,4 +1,5 @@
-import { useClient, useThread, useThreadField, useThreadStore } from "@ace/client-react";
+import { useClient, useThread, useThreadStore } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
 import { threadCheckoutRoot } from "@/lib/thread-fields.ts";
 import { ThreadId, ItemId } from "@ace/protocol";
 import { useQuery } from "@tanstack/react-query";

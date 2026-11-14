@@ -1,4 +1,4 @@
-import type { ThreadRecord } from "@ace/client-react";
+import type { ThreadRecord } from "@ace/client-react/thread-field";
 
 /*
  * Single fields of a thread for `useThreadField`, at module scope so they never re-subscribe.
