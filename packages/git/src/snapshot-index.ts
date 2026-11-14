@@ -108,8 +108,9 @@ async function copyIndex(
     : [];
   for (const [position, entry] of entries.entries()) {
     const tag = records[position]?.[0] ?? "";
-    if (tag === "S") skipped.push(entry.path);
-    else if (tag !== tag.toUpperCase()) assumed.push(entry.path);
+    // `ls-files -v` tags: lowercase means assume-unchanged, S/s skip-worktree (both: s).
+    if (tag.toUpperCase() === "S") skipped.push(entry.path);
+    if (tag !== tag.toUpperCase()) assumed.push(entry.path);
   }
   // A conflicted index keeps several stages per path; the from-scratch seed flattens those.
   if (entries.some((entry) => entry.stage !== "0")) return undefined;
