@@ -47,6 +47,40 @@ import XCTest
         XCTAssertTrue(app.buttons["Star \(label)"].waitForExistence(timeout: 10))
     }
 
+    func testCodexToolFolderChangesToATypedPathAndBackToTheDefault() {
+        let app = launch()
+        defer { app.terminate() }
+        let codex = row(app, "Codex")
+        XCTAssertTrue(codex.waitForExistence(timeout: 30))
+        codex.tap()
+        let change = app.buttons["provider.toolSource.change"]
+        for _ in 0..<6 where !change.isHittable { app.swipeUp() }
+        XCTAssertTrue(change.waitForExistence(timeout: 20))
+        let path = app.staticTexts["provider.toolSource.path"].firstMatch
+        let home = path.label
+        XCTAssertFalse(home.isEmpty, "the folder Codex reads shows")
+        change.tap()
+        // A SwiftUI alert's text field doesn't keep its identifier; it is the alert's only field.
+        let field = app.alerts.firstMatch.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        // A tap in the middle leaves the caret mid-text: tap the trailing edge, then delete all it holds.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        let held = (field.value as? String) ?? home
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(held.count, home.count) + 4))
+        field.typeText("/Users/ada/ace-tools-missing")
+        app.alerts.buttons["Use folder"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["/Users/ada/ace-tools-missing"].waitForExistence(timeout: 15), "the typed folder saves and reads back")
+        XCTAssertTrue(app.staticTexts["provider.toolSource.reason"].firstMatch.exists, "a folder without a config.toml says why")
+        screenshot("codex-tool-folder")
+        let reset = app.buttons["provider.toolSource.default"]
+        // Saving redraws the page, which can leave Use default below the fold.
+        for _ in 0..<6 where !reset.isHittable { app.swipeUp() }
+        XCTAssertTrue(reset.waitForExistence(timeout: 10))
+        reset.tap()
+        XCTAssertTrue(app.staticTexts[home].waitForExistence(timeout: 15), "Use default goes back to the Codex home")
+        XCTAssertFalse(reset.exists)
+    }
+
     func testInstallingAMissingProviderShowsThePlanThenTheResult() {
         let app = launch()
         defer { app.terminate() }

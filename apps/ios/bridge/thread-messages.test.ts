@@ -1,8 +1,11 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
+import { DelegatedFrom, ItemId, MessageOrigin, ThreadId } from "@ace/protocol";
 import { formatMessageQuotes } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
 import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
+// After the harness, which installs the native host the bridge modules read on load.
+import { readNativeMessage } from "./native-message.ts";
 
 /*
  * The phone's message rows over the real SDK and an in-process fake daemon: the same
@@ -187,4 +190,205 @@ test("a settled turn's opened log times its thought by the step after it", async
     .filter((frame) => frame.type === "thread.stepsPage")
     .flatMap((page) => page.rows as { type: string; thought: string | null }[]);
   expect(steps.find((step) => step.type === "reasoning")?.thought).toBe("Thought for 15s");
+});
+
+const sentRow = () =>
+  rows("thread.block")
+    .map((row) => row.event as Record<string, unknown> | null)
+    .find((row) => row?.kind === "sent");
+const sentMessage = (item: string, text: string, origin: Record<string, unknown>): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: {
+    type: "message",
+    role: "user",
+    complete: true,
+    synthetic: true,
+    parts: [{ type: "text", text }],
+    origin: MessageOrigin.parse(origin),
+  },
+});
+
+test("a brief another thread sent names that thread, so the phone can open it", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "sender",
+    workspaceId: "ace",
+    title: "Redesign sidebar",
+    provider: "claude",
+  });
+  fake.createThread({
+    id: "brief",
+    workspaceId: "ace",
+    title: "brief",
+    provider: "codex",
+    startedBy: "sender",
+  });
+  const brief = Array.from({ length: 8 }, (_, i) => `Step ${i + 1} of the upload fix.`).join("\n");
+  fake.apply("brief", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", brief, {
+      kind: "parent_agent",
+      parentThreadId: "sender",
+      from: { provider: "claude" },
+    }),
+  ]);
+  open(connect(fake), "brief");
+  const row = await until(sentRow, "the sent row");
+  expect(row).toMatchObject({
+    provider: "claude",
+    sent: {
+      threadId: "sender",
+      hostId: "",
+      // Its current title is the thread list's; until Swift reads it, where it came from.
+      line: "Sent from another thread",
+      // A brief folds to four lines, as the web's sent bubble does.
+      bubble: { readable: true, long: true, fold: 4 },
+    },
+  });
+  const sent = row?.sent as { bubble: { segments: { text: string }[] } } | undefined;
+  expect(sent?.bubble.segments.map((segment) => segment.text).join("")).toBe(brief);
+});
+
+test("a brief from an agent on a paired machine names that machine's thread and the machine", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "remote-child",
+    workspaceId: "ace",
+    title: "remote child",
+    provider: "codex",
+    delegatedFrom: DelegatedFrom.parse({
+      hostId: "host-studio",
+      hostName: "Studio",
+      threadId: "far-parent",
+      threadTitle: "Ship the release",
+      provider: "claude",
+    }),
+  });
+  fake.apply("remote-child", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("task", "Check the release notes.", { kind: "spawn", role: "notes" }),
+  ]);
+  open(connect(fake), "remote-child");
+
+  expect((await until(sentRow, "the sent row"))?.sent).toMatchObject({
+    threadId: "far-parent",
+    hostId: "host-studio",
+    line: "Sent by Ship the release · Studio",
+    bubble: { long: false },
+  });
+});
+
+const userBubble = () => rows("thread.item").find((item) => item.role === "user")?.bubble;
+
+test("the person's markdown reaches the bubble as markdown, every line break kept", async () => {
+  const fake = start("markdown");
+  fake.apply("markdown", [
+    facts.message("root", "ask", "user", "Two things:\n- keep the budget\n- add a test\nThanks"),
+  ]);
+  open(connect(fake), "markdown");
+  expect(await until(userBubble, "the bubble")).toMatchObject({
+    markdown: "Two things:  \n- keep the budget  \n- add a test  \nThanks",
+    fold: 10,
+  });
+});
+
+test("plain words stay runs, never markdown, though they hold a # or a *", async () => {
+  const fake = start("plain");
+  fake.apply("plain", [facts.message("root", "ask", "user", "Fix the #3 retry * budget")]);
+  open(connect(fake), "plain");
+  expect(await until(userBubble, "the bubble")).toMatchObject({ markdown: "" });
+});
+
+test("words with a mention stay runs with its chip, even around markdown", async () => {
+  const fake = start("mentioned");
+  fake.apply("mentioned", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "ask",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [
+          { type: "text", text: "Use **this** with " },
+          {
+            type: "mention",
+            entryId: "claude:skill:review",
+            name: "review",
+            kind: "skill",
+            arguments: "",
+          },
+        ],
+      },
+    },
+  ]);
+  open(connect(fake), "mentioned");
+  const bubble = await until(userBubble, "the bubble");
+  expect(bubble).toMatchObject({ markdown: "" });
+  const kinds = (bubble as { segments: { kind: string }[] }).segments.map((run) => run.kind);
+  expect(kinds).toContain("mention");
+});
+
+test("a bubble's words reach Copy exactly as typed: hard breaks, code spacing, blank lines", async () => {
+  const typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two";
+  const fake = start("typed");
+  fake.apply("typed", [facts.message("root", "ask", "user", typed)]);
+  open(connect(fake), "typed");
+  expect(await until(userBubble, "the bubble")).toMatchObject({ source: typed, cut: false });
+});
+
+test("a brief's words reach Copy whole, past what the event row carries", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "sender", workspaceId: "ace", title: "Sender", provider: "claude" });
+  fake.createThread({ id: "long-brief", workspaceId: "ace", title: "brief", provider: "codex" });
+  const brief = Array.from({ length: 200 }, (_, i) => `Note ${i + 1}: keep the fake clock.`).join(
+    "\n",
+  );
+  fake.apply("long-brief", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", brief, { kind: "parent_agent", parentThreadId: "sender" }),
+  ]);
+  open(connect(fake), "long-brief");
+  const row = await until(sentRow, "the sent row");
+  expect(brief.length).toBeGreaterThan(4096);
+  expect(row?.sent).toMatchObject({ bubble: { source: brief, cut: false } });
+});
+
+test("a bubble past its bound says so, and reads its whole words without ace's frame", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "sender", workspaceId: "ace", title: "Sender", provider: "claude" });
+  fake.createThread({ id: "huge", workspaceId: "ace", title: "huge", provider: "codex" });
+  const task = "x".repeat(20_000);
+  fake.apply("huge", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", `Role: greeter\n\nTask:\n${task}`, {
+      kind: "spawn",
+      parentThreadId: "sender",
+      role: "greeter",
+    }),
+  ]);
+  const owner = connect(fake);
+  open(owner, "huge");
+  const row = await until(sentRow, "the sent row");
+  const bubble = (row?.sent as { bubble: { source: string; cut: boolean } } | undefined)?.bubble;
+  expect(bubble?.cut).toBe(true);
+  expect(bubble?.source.length).toBeLessThan(task.length);
+  const read = await readNativeMessage(
+    owner,
+    {
+      type: "native.message",
+      threadId: ThreadId.parse("huge"),
+      itemId: ItemId.parse(String(rows("thread.item").find((item) => item.role === "user")?.id)),
+      bubble: true,
+    },
+    new AbortController().signal,
+  );
+  expect(read.text).toBe(task);
 });
