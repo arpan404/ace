@@ -40,3 +40,24 @@ test("content hashes differ for texts that differ, and match for equal texts", (
   expect(hashes.size).toBe(texts.length);
   expect(contentHash("hello world")).toBe(contentHash(`hello ${"world"}`));
 });
+
+test("a value the cache drops on its own is freed; one taken out is not", () => {
+  const freed: string[] = [];
+  const cache = new LruCache<string, string>({
+    maxEntries: 2,
+    maxWeight: 100,
+    weigh: (value) => value.length,
+    dispose: (value) => freed.push(value),
+  });
+  cache.set("a", "a");
+  cache.set("b", "b");
+  cache.set("c", "c");
+  expect(freed).toEqual(["a"]);
+  expect(cache.take("b")).toBe("b");
+  expect(cache.has("b")).toBe(false);
+  cache.set("c", "c2");
+  cache.set("huge", "x".repeat(101));
+  expect(freed).toEqual(["a", "c", "x".repeat(101)]);
+  cache.clear();
+  expect(freed).toEqual(["a", "c", "x".repeat(101), "c2"]);
+});

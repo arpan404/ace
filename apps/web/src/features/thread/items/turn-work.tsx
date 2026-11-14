@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
+import { threadRootAgentId } from "@/lib/thread-fields.ts";
 import { ToolSurface, type Item, type TurnStep } from "@ace/protocol";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -63,7 +64,7 @@ export function TurnWork(props: {
   panel: string;
 }) {
   const { block } = props;
-  const owner = useThreadMeta(props.threadId)?.rootAgentId;
+  const owner = useThreadField(props.threadId, threadRootAgentId);
   const completed = block.outcome === "completed" && props.ordinal !== undefined;
   const { entry, retry, loadMore } = useTurnSteps(
     props.threadId,
