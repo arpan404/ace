@@ -95,6 +95,7 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
   if (!address || typeof address === "string") throw new Error("Missing address");
   const hello = Promise.withResolvers<unknown>();
   const acked = Promise.withResolvers<unknown>();
+  const subscribed = Promise.withResolvers<unknown>();
   server.on("connection", (socket) =>
     socket.on("message", (raw) => {
       const request = ClientMessage.parse(JSON.parse(raw.toString()));
@@ -115,6 +116,7 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
             }),
           );
         } else if (request.operation.op === "subscribe") {
+          if (request.operation.codecs) subscribed.resolve(request.operation);
           socket.send(JSON.stringify({ type: "screen.state", state }));
           for (const piece of picture()) socket.send(piece);
           socket.send(
@@ -157,7 +159,12 @@ it("authenticates a dedicated screen socket, correlates results and acks the liv
   const received = Promise.withResolvers<SourcePicture>();
   const stop = client.watchPictures("app", (shown) => received.resolve(shown));
   onTestFinished(stop);
-  await client.request({ op: "subscribe", sessionId: "app" });
+  await client.request({
+    op: "subscribe",
+    sessionId: "app",
+    codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
+  });
+  expect(await subscribed.promise).toMatchObject({ codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] });
   const shown = await received.promise;
   expect(shown.bytes).toEqual(new Uint8Array([255, 216, 255, 217]));
   expect(shown.sourceId).toBe("app");

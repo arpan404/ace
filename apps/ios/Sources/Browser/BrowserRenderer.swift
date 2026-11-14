@@ -17,9 +17,10 @@ struct BrowserAck: Equatable, Sendable {
     let sequence: Int
     /// The decoder lost its place: the daemon sends a keyframe.
     var keyframe = false
+    var fallback = false
 }
 
-/// One thread's H.264 chunks, decoded off the main thread, from the socket's queue to
+/// One thread's video chunks, decoded off the main thread, from the socket's queue to
 /// `present`. Each chunk is acknowledged as soon as the decoder is done with it, whether or not
 /// the screen ever shows its picture: a delta with nothing to decode against is acknowledged at
 /// once, and a decode error asks for a keyframe. Everything mutable is confined to `queue`.
@@ -29,7 +30,7 @@ final class BrowserRenderer: @unchecked Sendable {
     private let present: @Sendable (BrowserPicture) -> Void
     private let ack: @Sendable (BrowserAck) -> Void
     private var gate = VideoChunkGate()
-    private var decoder: H264Decoder?
+    private var decoder: VideoDecoder?
     private var closed = false
     /// The tab the stream shows, from its keyframes (deltas don't repeat it).
     private var tabId: String?
@@ -61,17 +62,17 @@ final class BrowserRenderer: @unchecked Sendable {
         case .decode(let configure):
             if let configure {
                 decoder = nil
-                decoder = try? H264Decoder(config: configure)
+                decoder = try? VideoDecoder(config: configure)
             }
             if chunk.key { tabId = chunk.tabId }
-            guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed() }
+            guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed(codec: chunk.codec) }
             present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height), tabId: tabId))
             ack(BrowserAck(sequence: chunk.sequence))
         }
     }
-    private func failed() {
+    private func failed(codec: String) {
         decoder = nil
-        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, keyframe: true)) }
+        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, keyframe: true, fallback: VideoCapabilities.isHEVC(codec))) }
     }
 }
 

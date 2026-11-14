@@ -1,3 +1,4 @@
+import { BrowserVideoRequest } from "./video-codecs.ts";
 import { z } from "zod";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
@@ -147,7 +148,11 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     threadId: ScreenAgentScope.shape.threadId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
-  z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
+  z.object({
+    op: z.literal("subscribe"),
+    sessionId: ScreenId,
+    codecs: BrowserVideoRequest.shape.codecs.optional(),
+  }),
   /**
    * A watching view's live stream: H.264 at the size, rate and bit rate it can show, where the
    * Mac's helper encodes it; JPEG otherwise. The last view leaving returns the session to stills.

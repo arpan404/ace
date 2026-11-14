@@ -10,7 +10,7 @@ import VideoToolbox
 @Suite struct H264DecodeTests {
     @Test func aKeyframeAndTheDeltaAfterItDecodeAtTheirCodedSize() throws {
         let (description, chunks) = try Self.encode(width: 320, height: 240, frames: 2)
-        let decoder = try H264Decoder(config: VideoDecoderConfig(codec: "avc1.42E033", codedWidth: 320, codedHeight: 240, description: description))
+        let decoder = try VideoDecoder(config: VideoDecoderConfig(codec: "avc1.42E033", codedWidth: 320, codedHeight: 240, description: description))
         var samples = DisplaySamples()
         for chunk in chunks {
             let picture = try decoder.decode(chunk)
@@ -21,8 +21,8 @@ import VideoToolbox
     }
 
     @Test func aDecoderNeedsAnH264Description() {
-        #expect(throws: H264Decoder.DecodeError.self) {
-            try H264Decoder(config: VideoDecoderConfig(codec: "vp8", codedWidth: 320, codedHeight: 240, description: nil))
+        #expect(throws: VideoDecoder.DecodeError.self) {
+            try VideoDecoder(config: VideoDecoderConfig(codec: "vp8", codedWidth: 320, codedHeight: 240, description: nil))
         }
     }
 

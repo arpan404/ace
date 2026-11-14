@@ -1,3 +1,5 @@
+import { BrowserVideoRequest } from "./video-codecs.ts";
+export { BrowserVideoCodec, BrowserVideoRequest } from "./video-codecs.ts";
 import { z } from "zod";
 import {
   BrowserTabList,
@@ -482,18 +484,6 @@ export const BrowserCaptureViewport = z.object({
   devicePixelRatio: z.number().finite().min(1).max(4),
 });
 export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
-/** A WebCodecs codec string (`avc1.42E033`, `vp8`, `vp09.00.10.08`). */
-export const BrowserVideoCodec = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9.]+$/);
-/**
- * A viewer that plays video (ADR 0088): the codecs its decoder supports, best first. The daemon
- * encodes the first one its encoder supports and sends JPEG frames otherwise.
- */
-export const BrowserVideoRequest = z.object({ codecs: z.array(BrowserVideoCodec).min(1).max(8) });
-export type BrowserVideoRequest = z.infer<typeof BrowserVideoRequest>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
