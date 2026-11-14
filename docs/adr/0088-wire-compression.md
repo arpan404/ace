@@ -72,11 +72,16 @@ version of the payloads it is of (`revision`: the item's creation and the sequen
 that last replaced its body, `item_heads.raw_seq`; only an upsert rewrites raw payloads, and it
 sets that in the same write). A continuation of another version answers `changed` with none,
 before any payload is read, and the reader starts again, so no list mixes two versions. A page
-takes entries one at a time from SQLite (`json_each`) and decodes only those it sends. An
+takes entries one at a time from SQLite (`json_each`, which yields them in order, so no sort or
+temporary b-tree) and decodes only those it sends; SQLite still parses the stored item and walks
+its array up to the page's start. An
 entry larger than 256 KiB comes with its long fields cut, each ending with its full length, so no
-reply passes the limit; storage keeps it whole. The raw view keeps one read in flight; a change to the
-step during a read marks it stale and exactly one read from the start follows, at once when
-the step has finished and at most every 1.5 s while it runs. It says a running step's payloads
+reply passes the limit; storage keeps it whole. The raw view's reads are one state machine
+(`apps/web/src/features/thread/items/raw-reads.ts`): one read at a time, whoever wants it, with
+"Show more" disabled while one is out; a change to the step during a read marks it stale and
+exactly one read from the start follows, at once when the step has finished and at most every
+1.5 s while it runs; a refresh replaces the pages shown when it lands; a view that is gone
+starts nothing. It says a running step's payloads
 may not be final.
 
 **Hello framing `short-deltas`.** An events message names its thread once (`threadId`) and
