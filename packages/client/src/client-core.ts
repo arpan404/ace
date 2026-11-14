@@ -47,7 +47,7 @@ import type {
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
-import type { Multipath } from "./multipath.ts";
+import type { LinkEstimate, Multipath } from "./multipath.ts";
 import type { MachinePathKind } from "@ace/protocol";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
@@ -520,6 +520,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   activePath(): Selection<MachinePathKind | undefined> {
     return this.notifications.select(["path"], () => this.#paths?.active?.kind);
+  }
+  /** The active path's measured round trip (`ClientApi.linkEstimate`). */
+  linkEstimate(): LinkEstimate | undefined {
+    return this.#paths?.linkEstimate();
   }
   /**
    * The app is in front again: check the socket now and skip a waiting backoff

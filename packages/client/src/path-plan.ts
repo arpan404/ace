@@ -13,8 +13,12 @@ export const pathTiming = {
   pingHiddenMs: 15_000,
   /** The warm standby only proves it is alive. */
   standbyPingMs: 30_000,
-  /** A ping without its pong this long counts as a failed path. */
+  /**
+   * A ping without its pong this long counts as a miss, on a fast link; a slow one waits four
+   * smoothed round trips (`pongDeadline`), up to `pongDeadlineCapMs`.
+   */
   pongDeadlineMs: 2_000,
+  pongDeadlineCapMs: 10_000,
   /** While on a worse path, better ones are probed this often. */
   upgradeProbeMs: 30_000,
   /** After a switch, the client stays put this long unless the path fails. */
@@ -70,6 +74,8 @@ export interface PathHealth {
   restUntil: number;
   /** Smoothed round trip, once measured. */
   rttMs?: number;
+  /** When `rttMs` last took a sample (the manager's `now`). */
+  rttAt?: number;
 }
 export const freshHealth: PathHealth = { failures: 0, restUntil: 0 };
 
@@ -93,6 +99,23 @@ export function resting(health: PathHealth | undefined, now: number): boolean {
 export function smoothRtt(previous: number | undefined, sampleMs: number): number {
   const sample = Math.max(0, sampleMs);
   return previous === undefined ? sample : previous + smoothing * (sample - previous);
+}
+
+/**
+ * How long a ping on a path whose smoothed round trip is `rttMs` waits for its pong: 2 s, or
+ * four round trips on a slower link (a phone network's round trip swings far past its mean),
+ * never more than 10 s, so a dead path is still found out.
+ */
+export function pongDeadline(rttMs: number | undefined): number {
+  const scaled = 4 * Math.max(0, rttMs ?? 0);
+  return Math.min(pathTiming.pongDeadlineCapMs, Math.max(pathTiming.pongDeadlineMs, scaled));
+}
+/**
+ * Missed pongs in a row that fail the active path over: one when a warm standby takes over at
+ * once, two when there is none, since then a miss costs a whole reconnect.
+ */
+export function missesToFail(hasStandby: boolean): number {
+  return hasStandby ? 1 : 2;
 }
 
 /**

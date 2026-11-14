@@ -66,6 +66,8 @@ export class Path {
   up = true;
   /** Whether pongs come back. */
   answers = true;
+  /** When set, how a pong is held back before it arrives (a slow link). */
+  pongAfter: ((deliver: () => void) => void) | undefined;
   /** What the welcome says the hello's grant has left, for an account device. */
   grantTtlMs: number | undefined;
   /** How a socket answers `account.grant.refresh`; unanswered when it returns undefined. */
@@ -127,8 +129,11 @@ export class Path {
                   }),
                 );
             }
-            if (message.type === "ping" && this.answers)
-              queueMicrotask(() => socket.deliver({ type: "pong" }));
+            if (message.type === "ping" && this.answers) {
+              const pong = () => socket.deliver({ type: "pong" });
+              if (this.pongAfter) this.pongAfter(pong);
+              else queueMicrotask(pong);
+            }
           },
           close: () => {
             socket.closed = true;

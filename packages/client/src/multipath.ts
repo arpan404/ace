@@ -3,7 +3,9 @@ import {
   afterFailure,
   afterSuccess,
   pathTiming,
+  missesToFail,
   pingEvery,
+  pongDeadline,
   raceOrder,
   smoothRtt,
   standbyFor,
@@ -18,6 +20,7 @@ import { GRANT_EXPIRED_CLOSE, GRANT_RETRY_MS } from "./grant-keeper.ts";
 export type { MachineRoute } from "./path-race.ts";
 import { ClientError, type ConnectionState, type Scheduler } from "./types.ts";
 import type { Selection } from "./observable.ts";
+import type { MachinePathKind } from "@ace/protocol";
 
 /** What the manager needs from the connection it moves (`Connection`). */
 export interface PathConnection {
@@ -29,6 +32,16 @@ export interface PathConnection {
   failover(reason: string): void;
   setStandby(standby: PathStandby | undefined): void;
   onWrongHost(refused: (() => void) | undefined): void;
+}
+
+/** The active path's measured round trip (`Multipath.linkEstimate`). */
+export interface LinkEstimate {
+  /** Smoothed round trip in ms, from the active path's pings (as TCP's SRTT). */
+  rttMs: number;
+  /** When it last took a sample, on the manager's clock (`now`). */
+  at: number;
+  /** Which path it measures. */
+  path: MachinePathKind;
 }
 
 /** Where a dropped active path fails over to; `used` hears the active path's close code. */
@@ -240,9 +253,14 @@ export class Multipath {
     this.#standby = undefined;
   }
 
-  /** Ping the active path; a pong sharpens its round trip, silence for 2 s fails it over. */
-  #schedulePing(): void {
-    this.#later(pingEvery(this.#options.visible?.() ?? true), () => {
+  /**
+   * Ping the active path; a pong sharpens its round trip. Silence past the pong deadline (2 s, or
+   * four round trips on a slow link) is a miss: with a warm standby one fails the path over, and
+   * without one a second ping must go unanswered too, since then a miss means a reconnect.
+   */
+  #schedulePing(misses = 0): void {
+    const delay = misses ? 0 : pingEvery(this.#options.visible?.() ?? true);
+    this.#later(delay, () => {
       const connection = this.#connection;
       const route = this.#active;
       if (!connection || !route || connection.state !== "ready") return;
@@ -253,23 +271,40 @@ export class Multipath {
         answered = true;
         if (this.#active !== route) return;
         const health = this.#healthOf(route);
+        const at = this.#options.now();
         this.#health.set(route.path.key, {
           ...health,
-          rttMs: smoothRtt(health.rttMs, this.#options.now() - sentAt),
+          rttMs: smoothRtt(health.rttMs, at - sentAt),
+          rttAt: at,
         });
       });
-      this.#later(pathTiming.pongDeadlineMs, () => {
+      this.#later(pongDeadline(this.#healthOf(route).rttMs), () => {
         if (this.#active !== route) return;
         // Anything heard proves the path alive; a pong queued behind a busy stream is late.
         if (answered || connection.heard > heard) {
           this.#schedulePing();
           return;
         }
-        this.#failed(route);
         this.#options.report?.("path.pong_missed", { path: route.path.kind });
+        if (misses + 1 < missesToFail(this.#standby !== undefined)) {
+          this.#schedulePing(misses + 1);
+          return;
+        }
+        this.#failed(route);
         connection.failover("Path missed its pong");
       });
     });
+  }
+  /**
+   * The link the connection uses now, as the planner measures it: the active path's smoothed
+   * round trip from its pings, when that last took a sample, and the path's kind. Undefined
+   * while connecting or before the first pong. Read-only; it changes as pongs arrive.
+   */
+  linkEstimate(): LinkEstimate | undefined {
+    const route = this.#active;
+    const health = route && this.#health.get(route.path.key);
+    if (!route || health?.rttMs === undefined || health.rttAt === undefined) return undefined;
+    return { rttMs: health.rttMs, at: health.rttAt, path: route.path.kind };
   }
   #scheduleUpgrade(): void {
     this.#later(pathTiming.upgradeProbeMs, () => {
