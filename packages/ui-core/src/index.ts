@@ -199,6 +199,7 @@ export * from "./browser-zoom.ts";
 export * from "./browsing-history.ts";
 export * from "./browser-words.ts";
 export * from "./browser-settings.ts";
+export * from "./browser-connection.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./script-choices.ts";
