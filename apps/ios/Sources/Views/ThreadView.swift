@@ -64,6 +64,8 @@ struct ThreadView: View {
     @State private var barHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
+    /// A pasted file's words going back into the message as text.
+    @State private var restore: ComposerRestore?
     /// The composer's `@`, `/` and + lists.
     @State private var suggester = ComposerSuggester()
     /// "Attach files" picked from `/`: the + menu's three sources are offered.
@@ -446,6 +448,12 @@ struct ThreadView: View {
                                  for file in result.files { model.attach(file) }
                              }
                          },
+                         // A long paste goes as a text file, as the web's does; the chip can put it back.
+                         pasteLong: screen.attachmentsLocked != nil ? nil : { words in
+                             if let file = ComposerIntake.stage(paste: words, into: AttachmentStaging()) { model.attach(file) }
+                             else { restore = ComposerRestore(text: words) }
+                         },
+                         restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
@@ -458,7 +466,11 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem) { localId in
+                    guard let words = ComposerIntake.pastedText(localId, in: AttachmentStaging()) else { return }
+                    model.detach(localId)
+                    restore = ComposerRestore(text: words)
+                }
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)

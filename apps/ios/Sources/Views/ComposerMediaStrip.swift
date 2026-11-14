@@ -11,6 +11,8 @@ struct ComposerMediaStrip: View {
     /// Space before the first file and after the last.
     var inset: CGFloat = AceTheme.Spacing.none
     let remove: (String) -> Void
+    /// Puts a pasted text file's words back in the message (`LargePaste`); nil offers nothing.
+    var asText: ((String) -> Void)? = nil
     @State private var viewing: StagedMedia?
     @State private var carriedViewing: AttachmentFile?
     @Environment(\.messageAttachments) private var stored
@@ -26,7 +28,8 @@ struct ComposerMediaStrip: View {
                     } else if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
                         ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
-                        AttachmentChip(file: file) { remove(file.id) }
+                        AttachmentChip(file: file, remove: { remove(file.id) },
+                                       asText: asText.flatMap { asText in pasted(file) ? { asText(file.id) } : nil })
                     }
                 }
             }
@@ -46,6 +49,13 @@ struct ComposerMediaStrip: View {
                 MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
             }
         }
+    }
+}
+
+extension ComposerMediaStrip {
+    /// A paste the phone made into a file and still holds, so its words can go back as text.
+    private func pasted(_ file: AttachmentFile) -> Bool {
+        file.carried == nil && file.state != "failed" && LargePaste.isPasted(file.name)
     }
 }
 

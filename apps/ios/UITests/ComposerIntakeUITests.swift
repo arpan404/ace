@@ -40,6 +40,34 @@ import UIKit
         screenshot("pasted")
     }
 
+    func testALongPasteGoesAsATextFileAndCanGoBackAsText() throws {
+        let app = launch(into: "ios-limited")
+        UIPasteboard.general.string = (1...60).map { "log line \($0)" }.joined(separator: "\n")
+        let input = pasteIntoComposer(app)
+        let chip = app.descendants(matching: .any).matching(identifier: "composer.attachment")
+            .matching(NSPredicate(format: "label CONTAINS 'Pasted 60 lines.txt'")).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 15))
+        XCTAssertFalse((input.value as? String ?? "").contains("log line 1"))
+        screenshot("long-paste")
+        chip.press(forDuration: 1.0)
+        let asText = app.buttons["Paste as Text"].firstMatch
+        XCTAssertTrue(asText.waitForExistence(timeout: 5))
+        asText.tap()
+        let restored = NSPredicate(format: "value CONTAINS 'log line 60'")
+        wait(for: [expectation(for: restored, evaluatedWith: input)], timeout: 10)
+        XCTAssertTrue(chip.waitForNonExistence(timeout: 10))
+        screenshot("long-paste-as-text")
+    }
+
+    func testAShortPasteGoesInAsWords() throws {
+        let app = launch(into: "ios-limited")
+        UIPasteboard.general.string = "npm run build"
+        let input = pasteIntoComposer(app)
+        let pasted = NSPredicate(format: "value CONTAINS 'npm run build'")
+        wait(for: [expectation(for: pasted, evaluatedWith: input)], timeout: 10)
+        XCTAssertFalse(app.descendants(matching: .any)["composer.attachment"].exists)
+    }
+
     func testSelectedLinesAreMentionedInTheMessage() throws {
         let app = launch(into: "ios-files")
         app.buttons["thread.menu"].tap()
@@ -68,6 +96,19 @@ import UIKit
         app.revealRow("thread.\(thread)").tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         return app
+    }
+    /// Pastes the pasteboard into the composer from its edit menu.
+    private func pasteIntoComposer(_ app: XCUIApplication) -> XCUIElement {
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.press(forDuration: 1.0)
+        let paste = app.menuItems["Paste"].firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5))
+        paste.tap()
+        let allow = app.alerts.buttons["Allow Paste"].firstMatch
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        return input
     }
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()

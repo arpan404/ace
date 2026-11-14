@@ -31,6 +31,8 @@ struct NativeTextInput: UIViewRepresentable {
     var place: CaretPlacement? = nil
     /// Images and files pasted in; nil pastes only words.
     var pasteFiles: (([NSItemProvider]) -> Void)? = nil
+    /// A paste long enough to go as a text file (`LargePaste`); nil pastes it as words.
+    var pasteLong: ((String) -> Void)? = nil
     /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
     var fills = false
     /// Shown while there are no words, drawn by the text view itself so it leaves in the same
@@ -60,6 +62,7 @@ struct NativeTextInput: UIViewRepresentable {
     func updateUIView(_ view: ComposerTextView, context: Context) {
         context.coordinator.parent = self
         view.pasteFiles = pasteFiles
+        view.pasteLong = pasteLong
         if view.text != text { view.text = text; context.coordinator.measure(view) }
         if let place, place.id != context.coordinator.placed {
             context.coordinator.placed = place.id
@@ -167,8 +170,12 @@ struct CaretPlacement: Equatable {
     var inputBegan: () -> Void = {}
     /// Images and files pasted into the message go along with it; words paste as words.
     var pasteFiles: (([NSItemProvider]) -> Void)?
+    /// Words long enough to go as a text file go to it instead of into the field, as the web's do.
+    var pasteLong: ((String) -> Void)?
     override func paste(_ sender: Any?) {
         if let pasteFiles, ComposerIntake.pastesFiles() { pasteFiles(UIPasteboard.general.itemProviders); return }
+        // Read only inside Paste itself, which the person chose, so it never asks for permission.
+        if let pasteLong, let words = UIPasteboard.general.string, LargePaste.file(for: words) != nil { pasteLong(words); return }
         super.paste(sender)
     }
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
