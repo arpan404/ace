@@ -364,6 +364,23 @@ export class ChildLedger {
         .run(id),
     );
   }
+  /**
+   * Settled children whose machine was unpaired before a check after their 24 h mark: the
+   * person is asked about each, and none is re-checked until its machine is paired again.
+   */
+  settledLost(): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=1 AND lost_at IS NOT NULL AND settled_at IS NOT NULL",
+    );
+  }
+  /** The person stopped watching a settled lost child: it stays as it ended, for good. */
+  endWatch(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1")
+        .run(id),
+    );
+  }
   /** The lost child the parent's approval `ask` is about. */
   byLostAsk(ask: string): ChildRow | undefined {
     return this.all("SELECT * FROM machine_children WHERE lost_ask=?", ask)[0];
@@ -535,33 +552,9 @@ export class ChildLedger {
         unconfirmed: Number(row.unconfirmed) === 1,
       }));
   }
-  /** Every settled child the re-check tracks on one machine, by id. */
-  recheckIds(machine: string): string[] {
-    return this.store
-      .atomic((db) =>
-        db.prepare(`SELECT id FROM machine_children WHERE ${tracked} AND machine=?`).all(machine),
-      )
-      .map((row) => z.string().parse(row.id));
-  }
-  /**
-   * One machine's settled children due a re-check: those past the window first, then those the
-   * current round has not read yet (`unread`), then those checked longest ago.
-   */
-  recheckTurn(
-    machine: string,
-    expiry: number,
-    unread: readonly string[],
-    limit: number,
-  ): ChildRow[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            `SELECT * FROM machine_children WHERE ${tracked} AND machine=? ORDER BY (settled_at IS NOT NULL AND settled_at<?) DESC, (id IN (SELECT value FROM json_each(?))) DESC, rechecked, id LIMIT ?`,
-          )
-          .all(machine, expiry, JSON.stringify(unread), limit),
-      )
-      .map((raw) => ChildRow.parse(raw));
+  /** Every settled child the re-check tracks on one machine. */
+  recheckRows(machine: string): ChildRow[] {
+    return this.all(`SELECT * FROM machine_children WHERE ${tracked} AND machine=?`, machine);
   }
   /**
    * Children read at or after their 24 h mark leave the re-check for good: their re-check window
@@ -602,8 +595,11 @@ export interface RecheckMachine {
  * Which settled children the re-check tracks: every one whose re-check window is still open
  * (`settled_at` set; it closes only once a check answered at or after its 24 h mark), and every
  * stop not yet confirmed. No time bound: an unreachable machine's children stay until it answers.
+ * One whose machine was unpaired and that the person is asked about waits outside it until the
+ * machine is paired again.
  */
-const tracked = "settled=1 AND (settled_at IS NOT NULL OR stopped_unconfirmed=1)";
+const tracked =
+  "settled=1 AND lost_at IS NULL AND (settled_at IS NOT NULL OR stopped_unconfirmed=1)";
 
 /** SQLite caps bound values per statement; long id lists go in pieces. */
 function chunks(ids: readonly string[]): string[][] {

@@ -107,7 +107,14 @@ settle, and the caller must notice so the parent never reads done while it runs.
     backoff allows (at most 30 s), however long it stays unreachable;
   - a child past its 24 hours, or a stop not yet confirmed, keeps its machine on the fast pace;
   - a child leaves tracking only once a check made at or after its 24-hour mark is answered
-    (its `settled_at` is cleared then), never on a timer, across restarts too.
+    (its `settled_at` is cleared then), never on a timer, across restarts too;
+  - a machine that is no longer paired as the child's device is not an answer: the child is
+    never asked and never counted as checked, costs no calls, and is read again once its machine
+    is paired back. If it reaches its 24-hour mark still unpaired, its parent asks the person, as
+    for a working child whose pairing went: pair the machine again to keep watching it, or stop
+    watching it, when it keeps the result it ended with;
+  - a child its machine says it doesn't hold (`not_found`, which refuses the whole call) is read
+    alone from then on, so the rest of its call are read; that is the machine's answer for it.
     Work started again on a settled child is read within one wait plus one round: at most
     5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
     and after a restart within `ceil(n / 16)` × 10 s. On each machine

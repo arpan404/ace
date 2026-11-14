@@ -24,9 +24,11 @@ import { ChildResults, type ChildResultsDeps } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
   RECHECK_PER_MACHINE,
+  RECHECK_SLOWEST_POLLS,
   RECHECK_WINDOW_MS,
   RecheckSchedule,
   recheckOutcome,
+  recheckPicks,
 } from "./child-recheck.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
 import {
@@ -40,6 +42,7 @@ import { statusBatches, unsettledPage } from "./child-paging.ts";
 import { LostChildren } from "./child-lost.ts";
 import { RetryBackoff } from "./retry-backoff.ts";
 import { ChildLiveness, type ChildLivenessDeps } from "./child-liveness.ts";
+import { StatusReads } from "./child-status-reads.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -83,8 +86,13 @@ const recheckedRow = (row: ChildRow) => ({ id: row.id, settledAt: row.settled_at
 /** At most this long between status calls to a machine that keeps failing them. */
 const UNREACHABLE_RETRY_CAP_MS = 30_000;
 
-/** The person stopped tracking this lost child: it stays settled for good (ADR 0099). */
-const abandoned = (row: ChildRow) => row.settled === 1 && row.lost_at !== null;
+/**
+ * The person stopped tracking this lost child: it stays settled for good (ADR 0099). A settled
+ * child whose machine was unpaired, still waiting on the person's answer, keeps its re-check
+ * window (`settled_at`) and is not abandoned yet.
+ */
+const abandoned = (row: ChildRow) =>
+  row.settled === 1 && row.lost_at !== null && row.settled_at === null;
 
 /**
  * Delegated children that run on other machines. The ledger is durable so a restart keeps
@@ -123,8 +131,11 @@ export class MachineChildren implements RemoteChildren {
   private messages: ChildMessages;
   private lost: LostChildren;
   private liveness: ChildLiveness;
+  /** Status reads where one child its machine doesn't hold never stops the others being read. */
+  private reads: StatusReads;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
+    this.reads = new StatusReads((machine, parent, ids) => deps.status(machine, parent, ids));
     this.ledger = new ChildLedger(deps.store);
     this.turn = this.ledger.lastRecheckTurn();
     this.rechecks = new RecheckSchedule(deps.pollMs, deps.now());
@@ -382,6 +393,10 @@ export class MachineChildren implements RemoteChildren {
         }
         if (recheckAt !== Number.POSITIVE_INFINITY)
           waits.push(Math.max(this.deps.pollMs, recheckAt - now));
+        // A settled child waiting on its machine to be paired again: looked at every slow
+        // interval, with no call to any machine.
+        if (this.ledger.settledLost().length > 0)
+          waits.push(this.deps.pollMs * RECHECK_SLOWEST_POLLS);
         delay = waits.length ? Math.min(...waits) : undefined;
       }
     } catch (error) {
@@ -447,6 +462,8 @@ export class MachineChildren implements RemoteChildren {
         }
         return rows.filter((row) => !lost(row));
       });
+      // Settled children whose machine was unpaired: watched again once it is paired back.
+      this.settledLost();
       const now = this.deps.now();
       await Promise.all([
         ...statusBatches(page).map(async ([machine, rows]) => {
@@ -455,12 +472,17 @@ export class MachineChildren implements RemoteChildren {
           // A machine failing its calls is asked again once its wait is over.
           if (!first || !this.reach.due(machine, now)) return;
           try {
-            const views = await this.deps.status(machine, first.parent_thread, ids);
+            const { views, unknown } = await this.reads.read(machine, first.parent_thread, ids);
             this.reached(machine);
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.update(row, view);
             }
+            // One its machine says it doesn't hold stays as last seen, saying why, as when its
+            // machine can't be read; it never settles for want of an answer.
+            for (const { id, error } of unknown)
+              this.unreachable.set(id, unreadReason(this.deps.label(machine), error));
+            if (unknown.length) this.emit(unknown.map((entry) => entry.id));
             // A slow sibling machine must not hold a result already received from this one.
             if (!this.closed) this.results.drain();
           } catch (error) {
@@ -474,7 +496,9 @@ export class MachineChildren implements RemoteChildren {
           const first = rows[0];
           if (!first) return;
           try {
-            const views = await this.deps.status(
+            // A settled child its machine says it doesn't hold can't have started again there
+            // for this machine: that is the machine's answer for it.
+            const { views } = await this.reads.read(
               machine,
               first.parent_thread,
               rows.map((row) => row.id),
@@ -522,26 +546,40 @@ export class MachineChildren implements RemoteChildren {
     // has not read yet, then those checked longest ago: all are checked in turn.
     return due.flatMap(({ machine }) => {
       if (!this.reach.due(machine, now)) return [];
-      const unread = this.rechecks.turn(machine, this.ledger.recheckIds(machine));
-      const rows = this.ledger.recheckTurn(machine, expiry, unread, RECHECK_PER_MACHINE);
+      // Pairings that can't be read leave every child as it was.
+      const lost = this.lostFrom(machine);
+      if (!lost) return [];
+      // A child whose machine is no longer paired as its device is never asked and never counts
+      // as checked: it stays tracked at no cost until its machine is paired again. Once it is
+      // past its 24 h mark, it can't be watched through its window any more: the person is asked.
+      const tracked = this.ledger.recheckRows(machine);
+      const paired = tracked.filter((row) => !lost(row));
+      for (const row of tracked)
+        if (lost(row) && row.settled_at !== null && row.settled_at < expiry)
+          this.lost.keepSettled(row);
+      const unread = this.rechecks.turn(
+        machine,
+        paired.map((row) => row.id),
+      );
+      const asked = recheckPicks(paired, expiry, unread, RECHECK_PER_MACHINE);
       this.ledger.markRechecked(
-        rows.map((row) => row.id),
+        asked.map((row) => row.id),
         turn,
       );
-      // A machine no longer paired as the child's device can't be asked about it: nothing there
-      // can be learnt, so those count as read and never hold the machine on the fast pace.
-      const lost = this.lostFrom(machine);
-      const asked = lost ? rows.filter((row) => !lost(row)) : rows;
-      if (asked.length < rows.length)
-        this.ledger.endRecheck(
-          this.rechecks.answered(
-            machine,
-            rows.filter((row) => !asked.includes(row)).map(recheckedRow),
-            now,
-          ),
-        );
       return asked.length ? [[machine, asked] as [string, ChildRow[]]] : [];
     });
+  }
+  /**
+   * Settled children whose machine was unpaired, the person asked about each: paired again, it is
+   * watched again; still unpaired, its question stays open (opened again if it closed).
+   */
+  private settledLost() {
+    for (const row of this.ledger.settledLost()) {
+      const lost = this.lostFrom(row.machine);
+      if (!lost) continue;
+      if (lost(row)) this.lost.keepSettled(row);
+      else this.lost.foundSettled(row);
+    }
   }
   /**
    * Which of a machine's children this machine can no longer reach: the pairing they were

@@ -135,6 +135,32 @@ export class RecheckSchedule {
   }
 }
 /**
+ * The children one re-check turn asks about, at most `limit`: those past the window first, then
+ * those the round has not read yet (`unread`), then those checked longest ago.
+ */
+export function recheckPicks<T extends { id: string; settled_at: number | null; rechecked: number }>(
+  rows: readonly T[],
+  expiry: number,
+  unread: readonly string[],
+  limit: number,
+): T[] {
+  const due = new Set(unread);
+  const rank = (row: T) => [
+    row.settled_at !== null && row.settled_at < expiry ? 0 : 1,
+    due.has(row.id) ? 0 : 1,
+    row.rechecked,
+  ];
+  return [...rows]
+    .toSorted((a, b) => {
+      const [x, y] = [rank(a), rank(b)];
+      for (let index = 0; index < x.length; index++)
+        if (x[index] !== y[index]) return (x[index] ?? 0) - (y[index] ?? 0);
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    })
+    .slice(0, limit);
+}
+
+/**
  * Children settled this recently are re-checked at the age-based pace; one past it is read once
  * more, then leaves tracking.
  */
