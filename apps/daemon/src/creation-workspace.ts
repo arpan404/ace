@@ -198,6 +198,27 @@ export class WorkspaceCreations {
     // Reads before `git worktree add` are bounded (10 minutes by default): a stalled Git
     // never pins Cancel or Use local.
     const bounded = preparationSignal(signal, this.preparationTimeoutMs);
+    const io = {
+      ...(signal ? { signal } : {}),
+      ...(progress ? { stderr: progress.stderr } : {}),
+    };
+    // Reads that touch no remote run together: the worktree list, a free branch name and a
+    // local base. A fetch or a pull request's preparation still waits for the checks below.
+    const local =
+      requested.kind === "pull-request"
+        ? undefined
+        : context.host && requested.kind === "branch" && requested.remote
+          ? undefined
+          : requested;
+    const early = {
+      branch: freeBranch(this.git, project, `ace/${key.slice(0, 24)}`, bounded),
+      base: local
+        ? this.resolveBase(project, local, { ...io, reads: bounded }, context.host)
+        : undefined,
+    };
+    // A read abandoned by an early return or failure must not surface as unhandled.
+    early.branch.catch(() => {});
+    early.base?.catch(() => {});
     const trees = await abortable(this.git.listWorktrees(project, { signal: bounded }), bounded);
     const kept = this.journal.held(id);
     if (
@@ -209,17 +230,9 @@ export class WorkspaceCreations {
     // A pre-existing checkout has another owner; never adopt or delete it.
     if (trees.some((tree) => tree.path === path))
       throw new Error("workspace_preparation_collision");
-    const branch = await freeBranch(this.git, project, `ace/${key.slice(0, 24)}`, bounded);
+    const branch = await abortable(early.branch, bounded);
     signal?.throwIfAborted();
-    const io = {
-      ...(signal ? { signal } : {}),
-      ...(progress ? { stderr: progress.stderr } : {}),
-    };
-    if (
-      requested.kind === "pull-request" ||
-      (context.host && requested.kind === "branch" && requested.remote)
-    )
-      progress?.update("fetching");
+    if (!local) progress?.update("fetching");
     const preparedPr =
       requested.kind === "pull-request"
         ? await context.preparePr?.(project, requested.selection, io)
@@ -230,7 +243,8 @@ export class WorkspaceCreations {
       requested.kind === "pull-request"
         ? { head: preparedPr?.head ?? "", record: undefined }
         : await abortable(
-            this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
+            early.base ??
+              this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
             bounded,
           ).catch(async (error: unknown) => {
             if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");
