@@ -61,6 +61,8 @@ it("a write to one thread keeps another thread's reads cached, at the current he
   expect(pageAgain.items).toEqual(page.items);
   // As a fresh read would say: nothing of b's changed through the current head.
   expect(pageAgain.seq).toBe(store.headSeq());
+  expect(first.seq).toBeLessThan(store.headSeq());
+  expect(again.seq).toBe(store.headSeq());
   expect(texts(store, a.id)).toEqual(["a"]);
   expect(reads().staleServes).toBe(0);
 });

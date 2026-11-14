@@ -1240,7 +1240,7 @@ export class Store {
   acquireThread(id: ThreadId): ThreadView {
     return this.threadReads.acquireThread(id);
   }
-  /** Deeply frozen and shared by every reader of the thread until it changes: copy to change it. */
+  /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
   snapshotThread(id: ThreadId): ThreadView {
     return this.threadReads.snapshotThread(id);
   }

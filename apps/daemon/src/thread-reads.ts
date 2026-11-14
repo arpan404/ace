@@ -91,8 +91,16 @@ export class ThreadReads {
       this.source.status.replaceCache(view, this.source.status.snapshot(thread, head));
     }
   }
+  /**
+   * The thread's contents are shared and frozen (a snapshot is only encoded and sent); the
+   * top level is the caller's own and carries the current head, as a fresh read would: a
+   * cached snapshot describes the thread through now, since any write to it evicts the entry.
+   */
   snapshotThread(id: ThreadId): ThreadView {
-    // Shared and frozen: a snapshot is only encoded and sent, never changed.
+    const view = this.sharedSnapshot(id);
+    return { ...view, seq: this.source.headSeq() };
+  }
+  private sharedSnapshot(id: ThreadId): ThreadView {
     return this.source.cache.readShared(id, "snapshot", () =>
       loadThreadSnapshot({
         acquire: () =>
