@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Carrying out the engine's effects, in order.
+use super::pictures::Pictures;
 use super::writer::Writer;
 use crate::engine::sources::IngestId;
-use crate::engine::{Effect, Engine};
+use crate::engine::{Effect, EncodeEffect, Engine};
 use crate::framing::{encode, encode_with};
 use media_wire::control::{FromMedia, Lane, Sequence, Stats};
 use std::collections::{HashMap, VecDeque};
@@ -24,6 +25,7 @@ pub struct Outputs<'a> {
     pub connections: &'a mut HashMap<IngestId, oneshot::Sender<()>>,
     /// When each unanswered priority message arrived, oldest first.
     pub lag: &'a Mutex<VecDeque<Instant>>,
+    pub pictures: &'a mut Pictures,
 }
 
 fn sequence(value: u64) -> Sequence {
@@ -80,6 +82,23 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             }
             Effect::Shutdown { grace_ms } => {
                 step = Step::Shutdown(Duration::from_millis(u64::from(grace_ms)));
+                Ok(())
+            }
+            Effect::Encode(command) => {
+                let pictures = &mut *outputs.pictures;
+                match command {
+                    EncodeEffect::Configure { source, encodes } => {
+                        pictures.configure(&source, encodes)
+                    }
+                    EncodeEffect::Picture {
+                        source,
+                        text,
+                        epoch,
+                        age_us,
+                    } => pictures.picture(&source, text, epoch, age_us),
+                    EncodeEffect::Key { source, encode } => pictures.key(&source, encode),
+                    EncodeEffect::Close { source } => pictures.close(&source),
+                }
                 Ok(())
             }
             Effect::Fatal(reason) => Err(reason),

@@ -16,7 +16,8 @@ use crate::secret::Vault;
 use egress::EgressSink;
 use grants::{Grant, Grants};
 use media_core::privacy::Decision;
-use media_wire::control::{EpochRange, FromMedia, Id, Level, ToMedia};
+use media_wire::capability::Acceleration;
+use media_wire::control::{EncodeSpec, EpochRange, FromMedia, Id, Level, ToMedia};
 use media_wire::frame::MediaFrame;
 use recorder::{RecordSpec, Recorders};
 use sources::{IngestId, Sources};
@@ -38,9 +39,46 @@ pub enum Effect {
     Shutdown {
         grace_ms: u32,
     },
+    /// A JPEG source's encoder thread (E4).
+    Encode(EncodeEffect),
     /// Bookkeeping that must never forget is full: exit, so the supervisor restarts the
     /// process and every connection ends with it.
     Fatal(&'static str),
+}
+
+/// What a JPEG source's encoder thread is told.
+pub enum EncodeEffect {
+    Configure {
+        source: String,
+        encodes: Vec<EncodeSpec>,
+    },
+    Picture {
+        source: String,
+        text: Vec<u8>,
+        epoch: u32,
+        age_us: u32,
+    },
+    Key {
+        source: String,
+        encode: u32,
+    },
+    Close {
+        source: String,
+    },
+}
+
+/// Names only: a picture's bytes are never printed.
+impl std::fmt::Debug for EncodeEffect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Configure { source, encodes } => {
+                write!(f, "Configure({source}, {} encodes)", encodes.len())
+            }
+            Self::Picture { source, epoch, .. } => write!(f, "Picture({source}, epoch {epoch})"),
+            Self::Key { source, encode } => write!(f, "Key({source}, {encode})"),
+            Self::Close { source } => write!(f, "Close({source})"),
+        }
+    }
 }
 
 pub(crate) fn normal(out: &mut Vec<Effect>, message: FromMedia) {
@@ -171,12 +209,23 @@ impl Engine {
                 }
             }
             ToMedia::SourcePage { .. } | ToMedia::SourceCodecs { .. } => {}
-            ToMedia::SourcePicture { source, epoch, .. } => {
+            ToMedia::SourcePicture {
+                source,
+                epoch,
+                age_ms,
+            } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
                 self.stills.picture(source.get(), &bytes);
-                self.sources
-                    .picture(source.get(), epoch, bytes, now, self.egress.as_mut(), out);
+                self.sources.picture(
+                    source.get(),
+                    epoch,
+                    age_ms,
+                    bytes,
+                    now,
+                    self.egress.as_mut(),
+                    out,
+                );
             }
             ToMedia::SourceEpoch {
                 source,
@@ -210,6 +259,10 @@ impl Engine {
                 self.stills.close(source.get(), out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
+            ToMedia::SourceEncodes { source, encodes } => {
+                self.sources.encodes(&source, encodes, out)
+            }
+            ToMedia::SourceKey { source, encode } => self.sources.key(&source, encode, out),
             ToMedia::MediaTicket {
                 connection,
                 owner,
@@ -368,6 +421,23 @@ impl Engine {
         }
         self.sources
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
+    }
+
+    /// A unit a JPEG source's encoder thread finished.
+    pub fn encoded(&mut self, source: &str, frame: MediaFrame, now: Now) {
+        self.sources
+            .encoded(source, frame, now, self.egress.as_mut(), &mut self.out);
+    }
+
+    /// A JPEG source's steps, as its encoder thread chose them.
+    pub fn encoder_steps(&mut self, source: &str, acceleration: Acceleration) {
+        self.sources
+            .encoder_steps(source, acceleration, &mut self.out);
+    }
+
+    /// A JPEG source's encoder could not run: the source ends, so the daemon takes it back.
+    pub fn encoder_failed(&mut self, source: &str, reason: &str) {
+        self.sources.encoder_failed(source, reason, &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {

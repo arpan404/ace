@@ -9,6 +9,7 @@ dependencies = [
  "futures-util",
  "libc",
  "media-bitstream",
+ "media-chrome",
  "media-codec",
  "media-core",
  "media-mp4",

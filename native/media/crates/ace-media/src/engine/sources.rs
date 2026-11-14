@@ -4,10 +4,13 @@
 //! milliseconds, which only bound how long the barrier holds frames.
 use super::egress::{EgressSink, SourceEgress};
 use super::recorder::{RecordSpec, Recorder, Recorders, Started};
-use super::{Effect, Now, log, normal, priority};
+use super::{Effect, EncodeEffect, Now, log, normal, priority};
 use crate::secret::{SecretId, Vault};
 use media_core::privacy::{Barrier, Decision, Event, Frame, Limits, ReadStamper, Track};
-use media_wire::control::{FromMedia, Id, KeyReason, Level, Origin, Part, Sequence, Status};
+use media_wire::capability::Acceleration;
+use media_wire::control::{
+    EncodeSpec, FromMedia, Id, KeyReason, Level, Origin, Part, Sequence, Status,
+};
 use media_wire::frame::MediaFrame;
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -80,6 +83,10 @@ struct Source {
     ingest: Option<IngestId>,
     encode: u32,
     recording: Option<Recording>,
+    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`), and whether its
+    /// encoder thread is running.
+    pictures: bool,
+    encoding: bool,
 }
 
 #[derive(Default)]
@@ -128,6 +135,17 @@ fn status(
     reason: Option<&str>,
     attempts: Option<u32>,
 ) {
+    report(out, source, status, reason, attempts, None);
+}
+
+fn report(
+    out: &mut Vec<Effect>,
+    source: &Id,
+    status: Status,
+    reason: Option<&str>,
+    attempts: Option<u32>,
+    acceleration: Option<Acceleration>,
+) {
     normal(
         out,
         FromMedia::SourceStatus {
@@ -135,7 +153,7 @@ fn status(
             status,
             reason: reason.map(Into::into),
             attempts,
-            acceleration: None,
+            acceleration,
         },
     );
 }
@@ -179,13 +197,12 @@ impl Sources {
         let Some(secret) = vault.store(token) else {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
-        let reads_itself = matches!(
-            origin,
-            Origin::TabPictures {}
-                | Origin::Simulator { .. }
-                | Origin::Scrcpy { .. }
-                | Origin::EmulatorFrames { .. }
-        );
+        let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
+        let reads_itself = pictures
+            || matches!(
+                origin,
+                Origin::Simulator { .. } | Origin::Scrcpy { .. } | Origin::EmulatorFrames { .. }
+            );
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
             stamper.apply(epoch, false, now);
@@ -204,6 +221,8 @@ impl Sources {
                 ingest: None,
                 encode: 0,
                 recording: None,
+                pictures,
+                encoding: false,
             },
         );
         status(out, id, Status::Starting, None, None);
@@ -249,6 +268,87 @@ impl Sources {
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
         }
+        if source.encoding {
+            out.push(Effect::Encode(EncodeEffect::Close {
+                source: id.to_owned(),
+            }));
+        }
+    }
+
+    /// `source.encodes`: the encodes ace-media runs for a JPEG source while the daemon plans
+    /// them. Only JPEG sources take them; an empty list stops the encoder.
+    pub fn encodes(&mut self, id: &Id, encodes: Vec<EncodeSpec>, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id.get()) else {
+            return log(
+                out,
+                Level::Debug,
+                "source.encodes for an unknown source",
+                id,
+            );
+        };
+        if !source.pictures || matches!(source.status, Status::Ended) {
+            return log(
+                out,
+                Level::Warn,
+                "source.encodes for a source ace-media doesn't encode",
+                id,
+            );
+        }
+        source.encoding = !encodes.is_empty();
+        out.push(Effect::Encode(EncodeEffect::Configure {
+            source: id.get().to_owned(),
+            encodes,
+        }));
+    }
+
+    /// `source.key`: the encode's next unit is a keyframe.
+    pub fn key(&mut self, id: &Id, encode: u32, out: &mut Vec<Effect>) {
+        if self.by_id.get(id.get()).is_some_and(|s| s.encoding) {
+            out.push(Effect::Encode(EncodeEffect::Key {
+                source: id.get().to_owned(),
+                encode,
+            }));
+        }
+    }
+
+    /// A unit the source's encoder finished: it goes where an ingested unit goes.
+    pub fn encoded(
+        &mut self,
+        id: &str,
+        frame: MediaFrame,
+        now: Now,
+        egress: &mut dyn EgressSink,
+        out: &mut Vec<Effect>,
+    ) {
+        if self.by_id.get(id).is_some_and(|s| s.encoding) {
+            self.unit(id, frame, now, egress, out);
+        }
+    }
+
+    pub fn encoder_steps(&mut self, id: &str, acceleration: Acceleration, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get(id).filter(|s| s.encoding) else {
+            return;
+        };
+        report(
+            out,
+            &source.id,
+            source.status.clone(),
+            None,
+            None,
+            Some(acceleration),
+        );
+    }
+
+    pub fn encoder_failed(&mut self, id: &str, reason: &str, out: &mut Vec<Effect>) {
+        let Some(source) = self.by_id.get_mut(id).filter(|s| s.encoding) else {
+            return;
+        };
+        source.encoding = false;
+        source.status = Status::Ended;
+        status(out, &source.id, Status::Ended, Some(reason), None);
+        out.push(Effect::Encode(EncodeEffect::Close {
+            source: id.to_owned(),
+        }));
     }
 
     /// `source.egress`: whether this source's units also go back to the daemon.
@@ -260,10 +360,12 @@ impl Sources {
     }
 
     /// `source.picture`: a screencast frame the daemon passes on, read by ace-media as producer.
+    #[allow(clippy::too_many_arguments)]
     pub fn picture(
         &mut self,
         id: &str,
         epoch: u32,
+        age_ms: u32,
         payload: Vec<u8>,
         now: Now,
         egress: &mut dyn EgressSink,
@@ -277,6 +379,15 @@ impl Sources {
             .stamper
             .as_ref()
             .map_or(epoch, |s| s.stamp(now.mono_ms).min(epoch));
+        if source.encoding {
+            out.push(Effect::Encode(EncodeEffect::Picture {
+                source: id.to_owned(),
+                text: payload,
+                epoch: stamped,
+                age_us: age_ms.saturating_mul(1000),
+            }));
+            return;
+        }
         let frame = MediaFrame {
             kind: KIND_PICTURE,
             flags: FLAG_KEYFRAME,
