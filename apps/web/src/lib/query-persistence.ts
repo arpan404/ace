@@ -58,6 +58,38 @@ export const keptForgeLimit = 96;
 /** How long a PR panel's reads stay in memory unwatched, and so in what is kept. */
 export const keptForgeMs = 2 * 60 * 60_000;
 
+/*
+ * Per-thread lookups an open asks for at once: the queue page (`["queue", threadId, revision]`)
+ * and the latest turn's digest (`["thread-turns", threadId, "latest", cursor]`). Only each
+ * thread's newest read of each is kept, under its own allowance. Restored, one is shown as it
+ * was and is unconfirmed (`queryUnconfirmed`) until the daemon answers it again: a queue read
+ * back from disk is never acted on before that.
+ */
+export const keptThreadLookupLimit = 64;
+/** Which per-thread lookup `key` is, and its thread; undefined for any other key. */
+function threadLookup(key: QueryKey): string | undefined {
+  if (typeof key[1] !== "string") return undefined;
+  if (key[0] === "queue" && key.length === 3 && typeof key[2] === "number")
+    return `queue\u0000${key[1]}`;
+  if (key[0] === "thread-turns" && key.length === 4 && key[2] === "latest")
+    return `latest-turn\u0000${key[1]}`;
+  return undefined;
+}
+
+/** When each query a client restored from disk was read, until it is read again. */
+const restoredAt = new WeakMap<QueryClient, Map<string, number>>();
+/**
+ * Whether the data `queries` holds for `key` is still the copy read back from disk, which the
+ * daemon has not confirmed since. Anything that acts on it (a queued message, an approval)
+ * waits until this is false.
+ */
+export function queryUnconfirmed(queries: QueryClient, key: QueryKey): boolean {
+  const query = queries.getQueryCache().find({ queryKey: key, exact: true });
+  if (!query) return false;
+  const at = restoredAt.get(queries)?.get(query.queryHash);
+  return at !== undefined && query.state.dataUpdatedAt === at;
+}
+
 /** Whether `key` names a PR panel read that is kept between sessions. */
 export function keptForgeQuery(key: QueryKey): boolean {
   return key[0] === "forge" && typeof key[3] === "string" && keptForgeKinds.has(key[3]);
@@ -104,7 +136,7 @@ function withoutRaw(value: unknown): unknown {
 /** Whether a query with `key` is kept between sessions. */
 export function keptQuery(key: QueryKey): boolean {
   if (!PlainKey.safeParse(key).success) return false;
-  if (keptForgeQuery(key)) return true;
+  if (keptForgeQuery(key) || threadLookup(key) !== undefined) return true;
   return keptKeys.some(
     ({ prefix, exact }) =>
       (exact ? key.length === prefix.length : key.length >= prefix.length) &&
@@ -157,11 +189,25 @@ export function queryRecord(
     .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
   // PR reads have their own allowance, so opening many PRs never pushes the app's lookups out.
   const forge = kept.filter((query) => keptForgeQuery(query.queryKey)).slice(0, keptForgeLimit);
-  const other = kept.filter((query) => !keptForgeQuery(query.queryKey)).slice(0, keptQueryLimit);
+  // A thread's older queue revisions and turn cursors are never read again: its newest only.
+  const lookups = new Set<string>();
+  const threads = kept
+    .filter((query) => {
+      const lookup = threadLookup(query.queryKey);
+      if (lookup === undefined || lookups.has(lookup)) return false;
+      lookups.add(lookup);
+      return true;
+    })
+    .slice(0, keptThreadLookupLimit);
+  const other = kept
+    .filter(
+      (query) => !keptForgeQuery(query.queryKey) && threadLookup(query.queryKey) === undefined,
+    )
+    .slice(0, keptQueryLimit);
   return {
     version: 1,
     ...stamp,
-    queries: [...other, ...forge].flatMap((query) => {
+    queries: [...other, ...threads, ...forge].flatMap((query) => {
       const key = PlainKey.safeParse(query.queryKey);
       const data = keptForgeQuery(query.queryKey) ? withoutRaw(query.state.data) : query.state.data;
       return key.success ? [{ key: key.data, data, at: query.state.dataUpdatedAt }] : [];
@@ -186,6 +232,11 @@ export function restoreQueries(queries: QueryClient, kept: QueryRecord["queries"
     queries.setQueryData(entry.key, entry.data, { updatedAt: entry.at });
     const hash = queries.getQueryCache().find({ queryKey: entry.key, exact: true })?.queryHash;
     if (hash) restored.add(hash);
+    if (hash && threadLookup(entry.key) !== undefined) {
+      const held = restoredAt.get(queries) ?? new Map<string, number>();
+      held.set(hash, entry.at);
+      restoredAt.set(queries, held);
+    }
   }
   if (restored.size)
     void queries.invalidateQueries({

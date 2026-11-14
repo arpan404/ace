@@ -2,7 +2,9 @@ import { readServerQueue, type ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import { ThreadId, type QueuePage } from "@ace/protocol";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "./daemon-query.ts";
+import { queryUnconfirmed } from "./query-persistence.ts";
 
 /** Visible queue rows grow on demand; wire pages remain bounded by the daemon. */
 export const queuePageSize = 16;
@@ -19,14 +21,18 @@ export function useServerQueue(threadId: string): {
   page: QueuePage | undefined;
   retained: readonly QueuePage["messages"][number][];
   failed: boolean;
+  /** The page is the copy kept from an earlier session, not yet confirmed by the daemon. */
+  unconfirmed: boolean;
   loadingMore: boolean;
   loadMore(): void;
   refresh(): void;
 } {
   const hold = useThread(threadId, ["queue"], queueOf);
   const [shown, setShown] = useState({ threadId, count: queuePageSize });
+  const queries = useQueryClient();
+  const queryKey = ["queue", threadId, hold?.revision ?? -1];
   const query = useDaemonQuery({
-    queryKey: ["queue", threadId, hold?.revision ?? -1],
+    queryKey,
     staleTime: Infinity,
     placeholderData: (previous: QueuePage | undefined) => previous,
     read: (client, signal) =>
@@ -46,6 +52,7 @@ export function useServerQueue(threadId: string): {
       : undefined,
     retained,
     failed: query.isError,
+    unconfirmed: queryUnconfirmed(queries, queryKey),
     loadingMore: query.isFetching,
     loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, retained.length) }),
     refresh: () => void query.refetch(),
