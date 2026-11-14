@@ -15,8 +15,8 @@ import {
 } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import {
-  draftsKey,
   draftSaveFailed,
+  draftStorageKey,
   onDraftDiscard,
   readDraft,
   readDurableDraft,
@@ -100,7 +100,8 @@ export function useDraftPersistence(
   }, [key, serial, storage, emptyNow]);
   // Another window changed this draft: the browser says so with a `storage` event.
   const external = useEffectEvent((event: StorageEvent) => {
-    if (!key || event.key !== draftsKey) return;
+    // Only this draft's own key: another composer's save is not this one's business.
+    if (!key || event.key !== draftStorageKey(key)) return;
     const theirs = readDurableDraft(storage, key);
     if (JSON.stringify(theirs ?? empty) === serial) return;
     if (onExternal?.(theirs) === "replace") pending.current = undefined;

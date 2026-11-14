@@ -45,7 +45,7 @@ test("a chat still shows its save warning above the composer", async ({ page }) 
   await page.evaluate(() => {
     const save = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (key === "ace.composer.drafts") throw new Error("Storage full");
+      if (key.startsWith("ace.composer.drafts")) throw new Error("Storage full");
       save.call(this, key, value);
     };
   });

@@ -29,7 +29,7 @@ test("without open work nothing renders below the New thread composer, even its 
       return backing.data.size;
     },
     setItem(key: string, value: string) {
-      if (key === "ace.composer.drafts") throw new Error("quota");
+      if (key.startsWith("ace.composer.drafts")) throw new Error("quota");
       backing.setItem(key, value);
     },
   };
@@ -58,7 +58,7 @@ test("where the thread runs is one row in the strip above the composer; a notice
       return backing.data.size;
     },
     setItem(key: string, value: string) {
-      if (refuse && key === "ace.composer.drafts") throw new Error("quota");
+      if (refuse && key.startsWith("ace.composer.drafts")) throw new Error("quota");
       backing.setItem(key, value);
     },
   };

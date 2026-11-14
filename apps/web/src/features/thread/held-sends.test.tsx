@@ -259,7 +259,8 @@ test.each([false, true])(
       setItem(key: string, value: string) {
         if (
           full &&
-          (key.startsWith("ace.sends.staged") || (refuseDraft && key === "ace.composer.drafts"))
+          (key.startsWith("ace.sends.staged") ||
+            (refuseDraft && key.startsWith("ace.composer.drafts")))
         )
           throw new Error("quota");
         backing.setItem(key, value);

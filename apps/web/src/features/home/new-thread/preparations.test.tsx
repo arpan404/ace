@@ -305,7 +305,7 @@ test("a refused content write keeps the live preparation and shows that it is no
       return backing.data.size;
     },
     setItem(key: string, value: string) {
-      if (key === "ace.composer.drafts") throw new Error("quota");
+      if (key.startsWith("ace.composer.drafts")) throw new Error("quota");
       backing.setItem(key, value);
     },
   };

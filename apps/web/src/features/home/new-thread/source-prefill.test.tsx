@@ -187,7 +187,7 @@ for (const source of ["issue", "pr"] as const) {
       const save = storage.setItem;
       let refuse = false;
       storage.setItem = (key, value) => {
-        if (refuse && key === "ace.composer.drafts") throw new Error("Storage full");
+        if (refuse && key.startsWith("ace.composer.drafts")) throw new Error("Storage full");
         save(key, value);
       };
       const made = app(source, storage);

@@ -19,7 +19,7 @@ test.each(["content", "row", "final row and rollback"])(
       setItem(key: string, value: string) {
         if (
           fail &&
-          key === "ace.composer.drafts" &&
+          key.startsWith("ace.composer.drafts") &&
           (refusal === "content" || (removingRowFailed && value !== "[]"))
         )
           throw new Error("content quota");
