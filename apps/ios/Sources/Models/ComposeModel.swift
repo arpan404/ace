@@ -106,10 +106,12 @@ enum ComposePatch: Decodable, Sendable {
     case clone(ComposeClone)
     case access(ComposeAccess)
     case attachments(workspaceId: String, [AttachmentFile], blocked: String?)
+    /// A worktree start's card (`bridge/worktree-starts.ts`).
+    case worktree(id: String, WorktreeStartRead)
 
     private enum Keys: String, CodingKey {
         case type, state, projects, providers, start, tabs, favorites, starProblem, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message, canAllow
-        case files, blocked
+        case files, blocked, card, made
     }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -144,6 +146,10 @@ enum ComposePatch: Decodable, Sendable {
                                          message: try box.decode(String.self, forKey: .message),
                                          canAllow: try box.decodeIfPresent(Bool.self, forKey: .canAllow) ?? false))
         case "compose.access": self = .access(try ComposeAccess(from: decoder))
+        case "compose.worktree":
+            self = .worktree(id: try box.decode(String.self, forKey: .id),
+                             WorktreeStartRead(card: try box.decodeIfPresent(WorktreeStartCard.self, forKey: .card),
+                                               made: try box.decodeIfPresent(String.self, forKey: .made)))
         case "compose.attachments":
             self = .attachments(workspaceId: try box.decode(String.self, forKey: .workspaceId), try box.decode([AttachmentFile].self, forKey: .files),
                                 blocked: try box.decodeIfPresent(String.self, forKey: .blocked))
@@ -166,6 +172,8 @@ enum ComposePatch: Decodable, Sendable {
     /// Daemon receipts by command id: the thread a start made, or why it didn't.
     var started: [String: ComposeOutcome] = [:]
     var added: [String: ComposeOutcome] = [:]
+    /// Worktree starts as they are made, by command id.
+    var worktrees: [String: WorktreeStartRead] = [:]
     /// The chosen agent's access modes and the one the thread would run at.
     var access: ComposeAccess?
     var clone: ComposeClone?
@@ -185,10 +193,11 @@ enum ComposePatch: Decodable, Sendable {
         case .added(let id, let outcome): added[id] = outcome
         case .access(let read): access = read
         case .attachments(let workspaceId, let files, let blocked): attachments = (workspaceId, files, blocked)
+        case .worktree(let id, let read): worktrees[id] = read
         }
     }
     func reset() {
         projectsState = "idle"; projects = []; agentsRead = ComposeAgentsRead()
-        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; access = nil; attachments = nil; clone = nil
+        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; worktrees = [:]; access = nil; attachments = nil; clone = nil
     }
 }

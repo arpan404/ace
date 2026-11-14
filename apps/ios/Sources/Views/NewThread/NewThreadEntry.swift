@@ -14,6 +14,13 @@ struct NewThreadEntry: ViewModifier {
     @State private var awaiting: (machineId: String, commandId: String)?
     /// Why the last start didn't happen, once its receipt said so.
     @State private var refused: String?
+    /// A start whose worktree card the person swiped away.
+    @State private var hiddenCard: String?
+    /// The worktree card of the start being waited on, while New thread's sheet is closed.
+    private var worktreeCard: WorktreeStartCard? {
+        guard !composing, let awaiting, hiddenCard != awaiting.commandId else { return nil }
+        return inbox.client(awaiting.machineId)?.compose.worktrees[awaiting.commandId]?.card
+    }
 
     func body(content: Content) -> some View {
         content
@@ -23,22 +30,40 @@ struct NewThreadEntry: ViewModifier {
             }
             .task(id: awaiting?.commandId) {
                 guard let awaiting, let client = inbox.client(awaiting.machineId) else { return }
-                // A minute covers a slow worktree; after that the row is in the inbox to tap.
-                for _ in 0..<600 {
-                    if let outcome = client.compose.started[awaiting.commandId] {
-                        guard outcome.ok, let threadId = outcome.id else {
-                            refused = outcome.message.isEmpty ? "The thread didn't start." : outcome.message
-                            break
-                        }
-                        if client.inbox[threadId] != nil {
-                            open(InboxKey(machineId: awaiting.machineId, id: threadId))
-                            break
-                        }
+                let id = awaiting.commandId
+                // A minute covers a start with nothing to show; a worktree whose card is on screen
+                // keeps it waiting for as long as it is being made or offers a way on.
+                var idle = 0
+                waiting: while idle < 600 {
+                    let worktree = client.compose.worktrees[id]
+                    switch NewThreadWait.next(outcome: client.compose.started[id], worktree: worktree, listed: { client.inbox[$0] != nil }) {
+                    case .open(let threadId):
+                        open(InboxKey(machineId: awaiting.machineId, id: threadId))
+                        break waiting
+                    case .refused(let message):
+                        refused = message
+                        break waiting
+                    case .wait:
+                        if worktree?.card == nil || hiddenCard == id { idle += 1 }
                     }
                     try? await Task.sleep(for: .milliseconds(100))
                     if Task.isCancelled { return }
                 }
                 self.awaiting = nil
+            }
+            // The worktree being made, from Send until the thread opens; swiping it away leaves
+            // the start to go on, its row in the inbox.
+            .sheet(isPresented: Binding(get: { worktreeCard != nil }, set: { if !$0 { hiddenCard = awaiting?.commandId } })) {
+                if let awaiting, let card = worktreeCard {
+                    NavigationStack {
+                        WorktreeStartView(card: card) { action in
+                            inbox.client(awaiting.machineId)?.composeAction(["kind": "worktree", "commandId": awaiting.commandId, "action": action])
+                        }
+                        .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { SheetClose() }
+                    }
+                    .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                }
             }
             .alert("The thread didn't start", isPresented: Binding(get: { refused != nil }, set: { if !$0 { refused = nil } })) {
                 Button("Close", role: .cancel) { refused = nil }

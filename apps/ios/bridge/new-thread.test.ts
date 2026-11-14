@@ -608,3 +608,81 @@ test("a star the computer refuses says stars are changed there, not to reconnect
   });
   expect(agents.starProblem).toBe("Stars are changed in ace on the computer.");
 });
+
+interface WorktreeCard {
+  headline: string;
+  running: boolean;
+  failed: boolean;
+  steps: { label: string; state: string; percent: number | null }[];
+  note: string;
+  refused: string;
+  actions: { id: string; label: string }[];
+  details: string[];
+}
+/** The start's card as last sent: null once it says nothing, undefined before any patch. */
+const worktreeCard = (id: string) =>
+  latest("compose.worktree", id)?.card as WorktreeCard | null | undefined;
+
+async function startInWorktree(compose: ComposeActions, commandId: string) {
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  compose.compose({
+    kind: "create",
+    commandId,
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "worktree",
+    text: "Fix the export",
+  });
+}
+
+test("a worktree start shows its card step by step until the thread starts in it", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0001");
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0001");
+    return shown?.steps.some((step) => step.label === "Checking out files") && shown;
+  });
+  expect(card.headline).toBe("Creating a worktree");
+  expect(card.running).toBe(true);
+  expect(card.steps[0]).toMatchObject({ label: "Preparing workspace", state: "done" });
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Cancel"]);
+  const started = await until(() => latest("compose.start", "draft-tree-0001"));
+  expect(started).toMatchObject({ ok: true });
+  // Once made the card says nothing more: the thread opens instead.
+  await until(() => worktreeCard("draft-tree-0001") === null);
+  expect(latest("compose.worktree", "draft-tree-0001")?.made).toBe(started.threadId);
+});
+
+test("Cancel stops the worktree: the card says the message wasn't sent and offers Retry", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0002");
+  await until(() => worktreeCard("draft-tree-0002")?.running);
+  compose.compose({ kind: "worktree", commandId: "draft-tree-0002", action: "cancel" });
+  const card = await until(() => {
+    const shown = worktreeCard("draft-tree-0002");
+    return shown?.headline === "Worktree cancelled" && shown;
+  });
+  expect(card.note).toBe("Your message hasn't been sent. Retry, or send it on the local checkout.");
+  expect(card.actions.map((action) => action.label)).toEqual(["Don't use worktree", "Retry"]);
+  // The start is refused, but the card speaks for it: it stays, with its way forward.
+  await until(() => latest("compose.start", "draft-tree-0002"));
+  expect(worktreeCard("draft-tree-0002")?.headline).toBe("Worktree cancelled");
+});
+
+test("a worktree that can't be made is refused with the daemon's reason, not its code", async () => {
+  const daemon = fixture();
+  daemon.workspace.git.setRepository("ace", "none");
+  const compose = await connect(daemon);
+  await startInWorktree(compose, "draft-tree-0003");
+  const started = await until(() => latest("compose.start", "draft-tree-0003"));
+  expect(started).toMatchObject({
+    ok: false,
+    message: "This project isn't a Git repository, so it can't have worktrees.",
+  });
+  const card = await until(() => worktreeCard("draft-tree-0003"));
+  expect(card).toMatchObject({ failed: true, headline: "Couldn't create the worktree" });
+});
