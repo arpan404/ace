@@ -8,14 +8,6 @@ import type {
   ConnectionLease,
   MachineConnections,
 } from "./connections.ts";
-import {
-  CALL_ENCODINGS,
-  COMPRESS_MIN_BYTES,
-  compressibleOp,
-  decodeBody,
-  encodeBody,
-  pickEncoding,
-} from "./call-encoding.ts";
 
 /** Why a call to another machine did not produce an answer. Never carries a credential. */
 export class MachineFailure extends Error {
@@ -77,12 +69,6 @@ export interface PinnedRequest {
   method: "POST" | "PUT";
   body: Buffer | string;
   contentType: string;
-  /**
-   * The body and its answer carry no credential beside text another party can influence, so
-   * both may be compressed (ADR 0088): the answer when the machine offers it, the body once the
-   * machine has said it reads that coding.
-   */
-  compressible?: boolean;
   /** `urgent` takes connections long calls can never fill; see ConnectionLane. */
   lane?: ConnectionLane;
   /**
@@ -121,7 +107,6 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
       method: "POST",
       body: JSON.stringify(body),
       contentType: "application/json",
-      compressible: compressibleOp(body.call.op),
       lane: laneOf(body.call),
       rereadable: rereadableOps.has(body.call.op),
     },
@@ -131,14 +116,8 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
 /** A connection for this request alone, closed once it is answered. */
 function oneShot(profile: Pick<RemoteProfile, "fingerprint">): ConnectionLease {
   const agent = pinnedAgent(profile.fingerprint);
-  return { agent, accepts: undefined, release: () => agent.destroy() };
+  return { agent, release: () => agent.destroy() };
 }
-
-/**
- * A compressed body refused by a machine that no longer says it reads compressed bodies (it was
- * downgraded since): the call, a read, is sent once more as it is.
- */
-class CodingRefused extends MachineFailure {}
 
 /**
  * A kept-open connection failed before any answer came on it (reset, or closed by the other
@@ -147,7 +126,6 @@ class CodingRefused extends MachineFailure {}
 class StaleConnection extends MachineFailure {}
 
 interface Attempt {
-  mayCompress: boolean;
   /** On a connection of its own, not one kept open. */
   fresh: boolean;
 }
@@ -159,14 +137,11 @@ export async function pinnedRequest(
   options: MachineTransportOptions,
 ): Promise<unknown> {
   try {
-    return await pinnedOnce(profile, route, options, { mayCompress: true, fresh: false });
+    return await pinnedOnce(profile, route, options, { fresh: false });
   } catch (error) {
-    // A downgraded machine refused a compressed read: once more as it is.
-    if (error instanceof CodingRefused)
-      return pinnedOnce(profile, route, options, { mayCompress: false, fresh: false });
     // A read lost on a dropped kept-open connection: once more on a fresh one.
     if (error instanceof StaleConnection && route.rereadable)
-      return pinnedOnce(profile, route, options, { mayCompress: false, fresh: true });
+      return pinnedOnce(profile, route, options, { fresh: true });
     throw error;
   }
 }
@@ -175,18 +150,13 @@ function pinnedOnce(
   profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
   route: PinnedRequest,
   options: MachineTransportOptions,
-  { mayCompress, fresh }: Attempt,
+  { fresh }: Attempt,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
   const pooled = fresh ? undefined : options.connections?.lease(profile, route.lane ?? "shared");
   const lease: ConnectionLease = pooled ?? oneShot(profile);
   const agent = lease.agent;
-  const plain = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
-  const coding =
-    route.compressible && mayCompress && plain.length >= COMPRESS_MIN_BYTES
-      ? pickEncoding(lease.accepts)
-      : undefined;
-  const data = coding ? encodeBody(plain, coding) : plain;
+  const data = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
   const maxBytes = options.maxBytes ?? 1024 * 1024;
   return new Promise<unknown>((resolve, reject) => {
     let connected = false;
@@ -210,8 +180,6 @@ function pinnedOnce(
         authorization: `Bearer ${profile.token}`,
         "content-type": route.contentType,
         "content-length": data.length,
-        ...(coding ? { "content-encoding": coding } : {}),
-        ...(route.compressible ? { "accept-encoding": CALL_ENCODINGS } : {}),
       },
     });
     const abort = () => {
@@ -265,11 +233,7 @@ function pinnedOnce(
         const value = response.headers[name];
         return typeof value === "string" ? value : undefined;
       };
-      answer = {
-        keepAlive: header("keep-alive"),
-        // Only an answer to a request that offered compression says what the machine reads.
-        acceptEncoding: route.compressible ? header("accept-encoding") : lease.accepts,
-      };
+      answer = { keepAlive: header("keep-alive") };
       const chunks: Buffer[] = [];
       let bytes = 0;
       response.on("data", (chunk: Buffer) => {
@@ -283,19 +247,13 @@ function pinnedOnce(
       response.on("end", () => {
         let parsed: unknown;
         try {
-          // A compressed answer may expand to no more than an uncompressed one could be.
-          const body = decodeBody(Buffer.concat(chunks), header("content-encoding"), maxBytes);
-          parsed = JSON.parse(body.toString());
+          parsed = JSON.parse(Buffer.concat(chunks).toString());
         } catch {
           finish(new MachineFailure("refused", "unavailable", "Machine answer unreadable"));
           return;
         }
         if (response.statusCode === 200) {
           finish(undefined, parsed);
-          return;
-        }
-        if (coding && answer?.acceptEncoding === undefined) {
-          finish(new CodingRefused("refused", "invalid"));
           return;
         }
         const refusal = MachineRefusal.safeParse(parsed);

@@ -15,8 +15,6 @@ export type ConnectionLane = "shared" | "urgent";
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
   agent: Agent;
-  /** The codings the machine last said it reads in request bodies (`Accept-Encoding`). */
-  accepts: string | undefined;
   /** Given back with the answer's headers, when an answer came. */
   release(answer?: AnswerHeaders): void;
 }
@@ -24,7 +22,6 @@ export interface ConnectionLease {
 /** What an answer says about the connection and the machine behind it. */
 export interface AnswerHeaders {
   keepAlive: string | undefined;
-  acceptEncoding: string | undefined;
 }
 
 export interface MachineConnectionsDeps {
@@ -54,8 +51,6 @@ interface Entry {
   lanes: Record<ConnectionLane, Lane>;
   sessions: PinnedSessions;
   idleMs: number;
-  /** What the machine last said it reads; an answer without it (an older build) clears it. */
-  accepts: string | undefined;
 }
 
 /** How long an idle connection is kept, from the other machine's `Keep-Alive: timeout=N`. */
@@ -92,7 +87,6 @@ export class MachineConnections {
         lanes: { shared: lane(), urgent: lane() },
         sessions: { get: () => session, set: (next) => void (session = next) },
         idleMs: IDLE_DEFAULT_MS,
-        accepts: undefined,
       };
       if (!this.closed) this.entries.set(key, entry);
     }
@@ -107,15 +101,11 @@ export class MachineConnections {
     let released = false;
     return {
       agent,
-      accepts: held.accepts,
       release: (answer) => {
         if (released) return;
         released = true;
         at.inflight--;
-        if (answer) {
-          held.idleMs = idleMs(answer.keepAlive) ?? held.idleMs;
-          held.accepts = answer.acceptEncoding;
-        }
+        if (answer) held.idleMs = idleMs(answer.keepAlive) ?? held.idleMs;
         if (at.inflight > 0) return;
         if (this.closed || this.entries.get(key) !== held) {
           agent.destroy();

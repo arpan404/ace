@@ -44,24 +44,16 @@ client needs an app change.
 (`hello.compression`) gets allowlisted JSON messages of 1 KiB or more deflated alone, before
 encryption, as a separate fragment kind; inflation is capped at the logical message limit.
 
-**Machine calls: zstd or deflate for status and describe.** `POST /v1/machine-calls` between
-daemons (ADR 0078) compresses only `status` and `describe` bodies of 1 KiB or more, each alone,
-in both directions (`apps/daemon/src/machines/call-encoding.ts`). The decision is per body, not
-per op: a request is an origin and thread ids; an answer is compressed only when it matches a
-strict shape (`apps/daemon/src/machines/compressible-answers.ts`) in which every object rejects
-unknown keys at any depth and every string is a named field known to carry no secret (ids, names,
-labels, codes, and text an agent wrote: thread titles, steps, results, notices). A status answer
-holding a pending request for the person (a browser tab's URL, an elicitation link, which can
-carry a code or token), a field of the wrong type, or a field a newer build added anywhere goes
-as it is, as browser messages do on the socket, until the shape names it. The device token being a
-header doesn't change this: it is the URLs beside attacker-influenced text that the rule keeps
-apart. The caller offers `Accept-Encoding: zstd, deflate` on those calls and
-the target answers with zstd when offered (both ends are Bun or Node 26), deflate otherwise. A
-target says what it reads in request bodies with `Accept-Encoding` on its answer (RFC 7694); the
-caller compresses its own bodies only after hearing that, and an answer without it (an older or
-downgraded build) puts it back to identity, the refused read sent again once as it is. Inflating
-is capped at the uncompressed limits. Work, messages and tool calls, images included, stay
-identity.
+**Machine calls: never compressed.** `POST /v1/machine-calls` between daemons (ADR 0078) sends
+every body as it is. Free text an agent writes (a thread's title, step, last line and result, a
+failure message, a notice) can't be declared free of secrets: one child may report a callback URL
+with a token in it while another child in the same status answer carries text an attacker wrote,
+and both would share one compression context. Every status answer carries such text, and every
+describe answer carries names the person chose (the machine's and its projects'), which are not
+fixed vocabulary or ids; nothing left was worth compressing. Compressing status answers of 1 KiB
+or more (a busy parent's sixteen children shrank more than fourfold in tests) was built and given up for this
+rule. A future body of only fixed vocabulary and ids may be compressed if it is described by a
+strict shape whose every string is one of those.
 
 **HTTP: br/gzip for renderer text files.** `.html`, `.js`, `.css` and `.svg` files of at least 1 KiB
 are compressed once per file version and kept in memory (32 MiB, least recently used out), on both

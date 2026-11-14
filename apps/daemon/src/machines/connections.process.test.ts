@@ -434,3 +434,63 @@ test("an unauthenticated connection is closed after the short limit", async () =
   await rawCall(target.origin, "f".repeat(64));
   await expect.poll(() => target.sockets[0]?.destroyed, { timeout: 1500 }).toBe(true);
 });
+
+test("a status answer full of agent results goes uncompressed, even to a caller that offers zstd", async () => {
+  const results = {
+    threads: Array.from({ length: 16 }, (_, index) => ({
+      threadId: `child-${index}`,
+      state: "done",
+      title: "Review the open pull requests",
+      elapsedSeconds: 30,
+      status: { state: "done" },
+      requests: [],
+      result: `Signed in at https://example.test/callback?code=${index} and reviewed the diff.`,
+      truncated: false,
+    })),
+  };
+  const handler = machineCallsHttp(
+    () => ({ handle: async () => ({ status: 200, body: results }) }),
+    (presented) =>
+      presented === token("a")
+        ? {
+            id: DeviceId.parse("device-1"),
+            name: "MacBook",
+            scopes: ["read", "operate"],
+            createdAt: 0,
+            lastSeenAt: 0,
+            revokedAt: null,
+          }
+        : undefined,
+    (_request, response) => response.writeHead(404).end(),
+  );
+  const listener = sniListener({
+    tls: identity,
+    requests: handler,
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  const agent = pinnedKeepAliveAgent(identity.fingerprint, { get: () => undefined, set() {} }, 1);
+  cleanups.push(() => agent.destroy());
+  const coding = await new Promise<string | undefined>((resolve, reject) => {
+    const request = httpsRequest(
+      new URL("/v1/machine-calls", `https://127.0.0.1:${port}/`),
+      {
+        method: "POST",
+        agent,
+        headers: { authorization: `Bearer ${token("a")}`, "accept-encoding": "zstd, deflate" },
+      },
+      (response) => {
+        response.resume();
+        const value = response.headers["content-encoding"];
+        response.on("end", () => resolve(typeof value === "string" ? value : undefined));
+      },
+    );
+    request.on("error", reject);
+    request.end(
+      JSON.stringify({ origin, call: { op: "status", threadIds: [ThreadId.parse("child-0")] } }),
+    );
+  });
+  expect(coding).toBeUndefined();
+});
