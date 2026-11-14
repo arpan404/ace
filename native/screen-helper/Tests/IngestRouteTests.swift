@@ -71,4 +71,88 @@ final class IngestRouteTests: XCTestCase {
         XCTAssertTrue(ended)
         XCTAssertLessThan(received.count, 3 << 20)
     }
+
+    /// Timers the test fires itself.
+    private final class Timers {
+        var scheduled: [(work: () -> Void, cancelled: Bool)] = []
+        func schedule(_ delay: TimeInterval, _ work: @escaping () -> Void) -> () -> Void {
+            let index = scheduled.count
+            scheduled.append((work, false))
+            return { [weak self] in self?.scheduled[index].cancelled = true }
+        }
+    }
+
+    func testAWriterAceMediaClosedBeforeItWasInstalledFallsBackToTheDaemonSocket() throws {
+        let listener = try Listener()
+        var legacy: [UInt64] = []
+        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 }, connect: { socket, token, onClosed, onKeyframe in
+            let writer = try IngestWriter(path: socket, token: token, onClosed: onClosed, onKeyframe: onKeyframe)
+            // ace-media refuses the connection before the route has installed the writer.
+            listener.accept(); listener.drop()
+            XCTAssertTrue(waitFor { writer.isClosed })
+            usleep(50_000)
+            return writer
+        })
+        let moved = try route.route(to: (listener.path, token))
+        XCTAssertTrue(moved.switched)
+        XCTAssertFalse(route.ingesting, "a writer closed at installation is a failure: video stays on the daemon's socket")
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        XCTAssertEqual(legacy, [1])
+    }
+
+    func testADrainedWritersTimerIsCancelled() throws {
+        let listener = try Listener()
+        let timers = Timers()
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: timers.schedule)
+        _ = try route.route(to: (listener.path, token))
+        listener.accept()
+        _ = try route.route(to: nil)
+        _ = listener.readToEnd()
+        XCTAssertTrue(waitFor { route.retiring == 0 })
+        XCTAssertEqual(timers.scheduled.count, 1)
+        XCTAssertTrue(waitFor { timers.scheduled[0].cancelled }, "the drain finished, so its limit is cancelled")
+    }
+
+    func testAStaleTimerNeverClosesALaterRetirement() throws {
+        let timers = Timers()
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: timers.schedule)
+        let first = try Listener()
+        _ = try route.route(to: (first.path, token))
+        first.accept()
+        _ = try route.route(to: nil)
+        _ = first.readToEnd()
+        XCTAssertTrue(waitFor { route.retiring == 0 })
+        // A later writer retires with a backlog, while the first one's timer is still pending.
+        let second = try Listener()
+        _ = try route.route(to: (second.path, Data(repeating: 9, count: 32)))
+        second.accept()
+        for sequence in 1...3 { route.publish(unit(UInt64(sequence), bytes: 1 << 20, keyframe: sequence == 1)) }
+        _ = try route.route(to: nil)
+        XCTAssertEqual(route.retiring, 1)
+        timers.scheduled[0].work()
+        XCTAssertEqual(route.retiring, 1, "the first retirement's timer is not the second's")
+        let (received, ended) = second.readToEnd()
+        XCTAssertTrue(ended)
+        XCTAssertGreaterThan(received.count, 3 << 20, "the second writer drained in full")
+    }
+
+    func testRapidFlipsKeepAtMostFourRetiredWritersClosingTheOldest() throws {
+        let route = IngestRoute(legacy: { _ in }, now: { 0 }, schedule: { _, _ in {} })
+        var listeners: [Listener] = []
+        for index in 0..<5 {
+            let listener = try Listener()
+            _ = try route.route(to: (listener.path, Data(repeating: UInt8(index + 1), count: 32)))
+            listener.accept()
+            listeners.append(listener)
+            // ace-media isn't reading: each connection keeps a backlog.
+            for sequence in 1...2 { route.publish(unit(UInt64(sequence), bytes: 1 << 20, keyframe: sequence == 1)) }
+        }
+        _ = try route.route(to: nil)
+        XCTAssertEqual(route.retiring, 4, "the oldest retired writer is closed past the cap")
+        // The oldest connection ends without its backlog: that path was cut.
+        let (received, ended) = listeners[0].readToEnd()
+        XCTAssertTrue(ended)
+        XCTAssertLessThan(received.count, 2 << 20)
+        route.close()
+    }
 }

@@ -48,7 +48,7 @@ final class Listener {
     deinit { if connection >= 0 { close(connection) }; close(fd); unlink(path) }
 }
 
-private func waitFor(_ condition: () -> Bool, seconds: Double = 5) -> Bool {
+func waitFor(_ condition: () -> Bool, seconds: Double = 5) -> Bool {
     let end = Date().addingTimeInterval(seconds)
     while !condition() { if Date() > end { return false }; usleep(2_000) }
     return true
