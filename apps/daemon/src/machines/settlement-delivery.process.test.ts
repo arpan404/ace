@@ -233,19 +233,43 @@ test("a failed result whose parent is then stopped waits without a retry timer",
   expect(h.attempts).toHaveLength(1);
 });
 
-test("a stopped parent streaming events never pushes back the poll its other children need", async () => {
+test("a resumed parent streaming events gets its waiting result, and its other children are still polled", async () => {
   const h = machine();
   h.stopped.add(parent);
   h.report(h.add("finished"), done("Waits for the parent"));
   h.report(h.add("running"), working);
-  await h.fire();
-  const [due] = h.timers;
-  for (let batch = 0; batch < 20; batch++) {
+  await h.step();
+  expect(h.attempts).toEqual([]);
+  // The person sends the parent on, and its turn streams a batch of events every 10 ms.
+  h.stopped.delete(parent);
+  const asked = h.asked.length;
+  for (let elapsed = 10; elapsed <= 10 * POLL_MS; elapsed += 10) {
     h.clock.now += 10;
     h.children.threadChanged(parent);
+    while (h.timers[0] && h.timers[0].at <= h.clock.now) await h.fire();
   }
-  expect(h.timers).toHaveLength(1);
-  expect(h.timers[0]).toBe(due);
+  expect(h.delivered).toEqual([expect.stringContaining("Waits for the parent")]);
+  // Polled about once every `pollMs` all the while: ten intervals passed.
+  expect(h.asked.length - asked).toBeGreaterThanOrEqual(9);
+});
+
+test("delivery retries never push back the re-check that notices a settled child running again", async () => {
+  const h = machine(undefined, { pollMs: 1_000 });
+  const start = h.clock.now;
+  h.answers.deliver = failingDelivery;
+  const child = h.add("child");
+  h.report(child, done("First pass"));
+  // Settled at 1 s; its result's delivery fails then and again at 2 s.
+  await h.step();
+  await h.step();
+  expect(h.state(child)).toBe("done");
+  // The person there gives it new work; the result's retries come at 4, 8 and 16 seconds.
+  h.report(child, working);
+  while (h.clock.now - start < 12_000 && h.state(child) === "done") await h.step();
+  // Re-checks are at most 10 s apart, whatever the retries in between, so it is seen running
+  // again by then rather than at the 16 s retry.
+  expect(h.state(child)).toBe("working");
+  expect(h.clock.now - start).toBeLessThanOrEqual(12_000);
 });
 
 test("a result for a running parent is delivered behind more than a page of results waiting on a stopped one", async () => {
