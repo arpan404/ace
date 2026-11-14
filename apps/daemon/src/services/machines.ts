@@ -36,6 +36,7 @@ import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { MachineConnections } from "../machines/connections.ts";
 import { cachedProfiles, fileStamp } from "../machines/profile-cache.ts";
+import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
@@ -204,7 +205,10 @@ export function startMachines(context: ServiceContext): void {
   // Bound once the children exist below: a machine answering again ends their wait on it.
   let machineReachable: ((machine: string) => void) | undefined;
   // One kept-open, pinned connection per paired machine, so a call costs one round trip.
-  const connections = new MachineConnections({ schedule });
+  // Every socket hand-over checks the pairing is still saved, through one kept-open reader.
+  const saved = new SavedPairings(config.dataDir);
+  resources.own(() => saved.close());
+  const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());
   const transferBase = options.transfers?.transport ?? transferTransport;
   const probes: TransferTransport = (profile, route, callOptions) =>

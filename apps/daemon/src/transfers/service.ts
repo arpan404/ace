@@ -11,6 +11,7 @@ import type { ServiceContext } from "../services/types.ts";
 import { AgentTransfers } from "./agent.ts";
 import { transferTransport, type TransferTransport } from "./client.ts";
 import { MachineConnections } from "../machines/connections.ts";
+import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferCommands } from "./commands.ts";
 import { IncomingTransfers } from "./incoming.ts";
 import { OutgoingTransfers } from "./outgoing.ts";
@@ -70,8 +71,11 @@ export function startTransfers(context: ServiceContext): void {
   };
 
   // Probes, calls and chunks to one machine share one kept-open, pinned connection.
-  // Each lease reads the pairings saved now, so a transfer holding one removed since is refused.
-  const connections = new MachineConnections({ schedule, current: profiles });
+  // The pairings saved now, through one kept-open reader that re-reads only when they change:
+  // a transfer holding one removed since, here or by `ace remote remove`, is refused.
+  const saved = new SavedPairings(config.dataDir);
+  resources.own(() => saved.close());
+  const connections = new MachineConnections({ schedule, saved });
   resources.own(() => connections.close());
   // Unlinking from Settings ends the machine's transfer connections before it reports done.
   const unfollow = services.fleet?.onChange((listed) => connections.retain(listed));
