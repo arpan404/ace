@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
@@ -60,13 +61,46 @@ export async function collectLicenses(inputs: string[], output: string): Promise
   await writeFile(join(output, thirdPartyLicensesFile), body);
 }
 
-/** M0 has no external crates. Fail closed when its lockfile grows until notices are listed. */
+const CargoPackages = z.object({
+  packages: z.array(
+    z.object({
+      name: z.string(),
+      dependencies: z.array(z.object({ name: z.string(), source: z.string().nullable() })),
+    }),
+  ),
+});
+
+/** Only crates reachable from the binary ship; other workspace members may have dependencies. */
+export function assertMediaNoticeListing(metadata: unknown): void {
+  const { packages } = CargoPackages.parse(metadata);
+  const pending = ["ace-media"];
+  const visited = new Set<string>();
+  while (pending.length) {
+    const name = pending.pop();
+    if (!name || visited.has(name)) continue;
+    visited.add(name);
+    const pkg = packages.find((entry) => entry.name === name);
+    if (!pkg) throw new Error(`Missing media workspace dependency ${name}`);
+    for (const dependency of pkg.dependencies) {
+      if (dependency.source !== null)
+        throw new Error(
+          "ace-media gained third-party crates: update its license listing before packaging",
+        );
+      pending.push(dependency.name);
+    }
+  }
+}
+
+/** M0 links no external crates. Fail closed when its reachable dependency graph grows. */
 export async function collectMediaLicenses(repo: string, output: string): Promise<void> {
-  const lock = await readFile(join(repo, "native/media/Cargo.lock"), "utf8");
-  if (/^source\s*=/m.test(lock))
-    throw new Error(
-      "ace-media gained third-party crates: update its license listing before packaging",
-    );
+  const metadata: unknown = JSON.parse(
+    execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], {
+      cwd: join(repo, "native/media"),
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+    }),
+  );
+  assertMediaNoticeListing(metadata);
   await writeFile(
     join(output, thirdPartyLicensesFile),
     "ace-media: Apache-2.0. This build has no third-party crate dependencies.\n\n" +

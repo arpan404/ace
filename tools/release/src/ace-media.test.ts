@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { ReleaseTarget } from "@ace/protocol";
+import { assertMediaNoticeListing } from "./licenses.ts";
 import { assertMediaLibraries, stageAceMedia, stagedAceMedia } from "./ace-media.ts";
 
 test("Linux refuses missing libraries, libva and shipped encoder dependencies", () => {
@@ -24,6 +25,11 @@ test.runIf(process.platform === "darwin")(
     onTestFinished(() => rm(repo, { recursive: true, force: true }));
     await mkdir(join(repo, "native/media"), { recursive: true });
     await writeFile(join(repo, "native/media/Cargo.lock"), "version = 4\n");
+    await writeFile(
+      join(repo, "native/media/Cargo.toml"),
+      '[package]\nname = "ace-media"\nversion = "0.1.0"\nedition = "2024"\n[[bin]]\nname = "ace-media"\npath = "main.rs"\n',
+    );
+    await writeFile(join(repo, "native/media/main.rs"), "fn main() {}\n");
     await writeFile(join(repo, "LICENSE"), "Apache-2.0 notice");
     const source = join(repo, "prebuilt");
     const root = join(repo, "release");
@@ -39,3 +45,19 @@ test.runIf(process.platform === "darwin")(
     );
   },
 );
+
+test("unshipped workspace crates do not require notices, but reachable external crates do", () => {
+  const workspace = [
+    { name: "ace-media", dependencies: [] },
+    { name: "media-wire", dependencies: [{ name: "serde", source: "registry+crates.io" }] },
+  ];
+  expect(() => assertMediaNoticeListing({ packages: workspace })).not.toThrow();
+  expect(() =>
+    assertMediaNoticeListing({
+      packages: [
+        { name: "ace-media", dependencies: [{ name: "media-wire", source: null }] },
+        workspace[1],
+      ],
+    }),
+  ).toThrow(/update its license listing/);
+});
