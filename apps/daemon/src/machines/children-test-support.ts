@@ -56,8 +56,14 @@ export function machine(
   if (!homes.includes(home)) homes.push(home);
   const real = new Store(join(home, "events.sqlite"));
   stores.push(real);
-  const faults: { failNextWrite: boolean; failSql?: string | undefined } = {
+  /** `unreadablePairings` makes every read of the pairings throw, as an unreadable database. */
+  const faults: {
+    failNextWrite: boolean;
+    failSql?: string | undefined;
+    unreadablePairings: boolean;
+  } = {
     failNextWrite: false,
+    unreadablePairings: false,
   };
   const failing = (db: import("node:sqlite").DatabaseSync) =>
     new Proxy(db, {
@@ -139,7 +145,10 @@ export function machine(
    * here, to another device (linked again) or undefined (the pairing was removed).
    */
   const pairings = new Map<string, string | undefined>();
-  const device = (host: string) => (pairings.has(host) ? pairings.get(host) : `device-${host}`);
+  const device = (host: string) => {
+    if (faults.unreadablePairings) throw new Error("database is locked");
+    return pairings.has(host) ? pairings.get(host) : `device-${host}`;
+  };
   /** Local delegation edges, child to parent, as the journal reads them. */
   const edges = new Map<string, ThreadId>();
   const children = new MachineChildren({

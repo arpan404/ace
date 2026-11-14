@@ -371,8 +371,9 @@ export class MachineChildren implements RemoteChildren {
   /**
    * Polls while a child is unsettled or a message is open; while a result is owed, when it may
    * be deliverable (failed deliveries back off, a stopped parent's wait for resumed()); and at
-   * the slow re-check pace while settled children are watched. A failed poll or ledger read,
-   * such as a busy store, is logged and polled again.
+   * the slow re-check pace while settled children are watched. A failed poll, ledger read or
+   * pairings read, such as a busy store, is logged and polled again: every way out of here with
+   * a child still tracked leaves a timer set.
    */
   private arm() {
     if (this.closed) return;
@@ -386,10 +387,15 @@ export class MachineChildren implements RemoteChildren {
         // The earliest any settled child there is due a re-check, by the scheduler.
         for (const machine of this.ledger.watchedMachines()) {
           const lost = this.lostFrom(machine);
-          if (!lost) continue;
+          // Pairings that can't be read are tried again next poll: never "nothing owed".
+          if (!lost) {
+            waits.push(this.deps.pollMs);
+            continue;
+          }
           const { children } = this.childrenOf(machine, lost);
           const at = nextDue(children, this.recordsOf(machine, children), now, this.schedule);
-          if (at !== undefined) waits.push(Math.max(this.deps.pollMs, at - now));
+          // Every child there has a call on its way: looked at again next poll, whatever comes back.
+          waits.push(at === undefined ? this.deps.pollMs : Math.max(this.deps.pollMs, at - now));
         }
         // A settled child waiting on its machine to be paired again: looked at every slow
         // interval, with no call to any machine.
@@ -566,7 +572,9 @@ export class MachineChildren implements RemoteChildren {
   }
   /**
    * One call of a turn: its answer is applied the moment it arrives, then folded into the
-   * scheduler's records (whatever the turn's other calls do).
+   * scheduler's records (whatever the turn's other calls do). Never rejects: an answer that can't
+   * be applied (a busy store) leaves its children due again as if unasked, and the scheduler's
+   * records are folded before anything is saved, so no child is left marked as being asked.
    */
   private async ask(
     machine: string,
@@ -578,8 +586,9 @@ export class MachineChildren implements RemoteChildren {
     if (!first) return;
     const startedAt = this.deps.now();
     let outcome: CallOutcome;
+    let views: MachineThreadView[] | undefined;
     try {
-      const views = await this.deps.status(
+      views = await this.deps.status(
         machine,
         first.parent_thread,
         ids.map((id) => ThreadId.parse(id)),
@@ -587,14 +596,6 @@ export class MachineChildren implements RemoteChildren {
       outcome = { kind: "answered" };
       this.answeredAt.set(machine, this.deps.now());
       this.reached(machine);
-      for (const view of views) {
-        const row = rows.get(view.threadId);
-        if (!row || this.closed) continue;
-        if (row.settled === 1) this.recheck(row, view);
-        else this.update(row, view);
-      }
-      // A slow sibling machine must not hold a result already received from this one.
-      if (!this.closed) this.results.drain();
     } catch (error) {
       // The machine saying it holds no record of a child is its answer for that child; any
       // other failure is no answer. A working child stays as last seen, saying why; a settled
@@ -612,6 +613,20 @@ export class MachineChildren implements RemoteChildren {
       for (const id of working) this.unreachable.set(id, reason);
       if (working.length) this.emit(working);
     }
+    if (views && !this.closed)
+      try {
+        for (const view of views) {
+          const row = rows.get(view.threadId);
+          if (!row) continue;
+          if (row.settled === 1) this.recheck(row, view);
+          else this.update(row, view);
+        }
+        // A slow sibling machine must not hold a result already received from this one.
+        this.results.drain();
+      } catch (error) {
+        this.deps.log("Machine child views not applied", { machine, error: String(error) });
+        outcome = { kind: "unapplied" };
+      }
     if (this.closed) return;
     const folded = foldCall(
       this.records.get(machine) ?? new Map(),
@@ -622,21 +637,26 @@ export class MachineChildren implements RemoteChildren {
       this.schedule,
     );
     this.records.set(machine, folded.records);
-    // Read at or after their 24 h mark: they leave tracking now, never before.
-    this.ledger.endRecheck(
-      folded.ended.flatMap((id) => {
-        const settledAt = rows.get(id)?.settled_at;
-        return settledAt === null || settledAt === undefined ? [] : [{ id, settledAt }];
-      }),
-    );
-    // Whether each is asked alone outlives a restart.
-    const now = this.deps.now();
-    const alone = ids.filter((id) => asksAlone(folded.records.get(id), now));
-    this.ledger.setAlone(alone, true);
-    this.ledger.setAlone(
-      ids.filter((id) => !alone.includes(id)),
-      false,
-    );
+    try {
+      // Read at or after their 24 h mark: they leave tracking now, never before.
+      this.ledger.endRecheck(
+        folded.ended.flatMap((id) => {
+          const settledAt = rows.get(id)?.settled_at;
+          return settledAt === null || settledAt === undefined ? [] : [{ id, settledAt }];
+        }),
+      );
+      // Whether each is asked alone outlives a restart.
+      const now = this.deps.now();
+      const alone = ids.filter((id) => asksAlone(folded.records.get(id), now));
+      this.ledger.setAlone(alone, true);
+      this.ledger.setAlone(
+        ids.filter((id) => !alone.includes(id)),
+        false,
+      );
+    } catch (error) {
+      // Saved on the next answer instead; the scheduler's records already hold it.
+      this.deps.log("Machine child checks not saved", { machine, error: String(error) });
+    }
   }
   /**
    * Settled children whose machine was unpaired, the person asked about each: paired again, it is

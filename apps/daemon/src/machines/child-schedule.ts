@@ -252,7 +252,9 @@ export type CallOutcome =
    * No answer: unreachable, lost, timed out, or refused for any other reason. `machineWide` when
    * nothing else on the machine answered around it either.
    */
-  | { kind: "failed"; machineWide?: boolean };
+  | { kind: "failed"; machineWide?: boolean }
+  /** An answer came that could not be applied here (a busy store): as if it was never asked. */
+  | { kind: "unapplied" };
 
 export interface FoldResult {
   records: Map<string, ChildRecord>;
@@ -282,7 +284,9 @@ export function foldCall(
   };
   for (const id of ids) {
     const rec: ChildRecord = { ...(records.get(id) ?? blank()), inFlight: false };
-    if (outcome.kind === "answered") {
+    // Nothing learned: due again as before this call, a working child on the next turn.
+    if (outcome.kind === "unapplied") next.set(id, rec);
+    else if (outcome.kind === "answered") {
       const { retryAt: _retryAt, ...rest } = rec;
       // Answered alone: it may share calls again once its time alone is over.
       next.set(id, {
