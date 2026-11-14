@@ -9976,14 +9976,19 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| nextTicket | no | `true` |  |
 
 Example:
 
 ```json
 {
   "deviceId": "example",
-  "framing": [],
   "grant": "example",
+  "link": {
+    "deviceId": "example",
+    "proof": "gdSwVAy1GoyrJuprpMTJ3WFTYiaS6kg5091zdwSaDRC"
+  },
+  "machineCode": "example",
   "protocolVersion": 1,
   "trims": [],
   "type": "hello"
@@ -10394,6 +10399,7 @@ Example:
 | headSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | databaseId | no | string | {"minLength":1,"maxLength":128} |
 | grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| ticket | no | object | {"properties":{"ticket":{"type":"string","pattern":"^[0-9a-f]{64}$"},"ttlMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ticket","ttlMs"]} |
 
 Example:
 
@@ -10402,6 +10408,10 @@ Example:
   "headSeq": 9,
   "hostId": "example",
   "protocolVersion": 1,
+  "ticket": {
+    "ticket": "f3a06be579663fdfcb56f752899145b47e773d1d246aa92a9df3668ec853de1d",
+    "ttlMs": 1
+  },
   "type": "welcome"
 }
 ```

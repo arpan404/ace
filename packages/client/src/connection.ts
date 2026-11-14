@@ -65,6 +65,8 @@ interface Draining {
 const heartbeatMissed = "Heartbeat missed";
 /** How long a woken app waits for the daemon to answer before it treats the socket as dead. */
 const wakeProbeMs = 5000;
+/** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
+const handedMarginMs = 15_000;
 
 const versionMismatch = () =>
   new ClientError("version_mismatch", "The daemon sent a message this app can't read");
@@ -112,6 +114,12 @@ export class Connection {
   /** The epoch whose hello went out: its socket takes read subscribes before the welcome. */
   #greeted = -1;
   #greeting: (() => void) | undefined;
+  /**
+   * The next ticket the last welcome handed over (ADR 0150), in memory only: the next connect
+   * says hello with it instead of exchanging one. `epoch` is the attempt that used one.
+   */
+  #handed: { ticket: string; expiresAt: number } | undefined;
+  #usedHanded = -1;
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -150,6 +158,7 @@ export class Connection {
   }
   stop(): void {
     this.#active = false;
+    this.#handed = undefined;
     this.#cleanup();
     this.#setState("offline");
     this.#disconnected();
@@ -246,6 +255,7 @@ export class Connection {
   }
   fail(error: ClientError): void {
     this.#report("connection.failed", { code: error.code });
+    this.#handed = undefined;
     this.error = error;
     this.#cleanup();
     this.#setState("fatal");
@@ -335,15 +345,18 @@ export class Connection {
       const transport = this.#options.transport();
       this.#transport = transport;
       // The credential (a ticket exchange, on its own connection) is fetched while the socket
-      // dials, not after it opens. A transport with its own credential has it only once open.
-      const early = transport.credential ? undefined : this.#prefetch();
+      // dials, not after it opens, unless the last welcome handed one over. A transport with
+      // its own credential has it only once open.
+      const handed = transport.credential ? undefined : this.#takeHanded(epoch);
+      const early = transport.credential ? undefined : (handed ?? this.#prefetch());
       transport.open({
         open: () => {
           if (epoch !== this.#epoch) return;
           void Promise.resolve()
             .then(() => early ?? transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
-              if (epoch !== this.#epoch || !this.send(this.#hello(transport, credential))) return;
+              const hello = this.#hello(transport, credential, true);
+              if (epoch !== this.#epoch || !this.send(hello)) return;
               this.#greeted = epoch;
               this.#greeting?.();
             })
@@ -369,7 +382,32 @@ export class Connection {
     credential.catch(() => {});
     return credential;
   }
-  #hello(transport: Transport, credential: Credential): ClientMessage {
+  /**
+   * The handed-over ticket, if it still has long enough to reach the daemon; used once either
+   * way. Needs a clock: without one no ticket is asked for or kept.
+   */
+  #takeHanded(epoch: number): Promise<Credential> | undefined {
+    const handed = this.#handed;
+    this.#handed = undefined;
+    const now = this.#options.now?.();
+    if (!handed || now === undefined || handed.expiresAt - now < handedMarginMs) return undefined;
+    this.#usedHanded = epoch;
+    return Promise.resolve({ ticket: handed.ticket });
+  }
+  /** Keep the welcome's next ticket, in memory only, and pass the welcome on without it. */
+  #keepHanded(welcome: Extract<Message, { type: "welcome" }>): Message {
+    const { ticket, ...rest } = welcome;
+    const now = this.#options.now?.();
+    this.#handed =
+      ticket && now !== undefined
+        ? { ticket: ticket.ticket, expiresAt: now + ticket.ttlMs }
+        : undefined;
+    return rest;
+  }
+  #hello(transport: Transport, credential: Credential, main = false): ClientMessage {
+    const parsed = parseCredential(credential);
+    // Only the main socket asks: a side path's welcome would add a ticket nobody uses.
+    const ask = main && "ticket" in parsed && this.#options.now !== undefined;
     return {
       type: "hello",
       protocolVersion: 1,
@@ -380,7 +418,8 @@ export class Connection {
       framing: ["lines"],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
-      ...parseCredential(credential),
+      ...parsed,
+      ...(ask ? { nextTicket: true as const } : {}),
     };
   }
   /** A server frame that breaks the protocol: drop this socket and reconnect with backoff. */
@@ -459,6 +498,14 @@ export class Connection {
     }
     try {
       if (message.type === "error" && message.code === "unauthorized") {
+        // A handed-over ticket the daemon no longer knows (it restarted, or the ticket ran out
+        // on the way): exchange one at once instead of stopping. That attempt can't loop: the
+        // handed ticket is gone.
+        if (this.#usedHanded === epoch && this.state !== "ready") {
+          this.#report("connection.handed_ticket_refused", {});
+          this.#connect();
+          return;
+        }
         this.fail(new ClientError("auth"));
         return;
       }
@@ -510,7 +557,7 @@ export class Connection {
         this.#startHeartbeat();
         this.#keepGrant(this.#transport, message);
         this.#hostId = message.hostId;
-        this.#received(message);
+        this.#received(this.#keepHanded(message));
         this.#changed();
         return;
       } else if (message.type === "welcome") {
