@@ -95,6 +95,8 @@ it("watching one running and one settled remote child costs few connections and 
     () => expect(pair.target.h.inputs.get(threadId)?.join("\n")).toContain(delegation.task),
     { timeout: 15_000 },
   );
+  // Polling's own connection opens with its first status read; the window measures from there.
+  await vi.waitFor(() => expect(calls).toContain("status"), { timeout: 15_000 });
 
   const measure = async (window: number) => {
     const before = { ...proxy.counts };

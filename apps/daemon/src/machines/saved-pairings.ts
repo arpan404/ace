@@ -4,8 +4,14 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Profiles, RemoteProfile } from "../cli/profiles.ts";
 import { connectionKey } from "./connections.ts";
 
-/** How long one look may wait for another writer's lock on the file: it blocks the event loop. */
-export const SAVED_PAIRINGS_BUSY_MS = 50;
+/** How long a look may wait for another writer's lock on the file: it blocks the event loop. */
+export const SAVED_PAIRINGS_BUSY_MS = 5;
+/**
+ * After a look finds the file unreadable, looks for this long answer "unreadable" at once
+ * without touching SQLite. While a lock is held the event loop is blocked at most
+ * SAVED_PAIRINGS_BUSY_MS per this window, however many calls are checked.
+ */
+export const SAVED_PAIRINGS_RETRY_MS = 250;
 
 /**
  * The pairings saved now (`cli-profiles.sqlite`, written by Settings and by the `ace remote`
@@ -16,8 +22,9 @@ export const SAVED_PAIRINGS_BUSY_MS = 50;
  *   the open file, and reads and hashes the pairings again only then.
  * A look never throws. When the file can't be read (another writer's lock past
  * SAVED_PAIRINGS_BUSY_MS, a corrupt file, no permission) it says so: callers refuse what they
- * were asked to check, end nothing, and the next look tries again. A change between readable
- * and unreadable is logged once, not on every look.
+ * were asked to check and end nothing. Looks in the next SAVED_PAIRINGS_RETRY_MS say so at once;
+ * the first after it tries again. A change between readable and unreadable is logged once, not
+ * on every look.
  */
 export class SavedPairings {
   private file: string;
@@ -30,12 +37,17 @@ export class SavedPairings {
   private known: ReadonlySet<string> = new Set();
   /** Why the last look failed, until one succeeds. */
   private failing: string | undefined;
+  /** Until this, looks answer "unreadable" without touching the file. */
+  private retryAt = Number.NEGATIVE_INFINITY;
+  private now: () => number;
   constructor(
     home: string,
     log: (message: string, fields: Record<string, unknown>) => void = () => {},
+    now: () => number = () => performance.now(),
   ) {
     this.file = join(home, "cli-profiles.sqlite");
     this.log = log;
+    this.now = now;
     try {
       // The table exists before it is read, as the CLI makes it.
       new Profiles(home).close();
@@ -55,6 +67,7 @@ export class SavedPairings {
     this.closeDb();
   }
   private refresh(): boolean {
+    if (this.failing !== undefined && this.now() < this.retryAt) return false;
     try {
       const stat = statSync(this.file, { throwIfNoEntry: false });
       if (!stat) {
@@ -115,6 +128,7 @@ export class SavedPairings {
     if (this.failing !== reason)
       this.log("Saved pairings can't be read; calls to paired machines wait", { reason });
     this.failing = reason;
+    this.retryAt = this.now() + SAVED_PAIRINGS_RETRY_MS;
     // A later look opens the file afresh.
     this.closeDb();
   }
