@@ -35,7 +35,7 @@ scene:
 
 - **Colours**: a light and a dark palette over 0075's `Palette` fields (surfaces, text levels,
   accent, syntax, diff, material, glass tint). A Suit may leave out a scheme; then it runs only in
-  the scheme it has and says so. Partial palettes fill from a base theme (`base: "graphite"`).
+  the scheme it has and says so. Partial palettes fill from a base theme (`base: "ace"`).
 - **Fonts**: UI, transcript and code families from bundled `assets/` or system fonts. No remote
   fonts.
 - **Shape and density**: corner radius scale, border weight, density and transcript size,
