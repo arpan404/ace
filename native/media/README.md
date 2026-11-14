@@ -21,7 +21,9 @@ cargo run --locked -p ace-media
 ```
 
 From the repository root, `bun run check:media` runs formatting, clippy, workspace tests,
-and the cargo-deny license and source checks. Install cargo-deny with
+and the cargo-deny license and source checks. The root `bun run check` includes this local
+entry point. Run macOS checks on the Mac and Windows checks in the Windows VM.
+Install cargo-deny with
 `cargo install cargo-deny --version 0.20.2 --locked` first. The check fails if it is missing.
 
 There are no dependencies yet. `deny.toml` allows the plan's permissive licenses and only

@@ -20,7 +20,7 @@
     "test:slow": "bun scripts/test-run.ts slow",
     "test:changed": "bun scripts/test-run.ts changed",
     "test:timings": "node scripts/test-timings.ts",
-    "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:annotate && bun run check:extension && bun run check:ui && bun run check:deps && bun run typecheck && bun run test && bun run check:perf",
+    "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:annotate && bun run check:extension && bun run check:ui && bun run check:deps && bun run typecheck && bun run check:media && bun run test && bun run check:perf",
     "record": "bun run --filter @ace/recorder record",
     "record:cursor-sdk": "node tools/recorder/src/record-cursor-sdk.ts",
     "check:media": "node scripts/check-media.ts",
