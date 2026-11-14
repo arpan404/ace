@@ -46,10 +46,28 @@ import XCTest
         XCTAssertTrue(terms.exists)
         XCTAssertEqual(terms.label, "Terms of service")
         screenshot("profile-legal")
-        privacy.tap()
-        // A Link hands the page to Safari, which leaves ace in the background.
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10), "Privacy policy opens in the browser")
-        app.activate()
+        for (link, page) in [(terms, "acehq.dev/terms-of-service"), (privacy, "acehq.dev/privacy-policy")] {
+            for _ in 0..<8 where !link.isHittable { app.swipeUp() }
+            link.tap()
+            XCTAssertTrue(safariShows(page), "\(link.label) opens https://\(page)")
+            app.activate()
+            XCTAssertTrue(link.waitForExistence(timeout: 10), "back on Profile")
+        }
+    }
+
+    /// Safari came forward on `page`: its address bar, opened for editing, holds the full URL
+    /// (at rest it shows only the domain).
+    private func safariShows(_ page: String) -> Bool {
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        guard safari.wait(for: .runningForeground, timeout: 15) else { return false }
+        let holds = NSPredicate(format: "value CONTAINS %@", page)
+        let field = safari.textFields.matching(holds).firstMatch
+        if field.waitForExistence(timeout: 3) { return true }
+        let bar = safari.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN {'TabBarItemTitle', 'URL', 'Address'} OR label == 'Address'")).firstMatch
+        guard bar.waitForExistence(timeout: 10) else { return false }
+        bar.tap()
+        return field.waitForExistence(timeout: 10)
     }
 
     func testArchivePagesOlderThreadsAndOpensOneReadOnly() throws {
