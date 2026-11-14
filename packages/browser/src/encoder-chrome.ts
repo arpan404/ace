@@ -24,6 +24,7 @@ export class EncoderChrome {
   }
   /** The encoder as a video host; nothing starts until a viewer's capture asks. */
   readonly video: VideoHost = {
+    mediaKind: "user-tab",
     supported: async (codecs, width, height) => {
       const lease = await this.host.acquire(this.lifetime.signal);
       try {

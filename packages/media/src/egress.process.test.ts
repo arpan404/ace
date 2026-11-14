@@ -29,10 +29,9 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-async function until(condition: () => boolean, ms = 10_000): Promise<void> {
-  const end = performance.now() + ms;
+async function until(condition: () => boolean, end: number, description: string): Promise<void> {
   while (!condition()) {
-    if (performance.now() > end) throw new Error("timed out");
+    if (performance.now() > end) throw new Error(`timed out waiting for ${description}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -89,6 +88,8 @@ function legacy() {
 it.runIf(real)(
   "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
   async () => {
+    // Share one condition-wait budget, leaving room for cleanup within the process tier.
+    const deadline = performance.now() + 25_000;
     const binary = real ?? "";
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
     const settings: MediaSettings = {
@@ -157,7 +158,11 @@ it.runIf(real)(
     // Before ace-media is up the producer streams to the daemon.
     expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
     supervisor.need();
-    await until(() => supervisor.health() === "healthy" && handles.size === 2);
+    await until(
+      () => supervisor.health() === "healthy" && handles.size === 2,
+      deadline,
+      "healthy media process and both source handles",
+    );
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
       egress: true,
@@ -169,7 +174,11 @@ it.runIf(real)(
     const ingest = supervisor.ingest()?.socket ?? "";
     produce(ingest, tokens.get("a") ?? new Uint8Array(0), 0xa);
     produce(ingest, tokens.get("b") ?? new Uint8Array(0), 0xb);
-    await until(() => sources.a.got.still.length >= 5 && sources.b.got.still.length >= 5);
+    await until(
+      () => sources.a.got.still.length >= 5 && sources.b.got.still.length >= 5,
+      deadline,
+      "five frames from each source",
+    );
     for (const [id, mark] of [
       ["a", 0xa],
       ["b", 0xb],
@@ -185,7 +194,7 @@ it.runIf(real)(
     // The daemon closes "a" before ace-media hears of it: its frames still in flight are dropped.
     router.close(handles.get("a") ?? 0);
     const before = sources.a.got.deliver.length;
-    await until(() => router.drops().closed > 0);
+    await until(() => router.drops().closed > 0, deadline, "a frame dropped for the closed source");
     expect(sources.a.got.deliver.length).toBe(before);
     supervisor.send({ type: "source.close", source: "a" });
     expect(router.drops().unknown).toBe(0);
@@ -194,9 +203,14 @@ it.runIf(real)(
     const pid = supervisor.snapshot().pid ?? 0;
     const killed = performance.now();
     process.kill(pid, "SIGKILL");
-    await until(() => changes.some((c) => c.at > killed && c.routes.tab.producer === "daemon"));
+    await until(
+      () => changes.some((c) => c.at > killed && c.routes.tab.producer === "daemon"),
+      deadline,
+      "route fallback after process death",
+    );
     const back = changes.find((c) => c.at > killed && c.routes.tab.producer === "daemon");
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
     expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
   },
+  30_000,
 );

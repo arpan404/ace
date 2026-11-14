@@ -31,6 +31,13 @@ import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { readProjects } from "./project-list.ts";
 import { refusalCode } from "./fleet-admin.ts";
+import {
+  AddressOps,
+  AddressRefused,
+  readAddresses,
+  setAddressPath,
+  setOwnUrl,
+} from "./outside-addresses.ts";
 
 /*
  * Outside MCP clients on one machine, from the phone (ADR 0122). The person approves a client's
@@ -72,6 +79,8 @@ export const NativeOutsideRequest = z.object({
       projects: Projects.optional(),
       expiry: Expiry.optional(),
     }),
+    /** Connect an app: the addresses, a path's switch and your own URL. */
+    ...AddressOps,
   ]),
 });
 export type NativeOutsideRequest = z.infer<typeof NativeOutsideRequest>;
@@ -199,8 +208,16 @@ export async function answerOutside(
             : { decision: "deny" },
         });
         return { ok: true };
+      case "addresses":
+        return await readAddresses(owner);
+      case "setPath":
+        return await setAddressPath(owner, request.path, request.on);
+      case "setPublicUrl":
+        return await setOwnUrl(owner, request.url);
     }
   } catch (error) {
+    if (error instanceof AddressRefused)
+      return { ok: false, code: "invalid", message: error.message };
     const code = refusalCode(error);
     return { ok: false, code, message: outsideRefusal(code, machine, request.op) };
   }

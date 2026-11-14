@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Carrying out the engine's effects, in order.
+use super::pictures::Pictures;
 use super::writer::Writer;
 use crate::engine::sources::IngestId;
-use crate::engine::{Effect, Engine};
-use crate::framing::encode;
+use crate::engine::{Effect, EncodeEffect, Engine};
+use crate::framing::{encode, encode_with};
 use media_wire::control::{FromMedia, Lane, Sequence, Stats};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -24,6 +25,9 @@ pub struct Outputs<'a> {
     pub connections: &'a mut HashMap<IngestId, oneshot::Sender<()>>,
     /// When each unanswered priority message arrived, oldest first.
     pub lag: &'a Mutex<VecDeque<Instant>>,
+    pub pictures: &'a mut Pictures,
+    /// ace-media's monotonic milliseconds, for when encoder threads were closed.
+    pub now_ms: u64,
 }
 
 fn sequence(value: u64) -> Sequence {
@@ -44,6 +48,14 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
     for effect in effects {
         let sent = match effect {
             Effect::Normal(message) => send(outputs.stdout, message, Lane::Normal),
+            Effect::NormalWith(message, payload) => encode_with(message, payload, Lane::Normal)
+                .map_err(|_| "an outgoing message did not encode")
+                .and_then(|bytes| {
+                    outputs
+                        .stdout
+                        .send(bytes)
+                        .map_err(|_| "an outbound lane is backed up past its bound")
+                }),
             // The priority lane is only ever answered once it is up.
             Effect::Priority(message) => outputs
                 .priority
@@ -72,6 +84,28 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             }
             Effect::Shutdown { grace_ms } => {
                 step = Step::Shutdown(Duration::from_millis(u64::from(grace_ms)));
+                Ok(())
+            }
+            Effect::Encode(command) => {
+                let pictures = &mut *outputs.pictures;
+                let now_ms = outputs.now_ms;
+                match command {
+                    EncodeEffect::Configure {
+                        source,
+                        token,
+                        encodes,
+                    } => pictures.configure(&source, token, encodes, now_ms),
+                    EncodeEffect::Picture {
+                        token,
+                        text,
+                        epoch,
+                        age_us,
+                        ..
+                    } => pictures.picture(token, text, epoch, age_us),
+                    EncodeEffect::Key { token, encode, .. } => pictures.key(token, encode),
+                    EncodeEffect::Drain { source, token } => pictures.drain(&source, token),
+                    EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
+                }
                 Ok(())
             }
             Effect::Fatal(reason) => Err(reason),

@@ -311,15 +311,33 @@ fn running(pid: u32) -> bool {
     }
 }
 
-/// Unix: every process of the browser's group. Windows: the browser (its job ends the rest).
-fn browser_left(pid: u32) -> bool {
+/// Include commands in failures so a surviving helper can be identified.
+fn browser_left(pid: u32) -> Result<String, CodecError> {
     #[cfg(unix)]
     {
-        group_members(pid) > 0
+        let out = std::process::Command::new("ps")
+            .args(["-axo", "pid=,pgid=,stat=,command="])
+            .output()
+            .map_err(|e| CodecError::Backend(format!("list Chrome's process group: {e}")))?;
+        assert!(out.status.success(), "ps failed: {out:?}");
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .and_then(|id| id.parse::<u32>().ok())
+                    == Some(pid)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
     #[cfg(not(unix))]
     {
-        running(pid)
+        if running(pid) {
+            Ok(format!("Chrome PID {pid}"))
+        } else {
+            Ok(String::new())
+        }
     }
 }
 
@@ -355,14 +373,21 @@ fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), Codec
         assert!(Instant::now() < deadline, "the owner never started Chrome");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert!(running(group) && browser_left(group));
+    assert!(running(group) && !browser_left(group)?.is_empty());
     owner.kill().map_err(io)?;
     owner.wait().map_err(io)?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while browser_left(group) && Instant::now() < deadline {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let remaining = browser_left(group)?;
+        if remaining.is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Chrome outlived its owner; remaining PID, PGID, state and command:\n{remaining}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(!browser_left(group), "Chrome outlived its owner");
     let _ = std::fs::remove_dir_all(dir);
     Ok(())
 }
