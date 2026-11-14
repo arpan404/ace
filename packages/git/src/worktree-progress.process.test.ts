@@ -8,9 +8,12 @@ import {
   stat,
   readFile,
   chmod,
+  lstat,
+  readlink,
+  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
@@ -75,6 +78,65 @@ test("real file checkout reports ordered steps and increasing completed percenta
       percentages.every((value, index) => index === 0 || value > (percentages[index - 1] ?? -1)),
     ).toBe(true);
     await access(join(f.path, "file-2047.txt"));
+    expect(await f.service.status(f.path)).toEqual({
+      staged: [],
+      unstaged: [],
+      untracked: [],
+      conflicted: [],
+    });
+  } finally {
+    await f.service.close();
+    await rm(f.home, { recursive: true, force: true });
+  }
+});
+
+/** Every file below `root` outside `.git`: bytes, symlink target and executable bit. */
+async function files(root: string): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (const name of await readdir(root, { recursive: true })) {
+    if (name === ".git" || name.startsWith(`.git${sep}`)) continue;
+    const info = await lstat(join(root, name));
+    if (info.isSymbolicLink()) found.set(name, `link:${await readlink(join(root, name))}`);
+    else if (info.isFile())
+      found.set(name, `${info.mode & 0o100 ? "x" : "-"}:${await readFile(join(root, name), "hex")}`);
+  }
+  return found;
+}
+
+test("a checkout written in batches has exactly the files a plain worktree add writes", async () => {
+  const f = await fixture();
+  try {
+    // Enough paths for several batches, in nested folders, with a script and a link.
+    await Promise.all(
+      Array.from({ length: 3000 }, async (_, index) => {
+        await mkdir(join(f.repo, `dir-${index % 7}`, `sub-${index % 3}`), { recursive: true });
+        await writeFile(join(f.repo, `dir-${index % 7}`, `sub-${index % 3}`, `n-${index}`), `${index}\n`);
+      }),
+    );
+    if (process.platform !== "win32") {
+      await writeFile(join(f.repo, "run.sh"), "echo run\n");
+      await chmod(join(f.repo, "run.sh"), 0o755);
+      await symlink("run.sh", join(f.repo, "link"));
+    }
+    await git("git", ["-C", f.repo, "add", "."]);
+    await git("git", [
+      "-C", f.repo, "-c", "maintenance.auto=false", "-c", "gc.auto=0",
+      "-c", "user.name=Test", "-c", "user.email=test@ace.local", "commit", "-qm", "More",
+    ]);
+    const plain = join(f.home, "plain");
+    await git("git", ["-C", f.repo, "worktree", "add", "-q", "-b", "plain", plain]);
+    const progress: number[] = [];
+    await f.service.createWorktree({
+      repo: f.repo,
+      path: f.path,
+      branch: "ace/batched",
+      baseRef: "main",
+      onProgress: (value) => {
+        if (value.percent !== undefined) progress.push(value.percent);
+      },
+    });
+    expect(await files(f.path)).toEqual(await files(plain));
+    expect(progress.at(-1)).toBe(100);
     expect(await f.service.status(f.path)).toEqual({
       staged: [],
       unstaged: [],
