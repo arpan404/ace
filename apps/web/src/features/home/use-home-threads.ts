@@ -136,7 +136,7 @@ export function useHomeList(
   // The search box stays instant; the list filters in a later, interruptible render, so a fast
   // typist's keystrokes don't each wait on a pass over every thread.
   const query = useDeferredValue(typed);
-  const keepTabs = useMemo(tabsKeeper, []);
+  const keepTabs = useMemo(() => tabsKeeper(), []);
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();

@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useThreadMeta, useThread } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { usePhone } from "@/lib/breakpoints.ts";

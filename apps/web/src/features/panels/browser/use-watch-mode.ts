@@ -1,5 +1,5 @@
 import type { ThreadReader } from "@ace/client";
-import { useThreadMeta, useThread } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
 import { useEffect, useRef } from "react";
 import type { ScopeWorkspace, WorkspaceStore } from "@/lib/workspace/index.ts";
 import { useLocal } from "../store.ts";
