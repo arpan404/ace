@@ -238,7 +238,7 @@ it("ending the channel while a deflate is held refuses every pending send at onc
     settle("goodbye", server.sendGoodbye('{"type":"channel.close","code":1000,"reason":""}')),
   ];
   await sleep(50);
-  expect(server.bufferedBytes).toBeGreaterThan(2 * 1024 * 1024);
+  expect(server.unsentMessages).toBe(3);
   server.close();
   await Promise.all(sends);
   expect(outcomes).toEqual([
@@ -246,6 +246,7 @@ it("ending the channel while a deflate is held refuses every pending send at onc
     "behind Channel closed",
     "goodbye Channel closed",
   ]);
+  expect(server.unsentMessages).toBe(0);
   expect(server.bufferedBytes).toBe(0);
   // A deflate that finishes afterwards is discarded and counts for nothing.
   release.resolve();
@@ -263,4 +264,67 @@ it("the goodbye is sent once: a second one returns the first", async () => {
   await Promise.all([first, server.sendText(after, false)]);
   expect(await client.receiveRaw()).toBe(goodbye);
   expect(await client.receiveRaw()).toBe(after);
+});
+
+/** A full collection on Bun, the daemon's runtime, where this file runs. */
+function collectGarbage(): void {
+  const bun: unknown = Reflect.get(globalThis, "Bun");
+  const gc: unknown = typeof bun === "object" && bun !== null ? Reflect.get(bun, "gc") : undefined;
+  if (typeof gc !== "function") throw new Error("This test needs Bun's garbage collector");
+  gc.call(bun, true);
+}
+
+it("a long run of sends and drains leaves nothing of them queued or reachable", async () => {
+  const { client, server } = await connected();
+  const kept: WeakRef<Uint8Array>[] = [];
+  const reading = (async () => {
+    for (let index = 0; index < 400; index++) await client.receiveRaw();
+  })();
+  for (let index = 0; index < 100; index++) {
+    const bytes = new Uint8Array(32 * 1024).fill(index % 251);
+    kept.push(new WeakRef(bytes));
+    await Promise.all([
+      server.sendBinary(bytes),
+      server.sendText(compressible(`big${index}`, 512 * 1024), true),
+      server.sendText(compressible(`mid${index}`, 64 * 1024), true),
+      server.sendText(exactly(200), false),
+    ]);
+  }
+  await reading;
+  expect(server.unsentMessages).toBe(0);
+  expect(server.bufferedBytes).toBe(0);
+  // Nothing the channel holds still points at a sent message's bytes.
+  collectGarbage();
+  await sleep(10);
+  collectGarbage();
+  expect(kept.filter((ref) => ref.deref() !== undefined).length).toBeLessThanOrEqual(1);
+}, 30_000);
+
+it("an ignored send on a channel that then ends raises no unhandled rejection inside it", async () => {
+  const unhandled: unknown[] = [];
+  const listen = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", listen);
+  try {
+    const release = Promise.withResolvers<void>();
+    const { server } = await connected(async (json) => {
+      await release.promise;
+      return deflateRawSync(json);
+    });
+    // The caller keeps the public promise and handles it; nothing else may reject unseen.
+    const outcomes = [
+      server.sendText(compressible("held", 2 * 1024 * 1024), true),
+      server.sendText(exactly(4096), false),
+      server.sendBinary(new Uint8Array(1024)),
+      server.sendGoodbye('{"type":"channel.close","code":1000,"reason":""}'),
+    ].map((sent) => sent.catch((error: Error) => error.message));
+    await sleep(20);
+    server.close();
+    expect(await Promise.all(outcomes)).toEqual(Array.from({ length: 4 }, () => "Channel closed"));
+    release.resolve();
+    await sleep(100);
+    expect(server.unsentMessages).toBe(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", listen);
+  }
 });

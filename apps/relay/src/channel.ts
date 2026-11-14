@@ -148,7 +148,14 @@ export interface MessageChannel<Incoming extends WireMessage, Outgoing extends W
   receive(): Promise<Incoming>;
   close(): void;
   readonly closed: Promise<Error | undefined>;
+  /**
+   * Bytes queued and not yet written to the socket, plus the socket's own: what callers pace
+   * themselves by. A message still being deflated counts once its deflated size is known, as
+   * when deflates ran at once; the channel's 16 MiB limit holds room for it meanwhile.
+   */
   readonly bufferedBytes: number;
+  /** Sends queued and not yet settled: zero once everything sent has gone (or failed). */
+  readonly unsentMessages: number;
   readonly bufferedReceiveBytes: number;
   /**
    * The peer said it takes credit fragments (`hello.flowControl` has `credit`): from now on
@@ -225,8 +232,13 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     resolveClosed = resolve;
   });
   let ended = false,
-    /** Bytes ready to send (final size known) and not yet sent: at most 16 MiB, as before. */
+    /**
+     * Bytes held for unsent messages, at most 16 MiB: final sizes, and for a message still
+     * being deflated off the event loop, its uncompressed size until the deflate finishes.
+     */
     readyBytes = 0,
+    /** The part of `readyBytes` held for messages still being deflated. */
+    deflatingBytes = 0,
     sending = Promise.resolve(),
     receiving = false,
     locallyClosed = false;
@@ -242,11 +254,11 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   const wakeSenders = () => {
     for (const wake of creditWaiters.splice(0)) wake();
   };
-  /** Rejects once the channel ends, so nothing waits on it afterwards. */
-  const { promise: channelEnded, reject: refuseSends } = Promise.withResolvers<never>();
-  channelEnded.catch(() => {});
-  /** Each queued send's bytes counted as ready, until it has gone or the channel ends. */
-  const unsent = new Set<{ counted: number }>();
+  /**
+   * Every send not yet settled: its bytes counted as ready, and how to settle it. A send leaves
+   * the set when it settles, so nothing of a sent message stays reachable from the channel.
+   */
+  const unsent = new Set<{ counted: number; settle(error?: Error): void }>();
   const end = (error?: Error) => {
     if (ended) return;
     ended = true;
@@ -261,9 +273,10 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     wakeSenders();
     // Every queued and in-flight send is refused at once; a deflate that finishes later is
     // discarded (its bytes zeroed) and counts for nothing.
-    refuseSends(new Error("Channel closed"));
-    unsent.clear();
+    // Settling a send removes it from the set, which iteration allows.
+    for (const send of unsent) send.settle(new Error("Channel closed"));
     readyBytes = 0;
+    deflatingBytes = 0;
     resolveClosed(error);
   };
   /** Encrypt the next outgoing fragment; rekeys right after the frame that reaches the interval. */
@@ -351,31 +364,44 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
    * every message behind it (and the goodbye), as a slow synchronous deflate would, without
    * blocking the event loop meanwhile. If the channel ends first, the send is refused at once.
    */
-  const sendData = async (
-    prepared: Prepared | Promise<Prepared>,
-    counted: number,
-  ): Promise<void> => {
-    const record = { counted };
+  const sendData = (prepared: Prepared | Promise<Prepared>, counted: number): Promise<void> => {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const record = {
+      counted,
+      deflating: prepared instanceof Promise,
+      settle(error?: Error) {
+        if (!unsent.delete(record)) return;
+        readyBytes -= record.counted;
+        if (record.deflating) deflatingBytes -= record.counted;
+        // Never rejects: a failed deflate already fell back to the message as it was.
+        void Promise.resolve(prepared).then(release);
+        if (error) reject(error);
+        else resolve();
+      },
+    };
     unsent.add(record);
     const ready =
       prepared instanceof Promise
         ? prepared.then((message) => {
+            // Settled already (the channel ended): a late deflate counts for nothing.
             if (unsent.has(record)) {
               readyBytes += message.data.length - record.counted;
+              deflatingBytes -= record.counted;
               record.counted = message.data.length;
+              record.deflating = false;
             }
             return message;
           })
         : prepared;
     const task = sending.then(async () => {
-      if (ended) throw new Error("Channel closed");
-      const { data, kind } = await Promise.race([ready, channelEnded]);
+      if (!unsent.has(record)) throw new Error("Channel closed");
+      const { data, kind } = await ready;
       const chunkSize = MAX_MESSAGE - 17;
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const chunk = data.subarray(offset, offset + chunkSize);
         const cost = fragmentCost(chunk.length + 1);
         const waiting = () => !ended && !flow.allows(cost);
-        while (waiting()) await new Promise<void>((resolve) => creditWaiters.push(resolve));
+        while (waiting()) await new Promise<void>((wake) => creditWaiters.push(wake));
         if (ended) throw new Error("Channel closed");
         flow.spend(cost);
         const plain = new Uint8Array(chunk.length + 1);
@@ -388,17 +414,16 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         }
       }
     });
-    sending = task.catch(() => {});
-    try {
-      await Promise.race([task, channelEnded]);
-    } catch (error) {
-      end(error instanceof Error ? error : new Error("Send failed"));
-      throw error;
-    } finally {
-      if (unsent.delete(record)) readyBytes -= record.counted;
-      // Never rejects: a failed deflate already fell back to the message as it was.
-      void Promise.resolve(prepared).then(release);
-    }
+    sending = task.then(
+      () => record.settle(),
+      (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error("Send failed");
+        // This send's own error first; ending the channel then refuses the rest.
+        record.settle(failure);
+        end(failure);
+      },
+    );
+    return promise;
   };
   /**
    * Queue JSON bytes, deflated first when asked and when that makes them smaller. A large one
@@ -431,6 +456,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     if (size >= ASYNC_DEFLATE_FROM && readyBytes + size <= LOGICAL_MESSAGE_LIMIT) {
       // Off the event loop, holding room for its largest outcome (sent as it is) until done.
       readyBytes += size;
+      deflatingBytes += size;
       return sendData(prepareLater(json, deflate, options.log), size);
     }
     // Small, or too big to hold room for undeflated: on the event loop, then checked, as a
@@ -509,8 +535,13 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     flowControl() {
       sendCredit(flow.start());
     },
+    // As when every deflate ran at once: a message still being deflated counts once its size
+    // is known. The channel's own limit holds room for it meanwhile (`readyBytes`).
     get bufferedBytes() {
-      return readyBytes + socket.bufferedAmount;
+      return readyBytes - deflatingBytes + socket.bufferedAmount;
+    },
+    get unsentMessages() {
+      return unsent.size;
     },
     close() {
       locallyClosed = true;
