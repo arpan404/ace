@@ -11,6 +11,9 @@ struct SettingsPageView<Extra: View>: View {
     let fallbackTitle: String
     /// Sections a page draws itself under the bridge's, such as Simulators' tools.
     let extra: Extra
+    /// The row to bring into view once the page shows (a Settings search result).
+    let focus: String?
+    @State private var focused = false
     @Environment(\.settingsScope) private var scope
     @State private var data: SettingsPageData?
     @State private var others: [String: SettingsPageData] = [:]
@@ -21,10 +24,11 @@ struct SettingsPageView<Extra: View>: View {
     @State private var failed = 0
     @State private var picking: SettingsPageData.Row?
 
-    init(model: ClientModel, page: String, title: String, @ViewBuilder extra: () -> Extra) {
+    init(model: ClientModel, page: String, title: String, focus: String? = nil, @ViewBuilder extra: () -> Extra) {
         self.model = model
         self.page = page
         self.fallbackTitle = title
+        self.focus = focus
         self.extra = extra()
         _data = State(initialValue: model.kept(SettingsPageData.request(page), as: SettingsPageData.self))
     }
@@ -34,6 +38,16 @@ struct SettingsPageView<Extra: View>: View {
     private var motion: Animation { .default }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list.onChange(of: data != nil, initial: true) { _, shown in
+                guard shown, !focused, let focus, data?.row(focus) != nil else { return }
+                focused = true
+                Task { @MainActor in proxy.scrollTo(focus, anchor: .center) }
+            }
+        }
+    }
+
+    private var list: some View {
         List {
             if let scope, scope.several { SettingsScopeSection(scope: scope, client: model) }
             if let data {
@@ -46,6 +60,7 @@ struct SettingsPageView<Extra: View>: View {
                                 problem: rowProblems[row.id], enabled: model.canOperate && row.locked == nil,
                                 change: { change(row, $0) }, pick: { picking = row }
                             )
+                            .id(row.id)
                             if case .model(_, _, _, _, let clear?) = row.control {
                                 SettingsClearRow(row: row, clear: clear, enabled: model.canOperate && row.locked == nil) {
                                     change(row, .pick(nil))
@@ -208,7 +223,7 @@ private struct SettingsClearRow: View {
 }
 
 extension SettingsPageView where Extra == EmptyView {
-    init(model: ClientModel, page: String, title: String) {
-        self.init(model: model, page: page, title: title) { EmptyView() }
+    init(model: ClientModel, page: String, title: String, focus: String? = nil) {
+        self.init(model: model, page: page, title: title, focus: focus) { EmptyView() }
     }
 }

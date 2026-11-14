@@ -111,6 +111,39 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Keyboard"].waitForExistence(timeout: 10))
     }
 
+    func testSettingsSearchFindsPhoneAndMachineSettingsAndOpensThemInView() {
+        let app = launch()
+        app.openSearch()
+        app.buttons["search.place.settings"].tap()
+        let field = app.searchFields["Search settings"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("dark mode")
+        let mode = app.buttons["settings.search.phone/appearance.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10))
+        // It says where it sits.
+        XCTAssertTrue(mode.label.contains("Appearance"))
+        capture("settings-search-phone")
+        mode.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // A machine's own setting, under that machine's name, opens its page with the row in view.
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        let clear = field.buttons["Clear text"]
+        if clear.exists { clear.tap() }
+        field.typeText("tailscale")
+        let tailscale = app.buttons.matching(NSPredicate(format: "identifier ENDSWITH %@", "/remote/remote.tailscale")).firstMatch
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 15))
+        XCTAssertTrue(tailscale.label.contains("Remote access"))
+        capture("settings-search-machine")
+        tailscale.tap()
+        XCTAssertTrue(app.navigationBars["Remote access"].waitForExistence(timeout: 10))
+        let row = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Tailscale")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.isHittable)
+    }
+
     func testTypingInSearchFindsSettingsPagesAndThreads() {
         let app = launch()
         app.openSearch()

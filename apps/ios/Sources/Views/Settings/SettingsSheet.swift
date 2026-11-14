@@ -10,6 +10,8 @@ enum SettingsRoute: Hashable {
     case archive, history, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case automation(machine: String, id: String)
+    /// A machine's settings page from Settings' search, opened with `row` in view (none when empty).
+    case machineSetting(machine: String, page: String, title: String, row: String)
     case licences
 }
 
@@ -44,6 +46,10 @@ struct SettingsSheet: View {
     @State private var following: String?
     /// Where machine settings changes go while Settings is open (`SettingsScope`).
     @State private var scope: SettingsScope
+
+    /// Settings' search field, and each machine's settings index it searches.
+    @State private var settingsQuery = ""
+    @State private var settingsIndex = MachineSettingsIndex()
 
     @State private var forgeMachine = ""
     @State private var forgeProject = ""
@@ -111,8 +117,21 @@ struct SettingsSheet: View {
         .nativeTitle("More")
     }
 
-    /// Settings' own list, one step into More.
+    /// Settings' own list, one step into More, with its search over every page and setting.
     private var settingsList: some View {
+        Group {
+            if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                settingsRows
+            } else {
+                SettingsSearchResults(inbox: inbox, query: settingsQuery, notifications: notifications != nil, lock: lock != nil,
+                                      index: settingsIndex)
+            }
+        }
+        .searchable(text: $settingsQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("Search settings"))
+        .nativeTitle("Settings")
+    }
+
+    private var settingsRows: some View {
             List {
                 Section {
                     link(.account, "Profile", "person.crop.circle", id: "settings.account")
@@ -153,7 +172,6 @@ struct SettingsSheet: View {
                 .insetRowBackground()
             }
             .insetGroupedList()
-            .nativeTitle("Settings")
     }
 
     /// Pull requests, Issues and Notifications (the forge's lists), each row pushing its page on
@@ -221,6 +239,10 @@ struct SettingsSheet: View {
             if let client = inbox.client(machine) { tool.destination(client, inbox: inbox, machine: machine).modifier(automationLinks(client, machine)) }
         case .automation(let machine, let id):
             if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).id(id).modifier(automationLinks(client, machine)) }
+        case let .machineSetting(machine, page, title, row):
+            if let client = inbox.client(machine) {
+                SettingsPageView(model: client, page: page, title: title, focus: row.isEmpty ? nil : row)
+            }
         case .licences: LicencesView()
         }
     }
