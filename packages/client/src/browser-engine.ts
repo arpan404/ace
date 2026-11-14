@@ -193,7 +193,10 @@ export async function moveBrowserEngine(
   try {
     fresh = await open();
   } catch (error) {
-    // The new engine won't open: the thread goes back to its engine and its pages.
+    // The new engine won't open: the thread goes back to its engine and its pages. The settings
+    // protocol can't clear a thread-layer value (`settings.set` takes a schema value only and
+    // `settings.reset` resets global preferences), so a thread that only inherited its engine
+    // keeps the inherited value written here until it can (tracked on the PR).
     const why = error instanceof Error ? error.message : String(error);
     if (previous) await setEngine(client, threadId, previous);
     const back = await open();
