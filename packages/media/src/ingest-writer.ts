@@ -120,7 +120,8 @@ export class IngestWriter {
    * cut.
    */
   finish(): void {
-    if (!this.#move({ kind: "finishing", step: "keyframe" })) return;
+    // Once only: a second finish neither re-arms the deadline nor writes another end frame.
+    if (!this.#is("open") || !this.#move({ kind: "finishing", step: "keyframe" })) return;
     this.#disarm();
     this.#arm();
     // With no keyframe waiting, the end frame goes at once.
@@ -128,13 +129,18 @@ export class IngestWriter {
   }
 
   /**
-   * The only setter: `ended` and `cut` are terminal, nothing leaves them, and a finish never goes
-   * back to `open`. False when the move isn't allowed.
+   * The only setter: `ended` and `cut` are terminal, nothing leaves them, a finish never goes
+   * back to `open`, and its steps only go forward (keyframe, then end). False when the move
+   * isn't allowed.
    */
   #move(next: State): boolean {
-    const from = this.#state.kind;
-    if (from === "ended" || from === "cut") return false;
-    if (from === "finishing" && next.kind === "open") return false;
+    const from = this.#state;
+    if (from.kind === "ended" || from.kind === "cut") return false;
+    if (from.kind === "finishing") {
+      if (next.kind === "open") return false;
+      if (next.kind === "finishing" && (from.step === "end" || next.step === "keyframe"))
+        return false;
+    }
     this.#state = next;
     return true;
   }

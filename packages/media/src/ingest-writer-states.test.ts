@@ -100,7 +100,7 @@ function setup() {
     writer.write(unit(1, true, 2_000));
     writer.write(unit(2, true));
   };
-  return { socket, writer, cuts, expire, backlogged };
+  return { socket, writer, cuts, timers, expire, backlogged };
 }
 
 type Case = {
@@ -291,6 +291,39 @@ const cases: Case[] = [
     seen: ["1:1"],
     ended: false,
     destroyed: true,
+  },
+  {
+    name: "a second finish, with no keyframe waiting, writes no second end frame and arms no deadline",
+    run: ({ socket, writer, timers }) => {
+      writer.finish();
+      writer.finish();
+      expect(timers).toHaveLength(1);
+      socket.completeAll();
+      writer.finish();
+      expect(timers).toHaveLength(1);
+    },
+    cuts: [],
+    seen: ["4:-"],
+    ended: true,
+    destroyed: false,
+  },
+  {
+    name: "a second finish while its keyframe waits writes one keyframe, one end frame, one deadline",
+    run: ({ socket, writer, timers, backlogged }) => {
+      backlogged();
+      const before = timers.length;
+      writer.finish();
+      writer.finish();
+      socket.complete();
+      writer.finish();
+      expect(timers.length - before).toBe(1);
+      socket.completeAll();
+      writer.finish();
+    },
+    cuts: [],
+    seen: ["1:1", "1:2", "4:-"],
+    ended: true,
+    destroyed: false,
   },
 ];
 
