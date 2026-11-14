@@ -160,6 +160,26 @@ test("IndexedDB migration preserves ordered full drafts once and never resurrect
   });
 });
 
+test("an outbox carried over before starts without opening the legacy database", async () => {
+  await browserStorage(async (evaluate) => {
+    const result = z.object({ ids: z.array(z.string()), databases: z.array(z.string()) }).parse(
+      await evaluate(`(async () => {
+        const { idbOutbox } = await import('/adapter.js');
+        const send = id => JSON.stringify({ command: { id, deviceId: 'device', payload: { type: 'thread.markRead', threadId: 'thread', seq: 1 } }, state: 'pending' });
+        const first = idbOutbox('carried');
+        await first.records.load();
+        await first.records.write('kept', send('kept'));
+        await new Promise((resolve, reject) => { const r = indexedDB.deleteDatabase('ace'); r.onsuccess = resolve; r.onerror = () => reject(r.error); });
+        const ids = (await idbOutbox('carried', '[]').records.load()).map(row => JSON.parse(row).command.id);
+        const databases = (await indexedDB.databases()).map(db => db.name);
+        return { ids, databases };
+      })()`),
+    );
+    expect(result.ids).toEqual(["kept"]);
+    expect(result.databases).not.toContain("ace");
+  });
+});
+
 test("concurrent workers cannot reassign a persistent outbox to another daemon", async () => {
   await browserStorage(async (evaluate) => {
     const result = z
