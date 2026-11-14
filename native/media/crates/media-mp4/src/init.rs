@@ -3,11 +3,7 @@ use crate::{OpusConfig, VideoCodec, VideoConfig, boxes::Boxes};
 
 pub(crate) fn init(video: &VideoConfig, audio: Option<&OpusConfig>) -> Vec<u8> {
     let mut b = Boxes::new(2048 + video.description.len());
-    b.boxed(b"ftyp", |b| {
-        b.bytes(b"iso6");
-        b.u32(0);
-        b.bytes(b"iso6mp41");
-    });
+    b.bytes(&crate::FILE_TYPE);
     b.boxed(b"moov", |b| {
         b.full(b"mvhd", 0, 0, |b| {
             b.zeros(8);

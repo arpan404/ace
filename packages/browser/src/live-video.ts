@@ -9,6 +9,7 @@ import type {
 } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
 import { LinkRate } from "./link-rate.ts";
+import { hintedStart } from "./link-start.ts";
 import { PictureScale } from "./video-scale.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
@@ -118,7 +119,8 @@ export class LiveVideo {
   }
   /**
    * A viewer that asked for video, or its new pane; `audio` takes the sound once it unmutes.
-   * `local`: the viewer is on this machine, so its link starts at the top rate.
+   * `local`: the viewer is on this machine, so its link starts at the top rate. Otherwise its
+   * client's link hint may start it lower (`link-start.ts`), and only while its link is new.
    */
   add(
     id: string,
@@ -139,7 +141,9 @@ export class LiveVideo {
         new LinkRate({
           min: minBitrate,
           max: maxBitrate,
-          initial: local ? localBitrate : initialBitrate,
+          initial: local
+            ? localBitrate
+            : hintedStart(capture.viewport.link, initialBitrate, minBitrate),
         }),
       scale: existing?.scale ?? new PictureScale(),
     });
@@ -149,6 +153,8 @@ export class LiveVideo {
     if (!viewer) return;
     viewer.capture = capture;
     this.listen(id, capture);
+    // A hidden view stops at once; the next tick gives it its encode again, at a keyframe.
+    if (paused(capture)) this.fanout.assign(id, undefined);
   }
   remove(id: string): void {
     this.viewers.delete(id);
@@ -158,14 +164,17 @@ export class LiveVideo {
   }
   private listen(id: string, capture: CaptureViewer): void {
     const sink = this.soundSinks.get(id);
-    this.sound.set(id, sink && listens(capture) ? sink : undefined);
+    this.sound.set(id, sink && listens(capture) && !paused(capture) ? sink : undefined);
   }
   has(id: string): boolean {
     return this.viewers.has(id);
   }
-  /** Someone is shown this video now. */
+  /** Someone is shown this video now: a paused (hidden) view doesn't count. */
   watched(): boolean {
-    return this.viewers.size > 0;
+    return this.showing().length > 0;
+  }
+  private showing(): [string, Viewer][] {
+    return [...this.viewers].filter(([, viewer]) => !paused(viewer.capture));
   }
   /** The screencast size an open capture fed by pictures needs; undefined: none needed. */
   pictures(): { width: number; height: number } | undefined {
@@ -243,7 +252,8 @@ export class LiveVideo {
     this.fanout.flush();
     this.page = { ...this.page, ...page };
     const source = this.source;
-    if (!source || !this.viewers.size) {
+    const showing = this.showing();
+    if (!source || !showing.length) {
       if (this.capture) this.close();
       return;
     }
@@ -253,7 +263,7 @@ export class LiveVideo {
         ...this.page,
         codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
       },
-      [...this.viewers].map(([id, viewer]) => {
+      showing.map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
         const link = viewer.link.rate;
         return {
@@ -278,6 +288,7 @@ export class LiveVideo {
       if (!capture || now - this.wanted.since >= settleMs) this.open(source, size, now);
     }
     const open = this.capture;
+    // A paused viewer has no encode, so it is sent nothing.
     for (const id of this.viewers.keys())
       this.fanout.assign(id, open ? plan.viewers.get(id) : undefined);
     if (!open) return;
@@ -418,4 +429,9 @@ export class LiveVideo {
       ...(tabId ? { tabId } : {}),
     });
   }
+}
+
+/** The view is hidden or backgrounded (ADR 0149): it takes no video and no sound. */
+function paused(capture: CaptureViewer): boolean {
+  return capture.viewport.paused === true;
 }

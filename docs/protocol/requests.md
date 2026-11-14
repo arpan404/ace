@@ -3119,18 +3119,13 @@ Example:
   "subscriberId": "example",
   "threadId": "example",
   "type": "browser.subscribe",
-  "video": {
-    "codecs": [
-      "n6kDIJ"
-    ]
-  },
   "viewport": {
     "cursor": {
       "fill": "#22363b",
       "outline": "#50b052"
     },
     "devicePixelRatio": 3,
-    "height": 104,
+    "height": 100,
     "width": 105
   }
 }
@@ -3154,8 +3149,8 @@ Example:
   "type": "browser.capture",
   "viewport": {
     "devicePixelRatio": 2,
-    "height": 105,
-    "width": 107
+    "height": 102,
+    "width": 102
   }
 }
 ```
