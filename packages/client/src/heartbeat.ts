@@ -25,6 +25,8 @@ export class Heartbeat {
   #events: HeartbeatEvents | undefined;
   /** Another loop pings this socket (the path manager's): no regular beat, probes only. */
   #quiet = false;
+  /** Each probe still waiting out its own deadline: cancels its timer. */
+  #probes = new Set<() => void>();
   constructor(scheduler: Scheduler, intervalMs: number) {
     this.#scheduler = scheduler;
     this.#intervalMs = intervalMs;
@@ -38,26 +40,31 @@ export class Heartbeat {
    * Check now instead of at the next beat: ping at once and give the daemon `withinMs` to answer
    * that ping. Only the pong for the probe's own ping counts: a frame or a pong already on its
    * way before the probe (sent before the network changed under the socket) proves nothing
-   * about the socket now. Silence ends the beat as a miss; the answer resumes the regular beat.
-   * A no-op unless a beat is running.
+   * about the socket now. Silence ends the beat as a miss; once every probe is answered, the
+   * regular beat resumes. A probe while others wait never moves their deadlines: each keeps its
+   * own, so a socket dead at the first of many wakes is dropped `withinMs` after that one. A
+   * no-op unless a beat is running.
    */
   probe(withinMs: number): void {
     const events = this.#events;
     if (!events) return;
+    // The regular beat waits while any probe does.
     this.#cancel?.();
     this.#cancel = undefined;
     this.#awaiting = true;
     let answered = false;
     if (!events.ping(() => (answered = true))) return;
-    this.#cancel = this.#scheduler.set(withinMs, () => {
-      this.#cancel = undefined;
+    const cancel = this.#scheduler.set(withinMs, () => {
+      this.#probes.delete(cancel);
       if (!answered) {
         events.missed();
         return;
       }
+      if (this.#probes.size || this.#events !== events) return;
       this.#awaiting = false;
       this.#beat(events);
     });
+    this.#probes.add(cancel);
   }
   /**
    * Whether another loop already pings this socket and drops it when a pong goes missing (the
@@ -68,7 +75,8 @@ export class Heartbeat {
     if (on === this.#quiet) return;
     this.#quiet = on;
     const events = this.#events;
-    if (!events || this.#awaiting) return;
+    // While probes wait, the beat stays off; the last one answered starts it again.
+    if (!events || this.#awaiting || this.#probes.size) return;
     this.#cancel?.();
     this.#cancel = undefined;
     this.#beat(events);
@@ -80,6 +88,8 @@ export class Heartbeat {
   stop(): void {
     this.#cancel?.();
     this.#cancel = undefined;
+    for (const cancel of this.#probes) cancel();
+    this.#probes.clear();
     this.#awaiting = false;
     this.#events = undefined;
   }

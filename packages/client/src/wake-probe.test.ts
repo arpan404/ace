@@ -95,6 +95,33 @@ test("the pong for the probe's own ping answers it", async () => {
   expect(h.connection.state).toBe("ready");
 });
 
+test("wakes at 0, 2 and 4 s on a dead socket drop it at 5 s, not later", async () => {
+  const h = await ready();
+  // A flapping network: the host wakes the client on every interface change.
+  h.connection.wake();
+  h.advance(2_000);
+  h.connection.wake();
+  h.advance(2_000);
+  h.connection.wake();
+  h.advance(900);
+  expect(h.connection.state).toBe("ready");
+  h.advance(100);
+  expect(h.connection.state).toBe("reconnecting");
+});
+
+test("each wake's own ping must be answered: an answer to the first doesn't cover the last", async () => {
+  const h = await ready();
+  h.connection.wake();
+  h.advance(2_000);
+  h.connection.wake();
+  // The first probe's pong arrives; the second probe's never does.
+  h.pong();
+  h.advance(3_000);
+  expect(h.connection.state).toBe("ready");
+  h.advance(2_000);
+  expect(h.connection.state).toBe("reconnecting");
+});
+
 test("a standby's own late pong does not answer a wake probe after the standby is promoted", async () => {
   const { clock, client, multipath, path } = await connected("lan", ["lan", "relay"]);
   const relay = path("relay");
