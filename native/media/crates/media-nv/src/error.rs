@@ -58,8 +58,9 @@ pub fn cuda(call: &'static str, result: CuResult) -> Result<(), CodecError> {
     let message = || format!("NVDEC {call}: CUresult {result}");
     match result {
         0 => Ok(()),
-        // NO_DEVICE, INVALID_DEVICE, NOT_SUPPORTED, insufficient or missing driver
-        3 | 4 | 100 | 101 | 801 | 803 | 804 => Err(CodecError::Unsupported(message())),
+        // not initialised, stub library, insufficient driver, no device, invalid device, not
+        // supported, driver mismatch, compat not supported
+        3 | 4 | 34 | 35 | 100 | 101 | 801 | 803 | 804 => Err(CodecError::Unsupported(message())),
         2 => Err(CodecError::Backend(format!(
             "{} (out of memory)",
             message()
@@ -85,7 +86,9 @@ mod tests {
             ));
         }
         assert!(matches!(cuda("x", 100), Err(CodecError::Unsupported(_))));
-        assert!(matches!(cuda("x", 803), Err(CodecError::Unsupported(_))));
+        for result in [35, 34, 803] {
+            assert!(matches!(cuda("x", result), Err(CodecError::Unsupported(_))));
+        }
     }
 
     #[test]

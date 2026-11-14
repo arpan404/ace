@@ -23,8 +23,6 @@ macro_rules! call {
     }};
 }
 
-/// Registered textures kept per session: a capture ring is a handful of textures.
-const REGISTERED_MAX: usize = 8;
 const NEED_MORE_INPUT: Status = 17;
 
 /// What the session encodes on.
@@ -69,15 +67,6 @@ struct InputBuffer {
     format: u32,
 }
 
-struct Registered {
-    key: (usize, u32),
-    format: u32,
-    pitch: u32,
-    handle: *mut c_void,
-    /// What `resource` pointed at for GL; kept while registered.
-    _gl: Option<Box<GlTexResource>>,
-}
-
 /// One encoded picture as NVENC returned it.
 pub struct Output {
     pub data: Vec<u8>,
@@ -97,7 +86,6 @@ pub struct Session {
     init: Box<InitParams>,
     bitstream: *mut c_void,
     input: Option<InputBuffer>,
-    registered: Vec<Registered>,
     frame_idx: u32,
 }
 
@@ -144,7 +132,6 @@ impl Session {
             init: Box::new(zeroed()),
             bitstream: null_mut(),
             input: None,
-            registered: Vec::new(),
             frame_idx: 0,
         };
         nvenc("open_encode_session_ex", status)?;
@@ -274,37 +261,62 @@ impl Session {
                 self.submit(input, format, pitch, flags, pts, duration_us)
             }
             Picture::Platform(platform) => {
+                // The picture owns its texture only until this call returns, and texture names
+                // and addresses are reused after release. So the registration lives exactly as
+                // long as this picture: register, map, encode, unmap, unregister.
                 let format = rgb_format(platform.format)?;
                 let surface = platform.surface.as_any();
-                let index = if let Some(gl) = surface.downcast_ref::<GlTexture>() {
-                    self.register_gl(gl, format)?
+                let mut gl_resource;
+                let (kind, resource, pitch) = if let Some(gl) = surface.downcast_ref::<GlTexture>()
+                {
+                    gl_resource = GlTexResource {
+                        texture: gl.texture,
+                        target: gl.target,
+                    };
+                    let resource: *mut GlTexResource = &mut gl_resource;
+                    (RESOURCE_OPENGL_TEX, resource.cast(), self.size.width * 4)
                 } else if let Some(d3d) = surface.downcast_ref::<D3d11Texture>() {
-                    self.register_d3d11(d3d, format)?
+                    (RESOURCE_DIRECTX, d3d.texture, 0)
                 } else {
                     return Err(CodecError::Unsupported(
                         "NVENC takes GL or D3D11 textures".into(),
                     ));
                 };
-                let registered = self.registered[index].handle;
-                let pitch = self.registered[index].pitch;
-                let mut map: MapInputResource = zeroed();
-                map.version = MAP_VER;
-                map.registered = registered;
-                call!(self.api, map_input_resource(self.handle, &mut map))?;
-                let result = self.submit(
-                    map.mapped,
-                    map.mapped_format,
-                    pitch,
-                    flags,
-                    pts,
-                    duration_us,
-                );
-                let unmapped = call!(self.api, unmap_input_resource(self.handle, map.mapped));
-                let output = result?;
-                unmapped?;
+                let registered = self.register(kind, resource, format, pitch)?;
+                let encoded = self.encode_registered(registered, pitch, flags, pts, duration_us);
+                let unregistered = call!(self.api, unregister_resource(self.handle, registered));
+                let output = encoded?;
+                unregistered?;
+                drop(platform);
                 Ok(output)
             }
         }
+    }
+
+    fn encode_registered(
+        &mut self,
+        registered: *mut c_void,
+        pitch: u32,
+        flags: u32,
+        pts_us: u64,
+        duration_us: u64,
+    ) -> Result<Option<Output>, CodecError> {
+        let mut map: MapInputResource = zeroed();
+        map.version = MAP_VER;
+        map.registered = registered;
+        call!(self.api, map_input_resource(self.handle, &mut map))?;
+        let result = self.submit(
+            map.mapped,
+            map.mapped_format,
+            pitch,
+            flags,
+            pts_us,
+            duration_us,
+        );
+        let unmapped = call!(self.api, unmap_input_resource(self.handle, map.mapped));
+        let output = result?;
+        unmapped?;
+        Ok(output)
     }
 
     fn submit(
@@ -406,52 +418,6 @@ impl Session {
         Ok((handle, format, lock.pitch))
     }
 
-    fn register_gl(&mut self, gl: &GlTexture, format: u32) -> Result<usize, CodecError> {
-        let key = (gl.texture as usize, gl.target);
-        if let Some(i) = self.find(key, format) {
-            return Ok(i);
-        }
-        let mut resource = Box::new(GlTexResource {
-            texture: gl.texture,
-            target: gl.target,
-        });
-        let pitch = self.size.width * 4;
-        let handle = self.register(
-            RESOURCE_OPENGL_TEX,
-            (&mut *resource as *mut GlTexResource).cast(),
-            format,
-            pitch,
-        )?;
-        Ok(self.remember(Registered {
-            key,
-            format,
-            pitch,
-            handle,
-            _gl: Some(resource),
-        }))
-    }
-
-    fn register_d3d11(&mut self, d3d: &D3d11Texture, format: u32) -> Result<usize, CodecError> {
-        let key = (d3d.texture as usize, 0);
-        if let Some(i) = self.find(key, format) {
-            return Ok(i);
-        }
-        let handle = self.register(RESOURCE_DIRECTX, d3d.texture, format, 0)?;
-        Ok(self.remember(Registered {
-            key,
-            format,
-            pitch: 0,
-            handle,
-            _gl: None,
-        }))
-    }
-
-    fn find(&self, key: (usize, u32), format: u32) -> Option<usize> {
-        self.registered
-            .iter()
-            .position(|r| r.key == key && r.format == format)
-    }
-
     fn register(
         &mut self,
         kind: u32,
@@ -459,10 +425,6 @@ impl Session {
         format: u32,
         pitch: u32,
     ) -> Result<*mut c_void, CodecError> {
-        if self.registered.len() >= REGISTERED_MAX {
-            let oldest = self.registered.remove(0);
-            call!(self.api, unregister_resource(self.handle, oldest.handle))?;
-        }
         let mut register: RegisterResource = zeroed();
         register.version = REGISTER_VER;
         register.resource_type = kind;
@@ -474,11 +436,6 @@ impl Session {
         register.buffer_usage = USAGE_INPUT_IMAGE;
         call!(self.api, register_resource(self.handle, &mut register))?;
         Ok(register.registered)
-    }
-
-    fn remember(&mut self, registered: Registered) -> usize {
-        self.registered.push(registered);
-        self.registered.len() - 1
     }
 
     fn release_input(&mut self) {
@@ -498,7 +455,8 @@ impl Drop for Session {
         }
         let list = self.api.list;
         // SAFETY (whole block): every handle below was created by this session and is released
-        // once, in the documented order: end of stream, buffers, registrations, the session.
+        // once, in the documented order: end of stream, buffers, the session. No registration
+        // outlives the picture it was made for.
         unsafe {
             if self.initialized
                 && let Some(f) = list.encode_picture
@@ -513,11 +471,6 @@ impl Drop for Session {
                 && let Some(f) = list.destroy_bitstream_buffer
             {
                 f(self.handle, self.bitstream);
-            }
-            if let Some(f) = list.unregister_resource {
-                for registered in self.registered.drain(..) {
-                    f(self.handle, registered.handle);
-                }
             }
             if let Some(f) = list.destroy_encoder {
                 f(self.handle);

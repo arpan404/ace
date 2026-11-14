@@ -236,47 +236,93 @@ fn cpu_pictures_are_uploaded_row_by_row_at_the_drivers_pitch() {
 }
 
 #[test]
-fn gl_textures_are_registered_once_and_mapped_for_each_picture() {
+fn each_texture_is_registered_only_for_its_own_picture() {
+    // Texture names are reused once a producer releases a texture, so a registration must not
+    // outlive the picture: name 7 twice is two separate registrations, never a cached one.
     let mut encoder = encoder();
     encoder.configure(&h264()).unwrap();
-    for pts in 0..3 {
-        encoder.encode(texture(7, pts), false).unwrap();
+    for (id, pts) in [(7, 0), (7, 1), (8, 2)] {
+        encoder.encode(texture(id, pts), false).unwrap();
+        assert_eq!(
+            enc(|e| e.live),
+            Live {
+                sessions: 1,
+                bitstreams: 1,
+                ..Live::default()
+            },
+            "nothing registered or mapped after the picture"
+        );
     }
-    encoder.encode(texture(8, 3), false).unwrap();
     let calls = enc(|e| e.calls.clone());
-    assert_eq!(calls.iter().filter(|c| **c == "register").count(), 2);
-    assert_eq!(calls.iter().filter(|c| **c == "map").count(), 4);
-    assert_eq!(calls.iter().filter(|c| **c == "unmap").count(), 4);
+    let per_picture: Vec<_> = calls
+        .iter()
+        .filter(|c| matches!(**c, "register" | "map" | "encode" | "unmap" | "unregister"))
+        .copied()
+        .collect();
+    assert_eq!(
+        per_picture,
+        ["register", "map", "encode", "unmap", "unregister"].repeat(3)
+    );
     assert_eq!(
         enc(|e| e.registered.clone()),
         [
             (RESOURCE_OPENGL_TEX, FORMAT_ARGB, 7),
+            (RESOURCE_OPENGL_TEX, FORMAT_ARGB, 7),
             (RESOURCE_OPENGL_TEX, FORMAT_ARGB, 8)
         ]
     );
-    assert_eq!(enc(|e| e.live.mapped), 0, "nothing stays mapped");
-    assert_eq!(drain(&mut encoder).len(), 4);
+    assert_eq!(drain(&mut encoder).len(), 3);
+    encoder.close();
 }
 
 #[test]
-fn dropping_the_encoder_ends_the_stream_and_releases_everything_in_order() {
+fn a_failed_unregister_is_reported_and_nothing_stays_mapped() {
+    let mut encoder = encoder();
+    encoder.configure(&h264()).unwrap();
+    enc(|e| e.fail = Some(("unregister", 20)));
+    assert!(matches!(
+        encoder.encode(texture(5, 0), false),
+        Err(CodecError::Backend(_))
+    ));
+    assert_eq!(enc(|e| e.live.mapped), 0);
+    encoder.close();
+}
+
+#[test]
+fn a_failed_map_still_unregisters_the_texture() {
+    let mut encoder = encoder();
+    encoder.configure(&h264()).unwrap();
+    enc(|e| e.fail = Some(("map", 16)));
+    assert!(encoder.encode(texture(5, 0), false).is_err());
+    assert_eq!(enc(|e| e.live.registrations), 0);
+    encoder.close();
+}
+
+#[test]
+fn closing_a_gl_encoder_ends_the_stream_and_releases_everything_in_order() {
     let mut encoder = encoder();
     encoder.configure(&h264()).unwrap();
     encoder.encode(nv12(0), false).unwrap();
     encoder.encode(texture(3, 1), false).unwrap();
     enc(|e| e.calls.clear());
-    drop(encoder);
+    encoder.close();
     assert_eq!(
         enc(|e| e.calls.clone()),
-        [
-            "eos",
-            "destroy_input",
-            "destroy_bitstream",
-            "unregister",
-            "destroy"
-        ]
+        ["eos", "destroy_input", "destroy_bitstream", "destroy"]
     );
     assert_eq!(enc(|e| e.live), Live::default());
+}
+
+#[test]
+fn dropping_a_gl_encoder_without_close_makes_no_driver_call() {
+    // Drop may run on a thread without the GL context: it leaks the session instead.
+    let mut encoder = encoder();
+    encoder.configure(&h264()).unwrap();
+    encoder.encode(nv12(0), false).unwrap();
+    enc(|e| e.calls.clear());
+    drop(encoder);
+    assert!(enc(|e| e.calls.is_empty()));
+    assert_eq!(enc(|e| e.live.sessions), 1, "leaked, not torn down");
 }
 
 #[test]

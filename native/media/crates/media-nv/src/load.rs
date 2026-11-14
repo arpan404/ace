@@ -158,10 +158,24 @@ pub(crate) fn gate<T>(opted_in: bool, load: impl FnOnce() -> T) -> Result<T, Cod
 }
 
 fn open(name: &str) -> Result<Library, CodecError> {
+    load_library(name).map_err(|e| CodecError::Unsupported(format!("{name} not loadable: {e}")))
+}
+
+/// The driver's sonames through the dynamic loader's own search path.
+#[cfg(target_os = "linux")]
+fn load_library(name: &str) -> Result<Library, libloading::Error> {
     // SAFETY: the NVIDIA driver libraries run no initialisers with preconditions on the
     // loading thread; loading them is what NVIDIA documents for applications.
     unsafe { Library::new(name) }
-        .map_err(|e| CodecError::Unsupported(format!("{name} not loadable: {e}")))
+}
+
+/// The driver installs its DLLs in System32. Searching only there means a DLL of the same name
+/// planted in the current directory or on `PATH` is never loaded.
+#[cfg(windows)]
+fn load_library(name: &str) -> Result<Library, libloading::Error> {
+    use libloading::os::windows::{LOAD_LIBRARY_SEARCH_SYSTEM32, Library as WindowsLibrary};
+    // SAFETY: as on Linux; the flag restricts the search to System32.
+    unsafe { WindowsLibrary::load_with_flags(name, LOAD_LIBRARY_SEARCH_SYSTEM32) }.map(Into::into)
 }
 
 /// Copies a function pointer of type `T` out of `library`. The pointer stays valid as long as

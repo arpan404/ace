@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The layouts the driver reads and writes, pinned for NVENC 12.0 on 64-bit Linux, and the
-//! developer-only comparison with NVIDIA's headers (`ACE_NV_HEADERS`, ADR 0148 §3). The
-//! numbers here are where our declaration puts each member the driver touches; a change to
-//! one must be deliberate and checked against the headers.
+//! developer-only comparison with NVIDIA's headers (`ACE_NV_HEADERS`, ADR 0148 §3).
+//!
+//! The pinned numbers are where *our declaration* puts each member: they catch an accidental
+//! change to it, and nothing more. They can't tell whether NVIDIA's real layout agrees; only
+//! the `ACE_NV_HEADERS` comparison at the bottom can (see `enc_abi.rs` for how sure each
+//! number is).
 use crate::dec_abi::*;
 use crate::enc_abi::*;
 use std::mem::{offset_of, size_of};
@@ -62,6 +65,7 @@ fn nvenc_layout() -> Vec<(&'static str, usize)> {
             offset_of!(RcParams, vbv_initial_delay),
         ),
         ("sizeof(NV_ENC_CONFIG)", size_of::<EncConfig>()),
+        ("sizeof(NV_ENC_CODEC_CONFIG)", size_of::<CodecConfig>()),
         (
             "offsetof(NV_ENC_CONFIG, gopLength)",
             offset_of!(EncConfig, gop_length),
@@ -330,6 +334,7 @@ fn nvdec_layout() -> Vec<(&'static str, usize)> {
     ]
 }
 
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 fn value(table: &[(&str, usize)], name: &str) -> usize {
     table
         .iter()
@@ -371,6 +376,9 @@ fn nvenc_members_sit_where_the_pinned_version_puts_them() {
         ),
         ("sizeof(NV_ENC_CAPS_PARAM)", 256),
         ("sizeof(NV_ENC_RC_PARAMS)", 128),
+        ("sizeof(NV_ENC_CONFIG)", 3584),
+        ("sizeof(NV_ENC_PRESET_CONFIG)", 5128),
+        ("sizeof(NV_ENC_INITIALIZE_PARAMS)", 1808),
         ("offsetof(NV_ENC_RC_PARAMS, averageBitRate)", 20),
         ("offsetof(NV_ENC_CONFIG, gopLength)", 20),
         ("offsetof(NV_ENC_CONFIG, rcParams)", 40),

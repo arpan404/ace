@@ -69,7 +69,10 @@ pub struct NvEncoder {
 
 // SAFETY: an NVENC session and its handles may be used from any thread, one call at a time,
 // which `&mut self` guarantees. The D3D11 device is multithread-protected (`open_d3d11`'s
-// contract). For GL, the caller makes its context current on whichever thread encodes.
+// contract). A GL session needs its context current on the calling thread: `configure`,
+// `encode` and `close` must run where the caller made it current, and `Drop` never calls the
+// driver for a GL session (it leaks it instead), so moving the encoder to a thread without the
+// context can't run NVENC calls there.
 unsafe impl Send for NvEncoder {}
 
 fn encode_api(runtime: &NvRuntime) -> Result<Arc<EncodeApi>, CodecError> {
@@ -95,6 +98,11 @@ impl NvEncoder {
 
     /// Linux: GL textures from the GL context current on the thread that configures and
     /// encodes (`NV_ENC_DEVICE_TYPE_OPENGL`).
+    ///
+    /// The GL context must be current on the calling thread for every `configure`, `encode`
+    /// and for [`close`](Self::close), which must be called on that thread before the encoder
+    /// goes. An encoder dropped without `close` leaks its NVENC session (and logs it) rather
+    /// than tearing it down without the context.
     pub fn open_gl(runtime: &NvRuntime, preset: Preset) -> Result<Self, CodecError> {
         Ok(Self::new(encode_api(runtime)?, Device::OpenGl, preset))
     }
@@ -134,6 +142,31 @@ impl NvEncoder {
     #[cfg(test)]
     pub(crate) fn with_api(api: Arc<EncodeApi>, preset: Preset) -> Self {
         Self::new(api, Device::OpenGl, preset)
+    }
+}
+
+impl NvEncoder {
+    /// Ends the stream and releases the session now, on this thread. For a GL encoder this is
+    /// the required way to finish, with the GL context current; for D3D11 and CUDA, dropping
+    /// does the same.
+    pub fn close(mut self) {
+        self.session = None;
+    }
+}
+
+impl Drop for NvEncoder {
+    fn drop(&mut self) {
+        if matches!(self.device, Device::OpenGl)
+            && let Some(session) = self.session.take()
+        {
+            // Tearing down needs the GL context current, which `Drop` can't know. A leaked
+            // session is reclaimed by the driver when the process or GL context ends.
+            eprintln!(
+                "media-nv: GL encoder dropped without close(); leaking its NVENC session \
+                 rather than releasing it without the GL context"
+            );
+            std::mem::forget(session);
+        }
     }
 }
 

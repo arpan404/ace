@@ -5,7 +5,33 @@
 //! member names and the version scheme. Only the members ace sets or reads are named; the rest
 //! of each structure is a reserved tail that stays zero. Nothing here is copied or generated
 //! from the Video Codec SDK or any copy of its headers. A developer who has the SDK under their
-//! own licence can compare these layouts with `ACE_NV_HEADERS` (see `tests/headers.rs`).
+//! own licence can compare these layouts with `ACE_NV_HEADERS` (`tests/layout.rs`).
+//!
+//! # How sure each number is
+//!
+//! The guide names members and gives their roles and order of use. It gives no byte sizes, no
+//! complete member lists and no reserved-array lengths. So every offset, size and structure
+//! revision below is our reading of the 12.0 interface under C layout rules, and none is
+//! verified until the `ACE_NV_HEADERS` check passes (this is why the backend is off by
+//! default). Each structure is one of three kinds:
+//!
+//! - **Leading members, relied on.** The offsets of the members ace sets or reads, in the
+//!   guide's member order: `version` first, then the members named in each structure below.
+//!   These matter most: a wrong one is a wrong read or write that the driver accepts. Members
+//!   the guide doesn't list but that sit before ones we use (`darWidth`, `frameRateNum`,
+//!   `privData`, the ME hint counts in `NV_ENC_INITIALIZE_PARAMS`; `frameIdx`,
+//!   `inputDuration` in `NV_ENC_PIC_PARAMS`; the slice and status members of
+//!   `NV_ENC_LOCK_BITSTREAM`) are the least certain part.
+//! - **Total sizes, uncertain.** Reserved-tail lengths are estimates. Where the driver
+//!   *writes* (`NV_ENC_PRESET_CONFIG`, `NV_ENC_LOCK_BITSTREAM`), the storage has 4 KiB of
+//!   zeroed slack past our size. Where it only *reads*, our structures are at least as large as
+//!   our estimate and the tail is zero. The estimates: `NV_ENC_CONFIG` 3584 (the per-codec
+//!   union is 320 words plus 64 reserved pointers: 1792), `NV_ENC_PRESET_CONFIG` 5128,
+//!   `NV_ENC_INITIALIZE_PARAMS` 1808, `NV_ENC_RC_PARAMS` 128, the function table 2568.
+//! - **Structure revisions, uncertain.** `CONFIG` 8, `INITIALIZE` 5, `PIC_PARAMS` 6, `PRESET`
+//!   4 and `RECONFIGURE` 1 with bit 31; `REGISTER` 4, `MAP` 4, the rest 1 (the function table
+//!   2). A wrong revision is refused by the driver (`INVALID_VERSION`): no backend, not memory
+//!   corruption.
 use std::ffi::{c_char, c_void};
 
 pub const API_MAJOR: u32 = 12;
@@ -209,11 +235,14 @@ pub struct RcParams {
     pub rest: [u32; 13],
 }
 
-/// The per-codec union. `idrPeriod` is word 2 for H.264 and word 5 for HEVC.
-#[repr(C, align(8))]
+/// The per-codec union, 1792 bytes: each codec's configuration is 320 words of members and
+/// reserved space followed by 64 reserved pointers. `idrPeriod` is word 2 for H.264 and word 5
+/// for HEVC.
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CodecConfig {
     pub words: [u32; 320],
+    pub reserved2: [*mut c_void; 64],
 }
 pub const H264_IDR_PERIOD_WORD: usize = 2;
 pub const HEVC_IDR_PERIOD_WORD: usize = 5;
@@ -277,8 +306,10 @@ pub struct ReconfigureParams {
     pub version: u32,
     pub reserved: u32,
     pub init: InitParams,
+    /// Where our size estimate of `NV_ENC_INITIALIZE_PARAMS` puts `resetEncoder`/`forceIDR`.
+    /// ace sets neither, so a different true offset reads zero from the tail.
     pub flags: u32,
-    pub reserved1: [u32; 255],
+    pub reserved1: [u32; 1023],
 }
 
 #[repr(C)]

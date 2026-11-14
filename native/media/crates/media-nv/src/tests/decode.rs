@@ -166,3 +166,14 @@ fn dropping_the_decoder_releases_parser_decoder_and_context() {
     assert_eq!(tail, ["destroy_parser", "destroy_decoder"]);
     assert_eq!(dec(|d| (d.parsers, d.decoders, d.contexts)), (0, 0, 0));
 }
+
+#[test]
+fn a_panic_with_the_context_pushed_still_pops_it() {
+    let _reset = fake::cuvid_api(CUVID_H264);
+    let context = crate::cuda::CudaContext::create(fake::cuda_api()).unwrap();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        context.with(|| panic!("inside a CUDA call"))
+    }));
+    assert!(outcome.is_err());
+    assert_eq!(dec(|d| d.depth), 0, "no context is left current");
+}

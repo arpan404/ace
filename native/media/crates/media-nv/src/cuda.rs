@@ -31,16 +31,41 @@ impl CudaContext {
         }
     }
 
-    /// Runs `f` with this context current, then makes it not current again.
+    /// Runs `f` with this context current, then makes it not current again, also when `f`
+    /// panics.
     pub fn with<T>(&self, f: impl FnOnce() -> T) -> Result<T, CodecError> {
         let fns = self.api.fns;
-        // SAFETY: the context is ours and alive; push and pop are paired.
+        // SAFETY: the context is ours and alive; the guard pops it.
         cuda("cuCtxPushCurrent", unsafe { (fns.ctx_push)(self.context) })?;
+        let pushed = Pushed { api: &self.api };
         let out = f();
-        let mut popped = null_mut();
-        // SAFETY: pops what was pushed above.
-        cuda("cuCtxPopCurrent", unsafe { (fns.ctx_pop)(&mut popped) })?;
+        pushed.pop()?;
         Ok(out)
+    }
+}
+
+/// A pushed context, popped exactly once: by `pop`, or by `Drop` while unwinding.
+struct Pushed<'a> {
+    api: &'a CudaApi,
+}
+
+impl Pushed<'_> {
+    fn pop(self) -> Result<(), CodecError> {
+        let result = self.pop_raw();
+        std::mem::forget(self);
+        cuda("cuCtxPopCurrent", result)
+    }
+
+    fn pop_raw(&self) -> crate::dec_abi::CuResult {
+        let mut popped = null_mut();
+        // SAFETY: pops the context `with` pushed on this thread.
+        unsafe { (self.api.fns.ctx_pop)(&mut popped) }
+    }
+}
+
+impl Drop for Pushed<'_> {
+    fn drop(&mut self) {
+        self.pop_raw();
     }
 }
 

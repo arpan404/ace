@@ -18,7 +18,7 @@ use media_codec::{
 };
 use std::collections::VecDeque;
 use std::ffi::{c_int, c_ulong, c_void};
-use std::ptr::null_mut;
+use std::ptr::{NonNull, null_mut};
 use std::sync::Arc;
 
 /// Pictures in flight between NVDEC and the readback.
@@ -39,7 +39,10 @@ struct State {
 pub struct NvDecoder {
     codec: Codec,
     parser: *mut c_void,
-    state: Box<State>,
+    /// Owned through `Box::leak` (a raw pointer): the parser holds this pointer as its user data, so no
+    /// `Box` or `&mut` is kept that a later move or reborrow could invalidate. Freed in `Drop`
+    /// after the parser.
+    state: NonNull<State>,
     context: CudaContext,
 }
 
@@ -86,7 +89,7 @@ impl NvDecoder {
             }
         }
         let context = CudaContext::create(cuda_api.clone())?;
-        let mut state = Box::new(State {
+        let state = Box::new(State {
             cuda: cuda_api,
             cuvid: cuvid_api,
             decoder: null_mut(),
@@ -103,28 +106,40 @@ impl NvDecoder {
             ready: VecDeque::new(),
             error: None,
         });
+        let create = state.cuvid.fns.create_parser;
+        // From here on the state is freed by `Drop`, including when creating the parser fails.
+        let mut decoder = Self {
+            codec,
+            parser: null_mut(),
+            state: NonNull::from(Box::leak(state)),
+            context,
+        };
         let mut params: ParserParams = crate::enc_abi::zeroed();
         params.codec = codec_type;
         params.max_num_decode_surfaces = 1;
         params.clock_rate = 1_000_000;
         params.max_display_delay = 0;
-        params.user_data = (&mut *state as *mut State).cast();
+        params.user_data = decoder.state.as_ptr().cast();
         params.sequence = Some(on_sequence);
         params.decode = Some(on_decode);
         params.display = Some(on_display);
-        let mut parser = null_mut();
-        let create = state.cuvid.fns.create_parser;
-        // SAFETY: `params` is ours; `user_data` points at the boxed state, which outlives the
-        // parser (destroyed first in `Drop`).
+        // SAFETY: `params` is ours; `user_data` points at the state, which outlives the parser
+        // (destroyed first in `Drop`).
         cuda("cuvidCreateVideoParser", unsafe {
-            create(&mut parser, &mut params)
+            create(&mut decoder.parser, &mut params)
         })?;
-        Ok(Self {
-            codec,
-            parser,
-            state,
-            context,
-        })
+        Ok(decoder)
+    }
+
+    fn state(&self) -> &State {
+        // SAFETY: the state lives until `Drop`; the parser only touches it inside
+        // `cuvidParseVideoData`, and no reference from here is held across that call.
+        unsafe { self.state.as_ref() }
+    }
+
+    fn state_mut(&mut self) -> &mut State {
+        // SAFETY: as `state`, and `&mut self` makes this the only reference.
+        unsafe { self.state.as_mut() }
     }
 }
 
@@ -132,7 +147,7 @@ impl NvDecoder {
     /// The largest coded picture this GPU's NVDEC decodes for the codec, known once a sequence
     /// has been seen.
     pub fn max(&self) -> Size {
-        self.state.max
+        self.state().max
     }
 }
 
@@ -155,37 +170,39 @@ impl Decoder for NvDecoder {
             .map_err(|_| CodecError::InvalidInput("unit too large".into()))?;
         packet.payload = unit.data.as_ptr();
         packet.timestamp = i64::try_from(unit.pts_us).unwrap_or(i64::MAX);
-        let parse = self.state.cuvid.fns.parse_data;
+        let parse = self.state().cuvid.fns.parse_data;
         let parser = self.parser;
         // SAFETY: the parser is ours; `packet` borrows `unit.data` for the call only. The
         // callbacks it makes run on this thread, inside this call, with the context pushed.
         let result = self
             .context
             .with(|| unsafe { parse(parser, &mut packet) })?;
-        if let Some(error) = self.state.error.take() {
-            self.state.ready.clear();
+        let state = self.state_mut();
+        if let Some(error) = state.error.take() {
+            state.ready.clear();
             return Err(error);
         }
         cuda("cuvidParseVideoData", result)?;
-        Ok(self.state.ready.pop_front().map(Picture::Cpu))
+        Ok(state.ready.pop_front().map(Picture::Cpu))
     }
 }
 
 impl Drop for NvDecoder {
     fn drop(&mut self) {
         let parser = self.parser;
-        let state = &mut *self.state;
+        let state = self.state;
         // SAFETY: parser first (it calls into the state), then the decoder, with the context
-        // current; the context itself is dropped after this.
+        // current; then the state is freed. The context itself is dropped after this.
         let _ = self.context.with(|| unsafe {
+            let state = &mut *state.as_ptr();
             if !parser.is_null() {
                 (state.cuvid.fns.destroy_parser)(parser);
             }
-            if !state.decoder.is_null() {
-                (state.cuvid.fns.destroy_decoder)(state.decoder);
-                state.decoder = null_mut();
-            }
+            state.destroy_decoder();
         });
+        // SAFETY: the pointer came from `Box::leak` in `with_apis`, and the parser that held a
+        // copy is destroyed.
+        drop(unsafe { Box::from_raw(self.state.as_ptr()) });
     }
 }
 

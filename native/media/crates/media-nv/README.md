@@ -33,6 +33,10 @@ Nothing is linked. With the opt-in set, `NvRuntime::load` opens the driver's own
 | NVDEC | `libnvcuvid.so.1`       | `nvcuvid.dll`       |
 | CUDA  | `libcuda.so.1`          | `nvcuda.dll`        |
 
+On Linux the sonames go through the dynamic loader's usual search. On Windows the DLLs are
+loaded with `LOAD_LIBRARY_SEARCH_SYSTEM32` only, where the driver installs them, so a DLL of
+the same name in the current directory or on `PATH` is never picked up.
+
 A part that is missing, or an NVENC whose `NvEncodeAPIGetMaxSupportedVersion` is below the
 pinned version, is absent and its reason is kept for `ace doctor`. Without the driver there is
 no backend and no crash.
@@ -43,7 +47,9 @@ no backend and no crash.
 (drivers 520 and later), written from NVIDIA's public programming guides. They name only the
 members ace sets or reads; every other member is a reserved tail kept at zero. Structures the
 driver writes into (`NV_ENC_PRESET_CONFIG`, `NV_ENC_LOCK_BITSTREAM`) sit in storage with 4 KiB
-of slack past our declared size. Nothing is copied, vendored or generated from the Video Codec
+of slack past our declared size. `enc_abi.rs` says, structure by structure, which numbers we
+rely on and how sure each is: the guide gives member names and order, not byte sizes, so every
+offset, size and revision is unverified until the `ACE_NV_HEADERS` check passes. Nothing is copied, vendored or generated from the Video Codec
 SDK or any copy of its headers, and `tests/no_nvidia_files.rs` fails if an NVIDIA header or
 library lands in `native/`.
 
@@ -61,12 +67,21 @@ CI; nothing of the SDK enters the repository.
 
 ## Encode (`NvEncoder`)
 
-- **Devices.** `open_gl` (Linux, `NV_ENC_DEVICE_TYPE_OPENGL`: the caller's GL context must be
-  current on the thread that configures and encodes), `open_d3d11` (Windows), and `open_cuda`
-  (driver-allocated input buffers on a CUDA context of its own, for CPU pictures and the probe).
+- **Devices.** `open_gl` (Linux, `NV_ENC_DEVICE_TYPE_OPENGL`), `open_d3d11` (Windows), and
+  `open_cuda` (driver-allocated input buffers on a CUDA context of its own, for CPU pictures and
+  the probe).
+- **The GL thread contract.** A GL encoder needs its context current on the calling thread for
+  every `configure` and `encode`, and must be finished with `close()` on that thread. Dropping
+  it without `close()`, which might happen on a thread without the context, makes no driver
+  call: it leaks the NVENC session and logs that it did. D3D11 and CUDA encoders may simply be
+  dropped.
 - **Input.** `GlTexture` and `D3d11Texture` platform pictures in `Bgra8` (NVENC ARGB) or `Rgba8`
-  (ABGR), registered once per texture (up to 8 per session) and mapped per picture: zero copy,
-  NVENC converts to YUV. CPU pictures (NV12, BGRA, RGBA) are one upload into the session's input
+  (ABGR): zero copy, NVENC converts to YUV. Each picture's texture is registered, mapped,
+  encoded, unmapped and unregistered within its `encode` call, while the picture still owns the
+  texture. Texture names and D3D11 addresses are reused once a producer releases a texture, so a
+  registration never outlives its picture. That costs a registration per picture; keeping
+  registrations across pictures would need the producer to name its texture ring and say when
+  each texture is released. CPU pictures (NV12, BGRA, RGBA) are one upload into the session's input
   buffer.
 - **Tuning.** Only the P1–P7 presets (default P3) with `ULTRA_LOW_LATENCY` tuning info, applied
   through `nvEncGetEncodePresetConfigEx`. Then: no B-frames, an infinite GOP and IDR period,
@@ -80,8 +95,7 @@ CI; nothing of the SDK enters the repository.
 - **Errors.** An unknown structure version, missing device or codec is `Unsupported`; a busy
   encoder is `Backpressure` (the picture isn't consumed and a pending keyframe stays owed);
   other statuses are `Backend`, naming the call.
-- **Teardown** follows the guide: end of stream, input and bitstream buffers, registrations,
-  the session.
+- **Teardown** follows the guide: end of stream, input and bitstream buffers, the session.
 
 ## Decode (`NvDecoder`)
 
@@ -106,6 +120,11 @@ Everything except the driver itself runs anywhere Linux runs: a fake driver at t
 does, and counts handles, so the call sequence, keyframes, rate changes, registration, readback
 offsets, teardown and error mapping are tested through the real FFI code. Layout tests pin the
 offsets and sizes of every member the driver touches on 64-bit Linux.
+
+**Neither can verify NVIDIA's real layout.** The fake driver is written against the same
+declarations, so it agrees with them by construction, and the layout tests only pin where our
+declaration puts each member, catching accidental changes. Whether that matches NVIDIA's
+interface is checked by one thing: the `ACE_NV_HEADERS` comparison against the SDK headers.
 
 Without the opt-in, the probe's output shows that the driver loader never ran (a fake loader
 that would have produced a working backend is passed in and the result is still
