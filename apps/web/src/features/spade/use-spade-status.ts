@@ -4,6 +4,8 @@ import { useSyncExternalStore } from "react";
 import { daemonStatusWhileAway, spadeStatusWith, type DirectHealth } from "./spade-route.ts";
 import { spadeTransport, type SpadeTransport } from "./spade-transport.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { visibleInterval } from "./visible-interval.ts";
+import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
 
 /** How often the desktop app looks at Spade's `/health` itself while someone reads the status. */
 const healthEveryMs = 10_000;
@@ -25,9 +27,15 @@ export class SpadeStatusWatch {
   private looked = 0;
   private readonly client: ClientApi;
   private readonly transport: Pick<SpadeTransport, "desktop" | "health">;
-  constructor(client: ClientApi, transport: Pick<SpadeTransport, "desktop" | "health">) {
+  private readonly page: PageVisibility;
+  constructor(
+    client: ClientApi,
+    transport: Pick<SpadeTransport, "desktop" | "health">,
+    page: PageVisibility = documentVisibility,
+  ) {
     this.client = client;
     this.transport = transport;
+    this.page = page;
   }
   get = (): SpadeStatus | undefined => this.status;
   subscribe = (listener: () => void): (() => void) => {
@@ -75,10 +83,10 @@ export class SpadeStatusWatch {
   private watchDirect() {
     const desktop = this.transport.desktop;
     if (!desktop) return;
-    const timer = setInterval(() => this.look(), healthEveryMs);
     this.stops.push(
       desktop.onEndpointChanged(() => this.look()),
-      () => clearInterval(timer),
+      // Not while the window is hidden: looked at again as soon as it is shown.
+      visibleInterval(() => this.look(), healthEveryMs, this.page),
     );
     this.look();
   }
