@@ -21,6 +21,13 @@ final class BrowserPageToolsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
         sleep(2)
     }
+    /// The fixture browser as the spike daemon holds it: its engine and pages.
+    private struct FixtureBrowser: Decodable { let backend: String?; let closed: Bool; let url: String?; let tabs: [String] }
+    private func fixtureBrowser() async throws -> FixtureBrowser {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/browser"))
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try JSONDecoder().decode(FixtureBrowser.self, from: data)
+    }
     private func control(_ action: String) async throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/browser")))
         request.httpMethod = "POST"
@@ -140,7 +147,7 @@ final class BrowserPageToolsUITests: XCTestCase {
 
     /// Watch mode follows the agent and shows a strip while on; Engine for this thread moves the
     /// thread's browser to ace's Chrome and the page comes back there.
-    @MainActor func testWatchingTheAgentAndMovingTheBrowserToAnotherEngine() {
+    @MainActor func testWatchingTheAgentAndMovingTheBrowserToAnotherEngine() async throws {
         let app = XCUIApplication()
         openBrowser(app)
         app.buttons["browser.menu"].tap()
@@ -151,6 +158,8 @@ final class BrowserPageToolsUITests: XCTestCase {
         stop.tap()
         XCTAssertTrue(stop.waitForNonExistence(timeout: 10))
 
+        let before = try await fixtureBrowser()
+        XCTAssertNotEqual(before.backend, "headless")
         app.buttons["browser.menu"].tap()
         item(app, "browser.menu.engine", "Engine for this thread").tap()
         let chrome = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@",
@@ -158,13 +167,22 @@ final class BrowserPageToolsUITests: XCTestCase {
         XCTAssertTrue(chrome.waitForExistence(timeout: 5))
         screenshot("browser-engine-1-menu")
         chrome.tap()
-        // The browser opens again on the new engine with its pages, and nothing went wrong.
-        XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
-        sleep(3)
+        // The thread's browser now runs in ace's Chrome, with the same pages and the same one shown.
+        var after = try await fixtureBrowser()
+        for _ in 0..<30 where after.backend != "headless" || after.closed || after.tabs.count < before.tabs.count {
+            try await Task.sleep(for: .milliseconds(500))
+            after = try await fixtureBrowser()
+        }
+        XCTAssertEqual(after.backend, "headless")
+        XCTAssertFalse(after.closed)
+        XCTAssertEqual(Set(after.tabs), Set(before.tabs))
+        XCTAssertEqual(after.url, before.url)
         XCTAssertFalse(app.alerts["Browser"].exists)
-        app.buttons["browser.menu"].tap()
-        item(app, "browser.menu.engine", "Engine for this thread").tap()
-        XCTAssertTrue(chrome.waitForExistence(timeout: 5))
+        // And the phone shows that page again.
+        let address = app.buttons["browser.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        let host = try XCTUnwrap(before.url.flatMap { URL(string: $0)?.host() })
+        XCTAssertTrue((address.value as? String)?.contains(host) == true)
         screenshot("browser-engine-2-moved")
     }
 
