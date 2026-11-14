@@ -45,6 +45,12 @@ struct ConversationSearchReply: Decodable {
 
 /// One machine and query at a time. Late replies cannot replace a newer query or append its pages.
 @MainActor @Observable final class ConversationSearch {
+    /// The `after` filter for the last `days` days. The protocol's Timestamp is whole
+    /// milliseconds, and the phone's clock (`timeIntervalSince1970 * 1000`) counts fractions.
+    nonisolated static func after(days: Int, now: Double) -> Int {
+        Int((now - Double(days) * 86_400_000).rounded(.down))
+    }
+
     private(set) var hits: [ConversationHit] = []
     private(set) var cursor: String?
     private(set) var loading = false

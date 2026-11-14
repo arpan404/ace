@@ -119,7 +119,7 @@ struct InboxSearchList: View {
                 guard !text.isEmpty, scope.kind != "thread" else { return }
                 var filters: [String: Any] = [:]
                 if let scopedWorkspace { filters["workspaceId"] = scopedWorkspace }
-                if scope.days > 0 { filters["after"] = (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 }
+                if scope.days > 0 { filters["after"] = ConversationSearch.after(days: scope.days, now: Date().timeIntervalSince1970 * 1000) }
                 await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scopedMachine)
             }
     }
