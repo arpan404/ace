@@ -73,6 +73,8 @@ export interface RuntimeOptions {
    * first lookup, spawn, running). Without it those records are not written.
    */
   sinceLaunch?: () => number;
+  /** Reads what the home kept of its daemon (`probe.ts` `readKeptDaemon`); tests delay it. */
+  readKept?: (home: string, origin: string) => Promise<LocalDaemon | undefined>;
   /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
   freezes?: FreezeSignal;
 }
@@ -255,7 +257,12 @@ export class DaemonRuntime {
     const status = this.supervisor?.current();
     if (!status || status.state === "running" || startFailed(status)) return undefined;
     const origin = configuredOrigin(this.options.env);
-    const kept = origin ? await readKeptDaemon(this.target.home, origin) : undefined;
+    const kept = origin
+      ? await (this.options.readKept ?? readKeptDaemon)(this.target.home, origin)
+      : undefined;
+    // The start may have ended while the files were read: then the normal hand-off applies.
+    const now = this.supervisor?.current();
+    if (!now || now.state === "running" || startFailed(now)) return undefined;
     if (!kept?.hostId) return undefined;
     return { mode: "daemon", url: kept.url, token: kept.token, localHostId: kept.hostId };
   }

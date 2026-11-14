@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readKeptDaemon } from "./probe.ts";
 import { DaemonRuntime } from "./runtime.ts";
 
 const token = "ab".repeat(32);
@@ -12,8 +13,12 @@ beforeEach(async () => {
 afterEach(() => rm(home, { recursive: true, force: true }));
 
 /** The app's runtime for a temp home whose daemon has not answered yet. */
-function runtime(env: NodeJS.ProcessEnv = { ACE_PORT: "5151" }) {
+function runtime(
+  env: NodeJS.ProcessEnv = { ACE_PORT: "5151" },
+  readKept?: ConstructorParameters<typeof DaemonRuntime>[0]["readKept"],
+) {
   return new DaemonRuntime({
+    ...(readKept ? { readKept } : {}),
     target: { kind: "managed", home, entry: join(home, "unused.mjs") },
     packaged: false,
     version: "0.0.0",
@@ -58,6 +63,20 @@ describe("the page's hand-off while the daemon starts", () => {
   it("is nothing when the daemon takes any free port, so no address can be guessed", async () => {
     await keep({ "daemon-token": token, "host-id": "host-1" });
     expect(await runtime({ ACE_PORT: "0" }).earlyConnection()).toBeUndefined();
+  });
+
+  it("is nothing when the start fails while the home's files are being read", async () => {
+    await keep({ "daemon-token": token, "host-id": "host-1" });
+    const read = Promise.withResolvers<void>();
+    const app = runtime({ ACE_PORT: "5151" }, async (folder, origin) => {
+      await read.promise;
+      return readKeptDaemon(folder, origin);
+    });
+    const early = app.earlyConnection();
+    await app.start();
+    expect(app.current().state).toBe("failed");
+    read.resolve();
+    expect(await early).toBeUndefined();
   });
 
   it("is nothing once the start failed, so the page shows the failure instead", async () => {

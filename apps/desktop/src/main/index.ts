@@ -28,6 +28,7 @@ import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
+import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { localSpade } from "./spade/local.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
@@ -534,54 +535,25 @@ function main(target: DaemonTarget, crashDumps: string): void {
         : serveRenderer(paths.renderer, remote, network);
     [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
-    // The page shows "Starting ace…" until its daemon answers, however long a first start
-    // takes. Only a real failure rejects; the page then shows its connection screen and
-    // reloads once the daemon is running again.
-    let missedConnection = false;
-    let handedOnce = false;
-    const connection = async () => {
-      try {
-        const handed = await runtime.connection();
-        if (!handedOnce)
-          log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() });
-        handedOnce = true;
-        return handed;
-      } catch (error) {
-        missedConnection = true;
-        throw error;
-      }
-    };
-    // While the daemon starts, the page gets what its home kept (`earlyConnection`) and opens on
-    // what it cached, reconnecting; the real target follows once the daemon runs, and the page
-    // reconnects to it if it differs (`watchDesktopTarget`). A start that fails instead reloads
-    // the page, which then shows the failure rather than waiting on a daemon that won't come.
-    let handedEarly = false;
-    const pageConnection = async () => {
-      const early = await runtime.earlyConnection();
-      if (!early) return connection();
-      if (!handedEarly)
-        log("info", "Handed the page what the daemon's home kept", {
-          sinceLaunchMs: sinceLaunchMs(),
-        });
-      handedEarly = true;
-      return early;
-    };
-    runtime.onStatus((status) => {
-      if (status.state === "running") handedEarly = false;
-      if (
-        handedEarly &&
-        startFailed(status) &&
-        status.state !== "stopping" &&
-        status.state !== "stopped"
-      ) {
-        handedEarly = false;
-        window?.webContents.reload();
-        return;
-      }
-      if (status.state !== "running" || !missedConnection) return;
-      missedConnection = false;
-      window?.webContents.reload();
+    // The page's hand-off: early while the daemon starts, else once it answers, and the reloads
+    // that keep the page following the daemon (`page-connection.ts`).
+    const handoff = createPageConnection({
+      early: () => runtime.earlyConnection(),
+      connection: () => runtime.connection(),
+      current: () => runtime.current(),
+      onStatus: (listener) => runtime.onStatus(listener),
+      reload: () => window?.webContents.reload(),
+      handed: (kind) =>
+        log(
+          "info",
+          kind === "early"
+            ? "Handed the page what the daemon's home kept"
+            : "Handed the daemon to the page",
+          { sinceLaunchMs: sinceLaunchMs() },
+        ),
     });
+    const connection = handoff.daemon;
+    const pageConnection = handoff.page;
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
     // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
     // and the agents in it, is left alone.
