@@ -88,7 +88,7 @@ pub fn run(input: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     let count = workers.worker_count();
     let warmup = count * 5;
     let mut samples = [0.0; 50];
-    let mut totals = [0_u64; 3];
+    let mut stages = [[0.0; 50]; 3];
     let mut allocations = 0;
     for i in 0..warmup + 50 {
         let start = Instant::now();
@@ -107,22 +107,28 @@ pub fn run(input: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         if i >= warmup {
             allocations += allocation::stop();
             samples[i - warmup] = start.elapsed().as_secs_f64() * 1000.0;
-            let stages = result
+            let timing = result
                 .stages_us
                 .ok_or("worker did not report stage timing")?;
-            for (total, value) in totals.iter_mut().zip(stages) {
-                *total += value;
+            for (stage, value) in stages.iter_mut().zip(timing) {
+                stage[i - warmup] = value as f64 / 1000.0;
             }
         }
     }
     samples.sort_by(f64::total_cmp);
+    for stage in &mut stages {
+        stage.sort_by(f64::total_cmp);
+    }
     println!(
-        "workers={count}: median {:.3} ms, p95 {:.3} ms; stage means decode {:.3}, scale {:.3}, encode {:.3} ms",
+        "workers={count}: median {:.3} ms, p95 {:.3} ms; p50/p95 decode {:.3}/{:.3}, scale {:.3}/{:.3}, encode {:.3}/{:.3} ms",
         samples[25],
         samples[47],
-        totals[0] as f64 / 50_000.0,
-        totals[1] as f64 / 50_000.0,
-        totals[2] as f64 / 50_000.0
+        stages[0][25],
+        stages[0][47],
+        stages[1][25],
+        stages[1][47],
+        stages[2][25],
+        stages[2][47]
     );
     println!(
         "Rust allocations: {allocations}/50 frames ({:.1}/frame); includes worker queues and codec internals",

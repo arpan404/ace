@@ -161,6 +161,7 @@ pub(crate) struct Resampler {
     horizontal: Taps,
     vertical: Taps,
     rows: Vec<u8>,
+    acc: Vec<i32>,
 }
 impl Resampler {
     /// Resample `src`, covering `extent` source samples per axis, into `dst`.
@@ -191,34 +192,36 @@ impl Resampler {
         self.vertical.plan(from.height, extent.1, to.height);
         self.horizontal.plan(from.width, extent.0, to.width);
         self.rows.resize(row_bytes * to.height as usize, 0);
+        let (rows, acc, taps) = (&mut self.rows, &mut self.acc, &self.vertical);
         dispatch(kernel, || {
-            vertical(src, from.stride, row_bytes, &self.vertical, &mut self.rows);
-            for (y, out) in dst
-                .chunks_mut(to.stride)
-                .take(to.height as usize)
-                .enumerate()
-            {
-                let row = &self.rows[y * row_bytes..][..row_bytes];
-                match pack {
-                    Pack::Plane => horizontal_plane(row, &self.horizontal, out),
-                    Pack::Rgb => {
-                        horizontal_pixels::<3, 3>(row, &self.horizontal, out, [0, 1, 2, 3])
-                    }
-                    Pack::Rgba => {
-                        horizontal_pixels::<4, 4>(row, &self.horizontal, out, [0, 1, 2, 3])
-                    }
-                    Pack::BgraToRgb => {
-                        horizontal_pixels::<4, 3>(row, &self.horizontal, out, [2, 1, 0, 3])
-                    }
-                }
-            }
+            vertical(src, from.stride, row_bytes, taps, rows, acc)
         });
+        let (rows, taps) = (&self.rows, &self.horizontal);
+        let lines = dst
+            .chunks_mut(to.stride)
+            .take(to.height as usize)
+            .zip(rows.chunks_exact(row_bytes));
+        match pack {
+            Pack::Plane => dispatch(kernel, || {
+                lines.for_each(|(out, row)| horizontal_plane(row, taps, out))
+            }),
+            Pack::Rgb => dispatch(kernel, || {
+                lines.for_each(|(out, row)| horizontal_pixels::<3, 3>(row, taps, out, [0, 1, 2, 3]))
+            }),
+            Pack::Rgba => dispatch(kernel, || {
+                lines.for_each(|(out, row)| horizontal_pixels::<4, 4>(row, taps, out, [0, 1, 2, 3]))
+            }),
+            Pack::BgraToRgb => dispatch(kernel, || {
+                lines.for_each(|(out, row)| horizontal_pixels::<4, 3>(row, taps, out, [2, 1, 0, 3]))
+            }),
+        }
         Ok(())
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unsafe_code)]
+#[inline(never)]
 fn dispatch(kernel: SimdKernel, work: impl FnOnce()) {
     #[target_feature(enable = "avx2")]
     fn avx2(work: impl FnOnce()) {
@@ -232,6 +235,7 @@ fn dispatch(kernel: SimdKernel, work: impl FnOnce()) {
     }
 }
 #[cfg(not(target_arch = "x86_64"))]
+#[inline(never)]
 fn dispatch(_kernel: SimdKernel, work: impl FnOnce()) {
     work()
 }
@@ -241,34 +245,72 @@ fn clamp(acc: i32) -> u8 {
     (acc >> BITS).clamp(0, 255) as u8
 }
 
+/// Each output row is a weighted sum of whole source rows. Row slices are
+/// bounds-checked once, so every inner loop is a plain vectorisable zip.
 #[inline(always)]
-fn vertical(src: &[u8], stride: usize, row_bytes: usize, taps: &Taps, rows: &mut [u8]) {
-    const LANES: usize = 32;
+fn vertical(
+    src: &[u8],
+    stride: usize,
+    row_bytes: usize,
+    taps: &Taps,
+    rows: &mut [u8],
+    acc: &mut Vec<i32>,
+) {
+    acc.resize(row_bytes, 0);
+    let line = |i: usize| &src[i * stride..i * stride + row_bytes];
     for (y, out) in rows.chunks_exact_mut(row_bytes).enumerate() {
         let (start, weights) = taps.get(y);
-        let mut x = 0;
-        while x + LANES <= row_bytes {
-            let mut acc = [ROUND; LANES];
-            for (k, w) in weights.iter().enumerate() {
-                let w = i32::from(*w);
-                let line: &[u8; LANES] = src[(start + k) * stride + x..][..LANES]
-                    .try_into()
-                    .unwrap_or(&[0; LANES]);
-                for (a, s) in acc.iter_mut().zip(line) {
-                    *a += i32::from(*s) * w;
+        let w = |k: usize| i32::from(weights[k]);
+        match weights.len() {
+            1 => out.copy_from_slice(line(start)),
+            2 => {
+                let (w0, w1) = (w(0), w(1));
+                for ((o, a), b) in out.iter_mut().zip(line(start)).zip(line(start + 1)) {
+                    *o = clamp(ROUND + i32::from(*a) * w0 + i32::from(*b) * w1);
                 }
             }
-            for (o, a) in out[x..x + LANES].iter_mut().zip(acc) {
-                *o = clamp(a);
+            3 => {
+                let (w0, w1, w2) = (w(0), w(1), w(2));
+                for (((o, a), b), c) in out
+                    .iter_mut()
+                    .zip(line(start))
+                    .zip(line(start + 1))
+                    .zip(line(start + 2))
+                {
+                    *o =
+                        clamp(ROUND + i32::from(*a) * w0 + i32::from(*b) * w1 + i32::from(*c) * w2);
+                }
             }
-            x += LANES;
-        }
-        for (i, o) in out[x..].iter_mut().enumerate() {
-            let mut acc = ROUND;
-            for (k, w) in weights.iter().enumerate() {
-                acc += i32::from(src[(start + k) * stride + x + i]) * i32::from(*w);
+            4 => {
+                let (w0, w1, w2, w3) = (w(0), w(1), w(2), w(3));
+                for ((((o, a), b), c), d) in out
+                    .iter_mut()
+                    .zip(line(start))
+                    .zip(line(start + 1))
+                    .zip(line(start + 2))
+                    .zip(line(start + 3))
+                {
+                    *o = clamp(
+                        ROUND
+                            + i32::from(*a) * w0
+                            + i32::from(*b) * w1
+                            + i32::from(*c) * w2
+                            + i32::from(*d) * w3,
+                    );
+                }
             }
-            *o = clamp(acc);
+            _ => {
+                acc.fill(ROUND);
+                for (k, weight) in weights.iter().enumerate() {
+                    let weight = i32::from(*weight);
+                    for (a, s) in acc.iter_mut().zip(line(start + k)) {
+                        *a += i32::from(*s) * weight;
+                    }
+                }
+                for (o, a) in out.iter_mut().zip(acc.iter()) {
+                    *o = clamp(*a);
+                }
+            }
         }
     }
 }
