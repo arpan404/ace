@@ -1,8 +1,8 @@
 /**
  * How long calls to each paired machine take, smoothed as TCP smooths round trips (RFC 6298:
- * SRTT gains 1/8 of each sample, RTTVAR 1/4 of its deviation). Short reads (status, describe)
- * are timed; a timeout counts as a sample of its own length, so a link slower than the timeout
- * gets a longer one next time. Pure: the caller passes each duration and time.
+ * SRTT gains 1/8 of each sample, RTTVAR 1/4 of its deviation). Only answered short reads
+ * (status, describe, job reads) are samples: a call that got no answer measured nothing about
+ * the link, so silence never stretches a timeout. Pure: the caller passes each duration and time.
  */
 export class LinkTiming {
   private links = new Map<string, { srtt: number; rttvar: number; answeredAt: number }>();
@@ -11,10 +11,6 @@ export class LinkTiming {
     this.sample(machine, ms);
     const link = this.links.get(machine);
     if (link) link.answeredAt = at;
-  }
-  /** A call to `machine` timed out after `ms`. */
-  timedOut(machine: string, ms: number): void {
-    this.sample(machine, ms);
   }
   /**
    * The timeout for a short read of `machine`: `baseMs` on a link as fast as a LAN, longer on a
