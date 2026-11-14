@@ -414,9 +414,9 @@ test("taking back a settle puts an event snooze back with the event it waits for
   act({ kind: "snoozeAt", threadId: "shipped", until: backstop, wake: "pr" }, "snooze-pr");
   await until(() => listed(daemon, "shipped")?.snoozeWake?.on === "pr", "the snooze");
   // The row says which event, so Undo of a settle can put that back too.
-  const row = () =>
+  const shipped = () =>
     (sink.read("inbox:shipped") as { row: { snoozeOn: string | null } } | undefined)?.row;
-  await until(() => row()?.snoozeOn === "pr", "the row's event");
+  await until(() => shipped()?.snoozeOn === "pr", "the row's event");
   await request({ type: "inbox.bulk", action: "settle", threadIds: ["shipped"] });
   await until(() => !listed(daemon, "shipped")?.snoozeWake, "the settle clears it");
 
