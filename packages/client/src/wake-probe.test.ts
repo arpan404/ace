@@ -1,6 +1,7 @@
 import { DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { Connection } from "./connection.ts";
+import { connected, pass, settle } from "./path-switch.fixture.ts";
 import { defaultLimits, type TransportEvents } from "./types.ts";
 import { WireCodec } from "./wire-codec.ts";
 
@@ -92,4 +93,29 @@ test("the pong for the probe's own ping answers it", async () => {
   // Past the probe's 5 s deadline, before the regular beat could find the socket silent.
   h.advance(5_000);
   expect(h.connection.state).toBe("ready");
+});
+
+test("a standby's own late pong does not answer a wake probe after the standby is promoted", async () => {
+  const { clock, client, multipath, path } = await connected("lan", ["lan", "relay"]);
+  const relay = path("relay");
+  // The relay's pongs are held: its standby ping (30 s) is still unanswered at promotion.
+  const held: (() => void)[] = [];
+  relay.pongAfter = (deliver) => held.push(deliver);
+  await pass(clock, 31_000);
+  expect(held).toHaveLength(1);
+  path("lan").last.drop();
+  await settle();
+  expect(multipath.active?.kind).toBe("relay");
+  const promoted = relay.last;
+  // Woken: the probe pings the promoted socket, then the link dies under it.
+  client.wake();
+  // The standby's old pong lands; it answers the standby's ping, not the probe's.
+  held.shift()?.();
+  await settle();
+  clock.advance(4_900);
+  await settle();
+  expect(promoted.closed).toBe(false);
+  clock.advance(200);
+  await settle();
+  expect(promoted.closed).toBe(true);
 });

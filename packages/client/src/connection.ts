@@ -862,6 +862,9 @@ export class Connection {
       get heard() {
         return path.heard;
       },
+      get unanswered() {
+        return path.unanswered;
+      },
       take: (events) => path.take(events),
       send: (text) => path.send(text),
       close: () => {
@@ -896,7 +899,9 @@ export class Connection {
       this.#options.scheduler,
       this.#limits.fragmentMs,
     );
-    this.#pongs = [];
+    // Pings and pongs belong to a socket: the pings the promoted path already sent (a
+    // standby's) are still owed their pongs, and those must not answer a newer ping.
+    this.#pongs = Array.from({ length: path.unanswered }, () => () => {});
     path.take({
       frame: (frame) => this.#receiveFrame(frame, epoch),
       close: (code, reason) => this.#closed(epoch, code, reason),
