@@ -74,8 +74,7 @@ export class FileSnapshots implements ReadSnapshotStorage {
     this.records.delete(key);
   }
   async deletePrefix(prefix: string) {
-    for (const key of [...this.records.keys()])
-      if (key.startsWith(prefix)) this.records.delete(key);
+    for (const key of this.records.keys()) if (key.startsWith(prefix)) this.records.delete(key);
   }
 }
 

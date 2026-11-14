@@ -14,6 +14,7 @@ import type { Frame, ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import {
   Capabilities,
+  DeviceId,
   ThreadId,
   type AgentControlOperation,
   type McpAttribution,
@@ -143,7 +144,7 @@ const Request = z.discriminatedUnion("op", [
     op: z.literal("pair"),
     origin: z.string(),
     fingerprint: z.string(),
-    deviceId: z.string(),
+    deviceId: DeviceId,
     token: z.string(),
   }),
   z.object({ id: z.number(), op: z.literal("delegate") }),
@@ -163,7 +164,9 @@ process.on("message", (input: unknown) => {
   queue = queue
     .then(async () => {
       const request = Request.parse(input);
-      const reply = (data: Record<string, unknown>) => process.send?.({ id: request.id, ...data });
+      const reply = (data: Record<string, unknown>) => {
+        process.send?.({ id: request.id, ...data });
+      };
       if (request.op === "close") {
         await daemon.close();
         process.disconnect?.();

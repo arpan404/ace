@@ -41,7 +41,7 @@ const Calls = z.object({
 });
 const Delegated = z.object({ result: z.object({ data: z.object({ threadId: z.string() }) }) });
 const State = z.object({ state: z.string() });
-const entry = join(import.meta.dirname, "machine-link-daemon.ts");
+const daemonEntry = join(import.meta.dirname, "machine-link-daemon.ts");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const median = (values: number[]) => {
   const sorted = values.toSorted((a, b) => a - b);
@@ -52,13 +52,13 @@ async function measure(profileName: string) {
   const profile = linkProfile(profileName);
   const execPath = bunBinary();
   const target = await startBenchDaemon({
-    entry,
+    entry: daemonEntry,
     execPath,
     parse: (ready) => Ready.parse(ready),
     env: { MACHINE_LINK_ROLE: "target" },
   });
   const source = await startBenchDaemon({
-    entry,
+    entry: daemonEntry,
     execPath,
     parse: (ready) => SourceReady.parse(ready),
     env: { MACHINE_LINK_ROLE: "source", ACE_LISTEN: "local" },
@@ -164,11 +164,17 @@ function link(counts: LinkCounts) {
   };
 }
 
-function summary(run: Awaited<ReturnType<typeof measure>>): string {
-  const phase = (label: string, value: typeof run.running) =>
-    `  ${label.padEnd(16)} ${String(value.statusPerMinute).padStart(5)} status/min ` +
-    `${String(value.callsPerMinute).padStart(5)} calls/min, per call ` +
-    `${value.perCall ? `${value.perCall.medianMs} ms ${value.perCall.roundTrips} RT ` + `${(value.perCall.downBytes / 1024).toFixed(1)} KiB down ${(value.perCall.upBytes / 1024).toFixed(1)} KiB up` : "none"}`;
+type Run = Awaited<ReturnType<typeof measure>>;
+const perCall = (call: Run["running"]["perCall"]) =>
+  call
+    ? `${call.medianMs} ms ${call.roundTrips} RT ${(call.downBytes / 1024).toFixed(1)} KiB down ` +
+      `${(call.upBytes / 1024).toFixed(1)} KiB up`
+    : "none";
+const phase = (label: string, value: Run["running"]) =>
+  `  ${label.padEnd(16)} ${String(value.statusPerMinute).padStart(5)} status/min ` +
+  `${String(value.callsPerMinute).padStart(5)} calls/min, per call ${perCall(value.perCall)}`;
+
+function summary(run: Run): string {
   return [
     `${run.profile}: delegate ${run.delegate.ms} ms ${run.delegate.roundTrips} RT, ` +
       `first status after the child finished ${run.firstStatusAfterFinishMs ?? "never"} ms`,

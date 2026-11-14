@@ -25,6 +25,9 @@ const Ready = z.object({
 });
 const Pairing = z.object({ url: z.string() });
 
+/** What the page did, with SLOW_LINK_DEBUG=1, for a pairing that stalls. */
+const log = (text: string) => process.stderr.write(`page: ${text}\n`);
+
 export interface DaemonApp {
   /** The daemon's TLS listener, for the shaper to stand in front of. */
   origin: { host: string; port: number };
@@ -72,13 +75,12 @@ export async function withDaemonApp<T>(run: (app: DaemonApp) => Promise<T>): Pro
         link.host = address;
         const page = await context.newPage();
         if (process.env.SLOW_LINK_DEBUG) {
-          const log = (text: string) => process.stderr.write(`page: ${text}\n`);
           page.on("console", (message) => log(message.text()));
           page.on("requestfailed", (request) =>
             log(`failed ${request.url()} ${request.failure()?.errorText}`),
           );
-          page.on("response", (response) => {
-            if (response.status() >= 400) log(`${response.status()} ${response.url()}`);
+          page.on("response", (answer) => {
+            if (answer.status() >= 400) log(`${answer.status()} ${answer.url()}`);
           });
           page.on("websocket", (socket) => {
             log(`websocket ${socket.url()}`);

@@ -49,11 +49,11 @@ type FrameData = z.infer<typeof FrameData>;
 const turns: SeedTurn[] = [];
 let replays = 0;
 function turnFacts(index: number): Fact[] {
-  const turn = turns[index];
-  if (!turn) throw new Error(`No seeded turn ${index}`);
+  const seeded = turns[index];
+  if (!seeded) throw new Error(`No seeded turn ${index}`);
   const prefix = `r${++replays}`;
   const facts: Fact[] = [{ type: "turn.started", agent: "root", trigger: "user" }];
-  for (const [position, item] of turn.entries()) {
+  for (const [position, item] of seeded.entries()) {
     const key = `${prefix}-${position}`;
     facts.push({ type: "item.upsert", agent: "root", item: key, draft: item.draft });
     if (item.output)

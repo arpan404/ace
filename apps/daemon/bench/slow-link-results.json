@@ -1,0 +1,724 @@
+{
+  "bench": "slow-link",
+  "startedAt": "2026-11-14T17:49:35.657Z",
+  "machine": {
+    "cpus": 16,
+    "loadBefore": [18.875, 81.0458984375, 199.00830078125],
+    "loadAfter": [29.06494140625, 65.046875, 177.1611328125]
+  },
+  "profiles": [
+    {
+      "name": "3g-slow",
+      "downBitsPerSecond": 400000,
+      "upBitsPerSecond": 200000,
+      "rttMs": 400,
+      "loss": 0.02,
+      "stallMs": 600,
+      "queueBytes": 65536
+    },
+    {
+      "name": "3g-fast",
+      "downBitsPerSecond": 1600000,
+      "upBitsPerSecond": 750000,
+      "rttMs": 300,
+      "loss": 0.01,
+      "stallMs": 450,
+      "queueBytes": 65536
+    },
+    {
+      "name": "lan",
+      "downBitsPerSecond": null,
+      "upBitsPerSecond": null,
+      "rttMs": 0,
+      "loss": 0,
+      "stallMs": 0,
+      "queueBytes": 65536
+    }
+  ],
+  "runs": [
+    {
+      "path": "direct",
+      "profile": "3g-slow",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 3725,
+        "roundTrips": 7,
+        "downBytes": 6141,
+        "upBytes": 3763,
+        "stalls": 1
+      },
+      "sidebar": {
+        "ms": 4229,
+        "roundTrips": 8,
+        "downBytes": 10022,
+        "upBytes": 3916,
+        "stalls": 1
+      },
+      "firstContent": {
+        "small": {
+          "ms": 467,
+          "roundTrips": 1,
+          "downBytes": 2414,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 1106,
+          "roundTrips": 1,
+          "downBytes": 34391,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 1620,
+          "roundTrips": 1,
+          "downBytes": 59753,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 467,
+          "roundTrips": 1,
+          "downBytes": 2414,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 1106,
+          "roundTrips": 1,
+          "downBytes": 34391,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 1620,
+          "roundTrips": 1,
+          "downBytes": 59753,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 4,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 3101,
+          "roundTrips": 8,
+          "downBytes": 6189,
+          "upBytes": 3791,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 3518,
+          "roundTrips": 9,
+          "downBytes": 6310,
+          "upBytes": 4003,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 419,
+        "duringLargeSnapshotMs": 1705
+      },
+      "resume": {
+        "ms": 4263,
+        "roundTrips": 8,
+        "downBytes": 13378,
+        "upBytes": 3975,
+        "stalls": 1,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 21165,
+        "roundTrips": 30,
+        "downBytes": 171180,
+        "upBytes": 12702,
+        "stalls": 4
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-fast",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 2676,
+        "roundTrips": 7,
+        "downBytes": 6141,
+        "upBytes": 3763,
+        "stalls": 1
+      },
+      "sidebar": {
+        "ms": 3011,
+        "roundTrips": 8,
+        "downBytes": 10041,
+        "upBytes": 3916,
+        "stalls": 1
+      },
+      "firstContent": {
+        "small": {
+          "ms": 321,
+          "roundTrips": 1,
+          "downBytes": 2414,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 483,
+          "roundTrips": 1,
+          "downBytes": 34466,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 616,
+          "roundTrips": 1,
+          "downBytes": 59857,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 321,
+          "roundTrips": 1,
+          "downBytes": 2414,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 483,
+          "roundTrips": 1,
+          "downBytes": 34466,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 616,
+          "roundTrips": 1,
+          "downBytes": 59857,
+          "upBytes": 195,
+          "stalls": 1
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 3,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 2206,
+          "roundTrips": 8,
+          "downBytes": 6189,
+          "upBytes": 3791,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 2512,
+          "roundTrips": 9,
+          "downBytes": 6310,
+          "upBytes": 4003,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 202,
+        "duringLargeSnapshotMs": 724
+      },
+      "resume": {
+        "ms": 2547,
+        "roundTrips": 8,
+        "downBytes": 15337,
+        "upBytes": 3975,
+        "stalls": 0,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 15038,
+        "roundTrips": 30,
+        "downBytes": 161968,
+        "upBytes": 12702,
+        "stalls": 2
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "lan",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 28,
+        "roundTrips": 7,
+        "downBytes": 6141,
+        "upBytes": 3763,
+        "stalls": 0
+      },
+      "sidebar": {
+        "ms": 44,
+        "roundTrips": 8,
+        "downBytes": 10052,
+        "upBytes": 3916,
+        "stalls": 0
+      },
+      "firstContent": {
+        "small": {
+          "ms": 6,
+          "roundTrips": 1,
+          "downBytes": 2535,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 9,
+          "roundTrips": 1,
+          "downBytes": 34351,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 21,
+          "roundTrips": 1,
+          "downBytes": 59627,
+          "upBytes": 195,
+          "stalls": 0
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 7,
+          "roundTrips": 1,
+          "downBytes": 2535,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 9,
+          "roundTrips": 1,
+          "downBytes": 34351,
+          "upBytes": 195,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 21,
+          "roundTrips": 1,
+          "downBytes": 59627,
+          "upBytes": 195,
+          "stalls": 0
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 3,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 48,
+          "roundTrips": 8,
+          "downBytes": 6189,
+          "upBytes": 3791,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 51,
+          "roundTrips": 9,
+          "downBytes": 6310,
+          "upBytes": 4003,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 9,
+        "duringLargeSnapshotMs": 8
+      },
+      "resume": {
+        "ms": 23,
+        "roundTrips": 8,
+        "downBytes": 13343,
+        "upBytes": 3975,
+        "stalls": 0,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 4614,
+        "roundTrips": 30,
+        "downBytes": 153362,
+        "upBytes": 12702,
+        "stalls": 0
+      }
+    },
+    {
+      "path": "relay",
+      "profile": "3g-slow",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 2294,
+        "roundTrips": 4,
+        "downBytes": 408,
+        "upBytes": 724,
+        "stalls": 1
+      },
+      "sidebar": {
+        "ms": 2791,
+        "roundTrips": 5,
+        "downBytes": 4280,
+        "upBytes": 901,
+        "stalls": 1
+      },
+      "firstContent": {
+        "small": {
+          "ms": 466,
+          "roundTrips": 1,
+          "downBytes": 2524,
+          "upBytes": 196,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 1107,
+          "roundTrips": 1,
+          "downBytes": 34332,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 1612,
+          "roundTrips": 1,
+          "downBytes": 61994,
+          "upBytes": 190,
+          "stalls": 1
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 466,
+          "roundTrips": 1,
+          "downBytes": 2524,
+          "upBytes": 196,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 1107,
+          "roundTrips": 1,
+          "downBytes": 34332,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 1612,
+          "roundTrips": 1,
+          "downBytes": 61994,
+          "upBytes": 190,
+          "stalls": 1
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 3,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 1673,
+          "roundTrips": 5,
+          "downBytes": 410,
+          "upBytes": 730,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 2689,
+          "roundTrips": 6,
+          "downBytes": 526,
+          "upBytes": 964,
+          "stalls": 1
+        }
+      },
+      "approval": {
+        "idleMs": 372,
+        "duringLargeSnapshotMs": 1805
+      },
+      "resume": {
+        "ms": 2829,
+        "roundTrips": 6,
+        "downBytes": 8423,
+        "upBytes": 958,
+        "stalls": 1,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 17553,
+        "roundTrips": 23,
+        "downBytes": 154114,
+        "upBytes": 3622,
+        "stalls": 4
+      }
+    },
+    {
+      "path": "relay",
+      "profile": "3g-fast",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 1712,
+        "roundTrips": 4,
+        "downBytes": 408,
+        "upBytes": 724,
+        "stalls": 1
+      },
+      "sidebar": {
+        "ms": 2045,
+        "roundTrips": 5,
+        "downBytes": 4298,
+        "upBytes": 901,
+        "stalls": 1
+      },
+      "firstContent": {
+        "small": {
+          "ms": 322,
+          "roundTrips": 1,
+          "downBytes": 2535,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 484,
+          "roundTrips": 2,
+          "downBytes": 34275,
+          "upBytes": 196,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 616,
+          "roundTrips": 1,
+          "downBytes": 62115,
+          "upBytes": 190,
+          "stalls": 1
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 322,
+          "roundTrips": 1,
+          "downBytes": 2535,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 484,
+          "roundTrips": 2,
+          "downBytes": 34275,
+          "upBytes": 196,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 616,
+          "roundTrips": 1,
+          "downBytes": 62115,
+          "upBytes": 190,
+          "stalls": 1
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 4,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 1227,
+          "roundTrips": 4,
+          "downBytes": 410,
+          "upBytes": 730,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 1535,
+          "roundTrips": 5,
+          "downBytes": 526,
+          "upBytes": 964,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 193,
+        "duringLargeSnapshotMs": 734
+      },
+      "resume": {
+        "ms": 1585,
+        "roundTrips": 5,
+        "downBytes": 10062,
+        "upBytes": 958,
+        "stalls": 0,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 12049,
+        "roundTrips": 22,
+        "downBytes": 145860,
+        "upBytes": 3622,
+        "stalls": 2
+      }
+    },
+    {
+      "path": "relay",
+      "profile": "lan",
+      "threads": {
+        "small": 4,
+        "typical": 123,
+        "large": 1500
+      },
+      "welcome": {
+        "ms": 25,
+        "roundTrips": 5,
+        "downBytes": 408,
+        "upBytes": 751,
+        "stalls": 0
+      },
+      "sidebar": {
+        "ms": 42,
+        "roundTrips": 6,
+        "downBytes": 4277,
+        "upBytes": 901,
+        "stalls": 0
+      },
+      "firstContent": {
+        "small": {
+          "ms": 7,
+          "roundTrips": 1,
+          "downBytes": 2526,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 17,
+          "roundTrips": 1,
+          "downBytes": 34292,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 15,
+          "roundTrips": 1,
+          "downBytes": 59550,
+          "upBytes": 190,
+          "stalls": 0
+        }
+      },
+      "complete": {
+        "small": {
+          "ms": 7,
+          "roundTrips": 1,
+          "downBytes": 2526,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "typical": {
+          "ms": 17,
+          "roundTrips": 1,
+          "downBytes": 34292,
+          "upBytes": 190,
+          "stalls": 0
+        },
+        "large": {
+          "ms": 15,
+          "roundTrips": 1,
+          "downBytes": 59550,
+          "upBytes": 190,
+          "stalls": 0
+        }
+      },
+      "cached": {
+        "unconfirmedFromDisk": true,
+        "paint": {
+          "ms": 3,
+          "roundTrips": 0,
+          "downBytes": 0,
+          "upBytes": 0,
+          "stalls": 0
+        },
+        "keptBytes": 723976,
+        "welcome": {
+          "ms": 45,
+          "roundTrips": 5,
+          "downBytes": 410,
+          "upBytes": 730,
+          "stalls": 0
+        },
+        "confirmed": {
+          "ms": 54,
+          "roundTrips": 6,
+          "downBytes": 526,
+          "upBytes": 964,
+          "stalls": 0
+        }
+      },
+      "approval": {
+        "idleMs": 13,
+        "duringLargeSnapshotMs": 8
+      },
+      "resume": {
+        "ms": 28,
+        "roundTrips": 5,
+        "downBytes": 7773,
+        "upBytes": 958,
+        "stalls": 0,
+        "streamedTextBytes": 120000,
+        "deltas": 2000
+      },
+      "totals": {
+        "ms": 4702,
+        "roundTrips": 23,
+        "downBytes": 134094,
+        "upBytes": 3616,
+        "stalls": 0
+      }
+    }
+  ]
+}

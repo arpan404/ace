@@ -91,17 +91,15 @@ async function measure(path: LinkPath, profileName: string) {
       target: { host: upstream.hostname, port: Number(upstream.port) },
       profile,
     });
-    if (relay && !ready.relayHostId) {
-      // The daemon registers with the relay just after it starts; wait for its host id.
-      throw new Error("The daemon did not report a relay host id");
-    }
+    const relayHostId = ready.relayHostId;
+    if (relay && !relayHostId) throw new Error("The daemon did not report a relay host id");
     const route: Route = {
       path,
       shaper,
       deviceId: device.device.id,
       token: device.token,
       fingerprint: ready.fingerprint,
-      ...(relay ? { relayUrl: relay.url, relayHostId: ready.relayHostId } : {}),
+      ...(relay && relayHostId ? { relayUrl: relay.url, relayHostId } : {}),
     };
     const link = shaper;
     const timeout = 180_000;
@@ -208,7 +206,6 @@ async function measure(path: LinkPath, profileName: string) {
     await kept.load();
     const warm = shapedClient(route, kept);
     clients.push(warm);
-    const again = mark(link);
     const keptReader = warm.thread(ready.threads.typical.id).store;
     const connectAgain = mark(link);
     await warm.start();
@@ -309,9 +306,11 @@ for (const path of paths)
     process.stderr.write(`${summary(run)}\n`);
   }
 
+function span(label: string, value: Span): string {
+  return `  ${label.padEnd(34)} ${String(value.ms).padStart(7)} ms ${String(value.roundTrips).padStart(3)} RT ${(value.downBytes / 1024).toFixed(1).padStart(8)} KiB down`;
+}
+
 function summary(run: (typeof runs)[number]): string {
-  const span = (label: string, value: Span) =>
-    `  ${label.padEnd(34)} ${String(value.ms).padStart(7)} ms ${String(value.roundTrips).padStart(3)} RT ${(value.downBytes / 1024).toFixed(1).padStart(8)} KiB down`;
   return [
     `${run.path} / ${run.profile}`,
     span("welcome", run.welcome),

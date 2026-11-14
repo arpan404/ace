@@ -1,0 +1,281 @@
+{
+  "bench": "web-slow-link",
+  "machine": {
+    "cpus": 16,
+    "loadAverages": {
+      "daemon-3g-slow": "16.95 26.11 67.20 (start)",
+      "preview-3g-slow": "25.54 25.00 61.07 (start)"
+    }
+  },
+  "runs": [
+    {
+      "bench": "web-slow-link",
+      "target": "daemon",
+      "profile": "3g-slow",
+      "results": [
+        {
+          "cache": "cold",
+          "kinds": [
+            ["Script from script ", 403],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 4],
+            ["Script from other /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 2],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1],
+            ["Script from parser /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1],
+            ["Stylesheet from parser /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1]
+          ],
+          "transcriptMs": 20281.399999976158,
+          "sidebarMs": 20281.399999976158,
+          "requests": 413,
+          "kilobytes": 758.4970703125,
+          "roundTrips": 3,
+          "path": [
+            "/t/01a1db41-e5b5-743a-ba3e-555b086e6241",
+            "/assets/initial-hRM1ON9M.js",
+            "/assets/settings-schemas-LC7acbNg.js"
+          ],
+          "link": {
+            "roundTrips": 223,
+            "downKilobytes": 936.412109375,
+            "upKilobytes": 130.3037109375,
+            "stalls": 18
+          }
+        },
+        {
+          "cache": "warm",
+          "kinds": [
+            ["Script from script ", 484],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 5],
+            ["Script from other /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 3],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1],
+            ["Script from parser /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1],
+            ["Stylesheet from parser /t/01a1db41-e5b5-743a-ba3e-555b086e6241", 1],
+            ["Script from script /assets/initial-hRM1ON9M.js", 1]
+          ],
+          "transcriptMs": 1579.699999988079,
+          "sidebarMs": 1579.800000011921,
+          "requests": 497,
+          "kilobytes": 0.2939453125,
+          "roundTrips": 9,
+          "path": [
+            "/t/01a1db41-e5b5-743a-ba3e-555b086e6241",
+            "/assets/composer-Cb5jRQJc.css",
+            "/assets/on-machine-DOsoHiGU.js",
+            "/assets/provider-configuration-B3cBuYMG.js",
+            "/assets/read-snapshots-CACsY5lq.js",
+            "/assets/web-BkCizdUA.js",
+            "/assets/FloatingPortalLite-C1ntlu9f.js",
+            "/assets/tooltip-popup-CYe_1Uxk.js",
+            "/assets/menu-button-popup-rkKrzoh3.js"
+          ],
+          "link": {
+            "roundTrips": 15,
+            "downKilobytes": 14.3486328125,
+            "upKilobytes": 15.521484375,
+            "stalls": 2
+          }
+        }
+      ]
+    },
+    {
+      "bench": "web-slow-link",
+      "target": "daemon",
+      "profile": "3g-fast",
+      "results": [
+        {
+          "cache": "cold",
+          "kinds": [
+            ["Script from script ", 403],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 4],
+            ["Script from other /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 2],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1],
+            ["Script from parser /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1],
+            ["Stylesheet from parser /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1]
+          ],
+          "transcriptMs": 12668.699999988079,
+          "sidebarMs": 12668.800000011921,
+          "requests": 413,
+          "kilobytes": 758.4970703125,
+          "roundTrips": 3,
+          "path": [
+            "/t/01a1db42-f215-766b-a1dd-252537c0b9c8",
+            "/assets/initial-hRM1ON9M.js",
+            "/assets/settings-schemas-LC7acbNg.js"
+          ],
+          "link": {
+            "roundTrips": 221,
+            "downKilobytes": 931.71875,
+            "upKilobytes": 129.1484375,
+            "stalls": 8
+          }
+        },
+        {
+          "cache": "warm",
+          "kinds": [
+            ["Script from script ", 410],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 4],
+            ["Script from other /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 3],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1],
+            ["Script from parser /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1],
+            ["Stylesheet from parser /t/01a1db42-f215-766b-a1dd-252537c0b9c8", 1]
+          ],
+          "transcriptMs": 1131.699999988079,
+          "sidebarMs": 1131.699999988079,
+          "requests": 421,
+          "kilobytes": 0.2939453125,
+          "roundTrips": 9,
+          "path": [
+            "/t/01a1db42-f215-766b-a1dd-252537c0b9c8",
+            "/assets/rolldown-runtime-C0pIRJjJ.js",
+            "/assets/on-machine-DOsoHiGU.js",
+            "/assets/provider-configuration-B3cBuYMG.js",
+            "/assets/read-snapshots-CACsY5lq.js",
+            "/assets/web-BkCizdUA.js",
+            "/assets/FloatingPortalLite-C1ntlu9f.js",
+            "/assets/tooltip-popup-CYe_1Uxk.js",
+            "/assets/drag-BdSrQgIH.js"
+          ],
+          "link": {
+            "roundTrips": 22,
+            "downKilobytes": 14.3486328125,
+            "upKilobytes": 18.958984375,
+            "stalls": 0
+          }
+        }
+      ]
+    },
+    {
+      "bench": "web-slow-link",
+      "target": "daemon",
+      "profile": "lan",
+      "results": [
+        {
+          "cache": "cold",
+          "kinds": [
+            ["Script from script ", 403],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 4],
+            ["Script from other /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 2],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1],
+            ["Script from parser /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1],
+            ["Stylesheet from parser /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1]
+          ],
+          "transcriptMs": 269.10000002384186,
+          "sidebarMs": 269.10000002384186,
+          "requests": 413,
+          "kilobytes": 1146.865234375,
+          "roundTrips": 5,
+          "path": [
+            "/t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db",
+            "/assets/rolldown-runtime-C0pIRJjJ.js",
+            "/assets/on-machine-DOsoHiGU.js",
+            "/assets/pr-verify-4phZ57hy.js",
+            "/assets/later-notifiers-DYTU2tRm.js"
+          ],
+          "link": {
+            "roundTrips": 384,
+            "downKilobytes": 1336.15234375,
+            "upKilobytes": 205.3828125,
+            "stalls": 0
+          }
+        },
+        {
+          "cache": "warm",
+          "kinds": [
+            ["Script from script ", 417],
+            ["Stylesheet from script /assets/initial-hRM1ON9M.js", 4],
+            ["Script from other /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 3],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1],
+            ["Script from parser /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1],
+            ["Stylesheet from parser /t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db", 1]
+          ],
+          "transcriptMs": 309.30000001192093,
+          "sidebarMs": 309.39999997615814,
+          "requests": 428,
+          "kilobytes": 92.9296875,
+          "roundTrips": 17,
+          "path": [
+            "/t/01a1db43-9ae7-70bd-a3e0-d540d1ec74db",
+            "/assets/rolldown-runtime-C0pIRJjJ.js",
+            "/assets/on-machine-DOsoHiGU.js",
+            "/assets/provider-configuration-B3cBuYMG.js",
+            "/assets/read-snapshots-CACsY5lq.js",
+            "/assets/web-BkCizdUA.js",
+            "/assets/forge-capabilities-BrAOw_G9.js",
+            "/assets/FieldItemContext-fzqmxQ4W.js",
+            "/assets/floating-state-BQHqwOIn.js",
+            "/assets/ClipboardText.es-u2L4x2D2.js",
+            "/assets/scopes-BtQfgk8M.js",
+            "/assets/_home.new-B-cHeSji.js",
+            "/assets/worktree-base-Cab8uZse.js",
+            "/assets/access-modes-DAnOkyyi.js",
+            "/assets/useMutation-Dt79mugj.js",
+            "/assets/provider-read-error-DwChGfsW.js",
+            "/assets/branches-B99X5Fm_.js"
+          ],
+          "link": {
+            "roundTrips": 60,
+            "downKilobytes": 171.4755859375,
+            "upKilobytes": 34.94140625,
+            "stalls": 0
+          }
+        }
+      ]
+    },
+    {
+      "bench": "web-slow-link",
+      "target": "preview",
+      "profile": "3g-slow",
+      "results": [
+        {
+          "cache": "cold",
+          "kinds": [
+            ["Script from script ", 404],
+            ["Stylesheet from script /assets/initial-BAtm8nu3.js", 4],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/thread-soak?rate=20", 1],
+            ["Script from parser /t/thread-soak?rate=20", 1],
+            ["Stylesheet from parser /t/thread-soak?rate=20", 1],
+            ["Script from other /t/thread-soak?rate=20", 1]
+          ],
+          "transcriptMs": 25764.19999998808,
+          "sidebarMs": 25764.19999998808,
+          "requests": 413,
+          "kilobytes": 836.6630859375,
+          "roundTrips": 3,
+          "path": [
+            "/t/thread-soak?rate=20",
+            "/assets/turn-index-BAwDwvte.js",
+            "/assets/settings-schemas-CC4AHqy_.js"
+          ]
+        },
+        {
+          "cache": "warm",
+          "kinds": [
+            ["Script from script ", 401],
+            ["Stylesheet from script /assets/initial-BAtm8nu3.js", 4],
+            ["Document from other ", 1],
+            ["Stylesheet from script /t/thread-soak?rate=20", 1],
+            ["Script from parser /t/thread-soak?rate=20", 1],
+            ["Stylesheet from parser /t/thread-soak?rate=20", 1],
+            ["Script from other /t/thread-soak?rate=20", 1]
+          ],
+          "transcriptMs": 15408.200000047684,
+          "sidebarMs": 15408.200000047684,
+          "requests": 410,
+          "kilobytes": 60.154296875,
+          "roundTrips": 3,
+          "path": [
+            "/t/thread-soak?rate=20",
+            "/assets/_home-D4N19MD2.js",
+            "/assets/settings-schemas-CC4AHqy_.js"
+          ]
+        }
+      ]
+    }
+  ]
+}

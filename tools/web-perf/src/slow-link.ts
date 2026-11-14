@@ -112,7 +112,10 @@ interface SlowLinkResult {
   path: string[];
   /** Requests before first content by type and initiator, most first. */
   kinds: [string, number][];
-  /** Daemon target only: everything that crossed the shaped link, WebSocket frames included. */
+  /**
+   * Daemon target only: everything that crossed the shaped link, WebSocket frames included.
+   * `roundTrips` sums handshakes and client flights over all the page's parallel connections.
+   */
   link?: { roundTrips: number; downKilobytes: number; upKilobytes: number; stalls: number };
 }
 
@@ -243,7 +246,8 @@ function reportSlowLink(result: SlowLinkResult): void {
   line("transferred before first content (KB)", result.kilobytes.toFixed(0));
   line("sequential round trips before first content", String(result.roundTrips));
   if (result.link) {
-    line("link round trips, WebSocket included", String(result.link.roundTrips));
+    // Summed over every connection the page opened, so not sequential round trips.
+    line("link flights, all connections and handshakes", String(result.link.roundTrips));
     line("link bytes down, WebSocket included (KB)", result.link.downKilobytes.toFixed(0));
   }
   line("deepest chain", result.path.join(" → "));
