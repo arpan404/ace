@@ -208,3 +208,45 @@ test("a turn with more than 64 files or commands shows 64 of each and says it wa
   expect(commands(small.digest)).toEqual(["small"]);
   expect(turns(store, thread, { before: 2, limit: 1 }).turns).toEqual([busy]);
 });
+
+/** The page after `sql` rewrites the index as an older build might have left it. */
+async function pageAfter(sql: string) {
+  const f = seed();
+  f.store.atomic((db) => db.exec(sql));
+  await f.restart();
+  return () => turns(f.store, f.thread);
+}
+
+test("an index count below zero reads as zero where it always did and fails the read elsewhere", async () => {
+  const turn = await pageAfter(
+    "UPDATE long_files SET added = -1 WHERE ordinal = 2 AND path = 'sub.ts'",
+  );
+  const file = turn().turns[1]?.digest.files.find((entry) => entry.path === "sub.ts");
+  expect(file).toMatchObject({ added: 0 });
+  const agent = await pageAfter(
+    "UPDATE long_agent_files SET added = -1, unknown = 0 WHERE agent_id = 'inline-sub'",
+  );
+  expect(agent).toThrow();
+  // A counter below zero reads as zero, for a turn and for an agent's share.
+  const counts = await pageAfter(
+    "UPDATE long_counts SET value = -3 WHERE ordinal = 2 AND key = 'commandsRun'; UPDATE long_agent_counts SET value = -3 WHERE agent_id = 'inline-sub' AND key = 'commandsRun'",
+  );
+  const busy = counts().turns[1];
+  expect(busy?.digest.commandsRun).toBe(0);
+  expect(busy?.subagents.find((sub) => sub.agentId === "inline-sub")?.digest.commandsRun).toBe(0);
+});
+
+test("index values outside the protocol's ranges fail the read instead of reaching it", async () => {
+  const huge = "9007199254740993";
+  for (const sql of [
+    `UPDATE long_files SET added = ${huge} WHERE ordinal = 2`,
+    `UPDATE long_agent_files SET removed = ${huge} WHERE agent_id = 'inline-sub'`,
+    `UPDATE long_counts SET value = ${huge} WHERE ordinal = 2 AND key = 'commandsRun'`,
+    `UPDATE long_counts SET value = 1.5 WHERE ordinal = 2 AND key = 'commandsRun'`,
+    `INSERT INTO long_agent_counts SELECT thread_id, ordinal, agent_id, 'inputTokens', -3 FROM long_agent_counts WHERE agent_id = 'inline-sub' LIMIT 1`,
+    "UPDATE long_turns SET ordinal = 0 WHERE ordinal = 1",
+    "UPDATE long_turns SET started_at = -5 WHERE ordinal = 2",
+    "UPDATE long_agents SET started_at = 1.5 WHERE id = 'inline-sub'",
+  ])
+    expect(await pageAfter(sql), sql).toThrow();
+});

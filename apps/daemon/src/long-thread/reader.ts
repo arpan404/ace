@@ -7,11 +7,11 @@ import {
   ThreadStatus,
   TurnSubagentSummary,
   TurnSummary,
+  TurnsPageResponse,
   type Thread,
   type ThreadId,
   type TurnDigest,
   type TurnsPageRequest,
-  type TurnsPageResponse,
   type ThreadCatchUpRequest,
 } from "@ace/protocol";
 import {
@@ -24,13 +24,14 @@ import { LongThreadDatabase, type Counters } from "./database.ts";
 import { Digests } from "./digests.ts";
 import { readAgentDigests, readTurnDigests, type AgentKey, type TurnKey } from "./turn-digests.ts";
 
+// Each field the page shows is decoded with the protocol field it becomes.
 const TurnRow = z.object({
-  ordinal: z.number(),
-  start_seq: z.number(),
-  end_seq: z.number(),
-  started_at: z.number(),
-  ended_at: z.number().nullable(),
-  root_outcome: z.enum(["active", "completed", "interrupted", "failed"]),
+  ordinal: TurnSummary.shape.ordinal,
+  start_seq: TurnSummary.shape.startSeq,
+  end_seq: TurnSummary.shape.endSeq,
+  started_at: TurnSummary.shape.startedAt,
+  ended_at: TurnSummary.shape.startedAt.nullable(),
+  root_outcome: TurnSummary.shape.outcome,
   settled_seq: z.number().nullable(),
   initiating: TurnSummary.shape.initiatingMessagePreview,
   latest: TurnSummary.shape.latestAgentMessagePreview,
@@ -41,6 +42,8 @@ const indexStatus = (json: unknown): ThreadStatus => ThreadStatus.parse(JSON.par
 const indexAgentStatus = (json: unknown): AgentStatus =>
   AgentStatus.parse(JSON.parse(String(json)));
 const SubagentName = TurnSubagentSummary.shape.name;
+const SubagentTime = TurnSubagentSummary.shape.startedAt;
+const IndexedSeq = TurnsPageResponse.shape.indexedSeq;
 export class TurnReader {
   private readonly data: LongThreadDatabase;
   private readonly digests: Digests;
@@ -75,7 +78,8 @@ export class TurnReader {
       ...(linked ? [indexStatus(linked.status)] : []),
       ...(owned ? [agentThreadStatus(indexAgentStatus(owned.status))] : []),
     ]);
-    if (active) return active;
+    // Built from the turn's counters, which are index rows: their counts are checked here.
+    if (active) return ThreadStatus.parse(active);
     if (row.settled_seq === null) return { state: "working", agents: 1 };
     return { state: row.root_outcome === "failed" ? "failed" : "done" };
   }
@@ -129,8 +133,8 @@ export class TurnReader {
           ...(child ? { threadId: child.id } : {}),
           ...(agent.name == null ? {} : { name: SubagentName.parse(agent.name) }),
           status: child?.status ?? agentThreadStatus(indexAgentStatus(agent.status)),
-          startedAt: Number(agent.started_at),
-          ...(agent.ended_at == null ? {} : { endedAt: Number(agent.ended_at) }),
+          startedAt: SubagentTime.parse(agent.started_at),
+          ...(agent.ended_at == null ? {} : { endedAt: SubagentTime.parse(agent.ended_at) }),
           digest: digestAt(digest),
         };
         return summary;
@@ -214,13 +218,14 @@ export class TurnReader {
         .get(input.threadId, last)
         ? Number(last)
         : null;
+    const indexedSeq = IndexedSeq.parse(this.data.digestIndexedSeq());
     return {
       type: "turns.page",
       requestId: input.requestId,
       threadId: input.threadId,
       seq,
-      indexedSeq: this.data.digestIndexedSeq(),
-      ready: this.data.digestIndexedSeq() >= seq,
+      indexedSeq,
+      ready: indexedSeq >= seq,
       turns,
       before,
       after,
