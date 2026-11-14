@@ -114,8 +114,9 @@ paths. Spade itself carries no pixels.
 3. **The control protocol** is length-prefixed JSON over stdio, which is the normal lane. Two
    more lanes run on ace-media's private control socket:
    - a priority lane, for revocation, closes and privacy barriers and their answers;
-   - while some setting needs it, an egress lane that carries encoded units back to the
-     daemon's legacy delivery.
+   - an egress lane, open for the process's lifetime and idle when unused, that carries frames
+     back to the daemon for any consumer still on its legacy path: delivery, recordings or
+     stills.
 
    The plan lists every message.
    - The daemon parses ace-media's `ready` message fully. The versions must match, or the
@@ -290,30 +291,27 @@ daemon.
     of pictures, and the daemon continues the recording in a new part.
   - **Browser recordings** use the tab's video encode instead of a JPEG screencast. A recording
     nobody watches gets its own encode.
-  - **Privacy epochs** (ADR 0088) become a barrier that holds even when control messages and
-    frames arrive out of order. The daemon's control lane and a producer's ingest connection are
-    separate, so a frame captured after a private transition can reach ace-media before the
-    daemon's message about that transition does. The barrier has four parts:
-    - **Epochs on every frame.** Every video and audio frame carries the privacy epoch that its
-      producer held when it captured it. The daemon gives producers each new epoch; sources
-      that ace-media reads itself are stamped from ace-media's own record of the source's
-      epoch.
-    - **Pause.** When a tab goes private, the daemon sends a pause barrier on the priority
-      lane, carrying the new epoch and the transition time on the host's monotonic clock. Both
-      processes read that clock identically. From then on nothing is recorded: not a frame of
-      the old epoch captured at or after the transition (less a safety margin), and not a frame
-      of the private epoch.
-    - **A watermark.** ace-media writes a frame to a recording only when it is below the
-      daemon's watermark. The watermark says "no transition before this time", the daemon
-      advances it every 100 ms while recording, and any pause is sent before it. Until then the
-      frame is held: at most 2 s or 32 MiB, and past that the recording drops frames and marks
-      a gap. A daemon that stalls makes a recording lag. It never makes it leak.
-    - **Resume.** When the tab is public again, the daemon sends a resume barrier with the
-      newer epoch and its time, and asks the producer for a keyframe. The next fragment starts
-      only at a keyframe of at least that epoch, captured at or after that time. Deltas before
-      it are dropped. A delayed keyframe from an older epoch, or from before the barrier, is
-      refused even when it arrives after the resume. Audio follows the same epoch and time
-      rules.
+  - **Privacy epochs** (ADR 0088) become a barrier that holds in any order of arrival.
+    Control messages and frames reach ace-media on separate connections, so a frame captured
+    after a tab went private can arrive before any word of the transition. The barrier uses no
+    shared clock; sequence numbers, the producers' own acknowledgements and the daemon's own
+    clock order everything.
+    - **Epochs on every frame.** Per source, epochs are short consecutive intervals. The daemon
+      issues one on every privacy transition and every 100 ms while a recording runs.
+    - **Stamping.** Every video and audio frame carries the epoch its producer held when it
+      captured the frame, and the producer acknowledges each epoch it applies. A producer that
+      can only stamp at read time gives a frame the epoch after a private one only if the
+      frame was read 100 ms or more after it applied that epoch.
+    - **Decisions.** The daemon decides each epoch k once the producer acknowledges k+1. Epoch
+      k is clear only if the source was public for the whole time from sending k to receiving
+      that acknowledgement; otherwise it is discarded. The decisions go to ace-media in one
+      sequenced stream, which ace-media applies strictly in order, holding any that arrive
+      early. There is no separate pause or watermark message that could overtake another.
+    - **Writing.** ace-media writes a frame only once its epoch is decided clear. It holds
+      undecided frames (at most 2 s or 32 MiB, then a gap), and drops frames of discarded
+      epochs, including late keyframes. After any discard or gap, the next fragment starts only
+      at a keyframe in a clear epoch. Audio follows the same epochs. A stalled daemon or a slow
+      lane makes a recording lag or gap. It never makes it leak.
   - **Cowork.** The agent's pointer and the person's lease are kept as a timed JSON track
     beside the MP4, never drawn into the pictures.
 - **Stills.** Stills for agents and models come from ace-media: the current picture, decoded on
@@ -355,9 +353,11 @@ daemon.
    - `auto` becomes the default when the phase lands.
    - **Every combination is a complete route.** That is 16 combinations, each with ace-media
      healthy, restarting or unavailable.
-     - With `media.encode: auto` and `media.delivery: legacy`, producers send to ace-media, and
-       ace-media sends the encoded units back to the daemon's existing delivery over a
-       temporary egress lane, with the same drop-to-keyframe rule.
+     - With `media.encode: auto`, producers send to ace-media. Whenever any consumer of a
+       source is still on its legacy path (delivery, recordings or stills), ace-media sends that
+       source's frames back over the egress lane, with the same drop-to-keyframe rule. Each
+       egress frame names its source by the handle the daemon assigned it, and the daemon
+       hands the frame to exactly the legacy consumers routed for that source.
      - With `media.encode: legacy` and recordings, stills or delivery on `auto`, the daemon
        tees the frames it receives into ace-media's ingest.
      - When ace-media becomes unavailable, the daemon points producers back at itself.
