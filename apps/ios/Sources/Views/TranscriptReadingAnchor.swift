@@ -2,8 +2,14 @@ import SwiftUI
 
 /// Geometry observed by the I/O shell. The viewport controller owns the semantic
 /// anchor and computes alignment from the row's current size when restoring it.
+///
+/// A class the feed's body never reads, so writing it from a geometry action never re-lays out
+/// the rows.
 @MainActor final class TranscriptReadingAnchor {
-    var frames: [String: CGRect] = [:]
+    /// Where the shown rows sit; on screen once offset by the content's origin.
+    var rows = TranscriptRowFrames()
+    /// A drift correction scrolled the feed: check the held row again once the scroll lands.
+    var recheckDrift = false
     /// Each row's last measured height, kept while it is off screen, so a row that comes back at
     /// another height (a page loading in again, a placeholder) is counted. Measurement only.
     private var heights: [String: CGFloat] = [:]

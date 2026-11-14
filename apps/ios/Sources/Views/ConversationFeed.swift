@@ -88,9 +88,7 @@ struct ConversationFeed: View {
         if value {
             viewport.goLive()
         } else {
-            if let top = currentTopRow() {
-                viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
-            }
+            captureTop()
             viewport.userLeftEnd()
         }
     }
@@ -106,6 +104,11 @@ struct ConversationFeed: View {
     var body: some View {
         ScrollViewReader { proxy in feed(proxy) }
     }
+
+    /// The scroll view's own frame, header and home indicator included.
+    nonisolated private static let viewportSpace = "transcript.viewport"
+    /// The scrolling content: rows keep their frames in it while the feed scrolls.
+    nonisolated private static let contentSpace = "transcript.content"
 
     private func feed(_ proxy: ScrollViewProxy) -> some View {
         let scroller = ScrollView {
@@ -141,31 +144,12 @@ struct ConversationFeed: View {
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .disabled(historyStale)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
-                                let returning = anchor.frames[row.id] == nil
-                                anchor.frames[row.id] = frame
-                                anchor.measured(row.id, height: frame.height, returning: returning)
-                                extent.measure(row.id, height: Double(frame.height))
-                                // Post-gesture shell: refresh the capture from settled
-                                // frames before any drift correction, so a stale
-                                // pre-gesture target can never pull the reader back.
-                                // Post-geometry shell: a pending session restore
-                                // re-runs after the row actually measures, since
-                                // revision events land before lazy remeasurement.
-                                if needsPostGestureCapture, viewport.mode == .reading,
-                                    !viewport.isAiming, viewport.sessionAnchor == nil {
-                                    needsPostGestureCapture = false
-                                    if let top = currentTopRow() {
-                                        viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
-                                    }
-                                }
-                                if viewport.sessionAnchor?.rowID == row.id {
-                                    applySessionRestore(proxy: proxy)
-                                } else {
-                                    correctHeldRowDrift(rowID: row.id, proxy: proxy)
-                                }
+                            // The row's frame in the content, not on screen: a scroll leaves it
+                            // alone, so this runs when rows change height, never per scroll frame.
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { frame in
+                                rowLaidOut(row.id, frame: frame, proxy: proxy)
                             }
-                            .onDisappear { anchor.frames[row.id] = nil }
+                            .onDisappear { anchor.rows.forget(row.id) }
                     }
                     Color.clear.frame(height: extent.after).accessibilityHidden(true)
                 } else { ConversationSkeleton().padding(AceDesign.Space.margin) }
@@ -196,9 +180,14 @@ struct ConversationFeed: View {
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
+            .coordinateSpace(name: Self.contentSpace)
+            // Where the content's top is on screen: the one number a scroll changes.
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.viewportSpace)).minY } action: { origin in
+                contentScrolled(to: origin, proxy: proxy)
+            }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0; feedBottom = $0.maxY }
-        .coordinateSpace(name: "transcript.viewport")
+        .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
@@ -321,6 +310,7 @@ struct ConversationFeed: View {
             intent.opened = true
             // Anchor the disclosure while reading history; the live end keeps following.
             if !following || reading.thread != nil, let top = currentTopRow() {
+                anchor.recheckDrift = false
                 viewport.toggle(rowID: top.rowID, itemID: top.itemID, top: top.top)
             }
             applyLayoutRevision()
@@ -343,7 +333,7 @@ struct ConversationFeed: View {
                     // the saved pixel offset. Coarse-scroll until the row
                     // measures, then refine to the exact offset below.
                     reading.focus = nil
-                    if anchor.frames[session.rowID] == nil {
+                    if anchor.rows.frame(session.rowID) == nil {
                         if viewport.correctionFrames == 0 {
                             proxy.scrollTo(session.rowID, anchor: .center)
                         }
@@ -377,6 +367,7 @@ struct ConversationFeed: View {
                     if let held = viewport.held,
                         placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
                         viewport.noteCorrectionApplied()
+                        anchor.recheckDrift = true
                     }
                 case .aim(let index):
                     if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
@@ -411,11 +402,7 @@ struct ConversationFeed: View {
             }
         }
         .task {
-            model.readingWillMove = {
-                if let top = currentTopRow() {
-                    viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
-                }
-            }
+            model.readingWillMove = { captureTop() }
             model.readingMoved = { reading.moved() }
             // Overflow recovery hook: fired once after the gesture ends (or the
             // page settles) when the held queue discarded rows with no fresh
@@ -427,14 +414,8 @@ struct ConversationFeed: View {
                 guard reading.thread != nil, !reading.loading else { return }
                 let shown = reading.shown ?? thread
                 let rows = TranscriptFeedRow.rows(shown)
-                let top = intent.metrics.topInset
-                let frames: [String: CGRect] = anchor.frames
-                let visible = rows.filter { row in (frames[row.id]?.maxY ?? -.infinity) > top + 1 }
-                let first = visible.min { a, b in
-                    let aTop: CGFloat = frames[a.id]?.minY ?? .infinity
-                    let bTop: CGFloat = frames[b.id]?.minY ?? .infinity
-                    return aTop < bTop
-                }
+                let topID = anchor.rows.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
+                let first = rows.first { $0.id == topID }
                 let item = first?.block.row.items.first ?? reading.lastAnchorItemId
                 if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
             }
@@ -544,7 +525,7 @@ struct ConversationFeed: View {
         let rows = TranscriptFeedRow.rows(shown)
         let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
         let top = intent.metrics.topInset
-        let first = rows.firstIndex { (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
+        let first = rows.firstIndex { (anchor.rows.frame($0.id)?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
         setFollowing(false)
         if direction > 0 {
             if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
@@ -552,7 +533,7 @@ struct ConversationFeed: View {
             return
         }
         let here = starts.last { $0 <= first }
-        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceDesign.Space.related } ?? false
+        let sitsBelow = here.map { (anchor.rows.frame(rows[$0].id)?.minY ?? top) < top - AceDesign.Space.related } ?? false
         if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
         if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
         if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
@@ -581,10 +562,10 @@ struct ConversationFeed: View {
     /// viewport budget (or a gesture) cancels a restore that never settles.
     private func applySessionRestore(proxy: ScrollViewProxy) {
         guard let session = viewport.sessionAnchor,
-            let frame = anchor.frames[session.rowID] else { return }
+            let frame = anchor.rows.frame(session.rowID) else { return }
         let metrics = intent.metrics
         let top = Double(frame.minY) - Double(metrics.topInset)
-        if abs(top - session.top) <= 2 {
+        if TranscriptRowPlacement.settled(top: top, target: session.top) {
             viewport.clearSessionAnchor()
             return
         }
@@ -606,16 +587,59 @@ struct ConversationFeed: View {
     /// The topmost visible row with its first item and pixel top, for anchor
     /// capture, successor search and session restore.
     private func currentTopRow() -> (rowID: String, itemID: String?, top: Double)? {
-        let top = intent.metrics.topInset
+        let inset = intent.metrics.topInset
         let rows = TranscriptFeedRow.rows(shown)
-        guard let first = rows.filter({ (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 })
-            .min(by: { (anchor.frames[$0.id]?.minY ?? .infinity) < (anchor.frames[$1.id]?.minY ?? .infinity) }) else { return nil }
-        return (rowID: first.id, itemID: first.block.row.items.first,
-                top: Double((anchor.frames[first.id]?.minY ?? top) - top))
+        guard let id = anchor.rows.topRow(of: rows.map(\.id), inset: inset),
+            let first = rows.first(where: { $0.id == id }) else { return nil }
+        return (rowID: first.id, itemID: first.block.row.items.first, top: anchor.rows.top(first.id, inset: inset) ?? 0)
+    }
+    /// Takes the row at the top as the one to hold: where it sits now is where it belongs, so
+    /// no drift check still owed for an earlier target runs against it.
+    private func captureTop() {
+        guard let top = currentTopRow() else { return }
+        anchor.recheckDrift = false
+        viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
     }
     /// A row's pixel top in viewport coordinates, for the viewport controller.
     private func rowTop(_ rowID: String) -> Double {
-        Double((anchor.frames[rowID]?.minY ?? intent.metrics.topInset) - intent.metrics.topInset)
+        anchor.rows.top(rowID, inset: intent.metrics.topInset) ?? 0
+    }
+    /// A row was laid out at `frame` in the content: on coming on screen, or when it or a row
+    /// above it changed height. Heights feed the extent; a held row that moved is put back.
+    private func rowLaidOut(_ id: String, frame: CGRect, proxy: ScrollViewProxy) {
+        let change = anchor.rows.record(id, frame: frame)
+        if change == .unchanged { return }
+        if change != .moved {
+            anchor.measured(id, height: frame.height, returning: change == .appeared)
+            extent.measure(id, height: Double(frame.height))
+        }
+        // Post-gesture shell: refresh the capture from settled frames before any drift
+        // correction, so a stale pre-gesture target can never pull the reader back.
+        if needsPostGestureCapture, viewport.mode == .reading,
+            !viewport.isAiming, viewport.sessionAnchor == nil {
+            needsPostGestureCapture = false
+            captureTop()
+        }
+        // Post-geometry shell: a pending session restore re-runs after the row actually
+        // measures, since revision events land before lazy remeasurement.
+        if viewport.sessionAnchor?.rowID == id {
+            applySessionRestore(proxy: proxy)
+        } else if viewport.held?.rowID == id {
+            correctHeldRowDrift(rowID: id, proxy: proxy)
+            // The content's origin may move in this same pass: check again where it lands.
+            anchor.recheckDrift = true
+        }
+    }
+    /// The feed scrolled: the content's top is at `origin` on screen. No row is touched; only a
+    /// restore or a drift correction still in flight is checked where its scroll landed.
+    private func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
+        guard anchor.rows.scrolled(origin: origin) else { return }
+        if viewport.sessionAnchor != nil {
+            applySessionRestore(proxy: proxy)
+        } else if anchor.recheckDrift, let held = viewport.held {
+            anchor.recheckDrift = false
+            correctHeldRowDrift(rowID: held.rowID, proxy: proxy)
+        }
     }
     /// Scroll so `rowID` sits `top` points below the viewport top. Returns
     /// false when the row fills the viewport (caller falls back to top
@@ -623,7 +647,7 @@ struct ConversationFeed: View {
     /// ones, like the capture/restore fraction.
     @discardableResult
     private func placeRowAtTop(_ rowID: String, top: Double, proxy: ScrollViewProxy) -> Bool {
-        guard let frame = anchor.frames[rowID] else { return false }
+        guard let frame = anchor.rows.frame(rowID) else { return false }
         let metrics = intent.metrics
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
@@ -640,14 +664,13 @@ struct ConversationFeed: View {
             !UIAccessibility.isVoiceOverRunning,
             viewport.mode != .following,
             let held = viewport.held, held.rowID == rowID,
-            anchor.frames[rowID] != nil else { return }
-        let frame = anchor.frames[rowID]!
-        let drift = Double(frame.minY) - Double(intent.metrics.topInset) - held.top
-        guard abs(drift) > 2 else { return }
+            let top = anchor.rows.top(rowID, inset: intent.metrics.topInset),
+            TranscriptRowPlacement.drift(top: top, target: held.top) != nil else { return }
         if !placeRowAtTop(rowID, top: held.top, proxy: proxy) {
             proxy.scrollTo(rowID, anchor: .top)
         }
         viewport.noteCorrectionApplied()
+        anchor.recheckDrift = true
     }
     /// Item-level successor for a gone held row: the row holding the smallest
     /// creation sequence past the removed item's, from the bounded removal log.
@@ -684,8 +707,12 @@ struct ConversationFeed: View {
     }
     private func applyLayoutRevision() {
         let next = currentRevision()
-        if next != extent.revision { anchor.layoutChanged() }
+        let changed = next != extent.revision
+        if changed { anchor.layoutChanged() }
         extent.applyRevision(next)
+        // Rows measure again only when their height changes, so the ones on screen carry what
+        // they measured into the new layout; a row the change resizes reports its new height.
+        if changed { for (id, height) in anchor.rows.heights { extent.measure(id, height: Double(height)) } }
         if viewport.layoutChanged(to: next), pinned, !intent.active {
             // Following stays pinned through rotation/split/text-size changes.
         }
