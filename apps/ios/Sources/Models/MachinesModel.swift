@@ -224,7 +224,8 @@ import Observation
         }
         return nil
     }
-    /// A name for this phone only; the computer keeps its own.
+    /// This phone's label for a machine. The machine page saves the name on the machine first
+    /// (`MachineManageSection`) and keeps this label in step with it.
     func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

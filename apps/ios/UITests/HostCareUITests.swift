@@ -79,6 +79,44 @@ import XCTest
         screenshot("diagnostics-reset")
     }
 
+    func testRenameSavesTheNameOnTheMachine() throws {
+        let app = launchIntoMachine()
+        open(app, "machine.rename")
+        let field = app.textFields["machine.rename.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Every device shows this name."].exists, "the alert says where the name goes")
+        field.clearAndType("Studio Mac")
+        app.buttons["machine.rename.save"].tap()
+        XCTAssertTrue(app.navigationBars["Studio Mac"].waitForExistence(timeout: 15), "the page takes the machine's new name")
+        screenshot("machine-renamed")
+        // Back to the fixture's own name, for the other tests on this fixture.
+        open(app, "machine.rename")
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.clearAndType("studio")
+        app.buttons["machine.rename.save"].tap()
+        XCTAssertTrue(app.navigationBars["studio"].waitForExistence(timeout: 15))
+    }
+
+    func testStartingTheUpdateShowsItsProgressAndResult() throws {
+        let app = launchIntoMachine()
+        let software = element(app, "machine.software")
+        for _ in 0..<6 where !software.isHittable { app.swipeUp() }
+        XCTAssertTrue(software.waitForExistence(timeout: 20))
+        XCTAssertTrue(software.label.contains("0.0.19 is available"))
+        XCTAssertTrue(app.buttons["machine.software.idle"].exists)
+        screenshot("machine-software")
+        app.buttons["machine.software.now"].tap()
+        let confirm = app.buttons["machine.software.now.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Update now asks first")
+        XCTAssertTrue(app.staticTexts["Update studio now?"].exists)
+        confirm.tap()
+        XCTAssertTrue(app.buttons["machine.software.cancel"].waitForExistence(timeout: 10), "a running update can be cancelled")
+        screenshot("machine-software-updating")
+        let done = expectation(for: NSPredicate(format: "label CONTAINS 'ace 0.0.19'"), evaluatedWith: software)
+        wait(for: [done], timeout: 40)
+        screenshot("machine-software-updated")
+    }
+
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
