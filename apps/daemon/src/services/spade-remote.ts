@@ -1,6 +1,7 @@
 import type { SpadeRemoteOutcome } from "@ace/protocol";
 import type { SpadeRemote } from "../spade/remote.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { featureOff } from "./feature-off.ts";
 
 type SpadeRemoteSocket = Pick<SocketContext, "authorize" | "connected" | "send" | "tasks"> & {
   options: { spadeRemote?: Pick<SpadeRemote, "machines" | "send"> | undefined };
@@ -51,7 +52,11 @@ export function createSpadeRemoteSession(context: SpadeRemoteSocket): SocketServ
       run(async () => {
         const result: SpadeRemoteOutcome = remote
           ? await remote.send(machine, request)
-          : { kind: "error", code: "offline", message: "Machines aren't ready on this daemon." };
+          : {
+              kind: "error",
+              code: "offline",
+              message: featureOff(context.options.serviceStatus, "machines", "Machines"),
+            };
         if (context.connected()) context.send({ type: "spade.remote.result", requestId, result });
       });
       return true;
