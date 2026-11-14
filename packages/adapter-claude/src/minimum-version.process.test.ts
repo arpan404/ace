@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { openSession } from "./session.ts";
+import { createClaudeAdapter } from "./index.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -38,4 +39,41 @@ test("a Claude Code older than ace's minimum is refused before it runs, naming b
       "Claude Code 2.1.200 is older than 2.1.286, the oldest version ace supports. Update Claude Code, then refresh.",
   });
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("an unchanged Claude CLI reports its version once, and a replaced one is read again", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-claude-version-"));
+  roots.push(root);
+  const probes = join(root, "probes");
+  const executable = join(root, "claude");
+  const fake = new URL("./testing/cli.ts", import.meta.url).href;
+  // A real install is megabytes; a launcher this small would not be trusted to name its version.
+  const padding = `// ${"x".repeat(80 * 1024)}\n`;
+  const install = (version: string | undefined) =>
+    writeFile(
+      executable,
+      `#!${process.execPath}\n${padding}import { appendFileSync } from "node:fs";\n` +
+        `if (process.argv.includes("--version")) {\n  appendFileSync(${JSON.stringify(probes)}, "v");\n` +
+        (version ? `  console.log("${version} (Claude Code)");\n  process.exit(0);\n` : "") +
+        `}\nawait import(${JSON.stringify(fake)});\n`,
+    );
+  await install(undefined);
+  await chmod(executable, 0o755);
+  const adapter = createClaudeAdapter({ executable });
+  const ctx = {
+    threadId: ThreadId.parse("versions"),
+    cwd: root,
+    signal: new AbortController().signal,
+    onFrame() {},
+    onExit() {},
+  };
+  for (let open = 0; open < 2; open++) await (await adapter.openSession(ctx)).close("shutdown");
+  expect(await readFile(probes, "utf8")).toBe("v");
+
+  await install("2.1.200");
+  await expect(adapter.openSession(ctx)).rejects.toMatchObject({
+    code: "cli_too_old",
+    installed: "2.1.200",
+  });
+  expect(await readFile(probes, "utf8")).toBe("vv");
 });
