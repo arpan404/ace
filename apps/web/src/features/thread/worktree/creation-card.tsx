@@ -2,7 +2,10 @@ import type { WorktreeCreationProgress } from "@ace/protocol";
 import {
   formatDuration,
   worktreeHeadline,
+  worktreeActionOrder,
+  worktreeActionWords,
   worktreeNote,
+  worktreeRefusalWords,
   worktreeStepRows,
   type WorktreeStepRow,
 } from "@ace/ui-core";
@@ -41,47 +44,22 @@ import type { WorktreeAction, WorktreeCreationState } from "./use-worktree-creat
 const foldedLine =
   "group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-sm px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground";
 
-const refusals: Record<NonNullable<WorktreeCreationState["refused"]>, string> = {
-  busy: "Another action on this worktree is still running. Try again in a moment.",
-  cleanup_required: "Cleanup hasn't finished, so this can't run yet.",
-  settled: "It had already finished.",
-  not_found: "The daemon no longer has this worktree request.",
-  forbidden: "This device isn't allowed to change it.",
-  offline: "Couldn't reach the daemon. Try again once connected.",
-};
-
 type CardAction = Exclude<WorktreeAction, "dismiss">;
-const actions: Record<
-  CardAction,
-  { label: string; busy: string; tip: string; icon: PhosphorIcon }
-> = {
+const actions: Record<CardAction, { tip: string; icon: PhosphorIcon }> = {
   local: {
-    label: "Don't use worktree",
-    busy: "Switching…",
     tip: "Start the thread on the local checkout instead and send your message there",
     icon: LaptopIcon,
   },
   cancel: {
-    label: "Cancel",
-    busy: "Cancelling…",
     tip: "Stop and remove the half-made worktree. Your message stays unsent; Retry starts over",
     icon: XIcon,
   },
-  retry: {
-    label: "Retry",
-    busy: "Retrying…",
-    tip: "Try creating the worktree again",
-    icon: ArrowClockwiseIcon,
-  },
+  retry: { tip: "Try creating the worktree again", icon: ArrowClockwiseIcon },
   continue: {
-    label: "Continue without setup",
-    busy: "Continuing…",
     tip: "Start the thread in this worktree without running its setup script",
     icon: PlayIcon,
   },
 };
-/** Left to right: the way out first, the step forward last. */
-const actionOrder: readonly CardAction[] = ["local", "cancel", "retry", "continue"];
 
 /** The daemon's own words for how the start failed, from its receipt. */
 export interface CreationFailure {
@@ -121,7 +99,7 @@ function CreationCard(props: {
   const note = worktreeNote(progress) ?? (failed ? props.failure?.detail : undefined);
   const title = failed ? props.failure?.title : undefined;
   const locked = failed && progress.error === "git_quarantined" && props.workspaceId;
-  const offered = actionOrder.filter((action) => progress.actions.includes(action));
+  const offered = worktreeActionOrder.filter((action) => progress.actions.includes(action));
   return (
     <section
       aria-labelledby={heading}
@@ -146,7 +124,7 @@ function CreationCard(props: {
         )}
         {state.refused && (
           <p role="alert" className="py-1 text-xs text-status-failed">
-            {refusals[state.refused]}
+            {worktreeRefusalWords[state.refused]}
           </p>
         )}
         <div className="flex min-w-0 items-center gap-1">
@@ -192,8 +170,9 @@ function ActionButton(props: {
   onClick(): void;
 }) {
   const action = actions[props.action];
+  const words = worktreeActionWords[props.action];
   const busy = props.sending === props.action;
-  const label = busy ? action.busy : action.label;
+  const label = busy ? words.busy : words.label;
   return (
     <Tip label={action.tip} side="top">
       <button

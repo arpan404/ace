@@ -108,3 +108,73 @@ export function worktreeSummary(progress: Progress, branch?: string | null): str
   parts.push(formatDuration(progress.elapsedMs));
   return parts.join(" · ");
 }
+
+/** Refusals the daemon gives when a new thread's worktree couldn't be made. */
+const unmade = new Set([
+  "workspace_unavailable",
+  "workspace_busy",
+  "workspace_preparation_collision",
+  "workspace_cleanup_required",
+  "not_a_repo",
+  "no_commits",
+  "invalid_ref",
+  "branch_exists",
+  "ref_conflict",
+  "preparation_timeout",
+  "auth_failed",
+  "remote_unreachable",
+]);
+
+/**
+ * Whether a new thread's start was refused because its worktree couldn't be made: not the
+ * message's own refusal (a model that's gone), not a cancel the person chose, and not a setup
+ * script that failed in a worktree the daemon kept (its card offers Continue).
+ */
+export function worktreeUnmade(code: string | undefined): boolean {
+  if (!code || code === "worktree_cancelled" || code === "setup_failed") return false;
+  return code.startsWith("worktree_") || code.startsWith("git_") || unmade.has(code);
+}
+
+/**
+ * Whether the worktree's card speaks for a new thread's start. It does while the worktree is
+ * made, when making it stopped, and when only its setup script failed, but not when the start
+ * was then refused for the message's own reason (a model that's gone): that refusal is the
+ * message's, said under its bubble.
+ */
+export function worktreeSpeaks(progress: Progress | undefined, code: string | undefined): boolean {
+  if (!progress) return false;
+  if (progress.state !== "failed" || !code) return true;
+  return code === "worktree_cancelled" || code === "setup_failed" || worktreeUnmade(code);
+}
+
+/** Why the daemon turned a card's action down, or `offline` when it couldn't be asked. */
+export type WorktreeActionRefusal =
+  | "busy"
+  | "cleanup_required"
+  | "settled"
+  | "not_found"
+  | "forbidden"
+  | "offline";
+
+export const worktreeRefusalWords: Record<WorktreeActionRefusal, string> = {
+  busy: "Another action on this worktree is still running. Try again in a moment.",
+  cleanup_required: "Cleanup hasn't finished, so this can't run yet.",
+  settled: "It had already finished.",
+  not_found: "The daemon no longer has this worktree request.",
+  forbidden: "This device isn't allowed to change it.",
+  offline: "Couldn't reach the daemon. Try again once connected.",
+};
+
+/** A card's action as it reads, and while it is on its way. */
+export const worktreeActionWords: Record<
+  Progress["actions"][number],
+  { label: string; busy: string }
+> = {
+  local: { label: "Don't use worktree", busy: "Switching…" },
+  cancel: { label: "Cancel", busy: "Cancelling…" },
+  retry: { label: "Retry", busy: "Retrying…" },
+  continue: { label: "Continue without setup", busy: "Continuing…" },
+};
+
+/** Left to right: the way out first, the step forward last. */
+export const worktreeActionOrder = ["local", "cancel", "retry", "continue"] as const;
