@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Item, Thread } from "@ace/protocol";
+import { AgentId, Item, Thread } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { Store } from "@ace/daemon";
 import { shell as shellItem } from "./payload-test-support.ts";
@@ -244,7 +244,7 @@ test("a message ending in an attachment keeps each historical cutoff of the text
   const delta = (append: string) => ({
     type: "item.delta" as const,
     itemId: item.id,
-    agentId: item.agentId,
+    agentId: AgentId.parse("root"),
     field: "text" as const,
     append,
   });
