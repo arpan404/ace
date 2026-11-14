@@ -223,3 +223,23 @@ it("a snapshot never adds chunks to a body another connection completed while it
   // The completion did land, so the read raced it rather than running before it.
   expect(other.prepare("SELECT COUNT(*) AS n FROM item_text_chunks").get()?.n).toBe(0);
 });
+
+it("an item streamed across two builds reads its older chunks validated and its newer as stored", () => {
+  const { open } = setup();
+  const older = open("older build");
+  const workspace = older.createWorkspace("/repo", "Repo", 1);
+  const thread = createDevThread(older, workspace).id;
+  older.appendEvents(thread, [{ type: "item.created", item: streaming("live", "message") }]);
+  const delta = (append: string) =>
+    ({ type: "item.delta", itemId: liveId, agentId: owner, field: "text", append }) as const;
+  for (const append of ["one ", "two "]) older.appendEvents(thread, [delta(append)]);
+  const newer = open("newer build");
+  for (const append of ["three ", "four"]) newer.appendEvents(thread, [delta(append)]);
+  const text = [{ type: "text", text: "one two three four" }];
+  const head = newer.headSeq() + 1;
+  const mixed = newer.readItems(thread, head, 200).items;
+  expect(mixed.find((item) => item.id === "live")).toMatchObject({ parts: text });
+  expect(newer.snapshotThread(thread).items.live).toMatchObject({ parts: text });
+  // The same rows read by a build that trusts none of them.
+  expect(open("third build").readItems(thread, head, 200).items).toEqual(mixed);
+});

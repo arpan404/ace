@@ -48,6 +48,10 @@ export interface StoredTrust {
   from: number;
 }
 export const untrusted = (): StoredTrust => ({ from: Number.POSITIVE_INFINITY });
+/** Whether this build wrote the row at `seq`, and so reads it as stored. */
+export function isTrusted(trust: StoredTrust, seq: number): boolean {
+  return seq >= trust.from;
+}
 /**
  * A stored payload by its row's sequence. Rows from `trustedFrom` on were validated by this
  * build's writer and are already in its shape (`stored-shape.ts`), so they are parsed as JSON

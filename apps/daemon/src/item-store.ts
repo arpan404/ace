@@ -1,5 +1,6 @@
 import {
   decodeStoredItem,
+  isTrusted,
   storedItem,
   storedTextChunk,
   untrusted,
@@ -199,7 +200,7 @@ export class ItemStore {
     // Accepted fields share one append target.
     for (const row of chunks) {
       field ??= row.field;
-      if (Number(row.seq) >= this.trust.from) {
+      if (isTrusted(this.trust, Number(row.seq))) {
         const chunk = storedTextChunk(row.field, row.append);
         trustedField ??= chunk.field;
         appends.push(chunk.append);
@@ -293,7 +294,7 @@ export class ItemStore {
       // A body this build wrote is read as stored and takes no text chunks, so its stored size
       // is exactly its JSON's. Text previews and older bodies are measured.
       const size =
-        (!preview && row.created_seq >= this.trust.from
+        (!preview && isTrusted(this.trust, row.created_seq)
           ? row.size
           : Buffer.byteLength(JSON.stringify(item))) + overhead;
       if (bytes + size > byteLimit) {
