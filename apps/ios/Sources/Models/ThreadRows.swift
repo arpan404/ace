@@ -220,6 +220,13 @@ struct ControlsRow: Codable, Sendable, Equatable {
     var note: String? = nil
     /// The next message starts a new thread on that model.
     var continues: Bool? = nil
+    /// A guest session (ADR 0105): agents on another machine use this one's tools, so there is
+    /// no composer, only whose work it is. Nil for a thread the person talks to.
+    var guest: Guest? = nil
+    struct Guest: Codable, Sendable, Equatable {
+        /// "Used by agents on Linux box. Stop to end their work."
+        let line: String
+    }
 }
 /// The daemon queue's follow-ups for the open thread, with the shared summary line.
 struct QueueRow: Codable, Sendable, Equatable {

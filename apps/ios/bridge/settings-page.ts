@@ -125,7 +125,7 @@ function keysOf(page: PageSpec): SettingsKey[] {
   const keys = new Set<SettingsKey>();
   for (const section of page.sections)
     for (const row of section.rows) {
-      if (row.kind === "static") keys.add(row.key);
+      if (row.kind === "static") for (const key of [row.key, ...(row.reads ?? [])]) keys.add(key);
       if (row.kind === "defaultProvider") keys.add("providers.default");
       if (row.kind === "utilityModel") keys.add("generation.model");
       if (row.kind === "role") for (const key of Object.values(roleKeys(row.role))) keys.add(key);
@@ -216,7 +216,7 @@ function staticRow(row: StaticRow, values: ReadValues): PageRow {
     title: row.title,
     control,
     value: row.control.kind === "choice" ? choiceId(current) : (current ?? null),
-    note: row.note?.(current) ?? null,
+    note: row.note?.(current, (key) => values.get(key)?.value) ?? null,
     source: pageSource(entry),
     locked: lockedReason(entry),
     empty: null,

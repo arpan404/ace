@@ -110,6 +110,8 @@ import QuartzCore
     /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
     private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
+    /// Moves when History must read again: Settled's membership or a settled row changed.
+    private(set) var historyRevision = HistoryRevision()
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
@@ -205,10 +207,11 @@ import QuartzCore
         // so each is read whole again behind its kept rows (`ThreadModel.beginSnapshot`).
         let sameMachine = scope == target.scope
         let keeping = sameMachine ? thread : nil
-        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true } else { shelf.clear() }
+        // Typed review replies stay with it; the new runtime sends each sheet again.
+        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
-        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
         inboxLayout = .empty; chatLayout = .empty
@@ -453,6 +456,7 @@ import QuartzCore
             case .inboxReset(let ids):
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
+                historyRevision.reset()
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -460,6 +464,9 @@ import QuartzCore
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
                 if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
+                var revision = historyRevision
+                revision.row(id, old: inbox[id], new: row)
+                if revision != historyRevision { historyRevision = revision }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -467,7 +474,11 @@ import QuartzCore
                     inbox[id] = nil
                 }
                 activityChanged = true
-            case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
+            case .inboxSections(let layout):
+                if inboxLayout != layout { inboxLayout = layout }
+                var revision = historyRevision
+                revision.layout(layout)
+                if revision != historyRevision { historyRevision = revision }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
             case .connectionEvent(let text): LaunchTrace.mark("connection.event", text)
             case .connection(let state, let generation):
@@ -553,6 +564,14 @@ import QuartzCore
                     thread.beginSnapshot(revision: revision, warm: true, before: before)
                     reorder = false
                     added = []
+                    continue
+                }
+                // A newer pass before the open's first fence: the bridge's ledger sends it only what
+                // changed since the rows already staged, so the staging carries on under its
+                // revision. Restaging empty would lose those rows and fail every fence after.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
+                    thread.refreshRevision = revision
+                    thread.refreshBefore = before
                     continue
                 }
                 guard let target = scoped(id, epoch) else { continue }
@@ -659,6 +678,8 @@ import QuartzCore
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .summary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch, sheets.summary != summary { sheets.summary = summary }
             case .logs(let id, let epoch, let logs):
                 if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
             case .logsCopy(let id, let text): sheets.copies[id] = text
@@ -717,7 +738,9 @@ import QuartzCore
         if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
-        sheets.reset()
+        // The thread already on screen, visited again (a new route, a snapshot retry), keeps
+        // what was typed in its sheets; another thread starts them empty.
+        if thread?.id == id { sheets.forgetFollowed() } else { sheets.reset() }
         browser.close(streams: runtime?.browserStreams)
         // A fresh navigation may retry once; a retry itself must not reset the bound.
         if !isSnapshotRetry { snapshotRetries[id] = nil }

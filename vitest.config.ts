@@ -64,6 +64,7 @@ export default defineConfig({
             "apps/*/src/**/*.test.ts",
             "apps/desktop/e2e/fixtures/*.test.ts",
             "apps/ios/bridge/**/*.test.ts",
+            "apps/ios/scripts/*.test.ts",
             "scripts/*.test.ts",
           ],
           exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],

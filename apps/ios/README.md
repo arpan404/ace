@@ -119,7 +119,9 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   terminal emulator (`Sources/Terminal`) parsing a coloured build log (budget 2 MB/s, measured
   6.3 MB/s in Debug on the iOS 26 simulator, 2026-10-27), parsing one 120×50 full-screen redraw
   (budget 8 ms, measured 1.0 ms) and building every row of a 50-row coloured screen for drawing
-  (budget 16 ms, measured 5.8 ms; only changed rows are rebuilt while output streams). Output is
+  (budget 16 ms, measured 5.8 ms; only changed rows are rebuilt while output streams). The
+  log-parse and screen-build tests time the median of several warmed-up runs. CI's simulator is 3 to 4 times slower, so the
+  workflow sets `TEST_RUNNER_ACE_PERF_SLACK=4` and these budgets stretch by that factor there. Output is
   parsed off the main thread in 4,096-character slices and credit to the daemon follows parsing,
   so a program printing faster than the phone draws is paced rather than queued.
 
@@ -330,7 +332,10 @@ Each row carries its action ids from the web's shared `threadMenu` (`@ace/ui-cor
 words in the layout's `menuLabels`. Read, auto-settle and move go through the inbox action;
 delete and every action on several threads go through `inbox.bulk` (`bridge/inbox-manage.ts`),
 which waits a few seconds for the machine's answers so the phone can offer Stop and delete.
-`OrganizeUITests` drive these against the fixture.
+A move picked across machines asks for a project on each machine (`MoveAcrossSheet`): a project
+belongs to one machine, so each machine's threads go to one of its own, with one toast and Undo,
+and a refusal is named thread by thread. `OrganizeUITests` drive these against the fixture, and
+`RoutingUITests` the move across two machines.
 
 Search (the bar's magnifying glass, ⌘K or ⌘F) is search everything: before a query, recent
 searches and every command; with one, commands, settings, projects and threads of every paired
@@ -454,7 +459,8 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   page's own. A hidden `UITextField` over the focused field brings up the keyboard the field asks
   for (`KeyboardStyle`); `RemoteTyping` replays its edits as Backspace, Delete and text, and IME
   composition as marked text. Select, date, time, month, week and colour pickers open native
-  pickers and answer with `pick` (`PickerValues`, in UTC). Tooltips show over the page.
+  pickers and answer with `pick` (`PickerValues`, in UTC); a picker kind with no native control
+  takes the value typed in the page's own format. Tooltips show over the page.
 - Tests: `BrowserStreamTests` (pieces written by the daemon's encoder), `BrowserInputTests`,
   `H264DecodeTests` (real VideoToolbox frames), `BrowserLiveTests`, and
   `bunx vitest run apps/ios/bridge/browser-live.test.ts` on the fake daemon.
@@ -597,7 +603,13 @@ viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the
-version opened; a newer version is only replaced on Replace. Create, rename, move and delete
+version opened; a newer version is only replaced on Replace. Larger text (`LargeFileView`) reads
+a part (about 256 KB, `page`) at a time and holds at most eight (`LargeFileText`). Find
+(`LargeFileFind`) searches the file a page at a time without keeping it, holds at most 10,000
+matches with a point to go on from, and jumps to a match's part by its offset. A thread's file
+up to 64 MB edits a part at a time, saved with `part.write` over exactly the bytes the part was
+read from (BOM and CRLF kept; a part that isn't valid UTF-8 is refused), never over a newer
+version. Create, rename, move and delete
 (to Recently deleted, with Undo and a restore list) use the web's checks and the shared error
 sentences (`checkoutError`). An answer's local links route through `checkoutLinkPath`: a
 checkout file opens at its line; a file elsewhere is fetched with `link.download` for that
@@ -676,21 +688,81 @@ pairing or daemon-restart durability.
 
 ## Notifications
 
-Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
+Local notifications ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)), and remote push
+through ace's push gateway ([ADR 0106](../../docs/adr/0106-ios-remote-push-gateway.md)) when the
+build has the push entitlement. `Sources/Notifications/`
 posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
 `UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone (and sends `notification.unregister` while that
 machine's alerts are off), reports foreground or
 background presence and runs approval actions through the SDK outbox. With the fixture running,
 `curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
-`/review/retract -d '{"id":"…"}'` withdraws one. Remote push through APNs or a push gateway remains deferred; see the
+`/review/retract -d '{"id":"…"}'` withdraws one. Live Activity push remains deferred; see the
 [draft](../../docs/adr/drafts/ios-push-notifications.md). Local Live Activities use the
 foreground SDK state described below.
+
+### Remote push
+
+Once alerts are allowed, the app asks iOS for an APNs token. Each paired machine's
+`notifications.sync` then carries `push: { token, environment, p256dh, auth }`: the token in hex,
+`sandbox` or `production` (`AceAPSEnvironment` in Info.plist, from `ACE_APS_ENVIRONMENT`), and
+the public half of the phone's RFC 8291 key. A machine turned off on the phone gets no `push`
+field, and neither does any machine before iOS gives a token.
+
+- **The key** (`Alerts/PushKey.swift`) is a P-256 key pair and a 16-byte auth secret, made once
+  and kept in `push-key.json` in the app group container (`group.app.ace.ios`), with
+  complete-until-first-unlock protection, mode 0600 and no backup. It's a file rather than a
+  keychain item because the extension can share a keychain item only through a team-prefixed
+  access group, which ad-hoc and free-team signing don't give reliably; the app group is shared
+  by every target already. It is never logged. A reinstall or restore makes a new key.
+- **`AceNotificationService`** (`NotificationService/`, bundle id `app.ace.ios.notifications`)
+  decrypts the gateway's `ace.c` with CryptoKit (`Alerts/PushCrypto.swift`) and fills the alert
+  with the same `AlertContent` wording, category, grouping, interruption level and `userInfo`
+  keys a local alert has. It has no JavaScript runtime and no networking. Anything that fails
+  leaves the gateway's "ace" / "New activity", which never says done.
+- **Shown once.** The extension notes each alert it showed in the app group's defaults
+  (`PushedAlerts`). When the app lands a thread's alert it withdraws every pushed copy for that
+  thread and posts the alert under the thread's own identifier, without sound or banner when a
+  push already showed it. Catch-up lands a thread's alerts oldest first, so the newest is the
+  one left, with no need to work out which push came when. Withdrawing a thread or an alert also
+  removes its pushed copy.
+- **Catch-up never goes backwards.** Catch-up lands only each thread's newest missed alert that
+  this phone posts, and none for a thread whose live alert is newer. Live alerts and feed entries
+  carry the daemon's feed cursor, which decides; an older daemon sends none, and then the feed's
+  order does (a live alert outside the feed arrived after it was read). Catch-ups run one at a
+  time, and a new connection forgets the last one's live alerts. An older "Done" never covers a
+  request that still waits.
+- **Acks.** The bridge acks a live `notification` frame (`notification.ack`) only when Swift
+  answers its `notifications.alert` patch with `notifications.delivered { id }`: posted, already
+  shown from a push, or not wanted by this phone's settings. Before Swift's first
+  `notifications.sync` nothing is acked, so the daemon pushes; with alerts off the frame is acked
+  at once and never shown. The daemon waits 3 s for the ack.
+
+**The entitlement switch.** APNs needs `aps-environment`, which only a paid developer team can
+sign. It is **off by default** (`ACE_PUSH: NO` in `project.yml`), so CI and free Personal Teams
+keep signing and the app runs on local notifications alone: registration fails quietly and no
+machine gets a push address. To build with push, turn it on explicitly:
+
+```sh
+xcodebuild -project Ace.xcodeproj -scheme Ace -configuration Debug ACE_PUSH=YES … build
+```
+
+or set `ACE_PUSH` to `YES` in the Ace target's build settings in Xcode (regenerating the project
+resets it). The app then signs with `Entitlements/AcePush.entitlements`: `development` in Debug
+and Perf, `production` in Release.
+
+**Try it on a simulator.** `xcrun simctl push` needs no token or entitlement. Open the app once so
+it makes its key (allow notifications), then encrypt an alert to the key in the simulator's app
+group container with the repo's own code (`encryptWebPush` and `pushPlaintext` in
+`packages/notify`, wrapped by `alertPush` in `apps/push-gateway`), write the APNs payload with a
+`"Simulator Target Bundle": "app.ace.ios"` key to a `.apns` file and run
+`xcrun simctl push <udid> app.ace.ios <file.apns>`. A payload that doesn't decrypt shows "New
+activity".
 
 Outside apps' sign-ins (ADR 0122) alert too: `NotificationCoordinator+Access.swift` posts one
 alert per request a connected machine lists while ace is in the background, and withdraws it
 when the machine stops listing it. The daemon also pushes each request to admin phones that
-have a push address (`{ v: 1, hostId, access }`, decoded by `AccessAlert.push`), but this app
-doesn't register one yet, since ADR 0106's notification service extension isn't built. A tap
+have a push address (`{ v: 1, hostId, access }`, decoded by `AccessAlert.push`); the service
+extension shows those as the local alert would. A tap
 sends `outside.open` to the bridge, which opens the sheet on that request or says it ended. To
 see it, stage `curl -X POST localhost:9841/review/outside -d '"ask"'`, send the app to the
 background and `xcrun simctl push <udid> app.ace.ios` a payload whose `userInfo` carries

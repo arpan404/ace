@@ -38,6 +38,7 @@ export const tabletTools = [
   { kind: "files", label: "Files" },
   { kind: "terminal", label: "Terminal" },
   { kind: "browser", label: "Browser" },
+  { kind: "summary", label: "Summary" },
   { kind: "agents", label: "Agents" },
   { kind: "preview", label: "Run and preview" },
 ] as const;

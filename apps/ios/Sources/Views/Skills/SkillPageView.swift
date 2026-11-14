@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A skill from the agents' own folders: who loads it, where it lives, when it runs, how often
 /// it was used and its instructions. The person's own skills can be edited, re-linked to other
-/// agents and deleted from here. Cardless, as the design language's inner pages: a quiet heading
-/// over hairline rows, actions as words.
+/// agents and deleted from here, and one installed from a repository updated. Cardless, as the
+/// design language's inner pages: a quiet heading over hairline rows, actions as words.
 struct SkillPageView: View {
     let model: ClientModel
     let route: SkillRoute
@@ -128,6 +128,12 @@ struct SkillPageView: View {
                 }
             }
             savedIn(page)
+            if let source = page.source {
+                SkillSourceRow(model: model, page: page, source: source, workspaceId: workspaceId) { applied in
+                    changed += 1; notice = applied.notice
+                    Task { await read() }
+                }
+            }
             if page.open != nil, model.canOperate {
                 QuietSectionRow {
                     SkillOpenOnComputer(model: model, skillId: page.id, workspaceId: workspaceId)

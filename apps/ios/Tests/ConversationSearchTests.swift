@@ -48,6 +48,17 @@ import Testing
         #expect(search.hits.map(\.threadTitle) == ["Keep this result"])
         #expect(search.problem?.contains("index changed") == true && !search.loading)
     }
+    @Test func aHitInOneThreadLeadsWithWhatMatchedNotTheThreadTitle() throws {
+        func hit(_ kind: String, title: String) throws -> ConversationHit {
+            let value: [String: Any] = ["threadId": "thread", "threadTitle": "Replace main with ace branch", "itemId": "item", "kind": kind, "provider": "codex", "createdAt": 0, "title": ["text": title], "snippet": ["text": "matched words"]]
+            return try JSONDecoder().decode(ConversationHit.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        #expect(try hit("message", title: "").inThreadLead == "Message")
+        #expect(try hit("tool_call", title: "Run bun test").inThreadLead == "Tool · Run bun test")
+        #expect(try hit("html", title: "Latency chart").inThreadLead == "Visualization · Latency chart")
+        #expect(try hit("thread", title: "Replace main with ace branch").inThreadLead == "Thread title")
+        #expect(try hit("delegation.settled", title: "").inThreadLead == "Subagent finished")
+    }
     private func wait(_ ready: () -> Bool) async throws {
         for _ in 0..<200 {
             if ready() { return }

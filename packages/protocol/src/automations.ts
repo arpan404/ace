@@ -139,6 +139,11 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     before: z.number().int().positive().optional(),
     automationId: text.optional(),
     limit: z.number().int().min(1).max(100),
+    /**
+     * Leave out runs that finished at or before this time (ms); runs still going stay in. Paging
+     * with `before` goes over what is left. A daemon without it lists every run.
+     */
+    finishedAfter: z.number().int().nonnegative().optional(),
     source: AutomationSource.optional(),
   }),
   z.object({
