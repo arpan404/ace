@@ -181,20 +181,19 @@ for (const { kind, plant } of cases)
     );
     await writer.close();
 
-    let finished = false;
-    let tick: (() => void) | undefined;
+    const pass: { tick?: () => void; finished: boolean } = { finished: false };
     const upgraded = open("this build", "2.0.0", {
       trustPass: {
         scheduler: (run) => {
-          tick = run;
+          pass.tick = run;
           return () => {
-            finished = true;
+            pass.finished = true;
           };
         },
       },
     });
-    for (let guard = 0; !finished && guard < 100; guard++) tick?.();
-    expect(finished).toBe(true);
+    for (let guard = 0; !pass.finished && guard < 100; guard++) pass.tick?.();
+    expect(pass.finished).toBe(true);
     const validating = open("this build", "another build", { storedTrustReader: true });
     // Serialised, so a difference in field order counts.
     expect(JSON.stringify(reads(upgraded, written.thread))).toBe(
