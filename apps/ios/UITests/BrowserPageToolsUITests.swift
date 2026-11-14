@@ -168,6 +168,29 @@ final class BrowserPageToolsUITests: XCTestCase {
         screenshot("browser-engine-2-moved")
     }
 
+    /// The address starts with the page's security mark, and with Connection stats on the menu
+    /// shows the round trip of the person's input to the page.
+    @MainActor func testTheAddressMarksTheConnectionAndTheMenuShowsTheRoundTrip() {
+        let app = XCUIApplication()
+        openBrowser(app)
+        let address = app.buttons["browser.address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        XCTAssertTrue((address.value as? String)?.contains("Secure connection") == true)
+        // A touch on the page, so there is a round trip to show.
+        app.descendants(matching: .any)["browser.surface"].firstMatch.tap()
+        sleep(1)
+        app.buttons["browser.menu"].tap()
+        // A menu's switch and its plain rows read as buttons or switches depending on the OS.
+        let stats = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ OR label == %@",
+                                                                         "browser.menu.connectionStats", "Connection stats")).firstMatch
+        XCTAssertTrue(stats.waitForExistence(timeout: 5))
+        stats.tap()
+        app.buttons["browser.menu"].tap()
+        let latency = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Input round trip'")).firstMatch
+        XCTAssertTrue(latency.waitForExistence(timeout: 5))
+        screenshot("browser-connection-1-stats")
+    }
+
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)

@@ -2,10 +2,10 @@ import SwiftUI
 import UIKit
 
 /// The browser's ⋯ menu, grouped as Safari's: the page (find, zoom, screenshots, print, the
-/// device, share), the thread's browser (history, downloads, console, page source, extensions),
-/// the tab (keep agents out, watch the agent, sound, recording, new and close) and the browser
-/// itself (its engine, settings, clearing its data). Everything acts on the tab shown; the
-/// person's own Chrome is theirs, so ace never prints, clears or reads it.
+/// device, share), the thread's browser (history, downloads, console, page source, extensions,
+/// connection stats), the tab (keep agents out, watch the agent, sound, recording, new and close)
+/// and the browser itself (its engine, settings, clearing its data). Everything acts on the tab shown; the person's own Chrome is theirs, so
+/// ace never prints, clears or reads it.
 struct BrowserMenu: View {
     @Bindable var model: ClientModel
     @Binding var sheet: BrowserSheet?
@@ -13,6 +13,8 @@ struct BrowserMenu: View {
     @Binding var clearing: Bool
     var split: Binding<String?>? = nil
     let screenshot: (Bool) -> Void
+    /// "Show connection stats", web's Settings › Browser › In this window: off unless turned on.
+    @AppStorage("ace.browser.connectionStats") private var connectionStats = false
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
     private var page: Bool { state.map { !$0.closed && $0.blank != true && $0.activeTabId != nil } ?? false }
@@ -72,6 +74,14 @@ struct BrowserMenu: View {
                 Button("Extensions", ace: .puzzlePiece) { sheet = .extensions }
                     .disabled(state == nil || state?.closed == true)
                     .accessibilityIdentifier("browser.menu.extensions")
+                Toggle(isOn: $connectionStats) { Label("Connection stats", ace: .gauge) }
+                    .accessibilityIdentifier("browser.menu.connectionStats")
+                // The round trip of the person's input to the page, once they have used it here.
+                if connectionStats, let latency = model.browser.latency {
+                    Text("Input round trip \(latency) ms")
+                        .monospacedDigit()
+                        .accessibilityIdentifier("browser.menu.latency")
+                }
             }
             if model.canOperate, let tabId = state?.activeTabId, state?.closed == false {
                 Section {

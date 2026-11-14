@@ -219,6 +219,26 @@ import Testing
         #expect(session.browserActions.last?["on"] as? Bool == false)
     }
 
+    @Test func theRoundTripAndThePagesConnectionBelongToTheOpenBrowser() async throws {
+        let (model, _) = try await connected()
+        model.receive(try frame([["type": "browser.latency", "threadId": "thread", "ms": 40]]))
+        #expect(model.browser.latency == nil)
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let state: [String: Any] = [
+            "url": "http://shop.example/", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+            "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0, "address": "shop.example", "addressHost": "shop.example",
+            "connection": ["kind": "insecure", "label": "Not secure"],
+            "tabs": [["id": "t1", "title": "Shop", "url": "http://shop.example/"]],
+        ]
+        model.receive(try frame([["type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(), "state": state],
+                                 ["type": "browser.latency", "threadId": "other", "ms": 900],
+                                 ["type": "browser.latency", "threadId": "thread", "ms": 42]]))
+        #expect(model.browser.view?.state?.connection == BrowserViewInfo.Connection(kind: "insecure", label: "Not secure"))
+        #expect(model.browser.latency == 42)
+        model.closeBrowser()
+        #expect(model.browser.latency == nil)
+    }
+
     @Test func theToolsAnswersBelongToTheOpenViewAndGoWithIt() async throws {
         let (model, _) = try await connected()
         let problem: [String: Any] = ["type": "browser.problem", "at": 1, "message": "Couldn't close the tab."]

@@ -47,6 +47,8 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         let elsewhere: Bool
     }
     struct Pointer: Codable, Sendable, Equatable { let x: Double; let y: Double; let sequence: Int }
+    /// secure (https), insecure (http elsewhere) or local, and the words for it.
+    struct Connection: Codable, Sendable, Equatable { let kind: String; let label: String }
     /// A failed load or an untrusted certificate, as a person reads it.
     struct Failure: Codable, Sendable, Equatable { let title: String; let detail: String; let url: String; let host: String }
     struct Dialog: Codable, Sendable, Equatable, Identifiable {
@@ -102,6 +104,8 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         var addressUrl: String? = nil
         var addressHost: String? = nil
         var blank: Bool? = nil
+        /// The page's security mark at the address's start.
+        var connection: Connection? = nil
         var shown: Shown? = nil
         var disconnected: Bool? = nil
         var failure: Failure? = nil

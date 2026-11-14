@@ -9,7 +9,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { z } from "zod";
-import type { KeyValueStorage } from "@ace/ui-core";
+import { nextLatency, type KeyValueStorage } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
 import { DeviceAction, devicePresetRows, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
@@ -157,6 +157,8 @@ export class BrowserLive {
   #annotate: BrowserAnnotate;
   #engine: BrowserEngineTool;
   #following = new BrowserWatch();
+  /** Each thread's input round trip in milliseconds, once the person has used its page. */
+  #latency = new Map<string, number>();
   /** Stops hearing the threads' statuses; set while watch mode is on. */
   #unobserve: (() => void) | undefined;
   #devices: PhoneDevices;
@@ -376,6 +378,15 @@ export class BrowserLive {
         presets: devicePresetRows,
       }));
       this.#subscribe(watch);
+      const latency = this.#latency.get(action.threadId);
+      if (latency !== undefined) {
+        const ms = Math.round(latency);
+        this.#sink.put("browser:latency", () => ({
+          type: "browser.latency",
+          threadId: action.threadId,
+          ms,
+        }));
+      }
       return true;
     }
     if (action.kind === "close") {
@@ -417,6 +428,7 @@ export class BrowserLive {
         const input = BrowserInput.safeParse(action.input);
         if (!input.success) return false;
         const tabId = watch.state?.activeTabId;
+        const started = this.#context.now();
         void this.#owner
           .request({
             type: "browser.input",
@@ -424,6 +436,7 @@ export class BrowserLive {
             input: input.data,
             ...(tabId ? { tabId } : {}),
           })
+          .then(() => this.#timed(watch.threadId, this.#context.now() - started))
           .catch(() => {});
         return true;
       }
@@ -454,6 +467,7 @@ export class BrowserLive {
     this.#tools.close();
     this.#page.close();
     this.#sink.clear("browser:view");
+    this.#sink.clear("browser:latency");
     this.#sink.clear("browser:presets");
     this.#sink.clear("browser:page");
     if (this.#owner.state !== "ready") return;
@@ -507,6 +521,18 @@ export class BrowserLive {
       });
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */
+  /**
+   * The person's input round trip, sent to answered, for the ⋯ menu's connection stats: a
+   * moving average per thread, sent only when its whole milliseconds change.
+   */
+  #timed(threadId: string, sample: number): void {
+    const before = this.#latency.get(threadId);
+    const next = nextLatency(before, sample);
+    this.#latency.set(threadId, next);
+    const ms = Math.round(next);
+    if (before !== undefined && Math.round(before) === ms) return;
+    this.#sink.put("browser:latency", () => ({ type: "browser.latency", threadId, ms }));
+  }
   /** Watch mode hears the thread's status, to end once its agents stop working. */
   #observe(watch: Watch): void {
     if (this.#unobserve) return;

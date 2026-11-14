@@ -55,6 +55,8 @@ struct BrowserBar: View {
                 HStack(spacing: AceDesign.Space.tight) {
                     if state?.loading == true {
                         WorkingMark(label: "Loading")
+                    } else if addressText != Self.prompt, let connection = state?.connection {
+                        ConnectionMark(connection: connection)
                     }
                     Text(addressText)
                         .foregroundStyle(addressText == Self.prompt ? AceDesign.Ink.muted : AceDesign.Ink.primary)
@@ -68,7 +70,7 @@ struct BrowserBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Address")
-            .accessibilityValue(addressText)
+            .accessibilityValue([state?.connection?.label, addressText].compactMap { $0 }.joined(separator: ", "))
             .accessibilityIdentifier("browser.address")
             if operate, state?.blank == false {
                 if state?.loading == true {
@@ -228,5 +230,23 @@ struct BrowserFindBar: View {
         model.browserFind("")
         model.browser.clearFind()
         close()
+    }
+}
+
+/// The page's security mark at the address's start, as web's: a lock for https, an open lock in
+/// the needs-you hue for http elsewhere, a globe for a local page. VoiceOver reads its words with
+/// the address.
+struct ConnectionMark: View {
+    let connection: BrowserViewInfo.Connection
+    var body: some View {
+        AceIcon(icon, size: 14, relativeTo: .subheadline)
+            .foregroundStyle(connection.kind == "insecure" ? AceDesign.Status.needsYou : AceDesign.Ink.muted)
+    }
+    private var icon: AceIcon.Name {
+        switch connection.kind {
+        case "secure": .lock
+        case "insecure": .lockOpen
+        default: .globe
+        }
     }
 }
