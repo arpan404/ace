@@ -70,7 +70,7 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
     let resume: (() => void) | undefined;
     let stalls = 0;
     const finish = () => {
-      if (ended && pending.length === 0 && !to.destroyed) to.end();
+      if (ended && pending.length === 0 && !to.destroyed && !to.writableEnded) to.end();
     };
     const deliver = () => {
       cancel = undefined;
@@ -106,10 +106,13 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
         });
       }
     });
-    from.on("end", () => {
+    // A sender that ends or closes ends only its direction, once what it sent has arrived.
+    const ending = () => {
       ended = true;
       finish();
-    });
+    };
+    from.on("end", ending);
+    from.on("close", ending);
     return () => {
       cancel?.();
       resume?.();
@@ -160,8 +163,13 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
     };
     client.on("error", close);
     upstream.on("error", close);
-    client.on("close", close);
-    upstream.on("close", close);
+    // Released once both sides are gone; a reset on either side drops the other at once.
+    let gone = 0;
+    const release = () => {
+      if (++gone === 2) close();
+    };
+    client.on("close", release);
+    upstream.on("close", release);
     upstream.once("connect", () => client.resume());
   });
   const listen = options.listen ?? { host: "127.0.0.1", port: 0 };

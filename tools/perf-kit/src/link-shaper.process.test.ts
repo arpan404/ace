@@ -54,3 +54,31 @@ test("an exchange through the shaper arrives intact, a round trip late, and is c
     await new Promise<void>((resolve) => echo.close(() => resolve()));
   }
 });
+
+test("an answer the server sends just before closing still reaches the client", async () => {
+  // HTTP without keep-alive does this: answer, then close at once. The answer is still crossing.
+  const answer = Buffer.from("HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok");
+  const server = createServer((socket) => socket.once("data", () => socket.end(answer)));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No server address");
+  const profile = { ...linkProfiles.lan, name: "test", rttMs: 80 };
+  const shaper = await startLinkShaper({
+    target: { host: "127.0.0.1", port: address.port },
+    profile,
+  });
+  const client = connect(shaper.port, shaper.host);
+  try {
+    await once(client, "connect");
+    const received: Buffer[] = [];
+    client.on("data", (chunk: Buffer) => received.push(chunk));
+    client.write("GET / HTTP/1.1\r\n\r\n");
+    await once(client, "end");
+    expect(Buffer.concat(received).equals(answer)).toBe(true);
+  } finally {
+    client.destroy();
+    await shaper.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
