@@ -440,15 +440,20 @@ fn the_probe_reports_what_the_sessions_said_within_its_deadline() -> Result<(), 
         return Ok(());
     }
     assert_eq!(h264.state, TrialState::Ok);
-    // The trial reports the size it ran at; the limit search comes after, on `late`.
-    assert_eq!((h264.max_width, h264.max_height), (1280, 720));
-    let until = Instant::now() + Duration::from_secs(20);
-    let refined = loop {
-        let left = until.saturating_duration_since(Instant::now());
-        match report.late.recv_timeout(left) {
-            Ok(c) if c.step == Step::Encode && c.codec == h264.codec => break Some(c),
-            Ok(_) => {}
-            Err(_) => break None,
+    // The trial reports the size it ran at; the limit search runs after it and its entry
+    // replaces the first one, in the report if it beats the deadline, otherwise on `late`.
+    let refined = if h264.max_width > 1280 {
+        Some(h264.clone())
+    } else {
+        assert_eq!((h264.max_width, h264.max_height), (1280, 720));
+        let until = Instant::now() + Duration::from_secs(20);
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            match report.late.recv_timeout(left) {
+                Ok(c) if c.step == Step::Encode && c.codec == h264.codec => break Some(c),
+                Ok(_) => {}
+                Err(_) => break None,
+            }
         }
     };
     eprintln!("refined: {refined:?}");
