@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { signAsync } from "@electron/osx-sign";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
+import { smokeMedia, verifyMediaDesktop } from "@ace/release/media-smoke";
+import { readScreenHelperIdentity } from "@ace/release/screen-identity";
+import { ReleaseTarget } from "@ace/protocol";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 // The canonical ace-chromium profile (PR #1221); the deb installs exactly what `ace doctor --fix` installs.
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
@@ -20,7 +24,11 @@ import {
 } from "./common.ts";
 import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
-import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
+import {
+  windowsSigning,
+  windowsSigningConfig,
+  windowsSigningConfigured,
+} from "../src/packaging/release-signing.ts";
 import { checkAppArchive } from "../src/packaging/app-archive.ts";
 import { copyBesideApp, packagedResources } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
@@ -88,7 +96,7 @@ await verifyNatives(arch);
 // Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
-    ["daemon", "bin", "helpers", "runtime", "spade"]
+    ["daemon", "bin", "helpers", "runtime", "spade", "media"]
       .map((d) => join(dist, d))
       .filter((path) => existsSync(path)),
   ))
@@ -103,6 +111,11 @@ const notarize =
   signed && process.platform === "darwin" && notary.kind !== "none" && notary.kind !== "incomplete";
 const helper = join(dist, "helpers/AceScreenHelper.app");
 
+const screenIdentity = process.platform === "darwin" ? readScreenHelperIdentity(helper) : undefined;
+if (screenIdentity)
+  await writeFile(join(dist, "screen-helper-identity.json"), JSON.stringify(screenIdentity) + "\n");
+let packedApp = "";
+let packedResources = "";
 const config: Configuration = {
   appId: "dev.ace.app",
   productName: "ace",
@@ -127,6 +140,7 @@ const config: Configuration = {
     { from: join(dist, "bin"), to: "bin" },
     // Spade's server (ADR 0123), in every build; `features.json` hides it at run time (ADR 0139).
     { from: join(dist, "spade"), to: "spade" },
+    { from: join(dist, "media"), to: "media" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
       from: join(desktop, "resources"),
@@ -152,6 +166,9 @@ const config: Configuration = {
   // extraResources, which always drops node_modules: the daemon needs its staged runtime
   // packages (playwright-core, the Claude SDK).
   afterPack: async (packed) => {
+    packedApp =
+      process.platform === "darwin" ? join(packed.appOutDir, "ace.app") : packed.appOutDir;
+    packedResources = packagedResources(packed);
     // A run that packed a dependency tree into app.asar fails here, before anything is signed.
     await checkAppArchive(join(packagedResources(packed), "app.asar"));
     await copyBesideApp(dist, arch)(packed);
@@ -183,6 +200,18 @@ const config: Configuration = {
         ]
       : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
+    binaries: ["Contents/Resources/media/ace-media"],
+    // Keep Electron's JIT entitlements off the media executable in the same signing pass.
+    sign: async (options) => {
+      const original = options.optionsForFile;
+      await signAsync({
+        ...options,
+        optionsForFile: (file) =>
+          file.endsWith("/media/ace-media")
+            ? { hardenedRuntime: true, entitlements: [] }
+            : (original?.(file) ?? {}),
+      });
+    },
     entitlements: join(desktop, "build/entitlements.mac.plist"),
     entitlementsInherit: join(desktop, "build/entitlements.mac.plist"),
     notarize,
@@ -299,6 +328,18 @@ const outputs = await build({
   projectDir: repo,
   publish: "never",
 });
+const mediaTarget = ReleaseTarget.parse(`${process.platform}-${arch}`);
+await verifyMediaDesktop(packedApp, mediaTarget, join(repo, "native/screen-helper/identity.txt"), {
+  production: signed && process.platform === "darwin",
+  authenticode: windowsSigningConfigured(authenticode),
+  ...(screenIdentity ? { screenIdentity } : {}),
+});
+await smokeMedia(
+  packedResources,
+  mediaTarget,
+  packagedAppVersion(process.env, appVersion()),
+  join(packedResources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+);
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({

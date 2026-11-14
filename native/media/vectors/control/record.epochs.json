@@ -1,0 +1,11 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "record.epochs",
+    "source": "source-1",
+    "seq": 1,
+    "decided": 1,
+    "clear": [[1, 2]],
+    "discard": [[1, 2]]
+  }
+}

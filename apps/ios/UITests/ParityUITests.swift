@@ -77,9 +77,55 @@ import XCTest
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
         let full = app.buttons["Open Interactive counter full screen"]
         XCTAssertTrue(full.waitForExistence(timeout: 20)); full.tap()
-        sleep(2)
-        XCTAssertFalse(app.staticTexts["Couldn't open media"].exists)
+        // Full screen over the thread, with the page's title, a live page and Copy source.
+        let screen = app.descendants(matching: .any)["visualization.screen"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Interactive counter"].exists)
+        XCTAssertTrue(app.webViews["canvas.content"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Couldn't load this visualization"].exists)
+        let composer = app.textViews["composer.input"]
+        XCTAssertFalse(composer.exists && composer.isHittable, "it covers the thread")
+        // Copy is enabled once the page and its source are read; it then says Copied for a while.
+        let copy = app.buttons["visualization.copy"].firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 10))
+        wait(for: [expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: copy)], timeout: 15)
+        copy.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copy)], timeout: 5)
         capture("canvas")
+        app.buttons["visualization.close"].firstMatch.tap()
+        XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
+    }
+    /// An answer's maths reaches VoiceOver whole and its Mermaid fence draws as a diagram whose
+    /// source is a tap away.
+    func testAnAnswersMathsAndMermaidDiagramRender() {
+        let app = launch()
+        app.revealRow("thread.ios-rich-answer").tap()
+        let any = app.descendants(matching: .any)
+        let prose = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "hypotenuse follows", "hypotenuse follows")).firstMatch
+        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        // Typeset maths still reads as its TeX to VoiceOver, so the tree can't tell typeset from
+        // not; `AnswerMarkdownTests` checks the formulas are drawn. Here: they reach VoiceOver whole.
+        let spoken = any.matching(NSPredicate(format: "value CONTAINS %@", "$$c = \\sqrt{a^2 + b^2}$$")).firstMatch
+        XCTAssertTrue(spoken.exists, "the display formula reads whole, in its delimiters")
+        let diagram = app.images["answer.diagram"]
+        XCTAssertTrue(diagram.waitForExistence(timeout: 20), "the Mermaid fence draws as a diagram")
+        XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Phone --> Daemon", "Phone --> Daemon")).firstMatch.exists,
+                       "the drawn diagram replaces its code")
+        capture("answer-maths-diagram")
+        let showSource = app.buttons["answer.diagram.source"].firstMatch
+        XCTAssertTrue(showSource.waitForExistence(timeout: 10))
+        if showSource.isHittable { showSource.tap() }
+        // Over a picture XCUITest may not find a hit point; the button still takes a real touch.
+        else { showSource.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        let source = app.staticTexts["diagram.source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(source.label.contains("Phone --> Daemon"))
+        let copySource = app.buttons["diagram.copy"].firstMatch
+        copySource.tap()
+        wait(for: [expectation(for: NSPredicate(format: "label == 'Copied'"), evaluatedWith: copySource)], timeout: 5)
+        capture("answer-diagram-source")
+        app.buttons["diagram.close"].firstMatch.tap()
+        XCTAssertTrue(source.waitForNonExistence(timeout: 10))
     }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()

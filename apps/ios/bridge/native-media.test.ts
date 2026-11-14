@@ -138,5 +138,7 @@ test("a published canvas still opens on a daemon that has no attachment stream",
   // The page travels inside the sandboxed frame of an outer document that reports its height.
   expect(JSON.stringify(result)).toContain("Step 1");
   expect(JSON.stringify(result)).toContain("ace.html.height:");
+  // Copy source gives the page as the agent wrote it, not the frame around it.
+  expect(result).toMatchObject({ source: html });
   lease.release();
 });

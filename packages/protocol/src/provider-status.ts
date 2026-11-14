@@ -15,7 +15,13 @@ export const NativeToolStatus = z.object({
   // A union, not `.catch()`: browser workers load this schema and leave `.catch()` out.
   state: z.union([
     z.enum(["ready", "unavailable", "unknown"]),
-    z.unknown().transform(() => "unknown" as const),
+    z
+      .unknown()
+      .transform(() => "unknown" as const)
+      .meta({
+        "x-ace-json-input": z.string(),
+        "x-ace-constraint": "Any other state a newer daemon sends is decoded as unknown.",
+      }),
   ]),
   reason: z.string().max(512).optional(),
 });

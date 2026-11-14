@@ -1,0 +1,224 @@
+[
+  {
+    "name": "listen.remote:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"listen\",\"loopback\":true}"
+  },
+  {
+    "name": "listen.remote:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"listen\",\"loopback\":true,\"remote\":{\"addresses\":[],\"port\":1234,\"certificateBytes\":2,\"keyBytes\":3}}"
+  },
+  {
+    "name": "listen.remote:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"listen\",\"loopback\":true,\"remote\":null}"
+  },
+  {
+    "name": "source.open.threadId:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"}}"
+  },
+  {
+    "name": "source.open.threadId:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"threadId\":\"thread-1\"}"
+  },
+  {
+    "name": "source.open.threadId:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"threadId\":null}"
+  },
+  {
+    "name": "source.open.tabId:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"}}"
+  },
+  {
+    "name": "source.open.tabId:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"tabId\":\"thread-1\"}"
+  },
+  {
+    "name": "source.open.tabId:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"tabId\":null}"
+  },
+  {
+    "name": "source.open.sessionId:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"}}"
+  },
+  {
+    "name": "source.open.sessionId:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"sessionId\":\"thread-1\"}"
+  },
+  {
+    "name": "source.open.sessionId:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"sessionId\":null}"
+  },
+  {
+    "name": "source.open.deviceId:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"}}"
+  },
+  {
+    "name": "source.open.deviceId:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"deviceId\":\"thread-1\"}"
+  },
+  {
+    "name": "source.open.deviceId:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.open\",\"source\":\"source-1\",\"handle\":1,\"epoch\":1,\"origin\":{\"kind\":\"tab\"},\"deviceId\":null}"
+  },
+  {
+    "name": "revoke.admission:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"revoke\",\"id\":\"source-1\",\"issued\":1,\"device\":\"source-1\"}"
+  },
+  {
+    "name": "revoke.admission:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"revoke\",\"id\":\"source-1\",\"issued\":1,\"device\":\"source-1\",\"admission\":{\"kind\":\"account\",\"account\":\"a\"}}"
+  },
+  {
+    "name": "revoke.admission:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"revoke\",\"id\":\"source-1\",\"issued\":1,\"device\":\"source-1\",\"admission\":null}"
+  },
+  {
+    "name": "ready.listen.remotePort:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1}}"
+  },
+  {
+    "name": "ready.listen.remotePort:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":1234}}"
+  },
+  {
+    "name": "ready.listen.remotePort:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"ready\",\"protocol\":1,\"version\":\"value\",\"pid\":1,\"capabilities\":{\"encoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"decoders\":[{\"codec\":\"value\",\"hardware\":true,\"backend\":\"value\"}],\"stills\":true},\"ingest\":{\"socket\":\"value\",\"websocketPort\":1},\"control\":{\"socket\":\"value\"},\"listen\":{\"loopbackPort\":1,\"remotePort\":null}}"
+  },
+  {
+    "name": "source.status.reason:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\"}"
+  },
+  {
+    "name": "source.status.reason:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\",\"reason\":\"retry\"}"
+  },
+  {
+    "name": "source.status.reason:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\",\"reason\":null}"
+  },
+  {
+    "name": "source.status.attempts:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\"}"
+  },
+  {
+    "name": "source.status.attempts:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\",\"attempts\":2}"
+  },
+  {
+    "name": "source.status.attempts:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"source-1\",\"status\":\"starting\",\"attempts\":null}"
+  },
+  {
+    "name": "source.want.encodes.0.quantizer:absent",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.want\",\"source\":\"source-1\",\"encodes\":[{\"id\":1,\"codec\":\"value\",\"width\":1,\"height\":1,\"fps\":1,\"bitrate\":1}]}"
+  },
+  {
+    "name": "source.want.encodes.0.quantizer:present",
+    "direction": "FromMedia",
+    "accept": true,
+    "json": "{\"type\":\"source.want\",\"source\":\"source-1\",\"encodes\":[{\"id\":1,\"codec\":\"value\",\"width\":1,\"height\":1,\"fps\":1,\"bitrate\":1,\"quantizer\":30}]}"
+  },
+  {
+    "name": "source.want.encodes.0.quantizer:null",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.want\",\"source\":\"source-1\",\"encodes\":[{\"id\":1,\"codec\":\"value\",\"width\":1,\"height\":1,\"fps\":1,\"bitrate\":1,\"quantizer\":null}]}"
+  },
+  {
+    "name": "identifier:high",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"ping\",\"id\":\"\\ud800\"}"
+  },
+  {
+    "name": "identifier:low",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"ping\",\"id\":\"\\udfff\"}"
+  },
+  {
+    "name": "identifier:high-followed-by-text",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"ping\",\"id\":\"\\ud800x\"}"
+  },
+  {
+    "name": "identifier:reversed-pair",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"ping\",\"id\":\"\\udc00\\ud800\"}"
+  },
+  {
+    "name": "identifier:scalar-limit",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"ping\",\"id\":\"\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\"}"
+  },
+  {
+    "name": "identifier:over-limit",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"ping\",\"id\":\"\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\"}"
+  },
+  {
+    "name": "identifier:empty",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"ping\",\"id\":\"\"}"
+  }
+]

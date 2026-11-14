@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeComputerDrive.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bot": {
+      "$ref": "https://ace.local/protocol/v1/SpadeBotId.json"
+    },
+    "driver": {
+      "$ref": "https://ace.local/protocol/v1/SpadeComputerDriver.json"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/CoworkSharing.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.computer.drive",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "bot"
+  ],
+  "type": "object",
+  "x-ace-constraint": "At least one of driver or mode is required."
+}

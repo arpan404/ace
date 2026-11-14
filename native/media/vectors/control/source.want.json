@@ -1,0 +1,17 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.want",
+    "source": "source-1",
+    "encodes": [
+      {
+        "id": 1,
+        "codec": "value",
+        "width": 1,
+        "height": 1,
+        "fps": 1,
+        "bitrate": 1
+      }
+    ]
+  }
+}

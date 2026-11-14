@@ -44,6 +44,14 @@ export const tabletTools = [
 ] as const;
 export type TabletTool = (typeof tabletTools)[number]["kind"];
 
+/**
+ * Pages a panel shows that open only from the thread, one tab per resource, never from the +
+ * menu: a published visualization (its id: the item that published it). Each tab carries the
+ * title it was opened with.
+ */
+export const tabletPages = [{ kind: "visualization", label: "Visualization" }] as const;
+const isPage = (kind: string) => tabletPages.some((page) => page.kind === kind);
+
 /** A thread's panel the first time it opens: Changes and Files, pinned, as on the web. */
 const initial = ["changes", "files"] as const;
 
@@ -62,6 +70,8 @@ export const tabletDefaultSize = 400;
 export interface TabletPanelTab {
   key: string;
   kind: string;
+  /** The resource a page shows (a visualization's item); a tool's own kind. */
+  id: string;
   title: string;
   pinned: boolean;
 }
@@ -84,8 +94,16 @@ export interface TabletPanelView {
 }
 
 export const TabletPanelOp = z.discriminatedUnion("op", [
-  /** Show this tool, opening its tab if needed (the ⋯ menu, a link, the + menu). */
-  z.object({ op: z.literal("open"), kind: z.string() }),
+  /**
+   * Show this tool, opening its tab if needed (the ⋯ menu, a link, the + menu). A page
+   * (`tabletPages`) opens only with its resource's `id`, under `title`; a tool takes neither.
+   */
+  z.object({
+    op: z.literal("open"),
+    kind: z.string(),
+    id: z.optional(z.string().check(z.minLength(1), z.maxLength(512))),
+    title: z.optional(z.string().check(z.minLength(1), z.maxLength(160))),
+  }),
   /** A tool's shortcut: show it, or hide the panel when it is the tab showing. */
   z.object({ op: z.literal("toggle"), kind: z.string() }),
   z.object({ op: z.literal("activate"), key: z.string() }),
@@ -109,7 +127,8 @@ const Persisted = z.object({
   scopes: z.array(z.tuple([z.string(), ScopeWorkspaceSchema])),
 });
 
-const label = (kind: string) => tabletTools.find((tool) => tool.kind === kind)?.label ?? kind;
+const label = (kind: string) =>
+  [...tabletTools, ...tabletPages].find((tool) => tool.kind === kind)?.label ?? kind;
 
 /**
  * Every thread's panel on one machine, persisted to the injected storage. Bounded: the threads
@@ -154,7 +173,8 @@ export class TabletWorkspaces {
       tabs: workspace.tabs.map((tab) => ({
         key: tab.key,
         kind: tab.kind,
-        title: label(tab.kind),
+        id: tab.id,
+        title: tab.title ?? label(tab.kind),
         pinned: tab.pinned,
       })),
       size: workspace.size ?? this.#preferred,
@@ -183,10 +203,16 @@ export class TabletWorkspaces {
 
   #next(scope: string, workspace: ScopeWorkspace, op: TabletPanelOp): ScopeWorkspace {
     switch (op.op) {
-      case "open":
-        return this.#available.has(op.kind) ? openTab(workspace, { kind: op.kind }) : workspace;
+      case "open": {
+        if (!this.#available.has(op.kind) || isPage(op.kind) !== (op.id !== undefined))
+          return workspace;
+        return openTab(
+          workspace,
+          op.id === undefined ? { kind: op.kind } : { kind: op.kind, id: op.id, title: op.title },
+        );
+      }
       case "toggle": {
-        if (!this.#available.has(op.kind)) return workspace;
+        if (!this.#available.has(op.kind) || isPage(op.kind)) return workspace;
         const existing = workspace.tabs.find((tab) => tab.kind === op.kind);
         if (!existing) return openTab(workspace, { kind: op.kind });
         const showing = workspace.open && shownTab(workspace)?.key === existing.key;
@@ -280,7 +306,13 @@ export class TabletWorkspaces {
     const scopes = [...this.#scopes].map(([scope, workspace]) => [
       scope,
       {
-        tabs: workspace.tabs.map(({ key, kind, id, pinned }) => ({ key, kind, id, pinned })),
+        tabs: workspace.tabs.map(({ key, kind, id, title, pinned }) => ({
+          key,
+          kind,
+          id,
+          pinned,
+          ...(title === undefined ? {} : { title }),
+        })),
         active: workspace.active,
         open: workspace.open,
         size: workspace.size,

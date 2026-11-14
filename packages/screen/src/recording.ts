@@ -2,20 +2,23 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { ScreenId } from "@ace/protocol";
+import { RecordingQueue } from "./recording-queue.ts";
 import type { Frame } from "./frames.ts";
 export type RecordingArtifact = {
   id: string;
   path: string;
   bytes: number;
   mimeType: "application/vnd.ace.screen";
+  /** Frames omitted after queue overflow, through the next keyframe. */
+  gaps?: { first: number; last: number }[];
 };
 export class Recording {
+  private readonly queue: RecordingQueue;
   private bytes = 0;
   private discarded = false;
   private reason: "limit" | "error" | undefined;
   private failure: Error | undefined;
   private closing: Promise<RecordingArtifact> | undefined;
-  private pending: Frame | undefined;
   private busy = false;
   private drained: (() => void) | undefined;
   private readonly stream: WriteStream;
@@ -30,7 +33,9 @@ export class Recording {
     limit: number,
     publish: (artifact: RecordingArtifact) => Promise<void>,
     captureDone: (reason?: "limit" | "error") => void,
+    queueLimit: number,
   ) {
+    this.queue = new RecordingQueue(queueLimit);
     this.path = path;
     this.id = id;
     this.limit = limit;
@@ -40,7 +45,7 @@ export class Recording {
     this.stream.on("error", (error) => {
       this.failure = error;
       this.captureDone("error");
-      this.pending = undefined;
+      this.queue.clear();
       this.busy = false;
       this.drained?.();
     });
@@ -51,6 +56,7 @@ export class Recording {
     publish: (artifact: RecordingArtifact) => Promise<void>,
     limit = 50 * 1024 * 1024,
     captureDone: (reason?: "limit" | "error") => void = () => {},
+    queueLimit = 8 * 1024 * 1024,
   ): Promise<Recording> {
     ScreenId.parse(id);
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid recording limit");
@@ -61,6 +67,7 @@ export class Recording {
       limit,
       publish,
       captureDone,
+      queueLimit,
     );
     await new Promise<void>((resolve, reject) => {
       recording.stream.once("open", () => resolve());
@@ -70,12 +77,16 @@ export class Recording {
   }
   push(frame: Frame): void {
     if (this.closing || this.failure) return;
-    if (this.busy) this.pending = frame;
-    else this.write(frame);
+    this.queue.push(frame);
+    if (!this.busy) {
+      const next = this.queue.next();
+      if (next) this.write(next);
+    }
   }
+
   private write(frame: Frame): void {
     if (this.bytes + frame.packet.length > this.limit) {
-      this.pending = undefined;
+      this.queue.clear();
       this.busy = false;
       this.drained?.();
       this.reason = "limit";
@@ -87,8 +98,7 @@ export class Recording {
     this.stream.write(frame.packet, (error) => {
       if (error) this.failure = error;
       this.busy = false;
-      const pending = this.pending;
-      this.pending = undefined;
+      const pending = this.queue.next();
       if (pending && !this.failure) this.write(pending);
       else this.drained?.();
     });
@@ -115,6 +125,7 @@ export class Recording {
         path: this.path,
         bytes: this.bytes,
         mimeType: "application/vnd.ace.screen",
+        gaps: this.queue.gaps,
       };
       if (!this.discarded) await this.publish(artifact);
       return artifact;
