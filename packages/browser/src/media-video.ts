@@ -19,6 +19,9 @@ import type { VideoEncode } from "./video-policy.ts";
  * video, its viewers and recordings are unchanged while delivery is legacy.
  */
 
+/** One source in ace-media, as a capture uses it (`@ace/media`'s `MediaSource`). */
+export type BrowserMediaSource = Pick<MediaSource, "encodes" | "key" | "picture" | "close">;
+
 /** What the browser needs of the daemon's ace-media. */
 export interface BrowserMedia {
   /** Undefined while this daemon has no ace-media (never asked for, or not installed). */
@@ -26,9 +29,11 @@ export interface BrowserMedia {
     kind: VideoMediaKind,
     listener: MediaSourceListener,
     ids?: { threadId?: string; tabId?: string },
-  ): MediaSource | undefined;
+  ): BrowserMediaSource | undefined;
   /** A kind's producers stream into ace-media now. */
   routed(kind: VideoMediaKind): boolean;
+  /** The settings route a kind through ace-media once it is up. */
+  wanted(kind: VideoMediaKind): boolean;
   /** The codecs ace-media encodes pictures in on this computer, best first. */
   pictureCodecs(): readonly string[];
 }
@@ -205,8 +210,13 @@ function pictureHost(
       }
       return inner.supported(codecs, width, height);
     },
-    open: (page, width, height, events) => {
-      if (refused || !media.routed(kind)) return inner.open(page, width, height, events);
+    open: async (page, width, height, events) => {
+      if (refused || !media.routed(kind)) {
+        const handle = await inner.open(page, width, height, events);
+        return !refused && media.wanted(kind)
+          ? untilMedia(handle, kind, media, events, ids())
+          : handle;
+      }
       const capture = pictureCapture({
         kind,
         media,
@@ -219,10 +229,50 @@ function pictureHost(
           refused = true;
         },
       });
-      return capture ? Promise.resolve(capture) : inner.open(page, width, height, events);
+      return capture ?? inner.open(page, width, height, events);
     },
   };
   return host;
+}
+
+/**
+ * A picture capture on the inner host while ace-media, which the settings want, isn't up yet
+ * (it starts on its first need). A source held open in ace-media brings it up; once it is, the
+ * capture ends so the live video opens the next one there.
+ */
+function untilMedia(
+  handle: VideoCaptureHandle,
+  kind: VideoMediaKind,
+  media: BrowserMedia,
+  events: CaptureEvents,
+  ids: { threadId?: string; tabId?: string },
+): VideoCaptureHandle {
+  let open = true;
+  const watch = media.open(
+    kind,
+    {
+      target: (target) => {
+        if (!target || !open) return;
+        target.token.fill(0);
+        open = false;
+        watch?.close();
+        handle.close();
+        events.ended("ace-media takes over encoding this tab");
+      },
+      unit: () => {},
+    },
+    ids,
+  );
+  if (!watch) return handle;
+  return {
+    ...handle,
+    close: () => {
+      if (!open) return;
+      open = false;
+      watch.close();
+      handle.close();
+    },
+  };
 }
 
 /** Same codec family: ace-media writes the profile and level it chose. */
@@ -250,7 +300,7 @@ function pictureCapture(options: {
     opened?.close();
     events.ended(reason);
   };
-  const opened: MediaSource | undefined = options.media.open(
+  const opened: BrowserMediaSource | undefined = options.media.open(
     options.kind,
     {
       target: (target) => {

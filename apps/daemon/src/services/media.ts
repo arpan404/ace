@@ -42,21 +42,6 @@ function findBinary(): string | undefined {
   });
 }
 
-/** The codecs ace-media encodes pictures in here, from its probe's working encoders. */
-function pictureCodecs(runtime: MediaRuntime): string[] {
-  const codecs: string[] = [];
-  for (const entry of runtime.supervisor.capabilities() ?? []) {
-    if (entry.step !== "encode" || entry.state !== "ok" || !entry.codec) continue;
-    if (entry.backend !== "chrome" && !entry.hardware) continue;
-    const family = entry.codec.slice(0, 4);
-    if (family !== "avc1" && family !== "hvc1") continue;
-    if (entry.backend === "chrome" && family !== "avc1") continue;
-    if (!codecs.some((c) => c.startsWith(family))) codecs.push(entry.codec);
-  }
-  // H.264 first: every viewer decodes it.
-  return codecs.toSorted((a, b) => Number(b.startsWith("avc1")) - Number(a.startsWith("avc1")));
-}
-
 export function startMedia(context: ServiceContext): BrowserMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
   const binary = findBinary();
@@ -113,6 +98,7 @@ export function startMedia(context: ServiceContext): BrowserMedia | undefined {
   return {
     open: (kind, listener, ids) => runtime?.sources.open(kind, { kind }, listener, ids),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
-    pictureCodecs: () => (runtime ? pictureCodecs(runtime) : []),
+    wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
+    pictureCodecs: () => runtime?.pictureCodecs() ?? [],
   };
 }

@@ -168,6 +168,11 @@ export class MediaSources {
     return new MediaSource(this, open);
   }
 
+  /** Whether the settings route a kind through ace-media once it is healthy. */
+  wanted(kind: SourceKind): boolean {
+    return this.#options.wanted(kind);
+  }
+
   /** Whether a kind's producers stream into ace-media now. */
   routed(kind: SourceKind): boolean {
     return this.#options.route(kind).producer === "ace-media";

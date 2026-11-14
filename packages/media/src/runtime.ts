@@ -75,6 +75,23 @@ export class MediaRuntime {
     });
   }
 
+  /**
+   * The codecs ace-media encodes JPEG sources in here, best first: each family a working
+   * hardware encoder covers, and H.264 from the last-resort encoder; H.264 first, since every
+   * viewer decodes it. Empty before the probe's result.
+   */
+  pictureCodecs(): string[] {
+    const codecs: string[] = [];
+    for (const entry of this.supervisor.capabilities() ?? []) {
+      if (entry.step !== "encode" || entry.state !== "ok" || !entry.codec) continue;
+      const family = entry.codec.slice(0, 4);
+      const usable = entry.backend === "chrome" ? family === "avc1" : entry.hardware;
+      if (!usable || (family !== "avc1" && family !== "hvc1")) continue;
+      if (!codecs.some((codec) => codec.startsWith(family))) codecs.push(entry.codec);
+    }
+    return codecs.toSorted((a, b) => Number(b.startsWith("avc1")) - Number(a.startsWith("avc1")));
+  }
+
   /** A media setting changed: routes move, and sources follow. */
   settingsChanged(): void {
     this.routes.update();
