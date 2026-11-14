@@ -53,7 +53,7 @@ function setup() {
       snapshot: store.snapshotThread(a.id).interactions[approval.id]?.state,
     };
   };
-  return { store, resolveAndRead, stored };
+  return { store, resolveAndRead, stored, a: a.id, b: b.id };
 }
 const stillPending = { held: "pending", acquired: "pending", snapshot: "pending" };
 
@@ -97,4 +97,78 @@ it("a held view read inside a rolled-back savepoint shows the stored state after
     ).toThrow("rejected");
   });
   expect(stored()).toEqual(stillPending);
+});
+
+/** A stale held view (any unaccounted write marks it), then A's approval resolved in raw SQL. */
+function rawSetup() {
+  const f = setup();
+  // An unaccounted write, seen by the next cached read: every held view is now stale.
+  f.store.statement("CREATE TABLE IF NOT EXISTS unrelated (x)").run();
+  f.store.statement("INSERT INTO unrelated VALUES (1)").run();
+  f.store.snapshotThread(f.b);
+  const resolveRaw = () => {
+    f.store.statement("BEGIN IMMEDIATE").run();
+    f.store
+      .statement(
+        "UPDATE view_entities SET value = json_set(value, '$.state', 'resolved') WHERE collection = 'interactions' AND id = 'approval'",
+      )
+      .run();
+    const inside = f.store.acquireThread(f.a);
+    f.store.releaseThread(f.a);
+    return inside.interactions.approval?.state;
+  };
+  return { ...f, resolveRaw };
+}
+
+it("a held view read inside a raw transaction shows the stored state after its rollback", () => {
+  const { store, resolveRaw, stored } = rawSetup();
+  expect(resolveRaw()).toBe("resolved");
+  store.statement("ROLLBACK").run();
+  expect(stored()).toEqual(stillPending);
+});
+
+it("a held view read inside a raw transaction abandoned by an exception shows the stored state", () => {
+  const { store, resolveRaw, stored } = rawSetup();
+  const work = () => {
+    resolveRaw();
+    throw new Error("abandoned");
+  };
+  try {
+    work();
+  } catch {
+    // The held view never shows the open transaction's rows, before or after it ends.
+    expect(stored().held).toBe("pending");
+    store.statement("ROLLBACK").run();
+  }
+  expect(stored()).toEqual(stillPending);
+});
+
+it("a held view whose rebuild fails is rebuilt by the next read", () => {
+  const { store, stored, a, b } = setup();
+  // An unaccounted write, seen by the next cached read, marks every held view stale.
+  store
+    .statement(
+      "UPDATE view_entities SET value = 'not json' WHERE collection = 'interactions' AND id = 'approval'",
+    )
+    .run();
+  store.snapshotThread(b);
+  expect(() => stored()).toThrow();
+  store
+    .statement(
+      `UPDATE view_entities SET value = json_set(?, '$.state', 'resolved') WHERE collection = 'interactions' AND id = 'approval'`,
+    )
+    .run(
+      JSON.stringify({
+        id: "approval",
+        threadId: a,
+        agentId: "root",
+        state: "pending",
+        createdAt: 1,
+        blocking: true,
+        request: { kind: "approval", title: "Continue?", options: [] },
+      }),
+    );
+  // The failed read left the view stale, so this one rebuilds it, in place.
+  expect(stored()).toEqual({ held: "pending", acquired: "resolved", snapshot: "resolved" });
+  expect(stored().held).toBe("resolved");
 });

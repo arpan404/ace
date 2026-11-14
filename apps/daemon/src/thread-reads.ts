@@ -42,29 +42,19 @@ export class ThreadReads {
   invalidateViews(): void {
     for (const { view } of this.caches.values()) this.source.status.invalidateCache(view);
   }
-  /**
-   * After a transaction that rolled back, in whole or in part: a view read inside it may hold
-   * rows that were never stored. Each held view is rebuilt from committed rows now, or stays
-   * marked stale (rebuilt at its next read) if it cannot be read, such as a thread the
-   * transaction created.
-   */
-  refreshViews(): void {
-    for (const [id, { view }] of this.caches) {
-      this.source.status.invalidateCache(view);
-      try {
-        this.catchUp(view, id);
-      } catch {
-        /* Still marked stale: its next acquire or publication rebuilds it. */
-      }
-    }
-  }
   clearViews(): void {
     this.caches.clear();
   }
   forget(id: ThreadId): void {
     this.caches.delete(id);
   }
+  /**
+   * Held views follow committed data only. A batch published while a transaction is open (a
+   * live buffer's pending deltas) could be read against rows that may still roll back, so it
+   * only marks the views it changes stale: each is rebuilt at its next read outside it.
+   */
   updateViews(batch: Event[]): void {
+    const open = this.source.inTransaction();
     for (const [id, { view }] of this.caches) {
       const changes = batch.filter(
         (event) =>
@@ -72,6 +62,10 @@ export class ThreadReads {
           event.threadId === view.thread.id &&
           !event.payload.type.startsWith("item."),
       );
+      if (open) {
+        if (changes.length) this.source.status.invalidateCache(view);
+        continue;
+      }
       try {
         if (changes.length && this.source.status.cacheInvalidated(view)) this.catchUp(view, id);
         else if (changes.length) this.source.status.updateCache(view, changes);
@@ -87,9 +81,27 @@ export class ThreadReads {
       }
     }
   }
+  /**
+   * The held view, kept current with committed data. Inside an open transaction (the store's
+   * or one begun on the connection) the caller gets a private view of what that transaction
+   * sees, and the held one is left as committed: whatever the transaction's ending, commit,
+   * rollback or abandonment, no held view ever shows rows it did not commit. The lease counts
+   * the same either way.
+   */
   acquireThread(id: ThreadId): ThreadView {
     this.source.flush();
     const cached = this.caches.get(id);
+    if (this.source.inTransaction()) {
+      const view = this.source.status.snapshot(this.source.getThread(id), this.source.headSeq());
+      if (cached) cached.refs++;
+      else {
+        // Built from rows that may roll back: held only as stale, rebuilt at its next read.
+        const held = structuredClone(view);
+        this.source.status.invalidateCache(held);
+        this.caches.set(id, { view: held, refs: 1 });
+      }
+      return view;
+    }
     if (cached) {
       this.catchUp(cached.view, id);
       cached.refs++;
