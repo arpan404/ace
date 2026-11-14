@@ -26,6 +26,8 @@ pub struct Outputs<'a> {
     /// When each unanswered priority message arrived, oldest first.
     pub lag: &'a Mutex<VecDeque<Instant>>,
     pub pictures: &'a mut Pictures,
+    /// ace-media's monotonic milliseconds, for when encoder threads were closed.
+    pub now_ms: u64,
 }
 
 fn sequence(value: u64) -> Sequence {
@@ -86,19 +88,23 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             }
             Effect::Encode(command) => {
                 let pictures = &mut *outputs.pictures;
+                let now_ms = outputs.now_ms;
                 match command {
-                    EncodeEffect::Configure { source, encodes } => {
-                        pictures.configure(&source, encodes)
-                    }
-                    EncodeEffect::Picture {
+                    EncodeEffect::Configure {
                         source,
+                        token,
+                        encodes,
+                    } => pictures.configure(&source, token, encodes, now_ms),
+                    EncodeEffect::Picture {
+                        token,
                         text,
                         epoch,
                         age_us,
-                    } => pictures.picture(&source, text, epoch, age_us),
-                    EncodeEffect::Key { source, encode } => pictures.key(&source, encode),
-                    EncodeEffect::Drain { source } => pictures.drain(&source),
-                    EncodeEffect::Close { source } => pictures.close(&source),
+                        ..
+                    } => pictures.picture(token, text, epoch, age_us),
+                    EncodeEffect::Key { token, encode, .. } => pictures.key(token, encode),
+                    EncodeEffect::Drain { source, token } => pictures.drain(&source, token),
+                    EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
                 }
                 Ok(())
             }

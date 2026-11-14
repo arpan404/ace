@@ -97,7 +97,7 @@ fn a_tab_source_takes_no_encodes_and_a_closed_source_stops_its_encoder() {
     );
     // It drains first; its thread ends once the encoder has handed over its last output.
     assert_eq!(encode_effects(&closed), ["Drain(p)"]);
-    engine.encoder_drained("p");
+    engine.encoder_drained("p", 1);
     let drained: Vec<Effect> = engine.effects().collect();
     assert_eq!(encode_effects(&drained), ["Close(p)"]);
 }
@@ -107,7 +107,7 @@ fn encoded_units_play_the_source_and_its_steps_ride_its_status() {
     let mut engine = engine();
     open(&mut engine, "tab-pictures");
     encodes(&mut engine, spec());
-    engine.encoded("p", unit(2, true), NOW);
+    engine.encoded("p", 1, unit(2, true), NOW);
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(statuses(&effects), [("p".into(), Status::Playing, None)]);
     let acceleration = media_wire::capability::Acceleration {
@@ -115,7 +115,7 @@ fn encoded_units_play_the_source_and_its_steps_ride_its_status() {
         degraded: false,
         reason: None,
     };
-    engine.encoder_steps("p", acceleration);
+    engine.encoder_steps("p", 1, acceleration);
     let effects: Vec<Effect> = engine.effects().collect();
     let carried = effects.iter().any(|e| {
         matches!(
@@ -135,7 +135,7 @@ fn a_failed_encoder_ends_the_source_so_the_daemon_takes_it_back() {
     let mut engine = engine();
     open(&mut engine, "user-tab");
     encodes(&mut engine, spec());
-    engine.encoder_failed("p", "encoder-unavailable");
+    engine.encoder_failed("p", 1, "encoder-unavailable");
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(
         statuses(&effects),
@@ -148,7 +148,7 @@ fn a_failed_encoder_ends_the_source_so_the_daemon_takes_it_back() {
     assert_eq!(encode_effects(&effects), ["Close(p)"]);
     // Later pictures and units change nothing.
     assert!(encode_effects(&picture(&mut engine, 2, NOW)).is_empty());
-    engine.encoded("p", unit(2, true), NOW);
+    engine.encoded("p", 1, unit(2, true), NOW);
     assert_eq!(engine.effects().count(), 0);
 }
 
@@ -216,7 +216,7 @@ fn close(engine: &mut Engine, now: Now) -> Vec<Effect> {
 #[test]
 fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end() {
     let (mut engine, lane) = encoding();
-    engine.encoded("p", unit(2, true), NOW);
+    engine.encoded("p", 1, unit(2, true), NOW);
     let _ = engine.effects().count();
     let closed = close(&mut engine, NOW);
     assert_eq!(encode_effects(&closed), ["Drain(p)"]);
@@ -226,14 +226,14 @@ fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end(
         "no marker while output may be pending"
     );
     // Output the encoder still had, after the close: it is delivered, not thrown away.
-    engine.encoded("p", unit(2, false), NOW);
-    engine.encoded("p", unit(2, false), NOW);
-    engine.encoder_drained("p");
+    engine.encoded("p", 1, unit(2, false), NOW);
+    engine.encoded("p", 1, unit(2, false), NOW);
+    engine.encoder_drained("p", 1);
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(encode_effects(&effects), ["Close(p)"]);
     assert_eq!(lane.order(), ["unit", "unit", "unit", "end"]);
     // Nothing after the end.
-    engine.encoded("p", unit(2, false), NOW);
+    engine.encoded("p", 1, unit(2, false), NOW);
     assert_eq!(lane.order().len(), 4);
 }
 
@@ -241,7 +241,7 @@ fn closing_an_encoding_source_waits_for_its_encoder_to_drain_before_a_clean_end(
 fn an_encoder_that_cannot_drain_ends_its_source_interrupted() {
     let (mut engine, lane) = encoding();
     close(&mut engine, NOW);
-    engine.encoder_failed("p", "encoder-undrainable");
+    engine.encoder_failed("p", 1, "encoder-undrainable");
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(encode_effects(&effects), ["Close(p)"]);
     assert_eq!(lane.order(), ["cut"]);
@@ -257,6 +257,169 @@ fn a_drain_that_never_finishes_ends_interrupted_at_its_deadline() {
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(encode_effects(&effects), ["Close(p)"]);
     assert_eq!(lane.order(), ["cut"]);
-    engine.encoder_drained("p");
+    engine.encoder_drained("p", 1);
     assert_eq!(lane.order(), ["cut"]);
+}
+
+/// The encoder token a `Configure` effect carries.
+fn token_of(effects: &[Effect]) -> u64 {
+    effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Encode(EncodeEffect::Configure { token, .. }) => Some(*token),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no Configure in {effects:?}"))
+}
+
+/// `(handle, "unit" | "end" | "cut")` for each frame the lane kept.
+fn by_handle(lane: &Kept) -> Vec<(u32, &'static str)> {
+    lane.0
+        .lock()
+        .map(|k| {
+            k.iter()
+                .map(|e| {
+                    let what = match e.frame.end() {
+                        Some(end) if end.interrupted => "cut",
+                        Some(_) => "end",
+                        None => "unit",
+                    };
+                    (e.handle, what)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Reopens `p` under handle 4 with egress and encodes; the new encoder's token.
+fn reopen(engine: &mut Engine) -> u64 {
+    send(
+        engine,
+        json!({ "type": "source.open", "source": "p", "handle": 4, "epoch": 2,
+                "origin": { "kind": "tab-pictures" } }),
+        &[8; 32],
+        NOW,
+    );
+    send(
+        engine,
+        json!({ "type": "source.egress", "source": "p", "on": true }),
+        &[],
+        NOW,
+    );
+    token_of(&encodes(engine, spec()))
+}
+
+#[test]
+fn units_the_old_encoder_still_had_queued_never_reach_a_source_reopened_under_its_id() {
+    let (mut engine, lane) = encoding();
+    let old = 1;
+    engine.encoded("p", old, unit(2, true), NOW);
+    let new = reopen(&mut engine);
+    assert_ne!(old, new);
+    engine.encoded("p", old, unit(2, false), NOW);
+    engine.encoder_steps(
+        "p",
+        old,
+        media_wire::capability::Acceleration {
+            steps: Vec::new(),
+            degraded: true,
+            reason: None,
+        },
+    );
+    let _ = engine.effects().count();
+    assert!(by_handle(&lane).iter().all(|(handle, _)| *handle == 3));
+    engine.encoded("p", new, unit(2, true), NOW);
+    assert_eq!(by_handle(&lane).last(), Some(&(4, "unit")));
+}
+
+#[test]
+fn an_old_encoders_drained_after_the_reopened_source_closes_ends_nothing() {
+    let (mut engine, lane) = encoding();
+    let old = 1;
+    close(&mut engine, NOW);
+    let new = reopen(&mut engine);
+    let closed = close(&mut engine, NOW);
+    assert_eq!(encode_effects(&closed), ["Drain(p)"]);
+    engine.encoder_drained("p", old);
+    engine.encoder_failed("p", old, "encoder-undrainable");
+    let stale: Vec<Effect> = engine.effects().collect();
+    assert!(encode_effects(&stale).is_empty(), "{stale:?}");
+    assert!(!by_handle(&lane).iter().any(|(handle, _)| *handle == 4));
+    engine.encoder_drained("p", new);
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(encode_effects(&effects), ["Close(p)"]);
+    assert_eq!(by_handle(&lane).last(), Some(&(4, "end")));
+}
+
+#[test]
+fn stuck_encoder_threads_count_against_the_limits_and_two_make_ace_media_restart() {
+    let mut engine = engine();
+    engine.encoders_stuck(1);
+    let _ = engine.effects().count();
+    // One encoder slot is held by the stuck thread.
+    for n in 0..super::super::sources::MAX_ENCODERS - 1 {
+        let id = format!("e{n}");
+        send(
+            &mut engine,
+            json!({ "type": "source.open", "source": id, "handle": 100 + n, "epoch": 0,
+                    "origin": { "kind": "tab-pictures" } }),
+            &[n as u8; 32],
+            NOW,
+        );
+        let effects = send(
+            &mut engine,
+            json!({ "type": "source.encodes", "source": id, "encodes": spec() }),
+            &[],
+            NOW,
+        );
+        assert_eq!(encode_effects(&effects).len(), 1, "encoder {n}");
+    }
+    send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "last", "handle": 999, "epoch": 0,
+                "origin": { "kind": "tab-pictures" } }),
+        &[250; 32],
+        NOW,
+    );
+    let refused = send(
+        &mut engine,
+        json!({ "type": "source.encodes", "source": "last", "encodes": spec() }),
+        &[],
+        NOW,
+    );
+    assert!(encode_effects(&refused).is_empty());
+    assert_eq!(
+        statuses(&refused),
+        [("last".into(), Status::Ended, Some("encoder-limit".into()))]
+    );
+    // A second stuck thread: ace-media exits so the supervisor restarts it and the OS frees
+    // what the threads hold.
+    engine.encoders_stuck(2);
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert!(effects.iter().any(|e| matches!(e, Effect::Fatal(_))));
+}
+
+#[test]
+fn stuck_encoder_threads_count_against_the_source_limit() {
+    let mut engine = engine();
+    engine.encoders_stuck(1);
+    let _ = engine.effects().count();
+    for n in 0..super::super::sources::MAX_SOURCES - 1 {
+        let effects = send(
+            &mut engine,
+            json!({ "type": "source.open", "source": format!("s{n}"), "handle": n + 1, "epoch": 0,
+                    "origin": { "kind": "tab" } }),
+            &[(n % 250) as u8; 32],
+            NOW,
+        );
+        assert_eq!(statuses(&effects)[0].1, Status::Starting, "source {n}");
+    }
+    let refused = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "over", "handle": 9999, "epoch": 0,
+                "origin": { "kind": "tab" } }),
+        &[251; 32],
+        NOW,
+    );
+    assert_eq!(statuses(&refused)[0].2.as_deref(), Some("source-limit"));
 }

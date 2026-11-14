@@ -1418,7 +1418,13 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   closes a source that still streams, and when a JPEG source's encoder fails (interrupted). A
   closed JPEG source keeps delivering while its encoder thread drains (`Drain`: every encoder
   flushed, its held output handed over, then `Drained`); only then is its marker clean. An
-  encoder that can't flush, or a drain past 2 s, ends it interrupted. It is queued past the lane's bound, so a full egress never loses
+  encoder that can't flush, or a drain past 2 s, ends it interrupted. Every encoder has a token
+  of its own, carried by each command, unit, report and `Drained`; a word whose token isn't the
+  source's live or draining encoder's is dropped, so a source reopened under the same id never
+  takes an earlier encoder's output or acknowledgement. The shell keeps each closed encoder
+  thread until it exits: one still running 2 s after its close is stuck, and counts against
+  the source limit and the picture encoder limit (32) until it exits. Two stuck and ace-media
+  exits (`Effect::Fatal`), so the supervisor restarts it and the OS frees what they hold. It is queued past the lane's bound, so a full egress never loses
   it. The router hands it to the source's consumers whatever the route says now, and any unit
   lost in the handle's life (a sequence gap, or a first unit that isn't sequence 0) makes it
   interrupted.

@@ -330,6 +330,7 @@ async fn serve(
                         connections: &mut connections,
                         lag: &lag,
                         pictures: &mut pictures,
+                        now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
                     break EXIT_OK;
@@ -351,11 +352,11 @@ async fn serve(
                 }
                 None => {}
             },
-            Some((source, output)) = encoded_rx.recv() => match output {
-                Output::Unit(frame) => engine.encoded(&source, frame, clock.now()),
-                Output::Report(acceleration) => engine.encoder_steps(&source, acceleration),
-                Output::Failed(reason) => engine.encoder_failed(&source, &reason),
-                Output::Drained => engine.encoder_drained(&source),
+            Some((source, token, output)) = encoded_rx.recv() => match output {
+                Output::Unit(frame) => engine.encoded(&source, token, frame, clock.now()),
+                Output::Report(acceleration) => engine.encoder_steps(&source, token, acceleration),
+                Output::Failed(reason) => engine.encoder_failed(&source, token, &reason),
+                Output::Drained => engine.encoder_drained(&source, token),
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
@@ -372,7 +373,11 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
-            _ = tick.tick() => engine.tick(clock.now()),
+            _ = tick.tick() => {
+                let now = clock.now();
+                engine.encoders_stuck(pictures.stuck(now.mono_ms));
+                engine.tick(now);
+            }
         }
         let mut outputs = Outputs {
             stdout: &stdout,
@@ -380,6 +385,7 @@ async fn serve(
             connections: &mut connections,
             lag: &lag,
             pictures: &mut pictures,
+            now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
             Step::Continue => {}

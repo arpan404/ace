@@ -78,6 +78,19 @@ pub trait Backends: Send {
     fn jpeg_hardware_expected(&self) -> bool;
 }
 
+/// A boxed backend is one: the shell picks the codecs per thread.
+impl Backends for Box<dyn Backends> {
+    fn encoder(&mut self, codec: Codec) -> Result<Chosen, CodecError> {
+        (**self).encoder(codec)
+    }
+    fn decode(&mut self, jpeg: &[u8], size: Size, encoder: Backend) -> Result<Decoded, CodecError> {
+        (**self).decode(jpeg, size, encoder)
+    }
+    fn jpeg_hardware_expected(&self) -> bool {
+        (**self).jpeg_hardware_expected()
+    }
+}
+
 struct Pending {
     pts: u64,
     epoch: u32,

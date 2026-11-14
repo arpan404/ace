@@ -83,10 +83,11 @@ struct Source {
     ingest: Option<IngestId>,
     encode: u32,
     recording: Option<Recording>,
-    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`), and whether its
-    /// encoder thread is running.
+    /// A JPEG source ace-media encodes itself (`tab-pictures`, `user-tab`), and the token of
+    /// its running encoder: every command to that encoder and every word from it carries the
+    /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
-    encoding: bool,
+    encoder: Option<u64>,
 }
 
 #[derive(Default)]
@@ -104,7 +105,15 @@ pub struct Sources {
     /// Closed JPEG sources whose encoder is still handing over its last output, with when they
     /// give up (`DRAIN_MS` after the close).
     draining: HashMap<String, (Source, u64)>,
+    /// The last encoder token given out (tokens are never reused in one process).
+    last_token: u64,
+    /// Encoder threads the shell has seen outlive their deadline: they hold a source and an
+    /// encoder slot until they exit.
+    stuck: usize,
 }
+
+/// Picture encoders running at once (live, draining and stuck ones), each a thread of its own.
+pub const MAX_ENCODERS: usize = 32;
 
 /// Longest a closed JPEG source waits for its encoder to drain before it ends interrupted.
 pub const DRAIN_MS: u64 = 2_000;
@@ -196,8 +205,9 @@ impl Sources {
             return status(out, id, Status::Ended, Some("handle-reused"), None);
         }
         self.close(id.get(), vault, now, egress, out);
-        self.drained(id.get(), true, egress, out);
-        if self.by_id.len() >= MAX_SOURCES || self.handles.len() >= MAX_HANDLES {
+        self.drained(id.get(), None, true, egress, out);
+        let held = self.by_id.len() + self.draining.len() + self.stuck;
+        if held >= MAX_SOURCES || self.handles.len() >= MAX_HANDLES {
             log(out, Level::Warn, "source.open refused: source limit", id);
             return status(out, id, Status::Ended, Some("source-limit"), None);
         }
@@ -230,7 +240,7 @@ impl Sources {
                 encode: 0,
                 recording: None,
                 pictures,
-                encoding: false,
+                encoder: None,
             },
         );
         status(out, id, Status::Starting, None, None);
@@ -294,10 +304,11 @@ impl Sources {
         if let Some(recording) = source.recording.take() {
             finish(recording, &mut self.ended, out);
         }
-        if source.encoding {
+        if let Some(token) = source.encoder {
             // Pictures already handed over may still come out: wait for the encoder's word.
             out.push(Effect::Encode(EncodeEffect::Drain {
                 source: id.to_owned(),
+                token,
             }));
             self.draining
                 .insert(id.to_owned(), (source, now.saturating_add(DRAIN_MS)));
@@ -306,35 +317,55 @@ impl Sources {
 
     /// A closed JPEG source is done: its encoder drained (`interrupted` false), or couldn't, or
     /// ran out of time. Its marker goes after its last unit, and its encoder thread ends.
+    /// With `token`, only that encoder's drain: an earlier encoder's word ends nothing.
     fn drained(
         &mut self,
         id: &str,
+        token: Option<u64>,
         interrupted: bool,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
+        let current = self.draining.get(id).and_then(|(s, _)| s.encoder);
+        if current.is_none() || (token.is_some() && token != current) {
+            return;
+        }
         let Some((mut source, _)) = self.draining.remove(id) else {
             return;
         };
         source.egress.end(source.handle, interrupted, egress);
         out.push(Effect::Encode(EncodeEffect::Close {
             source: id.to_owned(),
+            token: current.unwrap_or_default(),
         }));
+    }
+
+    /// The shell's count of encoder threads that outlived their deadline.
+    pub fn encoders_stuck(&mut self, stuck: usize) {
+        self.stuck = stuck;
+    }
+
+    fn encoders(&self) -> usize {
+        self.by_id.values().filter(|s| s.encoder.is_some()).count()
+            + self.draining.len()
+            + self.stuck
     }
 
     /// The encoder of a closed JPEG source handed over its last output.
     pub fn encoder_drained(
         &mut self,
         id: &str,
+        token: u64,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
-        self.drained(id, false, egress, out);
+        self.drained(id, Some(token), false, egress, out);
     }
 
     /// `source.encodes`: the encodes ace-media runs for a JPEG source while the daemon plans
     /// them. Only JPEG sources take them; an empty list stops the encoder.
     pub fn encodes(&mut self, id: &Id, encodes: Vec<EncodeSpec>, out: &mut Vec<Effect>) {
+        let running = self.encoders();
         let Some(source) = self.by_id.get_mut(id.get()) else {
             return log(
                 out,
@@ -351,43 +382,79 @@ impl Sources {
                 id,
             );
         }
-        source.encoding = !encodes.is_empty();
+        let token = if encodes.is_empty() {
+            // Stops the encoder, if one runs.
+            let Some(token) = source.encoder.take() else {
+                return;
+            };
+            token
+        } else if let Some(token) = source.encoder {
+            token
+        } else {
+            if running >= MAX_ENCODERS {
+                source.status = Status::Ended;
+                log(
+                    out,
+                    Level::Warn,
+                    "source.encodes refused: encoder limit",
+                    id,
+                );
+                return status(out, id, Status::Ended, Some("encoder-limit"), None);
+            }
+            self.last_token += 1;
+            source.encoder = Some(self.last_token);
+            self.last_token
+        };
         out.push(Effect::Encode(EncodeEffect::Configure {
             source: id.get().to_owned(),
+            token,
             encodes,
         }));
     }
 
     /// `source.key`: the encode's next unit is a keyframe.
     pub fn key(&mut self, id: &Id, encode: u32, out: &mut Vec<Effect>) {
-        if self.by_id.get(id.get()).is_some_and(|s| s.encoding) {
+        if let Some(token) = self.by_id.get(id.get()).and_then(|s| s.encoder) {
             out.push(Effect::Encode(EncodeEffect::Key {
                 source: id.get().to_owned(),
+                token,
                 encode,
             }));
         }
     }
 
     /// A unit the source's encoder finished: it goes where an ingested unit goes.
+    #[allow(clippy::too_many_arguments)]
     pub fn encoded(
         &mut self,
         id: &str,
+        token: u64,
         frame: MediaFrame,
         now: Now,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
-        if self.by_id.get(id).is_some_and(|s| s.encoding) {
+        if self.by_id.get(id).is_some_and(|s| s.encoder == Some(token)) {
             self.unit(id, frame, now, egress, out);
-        } else if let Some((source, _)) = self.draining.get_mut(id) {
+        } else if let Some((source, _)) = self
+            .draining
+            .get_mut(id)
+            .filter(|(s, _)| s.encoder == Some(token))
+        {
             source
                 .egress
                 .unit(&source.id, source.handle, &frame, egress, out);
         }
     }
 
-    pub fn encoder_steps(&mut self, id: &str, acceleration: Acceleration, out: &mut Vec<Effect>) {
-        let Some(source) = self.by_id.get(id).filter(|s| s.encoding) else {
+    pub fn encoder_steps(
+        &mut self,
+        id: &str,
+        token: u64,
+        acceleration: Acceleration,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some(source) = self.by_id.get(id).filter(|s| s.encoder == Some(token)) else {
             return;
         };
         report(
@@ -403,22 +470,28 @@ impl Sources {
     pub fn encoder_failed(
         &mut self,
         id: &str,
+        token: u64,
         reason: &str,
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
-        if self.draining.contains_key(id) {
-            return self.drained(id, true, egress, out);
+        if self
+            .draining
+            .get(id)
+            .is_some_and(|(s, _)| s.encoder == Some(token))
+        {
+            return self.drained(id, Some(token), true, egress, out);
         }
-        let Some(source) = self.by_id.get_mut(id).filter(|s| s.encoding) else {
+        let Some(source) = self.by_id.get_mut(id).filter(|s| s.encoder == Some(token)) else {
             return;
         };
-        source.encoding = false;
+        source.encoder = None;
         source.egress.end(source.handle, true, egress);
         source.status = Status::Ended;
         status(out, &source.id, Status::Ended, Some(reason), None);
         out.push(Effect::Encode(EncodeEffect::Close {
             source: id.to_owned(),
+            token,
         }));
     }
 
@@ -450,9 +523,10 @@ impl Sources {
             .stamper
             .as_ref()
             .map_or(epoch, |s| s.stamp(now.mono_ms).min(epoch));
-        if source.encoding {
+        if let Some(token) = source.encoder {
             out.push(Effect::Encode(EncodeEffect::Picture {
                 source: id.to_owned(),
+                token,
                 text: payload,
                 epoch: stamped,
                 age_us: age_ms.saturating_mul(1000),
@@ -938,7 +1012,7 @@ impl Sources {
             .map(|(id, _)| id.clone())
             .collect();
         for id in late {
-            self.drained(&id, true, egress, out);
+            self.drained(&id, None, true, egress, out);
         }
         let ids: Vec<String> = self
             .by_id

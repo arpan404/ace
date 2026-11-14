@@ -46,28 +46,41 @@ pub enum Effect {
     Fatal(&'static str),
 }
 
+/// Picture encoder threads stuck past their deadline at which ace-media exits to be restarted.
+pub const MAX_STUCK_ENCODERS: usize = 2;
+
 /// What a JPEG source's encoder thread is told.
 pub enum EncodeEffect {
     Configure {
         source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
         encodes: Vec<EncodeSpec>,
     },
     Picture {
         source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
         text: Vec<u8>,
         epoch: u32,
         age_us: u32,
     },
     Key {
         source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
         encode: u32,
     },
     /// Hand over every unit still pending, then say so (`encoder_drained`).
     Drain {
         source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
     },
     Close {
         source: String,
+        /// The encoder this is for (`Sources` gives each encoder one).
+        token: u64,
     },
 }
 
@@ -75,13 +88,15 @@ pub enum EncodeEffect {
 impl std::fmt::Debug for EncodeEffect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Configure { source, encodes } => {
+            Self::Configure {
+                source, encodes, ..
+            } => {
                 write!(f, "Configure({source}, {} encodes)", encodes.len())
             }
             Self::Picture { source, epoch, .. } => write!(f, "Picture({source}, epoch {epoch})"),
-            Self::Key { source, encode } => write!(f, "Key({source}, {encode})"),
-            Self::Drain { source } => write!(f, "Drain({source})"),
-            Self::Close { source } => write!(f, "Close({source})"),
+            Self::Key { source, encode, .. } => write!(f, "Key({source}, {encode})"),
+            Self::Drain { source, .. } => write!(f, "Drain({source})"),
+            Self::Close { source, .. } => write!(f, "Close({source})"),
         }
     }
 }
@@ -436,27 +451,44 @@ impl Engine {
     }
 
     /// A unit a JPEG source's encoder thread finished.
-    pub fn encoded(&mut self, source: &str, frame: MediaFrame, now: Now) {
-        self.sources
-            .encoded(source, frame, now, self.egress.as_mut(), &mut self.out);
+    pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
+        self.sources.encoded(
+            source,
+            token,
+            frame,
+            now,
+            self.egress.as_mut(),
+            &mut self.out,
+        );
     }
 
     /// A JPEG source's steps, as its encoder thread chose them.
-    pub fn encoder_steps(&mut self, source: &str, acceleration: Acceleration) {
+    pub fn encoder_steps(&mut self, source: &str, token: u64, acceleration: Acceleration) {
         self.sources
-            .encoder_steps(source, acceleration, &mut self.out);
+            .encoder_steps(source, token, acceleration, &mut self.out);
     }
 
     /// A closed JPEG source's encoder handed over its last output: the source ends cleanly.
-    pub fn encoder_drained(&mut self, source: &str) {
+    pub fn encoder_drained(&mut self, source: &str, token: u64) {
         self.sources
-            .encoder_drained(source, self.egress.as_mut(), &mut self.out);
+            .encoder_drained(source, token, self.egress.as_mut(), &mut self.out);
+    }
+
+    /// The shell's count of picture encoder threads still alive past their deadline. They hold
+    /// their slots until they exit; two or more and ace-media exits, so the supervisor restarts
+    /// it and the OS frees what they hold (a thread can't be stopped safely from outside).
+    pub fn encoders_stuck(&mut self, stuck: usize) {
+        self.sources.encoders_stuck(stuck);
+        if stuck >= MAX_STUCK_ENCODERS {
+            self.out
+                .push(Effect::Fatal("picture encoder threads are stuck"));
+        }
     }
 
     /// A JPEG source's encoder could not run: the source ends, so the daemon takes it back.
-    pub fn encoder_failed(&mut self, source: &str, reason: &str) {
+    pub fn encoder_failed(&mut self, source: &str, token: u64, reason: &str) {
         self.sources
-            .encoder_failed(source, reason, self.egress.as_mut(), &mut self.out);
+            .encoder_failed(source, token, reason, self.egress.as_mut(), &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {
