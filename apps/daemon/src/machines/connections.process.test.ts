@@ -1,11 +1,13 @@
 import type { TLSSocket } from "node:tls";
 import { afterEach, expect, test } from "vitest";
+import { DeviceId, HostId, MachineCallRequest, ThreadId, type MachineCall } from "@ace/protocol";
 import { systemDeliveryRuntime } from "../delivery-runtime.ts";
 import { tlsFixtureHome } from "../process-test-support.ts";
 import { sniListener, type SniLimits } from "../sni-listener.ts";
 import { loadIdentity } from "../tls-identity.ts";
 import { MachineConnections } from "./connections.ts";
-import { MachineFailure, pinnedRequest } from "./transport.ts";
+import { MachineFailure, machineRequest, pinnedRequest } from "./transport.ts";
+import { machineCallsHttp } from "./http.ts";
 
 // Real TLS sockets on a real listener: reuse, resumption and pinning live in the socket layers.
 const identity = loadIdentity(tlsFixtureHome());
@@ -113,4 +115,100 @@ test("an idle connection closes before the machine's own limit, and the next one
   await expect(call(profile, connections)).resolves.toEqual({});
   expect(target.sockets).toHaveLength(2);
   expect(target.sockets[1]?.isSessionReused()).toBe(true);
+});
+
+/**
+ * A machine running this build's `/v1/machine-calls` handler: browser calls take `slowMs` to
+ * answer, anything else answers at once; each call's arrival time is recorded by op.
+ */
+async function busyMachine(slowMs: number) {
+  const arrived: { op: string; at: number }[] = [];
+  const handler = machineCallsHttp(
+    () => ({
+      handle: async (_device, body) => {
+        const op = MachineCallRequest.parse(body).call.op;
+        arrived.push({ op, at: Date.now() });
+        if (op === "browser") await new Promise((resolve) => setTimeout(resolve, slowMs));
+        return { status: 200, body: { ok: true } };
+      },
+    }),
+    (presented) =>
+      presented === token("a")
+        ? {
+            id: DeviceId.parse("device-1"),
+            name: "MacBook",
+            scopes: ["read", "operate"],
+            createdAt: 0,
+            lastSeenAt: 0,
+            revokedAt: null,
+          }
+        : undefined,
+    (_request, response) => response.writeHead(404).end(),
+  );
+  const listener = sniListener({
+    tls: identity,
+    requests: handler,
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  return {
+    arrived,
+    profile: {
+      id: "5b0f3f4e-8f3a-4b8e-9d3c-2f6a1c7e9b10",
+      name: "studio",
+      origin: `https://127.0.0.1:${port}/`,
+      fingerprint: identity.fingerprint,
+      deviceId: DeviceId.parse("device-1"),
+      token: token("a"),
+    },
+  };
+}
+
+const origin = {
+  hostId: HostId.parse("host-1"),
+  hostName: "MacBook",
+  threadId: ThreadId.parse("parent"),
+  threadTitle: "Parent",
+  ceiling: "operate" as const,
+};
+const browserCall: MachineCall = { op: "browser", tool: "browser_snapshot", args: {} };
+
+test("a cancel reaches its machine at once while long tool calls hold every shared connection", async () => {
+  const target = await busyMachine(3000);
+  const connections = pool();
+  const long = Array.from({ length: 8 }, () =>
+    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+  );
+  await expect.poll(() => target.arrived.length).toBeGreaterThanOrEqual(6);
+  const sent = Date.now();
+  await expect(
+    machineRequest(
+      target.profile,
+      { origin, call: { op: "cancel", threadId: ThreadId.parse("child-1") } },
+      { timeoutMs: 1500, connections },
+    ),
+  ).resolves.toEqual({ ok: true });
+  const cancel = target.arrived.find((entry) => entry.op === "cancel");
+  expect((cancel?.at ?? Infinity) - sent).toBeLessThan(1000);
+  await Promise.all(long);
+});
+
+test("a call waiting for a free connection is timed from when it is sent, not while it waits", async () => {
+  const target = await busyMachine(1500);
+  const connections = pool();
+  const long = Array.from({ length: 6 }, () =>
+    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+  );
+  await expect.poll(() => target.arrived.length).toBe(6);
+  // It waits about 1.5 s for a connection, longer than its own 1 s, and still gets its answer.
+  await expect(
+    machineRequest(
+      target.profile,
+      { origin, call: { op: "status", threadIds: [ThreadId.parse("child-1")] } },
+      { timeoutMs: 1000, connections },
+    ),
+  ).resolves.toEqual({ ok: true });
+  await Promise.all(long);
 });

@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import type { Agent } from "node:https";
-import { pinnedKeepAliveAgent } from "../client-access.ts";
+import { pinnedKeepAliveAgent, type PinnedSessions } from "../client-access.ts";
 import type { RemoteProfile } from "../cli/profiles.ts";
 
 /** What a connection is opened for: where, the key it must present, and the token it carries. */
 export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "token">;
+
+/**
+ * Which connections a call uses. `urgent` calls (a cancel, a stop, an answer to the person's
+ * request) have connections of their own, which long tool calls can never fill.
+ */
+export type ConnectionLane = "shared" | "urgent";
 
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
@@ -23,8 +29,6 @@ export interface AnswerHeaders {
 
 export interface MachineConnectionsDeps {
   schedule(ms: number, run: () => void): () => void;
-  /** Opens the agent for one profile; tests pass their own roots or clock. */
-  open?(profile: ConnectionProfile, sessions: Entry["sessions"]): Agent;
 }
 
 /** Idle connections close this long before the other machine says it would close them. */
@@ -33,15 +37,21 @@ const IDLE_MARGIN_MS = 2000;
 const IDLE_CAP_MS = 45_000;
 /** Kept this long when the other machine says nothing, as an older daemon's 5 s allows. */
 const IDLE_DEFAULT_MS = 3000;
+/** Connections per machine per lane: tool calls and reads share six, urgent calls have two. */
+const laneSockets: Record<ConnectionLane, number> = { shared: 6, urgent: 2 };
+
+interface Lane {
+  agent: Agent | undefined;
+  inflight: number;
+  cancelIdle: (() => void) | undefined;
+}
 
 interface Entry {
-  agent: Agent | undefined;
-  sessions: { get(): Buffer | undefined; set(session: Buffer): void };
-  inflight: number;
+  lanes: Record<ConnectionLane, Lane>;
+  sessions: PinnedSessions;
   idleMs: number;
   /** What the machine last said it reads; an answer without it (an older build) clears it. */
   accepts: string | undefined;
-  cancelIdle: (() => void) | undefined;
 }
 
 /** How long an idle connection is kept, from the other machine's `Keep-Alive: timeout=N`. */
@@ -51,13 +61,16 @@ export function idleMs(keepAlive: string | undefined): number | undefined {
   return Math.max(0, Math.min(IDLE_CAP_MS, Number(seconds) * 1000 - IDLE_MARGIN_MS));
 }
 
+const lane = (): Lane => ({ agent: undefined, inflight: 0, cancelIdle: undefined });
+
 /**
- * One pinned keep-alive agent per paired machine, so calls reuse an open, already pinned
+ * Pinned keep-alive agents per paired machine, so calls reuse an open, already pinned
  * connection instead of paying TCP and TLS each time, and a new connection resumes its TLS
  * session. Keyed by origin, public-key pin and device token together: re-pairing, a new pin or a
- * new token opens a new agent, so an old socket is never reused across them. Connections close
- * once idle, before the other machine would close them, so a request never lands on a socket the
- * other side just dropped.
+ * new token opens new agents, so an old socket is never reused across them. Connections close
+ * once idle, before the other machine would close them, so a request rarely lands on a socket the
+ * other side just dropped. Each machine has two lanes, so urgent calls never wait behind long
+ * ones.
  */
 export class MachineConnections {
   private deps: MachineConnectionsDeps;
@@ -66,32 +79,27 @@ export class MachineConnections {
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
   }
-  lease(profile: ConnectionProfile): ConnectionLease {
+  lease(profile: ConnectionProfile, use: ConnectionLane = "shared"): ConnectionLease {
     const key = connectionKey(profile);
     let entry = this.entries.get(key);
     if (!entry) {
       let session: Buffer | undefined;
       entry = {
-        agent: undefined,
+        lanes: { shared: lane(), urgent: lane() },
         sessions: { get: () => session, set: (next) => void (session = next) },
-        inflight: 0,
         idleMs: IDLE_DEFAULT_MS,
         accepts: undefined,
-        cancelIdle: undefined,
       };
       if (!this.closed) this.entries.set(key, entry);
     }
     const held = entry;
-    held.cancelIdle?.();
-    held.cancelIdle = undefined;
+    const at = held.lanes[use];
+    at.cancelIdle?.();
+    at.cancelIdle = undefined;
     const agent =
-      held.agent ??
-      (this.deps.open ?? ((open, sessions) => pinnedKeepAliveAgent(open.fingerprint, sessions)))(
-        profile,
-        held.sessions,
-      );
-    held.agent = agent;
-    held.inflight++;
+      at.agent ?? pinnedKeepAliveAgent(profile.fingerprint, held.sessions, laneSockets[use]);
+    at.agent = agent;
+    at.inflight++;
     let released = false;
     return {
       agent,
@@ -99,22 +107,22 @@ export class MachineConnections {
       release: (answer) => {
         if (released) return;
         released = true;
-        held.inflight--;
+        at.inflight--;
         if (answer) {
           held.idleMs = idleMs(answer.keepAlive) ?? held.idleMs;
           held.accepts = answer.acceptEncoding;
         }
-        if (held.inflight > 0) return;
+        if (at.inflight > 0) return;
         if (this.closed || this.entries.get(key) !== held) {
           agent.destroy();
-          if (held.agent === agent) held.agent = undefined;
+          if (at.agent === agent) at.agent = undefined;
           return;
         }
-        held.cancelIdle?.();
-        held.cancelIdle = this.deps.schedule(held.idleMs, () => {
-          held.cancelIdle = undefined;
-          if (held.inflight > 0 || held.agent !== agent) return;
-          held.agent = undefined;
+        at.cancelIdle?.();
+        at.cancelIdle = this.deps.schedule(held.idleMs, () => {
+          at.cancelIdle = undefined;
+          if (at.inflight > 0 || at.agent !== agent) return;
+          at.agent = undefined;
           agent.destroy();
         });
       },
@@ -126,21 +134,24 @@ export class MachineConnections {
     for (const [key, entry] of this.entries)
       if (!keep.has(key)) {
         this.entries.delete(key);
-        this.drop(entry);
+        drop(entry);
       }
   }
   close(): void {
     this.closed = true;
-    for (const entry of this.entries.values()) this.drop(entry);
+    for (const entry of this.entries.values()) drop(entry);
     this.entries.clear();
   }
-  /** Idle sockets close now; one still answering a request closes when it is given back. */
-  private drop(entry: Entry) {
-    entry.cancelIdle?.();
-    entry.cancelIdle = undefined;
-    if (entry.inflight === 0) {
-      entry.agent?.destroy();
-      entry.agent = undefined;
+}
+
+/** Idle sockets close now; one still answering a request closes when it is given back. */
+function drop(entry: Entry) {
+  for (const at of Object.values(entry.lanes)) {
+    at.cancelIdle?.();
+    at.cancelIdle = undefined;
+    if (at.inflight === 0) {
+      at.agent?.destroy();
+      at.agent = undefined;
     }
   }
 }

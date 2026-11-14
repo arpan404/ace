@@ -2,7 +2,12 @@ import { request as httpsRequest } from "node:https";
 import { MachineRefusal, type MachineCallRequest } from "@ace/protocol";
 import { pinnedAgent } from "../client-access.ts";
 import type { RemoteProfile } from "../cli/profiles.ts";
-import type { AnswerHeaders, ConnectionLease, MachineConnections } from "./connections.ts";
+import type {
+  AnswerHeaders,
+  ConnectionLane,
+  ConnectionLease,
+  MachineConnections,
+} from "./connections.ts";
 import {
   CALL_ENCODINGS,
   COMPRESS_MIN_BYTES,
@@ -72,6 +77,17 @@ export interface PinnedRequest {
    * machine has said it reads that coding.
    */
   compressible?: boolean;
+  /** `urgent` takes connections long calls can never fill; see ConnectionLane. */
+  lane?: ConnectionLane;
+}
+
+/**
+ * Calls that must reach the machine even while long tool calls hold every shared connection:
+ * a cancel, an answer to a request for the person, and stopping a command there.
+ */
+export function laneOf(call: MachineCallRequest["call"]): ConnectionLane {
+  if (call.op === "cancel" || call.op === "respond") return "urgent";
+  return call.op === "commands" && call.tool === "command_stop" ? "urgent" : "shared";
 }
 
 /**
@@ -88,6 +104,7 @@ export const machineRequest: MachineTransport = (profile, body, options) =>
       body: JSON.stringify(body),
       contentType: "application/json",
       compressible: compressibleOp(body.call.op),
+      lane: laneOf(body.call),
     },
     options,
   );
@@ -125,7 +142,8 @@ function pinnedOnce(
   mayCompress: boolean,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
-  const lease: ConnectionLease = options.connections?.lease(profile) ?? oneShot(profile);
+  const lease: ConnectionLease =
+    options.connections?.lease(profile, route.lane ?? "shared") ?? oneShot(profile);
   const agent = lease.agent;
   const plain = typeof route.body === "string" ? Buffer.from(route.body) : route.body;
   const coding =
@@ -164,14 +182,20 @@ function pinnedOnce(
       request.destroy();
       finish(lost());
     };
-    const deadline = setTimeout(() => {
-      request.destroy();
-      const kind = connected ? "disconnected" : "offline";
-      finish(new MachineTimeout(kind, undefined, "Machine answer timed out"));
-    }, options.timeoutMs);
-    deadline.unref();
+    // Timed from when the request has a connection to go out on, never while it waits for one.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const startDeadline = () => {
+      if (deadline !== undefined || settled) return;
+      deadline = setTimeout(() => {
+        request.destroy();
+        const kind = connected ? "disconnected" : "offline";
+        finish(new MachineTimeout(kind, undefined, "Machine answer timed out"));
+      }, options.timeoutMs);
+      deadline.unref();
+    };
     options.signal?.addEventListener("abort", abort, { once: true });
     request.on("socket", (socket) => {
+      startDeadline();
       // A kept-open connection is already up: what is written to it may reach the machine.
       if (request.reusedSocket) connected = true;
       else

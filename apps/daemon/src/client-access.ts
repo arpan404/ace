@@ -67,11 +67,13 @@ export interface PinnedSessions {
 export function pinnedKeepAliveAgent(
   fingerprint: string,
   sessions: PinnedSessions,
+  /** At most this many connections at once; further requests wait for one to be free. */
+  maxSockets: number,
   now: () => number = Date.now,
   roots?: string[],
 ): Agent {
   const connector = pinnedConnector(fingerprint, now, roots, sessions);
-  const agent = new Agent({ keepAlive: true, maxSockets: 6, maxFreeSockets: 2 });
+  const agent = new Agent({ keepAlive: true, maxSockets, maxFreeSockets: 2 });
   agent.createConnection = connector;
   return agent;
 }
