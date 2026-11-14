@@ -68,4 +68,13 @@ import Testing
         let long = String(repeating: "a", count: 400)
         #expect(MediaOpening.of(row("html", long), panelBeside: true) == .panel(title: String(repeating: "a", count: 160)))
     }
+
+    /// The shared rules count UTF-16 units, so a title of emoji is cut by those, never mid-character.
+    @Test func anEmojiTitleIsCutToTheLimitThePanelCountsWithoutSplittingACharacter() {
+        let thumbs = String(repeating: "👍", count: 100)
+        #expect(MediaOpening.of(row("html", thumbs), panelBeside: true) == .panel(title: String(repeating: "👍", count: 80)))
+        // A family is one character of eleven units: it goes whole or not at all.
+        let family = String(repeating: "a", count: 155) + "👨‍👩‍👧‍👦"
+        #expect(MediaOpening.of(row("html", family), panelBeside: true) == .panel(title: String(repeating: "a", count: 155)))
+    }
 }
