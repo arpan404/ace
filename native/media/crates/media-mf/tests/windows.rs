@@ -366,16 +366,20 @@ fn hevc_round_trips_where_the_machine_has_an_hevc_encoder() -> Result<(), CodecE
     // Into textures as well, the way the probe and the pipeline decode.
     if let Some(device) = device {
         let mut decoder = MfDecoder::new(Some(device), DecodeOutput::Surface);
-        let mut pictures = Vec::new();
+        // Pictures are pooled textures: each is checked and released before the next.
+        let mut count = 0;
         for unit in &units {
-            pictures.extend(decoder.decode(unit)?);
+            for picture in decoder.decode(unit)? {
+                let surface = MfSurface::of(&picture).ok_or(CodecError::NotConfigured)?;
+                assert_eq!(surface.size(), SIZE);
+                count += 1;
+            }
         }
-        pictures.extend(decoder.drain()?);
-        assert_eq!(pictures.len(), units.len());
-        for picture in &pictures {
-            let surface = MfSurface::of(picture).ok_or(CodecError::NotConfigured)?;
-            assert_eq!(surface.size(), SIZE);
+        for picture in decoder.drain()? {
+            assert_eq!(MfSurface::of(&picture).map(MfSurface::size), Some(SIZE));
+            count += 1;
         }
+        assert_eq!(count, units.len());
     }
     Ok(())
 }

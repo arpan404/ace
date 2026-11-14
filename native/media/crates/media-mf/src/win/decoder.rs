@@ -43,6 +43,7 @@ pub struct MfDecoder {
     staging: Staging,
     copies: Copies,
     hardware: bool,
+    name: Option<String>,
 }
 
 // SAFETY: As for `MfEncoder`: free-threaded MF and D3D11 objects, one owner.
@@ -61,6 +62,7 @@ impl MfDecoder {
             staging: Staging::default(),
             copies: Copies::default(),
             hardware: false,
+            name: None,
         }
     }
 
@@ -70,8 +72,9 @@ impl MfDecoder {
         self.hardware
     }
 
+    /// The MFT that decoded the last stream.
     pub fn name(&self) -> Option<&str> {
-        self.open.as_ref().map(|o| o.transform.name.as_str())
+        self.name.as_deref()
     }
 
     pub fn last_copies(&self) -> Copies {
@@ -88,6 +91,7 @@ impl MfDecoder {
         for candidate in &listed {
             match open_one(candidate, codec, size, self.device.as_ref()) {
                 Ok(open) => {
+                    self.name = Some(open.transform.name.clone());
                     self.open = Some(open);
                     return Ok(());
                 }
