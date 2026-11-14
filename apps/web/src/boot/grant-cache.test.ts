@@ -339,11 +339,11 @@ test("an account switch leaves no record of how the old account's grants were gi
 
 test("a machine welcomed, closed or removed leaves no record behind", async () => {
   const b = backend();
-  for (const machine of ["machine-a", "machine-b", "machine-c"]) {
-    await b.cache.grant("s", machine);
-    await b.cache.grant("s", machine);
-    b.cache.settled(machine);
+  const machines = ["machine-a", "machine-b", "machine-c"];
+  for (const name of machines) {
+    await b.cache.grant("s", name);
+    await b.cache.grant("s", name);
+    b.cache.settled(name);
   }
-  for (const machine of ["machine-a", "machine-b", "machine-c"])
-    expect(b.cache.refused("grant-1", machine)).toBe(false);
+  for (const name of machines) expect(b.cache.refused("grant-1", name)).toBe(false);
 });
