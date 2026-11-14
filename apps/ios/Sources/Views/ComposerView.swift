@@ -19,6 +19,10 @@ struct ComposerView<Top: View, Leading: View>: View {
     var mention: ComposerMention? = nil
     /// Images, files and folders pasted or dropped onto the composer; nil takes only words.
     var intake: (([NSItemProvider]) -> Void)? = nil
+    /// A paste too long for the message, to go with it as a text file; nil pastes it as words.
+    var pasteLong: ((String) -> Void)? = nil
+    /// Words handed back to the field (a pasted file kept as text); each new value lands once.
+    var restore: ComposerRestore? = nil
     /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
     var recall: ((Int) async -> String?)? = nil
     /// Files on the next message: with any, the message can go without words.
@@ -96,6 +100,11 @@ struct ComposerView<Top: View, Leading: View>: View {
             draft.text = Mention.insert(picked.written, into: draft.text)
             draft.add(.file(picked.path, lines: picked.lines, endingAt: draft.text))
         }
+        .onChange(of: restore) { _, restored in
+            guard let restored else { return }
+            draft.text = restored.merged(into: draft.text)
+            place = CaretPlacement(offset: (draft.text as NSString).length, focus: true)
+        }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
         .onAppear { suggester?.active = true }
@@ -168,7 +177,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                             withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place, pasteFiles: intake, placeholder: shownPlaceholder)
+                        place: place, pasteFiles: intake, pasteLong: pasteLong, placeholder: shownPlaceholder)
             .accessibilityLabel(placeholder)
             .padding(.leading, ComposerCapsuleMetrics.fieldInset)
     }

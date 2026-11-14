@@ -9,6 +9,8 @@ struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
     let problem: String?
+    /// A pasted file's words, handed back to the message as text; nil offers nothing.
+    var asText: ((String) -> Void)? = nil
     private var notice: String? { screen.tune?.notice.isEmpty == false ? screen.tune?.notice : nil }
     /// "Continues in a new thread with your next message": Send does something else now, so it's said.
     private var continues: String? {
@@ -20,7 +22,7 @@ struct ComposerAccessories: View {
         if !screen.attachments.isEmpty || hasChips || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !screen.attachments.isEmpty {
-                    ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                    ComposerMediaStrip(files: screen.attachments, remove: { model.detach($0) }, asText: asText)
                 }
                 if hasChips {
                     ScrollView(.horizontal, showsIndicators: false) {

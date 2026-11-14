@@ -104,6 +104,47 @@ import XCTest
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
+    func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
+        let app = launch()
+        // Far down the fixture's inbox: the shared helper scrolls until the row is in the middle.
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertFalse(rail.exists, "the rail stays away at the live end")
+        // Reading back shows the rail beside the transcript and Scroll to end over the composer.
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
+        screenshot("turn-rail")
+        // VoiceOver's element is a full tap wide and as tall as the rail; touches land only on the
+        // band at the screen's edge, inside the transcript's 20 pt margin.
+        XCTAssertGreaterThanOrEqual(rail.frame.width, 44)
+        XCTAssertGreaterThan(rail.frame.height, 88)
+        let edge = { (dy: CGFloat) in rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: dy)).withOffset(CGVector(dx: -8, dy: 0)) }
+        // Touch and hold near its foot, then drag to its top: the first turn's ask comes into view.
+        edge(0.9).press(forDuration: 0.5, thenDragTo: edge(0.01))
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part 1.")).firstMatch
+        let shown = NSPredicate(format: "exists == true AND hittable == true")
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        sleep(1)
+        // A quick swipe beside the band, over the rail's drawn width, scrolls the transcript.
+        let before = first.frame.minY
+        let beside = rail.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.6)).withOffset(CGVector(dx: 6, dy: 0))
+        beside.press(forDuration: 0.05, thenDragTo: beside.withOffset(CGVector(dx: 0, dy: -200)))
+        sleep(1)
+        XCTAssertTrue(!first.exists || first.frame.minY < before - 100, "a swipe near the edge didn't scroll the transcript")
+        // A tap at the band's top jumps back to the first turn.
+        edge(0.01).tap()
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        screenshot("turn-rail-first-turn")
+        // Scroll to end goes back to the live end, where neither shows.
+        app.buttons["transcript.latest"].tap()
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForNonExistence(timeout: 15))
+        XCTAssertTrue(rail.waitForNonExistence(timeout: 5))
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)

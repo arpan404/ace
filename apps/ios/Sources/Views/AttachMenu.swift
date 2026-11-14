@@ -185,6 +185,8 @@ private struct AttachmentMenuButton: UIViewRepresentable {
 struct AttachmentChip: View {
     let file: AttachmentFile
     let remove: () -> Void
+    /// Puts a pasted file's words back in the message instead; nil where that can't happen.
+    var asText: (() -> Void)? = nil
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
@@ -206,6 +208,15 @@ struct AttachmentChip: View {
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.attachment")
+        .contextMenu {
+            if let asText {
+                Button("Paste as Text", ace: .textAlignLeft, action: asText)
+                Button("Remove", ace: .x, role: .destructive, action: remove)
+            }
+        }
+        .accessibilityActions {
+            if let asText { Button("Paste as Text", action: asText) }
+        }
     }
 }
 
