@@ -9,7 +9,7 @@ thread, median of three runs per row. TS baseline in the plan: about 240 MB/s.
 
 ## Host load decides the wall numbers
 
-Every run on 2026-11-14 had a load average between 170 and 600 on 16 CPUs, from other
+Until 08:27 on 2026-11-14, every run had a load average between 170 and 600 on 16 CPUs, from other
 agent sessions; the earlier 369 MB/s (ring) and 301 µs per transport frame were taken
 at loads of 528 to 722. Under that contention the bench thread gets a fraction of a
 core, so wall throughput swings between runs by up to three times. Thread CPU time
@@ -70,12 +70,34 @@ raw ring.
 | Transport seal    |       1,200 |         597 |             1,389 |
 | Transport open    |       1,200 |         884 |             1,224 |
 
-## Status of the gate
+## Gate: transport seal at full frames, wall time
 
-The 1.5 GB/s gate applies to wall throughput of transport seal at full frames. Every
-run in this session started above twice the CPU count, so the bench reported without
-enforcing. The best wall median was 1,426 MB/s at load 444; per CPU second it was
-1,612 MB/s. The gate still needs one run on an idle host before merging.
+The gate applies to wall throughput of transport seal at full frames. The bench
+enforces it only when the starting load is under twice the CPU count.
+
+Idle run, 2026-11-14 08:38, started at load 15.72 (below the 16 CPUs) and drifting
+to 19.5 by the full-frame rows. The bench enforced the gate and exited 0. This build
+wipes buffers on failure and derives the rekey in a fixed array.
+
+| Path              | Frame bytes | MB/s (wall) | µs/frame | MB per CPU second |
+| ----------------- | ----------: | ----------: | -------: | ----------------: |
+| RustCrypto 0.11.0 |          64 |         158 |     0.40 |               162 |
+| ring 0.17.14      |          64 |         407 |     0.16 |               420 |
+| Transport seal    |          64 |         358 |     0.18 |               362 |
+| Transport open    |          64 |         383 |     0.17 |               393 |
+| RustCrypto 0.11.0 |       1,200 |         706 |     1.70 |               726 |
+| ring 0.17.14      |       1,200 |       1,703 |     0.70 |             1,757 |
+| Transport seal    |       1,200 |       1,511 |     0.79 |             1,559 |
+| Transport open    |       1,200 |       1,405 |     0.85 |             1,435 |
+| RustCrypto 0.11.0 |      65,519 |         902 |    72.66 |               919 |
+| ring 0.17.14      |      65,519 |       1,720 |    38.09 |             1,831 |
+| Transport seal    |      65,519 |       1,767 |    37.08 |             1,881 |
+| Transport open    |      65,519 |       1,803 |    36.33 |             1,834 |
+
+The load stayed under 16 for less than a minute. The enforced runs around it, at
+starting loads from 16 to 29, gave transport seal medians of 1,908 to 1,994 MB/s, all
+exit 0. With the host fully quiet, ring per CPU second settles at about 2,070 MB/s and
+transport seal at about 2,025 MB/s.
 
 Both candidates passed `cargo deny check licenses sources`. ring is the runtime
 choice; RustCrypto is a dev dependency for the comparison only.
