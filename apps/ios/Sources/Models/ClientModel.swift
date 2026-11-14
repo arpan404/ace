@@ -181,6 +181,8 @@ import QuartzCore
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
+    /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
+    @ObservationIgnored private var sawConfirmedRow = false
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -218,7 +220,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil
+        connection = "connecting"; error = nil; problem = nil; sawConfirmedRow = false
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -467,6 +469,7 @@ import QuartzCore
                     normalizeGenerations()
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
+                if !sawConfirmedRow, row?.confirmed == true { sawConfirmedRow = true; LaunchTrace.mark("inbox.firstConfirmed", hostId ?? "") }
                 if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
                 var revision = historyRevision
                 revision.row(id, old: inbox[id], new: row)

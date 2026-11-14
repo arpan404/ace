@@ -92,6 +92,8 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var router = BinaryRouter()
     private var task: URLSessionWebSocketTask?
     private var ended = false
+    /// The daemon's welcome arrived on this socket (`LaunchTrace` marks the first).
+    private var welcomed = false
     private let connectTimeout: TimeInterval
     private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
@@ -153,7 +155,9 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
             self?.queue.addOperation { [weak self] in
                 guard let self, !self.ended else { return }
                 switch result {
-                case .success(.string(let text)): self.event("message", .text(text)); self.receive()
+                case .success(.string(let text)):
+                    if !self.welcomed, text.hasPrefix(#"{"type":"welcome""#) { self.welcomed = true; LaunchTrace.mark("socket.welcome") }
+                    self.event("message", .text(text)); self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break

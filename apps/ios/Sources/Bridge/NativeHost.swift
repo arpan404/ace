@@ -159,8 +159,11 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(.invalid)); return
         }
         let tracing = LaunchTrace.begin("http", request.path)
+        let ticket = request.path == "/v1/tickets"
         PinnedHTTP.send(on: pinned(target), origin: origin, request: request) { result in
             tracing.end()
+            // Only whether and how it was answered; never the ticket.
+            if ticket { LaunchTrace.mark("ticket.answered", (try? result.get()).map { String($0.status) } ?? "failed") }
             callback.finish()
             reply(result)
         }

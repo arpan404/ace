@@ -252,7 +252,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// Before the welcome: the daemon either welcomes this device or refuses its hello. A grant
     /// it refused is not presented again.
     private func admission(_ text: String) {
-        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; return }
+        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; LaunchTrace.mark("relay.welcome"); return }
         if Self.refusesGrant(text), let grant { route.grants.discard(grant) }
     }
     /// The daemon's refusal of a hello's grant: an `error` naming `unauthorized`. Pure.
