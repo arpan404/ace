@@ -440,7 +440,7 @@ struct InboxView: View {
         switch id {
         case "unread", "read": Task { if await client.markUnread(key.id, id == "unread") { organize.feedback += 1 } }
         case "pin", "unpin": if let row { actions.pin(row, key, id == "pin") }
-        case "move": organize.moving = MoveAsk(machineId: key.machineId, keys: [key])
+        case "move": organize.moving = MoveAsk(keys: [key])
         case "settle": if let row { actions.settle(row, key) }
         case "unsettle": if let row { actions.unsettle(row, key) }
         case "auto-settle-off", "auto-settle-on": Task { _ = await client.setAutoSettle(key.id, id == "auto-settle-on") }

@@ -332,7 +332,10 @@ Each row carries its action ids from the web's shared `threadMenu` (`@ace/ui-cor
 words in the layout's `menuLabels`. Read, auto-settle and move go through the inbox action;
 delete and every action on several threads go through `inbox.bulk` (`bridge/inbox-manage.ts`),
 which waits a few seconds for the machine's answers so the phone can offer Stop and delete.
-`OrganizeUITests` drive these against the fixture.
+A move picked across machines asks for a project on each machine (`MoveAcrossSheet`): a project
+belongs to one machine, so each machine's threads go to one of its own, with one toast and Undo,
+and a refusal is named thread by thread. `OrganizeUITests` drive these against the fixture, and
+`RoutingUITests` the move across two machines.
 
 Search (the bar's magnifying glass, ⌘K or ⌘F) is search everything: before a query, recent
 searches and every command; with one, commands, settings, projects and threads of every paired
