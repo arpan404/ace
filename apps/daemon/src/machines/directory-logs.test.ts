@@ -70,3 +70,25 @@ test("a failing machine that starts refusing instead is logged again, as the fai
     "Machine call to another device failed",
   ]);
 });
+
+test("one routine read failing while another is refused is logged once each, never on every call", async () => {
+  const logs: string[] = [];
+  const machines = new MachineDirectory({
+    profiles: () => [profile],
+    transport: async (_profile, body) => {
+      if (body.call.op === "status") throw new MachineFailure("offline");
+      throw new MachineFailure("refused", "machine_opted_out", "Turned off.");
+    },
+    log: (message) => {
+      logs.push(message);
+    },
+  });
+  for (let round = 0; round < 5; round++) {
+    await machines.call("studio", origin, status, { timeoutMs: 100 }).catch(() => {});
+    await machines.call("studio", origin, { op: "describe" }, { timeoutMs: 100 }).catch(() => {});
+  }
+  expect(logs).toEqual([
+    "Machine call to another device failed",
+    "Machine call to another device failed",
+  ]);
+});

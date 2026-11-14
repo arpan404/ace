@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { POLL_MS, done, machine, parent, working } from "./children-test-support.ts";
+import { ThreadId } from "@ace/protocol";
+import { HOUR, POLL_MS, done, machine, parent, working } from "./children-test-support.ts";
 import { RECHECK_POLLS } from "./child-recheck.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -171,4 +172,118 @@ test("a machine answering another call again is asked about its children on the 
   await h.fire();
   expect(h.asked).toHaveLength(2);
   expect(h.delivered).toEqual([expect.stringContaining("Back online")]);
+});
+
+const failingDelivery = () => {
+  throw new Error("Agent control is not ready");
+};
+
+test("a pending result whose outbox read fails once is still delivered, long after it settled", async () => {
+  const h = machine();
+  h.answers.deliver = failingDelivery;
+  h.report(h.add("child"), done("Owed for a day"));
+  await h.fire();
+  h.children.close();
+  // Back a day later, past the re-check window: only the owed result keeps the poll going.
+  const restored = machine(h.home);
+  restored.clock.now += 25 * HOUR;
+  restored.faults.failSql = "WHERE sent=0 AND rowid>?";
+  await restored.fire();
+  expect(restored.delivered).toEqual([]);
+  await restored.fire();
+  expect(restored.delivered).toEqual([expect.stringContaining("Owed for a day")]);
+});
+
+test("a child added while a delivery backs off is polled at the ordinary pace", async () => {
+  const h = machine();
+  h.answers.deliver = failingDelivery;
+  h.report(h.add("old"), done("Old result"));
+  await h.fire();
+  h.clock.now += 25 * HOUR;
+  await h.fire();
+  expect(h.timers.map((timer) => timer.ms)).toEqual([2_000]);
+  h.add("new");
+  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS]);
+});
+
+test("a failed result a wait then read leaves no retry behind it", async () => {
+  const h = machine();
+  h.answers.deliver = failingDelivery;
+  const child = h.add("child");
+  h.report(child, done("Read by a wait"));
+  await h.fire();
+  h.children.delivered(child);
+  h.clock.now += 2_000;
+  await h.fire();
+  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(h.attempts).toHaveLength(1);
+});
+
+test("a failed result whose parent is then stopped waits without a retry timer", async () => {
+  const h = machine();
+  h.answers.deliver = failingDelivery;
+  h.report(h.add("child"), done("Failed, then stopped"));
+  await h.fire();
+  h.stopped.add(parent);
+  h.clock.now += 1_000;
+  await h.fire();
+  expect(h.timers.map((timer) => timer.ms)).toEqual([POLL_MS * RECHECK_POLLS]);
+  expect(h.attempts).toHaveLength(1);
+});
+
+test("a stopped parent streaming events never pushes back the poll its other children need", async () => {
+  const h = machine();
+  h.stopped.add(parent);
+  h.report(h.add("finished"), done("Waits for the parent"));
+  h.report(h.add("running"), working);
+  await h.fire();
+  const [due] = h.timers;
+  for (let batch = 0; batch < 20; batch++) {
+    h.clock.now += 10;
+    h.children.threadChanged(parent);
+  }
+  expect(h.timers).toHaveLength(1);
+  expect(h.timers[0]).toBe(due);
+});
+
+test("a result for a running parent is delivered behind more than a page of results waiting on a stopped one", async () => {
+  const h = machine();
+  const stopped = ThreadId.parse("stopped-parent");
+  h.stopped.add(stopped);
+  for (let index = 0; index < 70; index++)
+    h.report(h.add(`held-${index}`, "studio", stopped), done(`Held ${index}`));
+  h.report(h.add("free"), done("Reaches its parent"));
+  for (let poll = 0; poll < 8; poll++) await h.fire();
+  expect(h.delivered).toEqual([expect.stringContaining("Reaches its parent")]);
+});
+
+test("results waiting on a stopped parent across a restart wait again, and arrive once it resumes", async () => {
+  const h = machine();
+  h.stopped.add(parent);
+  h.report(h.add("child"), done("Survives the restart"));
+  await h.fire();
+  h.children.close();
+  const restored = machine(h.home);
+  restored.stopped.add(parent);
+  await restored.fire();
+  expect(restored.attempts).toEqual([]);
+  restored.stopped.delete(parent);
+  restored.children.threadChanged(parent);
+  await restored.fire();
+  expect(restored.delivered).toEqual([expect.stringContaining("Survives the restart")]);
+});
+
+test("a parent freed without activity on its own thread (an ancestor resumed) gets its result within a minute", async () => {
+  const h = machine();
+  h.stopped.add(parent);
+  h.report(h.add("child"), done("Freed by an ancestor"));
+  await h.fire();
+  h.stopped.delete(parent);
+  await h.fire();
+  expect(h.delivered).toEqual([]);
+  h.clock.now += 60_000;
+  await h.fire();
+  expect(h.delivered).toEqual([expect.stringContaining("Freed by an ancestor")]);
 });
