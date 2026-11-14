@@ -83,7 +83,12 @@ export function openStoredTrust(db: DatabaseSync, shape: string, trust: StoredTr
     db.prepare("SELECT shape, from_seq FROM stored_event_verified WHERE id = 1").get(),
   );
   trust.rejected.clear();
-  if (kept && verified.success && verified.data.shape === shape && verified.data.from_seq <= start) {
+  if (
+    kept &&
+    verified.success &&
+    verified.data.shape === shape &&
+    verified.data.from_seq <= start
+  ) {
     trust.from = verified.data.from_seq;
     for (const row of db.prepare("SELECT seq FROM stored_event_rejected").all())
       trust.rejected.add(Seq.parse(row).seq);

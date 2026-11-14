@@ -147,7 +147,7 @@ export interface StoredTrustPassOptions {
  * left; a busy database retries on a later tick, any other error stops the pass and is reported.
  */
 export function startStoredTrustPass(options: StoredTrustPassOptions): { close(): void } {
-  const perTick = options.batchesPerTick ?? 4;
+  const perTick = options.batchesPerTick ?? 2;
   let head = options.headSeq();
   let threadsDone = false;
   let stop: (() => void) | undefined;

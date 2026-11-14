@@ -46,7 +46,10 @@ export interface StoredTrust {
   from: number;
   rejected: Set<number>;
 }
-export const untrusted = (): StoredTrust => ({ from: Number.POSITIVE_INFINITY, rejected: new Set() });
+export const untrusted = (): StoredTrust => ({
+  from: Number.POSITIVE_INFINITY,
+  rejected: new Set(),
+});
 /** Trust in every row from `from` on. */
 export const trustedFrom = (from: number): StoredTrust => ({ from, rejected: new Set() });
 /** Whether the row whose body was written at `seq` is read as stored. */

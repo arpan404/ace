@@ -102,9 +102,12 @@ function readAsStored(store: Store, seq: number): boolean {
   const original = store.atomic(
     (db) => db.prepare("SELECT payload FROM events WHERE seq = ?").get(seq)?.payload,
   );
+  if (typeof original !== "string") throw new Error("no event at that sequence");
   dropComplete(store, seq);
   const event = store.readEvents({ afterSeq: seq - 1, limit: 1 })[0];
-  store.atomic((db) => db.prepare("UPDATE events SET payload = ? WHERE seq = ?").run(original, seq));
+  store.atomic((db) =>
+    db.prepare("UPDATE events SET payload = ? WHERE seq = ?").run(original, seq),
+  );
   if (event?.payload.type !== "item.created") throw new Error("expected an item event");
   return !("complete" in event.payload.item);
 }

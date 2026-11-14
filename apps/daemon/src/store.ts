@@ -1,7 +1,11 @@
 import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
 import { openStoredTrust, storedEventShape } from "./stored-shape.ts";
-import { scheduleTrustPass, startStoredTrustPass, type TrustPassScheduler } from "./stored-trust-pass.ts";
+import {
+  scheduleTrustPass,
+  startStoredTrustPass,
+  type TrustPassScheduler,
+} from "./stored-trust-pass.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";

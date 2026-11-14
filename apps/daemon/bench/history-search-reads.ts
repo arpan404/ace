@@ -5,7 +5,12 @@ import { HistoryIndex } from "../src/history-index.ts";
 import { ItemTextStore } from "../src/item-text-store.ts";
 import { PayloadStore } from "../src/payload-store.ts";
 import { SearchReplay } from "../src/search-replay.ts";
-import { decodeStoredItem, trustedFrom, untrusted, type StoredTrust } from "../src/stored-decode.ts";
+import {
+  decodeStoredItem,
+  trustedFrom,
+  untrusted,
+  type StoredTrust,
+} from "../src/stored-decode.ts";
 
 /**
  * CPU per history page, search replay page and text preview, decoding every stored row (what
