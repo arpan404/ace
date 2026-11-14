@@ -1,4 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useThreadMeta, useThread } from "@ace/client-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { usePhone } from "@/lib/breakpoints.ts";
@@ -72,7 +73,7 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
     addThread(floatingThreads, threadId);
     return () => removeThread(floatingThreads, threadId);
   }, [floats, threadId]);
-  const title = useThreadMeta(threadId)?.title;
+  const title = useThread(threadId, ["thread"], readTitle);
   const showBrowser = useShowBrowserPanel(threadId);
   const navigate = useNavigate();
   if (!page) return null;
@@ -108,3 +109,6 @@ export default function FloatingBrowsersBoundary() {
     </WithServices>
   );
 }
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readTitle = (reader: ThreadReader) => reader.thread?.title;
