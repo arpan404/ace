@@ -12,6 +12,7 @@
     "./routes": "./src/routes.ts",
     "./route-watch": "./src/route-watch.ts",
     "./egress": "./src/egress.ts",
+    "./producer-stamp": "./src/producer-stamp.ts",
     "./epochs": "./src/epochs.ts",
     "./recordings": "./src/recordings.ts",
     "./stills": "./src/stills.ts",

@@ -63,6 +63,16 @@ export const builtRouteCapabilities: RouteCapabilities = {
   delivery: false,
 };
 
+/**
+ * This build's capabilities on `platform`: Mac screens stream into ace-media's ingest too (E3).
+ * Screens elsewhere wait for their helpers' encoders (E1, E2).
+ */
+export function platformRouteCapabilities(platform: string): RouteCapabilities {
+  return platform === "darwin"
+    ? { ...builtRouteCapabilities, ingest: [...builtRouteCapabilities.ingest, "screen"] }
+    : builtRouteCapabilities;
+}
+
 function place(setting: "auto" | "legacy", capable: boolean, healthy: boolean): ConsumerPlace {
   return setting === "auto" && capable && healthy ? "ace-media" : "legacy";
 }

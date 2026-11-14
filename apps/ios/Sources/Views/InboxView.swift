@@ -290,6 +290,10 @@ struct InboxView: View {
                 .environment(\.openPullRequest) { project, number, repository in
                     path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
                 }
+                // A thread on another paired machine (who sent a message) opens on that machine.
+                .environment(\.remoteThreads, RemoteThreads.on(inbox) { other, host, id in
+                    other.open(id); path.wrappedValue.append(.thread(InboxKey(machineId: host, id: id)))
+                })
                 // One page per thread on its machine: a stack that swaps its page in place for
                 // another thread starts that page fresh, never with the last one's transcript,
                 // open page, drafts or sheets.
