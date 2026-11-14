@@ -34,22 +34,6 @@ struct WorktreeStartView: View {
                     words("Clear the stale Git lock in ace on your computer, then Retry.", tone: AceTheme.Colours.mutedForeground)
                 }
                 if !card.refused.isEmpty { words(card.refused, tone: AceTheme.Status.failed) }
-                // The way on sits under the steps, before the log and its toggle: the log can run long.
-                if !card.actions.isEmpty {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: AceDesign.Space.related) { actionButtons }
-                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) { actionButtons }
-                    }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                }
-                if let back {
-                    Button("Back to New thread", action: back)
-                        .buttonStyle(.borderless)
-                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .accessibilityHint("Puts your message back in New thread and forgets this start")
-                        .accessibilityIdentifier("worktree.back")
-                }
                 Button { withAnimation { details = !open } } label: {
                     HStack(spacing: AceDesign.Space.tight) {
                         AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
@@ -77,6 +61,33 @@ struct WorktreeStartView: View {
             }
             .padding(AceDesign.Space.feedSide)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // The way on stays in view at any detent and text size: steps and log scroll above it.
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+            if !card.actions.isEmpty || back != nil {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    if !card.actions.isEmpty {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: AceDesign.Space.related) { actionButtons }
+                            VStack(alignment: .leading, spacing: AceDesign.Space.tight) { actionButtons }
+                        }
+                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    }
+                    if let back {
+                        Button("Back to New thread", action: back)
+                            .buttonStyle(.borderless)
+                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                            .frame(minHeight: AceDesign.Size.tap)
+                            .accessibilityHint("Puts your message back in New thread and forgets this start")
+                            .accessibilityIdentifier("worktree.back")
+                    }
+                }
+                .padding(.horizontal, AceDesign.Space.feedSide)
+                .padding(.vertical, AceDesign.Space.related)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AceDesign.Surface.raised)
+                .overlay(alignment: .top) { Hairline() }
+            }
         }
         .accessibilityIdentifier("worktree.card")
     }
