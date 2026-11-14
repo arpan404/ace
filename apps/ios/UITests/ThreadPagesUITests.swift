@@ -48,7 +48,8 @@ import XCTest
     }
 
     func testAtAccessibilityTextChatAndChangesMoveIntoTheMenuWhichStaysInTheBar() {
-        let app = launch(into: "thread.ios-changes",
+        // Opened at launch: at this size the inbox row is too far down to reveal reliably.
+        let app = launch(opening: "ios-changes",
                          extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 25), "the thread opens with ⋯ in its bar")
@@ -94,7 +95,18 @@ import XCTest
 
     private var appearance: String { ProcessInfo.processInfo.environment["ACE_IOS_APPEARANCE"] ?? "dark" }
 
-    private func launch(into row: String, extra: [String] = []) -> XCUIApplication {
+    private func launch(into row: String) -> XCUIApplication {
+        let app = start([])
+        app.revealRow(row).tap()
+        return app
+    }
+
+    /// Opens the thread `id` at launch (`--spike-open`), without going through the inbox.
+    private func launch(opening id: String, extra: [String]) -> XCUIApplication {
+        start(["--spike-open", id] + extra)
+    }
+
+    private func start(_ extra: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "-ace.appearance", appearance] + extra
@@ -103,7 +115,6 @@ import XCTest
         if alert.waitForExistence(timeout: 3) {
             alert.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Don'")).firstMatch.tap()
         }
-        app.revealRow(row).tap()
         return app
     }
 
