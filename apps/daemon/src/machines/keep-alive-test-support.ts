@@ -111,7 +111,11 @@ export function keepAliveCases() {
     };
     for (let i = 0; i < 4; i++) {
       await expect(
-        machineRequest(profile, { origin, call: { op: "describe" } }, { timeoutMs: 5000, connections }),
+        machineRequest(
+          profile,
+          { origin, call: { op: "describe" } },
+          { timeoutMs: 5000, connections },
+        ),
       ).resolves.toEqual({ ok: true });
       // Past the short limit and Node's own one-second grace after it.
       await wait(2000);
@@ -135,7 +139,11 @@ export function keepAliveCases() {
     // The re-check and idle polling pace: well past 5 s and its grace, well inside 60 s.
     for (let i = 0; i < 3; i++) {
       await expect(
-        machineRequest(profile, { origin, call: { op: "describe" } }, { timeoutMs: 5000, connections }),
+        machineRequest(
+          profile,
+          { origin, call: { op: "describe" } },
+          { timeoutMs: 5000, connections },
+        ),
       ).resolves.toEqual({ ok: true });
       if (i < 2) await wait(6500);
     }

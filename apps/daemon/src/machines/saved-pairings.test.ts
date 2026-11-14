@@ -19,7 +19,11 @@ function setup() {
   homes.push(home);
   const logs: string[] = [];
   const clock = { now: 0 };
-  const saved = new SavedPairings(home, (message) => logs.push(message), () => clock.now);
+  const saved = new SavedPairings(
+    home,
+    (message) => logs.push(message),
+    () => clock.now,
+  );
   open.push(saved);
   /** Changes made through another connection, as Settings or the `ace remote` CLI do. */
   const elsewhere = (change: (table: Profiles) => void) => {

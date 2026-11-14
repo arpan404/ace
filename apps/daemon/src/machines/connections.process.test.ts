@@ -1013,7 +1013,11 @@ test("a pairings file locked by another writer fails the call as never sent, and
 
 test("sixty-four calls while another writer holds the pairings file barely block the event loop", async () => {
   const h = await savedPool();
-  await machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections });
+  await machineRequest(
+    h.profile,
+    { origin, call: followUp },
+    { timeoutMs: 5000, connections: h.connections },
+  );
   const writer = new DatabaseSync(h.file);
   writer.exec("BEGIN EXCLUSIVE");
   // The longest the event loop goes without running a 5 ms timer, while the calls are made.
@@ -1046,6 +1050,10 @@ test("sixty-four calls while another writer holds the pairings file barely block
   // Once the window after the lock is over, calls go again.
   await new Promise((resolve) => setTimeout(resolve, 300));
   await expect(
-    machineRequest(h.profile, { origin, call: followUp }, { timeoutMs: 5000, connections: h.connections }),
+    machineRequest(
+      h.profile,
+      { origin, call: followUp },
+      { timeoutMs: 5000, connections: h.connections },
+    ),
   ).resolves.toEqual({ ok: true });
 });
