@@ -11,6 +11,7 @@ import {
   type PagePorts,
 } from "./settings-page.ts";
 import type { PageRow, SettingsPage } from "./settings-page-wire.ts";
+import { settingsIndex } from "./settings-index.ts";
 
 /*
  * Native settings pages over the real SDK and an in-process fake daemon: the Agents page in the
@@ -65,6 +66,26 @@ function row(shown: SettingsPage, id: string): PageRow {
 }
 const labels = (entry: PageRow) =>
   entry.control.kind === "choice" ? entry.control.choices.map((choice) => choice.label) : [];
+
+test("Settings' search index names every row each page draws, under its page and section", async () => {
+  const p = await ports();
+  const { entries } = settingsIndex();
+  const pages = [...new Set(entries.map((entry) => entry.page))];
+  expect(pages).toEqual(expect.arrayContaining(["agents", "remote", "browser", "notifications"]));
+  for (const id of pages) {
+    const shown = await page(p, id);
+    const drawn = shown.sections.flatMap((section) =>
+      section.rows.map((entry) => ({
+        page: id,
+        pageTitle: shown.title,
+        section: section.title,
+        row: entry.id,
+        title: entry.title,
+      })),
+    );
+    expect(entries.filter((entry) => entry.page === id)).toEqual(drawn);
+  }
+});
 
 test("the Agents page names its sections and choices in the web's words", async () => {
   const p = await ports();

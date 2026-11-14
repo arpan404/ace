@@ -192,7 +192,8 @@ struct InboxView: View {
     private var sheets: some View {
         tabs
             .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
-                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }))
+                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
+                                           openUnlisted: { openThread($0, listed: false) }))
             .sheet(isPresented: $pairing) {
                 if let machines {
                     NavigationStack {
@@ -325,21 +326,20 @@ struct InboxView: View {
     }
     /// A command id from the shared catalog (`bridge/palette.ts`).
     private func runCommand(_ id: String) {
-        switch id {
-        case "new-thread": compose(chat: false)
-        case "new-chat": compose(chat: true)
-        case "select":
+        switch HomeCommand(id: id) {
+        case .newThread: compose(chat: false)
+        case .newChat: compose(chat: true)
+        case .select:
             threadsPath = []
             tab = .threads
             selectAsks += 1
-        case "pulls": open(.pulls)
-        case "issues": open(.issues)
-        default:
-            if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) {
-                openOnThread(destination)
-            } else {
-                present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
-            }
+        case .place(let place): open(place)
+        case .machine(let machine):
+            machineFilter = machine
+            projectFilter = ""
+            tab = .threads
+        case .thread(let destination): openOnThread(destination)
+        case .settings(let id): present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
         }
     }
     /// One of the open thread's places (Changes, Agent tree…): back on its tab, once its page has

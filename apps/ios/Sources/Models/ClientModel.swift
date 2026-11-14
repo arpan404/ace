@@ -110,6 +110,8 @@ import QuartzCore
     /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
     private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
+    /// Moves when History must read again: Settled's membership or a settled row changed.
+    private(set) var historyRevision = HistoryRevision()
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
@@ -454,6 +456,7 @@ import QuartzCore
             case .inboxReset(let ids):
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
+                historyRevision.reset()
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
@@ -461,6 +464,9 @@ import QuartzCore
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
                 if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
+                var revision = historyRevision
+                revision.row(id, old: inbox[id], new: row)
+                if revision != historyRevision { historyRevision = revision }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -468,7 +474,11 @@ import QuartzCore
                     inbox[id] = nil
                 }
                 activityChanged = true
-            case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
+            case .inboxSections(let layout):
+                if inboxLayout != layout { inboxLayout = layout }
+                var revision = historyRevision
+                revision.layout(layout)
+                if revision != historyRevision { historyRevision = revision }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
             case .connectionEvent(let text): LaunchTrace.mark("connection.event", text)
             case .connection(let state, let generation):

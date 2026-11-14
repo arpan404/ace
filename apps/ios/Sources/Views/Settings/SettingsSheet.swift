@@ -7,9 +7,11 @@ enum SettingsRoute: Hashable {
     case account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
-    case archive, profiles, cache, thread(machine: String, id: String)
+    case archive, history, profiles, cache, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case automation(machine: String, id: String)
+    /// A machine's settings page from Settings' search, opened with `row` in view (none when empty).
+    case machineSetting(machine: String, page: String, title: String, row: String)
     case licences
 }
 
@@ -18,6 +20,8 @@ enum SettingsRoute: Hashable {
 struct MorePlaces {
     let openThread: (InboxKey) -> Void
     let startThread: () -> Void
+    /// A thread its machine's list doesn't hold yet (an older settled one History found).
+    var openUnlisted: (InboxKey) -> Void = { _ in }
 }
 
 /// More, opened from the inbox header: the app's secondary places as a grouped list. Settings
@@ -42,6 +46,10 @@ struct SettingsSheet: View {
     @State private var following: String?
     /// Where machine settings changes go while Settings is open (`SettingsScope`).
     @State private var scope: SettingsScope
+
+    /// Settings' search field, and each machine's settings index it searches.
+    @State private var settingsQuery = ""
+    @State private var settingsIndex = MachineSettingsIndex()
 
     @State private var forgeMachine = ""
     @State private var forgeProject = ""
@@ -109,8 +117,21 @@ struct SettingsSheet: View {
         .nativeTitle("More")
     }
 
-    /// Settings' own list, one step into More.
+    /// Settings' own list, one step into More, with its search over every page and setting.
     private var settingsList: some View {
+        Group {
+            if settingsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                settingsRows
+            } else {
+                SettingsSearchResults(inbox: inbox, query: settingsQuery, notifications: notifications != nil, lock: lock != nil,
+                                      index: settingsIndex)
+            }
+        }
+        .searchable(text: $settingsQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("Search settings"))
+        .nativeTitle("Settings")
+    }
+
+    private var settingsRows: some View {
             List {
                 Section {
                     link(.account, "Profile", "person.crop.circle", id: "settings.account")
@@ -132,6 +153,7 @@ struct SettingsSheet: View {
                 } header: { InsetHeader("Interface") }
                 .insetRowBackground()
                 Section {
+                    link(.history, "History", "clock.arrow.circlepath", id: "settings.history")
                     link(.archive, "Archived", "archivebox", id: "settings.archive")
                     link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
                     link(.cache, "Cached chats", "internaldrive", id: "settings.cache")
@@ -150,7 +172,6 @@ struct SettingsSheet: View {
                 .insetRowBackground()
             }
             .insetGroupedList()
-            .nativeTitle("Settings")
     }
 
     /// Pull requests, Issues and Notifications (the forge's lists), each row pushing its page on
@@ -200,6 +221,11 @@ struct SettingsSheet: View {
                 inbox.client(machine)?.open(id)
                 path.append(.thread(machine: machine, id: id))
             }
+        case .history:
+            HistoryView(inbox: inbox) { key, listed in
+                dismiss()
+                if listed { places?.openThread(key) } else { places?.openUnlisted(key) }
+            }
         case .profiles: TaskProfilesView(store: TaskProfileStore(defaults: .standard))
         case .cache: CachedChatsView(inbox: inbox)
         case .thread(let machine, let id):
@@ -213,6 +239,10 @@ struct SettingsSheet: View {
             if let client = inbox.client(machine) { tool.destination(client, inbox: inbox, machine: machine).modifier(automationLinks(client, machine)) }
         case .automation(let machine, let id):
             if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).id(id).modifier(automationLinks(client, machine)) }
+        case let .machineSetting(machine, page, title, row):
+            if let client = inbox.client(machine) {
+                SettingsPageView(model: client, page: page, title: title, focus: row.isEmpty ? nil : row)
+            }
         case .licences: LicencesView()
         }
     }
