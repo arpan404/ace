@@ -90,10 +90,19 @@ const peer = (socket: Socket) =>
  */
 export function sniListener(options: SniListenerOptions): SniListener {
   const limits = { ...defaultLimits, ...options.limits };
-  const http = createHttpServer(options.requests);
-  // Answers say how long the connection is kept (`Keep-Alive: timeout=N`), so clients close it
-  // first; keepTrusted says the longer limit on answers to authenticated requests.
-  http.keepAliveTimeout = limits.keepAlive;
+  // Every answer says how long its connection is kept once idle (`Keep-Alive: timeout=N`), so
+  // clients close it first: the short limit until a request on it authenticated, then the long
+  // one (keepTrusted says so on the answer that authenticated).
+  const http = createHttpServer((request, response) => {
+    const trustedNow = Reflect.get(request.socket, trusted) === true;
+    const limit = trustedNow ? limits.trustedKeepAlive : limits.keepAlive;
+    response.setHeader("Keep-Alive", `timeout=${Math.floor(limit / 1000)}`);
+    options.requests(request, response);
+  });
+  // The timers below close idle connections. The HTTP server's own keep-alive timeout, which
+  // Node arms on every finished answer even on the connections it is handed, is set past the
+  // longest of them so it never closes an authenticated connection early.
+  http.keepAliveTimeout = Math.max(limits.keepAlive, limits.trustedKeepAlive);
   const front = createTlsServer({
     ALPNProtocols: ["http/1.1"],
     handshakeTimeout: limits.handshake,
