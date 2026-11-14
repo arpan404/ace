@@ -75,7 +75,20 @@ import XCTest
         app.buttons["review.save"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["review.comment"].waitForExistence(timeout: 15))
         capture("draft")
-        app.buttons["review.sendAll"].tap()
+        // In a sheet the bar sends the comment. On a phone's thread page it rides on the next
+        // message instead: the composer's chip carries it and Send, with no words, sends it.
+        let sendAll = app.buttons["review.sendAll"]
+        if sendAll.waitForExistence(timeout: 3) {
+            sendAll.tap()
+        } else {
+            let chip = app.buttons["composer.comments"]
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "the comment waits on the composer's chip")
+            app.buttons["composer.send"].tap()
+            let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: chip)
+            wait(for: [gone], timeout: 20)
+            let changesPage = app.buttons["thread.page.changes"]
+            if changesPage.exists, !changesPage.isSelected { changesPage.tap() }
+        }
         let sent = app.staticTexts["Sent"].firstMatch.waitForExistence(timeout: 20)
         capture("sent")
         XCTAssertTrue(sent)
