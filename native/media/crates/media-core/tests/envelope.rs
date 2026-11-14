@@ -8,14 +8,13 @@ fn wire(piece: &Piece<'_>) -> Vec<u8> {
     out
 }
 #[test]
-fn every_legacy_piece_matches_the_shared_typescript_bytes() -> Result<(), Box<dyn std::error::Error>>
-{
+fn every_piece_matches_the_shared_typescript_bytes() -> Result<(), Box<dyn std::error::Error>> {
     let fixtures = support::hex_fields(include_str!("../../../vectors/envelope/scenarios.json"));
     let mut expected = fixtures.iter();
     for size in [1, 65500, 65536, 131072] {
         let payload = vec![7; size];
         let mut assembler = Assembler::new();
-        for piece in Pieces::legacy(2, 42, &[1, 2], &payload)? {
+        for piece in Pieces::new(2, 42, &[1, 2], &payload)? {
             let bytes = wire(&piece);
             assert_eq!(Some(&bytes), expected.next());
             if let Some(message) = assembler.push(&bytes)? {
