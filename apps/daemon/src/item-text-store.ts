@@ -13,7 +13,7 @@ export class ItemTextStore {
   private target: StatementSync | undefined;
   private insert: StatementSync | undefined;
   private grow: StatementSync | undefined;
-  /** Previews of items created from `trust.from` on were written by this build. */
+  /** Which previews are read as stored, by their item's creation sequence (`isTrusted`). */
   private readonly trust: StoredTrust;
   constructor(db: DatabaseSync, trust: StoredTrust = untrusted()) {
     this.db = db;
@@ -29,7 +29,7 @@ export class ItemTextStore {
     ).get(id);
     if (!row) return undefined;
     const created = row.created_seq === null ? Number.NEGATIVE_INFINITY : Number(row.created_seq);
-    return { item: storedItem(created, String(row.item), this.trust.from), target: row.target };
+    return { item: storedItem(created, String(row.item), this.trust), target: row.target };
   }
   private statement(sql: string): StatementSync {
     const previous = this.prepared.get(sql);

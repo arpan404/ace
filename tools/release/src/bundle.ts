@@ -12,6 +12,7 @@ import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
+export { assembleRelease, buildIdFile } from "./build-id.ts";
 export {
   linuxScreenHelperName,
   linuxScreenHelperPath,

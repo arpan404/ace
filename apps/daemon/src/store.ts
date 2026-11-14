@@ -1,6 +1,7 @@
 import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
-import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
+import { storedEventShape } from "./stored-shape.ts";
+import { openStoreTrust, startStoreTrustPass, type StoredTrustOptions } from "./store-trust.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
@@ -88,7 +89,7 @@ import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from ".
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { StoreWriteGate, type StoreWriteGateOptions } from "./store-write-gate.ts";
 
-export interface StoreOptions extends Partial<CredentialRuntime> {
+export interface StoreOptions extends Partial<CredentialRuntime>, StoredTrustOptions {
   /** The mark kept beside the database, naming it afresh when it was rolled back (ADR 0128). */
   lineage?: LineageFile;
   /** Store owns and closes this SQLite connection when supplied. */
@@ -101,8 +102,6 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   bufferScheduler?: BufferScheduler;
   /** Opens the connection that checkpoints the WAL off the event loop. */
   checkpointWorker?: CheckpointWorkerFactory;
-  /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
-  eventShape?: string;
   /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
   threadRowShape?: string;
   /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
@@ -191,6 +190,7 @@ export class Store {
     options: StoreOptions = {},
   ) {
     this.onError = onError;
+    this.storedTrustBuild = options.storedTrustBuild;
     this.db = options.database ?? new DatabaseSync(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
@@ -266,6 +266,8 @@ export class Store {
       this.trust,
     );
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
+    const eventShape = options.eventShape ?? storedEventShape(schemaVersion);
+    let opened: ReturnType<typeof openStoreTrust> = undefined;
     try {
       this.db.exec(
         // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
@@ -288,10 +290,6 @@ export class Store {
       });
       migrate(this.db);
       this.sequences.initialize();
-      this.trust.from = trustedSequenceStart(
-        this.db,
-        options.eventShape ?? storedEventShape(schemaVersion),
-      );
       migrateSidebarRevisions(this.db);
       this.keepLineage(options.lineage);
       openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
@@ -349,6 +347,8 @@ export class Store {
       this.atomic(seedSentMessages);
       // After the passes above that rewrite threads rows; the writer keeps stamps current.
       this.atomic((db) => confirmThreadRows(db));
+      // After every open-time pass that rewrites stored rows, before the first append.
+      opened = openStoreTrust(this.db, eventShape, options, this.trust);
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -437,7 +437,26 @@ export class Store {
       })
       .catch(this.onError);
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
+    this.trustPass = startStoreTrustPass({
+      db: this.db,
+      shape: eventShape,
+      opened,
+      trust: this.trust,
+      options,
+      busy: () =>
+        !!this.transactionEvents ||
+        this.historyWriting ||
+        this.writes.isHeld() ||
+        this.streaming.buffer.bytes > 0,
+      headSeq: () => this.headSeq(),
+      // Rows the trust writes change belong to no thread and change no read.
+      accounted: (rows) => (this.attributedChanges += rows),
+      report: (error) => this.onError(error),
+    });
   }
+  private readonly trustPass: { close(): void };
+  /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
+  readonly storedTrustBuild: string | undefined;
   private onError: (error: unknown) => void;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
@@ -461,6 +480,7 @@ export class Store {
         () => this.wal.stop(),
         () => this.searchAbort.abort(),
         () => this.searchMaintenance.close(),
+        () => this.trustPass.close(),
       ],
       workers: async () => {
         await Promise.all([this.searchQueries.close(), this.wal.close()]);
@@ -1227,7 +1247,7 @@ export class Store {
     const events: Event[] = [];
     let bytes = 0;
     for (const row of rows) {
-      const { event, bytes: size } = storedEvent(row, this.trust.from);
+      const { event, bytes: size } = storedEvent(row, this.trust);
       events.push(event);
       bytes += size;
       // Include the crossing event so replay's caller can distinguish overflow from completion.
