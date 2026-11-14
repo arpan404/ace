@@ -3,6 +3,7 @@ import { Command, ThreadId, type CommandResult } from "@ace/protocol";
 import { initializeThreadCleanup, threadCleaning } from "./thread-cleanup-journal.ts";
 import { organizationDecision } from "@ace/projection";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
+import { workStartedSince } from "./thread-fence.ts";
 import type { ServerOptions } from "./server-options.ts";
 
 /** How often the liveness backstop visits one batch of unsettled threads. */
@@ -121,6 +122,8 @@ export class ThreadLifecycle {
           return { commandId: command.id, ok: false, error: "thread_deleting" };
         if (this.options.engine && store.workspaceReservations.threadReserved(p.threadId))
           return { commandId: command.id, ok: false, error: "workspace_change_in_progress" };
+        if (p.beforeSeq !== undefined && workStartedSince(store, p.threadId, p.beforeSeq))
+          return { commandId: command.id, ok: false, error: "thread_changed" };
         const alive = this.alive(p.threadId);
         if (!p.force && Object.values(alive).some((count) => count > 0))
           return { commandId: command.id, ok: false, error: "thread_busy", alive };

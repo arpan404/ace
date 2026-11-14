@@ -437,6 +437,7 @@ Example:
 | type | yes | `"thread.delete"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | force | no | boolean |  |
+| beforeSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -2138,11 +2139,13 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"thread.archive"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| beforeSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
+  "beforeSeq": 2,
   "threadId": "example",
   "type": "thread.archive"
 }

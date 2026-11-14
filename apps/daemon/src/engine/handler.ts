@@ -27,6 +27,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
 import { retireUncertainInputs } from "./stale-inputs.ts";
+import { workStartedSince } from "../thread-fence.ts";
 import { guestRefusal, hostRefusal } from "./guest-admission.ts";
 
 export function engineHandler(
@@ -363,6 +364,8 @@ export function engineHandler(
           threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
             if (!repo.store.getThread(threadId)) return fail("thread_not_found");
+            if (p.beforeSeq !== undefined && workStartedSince(repo.store, threadId, p.beforeSeq))
+              return fail("thread_changed");
             const at = now();
             repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
             return { commandId: command.id, ok: true };

@@ -221,3 +221,30 @@ test("Stop during provider opening preserves a claimed unsent input without a fa
     ),
   ).toEqual([]);
 });
+
+test("an archive decided before a later run started is refused, and archives once decided after it", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start)] },
+    ],
+    frames,
+  );
+  cleanups.push(h.close);
+  const id = await h.create();
+  const seen = () =>
+    h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 }).at(-1)?.seq ?? 0;
+  const decided = seen();
+  h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "new turn" }] });
+  await h.engine.flush();
+  expect(h.command({ type: "thread.archive", threadId: id, beforeSeq: decided })).toMatchObject({
+    ok: false,
+    error: "thread_changed",
+  });
+  expect(h.store.getThread(id)?.archivedAt).toBeUndefined();
+  expect(h.command({ type: "thread.archive", threadId: id, beforeSeq: seen() })).toMatchObject({
+    ok: true,
+  });
+  expect(h.store.getThread(id)?.archivedAt).toBeDefined();
+});

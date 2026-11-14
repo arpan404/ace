@@ -132,7 +132,17 @@ export const CommandPayload = z.discriminatedUnion("type", [
     /** Also stop every descendant, even when the provider doesn't cascade. */
     cascade: z.boolean().default(true),
   }),
-  z.object({ type: z.literal("thread.archive"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.archive"),
+    threadId: ThreadId,
+    /**
+     * The thread event the person archived it at (its cursor, or its list entry's activitySeq).
+     * Archiving stops commands it left running, so the daemon refuses (`thread_changed`) once a
+     * run started or a person's message arrived after it: a replayed archive never stops newer
+     * work. Omitted: as before.
+     */
+    beforeSeq: z.number().int().nonnegative().optional(),
+  }),
   z.object({
     type: z.literal("thread.model.set"),
     threadId: ThreadId,
