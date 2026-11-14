@@ -13,6 +13,7 @@ import {
 import { queueActionPayload, type QueueAction, type StopFence } from "@ace/ui-core";
 import { CommandRefused, runCommand } from "./daemon-command.ts";
 import { currentNow } from "./live-connection.ts";
+import type { ListAction } from "./list-actions.ts";
 
 /*
  * Every action on what a thread copy shows is built and sent here, and nowhere else in the web
@@ -227,28 +228,6 @@ export async function resumeQueue(client: ClientApi, threadId: string): Promise<
     ),
   );
 }
-
-/** A list action that decides on the thread list (archive, delete), sent with `sendListAction`. */
-export interface ListAction {
-  readonly listAction: true;
-  readonly kind: "archive" | "delete";
-  readonly threadId: string;
-  /** A delete that stops what still runs (Stop and delete). */
-  readonly force?: boolean | undefined;
-}
-export const archiveAction = (threadId: string): ListAction => ({
-  listAction: true,
-  kind: "archive",
-  threadId,
-});
-export const deleteAction = (threadId: string, force: boolean): ListAction => ({
-  listAction: true,
-  kind: "delete",
-  threadId,
-  force,
-});
-
-export const isListAction = (value: object): value is ListAction => "listAction" in value;
 
 /**
  * Send a list action, checking the list as it sends. An archive (it stops commands a thread left

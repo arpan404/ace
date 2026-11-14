@@ -21,13 +21,7 @@ import {
 } from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { currentNow } from "@/lib/live-connection.ts";
-import {
-  archiveAction,
-  deleteAction,
-  stopTask,
-  stopThread,
-  type ListAction,
-} from "@/lib/live-actions.ts";
+import { archiveAction, deleteAction, type ListAction } from "@/lib/list-actions.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -367,7 +361,9 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    * always names what it may stop: the root run the list says runs, else the thread's cursor
    * (nothing started after it is stopped); with neither, nothing is stopped.
    */
-  const stopTree = (listed: ThreadListEntry): boolean => {
+  const stopTree = async (listed: ThreadListEntry): Promise<boolean> => {
+    // Loaded on first use: the sidebar paints without the sender.
+    const { stopTask, stopThread } = await import("@/lib/live-actions.ts");
     const runId = listed.live?.rootRunId ?? undefined;
     const cursor = client.peekThread?.(listed.id)?.cursor;
     const fence = runId
@@ -587,8 +583,10 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
         archive: archiveNow,
         stopAndArchive: () => {
           // Confirmed later than it was asked: the list must still be current, and the Stop safe.
-          if (!listCurrent() || !stopTree(listed)) return;
-          archiveNow();
+          if (!listCurrent()) return;
+          void stopTree(listed).then((stopped) => {
+            if (stopped) archiveNow();
+          });
         },
       });
     },
