@@ -6,7 +6,7 @@ import Testing
 /// transcript scrolled back over them never draws them again (`DiagramRenders`). The drawer is a
 /// fake that suspends until the test lets it finish.
 @MainActor @Suite struct DiagramRendersTests {
-    private final class Picture {
+    @MainActor private final class Picture {
         let name: String
         init(_ name: String) { self.name = name }
     }
@@ -61,7 +61,8 @@ import Testing
         #expect(renders.kept("A-->B", dark: false) === kept, "a row coming back draws it in its first layout")
         async let dark = renders.drawn("A-->B", dark: true)
         await settle(); await drawer.finishAll()
-        #expect(await dark !== kept)
+        let darkPicture = await dark
+        #expect(darkPicture != nil && darkPicture !== kept)
         #expect(drawer.asked == ["A-->B|light", "A-->B|dark"])
     }
 
@@ -89,12 +90,14 @@ import Testing
         await settle()
         await drawer.finishAll(); await settle(); await drawer.finishAll()
         _ = await first
-        #expect(await flung.value == nil)
+        let flungPicture = await flung.value
+        #expect(flungPicture == nil)
         #expect(drawer.asked == ["first|light"])
         // Back in view later, it is drawn then.
         async let back = renders.drawn("flung past", dark: false)
         await settle(); await drawer.finishAll()
-        #expect(await back?.name == "flung past")
+        let backPicture = await back
+        #expect(backPicture?.name == "flung past")
     }
 
     @Test func aDiagramThatCantBeDrawnIsNotTriedAgainOnEveryScroll() async {
@@ -103,8 +106,10 @@ import Testing
         let renders = DiagramRenders<Picture> { await drawer.draw($0, $1) }
         async let first = renders.drawn("graph ???", dark: false)
         await settle(); await drawer.finishAll()
-        #expect(await first == nil)
-        #expect(await renders.drawn("graph ???", dark: false) == nil)
+        let firstPicture = await first
+        #expect(firstPicture == nil)
+        let again = await renders.drawn("graph ???", dark: false)
+        #expect(again == nil)
         #expect(drawer.asked == ["graph ???|light"])
     }
 

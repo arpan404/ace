@@ -12,7 +12,9 @@ enum DiagramFence {
 /// over them shows what was kept. Diagrams are drawn one at a time, in the order asked; one whose
 /// every asker went away (scrolled past) before its turn is skipped, and is drawn when asked
 /// again. A source that couldn't be drawn isn't tried again: its code stays.
-@MainActor final class DiagramRenders<Drawn: AnyObject> {
+/// `Drawn` crosses tasks (each drawing is shared by its askers), so it is `Sendable`: a
+/// main-actor class, as a drawing is.
+@MainActor final class DiagramRenders<Drawn: AnyObject & Sendable> {
     typealias Draw = @MainActor (_ source: String, _ dark: Bool) async -> Drawn?
 
     private let draw: Draw

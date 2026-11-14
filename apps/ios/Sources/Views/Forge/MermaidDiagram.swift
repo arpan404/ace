@@ -151,8 +151,9 @@ final class MermaidDiagramView: UIView {
     }
 }
 
-/// A diagram drawn as a picture, at the size (in points) it drew.
-final class DiagramPicture {
+/// A diagram drawn as a picture, at the size (in points) it drew. Main-actor isolated, so it is
+/// `Sendable` and can be shared by every task waiting on the drawing.
+@MainActor final class DiagramPicture {
     let image: UIImage
     let size: CGSize
     init(image: UIImage, size: CGSize) {
