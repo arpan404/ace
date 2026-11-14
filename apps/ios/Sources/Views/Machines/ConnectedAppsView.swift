@@ -30,6 +30,7 @@ struct ConnectedAppsView: View {
                     Text("Apps outside ace that can reach this machine's threads. None can answer approvals or questions; you answer those in ace.")
                 }
                 .insetRowBackground()
+                ConnectAppSection(model: model, machine: machine)
                 if !ended.isEmpty {
                     Section {
                         ForEach(ended) { grant in ConnectedAppRow(grant: grant) }

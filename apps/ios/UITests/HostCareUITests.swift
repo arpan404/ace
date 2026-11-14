@@ -134,6 +134,34 @@ import XCTest
         app.buttons["Keep sign-ins"].tap()
     }
 
+    func testConnectAnAppListsAddressesAndSwitchesTheRelayOnTheMachine() throws {
+        let app = launchIntoMachine()
+        open(app, "machine.connectedApps")
+        let local = element(app, "connect.address.local")
+        for _ in 0..<6 where !local.isHittable { app.swipeUp() }
+        XCTAssertTrue(local.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["connect.address.local.copy"].exists, "a serving address can be copied")
+        XCTAssertTrue(app.buttons["connect.enroll.copy"].exists, "the enroll command shows")
+        let relay = app.switches["connect.address.relay.switch"].firstMatch
+        for _ in 0..<6 where !relay.isHittable { app.swipeUp() }
+        XCTAssertTrue(relay.waitForExistence(timeout: 10))
+        XCTAssertEqual(relay.value as? String, "0")
+        screenshot("connect-an-app")
+        relay.switches.firstMatch.tap()
+        let on = expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: relay)
+        wait(for: [on], timeout: 15)
+        // Read again from the machine: the switch was saved there.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        open(app, "machine.connectedApps")
+        let again = app.switches["connect.address.relay.switch"].firstMatch
+        for _ in 0..<6 where !again.isHittable { app.swipeUp() }
+        XCTAssertTrue(again.waitForExistence(timeout: 15))
+        XCTAssertEqual(again.value as? String, "1")
+        again.switches.firstMatch.tap()
+        let off = expectation(for: NSPredicate(format: "value == '0'"), evaluatedWith: again)
+        wait(for: [off], timeout: 15)
+    }
+
     private func launchIntoMachine() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
