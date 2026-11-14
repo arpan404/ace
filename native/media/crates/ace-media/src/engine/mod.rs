@@ -214,7 +214,11 @@ impl Engine {
                     out,
                 );
             }
-            ToMedia::ViewerConfigure { .. } => {}
+            // Delivery to viewers lands with D1; until then these change nothing here.
+            ToMedia::ViewerConfigure { .. }
+            | ToMedia::ViewerPause { .. }
+            | ToMedia::ViewerResume { .. }
+            | ToMedia::SessionLink { .. } => {}
             ToMedia::ViewerClose { viewer } => self.grants.viewer_close(viewer.get()),
             ToMedia::RelayDial { stream, .. } => normal(
                 out,
