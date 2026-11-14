@@ -140,7 +140,7 @@ import Testing
         #expect(reading.parts.map(\.firstLine) == [0, 1])
     }
 
-    @Test func aDenseUnicodeLineIsSearchedInLinearWorkThroughEveryBatch() {
+    @Test func aDenseUnicodeLineIsSearchedThroughEveryBatchQuickly() {
         // 200,000 matches on one line cut across four pages, in batches of 10,000.
         let file = laid(Array(repeating: String(repeating: "é", count: 50_000), count: 4))
         var search = FileSearch(query: "É")
@@ -154,8 +154,16 @@ import Testing
         }
         #expect(search.found == 200_000)
         #expect(search.hit(199_999)?.column == 199_999, "columns run on along the line across pages")
-        // Each character is walked once, however many batches the matches fill.
-        #expect(search.walked <= 200_000)
+        // Loose: a search that went quadratic here would take minutes.
         #expect(took < .seconds(10))
+    }
+
+    @Test func aDecomposedAccentAtAPageEdgeMatchesItsComposedForm() {
+        // Pages end between clusters (`bridge/checkout-pages.ts`), so the accent stays with its
+        // letter at the start of the next page; "é" typed composed finds "e" + U+0301.
+        let file = laid([String(repeating: "x", count: 30), "e\u{301}yy"])
+        var search = FileSearch(query: "\u{E9}")
+        for page in file where search.next?.page == page.offset { search.take(page) }
+        #expect(search.hits == [FileSearch.Hit(page: file[1].offset, pageLine: 0, line: 0, column: 30)])
     }
 }

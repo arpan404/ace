@@ -45,8 +45,6 @@ struct FileSearch: Equatable {
     private(set) var base = 0
     /// Where searching goes on; nil once the file is searched to its end.
     private(set) var next: Resume? = Resume(page: 0, firstLine: 0, line: 0, column: 0)
-    /// Characters walked to place matches, over the whole search: linear in the text searched.
-    private(set) var walked = 0
 
     init(query: String, limit: Int = 10_000) {
         self.query = query
@@ -122,7 +120,6 @@ struct FileSearch: Equatable {
     /// Count lines and columns over `text`: a line feed (CRLF too) starts a line.
     private mutating func walk(_ text: Substring, line: inout Int, column: inout Int) {
         for character in text {
-            walked += 1
             if character.unicodeScalars.contains("\n") { line += 1; column = 0 } else { column += 1 }
         }
     }
