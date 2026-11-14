@@ -270,7 +270,9 @@ do (`Views/Markdown/AnswerDiagram.swift`): GitHub's Markdown without forge refer
 renderer (`Views/Forge/MermaidDiagram.swift`). Each diagram is drawn once per appearance, off
 screen and one at a time, and kept as a picture (`Models/DiagramRenders.swift`, the 8 most
 recent), so no web view stays in the transcript and a row scrolled back draws at once; a diagram
-flung past before its turn is never drawn. Its source opens from its corner button or long press.
+flung past before its turn is never drawn. A finished answer's view kept on the thread's shelf
+while its row is off screen holds its waiting diagrams out of the queue until it shows again
+(`Models/RenderGate.swift`), so rows on screen never wait behind rows that left. Its source opens from its corner button or long press.
 Until drawn, or when it can't be, the fence shows as code. A streaming answer reaches markit 10 to 20 times a
 second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws
 when the thread captured it (`native.image`, the daemon's `image.resolve`). SwiftUI renders

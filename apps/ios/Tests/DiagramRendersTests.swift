@@ -126,6 +126,47 @@ import Testing
         #expect(renders.kept("c", dark: false) != nil)
     }
 
+    /// Each answer's markit view asks through its own gate, closed while the view is off screen
+    /// (kept on the thread's shelf) and opened when it shows again (`RenderGate`).
+    @Test func aRowScrolledAwayWhileItsDiagramWaitsNeitherDrawsNorHoldsUpRowsOnScreen() async {
+        let drawer = Drawer()
+        let renders = DiagramRenders<Picture> { await drawer.draw($0, $1) }
+        let onScreen = RenderGate(), scrolledAway = RenderGate(), next = RenderGate()
+        async let first = onScreen.run { await renders.drawn("first", dark: false) }
+        let away = Task { await scrolledAway.run { await renders.drawn("away", dark: false) } }
+        await settle()
+        // Queued behind the first, its row leaves the transcript.
+        scrolledAway.close()
+        await settle()
+        await drawer.finishAll(); await settle()
+        _ = await first
+        #expect(drawer.asked == ["first|light"], "the row that left is not drawn")
+        // A row coming on screen now draws at once, not after the one that left.
+        async let shown = next.run { await renders.drawn("next", dark: false) }
+        await settle()
+        #expect(drawer.asked == ["first|light", "next|light"])
+        await drawer.finishAll(); await settle()
+        _ = await shown
+        // Back on screen, the row that left asks again and gets its diagram; markit never gave up.
+        scrolledAway.open()
+        await settle(); await drawer.finishAll(); await settle()
+        let back = await away.value
+        #expect(back?.name == "away")
+        #expect(drawer.asked == ["first|light", "next|light", "away|light"])
+    }
+
+    @Test func aViewDiscardedWhileItsGateIsClosedStopsWaiting() async {
+        let drawer = Drawer()
+        let gate = RenderGate()
+        gate.close()
+        let request = Task { await gate.run { await drawer.draw("never", false) } }
+        await settle()
+        request.cancel()
+        let result = await request.value
+        #expect(result == nil)
+        #expect(drawer.asked.isEmpty)
+    }
+
     @Test func onlyMermaidFencesAreDrawn() {
         #expect(DiagramFence.draws("mermaid"))
         #expect(DiagramFence.draws("Mermaid"))
