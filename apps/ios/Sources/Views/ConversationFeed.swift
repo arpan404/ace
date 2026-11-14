@@ -62,10 +62,6 @@ struct ConversationFeed: View {
     @State private var anchor = TranscriptReadingAnchor()
     @State private var extent = TranscriptExtent()
     @State private var viewport = TranscriptViewportController()
-    /// Set when a gesture ends while reading: the next measured layout
-    /// refreshes the capture, since frames at idle may predate the final
-    /// layout pass. Cleared on first use; session restores own their target.
-    @State private var needsPostGestureCapture = false
     /// Previous resident block-to-items snapshot, for classifying missing
     /// blocks on streaming changes without a fresh service reply.
     @State private var lastBlockItems: [String: [String]] = [:]
@@ -213,12 +209,14 @@ struct ConversationFeed: View {
                 viewport.cancelPending()
                 model.beginReadingScroll()
                 intent.begin()
+                _ = anchor.captures.next(.gestureBegan)
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
                 settle.cancel()
                 viewport.cancelPending()
                 model.beginReadingScroll()
                 intent.begin(); intent.active = true
+                _ = anchor.captures.next(.gestureBegan)
             case .interacting, .decelerating: intent.active = true
             case .idle:
                 // Only the person's own scroll decides whether the feed follows the end; the
@@ -230,10 +228,9 @@ struct ConversationFeed: View {
                     let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                     let live = reading.thread == nil || reading.joined
                     setFollowing(atEnd && live)
-                    // The idle-time capture may predate the final layout pass;
-                    // refresh it on the next measured geometry so a stale
-                    // pre-gesture target can never pull the reader back.
-                    needsPostGestureCapture = viewport.mode != .following
+                    // The idle-time capture may predate the scroll's last origin report: the
+                    // next settled one refreshes it (`TranscriptCaptureSchedule`).
+                    _ = anchor.captures.next(.gestureEnded(reading: viewport.mode != .following))
                     endRead(moving: false)
                 } else if TranscriptEndButton.leftByOtherScroll(following: pinned, fromEnd: Double(intent.metrics.bottom),
                                                                 viewport: Double(intent.metrics.viewport),
@@ -242,9 +239,21 @@ struct ConversationFeed: View {
                     // VoiceOver) left the end far behind: stop following, as a drag would.
                     setFollowing(false)
                 }
+                // A scroll the person didn't make (a turn-key jump) came to rest: where it landed
+                // is the place to hold, not where it left from.
+                if !touched {
+                    if anchor.captures.next(.settled), viewport.mode != .following, viewport.sessionAnchor == nil {
+                        captureTop()
+                    } else if anchor.recheckDrift, let held = viewport.held {
+                        // Drift isn't corrected while the feed's own animated scroll runs: a row
+                        // that resized meanwhile is put back now it has landed.
+                        anchor.recheckDrift = false
+                        correctHeldRowDrift(rowID: held.rowID, proxy: proxy)
+                    }
+                }
                 updateBehind()
                 pageIfNeeded(proxy)
-            case .animating: break
+            case .animating: if !intent.active { _ = anchor.captures.next(.scrollStarted) }
             @unknown default: break
             }
             intent.animating = phase == .animating
@@ -528,15 +537,23 @@ struct ConversationFeed: View {
         let first = rows.firstIndex { (anchor.rows.frame($0.id)?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
         setFollowing(false)
         if direction > 0 {
-            if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
+            if let next = starts.first(where: { $0 > first }) { jump(to: rows[next], proxy: proxy); return }
             reading.toEnd(model: model, thread: thread); setFollowing(true); toEnd(proxy)
             return
         }
         let here = starts.last { $0 <= first }
         let sitsBelow = here.map { (anchor.rows.frame(rows[$0].id)?.minY ?? top) < top - AceDesign.Space.related } ?? false
-        if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
-        if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
+        if let here, here < first || sitsBelow { jump(to: rows[here], proxy: proxy); return }
+        if let previous = starts.last(where: { $0 < (here ?? first) }) { jump(to: rows[previous], proxy: proxy); return }
         if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
+    }
+    /// Scrolls the turn's ask to the top and holds it there: a row resizing while the scroll runs
+    /// never pulls the reader back to the turn they left. The place it settles is captured then.
+    private func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
+        anchor.recheckDrift = false
+        viewport.noteCaptured(rowID: row.id, itemID: row.block.row.items.first, top: 0)
+        _ = anchor.captures.next(.jumped)
+        withAnimation { proxy.scrollTo(row.id, anchor: .top) }
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {
@@ -613,13 +630,9 @@ struct ConversationFeed: View {
             anchor.measured(id, height: frame.height, returning: change == .appeared)
             extent.measure(id, height: Double(frame.height))
         }
-        // Post-gesture shell: refresh the capture from settled frames before any drift
-        // correction, so a stale pre-gesture target can never pull the reader back.
-        if needsPostGestureCapture, viewport.mode == .reading,
-            !viewport.isAiming, viewport.sessionAnchor == nil {
-            needsPostGestureCapture = false
-            captureTop()
-        }
+        // Content changed, not the scroll: a capture still owed from a drag is dropped, so the
+        // place the drag left stays the target and the drift below is corrected against it.
+        _ = anchor.captures.next(.rowLaidOut)
         // Post-geometry shell: a pending session restore re-runs after the row actually
         // measures, since revision events land before lazy remeasurement.
         if viewport.sessionAnchor?.rowID == id {
@@ -634,6 +647,12 @@ struct ConversationFeed: View {
     /// restore or a drift correction still in flight is checked where its scroll landed.
     private func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
         guard anchor.rows.scrolled(origin: origin) else { return }
+        // A drag's capture at idle may predate its last origin report: refresh it from this one,
+        // before any check against the old target.
+        if anchor.captures.next(.originReported(moving: intent.active || intent.animating)),
+            viewport.mode == .reading, !viewport.isAiming, viewport.sessionAnchor == nil {
+            captureTop()
+        }
         if viewport.sessionAnchor != nil {
             applySessionRestore(proxy: proxy)
         } else if anchor.recheckDrift, let held = viewport.held {
@@ -660,7 +679,7 @@ struct ConversationFeed: View {
     /// by the viewport budget, cancelled by gestures, and never fights an
     /// active drag, a landing jump, VoiceOver, or the live end.
     private func correctHeldRowDrift(rowID: String, proxy: ScrollViewProxy) {
-        guard !intent.active, !viewport.isAiming, viewport.canCorrect,
+        guard !intent.active, !intent.animating, !viewport.isAiming, viewport.canCorrect,
             !UIAccessibility.isVoiceOverRunning,
             viewport.mode != .following,
             let held = viewport.held, held.rowID == rowID,

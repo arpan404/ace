@@ -10,6 +10,8 @@ import SwiftUI
     var rows = TranscriptRowFrames()
     /// A drift correction scrolled the feed: check the held row again once the scroll lands.
     var recheckDrift = false
+    /// When to take the top row as the one to hold (after a drag, after a turn-key jump).
+    var captures = TranscriptCaptureSchedule()
     /// Each row's last measured height, kept while it is off screen, so a row that comes back at
     /// another height (a page loading in again, a placeholder) is counted. Measurement only.
     private var heights: [String: CGFloat] = [:]
