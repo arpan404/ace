@@ -11,6 +11,8 @@ import {
   readMachineUpdate,
   startMachineUpdate,
 } from "./fleet-updates.ts";
+import { answerMachineSoftware, MachineSoftwareRequest } from "./machine-software.ts";
+import { MachineRenameRequest, renameMachine } from "./machine-rename.ts";
 import {
   combineProfile,
   ProfileCombineRequest,
@@ -415,6 +417,18 @@ export class NativeServices {
           await startMachineUpdate(this.owner, updateStart.data, controller.signal),
           "",
         );
+        return;
+      }
+      // A machine page's Software and Rename (`machine-software.ts`, `machine-rename.ts`).
+      const software = MachineSoftwareRequest.safeParse(raw);
+      if (software.success) {
+        const value = await answerMachineSoftware(this.owner, software.data, controller.signal);
+        this.#reply(id, true, value, "");
+        return;
+      }
+      const rename = MachineRenameRequest.safeParse(raw);
+      if (rename.success) {
+        this.#reply(id, true, await renameMachine(this.owner, rename.data, controller.signal), "");
         return;
       }
       // The fleet's update decisions, in shared code; nothing here reaches this machine.

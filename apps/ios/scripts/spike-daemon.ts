@@ -39,7 +39,7 @@ import { seedForks } from "./fork-scenario.ts";
 import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
-import { seedAppUpdate, seedStorage } from "./storage-scenario.ts";
+import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
 import { seedSkills } from "./skills-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
@@ -83,6 +83,7 @@ daemon.services.settings.seed({
 });
 seedStorage(daemon, Date.now());
 seedAppUpdate(daemon);
+seedMachineUpdate(daemon);
 const stopPeer = peerPort ? servePeer(daemon, peerPort, paced) : undefined;
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
