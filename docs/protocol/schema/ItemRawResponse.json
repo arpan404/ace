@@ -2,8 +2,18 @@
   "$id": "https://ace.local/protocol/v1/ItemRawResponse.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "from": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "itemId": {
       "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "next": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
     },
     "raw": {
       "items": {
@@ -19,9 +29,6 @@
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
-    "truncated": {
-      "type": "boolean"
-    },
     "type": {
       "const": "item.raw",
       "type": "string"
@@ -32,6 +39,7 @@
     "requestId",
     "threadId",
     "itemId",
+    "from",
     "raw"
   ],
   "type": "object"

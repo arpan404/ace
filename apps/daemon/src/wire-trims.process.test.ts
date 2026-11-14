@@ -134,6 +134,7 @@ test("trimmed and whole clients of one thread each get their own encoding of the
     requestId: "r",
     threadId: f.thread.id,
     itemId: reply.id,
+    from: 0,
     raw,
   });
 });
@@ -262,4 +263,73 @@ test("a trimmed client shows the same transcript as a whole one: snapshot, repla
     expect(visible(wholeSeen[path]), `whole ${path}`).toEqual(expected);
     expect(visible(trimmedSeen[path]), `trimmed ${path}`).toEqual(expected);
   }
+});
+
+test("raw payloads beyond one reply are read page by page, every one exactly once", async () => {
+  const { f, join } = await setup();
+  const client = await join({ trims: [wireTrims.rawOnDemand] });
+  // 40 entries of about 60 KB: each stays inline, together well over one 1 MiB reply.
+  const many = Array.from({ length: 40 }, (_, index) => ({
+    type: "assistant",
+    data: { index, text: String(index % 10).repeat(60_000) },
+  }));
+  f.store.appendEvents(f.thread.id, [{ type: "item.created", item: { ...reply, raw: many } }]);
+  const read: unknown[] = [];
+  let from: number | undefined = 0;
+  let pages = 0;
+  while (from !== undefined) {
+    client.send({ type: "item.raw", requestId: `p${pages}`, threadId: f.thread.id, itemId: reply.id, from });
+    const answer = ServerMessage.parse(
+      JSON.parse(await client.until((text) => text.includes(`"requestId":"p${pages}"`))),
+    );
+    if (answer.type !== "item.raw") throw new Error(`Unexpected ${answer.type}`);
+    expect(answer.from).toBe(from);
+    expect(answer.raw.length).toBeGreaterThan(0);
+    read.push(...answer.raw);
+    from = answer.next;
+    pages++;
+  }
+  expect(pages).toBeGreaterThan(1);
+  expect(read).toEqual(many);
+});
+
+test("a client that reconnects asking for another trim gets that encoding, not the one cached", async () => {
+  const { f, join } = await setup();
+  const before = f.store.headSeq();
+  const first = await join({});
+  f.store.appendEvents(f.thread.id, [{ type: "item.created", item: reply }]);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.delta", itemId: reply.id, agentId: AgentId.parse("root"), field: "text", append: "!" },
+  ]);
+  // The whole encodings of both events are cached now, from the first client.
+  expect(await first.until(isEvents)).toContain(JSON.stringify(raw));
+  expect(await first.until(isEvents)).toContain('"payload":{"type":"item.delta"');
+  await first.close();
+  const again = await join({ trims: [wireTrims.rawOnDemand], framing: ["lines", shortDeltasFraming] });
+  again.send({
+    type: "subscribe",
+    subscriptionId: "resume",
+    scope: { kind: "thread", threadId: f.thread.id },
+    afterSeq: before,
+  });
+  const resumed = await again.until((text) => text.includes('"resume"'));
+  expect(resumed).not.toContain(JSON.stringify(raw));
+  const events = parsed(resumed);
+  if (events.type !== "events") throw new Error(`Replay came as ${events.type}`);
+  expect(events.events.map((event) => event.payload)).toMatchObject([
+    { type: "item.created", item: { raw: [], rawOmitted: true } },
+    { type: "item.delta", append: "!" },
+  ]);
+  expect(resumed).toContain('"d":[');
+  // And back: a whole client after the trimmed one gets the stored bytes.
+  const whole = await join({});
+  whole.send({
+    type: "subscribe",
+    subscriptionId: "resume-whole",
+    scope: { kind: "thread", threadId: f.thread.id },
+    afterSeq: before,
+  });
+  const wholeText = await whole.until((text) => text.includes('"resume-whole"'));
+  expect(wholeText).toContain(JSON.stringify(raw));
+  expect(wholeText).not.toContain('"d":[');
 });

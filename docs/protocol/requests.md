@@ -228,6 +228,7 @@ Example:
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | itemId | yes | [ItemId.json](schema/ItemId.json) |  |
+| from | no | integer | {"default":0,"minimum":0,"maximum":9007199254740991} |
 
 Example:
 

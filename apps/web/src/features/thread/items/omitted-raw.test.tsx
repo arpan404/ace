@@ -27,7 +27,11 @@ const scenario: Scenario = {
               kind: "browser",
               title: "Opened the pricing page",
               detail: { kind: "browser" },
-              raw: [{ type: "browser_frame", data: { marker: "frame-from-the-provider" } }],
+              // More than one page of the fake's `item.raw` (50 payloads).
+              raw: Array.from({ length: 60 }, (_, index) => ({
+                type: "browser_frame",
+                data: { marker: index === 0 ? "frame-from-the-provider" : `frame-${index}` },
+              })),
             },
           },
         },
@@ -37,7 +41,7 @@ const scenario: Scenario = {
   ],
 };
 
-test("a step's raw payloads left out of the transcript load when its Raw view opens", async () => {
+test("a step's raw payloads left out of the transcript load when its Raw view opens, page by page", async () => {
   const app = await componentClient(scenario);
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-raw") });
   const itemId =
@@ -56,4 +60,10 @@ test("a step's raw payloads left out of the transcript load when its Raw view op
   expect(log.queryByText(/frame-from-the-provider/)).toBeNull();
   await userEvent.click(await log.findByRole("button", { name: "Raw" }));
   expect(await log.findByText(/frame-from-the-provider/)).toBeTruthy();
+  // The rest loads on asking, after what was read.
+  expect(log.queryByText(/frame-59/)).toBeNull();
+  await userEvent.click(log.getByRole("button", { name: "Show more" }));
+  expect(await log.findByText(/frame-59/)).toBeTruthy();
+  expect(log.getByText(/frame-from-the-provider/)).toBeTruthy();
+  expect(log.queryByRole("button", { name: "Show more" })).toBeNull();
 });

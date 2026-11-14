@@ -58,12 +58,16 @@ get the shorter shapes; every other client gets exactly what it got before.
 **Hello trim `raw-on-demand`.** Items whose raw payloads clients only show, in the raw-frames
 view, come without them and marked `rawOmitted: true`, in snapshots, item pages and windows, turn
 steps and live `item.created` / `item.updated` events. Clients read some raw payloads for what a
-step says, so those stay: notices (refusals, delivery errors, screen steps, native stderr) and
-MCP and custom tool calls (ace's own tools' results, arguments and measurements). The rule is
-`rawShownOnly` in `packages/projection/src/wire-trim.ts`. A view reads the payloads with
-`item.raw` (`{threadId, itemId}` → the stored `raw`, or a tool call's `call.raw`, oldest first,
-cut at 1 MiB with `truncated`), under the same checks as reading the item: read scope and a
-thread the device may read.
+step says or whether it shows, so those stay: notices (refusals, delivery errors, screen steps,
+retries, diagnostics, native stderr), MCP and custom tool calls (ace's own tools' results,
+arguments and measurements), and messages whose raw changes what the projection's readers say
+of them (a provider's system message the transcript hides, the native identity that folds a
+replayed answer into the first, a legacy provider notice's source). For messages the rule asks
+those readers with and without the raw, so it follows them. The rule is `rawShownOnly` in
+`packages/projection/src/wire-trim.ts`. A view reads the payloads with `item.raw`
+(`{threadId, itemId, from}` → the stored `raw`, or a tool call's `call.raw`, oldest first, from
+`from`, as many as fit 1 MiB and at least one, with `next` while more remain), under the same
+checks as reading the item: read scope and a thread the device may read.
 
 **Hello framing `short-deltas`.** An events message names its thread once (`threadId`) and
 carries each streamed delta as `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`. The

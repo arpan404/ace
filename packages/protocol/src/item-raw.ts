@@ -13,6 +13,8 @@ export const ItemRawRequest = z.object({
   requestId,
   threadId: ThreadId,
   itemId: ItemId,
+  /** Index of the first payload to read: 0, or a previous reply's `next`. */
+  from: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
 });
 export type ItemRawRequest = z.infer<typeof ItemRawRequest>;
 
@@ -21,9 +23,14 @@ export const ItemRawResponse = z.object({
   requestId,
   threadId: ThreadId,
   itemId: ItemId,
-  /** The item's `raw`, or a tool call's `call.raw`, as stored, oldest first. */
+  /** Index of `raw[0]` among the item's payloads: the request's `from`. */
+  from: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  /**
+   * The item's `raw`, or a tool call's `call.raw`, as stored, oldest first, from `from` on: as
+   * many as fit one reply (1 MiB of JSON), never none while any remain.
+   */
   raw: z.array(RawPayload),
-  /** Payloads past the reply's size limit were left out; `raw` holds the oldest that fit. */
-  truncated: z.boolean().optional(),
+  /** Where the next page starts, when payloads are left; absent at the end. */
+  next: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type ItemRawResponse = z.infer<typeof ItemRawResponse>;

@@ -1,19 +1,26 @@
 import type { RawPayload } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-/** The most raw JSON one `item.raw` reply carries; the rest is marked `truncated`. */
+/** The most raw JSON one `item.raw` reply carries; the rest comes in later pages. */
 export const itemRawReplyBytes = 1024 * 1024;
 
-/** The oldest payloads that fit `limit` bytes of JSON, and whether any were left out. */
-function fitting(raw: readonly RawPayload[], limit: number) {
+/**
+ * The payloads from `from` that fit `limit` bytes of JSON, at least one while any remain (a
+ * stored entry is at most 64 KiB inline, larger ones are blob references), and where the next
+ * page starts.
+ */
+function page(raw: readonly RawPayload[], from: number, limit: number) {
   const kept: RawPayload[] = [];
   let bytes = 2;
-  for (const payload of raw) {
+  let index = from;
+  for (; index < raw.length; index++) {
+    const payload = raw[index];
+    if (payload === undefined) break;
     bytes += Buffer.byteLength(JSON.stringify(payload)) + 1;
-    if (bytes > limit) return { raw: kept, truncated: true };
+    if (kept.length && bytes > limit) break;
     kept.push(payload);
   }
-  return { raw: kept, truncated: false };
+  return { raw: kept, next: index < raw.length ? index : undefined };
 }
 
 /**
@@ -41,14 +48,15 @@ export function createItemRawSession(context: SocketContext): SocketService {
         context.fail("item_not_found", "No such item in this thread", false, scope);
         return true;
       }
-      const { raw, truncated } = fitting(stored, itemRawReplyBytes);
+      const { raw, next } = page(stored, message.from, itemRawReplyBytes);
       context.send({
         type: "item.raw",
         requestId: message.requestId,
         threadId: message.threadId,
         itemId: message.itemId,
+        from: message.from,
         raw,
-        ...(truncated ? { truncated } : {}),
+        ...(next === undefined ? {} : { next }),
       });
       return true;
     },

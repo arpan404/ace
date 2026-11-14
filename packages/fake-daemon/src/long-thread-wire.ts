@@ -15,6 +15,9 @@ import { FakeTurnIndex } from "./long-thread-index.ts";
 import { FakeIcons } from "./icons-wire.ts";
 import { fakeTurnSteps } from "./turn-steps-wire.ts";
 
+/** Payloads per `item.raw` page in the fake. */
+export const rawPageSize = 50;
+
 interface LongThreadHost {
   head(): number;
   thread(id: string): ThreadHost | undefined;
@@ -102,12 +105,16 @@ export class FakeLongThreadWire {
           return true;
         }
         const raw = item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
+        // Pages by count, not by the daemon's 1 MiB, so a test reaches a second page cheaply.
+        const next = message.from + rawPageSize;
         send({
           type: "item.raw",
           requestId: message.requestId,
           threadId: message.threadId,
           itemId: message.itemId,
-          raw: structuredClone(raw),
+          from: message.from,
+          raw: structuredClone(raw.slice(message.from, next)),
+          ...(next < raw.length ? { next } : {}),
         });
         return true;
       }
