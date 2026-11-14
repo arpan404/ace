@@ -46,8 +46,8 @@ function tool(id: string, length: number) {
 }
 
 /** Finished and unfinished text, tool bodies of growing size, and deltas still unmerged. */
-const live = ItemId.parse("live");
-const thinking = ItemId.parse("thinking");
+const liveId = ItemId.parse("live");
+const thinkingId = ItemId.parse("thinking");
 const owner = AgentId.parse("root");
 
 function seed(store: Store): ThreadId {
@@ -64,10 +64,10 @@ function seed(store: Store): ThreadId {
   const chunks = ["Hel", "lo ", "\ud83d", "\ude00", "", " wörld", ..."x".repeat(40)];
   for (const append of chunks) {
     store.appendEvents(thread, [
-      { type: "item.delta", itemId: live, agentId: owner, field: "text", append },
+      { type: "item.delta", itemId: liveId, agentId: owner, field: "text", append },
     ]);
     store.appendEvents(thread, [
-      { type: "item.delta", itemId: thinking, agentId: owner, field: "reasoning", append },
+      { type: "item.delta", itemId: thinkingId, agentId: owner, field: "reasoning", append },
     ]);
   }
   store.appendEvents(thread, [{ type: "item.created", item: tool("tool-last", 50) }]);
@@ -84,18 +84,20 @@ function seed(store: Store): ThreadId {
   return thread;
 }
 
+/** A read's value, or the error it throws. */
+const attempt = (read: () => unknown) => {
+  try {
+    return read();
+  } catch (error) {
+    return `throws ${String(error)}`;
+  }
+};
+
 /**
  * Everything the item read paths return for the thread, or the error each one throws. Values,
  * not JSON text: a validated row comes back in schema key order, a trusted one as written.
  */
 function reads(store: Store, thread: ThreadId) {
-  const attempt = (read: () => unknown) => {
-    try {
-      return read();
-    } catch (error) {
-      return `throws ${String(error)}`;
-    }
-  };
   const head = store.headSeq() + 1;
   const pages: unknown[] = [];
   for (let byteLimit = 600; byteLimit <= 4000; byteLimit += 7)

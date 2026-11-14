@@ -78,6 +78,10 @@ function childThread(store: Store, parent: Thread, at: number) {
   return child.id;
 }
 
+const paths = (digest: { files: { path: string }[] }) => digest.files.map((file) => file.path);
+const commands = (digest: { commands: { command: string }[] }) =>
+  digest.commands.map((command) => command.command);
+
 /** Three turns; the middle one has the main agent's work, an inline subagent and a child thread. */
 function seed() {
   const f = storeFixture();
@@ -129,9 +133,6 @@ test("a turn credits each file and command to the agent that made it", () => {
   const { store, thread } = seed();
   const turn = turns(store, thread).turns[1];
   if (!turn) throw new Error("Missing turn");
-  const paths = (digest: { files: { path: string }[] }) => digest.files.map((file) => file.path);
-  const commands = (digest: { commands: { command: string }[] }) =>
-    digest.commands.map((command) => command.command);
   expect(paths(turn.digest).toSorted()).toEqual(["main-1.ts", "sub.ts"]);
   expect(commands(turn.digest).toSorted()).toEqual(["lint", "make 1"]);
   expect(turn.main).toMatchObject({ agentId: root });
