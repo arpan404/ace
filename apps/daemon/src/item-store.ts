@@ -77,6 +77,15 @@ function appendSize(append: string, lastUnit: number): number {
   return Buffer.byteLength(JSON.stringify(append)) - 2 - (joinsPair ? 8 : 0);
 }
 /** Authoritative bodies plus append-only text: delta writes never read or rewrite history. */
+/**
+ * An item's raw payloads from an index, oldest first (`rawEntries`): `json_each` yields array
+ * elements in order, so there is no sort or temporary b-tree, and the caller stops stepping once
+ * its page is full. What still grows with the item: SQLite parses the stored item JSON and walks
+ * the array's elements up to `from` (in C, no rows returned) before the first one comes back.
+ */
+export const rawEntriesQuery =
+  "SELECT e.value AS value, e.type AS type FROM items i, json_each(i.item, ?) e WHERE i.id = ? AND i.thread_id = ? AND e.key >= ?";
+
 export class ItemStore {
   private readonly texts: ItemTextStore;
   private readonly db: DatabaseSync;
@@ -405,9 +414,7 @@ export class ItemStore {
     ).get(itemId, threadId);
     if (!head) return;
     const path = head.item_type === "tool_call" ? "$.call.raw" : "$.raw";
-    for (const row of this.statement(
-      "SELECT e.value AS value, e.type AS type FROM items i, json_each(i.item, ?) e WHERE i.id = ? AND i.thread_id = ? AND e.key >= ? ORDER BY e.key",
-    ).iterate(path, itemId, threadId, from)) {
+    for (const row of this.statement(rawEntriesQuery).iterate(path, itemId, threadId, from)) {
       const value: unknown =
         row.type === "object" || row.type === "array" ? JSON.parse(String(row.value)) : row.value;
       const parsed = RawPayload.safeParse(value);
