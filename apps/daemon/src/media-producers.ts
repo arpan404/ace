@@ -69,25 +69,11 @@ export async function startMediaProducers(input: {
     log: input.log,
     platform,
   });
-  const apply = (value: unknown) => {
-    const encode = value === "auto" ? "auto" : "legacy";
+  const unsubscribe = await followMediaEncode(input.settings, (encode) => {
     if (settings.encode === encode) return;
     settings.encode = encode;
     producers.settingsChanged();
-  };
-  let heard = false;
-  const unsubscribe = await input.settings.subscribe(
-    { keys: ["media.encode"], scope: {} },
-    (event) => {
-      if (event.type !== "changed") return;
-      const entry = event.entries.find((each) => each.key === "media.encode");
-      if (!entry) return;
-      heard = true;
-      apply(entry.value);
-    },
-  );
-  const initial = (await input.settings.get("media.encode")).value;
-  if (!heard) apply(initial);
+  });
   return {
     producers,
     stop: () => {
@@ -95,4 +81,25 @@ export async function startMediaProducers(input: {
       producers.dispose();
     },
   };
+}
+
+/**
+ * Calls `apply` with the saved `media.encode` and with every change to it. Anything but `auto`
+ * is `legacy`. A change heard while the first read is in flight wins over that read.
+ */
+export async function followMediaEncode(
+  settings: Pick<SettingsService, "get" | "subscribe">,
+  apply: (encode: MediaSettings["encode"]) => void,
+): Promise<() => void> {
+  let heard = false;
+  const unsubscribe = await settings.subscribe({ keys: ["media.encode"], scope: {} }, (event) => {
+    if (event.type !== "changed") return;
+    const entry = event.entries.find((each) => each.key === "media.encode");
+    if (!entry) return;
+    heard = true;
+    apply(entry.value === "auto" ? "auto" : "legacy");
+  });
+  const initial = (await settings.get("media.encode")).value;
+  if (!heard) apply(initial === "auto" ? "auto" : "legacy");
+  return unsubscribe;
 }
