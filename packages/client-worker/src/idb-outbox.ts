@@ -73,11 +73,11 @@ export function idbOutbox(
   const migrate = async () => {
     // Carried over on an earlier start: the legacy database is never opened again (opening it
     // would create it where it doesn't exist), so a start reads only this database.
-    const done = await transact<boolean>("readonly", (tx, finish) => {
+    const carried = await transact<boolean>("readonly", (tx, finish) => {
       const read = tx.objectStore("migrated").get(key);
       read.addEventListener("success", () => finish(Boolean(read.result)));
     });
-    if (done) return;
+    if (carried) return;
     let legacy = seed;
     const old = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = factory.open("ace", 1);

@@ -60,7 +60,10 @@ export function pageHints(
       seen.add(chunk.fileName);
       files.push(chunk.fileName);
       for (const css of chunk.css)
-        if (!seen.has(css) && !skip.has(css)) (seen.add(css), files.push(css));
+        if (!seen.has(css) && !skip.has(css)) {
+          seen.add(css);
+          files.push(css);
+        }
       for (const imported of chunk.imports) {
         const next = byFile.get(imported);
         if (next) visit(next);

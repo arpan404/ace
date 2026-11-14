@@ -179,9 +179,10 @@ function mapInitiator(initiator: z.infer<typeof Initiator>): string | undefined 
   return url === undefined || url.startsWith("about:") ? undefined : pathOf(url);
 }
 
+const line = (label: string, value: string) =>
+  process.stdout.write(`  ${label.padEnd(54)} ${value}\n`);
+
 function reportSlowLink(result: SlowLinkResult): void {
-  const line = (label: string, value: string) =>
-    process.stdout.write(`  ${label.padEnd(54)} ${value}\n`);
   process.stdout.write(
     `slow link (${slowLink.latencyMs} ms round trip, ${(slowLink.downloadBytesPerSecond * 8) / 1e6} Mbit/s down), cold cache:\n`,
   );
