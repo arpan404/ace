@@ -10,8 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { spawnGitProcess } from "@ace/git";
-import { Command, CommandId, Thread } from "@ace/protocol";
+import { Command, CommandId, Thread, ThreadId } from "@ace/protocol";
 import { WorkspaceCreations } from "../src/creation-workspace.ts";
+import { nameWorktreeBranch, runWorktreeGit, worktreeGitScope } from "../src/engine/worktree-title.ts";
 import { Store } from "../src/store.ts";
 import { WorkspaceRuntime } from "../src/workspace-runtime.ts";
 
@@ -140,12 +141,48 @@ const worktreeCreate = await measure(async (index) => {
   if (!lease) throw new Error("No worktree created");
 });
 
-const result = { files: 10_000, runs, beforeSend, worktreeCreate };
-await creations.close();
-await runtime.close();
-store.close();
-await rm(home, { recursive: true, force: true });
+// The first send in a worktree thread renames ace's provisional branch from the title.
+const renameSpawns = async (scoped: boolean, index: number) => {
+  // A worktree outside the creation journal, so renaming its branch leaves cleanup alone.
+  const workspace = { path: join(home, `rename-${index}`), branch: `ace/${"c".repeat(23)}${index}` };
+  await git(repo, "worktree", "add", "-q", "-b", workspace.branch, workspace.path, "main");
+  const id = ThreadId.parse(`rename-${index}`);
+  const named = Thread.parse({
+    id,
+    workspaceId,
+    provider: "codex",
+    title: `Fix login ${index}`,
+    status: { state: "new" },
+    createdAt: 1,
+    updatedAt: 1,
+    details: { mode: "worktree", worktree: workspace.path, branch: workspace.branch },
+  });
+  store.appendEvents(id, [{ type: "thread.created", thread: named }]);
+  let count = 0;
+  const execute: Parameters<typeof worktreeGitScope>[0] = (file, args, options) => {
+    count++;
+    return run(file, args, options);
+  };
+  const began = performance.now();
+  const renameGit = scoped
+    ? worktreeGitScope(execute, process.env)
+    : (cwd: string, args: string[]) => runWorktreeGit(execute, process.env, cwd, args);
+  await nameWorktreeBranch(store, id, 1000, renameGit);
+  return { spawns: count, ms: Math.round(performance.now() - began) };
+};
+const firstSendRename = {
+  /** Every Git call looks up the hook and filter names again, as before. */
+  lookupPerCall: await renameSpawns(false, 0),
+  /** One lookup for the whole rename. */
+  lookupPerRename: await renameSpawns(true, 1),
+};
+
+const result = { files: 10_000, runs, beforeSend, worktreeCreate, firstSendRename };
 const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice("--output=".length);
 const text = JSON.stringify(result, null, 2);
 if (output) await writeFile(output, text + "\n");
 process.stdout.write(text + "\n");
+await creations.close();
+await runtime.close();
+store.close();
+await rm(home, { recursive: true, force: true });

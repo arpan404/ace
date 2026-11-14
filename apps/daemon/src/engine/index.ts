@@ -17,7 +17,7 @@ import { personRefusal } from "./guest-admission.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { nameWorktreeBranch, runWorktreeGit } from "./worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -127,8 +127,8 @@ export class Engine {
     this.waitForProvider = options.waitForProvider;
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
-    const worktreeGit =
-      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
+    // One guard lookup per rename, never reused across renames.
+    const worktreeGit = () => options.worktreeGit ?? worktreeGitScope(executeGit, process.env);
     this.nextThreadId = options.threadId ?? timeOrderedIds();
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
@@ -243,7 +243,7 @@ export class Engine {
       recovery: this.recovery,
       prepareInput: options.prepareInput,
       beforeSend: async (threadId, commandId) => {
-        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit);
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit());
         await options.beforeSend?.(threadId, commandId);
       },
       transitions: this.transitions,

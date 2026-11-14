@@ -8,7 +8,7 @@ import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
 import { cursorAgentSignedIn } from "../acp-agent-cli.ts";
-import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
 
 export type { UtilityService } from "../utility-models.ts";
@@ -111,9 +111,7 @@ export function startUtility(context: ServiceContext): void {
       void (async () => {
         try {
           const execute = promisify(execFile);
-          const git = (cwd: string, args: string[]) =>
-            runWorktreeGit(execute, process.env, cwd, args);
-          await nameWorktreeBranch(store, threadId, now(), git, slug);
+          await nameWorktreeBranch(store, threadId, now(), worktreeGitScope(execute, process.env), slug);
         } catch (error) {
           log.log(
             "debug",
