@@ -187,6 +187,9 @@ const call = (operation: AgentControlOperation) => {
   return controls.port.execute(caller, operation, new AbortController().signal);
 };
 let queue = Promise.resolve();
+// The bench that started this process is gone (it crashed or was killed): stop with it rather
+// than keep a daemon running in a temporary home nobody will remove.
+process.once("disconnect", () => process.exit(0));
 process.on("message", (input: unknown) => {
   queue = queue
     .then(async () => {
