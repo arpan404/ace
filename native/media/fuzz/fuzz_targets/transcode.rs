@@ -43,31 +43,76 @@ fn reference(jpeg: &[u8]) -> Option<(Size, Vec<u8>)> {
     (luma.len() == area).then_some((size, luma))
 }
 
+/// The first frame header and scan header, found by walking segments.
+struct Headers<'a> {
+    sof_marker: u8,
+    sof: &'a [u8],
+    sos: &'a [u8],
+    /// Extra 0xFF fill bytes appeared before some marker.
+    fill: bool,
+}
+fn headers(jpeg: &[u8]) -> Option<Headers<'_>> {
+    let mut pos = 2;
+    let mut fill = false;
+    let mut sof = None;
+    loop {
+        if *jpeg.get(pos)? != 0xFF {
+            return None;
+        }
+        while jpeg.get(pos + 1) == Some(&0xFF) {
+            fill = true;
+            pos += 1;
+        }
+        let marker = *jpeg.get(pos + 1)?;
+        pos += 2;
+        if matches!(marker, 0x01 | 0xD0..=0xD7) {
+            continue;
+        }
+        let len = usize::from(u16::from_be_bytes([*jpeg.get(pos)?, *jpeg.get(pos + 1)?]));
+        let body = jpeg.get(pos + 2..pos + len.max(2))?;
+        if sof.is_none() && matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {
+            sof = Some((marker, body));
+        }
+        if marker == 0xDA {
+            let (sof_marker, sof) = sof?;
+            return Some(Headers {
+                sof_marker,
+                sof,
+                sos: body,
+                fill,
+            });
+        }
+        pos += len.max(2);
+    }
+}
+fn sampling(h: &Headers<'_>) -> Vec<u8> {
+    let count = usize::from(*h.sof.get(5).unwrap_or(&0));
+    (0..count)
+        .filter_map(|i| h.sof.get(7 + i * 3).copied())
+        .collect()
+}
+
 /// Pixels are compared only for streams the strict baseline decoder owns:
 /// 8-bit SOF0/SOF1, one or three components, one full-spectrum interleaved
 /// scan. Fallback streams decode through zune-jpeg itself, whose lenient
 /// handling of damage differs between its RGB and YCbCr outputs. zune-jpeg 0.5
 /// also misreads frames whose first component is not the most finely sampled.
 fn luma_comparable(jpeg: &[u8]) -> bool {
-    let find = |markers: &[u8]| {
-        jpeg.windows(2)
-            .position(|w| w[0] == 0xFF && markers.contains(&w[1]))
-            .and_then(|at| jpeg.get(at + 4..))
-    };
-    let (Some(sof), Some(sos)) = (find(&[0xC0, 0xC1]), find(&[0xDA])) else {
+    let Some(h) = headers(jpeg) else {
         return false;
     };
-    let count = usize::from(*sof.get(5).unwrap_or(&0));
-    if sof.first() != Some(&8) || (count != 1 && count != 3) {
+    let factors = sampling(&h);
+    let count = factors.len();
+    if !matches!(h.sof_marker, 0xC0 | 0xC1)
+        || h.sof.first() != Some(&8)
+        || (count != 1 && count != 3)
+    {
         return false;
     }
-    let ns = usize::from(*sos.first().unwrap_or(&0));
-    if ns != count || sos.get(1 + ns * 2..4 + ns * 2) != Some(&[0, 63, 0]) {
+    let ns = usize::from(*h.sos.first().unwrap_or(&0));
+    if ns != count || h.sos.get(1 + ns * 2..4 + ns * 2) != Some(&[0, 63, 0]) {
         return false;
     }
-    let factors: Vec<u8> = (0..count)
-        .filter_map(|i| sof.get(7 + i * 3).copied())
-        .collect();
     let first = factors.first().copied().unwrap_or(0);
     factors
         .iter()
@@ -78,24 +123,13 @@ fn luma_comparable(jpeg: &[u8]) -> bool {
 /// fill bytes (extra 0xFF) before a header marker (T.81 B.1.1.2) and sampling
 /// factors that are not powers of two (legal 1..=4, including 3).
 fn zune_supports(jpeg: &[u8]) -> bool {
-    let scan = jpeg
-        .windows(2)
-        .position(|w| w == [0xFF, 0xDA])
-        .unwrap_or(jpeg.len());
-    if jpeg[..scan].windows(2).any(|w| w == [0xFF, 0xFF]) {
-        return false;
-    }
-    let Some(sof) = jpeg
-        .windows(2)
-        .position(|w| w[0] == 0xFF && (w[1] == 0xC0 || w[1] == 0xC1))
-        .and_then(|at| jpeg.get(at + 4..))
-    else {
+    let Some(h) = headers(jpeg) else {
         return true;
     };
-    let count = usize::from(*sof.get(5).unwrap_or(&0));
-    (0..count)
-        .filter_map(|i| sof.get(7 + i * 3))
-        .all(|f| (f >> 4).is_power_of_two() && (f & 15).is_power_of_two())
+    !h.fill
+        && sampling(&h)
+            .iter()
+            .all(|f| (f >> 4).is_power_of_two() && (f & 15).is_power_of_two())
 }
 
 fn mean_error(a: &[u8], b: &[u8]) -> f64 {
