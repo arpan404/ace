@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::{CipherState, Error, FlowCredit, MAX_MESSAGE};
 use media_wire::keys::KeyBlock;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 pub const REKEY_INTERVAL: u64 = 1 << 20;
 const CHUNK: usize = MAX_MESSAGE - 17;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +63,10 @@ impl Fragments<'_> {
             return false;
         }
         let n = self.data.len().min(CHUNK);
+        if out.capacity() < n + 17 {
+            // Growing frees the old allocation; wipe whatever the caller left in it.
+            out.zeroize();
+        }
         out.clear();
         out.reserve(n + 17);
         out.push(self.kind as u8 + u8::from(n == self.data.len()));
@@ -105,13 +109,15 @@ impl<const INTERVAL: u64> Transport<INTERVAL> {
             flow,
         })
     }
+    /// Copying wrapper over `seal_in_place`; the plaintext copy is wiped on failure.
     pub fn seal(&mut self, plain: &[u8]) -> Result<Vec<u8>, Error> {
-        let mut out = Vec::with_capacity(plain.len() + 16);
+        let mut out = Zeroizing::new(Vec::with_capacity(plain.len() + 16));
         out.extend_from_slice(plain);
         self.seal_in_place(&mut out)?;
-        Ok(out)
+        Ok(std::mem::take(&mut *out))
     }
-    /// Seals `buffer` in place, appending the tag; the plaintext is overwritten.
+    /// Seals `buffer` in place, appending the tag; the plaintext is overwritten. On
+    /// failure the buffer is wiped and emptied.
     pub fn seal_in_place(&mut self, buffer: &mut Vec<u8>) -> Result<(), Error> {
         self.send.encrypt_in_place(buffer, &[])?;
         self.sent = self.sent.wrapping_add(1);
@@ -126,8 +132,8 @@ impl<const INTERVAL: u64> Transport<INTERVAL> {
         out.truncate(length);
         Ok(out)
     }
-    /// Opens `buffer` in place and returns the plaintext prefix. Any failure closes
-    /// the stream. The caller owns wiping the buffer.
+    /// Opens `buffer` in place and returns the plaintext prefix. Any failure wipes the
+    /// buffer and closes the stream. The caller owns wiping the buffer after success.
     pub fn open_in_place<'a>(&mut self, buffer: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
         let plain = match self.receive.decrypt_in_place(buffer, &[]) {
             Ok(plain) => plain,

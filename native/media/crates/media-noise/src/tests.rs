@@ -5,14 +5,14 @@ use media_wire::keys::KeyBlock;
 use serde_json::Value;
 use zeroize::Zeroizing;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
-fn bytes(v: &Value) -> Result<Vec<u8>> {
+pub(crate) fn bytes(v: &Value) -> Result<Vec<u8>> {
     let hex = v["hex"].as_str().ok_or("hex")?;
     (0..hex.len())
         .step_by(2)
         .map(|i| Ok(u8::from_str_radix(&hex[i..i + 2], 16)?))
         .collect()
 }
-fn key(v: &Value) -> Result<Zeroizing<[u8; 32]>> {
+pub(crate) fn key(v: &Value) -> Result<Zeroizing<[u8; 32]>> {
     Ok(Zeroizing::new(
         bytes(v)?.try_into().map_err(|_| "key size")?,
     ))

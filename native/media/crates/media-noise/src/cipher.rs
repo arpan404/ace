@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::{Error, memory::Key};
 use ring::aead::{Aad, Nonce};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 pub const MAX_MESSAGE: usize = 65535;
 /// Ordered keyed Noise CipherState. No handshake or unkeyed mode.
 pub struct CipherState {
@@ -30,25 +30,42 @@ impl CipherState {
         }
         Ok(())
     }
-    /// Copying wrapper over `encrypt_in_place`.
+    /// Copying wrapper over `encrypt_in_place`; the plaintext copy is wiped on failure.
     pub fn encrypt(&mut self, plain: &[u8], ad: &[u8]) -> Result<Vec<u8>, Error> {
-        let mut out = Vec::with_capacity(plain.len() + 16);
+        let mut out = Zeroizing::new(Vec::with_capacity(plain.len() + 16));
         out.extend_from_slice(plain);
         self.encrypt_in_place(&mut out, ad)?;
-        Ok(out)
+        Ok(std::mem::take(&mut *out))
     }
-    /// Encrypts `buffer` in place and appends the tag. No allocation when the buffer
-    /// has 16 bytes of spare capacity; no plaintext remains in it afterwards.
+    /// Encrypts `buffer` in place and appends the tag; no plaintext remains in it
+    /// afterwards. On any failure the buffer is wiped and emptied. Without 16 bytes of
+    /// spare capacity it moves once to a larger allocation, wiping the old one.
     pub fn encrypt_in_place(&mut self, buffer: &mut Vec<u8>, ad: &[u8]) -> Result<(), Error> {
+        let result = self.seal_into(buffer, ad);
+        if result.is_err() {
+            buffer.zeroize();
+        }
+        result
+    }
+    fn seal_into(&mut self, buffer: &mut Vec<u8>, ad: &[u8]) -> Result<(), Error> {
         self.check(buffer.len().saturating_add(16))?;
         let key = self.key.as_ref().ok_or(Error::Closed)?;
-        key.cipher()
-            .seal_in_place_append_tag(
+        if buffer.capacity() - buffer.len() < 16 {
+            let mut grown = Vec::with_capacity(buffer.len() + 16);
+            grown.extend_from_slice(buffer);
+            buffer.zeroize();
+            *buffer = grown;
+        }
+        let tag = key
+            .cipher()
+            .seal_in_place_separate_tag(
                 Nonce::assume_unique_for_key(nonce_bytes(self.nonce)),
                 Aad::from(ad),
                 buffer,
             )
             .map_err(|_| Error::Authentication)?;
+        // Capacity is reserved above, so appending the tag never reallocates.
+        buffer.extend_from_slice(tag.as_ref());
         self.nonce += 1;
         Ok(())
     }
@@ -60,38 +77,52 @@ impl CipherState {
         Ok(out)
     }
     /// Decrypts `buffer` (ciphertext and tag) in place and returns the plaintext
-    /// prefix. The caller owns wiping the buffer.
+    /// prefix. The caller owns wiping the buffer after success; on any failure the
+    /// whole buffer is wiped.
     pub fn decrypt_in_place<'a>(
         &mut self,
         buffer: &'a mut [u8],
         ad: &[u8],
     ) -> Result<&'a mut [u8], Error> {
-        self.check(buffer.len())?;
-        let key = self.key.as_ref().ok_or(Error::Closed)?;
-        let plain = key
+        if let Err(e) = self.check(buffer.len()) {
+            buffer.zeroize();
+            return Err(e);
+        }
+        let Some(key) = self.key.as_ref() else {
+            buffer.zeroize();
+            return Err(Error::Closed);
+        };
+        let nonce = Nonce::assume_unique_for_key(nonce_bytes(self.nonce));
+        match key
             .cipher()
-            .open_in_place(
-                Nonce::assume_unique_for_key(nonce_bytes(self.nonce)),
-                Aad::from(ad),
-                buffer,
-            )
-            .map_err(|_| Error::Authentication)?;
-        self.nonce += 1;
-        Ok(plain)
+            .open_in_place(nonce, Aad::from(ad), &mut *buffer)
+        {
+            Ok(plain) => {
+                let length = plain.len();
+                self.nonce += 1;
+                Ok(&mut buffer[..length])
+            }
+            Err(_) => {
+                buffer.zeroize();
+                Err(Error::Authentication)
+            }
+        }
     }
-    /// Noise REKEY uses the reserved nonce and does not reset the next nonce.
+    /// Noise REKEY uses the reserved nonce and does not reset the next nonce. The new
+    /// key is derived in a fixed, wiped array; the tag is discarded.
     pub fn rekey(&mut self) -> Result<(), Error> {
         self.check(0)?;
         let key = self.key.as_mut().ok_or(Error::Closed)?;
-        let mut zeros = Zeroizing::new(vec![0; 32]);
-        key.cipher()
-            .seal_in_place_append_tag(
+        let mut next = Zeroizing::new([0_u8; 32]);
+        let _tag = key
+            .cipher()
+            .seal_in_place_separate_tag(
                 Nonce::assume_unique_for_key(nonce_bytes(u64::MAX)),
                 Aad::empty(),
-                &mut *zeros,
+                &mut next[..],
             )
             .map_err(|_| Error::Authentication)?;
-        key.replace(&zeros[..32])?;
+        key.replace(&next[..])?;
         Ok(())
     }
     pub fn close(&mut self) {
