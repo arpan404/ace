@@ -1,0 +1,1689 @@
+[
+  {
+    "name": "frames held until their epoch is decided clear",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": ["write v1", "write v2", "write a1", "applied 0 3 0"]
+      }
+    ]
+  },
+  {
+    "name": "a decision that arrives first lets frames write on arrival",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 2]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write a1"]
+      }
+    ]
+  },
+  {
+    "name": "frames captured after going private arrive before any word of it",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 1]],
+          "discard": [[2, 2]]
+        },
+        "expect": [
+          "keyframe",
+          "write v1",
+          "drop v2 discarded",
+          "drop v3 discarded",
+          "applied 0 1 2"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "an epoch no clear range names is discarded",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": []
+        },
+        "expect": ["keyframe", "write v1", "drop v2 discarded", "write v3", "applied 0 2 1"]
+      }
+    ]
+  },
+  {
+    "name": "decisions out of seq order wait for the gap and then apply in order",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 3,
+          "clear": [[3, 3]],
+          "discard": []
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 1]],
+          "discard": [[2, 2]]
+        },
+        "expect": [
+          "keyframe",
+          "write v1",
+          "drop v2 discarded",
+          "applied 0 1 1",
+          "write v3",
+          "applied 1 1 0"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a pause cannot be overtaken by a later clear",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 2,
+          "decided": 4,
+          "clear": [[4, 4]],
+          "discard": []
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 3,
+          "clear": [],
+          "discard": [[2, 3]]
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 4,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": [
+          "write v1",
+          "applied 0 1 0",
+          "keyframe",
+          "drop v2 discarded",
+          "drop v3 discarded",
+          "applied 1 0 2",
+          "write v4",
+          "applied 2 1 0"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "decisions at or behind the next seq are ignored",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[2, 2]],
+          "discard": []
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 2,
+          "clear": [],
+          "discard": [[2, 2]]
+        },
+        "expect": ["keyframe", "drop v1 discarded", "applied 1 0 1"]
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 3,
+          "clear": [[2, 3]],
+          "discard": []
+        },
+        "expect": []
+      }
+    ]
+  },
+  {
+    "name": "a missing seq holds every later decision and frames age into a gap",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": []
+      },
+      {
+        "at": 1500,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "tick": 2001,
+        "expect": ["drop v1 overflow", "gap", "keyframe"]
+      },
+      {
+        "tick": 3600,
+        "expect": ["drop v2 overflow"]
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 0,
+          "clear": [],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0", "applied 1 0 0"]
+      },
+      {
+        "at": 3600,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v3 awaitingKeyframe"]
+      },
+      {
+        "at": 3601,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v4"]
+      }
+    ]
+  },
+  {
+    "name": "a priority lane delayed for seconds holds frames and overflows into a gap, never a write",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 1000,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 1900,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 2100,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v1 overflow", "gap", "keyframe"]
+      },
+      {
+        "at": 2500,
+        "frame": {
+          "id": "v5",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 3200,
+        "frame": {
+          "id": "v6",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v2 overflow"]
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": [
+          "drop v3 discarded",
+          "drop v4 discarded",
+          "write v5",
+          "write v6",
+          "applied 0 2 2"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "held bytes past the bound drop the oldest as a gap",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 600,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 300,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 200,
+          "private": false
+        },
+        "expect": ["drop v1 overflow", "gap", "keyframe"]
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": ["drop v2 awaitingKeyframe", "drop a1 awaitingVideo", "applied 0 0 2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 600,
+          "private": false
+        },
+        "expect": ["write v3"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a2",
+          "track": "audio",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 300,
+          "private": false
+        },
+        "expect": ["write a2"]
+      }
+    ],
+    "limits": {
+      "holdMs": 2000,
+      "holdBytes": 1000
+    }
+  },
+  {
+    "name": "a late acknowledgement makes an epoch the source was public in discarded",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v5",
+          "track": "video",
+          "epoch": 4,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 4,
+          "clear": [
+            [1, 1],
+            [4, 4]
+          ],
+          "discard": [[2, 3]]
+        },
+        "expect": [
+          "keyframe",
+          "write v1",
+          "drop v2 discarded",
+          "drop v3 discarded",
+          "drop v4 discarded",
+          "write v5",
+          "applied 0 2 3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a delayed keyframe from a discarded epoch is dropped whenever it arrives",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": ["keyframe", "applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v2 discarded"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v3"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v4 stale"]
+      }
+    ]
+  },
+  {
+    "name": "a stale keyframe from before a pause never starts the fragment after it",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": ["keyframe", "applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v2 discarded"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v3 stale"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v4 awaitingKeyframe"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v5",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v5"]
+      }
+    ]
+  },
+  {
+    "name": "after a discard, deltas in a clear epoch wait for a keyframe",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v5",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v6",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": [
+          "keyframe",
+          "write v1",
+          "drop v2 discarded",
+          "drop v3 awaitingKeyframe",
+          "drop v4 awaitingKeyframe",
+          "write v5",
+          "write v6",
+          "applied 0 3 3"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a discard with no frames of its own still restarts the fragment",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": ["keyframe", "write v1", "drop v2 awaitingKeyframe", "write v3", "applied 0 2 1"]
+      }
+    ]
+  },
+  {
+    "name": "audio crossing a transition follows the epochs and waits for video",
+    "start": 1,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a2",
+          "track": "audio",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a3",
+          "track": "audio",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a4",
+          "track": "audio",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [
+            [1, 1],
+            [3, 3]
+          ],
+          "discard": [[2, 2]]
+        },
+        "expect": [
+          "keyframe",
+          "write v1",
+          "drop v2 discarded",
+          "write v3",
+          "write a1",
+          "drop a2 discarded",
+          "write a3",
+          "write a4",
+          "applied 0 5 2"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "audio before the first video keyframe is dropped",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 2]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop a1 awaitingVideo"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["keyframe", "drop v1 awaitingKeyframe"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a2",
+          "track": "audio",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write a2"]
+      }
+    ]
+  },
+  {
+    "name": "frames below the start epoch and below a track's last epoch are stale",
+    "start": 5,
+    "steps": [
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 4,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v1 stale"]
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 6,
+          "clear": [[5, 6]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 6,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 5,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v3 stale"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 5,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write a1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a2",
+          "track": "audio",
+          "epoch": 6,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write a2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a3",
+          "track": "audio",
+          "epoch": 5,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop a3 stale"]
+      }
+    ]
+  },
+  {
+    "name": "an ace-media restart between a pause and its resume loses held frames and replays from seq 0",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": []
+      },
+      {
+        "restart": {
+          "start": 3
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v3 stale"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v4",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v5",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 3,
+          "clear": [[3, 3]],
+          "discard": []
+        },
+        "expect": ["keyframe", "drop v4 awaitingKeyframe", "write v5", "applied 0 1 1"]
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 4,
+          "clear": [[4, 4]],
+          "discard": []
+        },
+        "expect": ["applied 1 0 0"]
+      }
+    ]
+  },
+  {
+    "name": "ace-media as producer drops frames above the epoch it was issued",
+    "start": 1,
+    "steps": [
+      {
+        "issued": 1,
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [[1, 1]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v2 notIssued"]
+      },
+      {
+        "issued": 2,
+        "expect": []
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 2,
+          "clear": [[2, 2]],
+          "discard": []
+        },
+        "expect": ["write v3", "applied 1 1 0"]
+      }
+    ]
+  },
+  {
+    "name": "an interrupted stream marks a gap and restarts at a keyframe",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 2]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "interrupt": true,
+        "expect": ["gap", "keyframe"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop v2 awaitingKeyframe"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a1",
+          "track": "audio",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["drop a1 awaitingVideo"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v3"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "a2",
+          "track": "audio",
+          "epoch": 2,
+          "keyframe": false,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write a2"]
+      }
+    ]
+  },
+  {
+    "name": "a later discard of a decided epoch refuses its late arrivals",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 2,
+          "clear": [[1, 2]],
+          "discard": []
+        },
+        "expect": ["applied 0 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v1"]
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 2,
+          "clear": [],
+          "discard": [[2, 2]]
+        },
+        "expect": ["keyframe", "applied 1 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v2 discarded"]
+      }
+    ]
+  },
+  {
+    "name": "clear ranges above decided and below the last decision are ignored",
+    "start": 1,
+    "steps": [
+      {
+        "decide": {
+          "seq": 0,
+          "decided": 1,
+          "clear": [],
+          "discard": [[1, 1]]
+        },
+        "expect": ["keyframe", "applied 0 0 0"]
+      },
+      {
+        "decide": {
+          "seq": 1,
+          "decided": 2,
+          "clear": [[1, 3]],
+          "discard": []
+        },
+        "expect": ["applied 1 0 0"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v1",
+          "track": "video",
+          "epoch": 1,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": true
+        },
+        "expect": ["drop v1 discarded"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v2",
+          "track": "video",
+          "epoch": 2,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": ["write v2"]
+      },
+      {
+        "at": 0,
+        "frame": {
+          "id": "v3",
+          "track": "video",
+          "epoch": 3,
+          "keyframe": true,
+          "bytes": 1000,
+          "private": false
+        },
+        "expect": []
+      },
+      {
+        "decide": {
+          "seq": 2,
+          "decided": 3,
+          "clear": [[3, 3]],
+          "discard": []
+        },
+        "expect": ["write v3", "applied 2 1 0"]
+      }
+    ]
+  }
+]
