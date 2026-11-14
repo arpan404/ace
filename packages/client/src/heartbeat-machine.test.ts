@@ -76,7 +76,9 @@ function simulate(scenario: Scenario): Run {
   };
   feed({ type: "start", now: 0 });
   const wakes = [...scenario.wakes];
-  while (deadAt === undefined) {
+  // `feed` sets `deadAt` once the machine reports the socket dead: the run ends there.
+  for (;;) {
+    if (deadAt !== undefined) break;
     const timer = nextAt(state);
     const candidates = [pongs[0]?.at, wakes[0], timer].filter(
       (value): value is number => value !== undefined,
@@ -113,7 +115,7 @@ function wakePattern(random: ReturnType<typeof generator>, endAt: number): numbe
   return wakes.toSorted((a, b) => a - b);
 }
 
-function scenario(seed: number, options: { dies: boolean; refusals: boolean }): Scenario {
+function randomScenario(seed: number, options: { dies: boolean; refusals: boolean }): Scenario {
   const random = generator(seed);
   const deadlineMs = random.int(2_000, 10_000);
   const config = { intervalMs: random.int(deadlineMs, 20_000), joinMs: 300 };
@@ -141,7 +143,7 @@ const seeds = Array.from({ length: 300 }, (_, index) => index + 1);
 
 test("a socket dead at a wake is reported dead within the join window plus that wake's deadline", () => {
   for (const seed of seeds) {
-    const s = scenario(seed, { dies: true, refusals: seed % 2 === 0 });
+    const s = randomScenario(seed, { dies: true, refusals: seed % 2 === 0 });
     const run = simulate(s);
     const diesAt = s.diesAt ?? Infinity;
     const first = s.wakes.find((wake) => wake >= diesAt);
@@ -154,14 +156,16 @@ test("a socket dead at a wake is reported dead within the join window plus that 
 
 test("a socket whose pongs all come within the deadline is never reported dead", () => {
   for (const seed of seeds) {
-    const s = scenario(seed, { dies: false, refusals: false });
+    const s = randomScenario(seed, { dies: false, refusals: false });
     expect({ seed, deadAt: simulate(s).deadAt }).toEqual({ seed, deadAt: undefined });
   }
 });
 
 test("pings go out at most one per join window", () => {
   for (const seed of seeds) {
-    const { pings } = simulate(scenario(seed, { dies: seed % 3 === 0, refusals: seed % 2 === 0 }));
+    const { pings } = simulate(
+      randomScenario(seed, { dies: seed % 3 === 0, refusals: seed % 2 === 0 }),
+    );
     const gaps = pings.slice(1).map((at, index) => at - (pings[index] ?? 0));
     expect({ seed, closest: Math.min(Infinity, ...gaps) >= 300 }).toEqual({ seed, closest: true });
   }
@@ -169,21 +173,23 @@ test("pings go out at most one per join window", () => {
 
 test("a running heartbeat always has a timer or its regular beat", () => {
   for (const seed of seeds) {
-    const run = simulate(scenario(seed, { dies: seed % 3 === 0, refusals: true }));
+    const run = simulate(randomScenario(seed, { dies: seed % 3 === 0, refusals: true }));
     expect({ seed, stranded: run.stranded }).toEqual({ seed, stranded: false });
   }
 });
 
+/** A healthy socket answering every ping in 400 ms, woken at `wakes`. */
+const healthy = (wakes: number[]): Scenario => ({
+  config: { intervalMs: 15_000, joinMs: 300 },
+  deadlineMs: 5_000,
+  wakes,
+  diesAt: undefined,
+  pongDelay: () => 400,
+  refuses: () => false,
+  endAt: 60_000,
+});
+
 test("200 wakes in a burst and wakes every 250 ms for 20 s keep a healthy socket", () => {
-  const healthy = (wakes: number[]): Scenario => ({
-    config: { intervalMs: 15_000, joinMs: 300 },
-    deadlineMs: 5_000,
-    wakes,
-    diesAt: undefined,
-    pongDelay: () => 400,
-    refuses: () => false,
-    endAt: 60_000,
-  });
   const burst = simulate(healthy(Array.from({ length: 200 }, () => 1_000)));
   expect(burst.deadAt).toBeUndefined();
   expect(burst.pings.filter((at) => at < 2_000)).toEqual([1_000, 1_300]);
