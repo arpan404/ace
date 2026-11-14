@@ -61,6 +61,7 @@ import XCTest
         menu.tap()
         let changes = app.buttons["thread.changes"]
         XCTAssertTrue(changes.waitForExistence(timeout: 10), "⋯ offers Changes")
+        XCTAssertTrue(changes.label.hasPrefix("Changes, "), "Changes in ⋯ reads its file count as the bar did: \(changes.label)")
         XCTAssertFalse(app.buttons["thread.chat"].exists, "Chat is showing, so ⋯ doesn't offer it")
         shot("large-menu")
         changes.tap()

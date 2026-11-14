@@ -6,6 +6,9 @@ private struct MenuScreen: Identifiable {
     let title: String
     let icon: AceIcon.Name
     let destination: ThreadDestination
+    /// What VoiceOver reads: the title, or a page's words with its count ("Changes, 6 files"),
+    /// as the bar's own page buttons read.
+    var spoken: String? = nil
     var identifier: String { id }
 }
 
@@ -21,13 +24,15 @@ private struct MenuScreenGrid: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var screens: [MenuScreen] {
-        ThreadDestination.menuScreens(pages: pages, shown: shownPage, switchInBar: switchInBar).compactMap(Self.screen)
+        ThreadDestination.menuScreens(pages: pages, shown: shownPage, switchInBar: switchInBar).compactMap(screen)
     }
 
-    private static func screen(_ destination: ThreadDestination) -> MenuScreen? {
+    private func screen(_ destination: ThreadDestination) -> MenuScreen? {
         switch destination {
-        case .chat: MenuScreen(id: "thread.chat", title: "Chat", icon: .chatCircle, destination: .chat)
-        case .changes: MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes)
+        case .chat: MenuScreen(id: "thread.chat", title: "Chat", icon: .chatCircle, destination: .chat,
+                               spoken: pages?.label(of: .chat))
+        case .changes: MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes,
+                                  spoken: pages?.label(of: .changes))
         case .files: MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files)
         case .terminal: MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal)
         case .browser: MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser)
@@ -59,7 +64,7 @@ private struct MenuScreenGrid: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(screen.title)
+                .accessibilityLabel(screen.spoken ?? screen.title)
                 .accessibilityIdentifier(screen.id)
             }
         }
