@@ -142,9 +142,9 @@ describe("Windows script bindings", () => {
   });
 });
 
+// Hashing an hour later than now: every file here counts as settled, so digests are reused.
+const later = () => Date.now() + 3_600_000;
 describe("launch revalidation", () => {
-  // Hashing an hour later than now: every file here counts as settled, so digests are reused.
-  const later = () => Date.now() + 3_600_000;
   const custom = {
     acpAgentId: "local:custom",
     installationId: "custom-1",
@@ -174,7 +174,12 @@ describe("launch revalidation", () => {
       instanceId: "claude-acp-1:default",
     };
     const inventory = new LocalInventory(
-      [await bindLocal({ ...identity, version: "0.90.0", command: bridge, args: [] }, { PATH: root })],
+      [
+        await bindLocal(
+          { ...identity, version: "0.90.0", command: bridge, args: [] },
+          { PATH: root },
+        ),
+      ],
       new ExecutableDigests(later),
     );
     await expect(inventory.resolve(identity, {})).resolves.toMatchObject({

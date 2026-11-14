@@ -170,9 +170,7 @@ export class ServerPool {
     const spares = [...this.spares.values()];
     this.spares.clear();
     for (const spare of spares) spare.expire();
-    await Promise.all(
-      [...this.entries.values(), ...spares].map((holder) => holder.server.close()),
-    );
+    await Promise.all([...this.entries.values(), ...spares].map((holder) => holder.server.close()));
     this.entries.clear();
   }
   /**

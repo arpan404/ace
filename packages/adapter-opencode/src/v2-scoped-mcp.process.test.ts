@@ -415,7 +415,12 @@ function scopedContext(
       threadId: ThreadId.parse(`thread-${index}`),
       cwd: "/warm",
       signal: new AbortController().signal,
-      aceMcp: { url: mcp.url, bearer: lease.bearer, signal: lease.principal.signal, end: lease.end },
+      aceMcp: {
+        url: mcp.url,
+        bearer: lease.bearer,
+        signal: lease.principal.signal,
+        end: lease.end,
+      },
       onFrame() {},
       onExit() {},
     },
@@ -455,8 +460,7 @@ test("a scoped session opens on an already started server that never carried ano
     });
     return response.json();
   };
-  const holding = (bearer: string) =>
-    [...carried].find(([, seen]) => seen.has(bearer))?.[0] ?? "";
+  const holding = (bearer: string) => [...carried].find(([, seen]) => seen.has(bearer))?.[0] ?? "";
   try {
     const first = scopedContext(mcp, credentials, 0);
     bearers.push(first.bearer);
@@ -484,6 +488,12 @@ test("a scoped session opens on an already started server that never carried ano
   }
 });
 
+/** Whether the process exits within 5 s. */
+const exited = (process: SupervisedProcess | undefined) =>
+  Promise.race([
+    process?.exited.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
+  ]);
 test("a spare server stops once its configuration has been idle for the spare window, and with its adapter", async () => {
   const { credentials, registry } = contextTools();
   const mcp = await startMcpServer({ registry, credentials });
@@ -500,19 +510,14 @@ test("a spare server stops once its configuration has been idle for the spare wi
     },
   });
   const adapter = createOpenCodeAdapter(h.options);
-  const exited = (process: SupervisedProcess | undefined) =>
-    Promise.race([
-      process?.exited.then(() => true),
-      new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
-    ]);
   try {
     const session = await adapter.openSession(scopedContext(mcp, credentials, 0).ctx);
     await until(() => processes.length === 3);
     await session.close("shutdown");
     clock.advance(spareIdleMs - 1);
-    expect(await Promise.race([processes[2]?.exited.then(() => true), Promise.resolve(false)])).toBe(
-      false,
-    );
+    expect(
+      await Promise.race([processes[2]?.exited.then(() => true), Promise.resolve(false)]),
+    ).toBe(false);
     clock.advance(1);
     expect(await exited(processes[2])).toBe(true);
 
