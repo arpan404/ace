@@ -41,12 +41,19 @@ const matches = (header: string | undefined, tag: string) =>
     return trimmed === "*" || trimmed.replace(/^W\//, "") === tag;
   });
 /**
- * The build's own compressed copy of `file` (`apps/web/precompress.ts`), if it has one written
- * since the file itself: smaller than the on-the-fly copy and ready at once.
+ * The build's own compressed copy of a hashed asset (`apps/web/precompress.ts`), if it has one
+ * inside the renderer and written since the file itself: smaller than the on-the-fly copy and
+ * ready at once. A copy that resolves outside the renderer (a symlink) is never followed.
  */
-async function prebuilt(file: string, encoding: ContentEncoding, mtimeMs: number) {
-  const sibling = `${file}.${encoding === "br" ? "br" : "gz"}`;
+async function prebuilt(
+  directory: string,
+  file: string,
+  encoding: ContentEncoding,
+  mtimeMs: number,
+) {
   try {
+    const sibling = await realpath(`${file}.${encoding === "br" ? "br" : "gz"}`);
+    if (!sibling.startsWith(directory + sep)) return undefined;
     const info = await stat(sibling);
     return info.isFile() && info.mtimeMs >= mtimeMs
       ? { file: sibling, size: info.size }
@@ -99,7 +106,7 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
           return;
         }
       }
-      const ready = encoding && (await prebuilt(file, encoding, info.mtimeMs));
+      const ready = encoding && hashed && (await prebuilt(directory, file, encoding, info.mtimeMs));
       if (encoding && ready) {
         response.setHeader("Content-Encoding", encoding);
         response.setHeader("Content-Length", ready.size);

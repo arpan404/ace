@@ -306,3 +306,43 @@ test("a page rewritten at the same length with its timestamp kept gets a new tag
   const plain = await fetchRaw(port, "/");
   expect(plain.body.toString("utf8")).toBe(replaced);
 });
+
+test("a compressed copy that is a symlink out of the renderer is never served", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const outside = await mkdtemp(join(tmpdir(), "ace-web-outside-"));
+  onTestFinished(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, "secret.br"), brotliCompressSync("secret"));
+  await writeFile(join(outside, "secret.gz"), gzipSync("secret"));
+  await symlink(join(outside, "secret.br"), join(root, "assets", "app.js.br"));
+  await symlink(join(outside, "secret.gz"), join(root, "assets", "app.js.gz"));
+  const br = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(br.body).toString("utf8")).toBe(script);
+  const gz = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "gzip" });
+  expect(gunzipSync(gz.body).toString("utf8")).toBe(script);
+});
+
+test("a compressed copy is sent with the original's type, its own length and coding, and only where accepted", async ({
+  onTestFinished,
+}) => {
+  const { port, root, script } = await serveRenderer(onTestFinished);
+  const built = `${script}// built\n`;
+  await writeFile(join(root, "assets", "app.js.br"), brotliCompressSync(built));
+  const response = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
+  expect(response.headers["content-encoding"]).toBe("br");
+  expect(response.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+  expect(response.headers.vary).toBe("Accept-Encoding");
+  expect(Number(response.headers["content-length"])).toBe(response.body.length);
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(built);
+  const refused = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br;q=0" });
+  expect(refused.headers["content-encoding"]).toBeUndefined();
+  expect(refused.body.toString("utf8")).toBe(script);
+});
+
+test("the page never comes from a compressed copy beside it", async ({ onTestFinished }) => {
+  const { port, root, html } = await serveRenderer(onTestFinished);
+  await writeFile(join(root, "index.html.br"), brotliCompressSync("<html>old page</html>"));
+  const response = await fetchRaw(port, "/", { "accept-encoding": "br" });
+  expect(brotliDecompressSync(response.body).toString("utf8")).toBe(html);
+});
