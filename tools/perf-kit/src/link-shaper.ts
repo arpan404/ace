@@ -1,6 +1,11 @@
 import { createServer, connect, type Socket } from "node:net";
 import { once } from "node:events";
-import { FlightCounter, type LinkCounts, type LinkDirectionName } from "./link-flights.ts";
+import {
+  CountsTimeline,
+  FlightCounter,
+  type LinkCounts,
+  type LinkDirectionName,
+} from "./link-flights.ts";
 import { Bottleneck, type Arrival } from "./link-bottleneck.ts";
 import { seededRandom, type LinkProfile } from "./link-profiles.ts";
 
@@ -43,6 +48,8 @@ export interface LinkShaper {
   readonly profile: LinkProfile;
   /** Totals since the shaper started; diff two with `countsSince`. */
   counts(): LinkCounts;
+  /** Totals as they stood at `at`, on the shaper's clock (`performance.now()` by default). */
+  countsAt(at: number): LinkCounts;
   /** The most bytes one connection direction has held at once: the bound plus one read at most. */
   peakHeldBytes(): number;
   /** Drops every open connection, as the network going away does. */
@@ -76,6 +83,8 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
   const { profile } = options;
   const random = seededRandom(options.seed ?? 1);
   const flights = new FlightCounter();
+  const timeline = new CountsTimeline();
+  const recorded = () => timeline.record(now(), flights.snapshot());
   const sockets = new Set<Socket>();
   const bound = profile.queueBytes;
   let peakHeld = 0;
@@ -104,7 +113,10 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
         leg.pendingBytes += arrival.bytes.length;
         arm(leg);
       }
-      flights.stalled(link.stalls - stalls);
+      if (link.stalls !== stalls) {
+        flights.stalled(link.stalls - stalls);
+        recorded();
+      }
       stalls = link.stalls;
       const next = link.wakeAt();
       if (next !== undefined) wake = schedule(next - now(), pump);
@@ -125,7 +137,9 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
         const length = head.bytes.length;
         // Counted once the receiver's socket has taken it, not when it was scheduled.
         const written = leg.to.write(head.bytes, (error) => {
-          if (!error) flights.arrived(leg.connection, name, length);
+          if (error) return;
+          flights.arrived(leg.connection, name, length);
+          recorded();
         });
         leg.pendingBytes -= length;
         if (!written) {
@@ -193,6 +207,7 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
   const server = createServer({ pauseOnConnect: true, allowHalfOpen: true }, (client) => {
     const connection = ++nextConnection;
     flights.opened(connection);
+    recorded();
     const upstream = connect({
       port: options.target.port,
       host: options.target.host,
@@ -241,6 +256,7 @@ export async function startLinkShaper(options: LinkShaperOptions): Promise<LinkS
     address: `${host}:${address.port}`,
     profile,
     counts: () => flights.snapshot(),
+    countsAt: (at) => timeline.at(at),
     peakHeldBytes: () => peakHeld,
     dropConnections() {
       for (const socket of sockets) socket.destroy();

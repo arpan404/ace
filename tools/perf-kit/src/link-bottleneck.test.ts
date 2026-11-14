@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import { Bottleneck, type Arrival, type BottleneckOptions } from "./link-bottleneck.ts";
-import { FlightCounter, countsSince, roundTrips } from "./link-flights.ts";
+import {
+  CountsTimeline,
+  FlightCounter,
+  countsSince,
+  emptyCounts,
+  roundTrips,
+} from "./link-flights.ts";
 import { linkProfile, seededRandom } from "./link-profiles.ts";
 
 const link = (options: Partial<BottleneckOptions> = {}) =>
@@ -195,4 +201,19 @@ test("flights on one connection do not end flights on another", () => {
   counter.arrived(2, "up", 10);
   counter.arrived(1, "down", 10);
   expect(counter.snapshot()).toMatchObject({ connections: 2, downFlights: 1, upFlights: 1 });
+});
+
+test("the counts can be read as they stood at an earlier moment", () => {
+  const counter = new FlightCounter();
+  const timeline = new CountsTimeline();
+  counter.opened(1);
+  timeline.record(10, counter.snapshot());
+  counter.arrived(1, "up", 300);
+  timeline.record(20, counter.snapshot());
+  counter.arrived(1, "down", 5_000);
+  timeline.record(35, counter.snapshot());
+  expect(timeline.at(5)).toEqual(emptyCounts());
+  expect(timeline.at(25)).toMatchObject({ connections: 1, upBytes: 300, downBytes: 0 });
+  expect(timeline.at(35)).toMatchObject({ downBytes: 5_000, downFlights: 1 });
+  expect(timeline.at(1_000)).toMatchObject({ downBytes: 5_000 });
 });

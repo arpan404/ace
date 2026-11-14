@@ -75,3 +75,37 @@ export function countsSince(before: LinkCounts, after: LinkCounts): LinkCounts {
 
 /** Round trips the client waited on: a handshake per new connection, then each flight it sent. */
 export const roundTrips = (counts: LinkCounts): number => counts.connections + counts.upFlights;
+
+/**
+ * The link's counts over time, so a bench can read them as of a moment it learns afterwards
+ * (a page's first paint, reported once its waits return), instead of when it asks.
+ */
+export class CountsTimeline {
+  private readonly times: number[] = [];
+  private readonly entries: LinkCounts[] = [];
+
+  /** The counts became `counts` at `at`; times must not go backwards. */
+  record(at: number, counts: LinkCounts): void {
+    const last = this.times.length - 1;
+    if (last >= 0 && this.times[last] === at) this.entries[last] = counts;
+    else {
+      this.times.push(at);
+      this.entries.push(counts);
+    }
+  }
+
+  /** The counts as they stood at `at`: the last record at or before it. */
+  at(at: number): LinkCounts {
+    let low = 0;
+    let high = this.times.length - 1;
+    let found = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if ((this.times[middle] ?? Number.POSITIVE_INFINITY) <= at) {
+        found = middle;
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+    return found === -1 ? emptyCounts() : { ...(this.entries[found] ?? emptyCounts()) };
+  }
+}

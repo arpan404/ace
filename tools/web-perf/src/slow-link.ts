@@ -5,7 +5,6 @@ import {
   linkProfile,
   roundTrips,
   startLinkShaper,
-  type LinkCounts,
   type LinkProfile,
   type LinkShaper,
 } from "@ace/perf-kit/link";
@@ -130,6 +129,9 @@ async function emulate(cdp: CDPSession, link: LinkProfile) {
   });
 }
 
+/** An epoch time on the shaper's clock (this process's `performance.now()`). */
+const shaperTime = (epochMs: number) => epochMs - performance.timeOrigin;
+
 /** One navigation to `url` in `context`, timed to the thread's first message. */
 async function navigate(
   context: BrowserContext,
@@ -159,7 +161,6 @@ async function navigate(
       bytes.set(parsed.data.requestId, parsed.data.encodedDataLength);
       finished.set(parsed.data.requestId, parsed.data.timestamp);
     });
-    const before: LinkCounts | undefined = options.shaper?.counts();
     await open(page, url);
     await page
       .getByRole("feed", { name: "Transcript" })
@@ -171,8 +172,6 @@ async function navigate(
         (globalThis as { aceFirstContent?: { transcript: unknown } }).aceFirstContent?.transcript !=
         null,
     );
-    const crossed =
-      before && options.shaper ? countsSince(before, options.shaper.counts()) : undefined;
     const marks = Marks.parse(
       await page.evaluate(() => {
         const first = (globalThis as unknown as { aceFirstContent: object }).aceFirstContent;
@@ -180,6 +179,15 @@ async function navigate(
       }),
     );
     const transcriptMs = marks.transcript ?? Number.NaN;
+    // The link as it stood from the page's navigation start to its first message, read from the
+    // shaper's timeline: both are this machine's epoch milliseconds, and the waits above return
+    // later than the paint they waited for.
+    const crossed = options.shaper
+      ? countsSince(
+          options.shaper.countsAt(shaperTime(marks.navigationStart)),
+          options.shaper.countsAt(shaperTime(marks.navigationStart + transcriptMs)),
+        )
+      : undefined;
     const requests = [...sent.values()].filter((entry) => !entry.request.url.startsWith("data:"));
     const navigation = requests.find((entry) => entry.type === "Document") ?? requests[0];
     const startedAt = navigation?.timestamp ?? 0;
