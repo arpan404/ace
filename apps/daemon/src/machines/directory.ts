@@ -14,6 +14,7 @@ import {
   type MachineTransport,
   type MachineTransportOptions,
 } from "./transport.ts";
+import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
 
 export interface DirectoryDeps {
   /** Paired machines from `ace remote add`; their tokens never leave this module's calls. */
@@ -41,6 +42,8 @@ export class MachineDirectory {
   private deps: DirectoryDeps;
   private seen = new Map<string, MachineSummary>();
   private hosts = new Map<string, HostId>();
+  /** Calls to each machine failing in a row, so a repeating call logs once per run. */
+  private failing = new FailureEpisodes();
   constructor(deps: DirectoryDeps) {
     this.deps = deps;
   }
@@ -153,12 +156,21 @@ export class MachineDirectory {
     }
     try {
       const result = await this.deps.transport(profile, { origin, call }, options);
-      this.deps.log("Machine call to another device", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: "ok",
-      });
+      const failures = this.failing.succeeded(machine);
+      if (failures > 0)
+        this.deps.log("Machine calls to another device work again", {
+          machine,
+          op,
+          attempts: failures + 1,
+        });
+      // Routine reads (status polls, descriptions) succeed quietly; work and changes are logged.
+      else if (!routineCall(op))
+        this.deps.log("Machine call to another device", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome: "ok",
+        });
       return result;
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
@@ -167,12 +179,17 @@ export class MachineDirectory {
         this.seen.delete(machine);
         if (this.groups() !== before) this.deps.served?.();
       }
-      this.deps.log("Machine call to another device failed", {
-        machine,
-        op,
-        fromThread: origin.threadId,
-        outcome: failure.refusal ?? failure.kind,
-      });
+      const outcome = failure.refusal ?? failure.kind;
+      const episode = this.failing.failed(machine, outcome);
+      // A routine read failing again the same way is the same failure, already logged.
+      if (episode.log || !routineCall(op))
+        this.deps.log("Machine call to another device failed", {
+          machine,
+          op,
+          fromThread: origin.threadId,
+          outcome,
+          attempts: episode.attempts,
+        });
       throw failure;
     }
   }
