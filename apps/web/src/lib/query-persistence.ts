@@ -78,16 +78,26 @@ function threadLookup(key: QueryKey): string | undefined {
 
 /** Each value a client restored from disk: the query it was put in, and when it was read. */
 const restoredAt = new WeakMap<QueryClient, WeakMap<object, { hash: string; at: number }>>();
+/** What a view shows of a query: an observer's result, or one read from the cache. */
+export interface ShownQuery {
+  data: unknown;
+  dataUpdatedAt: number;
+  isPlaceholderData: boolean;
+}
 /**
- * Whether `data`, a value a view shows (its query's own, or placeholder data carried over from
- * another key), is still a copy read back from disk that the daemon has not answered since: its
- * query has not been read again. Anything that acts on it (a queued message, an approval) waits
- * until this is false.
+ * Whether the data a view shows (`shown`: its query's own, or placeholder data carried over from
+ * another key) is still a copy read back from disk that the daemon has not answered since.
+ * Anything that acts on it (a queued message, an approval) waits until this is false. Given an
+ * observer's result, it reads that result's `dataUpdatedAt`, so a view re-renders when a re-read
+ * confirms the copy even if the data that came back is the same.
  */
-export function restoredUnconfirmed(queries: QueryClient, data: unknown): boolean {
+export function restoredUnconfirmed(queries: QueryClient, shown: ShownQuery): boolean {
+  const { data, dataUpdatedAt, isPlaceholderData } = shown;
   if (typeof data !== "object" || data === null) return false;
   const restored = restoredAt.get(queries)?.get(data);
   if (!restored) return false;
+  if (!isPlaceholderData) return dataUpdatedAt === restored.at;
+  // Carried over from the key it was restored under: confirmed only once that one is read again.
   const query = queries.getQueryCache().get(restored.hash);
   return query === undefined || query.state.dataUpdatedAt === restored.at;
 }

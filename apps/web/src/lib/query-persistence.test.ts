@@ -23,6 +23,16 @@ function measurement(measuredAt: number): StorageUsage {
 
 const host = "6b0f9c1e-1f5c-4b5e-9d0a-2f8f6a3c7d11";
 
+/** What a view reading `key` shows, as its observer would report it. */
+function shown(queries: QueryClient, key: QueryKey) {
+  const state = queries.getQueryState(key);
+  return {
+    data: state?.data,
+    dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+    isPlaceholderData: false,
+  };
+}
+
 function memory() {
   const values = new Map<string, unknown>();
   const storage: ReadSnapshotStorage = {
@@ -332,12 +342,12 @@ test("a thread's queue and latest turn are kept, newest only, and unconfirmed un
   expect(next.queries.getQueryData(["queue", "t1", 3])).toBeUndefined();
   expect(next.queries.getQueryData(["thread-turns", "t1", "latest", 40])).toEqual({ ordinal: 2 });
   // Shown at once, but nothing may act on it before the daemon answers.
-  expect(restoredUnconfirmed(next.queries, next.queries.getQueryData(queue))).toBe(true);
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(true);
   expect(await observe(next.queries, queue, { threadId: "t1", revision: 4, fresh: true })).toEqual({
     threadId: "t1",
     revision: 4,
   });
-  expect(restoredUnconfirmed(next.queries, next.queries.getQueryData(queue))).toBe(false);
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(false);
   next.stop();
 });
 
@@ -348,8 +358,6 @@ test("a queue read this session is confirmed", async () => {
     queryKey: ["queue", "t2", 1],
     queryFn: async () => ({ revision: 1 }),
   });
-  expect(restoredUnconfirmed(now.queries, now.queries.getQueryData(["queue", "t2", 1]))).toBe(
-    false,
-  );
+  expect(restoredUnconfirmed(now.queries, shown(now.queries, ["queue", "t2", 1]))).toBe(false);
   now.stop();
 });

@@ -53,7 +53,7 @@ export function useServerQueue(threadId: string): {
     failed: query.isError,
     // The page shown may be another revision's, carried over while this one is read: what counts
     // is whether the daemon has answered for the data on screen.
-    unconfirmed: restoredUnconfirmed(queries, query.data),
+    unconfirmed: restoredUnconfirmed(queries, query),
     loadingMore: query.isFetching,
     loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, retained.length) }),
     refresh: () => void query.refetch(),
