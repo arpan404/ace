@@ -264,7 +264,14 @@ prebuilt `MarkitCore.xcframework` into `Vendor/Markit`, checked against the SHA-
 `scripts/fetch-markit.ts`, so the build needs no Rust; `ACE_MARKIT_IOS_ZIP` points it at a local
 zip from markit's `scripts/release.sh`). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
 (`AceMarkdownTheme`): code blocks with Copy and a fold past 22 lines, diff fences, tables and
-math typeset as images without a web view. A streaming answer reaches markit 10 to 20 times a
+math typeset as images without a web view. Answers read in markit's agent flavour, as the web's
+do (`Views/Markdown/AnswerDiagram.swift`): GitHub's Markdown without forge references, `$…$`,
+`$$…$$`, `\(…\)` and `\[…\]` maths, and Mermaid fences drawn as diagrams by the forge pages'
+renderer (`Views/Forge/MermaidDiagram.swift`). Each diagram is drawn once per appearance, off
+screen and one at a time, and kept as a picture (`Models/DiagramRenders.swift`, the 8 most
+recent), so no web view stays in the transcript and a row scrolled back draws at once; a diagram
+flung past before its turn is never drawn. Its source opens from its corner button or long press.
+Until drawn, or when it can't be, the fence shows as code. A streaming answer reaches markit 10 to 20 times a
 second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws
 when the thread captured it (`native.image`, the daemon's `image.resolve`). SwiftUI renders
 work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`

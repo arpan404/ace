@@ -12,12 +12,26 @@ import WebKit
 
     /// The drawn diagram, or nil when it can't be drawn within a few seconds.
     static func render(_ source: String, dark: Bool) async -> UIView? {
-        guard let library, let json = try? JSONEncoder().encode(source),
-              // `</` can't end the page's script from inside the diagram's text.
-              let text = String(data: json, encoding: .utf8)?.replacingOccurrences(of: "</", with: "<\\/") else { return nil }
+        guard let library, let text = literal(source) else { return nil }
         let view = MermaidDiagramView(library: library)
         guard await view.draw(page(text, dark: dark)) else { return nil }
         return view
+    }
+
+    /// The diagram drawn once and kept as a picture, for answers: no web view stays behind it.
+    /// Nil when it can't be drawn within a few seconds.
+    static func picture(_ source: String, dark: Bool) async -> DiagramPicture? {
+        guard let library, let text = literal(source) else { return nil }
+        let view = MermaidDiagramView(library: library)
+        view.capturesPicture = true
+        guard await view.draw(page(text, dark: dark)), let image = view.picture else { return nil }
+        return DiagramPicture(image: image, size: view.intrinsicContentSize)
+    }
+
+    /// The diagram's text as a script string; `</` can't end the page's script from inside it.
+    private static func literal(_ source: String) -> String? {
+        guard let json = try? JSONEncoder().encode(source) else { return nil }
+        return String(data: json, encoding: .utf8)?.replacingOccurrences(of: "</", with: "<\\/")
     }
 
     private static func page(_ source: String, dark: Bool) -> String {
@@ -44,6 +58,9 @@ final class MermaidDiagramView: UIView {
     private let messages: Messages
     private var drawn = CGSize.zero
     private var waiting: CheckedContinuation<Bool, Never>?
+    /// Take a picture of the diagram once drawn, while the view is still in the window.
+    var capturesPicture = false
+    private(set) var picture: UIImage?
 
     init(library: String) {
         messages = Messages()
@@ -86,10 +103,24 @@ final class MermaidDiagramView: UIView {
         }
         defer { timeout.cancel() }
         // A diagram scrolled away (markit cancels its request) stops waiting at once.
-        return await withTaskCancellationHandler {
+        let drew = await withTaskCancellationHandler {
             await withCheckedContinuation { waiting = $0 }
         } onCancel: {
             Task { @MainActor [weak self] in self?.finish(.zero) }
+        }
+        if drew, capturesPicture, window != nil { picture = await snapshot() }
+        return drew
+    }
+
+    /// The drawn area as an image, the page grown to the diagram's height first.
+    private func snapshot() async -> UIImage? {
+        frame.size = CGSize(width: Self.layoutWidth, height: max(drawn.height, 1))
+        layoutIfNeeded()
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(origin: .zero, size: drawn)
+        configuration.afterScreenUpdates = true
+        return await withCheckedContinuation { done in
+            web.takeSnapshot(with: configuration) { image, _ in done.resume(returning: image) }
         }
     }
 
@@ -117,5 +148,15 @@ final class MermaidDiagramView: UIView {
             let size = numbers.count == 2 ? CGSize(width: ceil(numbers[0]), height: ceil(min(numbers[1], 4000))) : .zero
             MainActor.assumeIsolated { owner?.finish(size) }
         }
+    }
+}
+
+/// A diagram drawn as a picture, at the size (in points) it drew.
+final class DiagramPicture {
+    let image: UIImage
+    let size: CGSize
+    init(image: UIImage, size: CGSize) {
+        self.image = image
+        self.size = size
     }
 }

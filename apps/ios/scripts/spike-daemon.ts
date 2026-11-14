@@ -20,7 +20,7 @@ import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
 import { seedChats } from "./chats-scenario.ts";
-import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
+import { seedMessageAttachments, seedNativeMedia, seedRichAnswer } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
@@ -275,6 +275,7 @@ seedForgeBrowse(daemon, Date.now());
 // PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
 seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
+seedRichAnswer(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);

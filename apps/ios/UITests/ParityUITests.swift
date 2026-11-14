@@ -92,6 +92,33 @@ import XCTest
         app.buttons["Close"].tap()
         XCTAssertTrue(screen.waitForNonExistence(timeout: 10))
     }
+    /// An answer's maths is typeset, never shown as TeX, and its Mermaid fence draws as a diagram
+    /// whose source is a tap away.
+    func testAnAnswersMathsAndMermaidDiagramRender() {
+        let app = launch()
+        app.revealRow("thread.ios-rich-answer").tap()
+        let any = app.descendants(matching: .any)
+        let prose = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "hypotenuse follows", "hypotenuse follows")).firstMatch
+        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        let tex = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "\\sqrt", "\\sqrt"))
+        XCTAssertEqual(tex.count, 0, "display maths is typeset, not shown as its TeX")
+        let inline = any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "a^2", "a^2"))
+        XCTAssertEqual(inline.count, 0, "inline maths is typeset too")
+        let diagram = app.images["answer.diagram"]
+        XCTAssertTrue(diagram.waitForExistence(timeout: 20), "the Mermaid fence draws as a diagram")
+        XCTAssertFalse(any.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Phone --> Daemon", "Phone --> Daemon")).firstMatch.exists,
+                       "the drawn diagram replaces its code")
+        capture("answer-maths-diagram")
+        app.buttons["answer.diagram.source"].tap()
+        let source = app.staticTexts["diagram.source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(source.label.contains("Phone --> Daemon"))
+        app.buttons["diagram.copy"].tap()
+        XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 5))
+        capture("answer-diagram-source")
+        app.buttons["Close"].tap()
+        XCTAssertTrue(source.waitForNonExistence(timeout: 10))
+    }
     func testPublishedImageOpensAsNativePixels() {
         let app = launch()
         app.revealRow("thread.ios-media").tap()
