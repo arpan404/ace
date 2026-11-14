@@ -1,3 +1,5 @@
+import Observation
+import Synchronization
 import Testing
 @testable import Ace
 
@@ -68,5 +70,30 @@ import Testing
         let rows: [TurnRail.Mark] = [.ask, .answer, .ask, .head(5), .answer]
         #expect(TurnRail.readerPlace(rows, top: 0)?.ordinal(of: 5) == 4)
         #expect(TurnRail.readerPlace([], top: 0) == nil)
+    }
+}
+
+/// The feed hands the rail where the reader is each time a scroll settles. Only a real change may
+/// reach the rail: a write of the same value would re-render it on every settle.
+@MainActor @Suite struct TurnRailPlaceTests {
+    /// Whether reading `read` from `place` is told of a change made by `change`.
+    private func notifies(_ place: TurnRailPlace, read: @escaping () -> Void, change: () -> Void) -> Bool {
+        let told = Mutex(false)
+        withObservationTracking(read) { told.withLock { $0 = true } }
+        change()
+        return told.withLock { $0 }
+    }
+    @Test func settlingWhereTheReaderAlreadyIsTellsTheRailNothing() {
+        let place = TurnRailPlace()
+        place.settle(.turn(3))
+        #expect(!notifies(place, read: { _ = place.place }, change: { place.settle(.turn(3)) }))
+        #expect(notifies(place, read: { _ = place.place }, change: { place.settle(.turn(4)) }))
+        #expect(place.place == .turn(4))
+    }
+    @Test func theKeyboardReachesTheRailOnlyWhenItRisesOrFalls() {
+        let place = TurnRailPlace()
+        #expect(!notifies(place, read: { _ = place.keyboardUp }, change: { place.keyboard(up: false) }))
+        #expect(notifies(place, read: { _ = place.keyboardUp }, change: { place.keyboard(up: true) }))
+        #expect(place.keyboardUp)
     }
 }

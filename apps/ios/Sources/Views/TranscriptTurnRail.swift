@@ -1,20 +1,20 @@
 import SwiftUI
 
-/// The turn rail on the transcript's trailing edge (`TurnRail`): one short tick per turn shown,
+/// The turn rail over the transcript's trailing edge (`TurnRail`): one short tick per turn shown,
 /// the reader's turn brighter. Touching and holding its edge band, then dragging, scrubs: a card
 /// beside the finger names the turn and its ask, and lifting jumps there. A tap there jumps too;
-/// a swipe anywhere else along it scrolls the transcript. VoiceOver adjusts the turn and activates to jump. It reads
-/// the turn list once each time the reader leaves the end, never while the feed scrolls.
+/// a swipe anywhere else along it scrolls the transcript. VoiceOver adjusts the turn and
+/// activates to jump. It reads the turn list once each time the reader leaves the end, never
+/// while the feed scrolls, and sits over the feed rather than in its scroll view.
 struct TranscriptTurnRail: View {
     let model: ClientModel
     let threadId: String
     /// The person reads away from the live end; leaving it reads the turn list.
     let behind: Bool
-    /// The keyboard is up: the rail steps aside without the reader having moved.
-    let keyboardUp: Bool
-    /// Where the top of the screen is, when the feed knows it.
+    /// Where the top of the screen is, when the feed knows it, and whether the keyboard is up
+    /// (the rail steps aside without the reader having moved).
     let reading: TurnRailPlace
-    /// Room below the rail: the composer and the keyboard, which float over the feed's foot.
+    /// Room below the rail: the composer, which floats over the feed's foot.
     let bottom: CGFloat
     let jump: (Int) -> Void
     @State private var page: TurnsPage?
@@ -28,7 +28,7 @@ struct TranscriptTurnRail: View {
             // Below the header and above the composer, which floats over the feed's foot.
             let height = max(box.size.height - bottom - AceDesign.Space.group * 2, 0)
             let ticks = TurnRail.ordinals(count: count, current: current, limit: TurnRail.limit(height: Double(height)))
-            if TurnRail.shows(turns: count, behind: behind, keyboardUp: keyboardUp, scrubbing: scrub != nil), height > AceDesign.Size.tap * 2 {
+            if TurnRail.shows(turns: count, behind: behind, keyboardUp: reading.keyboardUp, scrubbing: scrub != nil), height > AceDesign.Size.tap * 2 {
                 rail(ticks: ticks, height: height)
                     .padding(.top, AceDesign.Space.group)
                     .frame(maxWidth: .infinity, alignment: .topTrailing)
@@ -36,7 +36,6 @@ struct TranscriptTurnRail: View {
             }
         }
         .animation(.default, value: behind)
-        .animation(.default, value: keyboardUp)
         .onChange(of: reading.place) { _, _ in selection.readerMoved() }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: scrub) { _, new in new != nil }
         .task(id: behind) {
@@ -133,7 +132,12 @@ struct TranscriptTurnRail: View {
     }
 }
 
-/// Where the top of the transcript is, set by the feed as a scroll settles and read only by the rail.
+/// What the feed tells the rail: where the top of the transcript is as a scroll settles, and
+/// whether the keyboard is up. Written only when a value changes, so the rail re-renders only then,
+/// and read only by the rail, so the feed never re-renders for it.
 @MainActor @Observable final class TurnRailPlace {
-    var place: TurnRail.Place?
+    private(set) var place: TurnRail.Place?
+    private(set) var keyboardUp = false
+    func settle(_ new: TurnRail.Place?) { if new != place { place = new } }
+    func keyboard(up: Bool) { if up != keyboardUp { keyboardUp = up } }
 }

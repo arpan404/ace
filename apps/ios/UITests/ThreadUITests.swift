@@ -116,6 +116,12 @@ import XCTest
         for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
         XCTAssertTrue(rail.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
+        // With the rail showing the app goes idle: every query waits for idle first, so one that
+        // takes seconds means the main thread is caught in an update loop.
+        sleep(1)
+        let asked = Date()
+        _ = rail.frame
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 5, "the app never went idle with the rail showing")
         screenshot("turn-rail")
         // VoiceOver's element is a full tap wide and as tall as the rail; touches land only on the
         // band at the screen's edge, inside the transcript's 20 pt margin.

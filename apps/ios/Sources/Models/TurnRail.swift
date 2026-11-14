@@ -23,7 +23,7 @@ enum TurnRail {
         private var picked: Int?
         mutating func pick(_ turn: Int) { picked = turn }
         /// A scroll settled somewhere new: the reader's place speaks for itself again.
-        mutating func readerMoved() { picked = nil }
+        mutating func readerMoved() { if picked != nil { picked = nil } }
         func current(scrub: Int?, place: Place?, count: Int) -> Int {
             min(max(scrub ?? picked ?? place?.ordinal(of: count) ?? count, 1), max(count, 1))
         }

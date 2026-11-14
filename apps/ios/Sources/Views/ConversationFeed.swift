@@ -53,6 +53,8 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Where the turn rail beside the feed learns the reader's turn and the keyboard; nil has no rail.
+    var railPlace: TurnRailPlace? = nil
     /// Words taken back from a message that wasn't sent go into the composer.
     @State private var reading = TranscriptReading()
     @State private var initialScroll = false
@@ -77,9 +79,6 @@ struct ConversationFeed: View {
     /// The keyboard's last animation duration: the composer opens on the same spring as it.
     @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
-    /// The turn the top of the screen is in, for the turn rail; read when a scroll settles. Only
-    /// the rail observes it, so a settle never re-evaluates the feed.
-    @State private var readerPlace = TurnRailPlace()
     @State private var feedFrame: CGRect = .zero
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
@@ -220,14 +219,6 @@ struct ConversationFeed: View {
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
-        // A long thread's turns down the trailing edge while reading away from the end.
-        .overlay {
-            TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, keyboardUp: keyboardLift > 0, reading: readerPlace,
-                               bottom: barHeight + keyboardLift) { turn in
-                setFollowing(false)
-                reading.jump(toTurn: turn, model: model, live: thread)
-            }
-        }
         .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
@@ -266,7 +257,7 @@ struct ConversationFeed: View {
                 }
                 updateBehind()
                 pageIfNeeded(proxy)
-                if behind { readerPlace.place = currentReaderPlace() }
+                if let railPlace, behind { railPlace.settle(currentReaderPlace()) }
             case .animating: break
             @unknown default: break
             }
@@ -480,6 +471,7 @@ struct ConversationFeed: View {
             var instant = Transaction()
             instant.disablesAnimations = true
             withTransaction(instant) { keyboardLift = lift }
+            railPlace?.keyboard(up: lift > 0)
             roomChanged(by: growth, motion: motion, proxy: proxy)
         }
         .onChange(of: barHeight) { old, new in
