@@ -96,6 +96,8 @@ export function ActivityLine(props: {
     <p
       role="status"
       aria-label={label}
+      data-part="working-line"
+      data-state={activity.tone === "working" ? "working" : "waiting"}
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (

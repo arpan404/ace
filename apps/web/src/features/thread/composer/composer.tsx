@@ -411,6 +411,7 @@ function ComposerBody({
           <div
             ref={surface}
             data-slot="composer"
+            data-part="composer"
             onDragOver={(event) => {
               if (carriesFiles(event.dataTransfer)) event.preventDefault();
             }}
@@ -440,7 +441,7 @@ function ComposerBody({
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
             <ReplyQuotes quotes={quotes} />
-            <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
+            <div data-slot="composer-input" data-part="composer-input" className="px-4 pt-3.5 pb-1.5">
               <MessageInput
                 input={input}
                 text={text}

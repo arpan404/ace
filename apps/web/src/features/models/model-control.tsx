@@ -79,6 +79,8 @@ export function ModelControl(props: {
         <PopoverTrigger
           disabled={view.disabled}
           aria-label={view.ariaLabel}
+          data-part="model-picker"
+          data-state={view.disabled ? "disabled" : showing ? "open" : undefined}
           aria-description={switching?.description}
           onPointerEnter={warm}
           onFocus={warm}

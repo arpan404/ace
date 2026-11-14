@@ -232,7 +232,15 @@ function OpenRequest(props: {
     answer({ kind: "approval", optionId: decision.option.id });
   };
   return (
-    <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
+    <article
+      tabIndex={-1}
+      aria-label={title}
+      data-part={request.kind === "question" ? "question-card" : "approval-strip"}
+      data-variant={request.kind}
+      data-state="waiting"
+      onKeyDown={onKeyDown}
+      className={props.className}
+    >
       {request.kind !== "approval" && request.kind !== "question" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
           <Dot tone="needs-you" />

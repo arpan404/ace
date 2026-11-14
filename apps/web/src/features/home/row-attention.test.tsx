@@ -164,7 +164,7 @@ test("a working row shows its time with the working icon and no animated element
   const { row, link, open } = await setup();
   const title = "Rewrite the install page for the daemon";
   const icon = () => link(title).querySelector('[data-icon="working"]');
-  const animated = () => link(title).querySelector("[data-live], .fx-live-dot, [data-state]");
+  const animated = () => link(title).querySelector("[data-live], .fx-live-dot, [data-slot="status-glyph"]");
   expect(row(title)).toEqual({ level: "active", muted: true });
   expect(icon()).toBeTruthy();
   expect(animated()).toBeNull();
@@ -246,5 +246,5 @@ test("an unsent thread draws its amber icon named Not sent and a stopped one res
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   // Queue paused is waiting, muted and still: its hourglass, no animation.
   expect(stopped.querySelector('[data-icon="waiting"]')).toBeTruthy();
-  expect(stopped.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+  expect(stopped.querySelector("[data-live], .fx-live-dot, [data-slot="status-glyph"]")).toBeNull();
 });

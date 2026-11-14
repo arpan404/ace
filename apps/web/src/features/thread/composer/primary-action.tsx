@@ -74,6 +74,9 @@ export const PrimaryAction = memo(function PrimaryAction(props: {
         type="button"
         aria-label={labels[mode]}
         aria-disabled={blocked ? true : undefined}
+        data-part="composer-send"
+        data-variant={mode}
+        data-state={blocked || props.off ? "disabled" : undefined}
         aria-describedby={props.off ? props.describedBy : undefined}
         onClick={() => {
           if (!blocked) props.onSend();
@@ -103,6 +106,9 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
         type="button"
         aria-label="Stopping…"
         aria-disabled
+        data-part="composer-send"
+        data-variant="stopping"
+        data-state="disabled"
         className={cn(iconControl, "cursor-default bg-foreground/10 text-muted-foreground")}
       >
         <Spinner />
@@ -113,6 +119,8 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
       <button
         type="button"
         aria-label="Stop the agent"
+        data-part="composer-send"
+        data-variant="stop"
         onClick={props.onStop}
         className={cn(
           iconControl,

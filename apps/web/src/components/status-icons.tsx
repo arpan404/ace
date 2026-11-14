@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import type { RowStatusIconKind, RowStatusTone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import type { SuitPartState } from "@/lib/suit-part.ts";
 // Typed to the weights the build keeps (icon-weights.ts), so `weight={entry.weight}` is one of them.
 import type { UsedIconWeight } from "../../icon-weights.ts";
 import { WaitingCountMark } from "./waiting-count-mark.tsx";
@@ -52,6 +53,18 @@ const tones: Record<RowStatusTone, string> = {
   idle: "text-muted-foreground",
 };
 
+/** Each tone's Suit state (docs/design/suit-parts.md); none for a row that is only idle. */
+const suitStates: Record<RowStatusTone, SuitPartState | undefined> = {
+  "needs-you": "waiting",
+  failed: "failed",
+  working: "working",
+  waiting: "waiting",
+  background: "working",
+  limited: "waiting",
+  finished: "done",
+  idle: undefined,
+};
+
 /**
  * One status icon in its state's colour. Decorative: the row names its state in words for
  * assistive tech (and the count mark's number is in that name too).
@@ -70,6 +83,8 @@ export function StatusIcon(props: {
       aria-hidden
       data-icon={props.kind}
       data-tone={props.tone}
+      data-part="status-icon"
+      data-state={suitStates[props.tone]}
       className={cn("inline-flex shrink-0", tones[props.tone])}
     >
       {entry ? (
