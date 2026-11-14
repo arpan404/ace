@@ -26,10 +26,13 @@ import Testing
         #expect(TurnRail.tick(at: -40, height: 300, ticks: ticks) == 1)
     }
     @Test func theRailShowsFromFourTurnsWhileReadingAwayFromTheEnd() {
-        #expect(TurnRail.shows(turns: 4, behind: true, scrubbing: false))
-        #expect(!TurnRail.shows(turns: 3, behind: true, scrubbing: false))
-        #expect(!TurnRail.shows(turns: 40, behind: false, scrubbing: false))
-        #expect(TurnRail.shows(turns: 40, behind: false, scrubbing: true))
+        #expect(TurnRail.shows(turns: 4, behind: true, keyboardUp: false, scrubbing: false))
+        #expect(!TurnRail.shows(turns: 3, behind: true, keyboardUp: false, scrubbing: false))
+        #expect(!TurnRail.shows(turns: 40, behind: false, keyboardUp: false, scrubbing: false))
+        #expect(TurnRail.shows(turns: 40, behind: false, keyboardUp: false, scrubbing: true))
+    }
+    @Test func theKeyboardHidesTheRailWithoutLeavingHistory() {
+        #expect(!TurnRail.shows(turns: 40, behind: true, keyboardUp: true, scrubbing: false))
     }
     @Test func aJumpedTurnIsMarkedUntilTheReaderScrollsOn() {
         var selection = TurnRail.Selection()

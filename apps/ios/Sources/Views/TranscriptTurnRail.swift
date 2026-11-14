@@ -7,8 +7,10 @@ import SwiftUI
 struct TranscriptTurnRail: View {
     let model: ClientModel
     let threadId: String
-    /// The person reads away from the live end.
+    /// The person reads away from the live end; leaving it reads the turn list.
     let behind: Bool
+    /// The keyboard is up: the rail steps aside without the reader having moved.
+    let keyboardUp: Bool
     /// Where the top of the screen is, when the feed knows it.
     let reading: TurnRailPlace
     /// Room below the rail: the composer and the keyboard, which float over the feed's foot.
@@ -25,7 +27,7 @@ struct TranscriptTurnRail: View {
             // Below the header and above the composer, which floats over the feed's foot.
             let height = max(box.size.height - bottom - AceDesign.Space.group * 2, 0)
             let ticks = TurnRail.ordinals(count: count, current: current, limit: TurnRail.limit(height: Double(height)))
-            if TurnRail.shows(turns: count, behind: behind, scrubbing: scrub != nil), height > AceDesign.Size.tap * 2 {
+            if TurnRail.shows(turns: count, behind: behind, keyboardUp: keyboardUp, scrubbing: scrub != nil), height > AceDesign.Size.tap * 2 {
                 rail(ticks: ticks, height: height)
                     .padding(.top, AceDesign.Space.group)
                     .frame(maxWidth: .infinity, alignment: .topTrailing)
@@ -33,6 +35,7 @@ struct TranscriptTurnRail: View {
             }
         }
         .animation(.default, value: behind)
+        .animation(.default, value: keyboardUp)
         .onChange(of: reading.place) { _, _ in selection.readerMoved() }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: scrub) { _, new in new != nil }
         .task(id: behind) {

@@ -222,7 +222,7 @@ struct ConversationFeed: View {
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
         // A long thread's turns down the trailing edge while reading away from the end.
         .overlay {
-            TranscriptTurnRail(model: model, threadId: thread.id, behind: behind && keyboardLift == 0, reading: readerPlace,
+            TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, keyboardUp: keyboardLift > 0, reading: readerPlace,
                                bottom: barHeight + keyboardLift) { turn in
                 setFollowing(false)
                 reading.jump(toTurn: turn, model: model, live: thread)

@@ -11,9 +11,10 @@ enum TurnRail {
     /// The closest ticks may sit, in points: the rail shows fewer turns rather than crowd them.
     static let minSpacing: Double = 6
 
-    /// Shown while the person reads away from the live end, or holds it.
-    static func shows(turns: Int, behind: Bool, scrubbing: Bool) -> Bool {
-        turns >= minTurns && (behind || scrubbing)
+    /// Shown while the person reads away from the live end with the keyboard down, or holds it.
+    /// The keyboard only hides it: the reader is still away from the end.
+    static func shows(turns: Int, behind: Bool, keyboardUp: Bool, scrubbing: Bool) -> Bool {
+        turns >= minTurns && (scrubbing || (behind && !keyboardUp))
     }
 
     /// The turn the rail marks: the finger's while scrubbing, else a turn just picked (a jump,
