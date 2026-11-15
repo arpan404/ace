@@ -5,9 +5,11 @@ import { STREAM_PROLOGUE } from "@ace/relay/wire";
 import { HostId } from "@ace/protocol";
 import type { ToMedia } from "@ace/media/wire";
 import {
+  DIAL_RETRY_MS,
   HANDOVER_DEADLINE_MS,
   MAX_PENDING_STREAMS,
   MediaRelayStreams,
+  REFUSAL_LINGER_MS,
   type AdmitMediaHello,
 } from "./streams.ts";
 
@@ -29,7 +31,7 @@ const admitAll: AdmitMediaHello = async () => ({
 });
 
 /** A fake ace-media that records what the daemon sends and plays one scripted client. */
-function harness(options: { accepts?: boolean } = {}) {
+function harness(options: { accepts?: boolean; available?: boolean } = {}) {
   const sent: { message: ToMedia; payload: Uint8Array }[] = [];
   const closed: string[] = [];
   const timers: { at: number; run: () => void }[] = [];
@@ -50,6 +52,7 @@ function harness(options: { accepts?: boolean } = {}) {
         needs++;
         return () => needs--;
       },
+      available: () => options.available !== false,
     },
     clock: {
       now: () => now,
@@ -154,8 +157,8 @@ it("a stream ace-media couldn't dial is closed with no handshake sent", async ()
   expect(h.sent.some((s) => s.message.type === "relay.out")).toBe(false);
 });
 
-it("offers are turned down while ace-media can't dial, or too many are pending", () => {
-  const down = harness({ accepts: false });
+it("offers are turned down while ace-media is unavailable, or too many are pending", () => {
+  const down = harness({ available: false });
   expect(down.streams.offer("ws://relay/join", admitAll)).toBe(false);
   expect(down.needs()).toBe(0);
   const busy = harness();
@@ -171,4 +174,54 @@ it("ace-media exiting mid-handover ends the stream", async () => {
   await h.settle();
   expect(h.needs()).toBe(0);
   expect(h.streams.pending).toBe(0);
+});
+
+it("a stream offered while ace-media starts is dialed once its lanes are up", async () => {
+  const options = { accepts: false };
+  const h = harness(options);
+  expect(h.streams.offer("ws://relay/join?ticket=t", admitAll)).toBe(true);
+  expect(h.needs()).toBe(1);
+  expect(h.sent).toHaveLength(0);
+  options.accepts = true;
+  h.advance(DIAL_RETRY_MS);
+  await h.settle();
+  expect(streamOf(h)).toMatch(/^rs_/);
+});
+
+it("a refused stream stays open just long enough for its refusal to be written first", async () => {
+  const h = harness();
+  const refuse: AdmitMediaHello = async () => ({
+    ok: false,
+    refusal: { type: "error", code: "unauthorized", message: "Valid hello required" },
+  });
+  h.streams.offer("ws://relay/join?ticket=t", refuse);
+  const stream = streamOf(h);
+  h.streams.onMessage({ type: "relay.dialed", stream }, new Uint8Array(0));
+  const client = new NoiseXX({
+    initiator: true,
+    staticKey: keyPair(),
+    ephemeralKey: keyPair(),
+    prologue: STREAM_PROLOGUE,
+  });
+  await h.deliver(stream, client.writeMessage());
+  await h.settle();
+  client.readMessage(h.toClient.shift() ?? new Uint8Array());
+  await h.deliver(stream, client.writeMessage());
+  const hello = JSON.stringify({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: "phone",
+    channel: "media",
+    token: "t",
+    mediaTicket: "A".repeat(43),
+  });
+  await h.deliver(
+    stream,
+    client.transport.send.encrypt(Uint8Array.of(1, ...new TextEncoder().encode(hello))),
+  );
+  await h.settle();
+  expect(h.toClient).toHaveLength(1);
+  expect(h.closed).toEqual([]);
+  h.advance(REFUSAL_LINGER_MS);
+  expect(h.closed).toEqual([stream]);
 });

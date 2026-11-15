@@ -25,12 +25,21 @@ export type MediaRelayLink = {
   closeStream(message: Message<"relay.close">): void;
   /** `MediaSupervisor.need`: ace-media runs while a stream does. */
   need(): () => void;
+  /** False while ace-media is marked unavailable: no stream is taken then. */
+  available(): boolean;
 };
 
 /** How long a stream may take from the offer to its keys (the relay's own hello deadline). */
 export const HANDOVER_DEADLINE_MS = 10_000;
+/** How long a refused stream stays open for its refusal to reach the client. */
+export const REFUSAL_LINGER_MS = 200;
+/** How often a dial is tried again while ace-media is still starting. */
+export const DIAL_RETRY_MS = 50;
 /** Streams being dialed or handed over at once; past it the relay hears "busy". */
 export const MAX_PENDING_STREAMS = 32;
+
+/** The hello was refused, and the client was told why. */
+class Refused extends Error {}
 
 type Pending = {
   dialed: PromiseWithResolvers<void>;
@@ -79,17 +88,13 @@ export class MediaRelayStreams {
    * dial now); otherwise the stream runs to its keys or is closed.
    */
   offer(joinUrl: string, admit: AdmitMediaHello): boolean {
-    if (this.#pending.size >= MAX_PENDING_STREAMS) return false;
+    if (this.#pending.size >= MAX_PENDING_STREAMS || !this.#link.available()) return false;
     const stream = `rs_${this.#ids()}`;
+    // ace-media starts on its first need; the dial goes out once its lanes are up.
     const release = this.#link.need();
     const pending: Pending = { dialed: Promise.withResolvers<void>(), handed: false };
     this.#pending.set(stream, pending);
-    if (!this.#link.send({ type: "relay.dial", stream, url: joinUrl })) {
-      this.#pending.delete(stream);
-      release();
-      return false;
-    }
-    void this.#run(stream, pending, admit).then(
+    void this.#run(stream, pending, admit, joinUrl).then(
       (connection) => {
         if (connection === undefined) return release();
         this.#held.get(connection)?.();
@@ -139,10 +144,21 @@ export class MediaRelayStreams {
     this.#held.clear();
   }
 
+  /** Sends the dial, trying again while ace-media is still starting. */
+  async #dial(stream: string, url: string, within: <T>(work: Promise<T>) => Promise<T>) {
+    while (!this.#link.send({ type: "relay.dial", stream, url })) {
+      if (!this.#link.available()) throw new Error("ace-media unavailable");
+      const wait = Promise.withResolvers<void>();
+      this.#clock.setTimeout(wait.resolve, DIAL_RETRY_MS);
+      await within(wait.promise);
+    }
+  }
+
   async #run(
     stream: string,
     pending: Pending,
     admit: AdmitMediaHello,
+    url: string,
   ): Promise<string | undefined> {
     const deadline = Promise.withResolvers<never>();
     const cancel = this.#clock.setTimeout(
@@ -152,6 +168,7 @@ export class MediaRelayStreams {
     const within = <T>(work: Promise<T>) => Promise.race([work, deadline.promise]);
     deadline.promise.catch(() => {});
     try {
+      await this.#dial(stream, url, within);
       await within(pending.dialed.promise);
       const pipe: StreamPipe = {
         send: async (frame) => {
@@ -176,7 +193,10 @@ export class MediaRelayStreams {
           admit,
         }),
       );
-      if (!result.ok) throw new Error(result.reason);
+      if (!result.ok)
+        throw result.reason === "refused" || result.reason === "not a hello"
+          ? new Refused(result.reason)
+          : new Error(result.reason);
       pending.handed = true;
       // The supervisor owns the block from here: it zeroes it after the write, or if dropped.
       if (!this.#link.send({ type: "relay.keys", stream, ...result.grant }, result.block))
@@ -187,12 +207,17 @@ export class MediaRelayStreams {
       this.#log(
         `relay stream ${stream} closed: ${error instanceof Error ? error.message : "failed"}`,
       );
-      this.#link.closeStream({
-        type: "relay.close",
-        id: `rc_${this.#ids()}`,
-        stream,
-        reason: "handover",
-      });
+      const close = () =>
+        this.#link.closeStream({
+          type: "relay.close",
+          id: `rc_${this.#ids()}`,
+          stream,
+          reason: "handover",
+        });
+      // A refusal went out on the normal lane, which the priority lane's close would overtake;
+      // it gets a moment to be written first. The stream holds no keys meanwhile.
+      if (error instanceof Refused) this.#clock.setTimeout(close, REFUSAL_LINGER_MS);
+      else close();
       return undefined;
     } finally {
       cancel();

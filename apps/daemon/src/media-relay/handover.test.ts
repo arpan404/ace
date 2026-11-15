@@ -156,4 +156,9 @@ it("anything but a hello as the first message ends the stream without admission"
   link.client.send(client.send.encrypt(jsonFragment({ type: "ping" })));
   expect((await done).ok).toBe(false);
   expect(asked).toBe(false);
+  const refusal = client.receive.decrypt(await link.client.next());
+  expect(JSON.parse(new TextDecoder().decode(refusal.subarray(1)))).toMatchObject({
+    type: "error",
+    code: "unauthorized",
+  });
 });

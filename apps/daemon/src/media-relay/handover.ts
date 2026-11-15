@@ -166,7 +166,13 @@ export async function handOverMediaStream<Grant>(
     if (noise.readMessage(await pipe.next()).length) return failed("handshake payload");
     sealed = new Sealed(noise.transport, pipe);
     const hello = ClientMessage.safeParse(JSON.parse(await sealed.receiveJson()));
-    if (!hello.success || hello.data.type !== "hello") return failed("not a hello");
+    if (!hello.success || hello.data.type !== "hello") {
+      // As on a direct socket: the client stops instead of retrying a hello that won't work.
+      await sealed
+        .sendJson({ type: "error", code: "unauthorized", message: "Valid hello required" })
+        .catch(() => {});
+      return failed("not a hello");
+    }
     const admitted = await options.admit(hello.data);
     if (!admitted.ok) {
       if (admitted.refusal) await sealed.sendJson(admitted.refusal).catch(() => {});
