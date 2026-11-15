@@ -9,6 +9,7 @@ pub mod grants;
 pub mod ledger;
 pub mod pieces;
 pub mod recorder;
+pub mod relay;
 pub mod sources;
 pub mod stills;
 #[cfg(test)]
@@ -23,6 +24,7 @@ use media_wire::capability::Acceleration;
 use media_wire::control::{EncodeSpec, EpochRange, FromMedia, Id, Level, ToMedia};
 use media_wire::frame::MediaFrame;
 use recorder::{RecordSpec, Recorders};
+use relay::{CloseMode, Pool, RelayEffect, Relays, ToDaemon};
 use sources::{IngestId, Sources};
 use stills::{NoStills, StillMaker, StillOutcome, Stills};
 use zeroize::Zeroizing;
@@ -49,6 +51,8 @@ pub enum Effect {
     },
     /// A JPEG source's encoder thread (E4).
     Encode(EncodeEffect),
+    /// A relay stream's socket (D2).
+    Relay(RelayEffect),
     /// Bookkeeping that must never forget is full: exit, so the supervisor restarts the
     /// process and every connection ends with it.
     Fatal(&'static str),
@@ -121,6 +125,23 @@ pub(crate) fn normal(out: &mut Vec<Effect>, message: FromMedia) {
     out.push(Effect::Normal(message));
 }
 
+/// A pull's answer, or a stream that broke its bounds, for the daemon.
+fn relay_in(out: &mut Vec<Effect>, stream: Id, next: ToDaemon) {
+    match next {
+        ToDaemon::Nothing => {}
+        ToDaemon::Frame(frame) => {
+            out.push(Effect::NormalWith(FromMedia::RelayIn { stream }, frame))
+        }
+        ToDaemon::Failed(reason) => normal(
+            out,
+            FromMedia::RelayFailed {
+                stream,
+                reason: reason.into(),
+            },
+        ),
+    }
+}
+
 pub(crate) fn priority(out: &mut Vec<Effect>, message: FromMedia) {
     out.push(Effect::Priority(message));
 }
@@ -163,6 +184,8 @@ pub struct Engine {
     recorders: Box<dyn Recorders>,
     egress: Box<dyn EgressSink>,
     stills: Stills,
+    relays: Relays,
+    pool: Pool,
     delivery: Delivery,
     bytes_out: u64,
     out: Vec<Effect>,
@@ -177,6 +200,8 @@ impl Engine {
             recorders,
             egress,
             stills: Stills::new(Box::new(NoStills)),
+            relays: Relays::default(),
+            pool: Pool::default(),
             delivery: Delivery::default(),
             bytes_out: 0,
             out: Vec::new(),
@@ -199,9 +224,32 @@ impl Engine {
         self.stills.finished(outcome, &mut self.out);
     }
 
+    /// Whether effects are waiting to be carried out.
+    pub fn has_effects(&self) -> bool {
+        !self.out.is_empty()
+    }
+
     /// The effects produced so far, in the order they must happen.
     pub fn effects(&mut self) -> std::vec::Drain<'_, Effect> {
+        self.route_relay();
         self.out.drain(..)
+    }
+
+    /// Delivery speaks to connections; a relay connection's messages are sealed for its stream
+    /// here, in place, so they keep their order among the other effects.
+    fn route_relay(&mut self) {
+        if !self.out.iter().any(|e| matches!(e, Effect::Media { connection, .. } if self.grants.relay_stream_of(connection).is_some())) {
+            return;
+        }
+        let pending = std::mem::take(&mut self.out);
+        for effect in pending {
+            match effect {
+                Effect::Media { connection, out } if self.is_relay(&connection) => {
+                    self.relay_media(&connection, out)
+                }
+                other => self.out.push(other),
+            }
+        }
     }
 
     pub fn counts(&self) -> Counts {
@@ -422,32 +470,76 @@ impl Engine {
                 self.grants.viewer_close(viewer.get());
                 self.delivery.close_view(viewer.get(), now.mono_ms, out);
             }
-            ToMedia::RelayDial { stream, .. } => normal(
-                out,
-                FromMedia::RelayFailed {
-                    stream,
-                    reason: "relay-unavailable".into(),
-                },
-            ),
-            ToMedia::RelayOut { .. } | ToMedia::RelayPull { .. } => {}
+            ToMedia::RelayDial { stream, url } => {
+                let refused = if self.grants.stream_closed(stream.get()) {
+                    Err("closed")
+                } else if self.relays.pending() + self.grants.streams() >= grants::MAX_STREAMS {
+                    Err("limit")
+                } else {
+                    self.relays.dial(stream.get(), &url, out)
+                };
+                if let Err(reason) = refused {
+                    normal(
+                        out,
+                        FromMedia::RelayFailed {
+                            stream,
+                            reason: reason.into(),
+                        },
+                    );
+                }
+            }
+            ToMedia::RelayOut { stream } => {
+                let mut payload = payload;
+                let frame = std::mem::take(&mut *payload);
+                self.relays.send(stream.get(), frame, out);
+            }
+            ToMedia::RelayPull { stream } => {
+                let next = self.relays.pull(stream.get());
+                relay_in(out, stream, next);
+            }
             ToMedia::RelayKeys {
                 stream,
                 connection,
                 owner,
                 issued,
-            } => self.grants.relay_keys(
-                Grant {
-                    kind: "relay.keys",
-                    id: &stream,
-                    connection: &connection,
-                    owner: &owner,
-                    issued: issued.get(),
-                },
-                payload,
-                out,
-            ),
+            } => {
+                let dialed = self.relays.is_dialed(stream.get());
+                let installed = self.grants.relay_keys(
+                    Grant {
+                        kind: "relay.keys",
+                        id: &stream,
+                        connection: &connection,
+                        owner: &owner,
+                        issued: issued.get(),
+                    },
+                    payload,
+                    dialed,
+                    vault,
+                    now.wall_ms,
+                    out,
+                );
+                if !installed {
+                    // A stream that isn't this process's stays as it was.
+                    if !dialed {
+                        return;
+                    }
+                    self.relays.take(stream.get());
+                    self.grants
+                        .close_stream(stream.get(), CloseMode::Forced, out);
+                    return;
+                }
+                // The relay channel's welcome was the daemon's; the views start now.
+                self.delivery.attached(&connection, now.mono_ms, out);
+                // What the client sent after its hello, which the daemon never pulled.
+                for frame in self.relays.take(stream.get()) {
+                    self.relay_opened(stream.get(), frame, now);
+                }
+            }
             ToMedia::RelayClose { id, stream, .. } => {
-                self.grants.close_stream(stream.get(), out);
+                self.relays.take(stream.get());
+                // The daemon's close: what it sent (a refusal) still reaches the client.
+                self.grants
+                    .close_stream(stream.get(), CloseMode::Graceful, out);
                 priority(out, FromMedia::Closed { id });
             }
             ToMedia::ConnectionClose {
@@ -537,6 +629,140 @@ impl Engine {
                 out,
             ),
         }
+    }
+
+    /// The pooled buffers relay frames are sealed into; the shell gives each back once written.
+    pub fn relay_pool(&self) -> Pool {
+        self.pool.clone()
+    }
+
+    /// A relay stream's socket is up. False when the stream closed meanwhile: drop the socket.
+    pub fn relay_dialed(&mut self, stream: &Id) -> bool {
+        if !self.relays.dialed(stream.get()) {
+            return false;
+        }
+        normal(
+            &mut self.out,
+            FromMedia::RelayDialed {
+                stream: stream.clone(),
+            },
+        );
+        true
+    }
+
+    /// A frame arrived on a relay stream's socket.
+    pub fn relay_frame(&mut self, stream: &Id, frame: Vec<u8>, now: Now) {
+        if self.relays.is_pending(stream.get()) {
+            let next = self.relays.arrived(stream.get(), frame);
+            if matches!(next, ToDaemon::Failed(_)) {
+                self.grants
+                    .close_stream(stream.get(), CloseMode::Forced, &mut self.out);
+            }
+            return relay_in(&mut self.out, stream.clone(), next);
+        }
+        self.relay_opened(stream.get(), frame, now);
+        self.closed_connections(now);
+    }
+
+    /// A keyed stream's frame: its client message goes to delivery, as a direct connection's.
+    fn relay_opened(&mut self, stream: &str, frame: Vec<u8>, now: Now) {
+        let opened =
+            self.grants
+                .relay_frame(stream, frame, &self.pool, &mut self.vault, &mut self.out);
+        let Some((connection, message)) = opened else {
+            return;
+        };
+        if !self
+            .delivery
+            .client(&connection, message, now.mono_ms, &mut self.out)
+        {
+            log(
+                &mut self.out,
+                Level::Warn,
+                "media connection closed: a message it doesn't take",
+                &id_of(&connection),
+            );
+            self.grants
+                .close(&connection, "protocol", &mut self.vault, &mut self.out);
+        }
+    }
+
+    /// Whether a connection is a relay stream's (its delivery goes through [`Self::relay_media`]).
+    pub fn is_relay(&self, connection: &str) -> bool {
+        self.grants.relay_stream_of(connection).is_some()
+    }
+
+    /// What delivery sends on a relay connection: sealed for its stream, or its stream shut.
+    /// A piece the client's flow window can't take now is dropped; delivery's acks and keyframe
+    /// requests recover the picture.
+    pub fn relay_media(&mut self, connection: &str, message: MediaOut) {
+        match message {
+            MediaOut::Binary(bytes) => {
+                self.relay_send(connection, true, &bytes);
+            }
+            MediaOut::Text(text) => {
+                self.relay_send(connection, false, text.as_bytes());
+            }
+            MediaOut::Close(code) => {
+                use media_wire::media_link::close;
+                let mode = match code {
+                    close::REVOKED | close::PROTOCOL => CloseMode::Forced,
+                    _ => CloseMode::Graceful,
+                };
+                if let Some(stream) = self.grants.relay_stream_of(connection).map(str::to_owned) {
+                    self.grants.close_stream(&stream, mode, &mut self.out);
+                }
+            }
+        }
+    }
+
+    /// A relay stream's socket failed to open or dropped. Before its keys the daemon hears
+    /// `relay.failed`; after them the stream's connection ends.
+    pub fn relay_ended(&mut self, stream: &Id, reason: &str, now: Now) {
+        let out = &mut self.out;
+        if self.relays.is_pending(stream.get()) {
+            self.relays.take(stream.get());
+            // The socket is gone already.
+            self.grants
+                .close_stream(stream.get(), CloseMode::Forced, out);
+            return normal(
+                out,
+                FromMedia::RelayFailed {
+                    stream: stream.clone(),
+                    reason: reason.into(),
+                },
+            );
+        }
+        if let Some(connection) = self
+            .grants
+            .stream_connection(stream.get())
+            .map(str::to_owned)
+        {
+            self.grants
+                .close(&connection, "relay-closed", &mut self.vault, out);
+        }
+        self.closed_connections(now);
+    }
+
+    /// A relay stream's socket is gone (the shell's close finished).
+    pub fn relay_closed(&mut self, stream: &Id) {
+        self.grants.relay_closed(stream.get());
+    }
+
+    /// One message to a relay connection's client (D1's delivery): false when it can't go now.
+    pub fn relay_send(&mut self, connection: &str, binary: bool, data: &[u8]) -> bool {
+        let kind = if binary {
+            media_noise::FragmentKind::Binary
+        } else {
+            media_noise::FragmentKind::Json
+        };
+        let sent = self
+            .grants
+            .relay_send(connection, kind, data, &self.pool, &mut self.out);
+        if sent {
+            self.bytes_out += data.len() as u64;
+        }
+        sent
     }
 
     /// An ingest connection's hello token. True when it named an open source, which the

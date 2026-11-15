@@ -106,6 +106,10 @@ impl Ledger {
         self.remember(id, true)
     }
 
+    pub fn stream_closed(&self, id: &str) -> bool {
+        self.streams.contains(id)
+    }
+
     pub fn close_stream(&mut self, id: &str) -> Result<(), Full> {
         self.remember(id, false)
     }

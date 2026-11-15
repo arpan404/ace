@@ -66,6 +66,25 @@ if (process.platform === "win32") {
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
+  // D2: a relay media stream through the self-hosted relay and the binary, handed over with its
+  // keys, the relay negative authorization cases, revocation and kill deadlines, and wss://
+  // with its certificate refusals.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/media-relay/relay-media.process.test.ts",
+      "src/media-relay/relay-media-tls.process.test.ts",
+    ],
+    {
+      cwd: new URL("../apps/daemon/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
   // E4: ace's Chrome streaming through the video extension into the binary and back on egress
   // (skipped where no Chrome is installed).
   execFileSync("bun", ["--bun", "x", "vitest", "run", "src/media-video.process.test.ts"], {
