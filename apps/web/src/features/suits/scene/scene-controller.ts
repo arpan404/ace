@@ -50,6 +50,11 @@ export interface SceneControllerDeps {
   post(message: SceneHostMessage): void;
   /** Called once when the watchdog stops the scene; the host unmounts it. */
   stopped(stop: SceneStop): void;
+  /**
+   * Where frames come from when scenes share one clock (`createSceneBeat`); without it this
+   * scene keeps its own 30 a second.
+   */
+  frames?: { next(run: () => void): () => void } | undefined;
 }
 
 export interface SceneController {
@@ -116,6 +121,9 @@ export function createSceneController(
     !facts.reduceMotion;
   const now = () => (ticking ? sceneTime + clock.now() - runningSince : sceneTime);
 
+  /** Asks for the next frame `wait` ms on (its own clock) or at its turn (a shared one). */
+  const nextFrame = (wait: number) =>
+    deps.frames ? deps.frames.next(frameDue) : scheduler.after(wait, frameDue);
   const sendTick = () => {
     const time = now();
     lastSentAt = clock.now();
@@ -132,7 +140,7 @@ export function createSceneController(
     if (outstanding) {
       // Still drawing the last one: once that is late it counts, and a later answer is ignored.
       if (clock.now() - outstanding.sentAt <= sceneLateFrameMs) {
-        cancelTick = scheduler.after(sceneFrameMs, frameDue);
+        cancelTick = nextFrame(sceneFrameMs);
         return;
       }
       outstanding = undefined;
@@ -140,7 +148,7 @@ export function createSceneController(
       if (phase === "over") return;
     }
     sendTick();
-    cancelTick = scheduler.after(sceneFrameMs, frameDue);
+    cancelTick = nextFrame(sceneFrameMs);
   };
   /** One frame for a scene that may not move: under Reduce motion it shows as a still. */
   const stillFrame = () => {
@@ -156,7 +164,7 @@ export function createSceneController(
       runningSince = clock.now();
       // Never faster than 30 a second, even across a quick pause and resume.
       const wait = Math.max(0, lastSentAt + sceneFrameMs - clock.now());
-      cancelTick = scheduler.after(wait, frameDue);
+      cancelTick = nextFrame(wait);
     } else if (!mayRun() && (ticking || !pauseSent)) {
       if (ticking) sceneTime += clock.now() - runningSince;
       ticking = false;

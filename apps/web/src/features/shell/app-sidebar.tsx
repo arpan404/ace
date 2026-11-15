@@ -1,4 +1,5 @@
 import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
+import { RegionScene } from "@/features/suits/index.ts";
 import { useRouterState } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { NavButtons } from "./app-header.tsx";
@@ -49,7 +50,9 @@ export function AppSidebar(props: {
     select: (state) => activeView(state.location.pathname) === "forge",
   });
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // `isolate`: the Suit's sidebar scene sits over the sidebar's colour, under its content.
+    <div className="relative isolate flex min-h-0 flex-1 flex-col">
+      <RegionScene region="sidebar" />
       <div
         data-slot="sidebar-top"
         className="flex h-(--header-h) shrink-0 items-center gap-0.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"

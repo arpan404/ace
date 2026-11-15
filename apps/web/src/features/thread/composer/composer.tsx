@@ -1,4 +1,5 @@
 import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
+import { RegionScene } from "@/features/suits/index.ts";
 import "@/styles/composer-pill.css";
 import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import "@/styles/composer-markdown.css";
@@ -432,8 +433,9 @@ function ComposerBody({
             // The pill (see `pill`): typing or a file opens it; the same elements stay mounted,
             // so focus never moves.
             data-pill={pill ? "" : undefined}
-            className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
+            className={cn(composerSurface, "relative isolate z-10 flex flex-col rounded-xl")}
           >
+            <RegionScene region="composer" />
             <AnnotationChip
               threadId={props.thread.draft ? undefined : props.thread.id}
               annotations={annotations}

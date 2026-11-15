@@ -53,11 +53,10 @@ test("a Suit's ornaments show in their slots as decoration nobody can reach", as
   }
   // The composer's sits above its surface in the flow, never inside or over it.
   const composer = document.querySelector('[data-slot="composer"]');
-  expect(composer?.contains(ornament("composer-top"))).toBe(false);
-  expect(
-    ornament("composer-top")?.compareDocumentPosition(composer as Node) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  const top = ornament("composer-top");
+  if (!composer || !top) throw new Error("the composer and its ornament should both be there");
+  expect(composer.contains(top)).toBe(false);
+  expect(top.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("without a Suit no slot renders anything", async () => {

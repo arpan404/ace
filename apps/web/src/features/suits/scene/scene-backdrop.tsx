@@ -2,6 +2,7 @@ import type { SceneHostMessage, SceneSignal } from "@ace/protocol/suits";
 import { useEffect, useRef, useState } from "react";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { watchSavingPower } from "./power.ts";
+import type { SceneFrames } from "./scene-beat.ts";
 import {
   createSceneController,
   messageFromScene,
@@ -27,6 +28,15 @@ export interface SuitBackdropProps {
 
 export interface SceneBackdropProps extends SuitBackdropProps {
   signals: SignalFeed;
+  /** The page's shared clock, when several scenes run (`createSceneBeat`). */
+  frames?: SceneFrames | undefined;
+  /**
+   * `window`: full-bleed behind the app (the app's scene). `region`: filling the positioned
+   * region it is mounted in (the sidebar's, the header's, the composer's), sized to it.
+   */
+  fill?: "window" | "region" | undefined;
+  /** The region a region scene runs in; its `--suit-<region>-scene-opacity` sets how much shows. */
+  region?: string | undefined;
 }
 
 /**
@@ -46,6 +56,9 @@ export function SceneBackdrop(props: SceneBackdropProps) {
       scheme={props.scheme}
       reduceMotion={props.reduceMotion}
       signals={props.signals}
+      frames={props.frames}
+      fill={props.fill ?? "window"}
+      region={props.region}
       stopped={(stop) => {
         setStoppedUrl(sceneUrl);
         onStopped?.(stop, sceneUrl);
@@ -65,19 +78,29 @@ export function windowViewport(
   };
 }
 
-const timers = {
+/** The page's timers and clock: the I/O edge every scene's controller and the shared beat use. */
+export const timers = {
   after(ms: number, run: () => void) {
     const id = window.setTimeout(run, ms);
     return () => window.clearTimeout(id);
   },
 };
-const clock = { now: () => performance.now() };
+export const clock = { now: () => performance.now() };
+
+/** A region's size in CSS pixels, with the window's pixel ratio capped as `windowViewport` does. */
+const regionViewport = (element: Element): SceneViewport => {
+  const box = element.getBoundingClientRect();
+  return { width: box.width, height: box.height, pixelRatio: windowViewport(window).pixelRatio };
+};
 
 function SceneFrame(props: {
   sceneUrl: string;
   scheme: Scheme;
   reduceMotion: boolean;
   signals: SignalFeed;
+  frames: SceneFrames | undefined;
+  fill: "window" | "region";
+  region: string | undefined;
   stopped: (stop: SceneStop) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -101,17 +124,18 @@ function SceneFrame(props: {
       loaded = true;
       for (const message of queued.splice(0)) element.contentWindow?.postMessage(message, "*");
     };
-    const { scheme, reduceMotion } = latest.current;
+    const { scheme, reduceMotion, frames, fill } = latest.current;
+    const viewport = () => (fill === "region" ? regionViewport(element) : windowViewport(window));
     const scene = createSceneController(
       {
-        ...windowViewport(window),
+        ...viewport(),
         scheme,
         reduceMotion,
         visible: documentVisibility.visible(),
         focused: document.hasFocus(),
         lowPower: false,
       },
-      { clock, scheduler: timers, post, stopped: (stop) => latest.current.stopped(stop) },
+      { clock, scheduler: timers, post, frames, stopped: (stop) => latest.current.stopped(stop) },
     );
     controller.current = scene;
     const onMessage = (event: MessageEvent) => {
@@ -120,7 +144,12 @@ function SceneFrame(props: {
     };
     const onFocus = () => scene.setFocused(true);
     const onBlur = () => scene.setFocused(false);
-    const onResize = () => scene.resize(windowViewport(window));
+    const onResize = () => scene.resize(viewport());
+    const regionSize =
+      fill === "region" && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(onResize)
+        : undefined;
+    regionSize?.observe(element);
     element.addEventListener("load", onLoad);
     window.addEventListener("message", onMessage);
     window.addEventListener("focus", onFocus);
@@ -139,6 +168,7 @@ function SceneFrame(props: {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onResize);
+      regionSize?.disconnect();
       unwatchVisibility();
       unwatchPower();
     };
@@ -158,7 +188,14 @@ function SceneFrame(props: {
       title="Suit scene"
       aria-hidden="true"
       tabIndex={-1}
-      className="pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
+      data-scene-fill={props.fill}
+      data-scene-region={props.region}
+      style={props.region ? { opacity: `var(--suit-${props.region}-scene-opacity, 1)` } : undefined}
+      className={
+        props.fill === "region"
+          ? "pointer-events-none absolute inset-0 -z-10 h-full w-full rounded-[inherit] border-0 bg-transparent"
+          : "pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
+      }
     />
   );
 }

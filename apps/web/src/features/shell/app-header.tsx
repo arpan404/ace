@@ -5,6 +5,7 @@ import {
   DotsThreeIcon,
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
+import { RegionScene } from "@/features/suits/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
@@ -195,12 +196,13 @@ export function AppHeader(
       ref={header}
       data-slot="app-header"
       data-variant={lean ? suitHeader : undefined}
-      className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
+      className="@container/header relative isolate z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
       {/* Where the sidebar meets the column, while both are on screen. */}
       {frame.sidebarShown && !frame.sheet && !bare && (
         <span aria-hidden data-boundary="sidebar" className={boundaryMarker} />
       )}
+      <RegionScene region="header" />
       <HeaderNav />
       {titleSlot &&
         props.title !== "" &&
