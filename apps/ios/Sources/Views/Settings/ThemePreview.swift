@@ -1,16 +1,28 @@
 import SwiftUI
 
-/// The app in miniature, drawn in one theme's and accent's own colours in one scheme: a title,
-/// three thread rows and the composer with its send button. Picker cards show it (DESIGN.md
-/// Picker card); it never reads the colours on screen, so every choice previews as itself.
+/// The app in miniature, drawn in one theme's and accent's own colours in one scheme, or in a
+/// Suit's over its still: a title, three thread rows and the composer with its send button.
+/// Picker cards show it (DESIGN.md Picker card); it never reads the colours on screen, so every
+/// choice previews as itself.
 // The miniature's bars, dots and heights are its own drawing at about a quarter scale: content
 // geometry, not UI measures.
 struct ThemePreview: View {
     let theme: String
     let accent: String
     let scheme: ColorScheme
+    /// A Suit drawn instead of the theme, and its still behind the miniature.
+    private var suit: [String: NativePalette.Pair]?
+    private var still: UIImage?
     @Environment(\.aceDensityId) private var densityId
     static let height: CGFloat = 104
+
+    init(theme: String, accent: String, scheme: ColorScheme) {
+        self.theme = theme; self.accent = accent; self.scheme = scheme
+    }
+    init(suit: PhoneSuit, still: UIImage?, scheme: ColorScheme) {
+        theme = "ace"; accent = "theme"; self.scheme = scheme
+        self.suit = suit.pairs; self.still = still
+    }
 
     var body: some View {
         let compact = densityId == "compact"
@@ -22,7 +34,7 @@ struct ThemePreview: View {
         }
         .padding(AceDesign.Space.related)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
-        .background(colour("background"))
+        .background { page }
         .clipShape(AceDesign.Shape.block)
         .overlay(AceDesign.Shape.block.stroke(colour("separator"), lineWidth: AceTheme.Dimensions.border))
         // Status colours are the same in every theme; they resolve in the preview's scheme.
@@ -57,12 +69,28 @@ struct ThemePreview: View {
         .overlay(AceDesign.Shape.control.strokeBorder(colour("separator"), lineWidth: AceTheme.Dimensions.border))
     }
 
-    private func colour(_ role: String) -> Color { Self.colour(role, theme: theme, accent: accent, scheme: scheme) }
+    /// The page, over the Suit's still as the backdrop draws it, when it has one.
+    @ViewBuilder private var page: some View {
+        if let still {
+            Image(uiImage: still).resizable().scaledToFill()
+                .overlay { colour("background").opacity(AceDesign.Ink.recede) }
+        } else {
+            colour("background")
+        }
+    }
+
+    private func colour(_ role: String) -> Color {
+        guard let suit else { return Self.colour(role, theme: theme, accent: accent, scheme: scheme) }
+        guard let pair = suit[role] else { return .clear }
+        return Self.rgb(scheme == .dark ? pair.dark : pair.light)
+    }
+    private static func rgb(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+    }
     static func colour(_ role: String, theme: String, accent: String, scheme: ColorScheme) -> Color {
         let fitted = NativePaletteBridge.model?.preview(role, theme: theme, accent: accent)
         guard let pair = fitted ?? AceTheme.pair(role, theme: theme, accent: accent) else { return .clear }
-        let value = scheme == .dark ? pair.dark : pair.light
-        return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+        return rgb(scheme == .dark ? pair.dark : pair.light)
     }
 }
 

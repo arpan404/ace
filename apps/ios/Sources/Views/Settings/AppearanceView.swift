@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Settings › Appearance: mode, theme and accent as picker cards (the app in miniature, in each
-/// choice's own colours), then transcript size, motion and translucency. All kept on this phone.
+/// Settings › Appearance: mode, then the Look grid of themes and Suits (ADR 0150) and accent as
+/// picker cards (the app in miniature, in each choice's own colours), a Suit's Backdrop, then
+/// transcript size, motion and translucency. All kept on this phone.
 /// iOS's own Dynamic Type, Reduce Motion and Reduce Transparency always apply on top. Colours
 /// saved by the old custom-theme editor still win until they're reset here.
 struct AppearanceView: View {
@@ -14,7 +15,9 @@ struct AppearanceView: View {
     @AppStorage(PhoneLook.transcriptKey) private var transcriptSize = "default"
     @AppStorage(PhoneLook.reduceMotionKey) private var reduceMotion = false
     @AppStorage(PhoneLook.solidKey) private var solid = false
+    @AppStorage(PhoneLook.backdropKey) private var backdrop = "still"
     @Environment(NativePaletteModel.self) private var palette: NativePaletteModel?
+    @Environment(SuitLookModel.self) private var suits: SuitLookModel?
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
@@ -33,16 +36,29 @@ struct AppearanceView: View {
                 .pickerRow()
             } header: { InsetHeader("Mode") }
             Section {
-                LazyVGrid(columns: columns, spacing: AceDesign.Space.margin) {
-                    ForEach(AceTheme.themeChoices, id: \.id) { theme in
-                        PickerCard(name: theme.name, selected: chosenTheme == theme.id, id: "appearance.theme.\(theme.id)") {
-                            change { palette?.choose(theme: theme.id) }
-                        } preview: { ThemePreview(theme: theme.id, accent: chosenAccent, scheme: scheme) }
+                LookGrid(inbox: inbox, scheme: scheme, accent: chosenAccent, theme: chosenTheme) { theme in
+                    change {
+                        suits?.choose(nil)
+                        palette?.choose(theme: theme)
                     }
                 }
                 .pickerRow()
-            } header: { InsetHeader("Theme") }
-            Section {
+            } header: { InsetHeader("Look") } footer: { lookNote }
+            if suits?.applied?.stills.light != nil || suits?.applied?.stills.dark != nil {
+                Section {
+                    Picker("Backdrop", selection: Binding(get: { backdrop }, set: { next in change { backdrop = next } })) {
+                        Text("Still").tag("still")
+                        Text("Off").tag("off")
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(solid || systemReduceTransparency)
+                    .accessibilityIdentifier("appearance.backdrop")
+                } header: { InsetHeader("Backdrop") } footer: {
+                    if solid || systemReduceTransparency { Text("Off while surfaces are solid.") }
+                }
+                .insetRowBackground()
+            }
+            if suits?.applied == nil { Section {
                 AccentSwatches(theme: chosenTheme, chosen: chosenAccent, scheme: scheme) { accent in
                     accentProblem = nil
                     change { palette?.choose(accent: accent) }
@@ -56,21 +72,24 @@ struct AppearanceView: View {
                 if let accentProblem {
                     ServiceProblem(message: accentProblem).listRowBackground(Color.clear)
                     Button("Retry") { accentRetry += 1 }.buttonStyle(.textAction())
-                        .disabled(inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true)
+                        .disabled(!anyReady)
                         .listRowBackground(Color.clear)
                 }
             } header: { InsetHeader("Accent") } footer: {
-                if inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true {
+                if !anyReady {
                     Text("A custom colour needs a connected machine.")
                 }
-            }
+            } }
             Section {
                 Picker("Density", selection: Binding(get: { density }, set: { next in change { density = next } })) {
                     ForEach(AceTheme.densities, id: \.id) { choice in Text(choice.name).tag(choice.id) }
                 }
                 .pickerStyle(.segmented)
+                .disabled(suits?.applied?.density != nil)
                 .accessibilityIdentifier("appearance.density")
-            } header: { InsetHeader("Density") }
+            } header: { InsetHeader("Density") } footer: {
+                if let suit = suits?.applied, suit.density != nil { Text("Set by \(suit.name).") }
+            }
             .insetRowBackground()
             Section {
                 Picker("Transcript size", selection: $transcriptSize) {
@@ -118,6 +137,27 @@ struct AppearanceView: View {
     }
 
     private var chosenTheme: String { palette?.theme ?? "ace" }
+    /// A connected machine to fit a custom colour or read a Suit through.
+    private var anyReady: Bool { inbox?.sessions.contains { (session: MachineSession) -> Bool in session.client.connection == "ready" } == true }
+    private var themeName: String { AceTheme.themeChoices.first { $0.id == chosenTheme }?.name ?? "ace" }
+
+    /// Why the picked Suit isn't on screen, and the way back to the look before the last pick.
+    @ViewBuilder private var lookNote: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+            if let refusal = suits?.refusal {
+                Text("\(refusal.reason) \(themeName) shows instead.")
+                    .accessibilityIdentifier("appearance.lookNote")
+            }
+            if let suits, case .some(let before) = suits.previous, before != suits.setting {
+                Button(before.map { "Back to \(name(of: $0))" } ?? "Back to \(themeName)") { change { suits.revert() } }
+                    .buttonStyle(.textAction())
+                    .accessibilityIdentifier("appearance.revertLook")
+            }
+        }
+    }
+    private func name(of suit: String) -> String {
+        inbox?.sessions.lazy.compactMap { $0.client.suits?.first { $0.id == suit }?.name }.first ?? suit
+    }
     private var chosenAccent: String { palette?.accent ?? "theme" }
     /// Colour changes fade across the whole window.
     private func change(_ apply: () -> Void) { LookCrossfade.run(apply) }
