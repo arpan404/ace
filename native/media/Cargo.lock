@@ -392,6 +392,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "media-ingest"
+version = "0.1.0"
+dependencies = [
+ "media-wire",
+ "zeroize",
+]
+
+[[package]]
 name = "media-mf"
 version = "0.1.0"
 dependencies = [
