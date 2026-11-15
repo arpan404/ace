@@ -6,6 +6,7 @@ const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
 );
 import { AppearanceSettings } from "./appearance-page.tsx";
+import { BetaSettings } from "./beta-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { ViewListPage } from "@/features/shell/index.ts";
@@ -186,6 +187,14 @@ export function KeyboardSettingsScreen() {
       lede="These shortcuts are for this device only. Other apps and browsers keep their own."
     >
       <KeyboardShortcuts />
+    </SettingsBody>
+  );
+}
+
+export function BetaSettingsScreen() {
+  return (
+    <SettingsBody page="Beta">
+      <BetaSettings />
     </SettingsBody>
   );
 }
