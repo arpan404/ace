@@ -41,7 +41,8 @@ import SwiftUI
         case "approval": [deny, allow].compactMap { $0 }
         case "question": [request.unanswerable == true ? Word(id: "open", label: "Open", primary: true, run: open)
                                                         : Word(id: "answer", label: "Answer", primary: true, run: review)]
-        case "browser_help": [Word(id: "open", label: "Open", primary: true, run: open)]
+        // Browser help is answered in the thread; a request too large to send, on a computer.
+        case "browser_help", "too_large": [Word(id: "open", label: "Open", primary: true, run: open)]
         default: [Word(id: "review", label: "Review", primary: true, run: review)]
         }
     }

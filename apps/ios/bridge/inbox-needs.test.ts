@@ -1,6 +1,6 @@
 import "./test-host.ts";
 import { ClientCore } from "@ace/client";
-import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
+import { FakeDaemon, facts, fakeTransport, type FakeDaemonOptions } from "@ace/fake-daemon";
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import { NeedsAction, followNeeds } from "./inbox-needs.ts";
@@ -36,14 +36,19 @@ const approval = (interaction: string, command: string) => ({
 async function phone(
   setup: {
     entityPages?: "active-first" | "chronological";
+    /** The largest request the daemon sends; larger ones it names as too large. */
+    largestEntity?: number;
     /** More history on the asking thread, after its first approval, before the phone starts. */
-    history?: (daemon: FakeDaemon) => void;
+    history?: (daemon: FakeDaemon, options: FakeDaemonOptions) => void;
   } = {},
 ) {
-  const daemon = new FakeDaemon({
+  // Read by the daemon on every page, so a test can upgrade or downgrade it mid-read.
+  const options: FakeDaemonOptions = {
     clock: () => 1000,
     ...(setup.entityPages ? { entityPages: setup.entityPages } : {}),
-  });
+    ...(setup.largestEntity ? { largestEntity: setup.largestEntity } : {}),
+  };
+  const daemon = new FakeDaemon(options);
   for (const [id, title] of [
     [asking, "Give every Fleet map wire its own path"],
     [resting, "Show each remote network in Settings"],
@@ -55,7 +60,7 @@ async function phone(
     approval("first", "bun run test:changed --with-process"),
   ]);
   daemon.apply(resting, [facts.rootAgent("claude")]);
-  setup.history?.(daemon);
+  setup.history?.(daemon, options);
   let sequence = 0;
   const client = new ClientCore({
     deviceId: DeviceId.parse("phone"),
@@ -215,16 +220,85 @@ function random(seed: number) {
   return { next, int: (low: number, high: number) => low + Math.floor(next() * (high - low + 1)) };
 }
 
-/** One request on the asking thread, its provider frames `bytes` long. */
-const ask = (id: string, bytes: number) => ({
-  ...approval(id, `make ${id}`),
-  raw: [{ type: "tool_use", data: { input: "x".repeat(bytes) } }],
-});
-const answer = (id: string) => ({
+/** One request on the asking thread, about `bytes` long, its bulk where `shape` puts it. */
+function ask(id: string, bytes: number, shape: number) {
+  const base = approval(id, `make ${id}`);
+  const bulk = "x".repeat(bytes);
+  switch (shape % 4) {
+    case 0:
+      // Provider frames: what makes real ones large.
+      return { ...base, raw: [{ type: "tool_use", data: { input: bulk } }] };
+    case 1:
+      // A long command (as long as one may be), the rest in many labelled options.
+      return {
+        ...base,
+        request: {
+          ...base.request,
+          target: {
+            ...base.request.target,
+            command: `make ${id} ${"c".repeat(Math.min(bytes, 32_000))}`,
+          },
+          options: [
+            ...base.request.options,
+            ...Array.from(
+              { length: Math.ceil(Math.max(0, bytes - 32_000) / 4096) },
+              (_, index) => ({
+                id: `${id}:${index}`,
+                label: "o".repeat(4096),
+                kind: "deny" as const,
+              }),
+            ),
+          ],
+        },
+      };
+    case 2:
+      return {
+        ...base,
+        request: {
+          kind: "question" as const,
+          questions: Array.from({ length: 8 }, (_, index) => ({
+            id: `${id}:q${index}`,
+            text: `Which ${id}? ${"y".repeat(Math.ceil(bytes / 8))}`,
+            options: [{ id: "a", label: "A" }],
+            multiSelect: false,
+            allowOther: true,
+            secret: false,
+          })),
+        },
+      };
+    default:
+      return {
+        ...base,
+        request: {
+          kind: "elicitation" as const,
+          server: "docs",
+          message: `Fill ${id}`,
+          schema: { type: "object", properties: { field: { type: "string", description: bulk } } },
+        },
+      };
+  }
+}
+/** How a shown row names its request: an approval by its command, a question or form by its words. */
+const named = (id: string, shape: number) =>
+  shape % 4 === 2 ? `Which ${id}?` : shape % 4 === 3 ? `Fill ${id}` : `make ${id}`;
+const rowName = (request: Record<string, unknown>) => {
+  const questions = request.questions as { text: string }[] | undefined;
+  return String(
+    request.kind === "approval"
+      ? request.command
+      : (questions?.[0]?.text ?? (request.form as { message?: string } | undefined)?.message ?? ""),
+  );
+};
+const answer = (id: string, kind = "approval") => ({
   type: "interaction.closed" as const,
   interaction: id,
   state: "resolved" as const,
-  resolution: { kind: "approval" as const, optionId: `${id}:allow` },
+  resolution:
+    kind === "question"
+      ? { kind: "question" as const, answers: {}, dismissed: true }
+      : kind === "elicitation"
+        ? { kind: "elicitation" as const, action: "decline" as const }
+        : { kind: "approval" as const, optionId: `${id}:allow` },
 });
 
 it.each(
@@ -232,7 +306,7 @@ it.each(
     [1, 2, 3, 4, 5, 6].map((seed) => ({ entityPages, seed })),
   ),
 )(
-  "generated thread $seed: the row counts and shows the pending requests, whatever their number and size ($entityPages daemon)",
+  "generated thread $seed: the row counts every request waiting, whatever their number and size, and shows pending ones ($entityPages daemon)",
   async ({ entityPages, seed }) => {
     const r = random(seed);
     const kib = 1024;
@@ -244,52 +318,144 @@ it.each(
           ? r.int(4 * kib, 60 * kib)
           : r.int(130 * kib, 300 * kib);
     };
-    const pending = new Set(["first"]);
+    /** Each request still pending, with the shape it was asked in. */
+    const pending = new Map<string, number>([["first", 0]]);
     let made = 0;
+    const kinds = ["approval", "approval", "question", "elicitation"];
+    const open = (daemon: FakeDaemon, size: number) => {
+      const id = `ask-${made++}`;
+      const shape = r.int(0, 3);
+      daemon.apply(asking, [ask(id, size, shape)]);
+      pending.set(id, shape);
+      return id;
+    };
+    const close = (daemon: FakeDaemon, id: string) => {
+      daemon.apply(asking, [answer(id, kinds[(pending.get(id) ?? 0) % 4])]);
+      pending.delete(id);
+    };
     const history = (daemon: FakeDaemon) => {
       // Some threads hold more pending requests than one page's 200 entries.
       const count = seed % 3 === 0 ? r.int(201, 230) : r.int(0, 40);
       for (let index = 0; index < count; index++) {
-        const id = `ask-${made++}`;
-        daemon.apply(asking, [ask(id, seed % 3 === 0 ? r.int(10, 200) : bytes())]);
-        pending.add(id);
-        if (r.next() < 0.4) {
-          daemon.apply(asking, [answer(id)]);
-          pending.delete(id);
-        }
+        const id = open(daemon, seed % 3 === 0 ? r.int(10, 200) : bytes());
+        if (r.next() < 0.4) close(daemon, id);
       }
     };
-    const { daemon, latest } = await phone({ entityPages, history });
+    // The new daemon names requests over 200 KiB as too large to send.
+    const { daemon, latest } = await phone({ entityPages, history, largestEntity: 200 * kib });
     // While the phone reads: requests answered and new ones asked.
     for (let round = 0; round < 6; round++) {
       await new Promise((wake) => setTimeout(wake, r.int(0, 5)));
-      for (const id of pending)
-        if (r.next() < 0.05) {
-          daemon.apply(asking, [answer(id)]);
-          pending.delete(id);
-        }
-      if (r.next() < 0.5) {
-        const id = `ask-${made++}`;
-        daemon.apply(asking, [ask(id, bytes())]);
-        pending.add(id);
-      }
+      for (const id of pending.keys()) if (id !== "first" && r.next() < 0.05) close(daemon, id);
+      if (r.next() < 0.5) open(daemon, bytes());
     }
+    const names = () =>
+      new Set(
+        [...pending].map(([id, shape]) =>
+          id === "first" ? "bun run test:changed --with-process" : named(id, shape),
+        ),
+      );
     await vi.waitFor(
       () => {
         const row = latest(asking) as
-          | { total: number; requests: { command: string }[] }
+          | { total: number; requests: Record<string, unknown>[] }
           | undefined;
         expect(row?.total).toBe(pending.size);
         expect(row?.requests).toHaveLength(Math.min(8, pending.size));
-        // Each shown is pending, whole enough to answer: its command is its own.
-        const commands = new Set(
-          [...pending].map((id) =>
-            id === "first" ? "bun run test:changed --with-process" : `make ${id}`,
-          ),
-        );
-        for (const request of row?.requests ?? []) expect(commands.has(request.command)).toBe(true);
+        expect(new Set(row?.requests.map((request) => request.id)).size).toBe(row?.requests.length);
+        // Each shown is pending: named as asked, or one too large to send.
+        for (const request of row?.requests ?? [])
+          if (request.kind !== "too_large")
+            expect([...names()].some((name) => rowName(request).startsWith(name))).toBe(true);
       },
       { timeout: 4000 },
     );
+  },
+);
+
+it("a request too large to send is counted and shown as one to open on a computer, never answered here", async () => {
+  const { latest } = await phone({
+    largestEntity: 64 * 1024,
+    history: (fake) => fake.apply(asking, [ask("huge", 100 * 1024, 0)]),
+  });
+  await vi.waitFor(() =>
+    expect(latest(asking)).toMatchObject({
+      total: 2,
+      requests: [
+        { kind: "approval", command: "bun run test:changed --with-process" },
+        { kind: "too_large", title: "A request too large to show here", options: [] },
+      ],
+    }),
+  );
+});
+
+/** Run `after` on the daemon after each interactions page it answers, from before the phone starts. */
+const onPages = (daemon: FakeDaemon, after: (pages: number) => void) => {
+  const read = daemon.entities.bind(daemon);
+  let pages = 0;
+  daemon.entities = (...args) => {
+    const page = read(...args);
+    if (args[1] === "interactions") after(++pages);
+    return page;
+  };
+};
+
+it("a request opened while the phone reads is shown by the read its count change starts", async () => {
+  let reads = 0;
+  const { latest } = await phone({
+    history: (daemon) => {
+      answered(16, 40 * 1024)(daemon);
+      // The new request arrives after the phone's first page, while its read is under way.
+      onPages(daemon, (pages) => {
+        reads = pages;
+        if (pages === 1) daemon.apply(asking, [approval("late", "git push")]);
+      });
+    },
+  });
+  await vi.waitFor(() => {
+    const row = latest(asking) as { total: number; requests: { command: string }[] } | undefined;
+    expect(row?.total).toBe(2);
+    expect(row?.requests.map((request) => request.command).toSorted()).toEqual([
+      "bun run test:changed --with-process",
+      "git push",
+    ]);
+  });
+  // The page it was opened behind, then the read again its count change started.
+  expect(reads).toBeGreaterThan(1);
+});
+
+it.each([
+  ["upgraded", "chronological", "active-first"],
+  ["downgraded", "active-first", "chronological"],
+] as const)(
+  "a daemon %s between the phone's pages: every pending request shown once",
+  async (_label, from, to) => {
+    const pendingIds = Array.from({ length: 12 }, (_, i) => `ask-${i}`);
+    let pages = 0;
+    const { latest } = await phone({
+      entityPages: from,
+      history: (fake, options) => {
+        for (const id of pendingIds) fake.apply(asking, [ask(id, 30 * 1024, 0)]);
+        answered(16, 40 * 1024)(fake);
+        // After the first page, the daemon is another build.
+        onPages(fake, (count) => {
+          pages = count;
+          if (count === 1) options.entityPages = to;
+        });
+      },
+    });
+    await vi.waitFor(() => {
+      const row = latest(asking) as
+        | { total: number; requests: { id: string; command: string }[] }
+        | undefined;
+      expect(row?.total).toBe(13);
+      expect(new Set(row?.requests.map((request) => request.id)).size).toBe(8);
+      const commands = new Set([
+        "bun run test:changed --with-process",
+        ...pendingIds.map((id) => `make ${id}`),
+      ]);
+      for (const request of row?.requests ?? []) expect(commands.has(request.command)).toBe(true);
+    });
+    expect(pages).toBeGreaterThan(1);
   },
 );

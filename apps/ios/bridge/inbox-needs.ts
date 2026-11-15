@@ -5,6 +5,7 @@ import {
   ThreadId,
   type Agent,
   type CommandPayload,
+  type EntitiesPage,
   type Interaction,
   type Item,
   type ThreadListEntry,
@@ -23,8 +24,12 @@ import { RequestAnswer, requestResolution } from "./thread-requests.ts";
  * strip words them (`interactionRow`), within ADR 0074's preview bounds. Only threads the daemon
  * marks `needs_you` are read, one bounded page at a time, until every request it counts is found
  * or no older page is left (never a fixed number of pages: large answered requests in front of
- * a pending one must not hide it; daemons since 2026-11 put every pending request on the newest
- * page anyway); a row's requests change only when the
+ * a pending one must not hide it; daemons since 2026-11 send pending requests first). A request
+ * too large for the daemon to send is counted and shown as one to open on a computer.
+ *
+ * Guarantee: every request pending both when a read starts and when it ends is shown. One
+ * opened during a read changes the thread's count, and that change reads again. A row's
+ * requests change only when the
  * daemon's read says so, never on this phone's guess. Answers re-read the request first and go
  * through the durable command path (ADR 0012), as notification actions do.
  */
@@ -36,6 +41,26 @@ const pageSize = 50;
 const pageBytes = 64 * 1024;
 /** Newest first: everything before the end of time. */
 const newest = Number.MAX_SAFE_INTEGER;
+/** A bound on one read's pages, whatever a daemon answers: 200 pages of 50. */
+const readsMost = 200;
+
+/** A request the daemon named but could not send, too large for any reply. */
+type TooLargeRequest = NonNullable<EntitiesPage["tooLarge"]>[number];
+/** What a thread waits on: requests read, then any too large to send. */
+type Waiting = Interaction | TooLargeRequest;
+
+/** A request too large to send, as a row: counted as waiting, opened on a larger screen. */
+const tooLargeRow = (request: TooLargeRequest) => ({
+  id: request.id,
+  kind: "too_large",
+  state: "pending",
+  title: "A request too large to show here",
+  description: "Open it on your computer to see and answer it.",
+  command: "",
+  options: [],
+  truncated: true,
+  unanswerable: true,
+});
 /** The agent's last words, as one muted paragraph in the run. */
 const wordsLimit = 600;
 const itemsRead = 24;
@@ -137,11 +162,18 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   /** Threads whose requests the phone holds, so one that stops waiting is cleared once. */
   const held = new Set<string>();
 
-  const interactions = async (threadId: string) => {
-    // By id, the latest copy kept: one answered between two pages comes again in its new state.
-    const found = new Map<string, Interaction>();
+  const interactions = async (threadId: string): Promise<Waiting[]> => {
+    // By id, the latest copy kept: one answered between two pages comes again in its new
+    // state, and a daemon that read a cursor as a fresh start sends some again.
+    const found = new Map<string, Interaction | TooLargeRequest>();
+    const pending = () =>
+      [...found.values()].filter((entry) =>
+        "active" in entry ? entry.active : entry.state === "pending",
+      );
+    const sent = new Set<number>();
     let before = newest;
-    for (;;) {
+    for (let page = 0; page < readsMost; page++) {
+      sent.add(before);
       const reply = await owner.request({
         type: "entities.page",
         threadId,
@@ -153,14 +185,18 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       const { page: result } = reply;
       if (result.collection !== "interactions") break;
       for (const entry of result.entries) found.set(entry.id, entry);
+      for (const entry of result.tooLarge ?? []) found.set(entry.id, entry);
       const want = needsSignature(store.thread(threadId)) ? waitingCount(threadId) : 0;
-      if (pendingOf([...found.values()]).length >= want) break;
-      // The daemon says there is nothing older; a cursor that did not move would read the same
-      // page again.
-      if (result.entitiesBefore === null || result.entitiesBefore >= before) break;
+      if (pending().length >= want) break;
+      // Nothing older; or a cursor already read, which would read the same pages again.
+      if (result.entitiesBefore === null || sent.has(result.entitiesBefore)) break;
       before = result.entitiesBefore;
     }
-    return pendingOf([...found.values()]);
+    const requests = pending();
+    return [
+      ...pendingOf(requests.filter((entry): entry is Interaction => !("active" in entry))),
+      ...requests.filter((entry): entry is TooLargeRequest => "active" in entry),
+    ];
   };
   const waitingCount = (threadId: string) => {
     const status = store.thread(threadId)?.status;
@@ -181,7 +217,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     return byId;
   };
 
-  const put = (threadId: string, requests: readonly Interaction[], byId: Map<string, Agent>) => {
+  const put = (threadId: string, requests: readonly Waiting[], byId: Map<string, Agent>) => {
     const entry = store.thread(threadId);
     const reader = {
       item: () => undefined,
@@ -196,13 +232,15 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       requests: requests
         .slice(0, shownPerThread)
         .map((interaction) =>
-          interactionRow(
-            interaction,
-            reader,
-            interaction.request.kind === "approval"
-              ? (interaction.request.target?.command ?? "")
-              : "",
-          ),
+          "active" in interaction
+            ? tooLargeRow(interaction)
+            : interactionRow(
+                interaction,
+                reader,
+                interaction.request.kind === "approval"
+                  ? (interaction.request.target?.command ?? "")
+                  : "",
+              ),
         ),
     }));
   };
@@ -266,7 +304,11 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     try {
       const pending = await interactions(action.threadId);
       resolution = needsResolution(
-        pending.find((interaction) => interaction.id === action.interactionId),
+        // A request too large to send is never answered here: it has nothing to answer with.
+        pending.find(
+          (interaction): interaction is Interaction =>
+            !("active" in interaction) && interaction.id === action.interactionId,
+        ),
         action.answer,
       );
     } catch {
