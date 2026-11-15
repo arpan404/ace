@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { childAskingLabel } from "@ace/ui-core";
 import { Suspense, type ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import type { DescendantRequest } from "./descendant-request.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { childAskingWords } from "./live-words.ts";
 
 /** The strip page a child's request takes: its interaction id, or its thread's when unloaded. */
 export function descendantKey(request: DescendantRequest): string {
@@ -27,6 +28,8 @@ export function DescendantCard(props: {
 }) {
   const { request } = props;
   const machine = useMachineSearch();
+  // That the child needs the person is the child's copy's fact: only current, it says so.
+  const asking = childAskingWords(useThreadFreshness(request.threadId).live, request.name);
   return (
     <>
       {request.interactionId ? (
@@ -42,8 +45,8 @@ export function DescendantCard(props: {
         </Suspense>
       ) : (
         <p className="flex min-h-9 items-center gap-[7px] px-4 pt-2 text-ui">
-          <StatusGlyph state="needs-you" />
-          <span className="min-w-0 truncate">{childAskingLabel(request.name)}</span>
+          {asking.needsYou && <StatusGlyph state="needs-you" />}
+          <span className="min-w-0 truncate">{asking.text}</span>
           <Link
             to="/t/$threadId"
             params={{ threadId: request.threadId }}

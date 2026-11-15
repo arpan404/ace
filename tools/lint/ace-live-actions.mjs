@@ -70,6 +70,7 @@ const formatters = new Set([
   "nowLine",
   "queuedDetail",
   "queuedSlotFragment",
+  "childAskingLabel",
 ]);
 
 /** Files that may use the formatters: the live-words modules, and tests. */
