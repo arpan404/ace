@@ -8,6 +8,7 @@ pub mod engine;
 pub mod framing;
 pub mod os;
 pub mod probe;
+pub mod rank;
 pub mod record;
 pub mod secret;
 pub mod serve_sim;
