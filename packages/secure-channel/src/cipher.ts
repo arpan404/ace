@@ -59,6 +59,9 @@ export class CipherState {
       Number.isInteger(offset) && offset >= 0 && offset + length <= block.length;
     if (this.#closed || !this.#key) throw new Error("No cipher key");
     if (!fits(keyOffset, 32) || !fits(nonceOffset, 8)) throw new Error("Export outside the block");
+    // Checked before anything is written: an overlap would put the nonce over key bytes.
+    if (keyOffset < nonceOffset + 8 && nonceOffset < keyOffset + 32)
+      throw new Error("Key and nonce ranges overlap");
     block.set(this.#key, keyOffset);
     new DataView(block.buffer, block.byteOffset, block.byteLength).setBigUint64(
       nonceOffset,

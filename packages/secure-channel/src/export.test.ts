@@ -67,3 +67,24 @@ it("flow state refuses to export while a fragment is still queued for the reader
   flow.consumed(10);
   expect(() => flow.exportState()).not.toThrow();
 });
+
+it("a cipher refuses key and nonce ranges that overlap, writes nothing, and stays usable", () => {
+  const sender = new CipherState(key());
+  const receiver = new CipherState(key());
+  for (const [keyAt, nonceAt] of [
+    [0, 0],
+    [0, 24],
+    [32, 31],
+    [8, 0],
+  ] as const) {
+    const block = new Uint8Array(120);
+    expect(() => sender.exportInto(block, keyAt, nonceAt)).toThrow();
+    expect(block.every((byte) => byte === 0)).toBe(true);
+  }
+  // Nothing was destroyed: the stream goes on at the same nonce.
+  expect([...receiver.decrypt(sender.encrypt(new Uint8Array([9])))]).toEqual([9]);
+  // Adjacent ranges are fine.
+  const block = new Uint8Array(120);
+  sender.exportInto(block, 0, 32);
+  expect(new DataView(block.buffer).getBigUint64(32)).toBe(1n);
+});
