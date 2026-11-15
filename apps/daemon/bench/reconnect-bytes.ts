@@ -6,7 +6,8 @@
  *
  * - quiet: back after a short drop with nothing changed;
  * - away: back after time away while a few threads (and the open one) were active;
- * - relaunch: the app started again with its kept store.
+ * - relaunch: the app started again with its kept store;
+ * - cold relaunch: the same, its kept store slow to read (400 ms a record), as a cold store is.
  *
  *   bun apps/daemon/bench/reconnect-bytes.ts [--runs=1] [--output=FILE.json]
  *
@@ -182,14 +183,19 @@ async function session() {
     for (const [index, id] of active.entries()) names[id] = `active-${index + 1}`;
     const openThread = ready.threads.typical.id;
 
-    /** A client on the kept store, with the typical thread open; resolves once all is current. */
-    const start = async () => {
-      const phone = shapedClient(route, new FileSnapshots(snapshotsFile));
+    /**
+     * A client on the kept store, with the typical thread open; resolves once all is current.
+     * The store is read back from its file first, as an app reads its own at launch.
+     */
+    const start = async (readMs = 0) => {
+      const snapshots = new FileSnapshots(snapshotsFile, readMs);
+      await snapshots.load();
+      const phone = shapedClient(route, snapshots);
       clients.push(phone);
       await phone.start();
       const sidebar = phone.threads().store;
       const lease = phone.thread(openThread);
-      return { phone, sidebar, lease };
+      return { phone, sidebar, lease, snapshots };
     };
     const current = async (client: Awaited<ReturnType<typeof start>>, head: number) => {
       const state = client.phone.connectionState();
@@ -263,9 +269,12 @@ async function session() {
       returnMs: Math.round(awayDone - returnAt),
     };
 
-    // (iii) relaunch: the app starts again on its kept store, nothing changed meanwhile.
+    // (iii) relaunch: the app starts again on its kept store, nothing changed meanwhile. The
+    // views write their copies, the app closes, and its store goes to disk, as on a swipe away.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
     first.lease.release();
     await first.phone.close();
+    await first.snapshots.save();
     await daemon.request({ op: "probe-reset" });
     linkFrom = down();
     returnAt = epoch();
@@ -277,7 +286,24 @@ async function session() {
       linkBytes: down() - linkFrom,
       returnMs: Math.round(relaunchDone - returnAt),
     };
+
+    // (iv) cold relaunch: again, the kept store now slow to read, as a cold one is at launch.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
     second.lease.release();
+    await second.phone.close();
+    await second.snapshots.save();
+    await daemon.request({ op: "probe-reset" });
+    linkFrom = down();
+    returnAt = epoch();
+    const third = await start(400);
+    const coldDone = await current(third, newest);
+    read = await probe();
+    results.coldRelaunch = {
+      ...account(read.sentLines, coldDone, names),
+      linkBytes: down() - linkFrom,
+      returnMs: Math.round(coldDone - returnAt),
+    };
+    third.lease.release();
     return results;
   } finally {
     for (const client of clients) await client.close().catch(() => undefined);
