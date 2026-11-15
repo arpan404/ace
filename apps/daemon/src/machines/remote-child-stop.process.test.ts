@@ -4,7 +4,7 @@ import { agentForest, type ThreadWork } from "@ace/ui-core";
 import { setup } from "../agent-control/test-support.ts";
 import { REMOTE_CHILD_LEASE_MS } from "../liveness/lease.ts";
 import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
-import { MachineChildren } from "./children.ts";
+import { MachineChildren, UNREACHABLE_RETRY_CAP_MS } from "./children.ts";
 import { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -338,9 +338,16 @@ it("a child whose machine goes silent becomes lost contact after the lease, rele
   ]);
   expect(live).not.toContain(lost.status.state);
 
-  // It reports again: it is in contact and holds its parent until it ends.
+  // It reports again. Its machine failed every read while silent, so the next read waits out
+  // that machine's backoff, never longer than its cap; polls come once a second meanwhile.
   rijan.silent = false;
-  await at(f.clock.now() + 1_000);
+  const answered = f.clock.now();
+  while (
+    ledger.watched(id)?.view.contact === "lost" &&
+    f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS
+  )
+    await at(f.clock.now() + 1_000);
+  // Then it is in contact and holds its parent until it ends.
   const back = parentView(f, parent);
   expect(ledger.watched(id)?.view).toMatchObject({ state: "working" });
   expect(ledger.watched(id)?.view.contact).toBeUndefined();
