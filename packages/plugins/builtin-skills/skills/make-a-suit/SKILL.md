@@ -35,7 +35,7 @@ The id is lower-case words joined by dashes, at most 48 characters, and equals t
 
 ## The loop
 
-1. **Understand the look.** Name its material (paper, glass, steel, felt, phosphor…), its light (one scheme or both), its era and its mood in a few words. If the sentence leaves one of these open, pick the reading that makes the strongest look; ask only when two readings would produce opposite Suits.
+1. **Understand the look.** Name its material (paper, glass, steel, felt, lacquer…), its light (one scheme or both), its era and its mood in a few words. If the sentence leaves one of these open, pick the reading that makes the strongest look; ask only when two readings would produce opposite Suits.
 2. **Plan** before writing: the neutral ramp and the one accent per scheme, the type pairing, radius and density, the layout choices, and the one or two signature details (an ornament, a region background, a scene). Read `references/design.md`. Done when every palette field you will set has a value and a reason.
 3. **Write** `suit.json` first (`references/suit-json.md`), then `suit.css` (`references/suit-css.md`), then any ornaments and scenes.
 4. **Preview**: `suit_apply { mode: "preview", id }`. Static checks run first: `status: "refused"` returns `problems` and nothing applies.

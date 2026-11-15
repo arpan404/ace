@@ -1,6 +1,6 @@
 # Scenes
 
-A scene is an animated backdrop for one region, drawn on one canvas. Add one only when the look truly moves (weather, a slow gradient drift, a starfield); a still background in `regions` or suit.css costs nothing and is always checkable.
+A scene is an animated backdrop for one region, drawn on one canvas. Add one only when the look truly moves (weather, a slow gradient drift, drifting particles); a still background in `regions` or suit.css costs nothing and is always checkable.
 
 ## Files and regions
 

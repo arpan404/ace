@@ -6,7 +6,7 @@ A premium Suit reads as one deliberate object: a single material, a calm neutral
 
 Build each scheme as a **neutral ramp** plus **one accent**.
 
-1. **Pick the ramp's hue and chroma.** Neutrals carry the material: warm grey for paper, blue-grey for steel, green-black for phosphor. Keep chroma low (OKLCH chroma under about 0.03) so the accent and code colours stand out.
+1. **Pick the ramp's hue and chroma.** Neutrals carry the material: warm grey for paper, blue-grey for steel, green-black for a CRT terminal. Keep chroma low (OKLCH chroma under about 0.03) so the accent and code colours stand out.
 2. **Step the surfaces in lightness**, all one hue. Dark scheme, from deepest: `sidebar` ≤ `code` ≤ `canvas` < `surface` < `raised` < `hover` < `active`, each a few OKLCH lightness points apart (about 0.02–0.04). Light scheme: `canvas` and `surface` near white (`surface` may be pure white over an off-white `canvas`), `sidebar` a step darker, `raised` the lightest.
 3. **Lines**: `border` a small step off the surfaces, `borderStrong` a clear step more. Hairlines should be felt, not seen.
 4. **Text levels**, the same hue as the ramp: `text` at 12:1 or more on `canvas` (never pure white on dark; off-white with the ramp's tint), `muted` about 7:1, `subtle` 4.5:1 or a little more on every surface, `faint` 3:1 on `canvas` and only for icons.
@@ -18,7 +18,7 @@ Contrast targets in short: body and secondary text 4.5:1 on every surface they s
 
 ## Light and dark parity
 
-Give both schemes unless the look is inherently one (a phosphor terminal is dark; a paper notebook may be light). In two schemes the Suit must read as the same object: same hue family for the ramp, the same accent hue (tuned in lightness per scheme), the same type and shape. Derive one scheme from the other by mirroring lightness, never by inventing new hues. Check both in screenshots.
+Give both schemes unless the look is inherently one (a CRT terminal is dark; a paper notebook may be light). In two schemes the Suit must read as the same object: same hue family for the ramp, the same accent hue (tuned in lightness per scheme), the same type and shape. Derive one scheme from the other by mirroring lightness, never by inventing new hues. Check both in screenshots.
 
 ## Type
 
