@@ -2314,11 +2314,19 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
     returns it, and `watch` returns an unsubscribe, so lookups never add watchers.
   - `CipherState.exportInto` refuses overlapping key and nonce ranges, writes nothing, and leaves
     the cipher usable.
-  - Relay sockets have a zero linger, so a close sends a reset and nothing queued in the kernel
-    leaves. `close` returns the stream's tasks, and a priority gate (`shell/priority_gate.rs`)
-    holds an answer that follows a close until every task that owned the socket has ended.
-    `revoked` and `closed` therefore say what they mean. Answers keep their order, and the
-    supervisor's 250 ms kill bounds the wait.
+  - Each relay stream has one entry from its dial on (`shell/relay_sockets.rs`). The dial task
+    fills the entry's slot in the same step that spawns the socket's tasks, so a close finds the
+    socket wherever it is: before the dial ends, with its `Dialed` queued, or after.
+  - Closes have a mode (`CloseMode`).
+    - **Graceful** (the daemon's `relay.close`, a session's end, expiry, shutdown): sends what is
+      queued, then the WebSocket close (and TLS's close_notify), turns linger off and sends our
+      FIN, within 100 ms before it is forced.
+    - **Forced** (a revocation, a protocol or transport break, a backlog, failed keys): resets
+      at once. The zero linger is installed right after connect, before anything can fail.
+  - A priority gate (`shell/priority_gate.rs`) holds each answer only for the closes its own
+    message made. It is released once every task that owned those sockets has ended, so
+    `revoked` and `closed` say what they mean. An answer with no closes (an epoch ack) goes at
+    once, and one stream's slow socket never holds back another's answer.
   - The hand-over wipes the ephemeral private key it was given once Noise has its copy, and
     when the constructor fails.
   - Tickets follow D1's ownership rule: `relay.keys`' block is the supervisor's from `send` on
