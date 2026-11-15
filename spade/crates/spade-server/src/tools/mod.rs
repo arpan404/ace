@@ -19,6 +19,7 @@ mod todo;
 mod wake;
 mod web_fetch;
 mod web_search;
+mod workers;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -49,6 +50,7 @@ pub use todo::Todo;
 pub use wake::with_wake_tools;
 pub use web_fetch::WebFetch;
 pub use web_search::{NOT_SET_UP, WebSearch};
+pub use workers::with_worker_tools;
 
 pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
 

@@ -28,8 +28,10 @@ impl Engine {
             ));
         }
         let (name, hit) = self.bot_cap(id)?;
+        // A worker's budget doesn't reset: it waits until it is raised (ADR 0161).
+        let resets = (hit.scope != spade_core::event::CapScope::Budget).then_some(hit.resets_at);
         Some((
-            Some(hit.resets_at),
+            resets,
             format!(
                 "{} It carries on then, or as soon as the cap is raised.",
                 oversight::refusal(&name, &hit)
@@ -62,6 +64,8 @@ impl Engine {
                 self.fire_wake(&id, &wake, Cause::Condition, Some(LIFTED), Vec::new());
             }
         }
+        // Its workers' caps count its spend too (ADR 0161).
+        self.unpark_subtree(&id, LIFTED);
     }
 
     /// When Spade opens, once the wakes are armed: a task parked on a cap that was raised or

@@ -30,6 +30,7 @@ pub mod task;
 pub mod title;
 pub mod tools;
 pub mod transcript;
+pub mod tree;
 pub mod turn;
 pub mod wake;
 

@@ -298,6 +298,11 @@ impl Transcript {
             | Known::JobProgress { .. }
             | Known::ServiceStarted { .. }
             | Known::ServiceEnded { .. }
+            | Known::WorkerOf(_)
+            | Known::WorkerStarted(_)
+            | Known::WorkerReported(_)
+            | Known::WorkerBudget { .. }
+            | Known::WorkerDetached { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {

@@ -78,10 +78,14 @@ impl Engine {
     /// as the person changes it, so a change made while a step's calls are decided holds from
     /// the next one.
     pub(super) fn level(&self, id: &str, events: &[Event]) -> Access {
-        let mut levels = self.levels.lock().unwrap_or_else(|p| p.into_inner());
-        *levels
-            .entry(id.to_owned())
-            .or_insert_with(|| self.access(events))
+        let own = {
+            let mut levels = self.levels.lock().unwrap_or_else(|p| p.into_inner());
+            *levels
+                .entry(id.to_owned())
+                .or_insert_with(|| self.access(events))
+        };
+        // A worker never acts with more than its parent does now (ADR 0161).
+        self.narrow_level(id, own)
     }
 
     /// Once, the first time a build with access levels opens a database: every conversation it

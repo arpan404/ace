@@ -14,6 +14,7 @@ mod seen;
 mod skills;
 mod spend;
 mod teams;
+mod workers;
 
 pub use agents::{Agent, NewAgent};
 pub use endpoints::{StoredEndpoint, StoredModel};

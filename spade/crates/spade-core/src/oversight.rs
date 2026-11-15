@@ -118,6 +118,13 @@ pub fn refusal(name: &str, hit: &Hit) -> String {
     let (which, until) = match hit.scope {
         CapScope::Daily => ("daily", "midnight"),
         CapScope::Monthly => ("monthly", "the start of next month"),
+        // A worker's budget doesn't reset (ADR 0161).
+        CapScope::Budget => {
+            return format!(
+                "{name} has used its budget of {}; it waits until the budget is raised.",
+                dollars(hit.cap_micros)
+            );
+        }
     };
     format!(
         "{name} is at its {which} cap of {} until {until}.",

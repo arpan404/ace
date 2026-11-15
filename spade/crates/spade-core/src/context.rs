@@ -556,8 +556,9 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
-            // A wake's note and a job's check-in (ADR 0160) read like a job's result.
-            Known::WakeFired { .. } | Known::JobProgress { .. } => {
+            // A wake's note, a job's check-in (ADR 0160) and a worker's report (ADR 0161) read
+            // like a job's result.
+            Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_) => {
                 if let Some(text) = crate::wake::note_text(event) {
                     if pending.is_empty() {
                         push_person(&mut out, text, Vec::new());
@@ -931,9 +932,10 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         }
         Event::Known(Known::PluginsStarted { added, .. }) => !added.is_empty(),
         // A wake's data (a service's line, a thread's title) or a job's output (ADR 0160).
-        Event::Known(known @ (Known::WakeFired { .. } | Known::JobProgress { .. })) => {
-            crate::wake::untrusted(known)
-        }
+        Event::Known(
+            known
+            @ (Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_)),
+        ) => crate::wake::untrusted(known),
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -996,6 +998,7 @@ fn describe_event(before: &[Event], event: &Event) -> String {
         Event::Known(Known::PluginsStarted { .. }) => "text from a plugin's hook".to_owned(),
         Event::Known(Known::WakeFired { .. }) => "what woke the bot".to_owned(),
         Event::Known(Known::JobProgress { name, .. }) => format!("the output of {name}"),
+        Event::Known(Known::WorkerReported(report)) => format!("the words of {}", report.name),
         Event::Known(Known::PersonActivity { .. }) => {
             "file names and addresses from the person's work on the computer".to_owned()
         }

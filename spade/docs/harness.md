@@ -33,6 +33,9 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
 
+A bot's tree of workers adds `worker_of`, `worker_started`, `worker_reported`, `worker_budget` and
+`worker_detached` (ADR 0161, [workers.md](workers.md)).
+
 ## How a turn runs
 
 `spade_core::turn::next_step(events)` decides, from stored events only:

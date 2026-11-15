@@ -1,0 +1,362 @@
+//! `bot_create` (ADR 0161): a bot makes a worker bot for part of its work. The worker is a bot
+//! of the person's like any other, listed under its maker, with its own conversation, workspace,
+//! goal and plan. It never gets more than its maker has: its access level, tools, connectors and
+//! plugins are subsets of the maker's.
+
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
+use serde_json::{Value, json};
+use spade_core::autonomy::Access;
+use spade_core::event::{FromAgent, Known};
+use spade_core::tree::{self, Grants, Kind, Link, Started};
+use spade_core::{Event, context};
+use spade_store::NewAgent;
+
+use super::super::Engine;
+use super::lock;
+use crate::tools::ToolOutput;
+
+/// Where a bot's connectors are granted (ADR 0131): the server sets the person's connector hub.
+pub trait ConnectorGrants: Send + Sync {
+    /// The connectors `agent` may use now: `None` for every one.
+    fn allowed(&self, agent: &str, is_main: bool) -> Option<BTreeSet<String>>;
+    /// Lets `agent` use exactly `connectors`.
+    fn grant(&self, agent: &str, connectors: BTreeSet<String>) -> Result<(), String>;
+}
+
+impl ConnectorGrants for spade_connect::Connectors {
+    fn allowed(&self, agent: &str, is_main: bool) -> Option<BTreeSet<String>> {
+        match self.access(agent, is_main) {
+            spade_connect::Access::All => None,
+            spade_connect::Access::Only(ids) => Some(ids),
+        }
+    }
+
+    fn grant(&self, agent: &str, connectors: BTreeSet<String>) -> Result<(), String> {
+        self.set_access(agent, spade_connect::Access::Only(connectors))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// The `bot_create` call's arguments.
+#[derive(serde::Deserialize)]
+struct Arguments {
+    name: String,
+    task: String,
+    #[serde(default)]
+    brief: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    access: Option<String>,
+    #[serde(default)]
+    tools: Option<Vec<String>>,
+    #[serde(default)]
+    connectors: Vec<String>,
+    #[serde(default)]
+    plugins: Vec<String>,
+    #[serde(default)]
+    budget_usd: Option<f64>,
+}
+
+impl Engine {
+    /// Sets where connectors are granted to workers. Once; later calls are ignored.
+    pub fn set_connector_grants(&self, grants: Arc<dyn ConnectorGrants>) {
+        let _ = self.workers.grants.set(grants);
+    }
+
+    /// `bot_create` from the call with `key` (`<conversation>.<call>`): makes the worker (once,
+    /// even when the call runs again after a restart) and starts it, or queues it while the
+    /// maker's workers are all busy.
+    pub(crate) fn bot_create(self: &Arc<Self>, key: &str, arguments: Value) -> ToolOutput {
+        let Some((caller, _)) = key.split_once('.') else {
+            return ToolOutput::error("Spade could not tell which bot asked.");
+        };
+        if self.helper_of(caller).is_some() {
+            return ToolOutput::error(
+                "Refused: a helper cannot make bots. Answer, and say what your bot should make.",
+            );
+        }
+        // Made already by an earlier run of this call.
+        if let Some(made) = self
+            .worker_children(caller)
+            .into_iter()
+            .find(|c| self.worker_link(c).is_some_and(|l| l.call == key))
+        {
+            return self.created(&made);
+        }
+        let arguments: Arguments = match crate::tools::parse(arguments) {
+            Ok(arguments) => arguments,
+            Err(refused) => return refused,
+        };
+        match self.make_worker(caller, key, arguments) {
+            Ok(conversation) => {
+                self.admit_queued(caller);
+                self.created(&conversation)
+            }
+            Err(why) => ToolOutput::error(why),
+        }
+    }
+
+    /// Checks the grants against the maker's and stores the worker; its conversation.
+    fn make_worker(
+        self: &Arc<Self>,
+        caller: &str,
+        key: &str,
+        arguments: Arguments,
+    ) -> Result<String, String> {
+        let me = self
+            .store
+            .agent_for_conversation(caller)
+            .map_err(|e| e.to_string())?
+            .ok_or("Only a bot can make workers.")?;
+        let name = super::super::agents::name(&arguments.name).map_err(|e| e.to_string())?;
+        let task = super::super::agents::task(&arguments.task).map_err(|e| e.to_string())?;
+        if task.is_empty() {
+            return Err("Give the worker a task: what it is for, in full.".to_owned());
+        }
+        let model = match arguments.model.as_deref().map(str::trim) {
+            Some(model) if !model.is_empty() => {
+                self.check_model(model).map_err(|e| e.to_string())?
+            }
+            _ => self.reply_model(caller),
+        };
+        let depth = self.worker_ancestors(caller).len() + 1;
+        if depth >= super::super::MOST_HOPS as usize {
+            return Err(format!(
+                "Refused: your tree is {depth} bots deep already. Do this part yourself or with \
+                 a helper."
+            ));
+        }
+        let events = self.load(caller).map_err(|e| e.to_string())?;
+        // Access: never above the maker's now.
+        let mine = self.level(caller, &events);
+        let asked = match arguments.access.as_deref() {
+            Some(word) => Access::parse(word)
+                .ok_or("access is ask, auto_review or full_access.".to_owned())?,
+            None => mine,
+        };
+        let access = tree::narrow(asked, mine);
+        // Tools: only the maker's.
+        let registry = self.registry_for(caller);
+        if let Some(tools) = &arguments.tools {
+            let missing = tree::ungrantable(tools, |name| registry.get(name).is_some());
+            if !missing.is_empty() {
+                return Err(format!(
+                    "Refused: you can't give a worker tools you don't have: {}.",
+                    missing.join(", ")
+                ));
+            }
+        }
+        let connectors = self.grantable_connectors(&me, &arguments.connectors)?;
+        let plugins = self.grantable_plugins(&me.id, &arguments.plugins)?;
+        let budget_micros = match arguments.budget_usd {
+            Some(usd) if !usd.is_finite() || usd <= 0.0 => {
+                return Err("budget_usd is a positive amount of dollars.".to_owned());
+            }
+            Some(usd) => Some(spade_core::spending::usd_to_micros(usd)),
+            None => None,
+        };
+        let brief = arguments
+            .brief
+            .as_deref()
+            .map(str::trim)
+            .filter(|b| !b.is_empty())
+            .map_or_else(|| task.clone(), str::to_owned);
+        if brief.chars().count() > self.limits.longest_message {
+            return Err("The brief is too long.".to_owned());
+        }
+        // Fixed now, while the brief is written: a queued one may start much later.
+        let untrusted = !context::untrusted_in_view(&events, &registry).is_empty();
+        let id = self.ids.next("a");
+        let conversation = self.ids.next("c");
+        let avatar = self.avatar(&id, None).map_err(|e| e.to_string())?;
+        let link = Link {
+            parent: me.id.clone(),
+            parent_conversation: caller.to_owned(),
+            parent_name: me.name.clone(),
+            call: key.to_owned(),
+            grants: Grants {
+                access: Some(access),
+                tools: arguments.tools.clone(),
+                connectors: connectors.iter().cloned().collect(),
+                plugins: plugins.iter().cloned().collect(),
+            },
+            budget_micros,
+            brief,
+            untrusted,
+        };
+        let first = [
+            Event::Known(Known::WorkerOf(link)),
+            Event::Known(Known::AgentConfigured {
+                task: task.clone(),
+                model: model.clone(),
+            }),
+            Event::Known(Known::AccessChanged { level: access }),
+            // Named by its maker: no model call for a title.
+            Event::renamed(name.clone()),
+        ];
+        self.store
+            .create_agent(
+                NewAgent {
+                    id: &id,
+                    kind: super::super::BOT,
+                    name: &name,
+                    task: &task,
+                    avatar: &avatar,
+                    model: &model,
+                    conversation: &conversation,
+                },
+                &first,
+                self.now_ms(),
+            )
+            .map_err(|e| format!("Spade could not make it: {e}"))?;
+        self.workers_stored(&conversation, &first);
+        if let (Some(grants), false) = (self.workers.grants.get(), connectors.is_empty())
+            && let Err(error) = grants.grant(&id, connectors)
+        {
+            tracing::warn!(%error, "a worker's connectors were not granted");
+        }
+        if let (Some(all), false) = (self.plugins(), plugins.is_empty())
+            && let Err(error) = all.set_allowed(&id, plugins)
+        {
+            tracing::warn!(%error, "a worker's plugins were not granted");
+        }
+        let call = key.split_once('.').map_or(key, |(_, c)| c).to_owned();
+        let started = Event::Known(Known::WorkerStarted(Started {
+            worker: id,
+            kind: Kind::Bot,
+            name,
+            conversation: Some(conversation.clone()),
+            call,
+            budget_micros,
+        }));
+        if let Err(error) = self.record(caller, &started) {
+            // The worker's own link is what the tree is folded from; this is the maker's note.
+            tracing::warn!(%error, "a worker's start was not noted in its maker's conversation");
+        }
+        Ok(conversation)
+    }
+
+    /// The connectors asked for, if the maker may use each of them.
+    fn grantable_connectors(
+        &self,
+        me: &spade_store::Agent,
+        asked: &[String],
+    ) -> Result<BTreeSet<String>, String> {
+        if asked.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let Some(grants) = self.workers.grants.get() else {
+            return Err("Connectors can't be granted here.".to_owned());
+        };
+        let mine = grants.allowed(&me.id, me.kind == super::super::MAIN);
+        let missing: Vec<&str> = asked
+            .iter()
+            .map(String::as_str)
+            .filter(|c| mine.as_ref().is_some_and(|m| !m.contains(*c)))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "Refused: you can't give a worker connectors you can't use: {}.",
+                missing.join(", ")
+            ));
+        }
+        Ok(asked.iter().cloned().collect())
+    }
+
+    /// The plugins asked for, if the maker may use each of them.
+    fn grantable_plugins(&self, me: &str, asked: &[String]) -> Result<BTreeSet<String>, String> {
+        if asked.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let mine: Vec<String> = self
+            .plugins()
+            .map(|p| {
+                p.for_agent(me)
+                    .iter()
+                    .map(|plugin| plugin.install.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let missing = tree::ungrantable(asked, |p| mine.iter().any(|m| m == p));
+        if !missing.is_empty() {
+            return Err(format!(
+                "Refused: you can't give a worker plugins you can't use: {}.",
+                missing.join(", ")
+            ));
+        }
+        Ok(asked.iter().cloned().collect())
+    }
+
+    /// What `bot_create` answers about the worker in `conversation`.
+    fn created(&self, conversation: &str) -> ToolOutput {
+        let Ok(Some(agent)) = self.store.agent_for_conversation(conversation) else {
+            return ToolOutput::error("The worker was made but can't be read now.");
+        };
+        let queued = self
+            .load(conversation)
+            .is_ok_and(|events| tree::queued(&events));
+        let budget = self.worker_link(conversation).and_then(|l| l.budget_micros);
+        let answer = json!({
+            "worker": agent.id,
+            "name": agent.name,
+            "state": if queued { "queued" } else { "working" },
+            "budget_usd": budget.map(|b| b as f64 / 1_000_000.0),
+            "next": "It reports back here when it settles (done, needs the person, parked or \
+                     failed). Carry on, or wait_for {condition: {kind: worker}}. Steer it with \
+                     worker_message; check it with worker_status and worker_result.",
+        });
+        ToolOutput::ok(answer.to_string())
+    }
+
+    /// The brief that starts worker `conversation`, as its first message: Spade's words saying
+    /// who sent it, and another bot's message (untrusted) when its maker had untrusted content
+    /// in view as it wrote it, as for a helper's task (ADR 0152).
+    pub(super) fn brief_message(&self, conversation: &str, link: &Link) -> Event {
+        let tainted = link.untrusted;
+        let mut message = Event::user_message(link.brief.clone());
+        if let Event::Known(Known::UserMessage {
+            context: shown,
+            from_agent,
+            ..
+        }) = &mut message
+        {
+            *shown = Some(format!(
+                "You are a worker of the bot {} (id {}), which made you for part of its work. \
+                 It reads how you settle: draft a goal with task_goal and close plan items with \
+                 evidence, since only a checked goal reports done. Ask the person only what \
+                 neither you nor it can decide.",
+                link.parent_name, link.parent
+            ));
+            if tainted {
+                *from_agent = Some(FromAgent {
+                    id: link.parent.clone(),
+                    name: link.parent_name.clone(),
+                    depth: u32::try_from(self.worker_ancestors(conversation).len()).unwrap_or(1),
+                    machine: None,
+                });
+            }
+        }
+        message
+    }
+
+    /// Whether worker `conversation` is queued: made, its brief not delivered, never stopped.
+    pub(super) fn worker_queued(&self, conversation: &str) -> bool {
+        self.load(conversation).is_ok_and(|events| {
+            tree::queued(&events)
+                && !events
+                    .iter()
+                    .any(|e| matches!(e, Event::Known(Known::StopRequested { .. })))
+        })
+    }
+
+    /// Clears what the tree keeps of a deleted worker.
+    pub(super) fn forget_worker(&self, conversation: &str) {
+        if let Some(index) = self.tree_index().as_mut() {
+            index.put(conversation, None);
+        }
+        lock(&self.workers.dirty).remove(conversation);
+    }
+}

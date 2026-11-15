@@ -542,6 +542,10 @@ impl Spade {
             None => None,
         };
         let bots = spade_server::tools::EngineHandle::default();
+        // As in Spade: ace's tools are called for the bot that made each call.
+        if let Some(link) = &ace {
+            link.act_for(bots.clone());
+        }
         let search = match options.search.clone() {
             Some(config) => {
                 let lookup = keys.clone();
@@ -702,6 +706,18 @@ impl Spade {
             .http
             .delete(format!("{}{path}", self.base))
             .bearer_auth(TOKEN)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    pub async fn patch(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .patch(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body)
             .send()
             .await?;
         let status = response.status().as_u16();

@@ -185,6 +185,22 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     }
 }
 
+/// An answer's text: its text parts, else its structured content.
+fn answer_text(result: &AceToolResult) -> String {
+    let text: String = result
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    match &result.structured {
+        Some(structured) if text.is_empty() => structured.to_string(),
+        _ => text,
+    }
+}
+
 /// Spade's tools for ace's `list`, each calling through `client`.
 /// `bots` finds the bot each call is made for, named to ace on the call (ADR 0142).
 pub(crate) fn tools(
@@ -228,11 +244,19 @@ impl Tool for AceCall {
         let arguments = prepare_delegate(&name, key, arguments);
         // From the call's key, which Spade made for the turn: never from the model's arguments.
         let bot = self.bots.as_ref().and_then(|bots| bots.agent_for_key(key));
+        let (engines, key) = (self.bots.clone(), key.to_owned());
         Box::pin(async move {
+            let asked = (name == "delegate").then(|| arguments.clone());
             let first = match &bot {
                 Some(bot) => client.call_for(&name, arguments, bot).await,
                 None => client.call(&name, arguments).await,
             };
+            // The threads a delegate started are the bot's ace children (ADR 0161).
+            if let (Some(asked), Ok(answer), Some(engine)) =
+                (&asked, &first, engines.as_ref().and_then(EngineHandle::get))
+            {
+                engine.ace_delegated(&key, asked, &answer_text(answer));
+            }
             let result = if BACKGROUND.contains(&name.as_str()) {
                 super::ace_wait::until_settled(&client, bot.as_deref(), &name, first).await
             } else {

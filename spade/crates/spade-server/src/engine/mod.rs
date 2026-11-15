@@ -43,6 +43,7 @@ mod turn_log;
 mod types;
 mod wake_sources;
 mod wakes;
+mod workers;
 
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
@@ -71,6 +72,7 @@ pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
     CompactError, Frame, Limits, NO_SERVICE_CAP, SendError, Setup, Snapshot, Subscription,
 };
+pub use workers::{ConnectorGrants, Workers};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -190,6 +192,8 @@ pub struct Engine {
     wakes: wakes::Shared,
     /// Bots' owned services (ADR 0160), once the server has set them.
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
+    /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
+    workers: workers::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -244,6 +248,8 @@ impl Engine {
         // `sleep_until`, `wait_for` and `wake_cancel` (ADR 0160).
         let tools = crate::tools::with_wake_tools(tools, &handle);
         let tools = crate::teams::with_tools(tools, &handle);
+        // A bot's tools for its workers (ADR 0161).
+        let tools = crate::tools::with_worker_tools(tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let engine = Arc::new(Self {
@@ -286,6 +292,7 @@ impl Engine {
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
+            workers: workers::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -329,6 +336,8 @@ impl Engine {
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
+        // Workers owed a report or a start since the last run get it (ADR 0161).
+        self.start_workers();
     }
 
     /// The setup that reads keys, which can block for a long time (a keychain prompt for a
@@ -385,8 +394,15 @@ impl Engine {
             .collect()
     }
 
-    /// What `id` is doing and its latest message, folded once per change.
+    /// What `id` is doing and its latest message, with everything under it rolled up (ADR
+    /// 0161): it reads waiting or working while any worker of it does.
     pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
+        let own = self.own_activity(id)?;
+        Ok(self.roll_up(id, own))
+    }
+
+    /// What `id` itself is doing and its latest message, folded once per change.
+    pub(crate) fn own_activity(&self, id: &str) -> Result<Activity, StoreError> {
         let known = self
             .activity
             .lock()
@@ -421,6 +437,10 @@ impl Engine {
                 && autonomy::continued(events.len(), |at| events.at(at).0),
             wake: spade_core::wake::soonest(&spade_core::wake::open(events.iter())).cloned(),
             services: spade_core::service::running(events.iter()).len(),
+            ace_waiting: spade_core::tree::ace_children(events.iter())
+                .iter()
+                .any(|c| c.state.waiting()),
+            workers: 0,
         };
         self.activity
             .lock()
@@ -472,6 +492,10 @@ impl Engine {
     pub(super) fn status_for(&self, id: &str, activity: &Activity) -> Option<String> {
         match activity.state {
             State::Idle => None,
+            // A worker of it waits on the person (ADR 0161).
+            State::Waiting if activity.waiting_for == Some("worker") => {
+                Some(roster::WORKER_WAITING.to_owned())
+            }
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
             State::Sleeping => activity
                 .wake
@@ -487,6 +511,8 @@ impl Engine {
                     .unwrap_or_else(|| {
                         if activity.answering {
                             roster::THINKING.to_owned()
+                        } else if activity.jobs == 0 && activity.workers > 0 {
+                            roster::workers_working(activity.workers)
                         } else {
                             roster::IN_BACKGROUND.to_owned()
                         }
@@ -595,6 +621,20 @@ impl Engine {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false
+                }
+                // Each worker's report once per state it settled in (ADR 0161). A stop opens
+                // nothing, unless the maker waits on that worker.
+                Event::Known(Known::WorkerReported(report)) => {
+                    if spade_core::tree::reported(
+                        &events,
+                        &report.worker,
+                        &report.epoch,
+                        report.state,
+                    ) {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    !report.state.opens_reply()
+                        && spade_core::wake::settled_by(&events, event).is_empty()
                 }
                 // Each check-in on a job once, and only while the job runs.
                 Event::Known(Known::JobProgress { job, check, .. }) => {
@@ -850,6 +890,9 @@ impl Engine {
             for event in events {
                 let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
             }
+            // The tree follows, and the worker is checked for a report (ADR 0161).
+            let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
+            self.workers_stored(id, &written);
         }
         Ok(stored)
     }

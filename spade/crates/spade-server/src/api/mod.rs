@@ -20,6 +20,7 @@ mod search;
 mod skills;
 mod teams;
 mod wakes;
+mod workers;
 mod workspace;
 
 use std::convert::Infallible;
@@ -86,6 +87,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agents/{id}/pin", put(agents::pin))
         .route("/agents/{id}/task", get(goals::read))
+        .route("/agents/{id}/tree", get(workers::tree))
+        .route("/agents/{id}/budget", put(workers::budget))
         .route(
             "/agents/{id}/task/goal",
             put(goals::set).delete(goals::clear),

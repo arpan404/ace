@@ -256,6 +256,16 @@ pub const THINKING: &str = "Thinking";
 pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";
 pub const IN_BACKGROUND: &str = "Working in the background";
+/// A worker of the bot waits on the person (ADR 0161).
+pub const WORKER_WAITING: &str = "A worker is waiting for you";
+
+/// What a bot whose own work is done reads while its workers work (ADR 0161).
+pub fn workers_working(count: usize) -> String {
+    match count {
+        1 => "1 worker working".to_owned(),
+        n => format!("{n} workers working"),
+    }
+}
 
 #[cfg(test)]
 mod tests {

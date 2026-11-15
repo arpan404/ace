@@ -24,7 +24,7 @@ const MAIN_PLACEHOLDER: &str = "main_model_placeholder";
 /// How long deleting an agent waits for its stopped work to let go.
 const LET_GO: Duration = Duration::from_secs(5);
 
-fn name(raw: &str) -> Result<String, AgentError> {
+pub(super) fn name(raw: &str) -> Result<String, AgentError> {
     let name = raw.trim();
     let count = name.chars().count();
     if count == 0 || count > NAME_CHARS || name.chars().any(char::is_control) {
@@ -35,7 +35,7 @@ fn name(raw: &str) -> Result<String, AgentError> {
     Ok(name.to_owned())
 }
 
-fn task(raw: &str) -> Result<String, AgentError> {
+pub(super) fn task(raw: &str) -> Result<String, AgentError> {
     let task = raw.trim();
     if task.chars().count() > TASK_CHARS {
         return Err(AgentError::Invalid(format!(
@@ -93,7 +93,11 @@ impl Engine {
         Ok(model.to_owned())
     }
 
-    fn avatar(&self, id: &str, input: Option<AvatarInput>) -> Result<String, AgentError> {
+    pub(super) fn avatar(
+        &self,
+        id: &str,
+        input: Option<AvatarInput>,
+    ) -> Result<String, AgentError> {
         Ok(match input {
             Some(AvatarInput::Image(bytes)) => {
                 let image = self.images.put(&bytes)?;
@@ -218,13 +222,30 @@ impl Engine {
         self.view(id)
     }
 
-    /// Stops the agent's work, then deletes it with its conversation. Spade cannot be deleted.
+    /// Stops the agent's work, then deletes it with its conversation. Spade cannot be deleted. A
+    /// bot with workers is not deleted until the person says what becomes of them
+    /// ([`Engine::delete_agent_with`], ADR 0161).
     pub async fn delete_agent(self: &Arc<Self>, id: &str) -> Result<(), AgentError> {
         let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
         if agent.kind == MAIN {
             return Err(AgentError::Main("Spade, the main agent, cannot be deleted"));
         }
+        let workers = self.worker_children(&agent.conversation).len();
+        if workers > 0 {
+            return Err(AgentError::HasWorkers(workers));
+        }
+        self.delete_agent_now(id).await
+    }
+
+    /// [`Engine::delete_agent`] once its workers are dealt with.
+    pub(super) async fn delete_agent_now(self: &Arc<Self>, id: &str) -> Result<(), AgentError> {
+        let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
+        if agent.kind == MAIN {
+            return Err(AgentError::Main("Spade, the main agent, cannot be deleted"));
+        }
         let conversation = agent.conversation;
+        // Its parent's tree notes it gone (ADR 0161).
+        self.worker_deleted(&conversation);
         // Marked first, under the lock deliveries take: from here no message or job result is
         // delivered, and no turn or job starts, so stopping drains everything there is.
         let helpers = self.helper_conversations(&conversation);
@@ -340,6 +361,8 @@ impl Engine {
                     .map_or(serde_json::Value::Null, |open| self.wake_json(open)),
             );
             shown.insert("services".into(), activity.services.into());
+            // Its place in a tree (ADR 0161).
+            self.tree_fields(&agent.conversation, &activity, shown);
         }
         let seen = self.store.seen(&agent.conversation)?;
         Ok(AgentView {

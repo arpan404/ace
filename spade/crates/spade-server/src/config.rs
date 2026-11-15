@@ -20,6 +20,9 @@ pub struct Config {
     pub parallel_tools: Option<usize>,
     /// `SPADE_HELPERS_AT_ONCE`: helpers of one bot run at once; unset is the engine's default.
     pub helpers_at_once: Option<usize>,
+    /// `SPADE_WORKERS_AT_ONCE`: one orchestrator's worker bots that work at once (ADR 0161);
+    /// unset is the engine's default.
+    pub workers_at_once: Option<usize>,
     /// `SPADE_CONTEXT_TOKENS`: compact before this many prompt tokens even when the model's own
     /// window is larger (a cost choice); unset uses each model's window.
     pub context_tokens: Option<u32>,
@@ -88,6 +91,7 @@ impl Config {
         };
         let parallel_tools = count("SPADE_PARALLEL_TOOLS")?.map(|n| n as usize);
         let helpers_at_once = count("SPADE_HELPERS_AT_ONCE")?.map(|n| n as usize);
+        let workers_at_once = count("SPADE_WORKERS_AT_ONCE")?.map(|n| n as usize);
         let context_tokens =
             count("SPADE_CONTEXT_TOKENS")?.map(|n| u32::try_from(n).unwrap_or(u32::MAX));
         Ok(Self {
@@ -96,6 +100,7 @@ impl Config {
             daily_cap_usd,
             parallel_tools,
             helpers_at_once,
+            workers_at_once,
             context_tokens,
         })
     }

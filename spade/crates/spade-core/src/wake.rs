@@ -105,6 +105,15 @@ pub enum Condition {
     },
     /// The person writes.
     Person,
+    /// A worker of this bot reports (ADR 0161): finishes, needs the person, fails, parks or
+    /// stops. Any worker, or the one with this id.
+    Worker {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        worker: Option<String>,
+    },
+    /// This worker's budget is raised (ADR 0161). Spade sets it when a subtree reaches its
+    /// budget, so the worker waits instead of failing.
+    Budget,
 }
 
 impl Condition {
@@ -122,6 +131,11 @@ impl Condition {
             Self::BotMessage { bot: Some(bot) } => format!("a message from {bot}"),
             Self::BotMessage { bot: None } => "a message from another bot".to_owned(),
             Self::Person => "the person to write".to_owned(),
+            Self::Worker {
+                worker: Some(worker),
+            } => format!("worker {worker} to report"),
+            Self::Worker { worker: None } => "a worker to report".to_owned(),
+            Self::Budget => "more budget".to_owned(),
         }
     }
 }
@@ -272,11 +286,15 @@ pub fn settled_by(events: &[Event], event: &Event) -> Vec<Event> {
             ) => bot
                 .as_deref()
                 .is_none_or(|bot| bot == from.id || bot.eq_ignore_ascii_case(&from.name)),
+            // A worker's report is what the bot reads (ADR 0161).
+            (Known::WorkerReported(report), Some(Condition::Worker { worker }), _) => worker
+                .as_deref()
+                .is_none_or(|w| w == report.worker || w.eq_ignore_ascii_case(&report.name)),
             _ => false,
         }
     };
     let cause = match known {
-        Known::JobFinished { .. } => Cause::Condition,
+        Known::JobFinished { .. } | Known::WorkerReported(_) => Cause::Condition,
         _ => Cause::Message,
     };
     open(events)
@@ -359,7 +377,9 @@ pub fn shown(note: Option<&str>, data: &[String]) -> Option<String> {
 pub fn is_note(event: &Known) -> bool {
     matches!(
         event,
-        Known::WakeFired { note: Some(_), .. } | Known::JobProgress { .. }
+        Known::WakeFired { note: Some(_), .. }
+            | Known::JobProgress { .. }
+            | Known::WorkerReported(_)
     )
 }
 
@@ -374,6 +394,7 @@ pub fn note_text(event: &Known) -> Option<String> {
             tail,
             ..
         } => Some(progress_text(job, name, *minutes, tail)),
+        Known::WorkerReported(report) => Some(crate::tree::report_text(report)),
         _ => None,
     }
 }
@@ -383,6 +404,7 @@ pub fn untrusted(event: &Known) -> bool {
     match event {
         Known::WakeFired { data, .. } => !data.is_empty(),
         Known::JobProgress { tail, .. } => !tail.is_empty(),
+        Known::WorkerReported(report) => report.words.is_some(),
         _ => false,
     }
 }
