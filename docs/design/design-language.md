@@ -77,7 +77,7 @@ Three surfaces only: **background** (flat, where content lives), **glass** (only
 
 ### Iconography
 
-ace draws its own icons ([ADR 0156](../adr/0156-ace-draws-its-own-icons.md)): one modern set, clean and rounded inside and out, each icon recognisable by its own outline at 16px. The iPhone still draws Phosphor until its assets are generated from the same set. One weight per context; status icons filled. Provider marks are the providers' own logos. Spade's mark (round head, two egg eyes, −4° tilt, white eyes in every theme) is the only character in the app. ace's own glyphs are drawn from one shared geometry (`@ace/design-tokens/glyphs`), generated for the phone: the agent cursor, "the Pebble", in the person's accent with its outline and soft shadow, marks computer use; browser use is the globe with the pointer resting on it, in the working colour.
+ace draws its own icons ([ADR 0156](../adr/0156-ace-draws-its-own-icons.md)): one modern set, clean and rounded inside and out, each icon recognisable by its own outline at 16px. The iPhone draws the same set, from assets generated out of `@ace/icons`. One weight per context; status icons filled. Provider marks are the providers' own logos. Spade's mark (round head, two egg eyes, −4° tilt, white eyes in every theme) is the only character in the app. ace's own glyphs are drawn from one shared geometry (`@ace/design-tokens/glyphs`), generated for the phone: the agent cursor, "the Pebble", in the person's accent with its outline and soft shadow, marks computer use; browser use is the globe with the pointer resting on it, in the working colour.
 
 ### Motion
 
