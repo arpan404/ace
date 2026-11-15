@@ -113,10 +113,11 @@ export class MachineChildren implements RemoteChildren {
   /** When the scheduled poll runs, by the injected clock. */
   private dueAt = 0;
   /**
-   * When the last poll was set for. Each poll is set for at least one interval after the one
-   * before, so children come due poll by poll even if the clock stalls.
+   * When the last poll that ran was set for. Each poll is set for its delay after the later of
+   * now and that, so children come due poll by poll even if the clock stalls; a timer replaced
+   * before it ran moves nothing, so the time planned for never runs ahead of the clock.
    */
-  private lastSetFor = Number.NEGATIVE_INFINITY;
+  private lastRanFor = Number.NEGATIVE_INFINITY;
   /** The pairings changed: the next poll comes one interval away, whatever was planned. */
   private replan = false;
   /**
@@ -429,8 +430,7 @@ export class MachineChildren implements RemoteChildren {
     if (this.cancelTimer && this.dueAt <= now + delay) return;
     this.cancelTimer?.();
     this.dueAt = now + delay;
-    const scheduledFor = Math.max(now, this.lastSetFor) + delay;
-    this.lastSetFor = scheduledFor;
+    const scheduledFor = Math.max(now, this.lastRanFor) + delay;
     this.cancelTimer = this.deps.schedule(delay, () => {
       this.cancelTimer = undefined;
       // A poll still running a poll from now (a slow call) never holds up the next: the next is
@@ -506,10 +506,8 @@ export class MachineChildren implements RemoteChildren {
     this.settledLost();
     const now = this.deps.now();
     // A poll called directly counts as one interval after the last, as one its timer runs does.
-    if (scheduledFor === undefined) {
-      scheduledFor = Math.max(now, this.lastSetFor + this.deps.pollMs);
-      this.lastSetFor = scheduledFor;
-    }
+    scheduledFor ??= Math.max(now, this.lastRanFor + this.deps.pollMs);
+    this.lastRanFor = Math.max(this.lastRanFor, scheduledFor);
     const calls: Promise<void>[] = [];
     for (const machine of this.ledger.watchedMachines()) {
       // Pairings that can't be read leave every child as it was, lost or not.
