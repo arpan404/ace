@@ -44,6 +44,11 @@ export interface PortableRelayOptions {
   pinnedFingerprint: string;
   /** Opens the socket, offering `protocols` as WebSocket subprotocols when given. */
   socket(url: string, protocols?: string[]): PortableSocket;
+  /**
+   * What the stream is for: `media` asks the relay for a media stream, which the daemon hands to
+   * ace-media (ADR 0147 §5.2). Absent: the daemon's main or channel streams.
+   */
+  purpose?: "media" | undefined;
   /** A device grant for ace's hosted relay (ADR 0111), offered as `ace.grant.<token>`. */
   grant?: string | undefined;
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
@@ -69,7 +74,10 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   if (url.protocol !== "ws:" && url.protocol !== "wss:")
     throw new Error("Expected relay WebSocket URL");
   url.pathname = "/client";
-  url.search = new URLSearchParams({ hostId: options.pinnedFingerprint }).toString();
+  url.search = new URLSearchParams({
+    hostId: options.pinnedFingerprint,
+    ...(options.purpose ? { purpose: options.purpose } : {}),
+  }).toString();
   url.hash = "";
   const socket = options.grant
     ? options.socket(url.toString(), [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`])

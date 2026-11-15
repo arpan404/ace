@@ -13,6 +13,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
 /**
@@ -116,6 +117,9 @@ export function SessionCard(props: {
             " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
+        {view.lifecycle === "live" && (
+          <DegradedLine acceleration={state.acceleration} className="text-sm" />
+        )}
         {view.watchOnlyReason && view.lifecycle === "live" && (
           <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
         )}

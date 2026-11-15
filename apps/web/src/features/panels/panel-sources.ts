@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { daemonPreview } from "./preview/daemon-preview.ts";
+import { mediaFor } from "@/lib/video/media.ts";
 
 import { daemonTerminals } from "./terminal/daemon-terminals.ts";
 import { TerminalSessions } from "./terminal/sessions.ts";
@@ -10,5 +11,8 @@ import { TerminalSessions } from "./terminal/sessions.ts";
  */
 export function createPanelSources(client: ClientApi) {
   const terminals = new TerminalSessions(daemonTerminals(client));
-  return { terminals, preview: daemonPreview(client) };
+  // Live video comes by the daemon connection's media connection, where the client takes
+  // binary stream messages at all.
+  const media = typeof client.onStream === "function" ? mediaFor(client).connection : undefined;
+  return { terminals, preview: daemonPreview(client, media ? { media } : {}) };
 }
