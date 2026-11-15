@@ -120,11 +120,16 @@ after pairing; the marker still goes to the client as today.
     only by how many sockets can reach the object (the Worker's upgrade rate limit and the
     object's admission) and by the object's 128 MiB memory limit, past which the platform
     resets it. Early frames don't change this.
-- **Every turn-away is the same cut.** A client turned away before it is paired, for any reason
+- **A turn-away keeps nothing held.** A client turned away before it is paired, for any reason
   (expiry, its host leaving or replaced, a rejection, a refused, text or oversized frame, an
-  unknown purpose, a protocol error), has its queued frames freed at once and is read no more.
-  Its socket is cut after one second whether or not it answers the close, and its reservation
-  comes back only when the socket is gone, or, once paired, when the frame has been forwarded.
+  unknown purpose, a protocol error), keeps nothing held, whether or not it answers the close:
+  - **Self-hosted relay:** its queued frames are freed at once, it is read no more, and its
+    socket is cut after one second. Its reservation comes back only when the socket is gone, or,
+    once paired, when the frame has been forwarded.
+  - **ace cloud:** closing the client frees its held frame and its reservation at once, in the
+    same step, and anything it sends afterwards is dropped. The object can't cut the socket
+    itself; after the close, ending the connection is the platform's. A paired client's room
+    comes back as soon as its frame is forwarded.
 - **Bound to its client.** The held frame is keyed to the exact client socket, the ticket
   offered for it and the host registration generation that received the offer. It is forwarded
   only to the `/join` that carries that ticket under that generation, and cleared on ticket
