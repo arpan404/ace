@@ -1,12 +1,14 @@
-import { useEffect, useEffectEvent, useId, useRef } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useRef } from "react";
 import { webgl2Available } from "@/components/gpu-text/support.ts";
 import { applePlatform } from "@/lib/keymap.ts";
+import { useTheme } from "@/theme/theme-provider.tsx";
 import { keyOwner, lineEditBytes } from "./keys.ts";
 import { joinWrapped } from "./search.ts";
 import type { TerminalSessions } from "./sessions.ts";
-import { scrollbackRows, terminalText, type TerminalSurface } from "./surface.ts";
+import { scrollbackRows, type TerminalSurface } from "./surface.ts";
 import { themeFor } from "./xterm-theme.ts";
-import { terminalFont } from "./fonts.ts";
+import { loadFaces, terminalFont, terminalFontFamily } from "./fonts.ts";
+import { terminalLook, type TerminalLook } from "./suit-terminal.ts";
 
 /*
  * A terminal drawn by xterm.js with its WebGL renderer (ADR 0056): full-screen programs,
@@ -20,13 +22,33 @@ export function canUseXterm(): boolean {
   return typeof ResizeObserver !== "undefined" && webgl2Available();
 }
 
-/** A monospace cell's width at the terminal's size, before xterm has drawn one. */
-function estimateCell(fontFamily: string): number {
+/** A monospace cell's width at `size`, before xterm has drawn one. */
+function estimateCell(fontFamily: string, size: number, letterSpacing: number): number {
   const context = document.createElement("canvas").getContext("2d");
-  if (!context) return terminalText.size * 0.6;
-  context.font = `${terminalText.size}px ${fontFamily}`;
-  return context.measureText("W").width || terminalText.size * 0.6;
+  if (!context) return size * 0.6 + letterSpacing;
+  context.font = `${size}px ${fontFamily}`;
+  return (context.measureText("W").width || size * 0.6) + letterSpacing;
 }
+
+/** The font stack xterm draws `look` with: the Suit's family first, then the app's monospace. */
+const fontFor = (element: Element, look: TerminalLook) =>
+  look.fontFamily
+    ? terminalFontFamily(
+        `${look.fontFamily}, ${getComputedStyle(element).fontFamily || "monospace"}`,
+      )
+    : terminalFont(element);
+
+/** xterm's options that follow the Suit (`TerminalLook`), applied at start and on every change. */
+const lookOptions = (element: Element, look: TerminalLook) => ({
+  fontFamily: fontFor(element, look),
+  fontSize: look.fontSize,
+  letterSpacing: look.letterSpacing,
+  cursorBlink: look.cursorBlink,
+  cursorStyle: look.cursorStyle,
+  // Transparent only when the Suit reveals what is behind; opaque keeps subpixel text.
+  allowTransparency: look.reveal > 0,
+  theme: themeFor(element, look),
+});
 
 /** Daemon resizes wait this long after the last change, so dragging the panel edge sends a few. */
 const resizeSettleMs = 80;
@@ -51,6 +73,11 @@ export function XtermView(props: {
   const find = useEffectEvent(() => props.onFind());
   const focusFirst = useEffectEvent(() => props.autoFocus);
   const startReadOnly = useEffectEvent(() => props.readOnly);
+  // The Suit on screen: its font, cursor and colours apply live, to the same xterm and session.
+  const { suit, resolved } = useTheme();
+  const look = useMemo(() => terminalLook(suit, resolved.scheme), [suit, resolved.scheme]);
+  const currentLook = useEffectEvent(() => look);
+  const restyle = useRef<((look: TerminalLook) => void) | null>(null);
   useEffect(() => {
     const element = box.current;
     if (!element) return;
@@ -62,17 +89,20 @@ export function XtermView(props: {
         import("@xterm/addon-webgl"),
         import("@xterm/xterm/css/xterm.css"),
       ]);
+      let shown = currentLook();
+      // A bundled face must be in before xterm measures a cell, or the grid fits a fallback.
+      await loadFaces(shown.faces, document.fonts);
       if (disposed) return;
-      const fontFamily = terminalFont(element);
-      let lineHeight = terminalText.row / (terminalText.size * 1.2);
+      shown = currentLook();
+      const options = lookOptions(element, shown);
+      // Rows exactly `row` px tall; xterm's lineHeight multiplies the font's own height (about
+      // 1.2 × its size), so start from that and correct once drawn (`measure`).
+      let row = shown.row;
+      let lineHeight = row / (shown.fontSize * 1.2);
       const term = new Terminal({
-        fontFamily,
-        fontSize: terminalText.size,
+        ...options,
         lineHeight,
-        letterSpacing: 0,
         scrollback: scrollbackRows,
-        cursorBlink: false,
-        cursorStyle: "block",
         cursorInactiveStyle: "outline",
         disableStdin: startReadOnly(),
         allowProposedApi: false,
@@ -81,7 +111,6 @@ export function XtermView(props: {
         // The canvas is invisible to assistive technology; xterm's accessibility tree mirrors
         // the visible rows (a screen's worth of text per frame, not the scrollback) as DOM text.
         screenReaderMode: true,
-        theme: themeFor(element),
       });
       terminal.current = term;
       term.open(element);
@@ -94,17 +123,17 @@ export function XtermView(props: {
         /* xterm's DOM renderer stays in use. */
       }
 
-      // Rows exactly `terminalText.row` px tall: xterm derives its row from the font's own
-      // height times lineHeight, which differs by font, so measure what it drew and correct once.
+      // Rows exactly `row` px tall: xterm derives its row from the font's own height times
+      // lineHeight, which differs by font, so measure what it drew and correct once.
       const screen = () => element.querySelector<HTMLElement>(".xterm-screen");
-      let cell = estimateCell(fontFamily);
+      let cell = estimateCell(options.fontFamily, shown.fontSize, shown.letterSpacing);
       const measure = () => {
         const drawn = screen()?.getBoundingClientRect();
         if (!drawn?.height || !term.rows) return;
         cell = drawn.width / term.cols || cell;
-        const row = drawn.height / term.rows;
-        if (Math.abs(row - terminalText.row) > 0.01) {
-          lineHeight = (lineHeight * terminalText.row) / row + 0.0005;
+        const drawnRow = drawn.height / term.rows;
+        if (Math.abs(drawnRow - row) > 0.01) {
+          lineHeight = (lineHeight * row) / drawnRow + 0.0005;
           term.options.lineHeight = lineHeight;
         }
       };
@@ -115,7 +144,7 @@ export function XtermView(props: {
         const height = element.clientHeight;
         if (!width || !height) return;
         const cols = Math.max(20, Math.floor(width / cell));
-        const rows = Math.max(4, Math.floor(height / terminalText.row));
+        const rows = Math.max(4, Math.floor(height / row));
         const size = `${cols}x${rows}`;
         if (size === last) return;
         last = size;
@@ -123,7 +152,7 @@ export function XtermView(props: {
         clearTimeout(settle);
         settle = setTimeout(() => sessions.resize(id, cols, rows), resizeSettleMs);
       };
-      const measured = term.onRender(() => {
+      let measured = term.onRender(() => {
         measured.dispose();
         measure();
         fit();
@@ -131,8 +160,37 @@ export function XtermView(props: {
 
       // Follow theme and mode changes on the document root.
       const retheme = new MutationObserver(() => {
-        term.options.theme = themeFor(element);
+        term.options.theme = themeFor(element, shown);
       });
+      // A new Suit (or scheme) restyles this xterm in place: the session and its scrollback stay.
+      // A new font or size re-measures the cell and refits the grid once xterm has redrawn.
+      let restyling = 0;
+      restyle.current = (next) => {
+        const turn = ++restyling;
+        void loadFaces(next.faces, document.fonts).then(() => {
+          if (disposed || turn !== restyling) return;
+          const sized =
+            next.fontSize !== shown.fontSize ||
+            next.row !== shown.row ||
+            next.letterSpacing !== shown.letterSpacing ||
+            next.fontFamily !== shown.fontFamily;
+          shown = next;
+          const nextOptions = lookOptions(element, next);
+          if (sized) {
+            row = next.row;
+            lineHeight = row / (next.fontSize * 1.2);
+            cell = estimateCell(nextOptions.fontFamily, next.fontSize, next.letterSpacing);
+            measured.dispose();
+            measured = term.onRender(() => {
+              measured.dispose();
+              measure();
+              last = "";
+              fit();
+            });
+          }
+          term.options = sized ? { ...nextOptions, lineHeight } : nextOptions;
+        });
+      };
       retheme.observe(document.documentElement, {
         attributes: true,
         attributeFilter: ["data-theme", "data-scheme", "class", "style"],
@@ -202,6 +260,7 @@ export function XtermView(props: {
       cleanup = () => {
         clearTimeout(settle);
         api.current = null;
+        restyle.current = null;
         report(null);
         terminal.current = null;
         measured.dispose();
@@ -217,6 +276,7 @@ export function XtermView(props: {
       cleanup();
     };
   }, [sessions, id]);
+  useEffect(() => restyle.current?.(look), [look]);
   // An exited shell keeps its output on screen but takes no more input.
   useEffect(() => {
     if (terminal.current) terminal.current.options.disableStdin = props.readOnly;

@@ -95,45 +95,74 @@ export function readable(color: Rgb, background: Rgb, minimum = minimumTextContr
   return current;
 }
 
+/** Body text's contrast floor: a terminal colour a Suit sets for the text is held to it. */
+export const foregroundContrast = 4.5;
+
+/**
+ * Colours a Suit sets for the terminal (`SuitManifest.terminal`), over the derived ones. ANSI
+ * colours and the foreground are fitted to the background as derived ones are; the cursor and
+ * the selection are used as given.
+ */
+export type PaletteOverrides = Partial<
+  Record<AnsiName | "foreground" | "cursor" | "cursorAccent", Rgb>
+> & {
+  selection?: readonly [number, number, number, number];
+};
+
 /** The sixteen ANSI colours plus the terminal's chrome colours for this theme. */
-export function terminalPalette(input: PaletteInput): TerminalPalette {
+export function terminalPalette(input: PaletteInput, set: PaletteOverrides = {}): TerminalPalette {
   const { background: bg, foreground: fg } = input;
   const dark = isDark(bg);
   const text = (color: Rgb) => css(readable(color, bg));
   // Bright variants lean toward the text colour: lighter on dark themes, deeper on light ones.
   const bright = (color: Rgb) => text(mix(color, fg, 0.28));
   const hues = {
-    red: input.red,
-    green: input.green,
-    yellow: input.yellow,
-    blue: input.blue,
-    magenta: input.magenta,
-    cyan: input.cyan,
+    red: set.red ?? input.red,
+    green: set.green ?? input.green,
+    yellow: set.yellow ?? input.yellow,
+    blue: set.blue ?? input.blue,
+    magenta: set.magenta ?? input.magenta,
+    cyan: set.cyan ?? input.cyan,
   };
+  // A bright the Suit names is fitted like any text colour; unnamed, it leans off its base hue.
+  const brightOf = (name: AnsiName, base: Rgb) => {
+    const given = set[name];
+    return given ? text(given) : bright(base);
+  };
+  const selection = set.selection;
   return {
     background: css(bg),
     // Calm by default: a touch under full ink, so coloured output still stands out.
-    foreground: text(mix(fg, input.muted, 0.18)),
-    cursor: css(fg),
-    cursorAccent: css(bg),
-    selectionBackground: css(input.ring, dark ? 0.32 : 0.24),
+    foreground: set.foreground
+      ? css(readable(set.foreground, bg, foregroundContrast))
+      : text(mix(fg, input.muted, 0.18)),
+    cursor: css(set.cursor ?? fg),
+    cursorAccent: css(set.cursorAccent ?? bg),
+    selectionBackground: selection
+      ? css([selection[0], selection[1], selection[2]], selection[3] / 255)
+      : css(input.ring, dark ? 0.32 : 0.24),
     selectionInactiveBackground: css(fg, dark ? 0.14 : 0.1),
     // Black is mostly a background colour; on light themes programs use it as ink.
-    black: dark ? css(mix(bg, fg, 0.22)) : text(fg),
+    black: dark ? css(set.black ?? mix(bg, fg, 0.22)) : text(set.black ?? fg),
     red: text(hues.red),
     green: text(hues.green),
     yellow: text(hues.yellow),
     blue: text(hues.blue),
     magenta: text(hues.magenta),
     cyan: text(hues.cyan),
-    white: dark ? text(input.muted) : css(mix(bg, fg, 0.3)),
-    brightBlack: text(input.subtle),
-    brightRed: bright(hues.red),
-    brightGreen: bright(hues.green),
-    brightYellow: bright(hues.yellow),
-    brightBlue: bright(hues.blue),
-    brightMagenta: bright(hues.magenta),
-    brightCyan: bright(hues.cyan),
-    brightWhite: dark ? css(fg) : css(mix(bg, fg, 0.12)),
+    // White is mostly a background colour on light themes, as black is on dark ones.
+    white: dark ? text(set.white ?? input.muted) : css(set.white ?? mix(bg, fg, 0.3)),
+    brightBlack: text(set.brightBlack ?? input.subtle),
+    brightRed: brightOf("brightRed", hues.red),
+    brightGreen: brightOf("brightGreen", hues.green),
+    brightYellow: brightOf("brightYellow", hues.yellow),
+    brightBlue: brightOf("brightBlue", hues.blue),
+    brightMagenta: brightOf("brightMagenta", hues.magenta),
+    brightCyan: brightOf("brightCyan", hues.cyan),
+    brightWhite: dark
+      ? set.brightWhite
+        ? text(set.brightWhite)
+        : css(fg)
+      : css(set.brightWhite ?? mix(bg, fg, 0.12)),
   };
 }

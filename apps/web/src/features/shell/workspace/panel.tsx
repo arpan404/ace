@@ -1,4 +1,5 @@
 import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } from "react";
+import { RegionScene } from "@/features/suits/index.ts";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
 import { boundaryMarker, controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
@@ -15,6 +16,7 @@ import { roomLimits, type PanelMode } from "@/lib/shell-room.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { useFocusBackOnHide } from "./panel-focus.ts";
 import { TabContent } from "./tab-content.tsx";
+import { panelReveal } from "./panel-reveal.ts";
 
 // The close question ships with the panel: a tab can only be closed once the panel has loaded.
 export { CloseConfirm } from "./close-confirm.tsx";
@@ -122,7 +124,8 @@ export function WorkspacePanel(props: {
       className={cn(
         "relative flex min-h-0 min-w-0 flex-col",
         // In the top bar the strip is on the frame colour, and only the body is on the canvas.
-        !topBar && "bg-panel",
+        // `isolate`: the Suit's side panel scene sits over the panel's colour, under its tabs.
+        !topBar && `isolate bg-panel ${panelReveal}`,
         expanded
           ? "h-full flex-1"
           : bottom
@@ -132,6 +135,7 @@ export function WorkspacePanel(props: {
       )}
     >
       {!topBar && resize}
+      {!topBar && <RegionScene region="right-panel" />}
       <div
         data-part="panel-header"
         className={cn(
@@ -188,11 +192,12 @@ export function WorkspacePanel(props: {
           // meets the column (in full view, the sidebar).
           topBar &&
             (expanded
-              ? "border-t bg-panel [[data-sidebar=shown]_&]:border-l"
-              : "border-t border-l bg-panel"),
+              ? `isolate border-t bg-panel ${panelReveal} [[data-sidebar=shown]_&]:border-l`
+              : `isolate border-t border-l bg-panel ${panelReveal}`),
         )}
       >
         {topBar && resize}
+        {topBar && <RegionScene region="right-panel" />}
         {props.notice}
         <Activity mode={workspace.open ? "visible" : "hidden"}>
           <TabContent
