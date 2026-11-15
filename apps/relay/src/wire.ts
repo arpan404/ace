@@ -15,6 +15,7 @@ export {
   LimitsSchema,
 } from "./config.ts";
 export * from "./http-frames.ts";
+export { MEDIA_FEATURE, RelayPurpose, clientPurpose, hostFeatures } from "./purpose.ts";
 export { RelayRoutes } from "./routes.ts";
 export type { RouteAction, PendingTicket } from "./routes.ts";
 export { ipKey } from "./limits.ts";

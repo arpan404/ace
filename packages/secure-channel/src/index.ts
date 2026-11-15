@@ -11,3 +11,4 @@ export {
   fragmentCost,
   readCredit,
 } from "./flow-credit.ts";
+export type { FlowState } from "./flow-credit.ts";

@@ -369,13 +369,19 @@ impl Delivery {
 
     /// A client presented its ticket: the connection is open, and its views start at a keyframe.
     pub fn socket_open(&mut self, connection: &Id, now_ms: u64, out: &mut Vec<Effect>) {
-        self.sockets.insert(connection.get().to_owned(), ());
         let welcome = ServerMessage::Welcome {
             connection: connection.clone(),
         };
         if let Ok(text) = serde_json::to_string(&welcome) {
             media(out, connection.get(), MediaOut::Text(text));
         }
+        self.attached(connection, now_ms, out);
+    }
+
+    /// A connection's socket is up and welcomed (a relay stream's welcome is the daemon's, in
+    /// the relay channel's own terms): its views start.
+    pub fn attached(&mut self, connection: &Id, now_ms: u64, out: &mut Vec<Effect>) {
+        self.sockets.insert(connection.get().to_owned(), ());
         let sources: Vec<String> = self
             .views
             .values()

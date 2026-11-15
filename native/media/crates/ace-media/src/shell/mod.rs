@@ -12,14 +12,27 @@ mod listener;
 mod pictures;
 #[cfg(windows)]
 mod pipe;
+mod priority_gate;
 mod readers;
+mod relay;
+#[cfg(test)]
+mod relay_close_tests;
+mod relay_sockets;
+#[cfg(test)]
+mod relay_tests;
+mod relay_tls;
+mod relay_ws;
 mod sealed;
+mod shutdown;
+#[cfg(test)]
+mod shutdown_tests;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
 mod viewers;
 mod writer;
 
 use crate::encode::worker::Output;
+use crate::engine::relay::CloseMode;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
@@ -284,6 +297,9 @@ async fn serve(
     if let Ok(threads) = threads {
         engine = engine.with_stills(Box::new(threads));
     }
+    let (relay_tx, mut relay_rx) = mpsc::channel(256);
+    let mut relays = relay_sockets::RelaySockets::new(relay_tx, engine.relay_pool());
+    let mut gate = priority_gate::PriorityGate::default();
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
@@ -356,6 +372,8 @@ async fn serve(
                         lag: &lag,
                         pictures: &mut pictures,
                         readers: &mut readers,
+                        relays: &mut relays,
+            gate: &mut gate,
                         media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
@@ -401,6 +419,30 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            answer = gate.next(), if !gate.is_empty() => {
+                if let (Some(bytes), Some(priority)) = (answer, priority_out.as_ref())
+                    && priority.send(bytes).is_err()
+                {
+                    break fail("the priority lane is backed up past its bound");
+                }
+            }
+            Some(event) = relay_rx.recv() => match event {
+                relay::RelayEvent::Dialed { stream } => {
+                    // A stream the engine let go meanwhile: its socket goes at once.
+                    if !engine.relay_dialed(&stream) {
+                        gate.closed(relays.close(stream.get(), CloseMode::Forced));
+                        gate.settle();
+                    }
+                }
+                relay::RelayEvent::Closed { stream } => engine.relay_closed(&stream),
+                relay::RelayEvent::Frame { stream, frame } => {
+                    engine.relay_frame(&stream, frame, clock.now())
+                }
+                relay::RelayEvent::Ended { stream, reason } => {
+                    gate.closed(relays.ended(stream.get()));
+                    engine.relay_ended(&stream, reason, clock.now());
+                }
+            },
             Some(event) = media_rx.recv() => match event {
                 viewers::MediaEvent::Hello { ticket, outbox, admit } => {
                     let now = clock.now();
@@ -434,6 +476,8 @@ async fn serve(
             lag: &lag,
             pictures: &mut pictures,
             readers: &mut readers,
+            relays: &mut relays,
+            gate: &mut gate,
             media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };
@@ -443,19 +487,13 @@ async fn serve(
             Step::Shutdown(grace) => {
                 engine.finish();
                 apply(&mut engine, &mut outputs);
-                let half = grace / 2;
-                if let Some(priority) = priority_out.take() {
-                    priority.close(half).await;
-                }
-                stdout.close(half).await;
+                // Relay closes, then both lanes: all inside `grace`.
+                shutdown::shutdown_within(grace, &mut relays, priority_out.take(), stdout).await;
                 return EXIT_OK;
             }
         }
     };
     drop(connections);
-    if let Some(priority) = priority_out.take() {
-        priority.close(STDIN_GRACE).await;
-    }
-    stdout.close(STDIN_GRACE).await;
+    shutdown::shutdown_within(STDIN_GRACE, &mut relays, priority_out.take(), stdout).await;
     code
 }
