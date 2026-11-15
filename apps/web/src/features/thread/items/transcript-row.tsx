@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import type { SuitPartProps } from "@/lib/suit-part.ts";
 
 /*
  * The one row anatomy every transcript row shares (a step group, a thought, a background task, an
@@ -98,10 +99,12 @@ export function TranscriptRow(
     hint?: string | undefined;
     /** A work log's group or thought: marked so a log can be opened step by step. */
     stepGroup?: boolean | undefined;
+    /** The row's Suit part, such as a group's `tool-group-header`. */
+    suit?: SuitPartProps | undefined;
     className?: string | undefined;
   },
 ) {
-  const { expanded, onToggle, controls, label, hint, stepGroup, className, ...parts } = props;
+  const { expanded, onToggle, controls, label, hint, stepGroup, suit, className, ...parts } = props;
   return (
     <button
       type="button"
@@ -109,6 +112,7 @@ export function TranscriptRow(
       aria-controls={controls}
       aria-label={label}
       title={hint}
+      {...suit}
       data-transcript-row=""
       data-step-group={stepGroup ? "" : undefined}
       onClick={onToggle}

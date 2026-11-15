@@ -3,7 +3,7 @@ import type { ReadinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon, CaretRightIcon, InfoIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SignInButton } from "@/features/sign-in/index.ts";
@@ -206,6 +206,7 @@ export function ListRowFrame(props: {
                 to="/settings/providers/$provider"
                 params={{ provider: props.page }}
                 aria-label={name}
+                {...part("link", undefined, "row")}
                 className="min-w-0 truncate text-ui font-medium text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
               >
                 {name}
@@ -302,7 +303,7 @@ function Action(props: {
               to="/settings/providers/$provider"
               params={{ provider: props.page }}
               aria-label={`Set up ${name}`}
-              className={buttonVariants({ size: "sm", variant: "secondary" })}
+              {...buttonLook({ size: "sm", variant: "secondary" })}
             >
               Set up
             </Link>
@@ -316,7 +317,7 @@ function Action(props: {
           href={action.href}
           target="_blank"
           rel="noreferrer"
-          className={buttonVariants({ size: "sm", variant: "secondary" })}
+          {...buttonLook({ size: "sm", variant: "secondary" })}
         >
           {action.kind === "manual" ? action.label : `Get ${action.name}`}
         </a>

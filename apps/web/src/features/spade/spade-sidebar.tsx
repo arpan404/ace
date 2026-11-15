@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
 import { NewBotDialog } from "./spade-bot-dialog.tsx";
@@ -306,6 +307,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
       search={bot.machine.primary ? {} : { on: bot.machine.key }}
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
+      {...part("nav-item", props.current && "active", "agent")}
       className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"
     >
       <SpadeFace
@@ -382,6 +384,7 @@ function GroupRow(props: {
       search={group.machine.primary ? {} : { on: group.machine.key }}
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
+      {...part("nav-item", props.current && "active", "group")}
       className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"
     >
       <span className={cn("flex shrink-0", (group.away || group.unavailable) && "opacity-45")}>

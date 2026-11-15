@@ -23,6 +23,10 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       data-part="tab"
+      // The selected tab says so in the styling contract too (base-ui marks it `data-active`).
+      render={(tabProps, state) => (
+        <button {...tabProps} data-state={state.active ? "selected" : undefined} />
+      )}
       className={cn(
         "relative inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color] duration-(--motion-fast) focus-ring touch-hit focus-visible:text-foreground",
         "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:bg-foreground/8 data-active:text-foreground",

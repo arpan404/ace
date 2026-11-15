@@ -143,6 +143,7 @@ export function Permissions(props: { use: ComputerUse }) {
   const recheck = (
     <button
       type="button"
+      {...part("link", use.pending && "disabled")}
       className="text-link focus-ring rounded-xs hover:underline disabled:opacity-40"
       disabled={use.pending}
       onClick={() => void use.refreshPermissions()}

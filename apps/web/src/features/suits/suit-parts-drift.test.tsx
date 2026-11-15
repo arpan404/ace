@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Slider } from "@/components/ui/slider.tsx";
 import { ToastProvider, useToast } from "@/components/ui/toast.tsx";
 import {
@@ -96,6 +97,8 @@ const settledThread = [
   "panel-header",
   "tabs",
   "file-tree",
+  "tool-icon",
+  "tool-group-header",
 ] as const;
 
 test("a working thread names the window, the transcript and the composer", async () => {
@@ -153,7 +156,7 @@ function asks(id: string, title: string, request: InteractionRequest): Scenario 
   };
 }
 
-const approvalScreen = ["approval-strip", "button"] as const;
+const approvalScreen = ["approval-strip", "button", "composer-strip"] as const;
 const questionScreen = ["question-card", "input"] as const;
 
 const pushApproval = asks("thread-push", "Push", {
@@ -199,6 +202,22 @@ test("a waiting question names its card", async () => {
   await waitFor(() => expect(missing(questionScreen)).toEqual([]));
 });
 
+const queueScreen = ["composer-strip", "queue-strip", "queue-item"] as const;
+
+test("a queued message names the composer's strip, the queue and its row", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("answered");
+  await app.open("/t/thread-replay-cursor");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Then run the tests{Enter}",
+  );
+  await screen.findByRole("list", { name: "Queued messages" });
+  await waitFor(() => expect(missing(queueScreen)).toEqual([]));
+  const strip = document.querySelector('[data-part="composer-strip"]');
+  expect(strip?.getAttribute("data-variant")).toBe("queue");
+});
+
 const menuScreen = ["menu", "menu-item", "divider"] as const;
 
 test("a thread row's menu names the menu and its items", async () => {
@@ -217,6 +236,7 @@ const settingsScreen = [
   "settings-section",
   "settings-row",
   "switch",
+  "switch-thumb",
   "select",
   "scrollbar",
 ] as const;
@@ -268,6 +288,10 @@ const sharedParts = [
   "badge",
   "kbd",
   "slider",
+  "slider-thumb",
+  "segmented",
+  "segment",
+  "segmented-thumb",
   "checkbox",
   "turn-divider",
   "link",
@@ -297,6 +321,15 @@ test("the shared overlays and controls name themselves wherever they are used", 
         <Badge>3</Badge>
         <Kbd keys="mod+k" resolve={false} />
         <Slider label="Opacity" value={40} />
+        <SegmentedControl
+          label="Mode"
+          value="light"
+          onValueChange={() => {}}
+          options={[
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark" },
+          ]}
+        />
         <Checkbox aria-label="Always allow" checked />
         <CentredDivider icon={null}>Handed off to Claude</CentredDivider>
         <WebLink href="https://example.com">example.com</WebLink>
@@ -465,6 +498,7 @@ const coverage = [
   settledThread,
   approvalScreen,
   questionScreen,
+  queueScreen,
   menuScreen,
   settingsScreen,
   panelsScreen,

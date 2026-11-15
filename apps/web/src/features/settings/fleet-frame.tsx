@@ -2,9 +2,8 @@ import { CaretDownIcon, DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-ico
 import { useLocation } from "@tanstack/react-router";
 import { createContext, use, useMemo, useRef, useState, type ReactNode } from "react";
 import { useHashFlash } from "@/components/setting-row.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { buttonLook } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
-import { cn } from "@/lib/cn.ts";
 import { AddMachine } from "./add-machine.tsx";
 import { fleetWarning } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
@@ -79,7 +78,7 @@ function AddMenu(props: { onPick(adding: Adding): void }) {
         id="remote.pair"
         data-flash={flashing || undefined}
         // While it flashes, the button's focus-ring shows (styles/index.css).
-        className={cn(buttonVariants({ size: "sm", variant: "primary" }), "gap-1")}
+        {...buttonLook({ size: "sm", variant: "primary" }, "gap-1")}
       >
         Add
         <CaretDownIcon aria-hidden size={12} />
