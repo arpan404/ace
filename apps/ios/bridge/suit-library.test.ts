@@ -1,7 +1,13 @@
 import { afterEach, expect, test } from "vitest";
 import "./test-host.ts";
 import { fakeSuitHash, type FakeSuitFolder } from "@ace/fake-daemon";
-import { followSuits, readPhoneSuit, readSuitAsset, SuitRefused } from "./suit-library.ts";
+import {
+  followSuits,
+  readPhoneSuit,
+  readSuitAsset,
+  solveStillTint,
+  SuitRefused,
+} from "./suit-library.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -108,4 +114,25 @@ test("an asset of an older version, or a Suit that's gone, is refused with the r
   await expect(readPhoneSuit(client, { type: "suit.read", id: "gone" }, signal)).rejects.toThrow(
     "There is no Suit gone",
   );
+});
+
+test("the page over a still thickens until the Suit's words read over its brightest part", () => {
+  const colours = {
+    background: "#16181B",
+    foreground: "#E7EAEE",
+    mutedForeground: "#B2B6BC",
+    subtleForeground: "#93979E",
+    accent: "#D5DEF3",
+  };
+  const calm = solveStillTint({ type: "suit.stillTint", colours, cells: [[22, 24, 27]] }).tint;
+  const bright = solveStillTint({
+    type: "suit.stillTint",
+    colours,
+    cells: [
+      [22, 24, 27],
+      [250, 250, 250],
+    ],
+  }).tint;
+  expect(calm).toBe(0.4);
+  expect(bright).toBeGreaterThan(0.7);
 });

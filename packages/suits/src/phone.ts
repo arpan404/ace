@@ -1,5 +1,14 @@
 import type { SuitDetail, SuitFont, SuitSummary } from "@ace/protocol/suits";
-import { phoneColoursOf, phoneColourWarnings, type PhoneColours, type Scheme } from "@ace/themes";
+import {
+  contrastRatio,
+  over,
+  parseOpaqueColor,
+  phoneColoursOf,
+  phoneColourWarnings,
+  type PhoneColours,
+  type Rgb,
+  type Scheme,
+} from "@ace/themes";
 import { suitDensity, suitPalette, suitSchemeFor, suitSchemes } from "./palette.ts";
 
 /*
@@ -156,4 +165,29 @@ export function phoneSuit(detail: Pick<SuitDetail, "summary" | "manifest">): Pho
         ? "It has no light or dark colours."
         : (problemReason(summary) ?? colourReason(colours, has)),
   };
+}
+
+/** The phone's words over a still: every ink level and the accent as a link, at AA. */
+const stillInks = ["foreground", "mutedForeground", "subtleForeground", "accent"] as const;
+/** The page over a still never thins below this, so it always reads as a surface. */
+const stillTintFloor = 0.4;
+
+/**
+ * The readability floor over a Suit's still (ADR 0075's floor, over this still instead of the
+ * fixtures): the thinnest the page colour may lie over it, 0.4 to 1, at which every ink level
+ * and the accent read at 4.5:1 over each of `cells`, the still as the phone draws it (blurred,
+ * sampled as a grid of average colours). 1 when even a solid page is needed.
+ */
+export function stillTint(colours: PhoneColours, cells: readonly Rgb[]): number {
+  const page = parseOpaqueColor(colours.background);
+  const inks = stillInks.map((role) => parseOpaqueColor(colours[role]));
+  if (!page || cells.length === 0) return 1;
+  const reads = (alpha: number) =>
+    cells.every((cell) => {
+      const behind = over(page, alpha, cell);
+      return inks.every((ink) => ink !== undefined && contrastRatio(ink, behind) >= 4.5);
+    });
+  for (let percent = stillTintFloor * 100; percent < 100; percent++)
+    if (reads(percent / 100)) return percent / 100;
+  return 1;
 }

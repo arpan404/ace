@@ -1,6 +1,7 @@
 import type { ClientCore, RequestOptions } from "@ace/client";
 import { SuitAssetPath, SuitId, type SuitResponse, type SuitSummary } from "@ace/protocol/suits";
-import { phoneSuit, phoneSuitRow, type PhoneSuit } from "@ace/suits/phone";
+import { phoneSuit, phoneSuitRow, stillTint, type PhoneSuit } from "@ace/suits/phone";
+import { phoneColourRoles, type PhoneColours } from "@ace/themes";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 
@@ -109,4 +110,24 @@ export async function readSuitAsset(
   return reply.response.op === "asset"
     ? { mimeType: reply.response.mimeType, data: reply.response.data }
     : refused(reply.response);
+}
+
+/** The phone's sample of a still as drawn: a grid of average colours, at most 32 × 32. */
+export const SuitStillTintRequest = z.object({
+  type: z.literal("suit.stillTint"),
+  colours: z.record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/)),
+  cells: z
+    .array(
+      z.tuple([z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255)]),
+    )
+    .min(1)
+    .max(1024),
+});
+
+/** The thinnest page over the still at which the Suit's words read (`stillTint`). */
+export function solveStillTint(request: z.infer<typeof SuitStillTintRequest>): { tint: number } {
+  const roles = Object.fromEntries(
+    phoneColourRoles.map((role) => [role, request.colours[role] ?? "#000000"]),
+  ) as PhoneColours;
+  return { tint: stillTint(roles, request.cells) };
 }

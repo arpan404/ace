@@ -91,6 +91,8 @@ import {
   SuitAssetRequest,
   SuitReadRequest,
   SuitRefused,
+  SuitStillTintRequest,
+  solveStillTint,
 } from "./suit-library.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
@@ -377,6 +379,11 @@ export class NativeServices {
         return;
       }
       // A Suit for this phone, or one of its assets (`suit-library.ts`); a refusal says why.
+      const still = SuitStillTintRequest.safeParse(raw);
+      if (still.success) {
+        this.#reply(id, true, solveStillTint(still.data), "");
+        return;
+      }
       const suit = SuitReadRequest.safeParse(raw);
       const asset = SuitAssetRequest.safeParse(raw);
       if (suit.success || asset.success) {

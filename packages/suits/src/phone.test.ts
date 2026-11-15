@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { SuitManifest, type SuitProblem, type SuitSummary } from "@ace/protocol/suits";
-import { phoneSuit, phoneSuitRow, stackFamilies } from "./phone.ts";
+import { phoneSuit, phoneSuitRow, stackFamilies, stillTint } from "./phone.ts";
 
 const summary = (problems: SuitProblem[] = []): SuitSummary => ({
   id: "neon",
@@ -86,4 +86,24 @@ test("shape scales corners and hairlines, and Spacious draws as Comfortable", ()
 
 test("stacks lose their quotes and generic keywords", () => {
   expect(stackFamilies(`"A B", C ,monospace, -apple-system`)).toEqual(["A B", "C"]);
+});
+
+test("text reads over a still: a busy one needs a thicker page than a calm one", () => {
+  const { colours } = phoneSuit(detail({ dark: { canvas: "#16181B" } }));
+  const calm = stillTint(colours.dark, [
+    [20, 22, 26],
+    [30, 34, 40],
+  ]);
+  const busy = stillTint(colours.dark, [
+    [20, 22, 26],
+    [240, 240, 235],
+  ]);
+  expect(calm).toBe(0.4);
+  expect(busy).toBeGreaterThan(calm);
+  expect(busy).toBeLessThan(1);
+  // A still no tint can save asks for the solid page.
+  const { colours: light } = phoneSuit(detail({ light: { canvas: "#FFFFFF" } }));
+  expect(stillTint(light.light, [[0, 0, 0]])).toBeGreaterThan(
+    stillTint(light.light, [[250, 250, 250]]),
+  );
 });
