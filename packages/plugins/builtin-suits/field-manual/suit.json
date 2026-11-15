@@ -1,0 +1,170 @@
+{
+  "format": 1,
+  "id": "field-manual",
+  "name": "Field Manual",
+  "description": "An industrial maintenance handbook: off-white manual paper, a numbered table of contents, work orders, procedures with checkboxes, hazard callouts, and an inspector's stamp when the work passes.",
+  "version": "1",
+  "base": "paper",
+  "light": {
+    "canvas": "#F2F0E9",
+    "sidebar": "#E6E3D9",
+    "surface": "#FAF9F5",
+    "raised": "#FFFFFF",
+    "hover": "#E0DCD0",
+    "active": "#D6D1C3",
+    "code": "#EBE8DF",
+    "border": "#D2CDBF",
+    "borderStrong": "#8E887A",
+    "text": "#1A1C1E",
+    "muted": "#3B3F44",
+    "subtle": "#55595F",
+    "faint": "#7B7F85",
+    "accent": "#CE4818",
+    "accentHover": "#AE3B12",
+    "accentFg": "#FFFFFF",
+    "accentText": "#983C14",
+    "diffAdd": "#DDE5D2",
+    "diffAddFg": "#2E6526",
+    "diffDel": "#F0D9D1",
+    "diffDelFg": "#9B2E1C",
+    "syntax": {
+      "kw": "#8E3812",
+      "fn": "#1F4C74",
+      "str": "#3B6120",
+      "num": "#845600",
+      "type": "#573D88",
+      "com": "#62666B",
+      "punc": "#3B3F44"
+    },
+    "glass": null
+  },
+  "dark": {
+    "canvas": "#17191B",
+    "sidebar": "#111314",
+    "surface": "#1E2123",
+    "raised": "#24282A",
+    "hover": "#2B2F32",
+    "active": "#33383B",
+    "code": "#131516",
+    "border": "#2D3134",
+    "borderStrong": "#4C5256",
+    "text": "#E8E5DC",
+    "muted": "#BBB7AD",
+    "subtle": "#9A968C",
+    "faint": "#706D66",
+    "accent": "#EE7A3C",
+    "accentHover": "#F48F58",
+    "accentFg": "#17191B",
+    "accentText": "#F39A66",
+    "diffAdd": "#1B281C",
+    "diffAddFg": "#93D18A",
+    "diffDel": "#2D1B18",
+    "diffDelFg": "#F29B89",
+    "syntax": {
+      "kw": "#F39A66",
+      "fn": "#90B9DF",
+      "str": "#A9CF88",
+      "num": "#E5C17C",
+      "type": "#C3AEE6",
+      "com": "#8F8C84",
+      "punc": "#BBB7AD"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"Manual Sans\", \"Helvetica Neue\", Arial, system-ui, sans-serif"
+    },
+    "prose": {
+      "system": "\"Manual Sans\", \"Helvetica Neue\", Arial, system-ui, sans-serif"
+    },
+    "mono": {
+      "system": "\"Manual Mono\", ui-monospace, Menlo, monospace"
+    }
+  },
+  "shape": {
+    "radius": 0.15,
+    "border": 1,
+    "density": "comfortable"
+  },
+  "motion": {
+    "speed": 0.9
+  },
+  "layout": {
+    "messages": "flat",
+    "toolRows": "detailed"
+  },
+  "labels": {
+    "composer-placeholder": "Describe the work to be done…",
+    "empty-transcript": "This page intentionally left blank.",
+    "empty-sidebar": "No sections in this manual yet",
+    "working-word": "In service",
+    "send": "Submit"
+  },
+  "ornaments": [
+    {
+      "slot": "empty-state",
+      "asset": "assets/ornaments/exploded-view.svg"
+    }
+  ],
+  "scenes": {
+    "celebration": "celebration.js"
+  },
+  "terminal": {
+    "light": {
+      "background": "#F4F2EC",
+      "foreground": "#1F2124",
+      "cursor": "#CE4818",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#CE481833",
+      "ansi": {
+        "black": "#1F2124",
+        "red": "#A8301F",
+        "green": "#2E6A26",
+        "yellow": "#8A5D00",
+        "blue": "#1F4C88",
+        "magenta": "#7A3E8A",
+        "cyan": "#1E6A70",
+        "white": "#5C6066",
+        "brightBlack": "#4A4E54",
+        "brightRed": "#B83A26",
+        "brightGreen": "#3A7A30",
+        "brightYellow": "#9A6A06",
+        "brightBlue": "#2A5C9C",
+        "brightMagenta": "#8A4A9C",
+        "brightCyan": "#257A80",
+        "brightWhite": "#1A1C1E"
+      }
+    },
+    "dark": {
+      "background": "#101213",
+      "foreground": "#E2DFD6",
+      "cursor": "#EE7A3C",
+      "cursorAccent": "#17191B",
+      "selection": "#EE7A3C40",
+      "ansi": {
+        "black": "#24282A",
+        "red": "#F0846E",
+        "green": "#93D18A",
+        "yellow": "#E8C66E",
+        "blue": "#86AEE0",
+        "magenta": "#C9A0DA",
+        "cyan": "#7CC6C4",
+        "white": "#BBB7AD",
+        "brightBlack": "#6A6E72",
+        "brightRed": "#F6A291",
+        "brightGreen": "#B0E0A6",
+        "brightYellow": "#F2D898",
+        "brightBlue": "#A8C6EC",
+        "brightMagenta": "#DCBDE8",
+        "brightCyan": "#A0D8D6",
+        "brightWhite": "#F2EFE7"
+      }
+    },
+    "fontFamily": "\"Manual Mono\", ui-monospace, Menlo, monospace",
+    "fontSize": 13,
+    "lineHeight": 1.3,
+    "cursorStyle": "block",
+    "cursorBlink": false
+  }
+}

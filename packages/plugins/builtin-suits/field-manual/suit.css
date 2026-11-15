@@ -1,0 +1,1746 @@
+/*
+ * Field Manual: ace as an industrial maintenance handbook. Every selector names a published part
+ * (docs/design/suit-parts.md).
+ *
+ * By day it is off-white manual paper printed in black ink with one signal-orange; by night the
+ * same handbook lies open on a workshop console. Titles are set in condensed caps, everything
+ * read for long in a sturdy grotesk. The sidebar is the table of contents (each thread a numbered
+ * section, the open one with an index tab on the page edge), an agent's answer is a manual page
+ * under a running header, the person's message is a work order, the work log is a procedure with
+ * numbered steps and check boxes, and requests waiting on the person are framed in hazard tape.
+ * Decoration stays on frames, bands and margins, never under words.
+ */
+
+@font-face {
+  font-family: "Manual Sans";
+  src: url("assets/fonts/Barlow-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Sans";
+  src: url("assets/fonts/Barlow-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Sans";
+  src: url("assets/fonts/Barlow-SemiBold.ttf") format("truetype");
+  font-weight: 600 800;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Display";
+  src: url("assets/fonts/BarlowCondensed-SemiBold.ttf") format("truetype");
+  font-weight: 400 600;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Display";
+  src: url("assets/fonts/BarlowCondensed-Bold.ttf") format("truetype");
+  font-weight: 700 800;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Mono";
+  src: url("assets/fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Manual Mono";
+  src: url("assets/fonts/IBMPlexMono-Medium.ttf") format("truetype");
+  font-weight: 500 700;
+  font-display: fallback;
+}
+
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part (in a portal), so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-display: "Manual Display", "Manual Sans", "Arial Narrow", sans-serif;
+  --suit-ink: var(--color-foreground);
+  --suit-paper: var(--color-background);
+  --suit-rule: var(--color-border-strong);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 10%, transparent);
+  --suit-wash-strong: color-mix(in oklab, var(--color-tint) 16%, transparent);
+  /* Hazard tape is the same yellow and black on either page. */
+  --suit-hazard-yellow: #f2c230;
+  --suit-hazard-black: #1a1c1e;
+  --suit-hazard: repeating-linear-gradient(
+    -45deg,
+    var(--suit-hazard-yellow) 0 7px,
+    var(--suit-hazard-black) 7px 14px
+  );
+  --suit-print: 3px 3px 0 rgb(26 28 30 / 0.14);
+  --suit-grid: rgb(40 44 50 / 0.075);
+  --suit-box-empty: url("assets/glyphs/box-empty-light.svg");
+  --suit-box-tick: url("assets/glyphs/box-tick-light.svg");
+  --suit-box-cross: url("assets/glyphs/box-cross-light.svg");
+  --suit-glyph-read: url("assets/glyphs/read.svg");
+  --suit-glyph-search: url("assets/glyphs/search.svg");
+  --suit-glyph-list: url("assets/glyphs/list.svg");
+  --suit-glyph-shell: url("assets/glyphs/shell.svg");
+  --suit-glyph-edit: url("assets/glyphs/edit.svg");
+  --suit-glyph-web: url("assets/glyphs/web.svg");
+  --suit-glyph-tool: url("assets/glyphs/tool.svg");
+  --suit-glyph-think: url("assets/glyphs/think.svg");
+  --suit-glyph-note: url("assets/glyphs/note.svg");
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"],
+[data-part="app"][data-scheme="dark"],
+[data-part="menu"][data-scheme="dark"],
+[data-part="popover"][data-scheme="dark"],
+[data-part="dialog"][data-scheme="dark"] {
+  --suit-print: 3px 3px 0 rgb(0 0 0 / 0.45);
+  --suit-grid: rgb(232 229 220 / 0.04);
+  --suit-box-empty: url("assets/glyphs/box-empty-dark.svg");
+  --suit-box-tick: url("assets/glyphs/box-tick-dark.svg");
+  --suit-box-cross: url("assets/glyphs/box-cross-dark.svg");
+}
+
+[data-part="app"] {
+  /* Manual paper carries a faint printed dot grid; the console at night, a blueprint grid. */
+  --suit-sheet:
+    radial-gradient(circle, var(--suit-grid) 0.9px, transparent 1.3px) 0 0 / 18px 18px,
+    var(--color-background);
+  --suit-transcript-background: var(--suit-sheet);
+  --suit-page-background: var(--suit-sheet);
+  --suit-sidebar-background: var(--color-sidebar);
+  --suit-rail-background: color-mix(in oklab, var(--color-sidebar) 86%, var(--color-foreground));
+  --suit-right-panel-background: var(--color-sidebar);
+  font-family: var(--font-sans);
+}
+[data-scheme="dark"] [data-part="app"],
+[data-part="app"][data-scheme="dark"] {
+  --suit-sheet:
+    linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--color-background);
+  --suit-rail-background: #0c0d0e;
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"],
+[data-part="tab"],
+[data-part="panel-tab"],
+[data-part="button"],
+[data-part="turn-divider"],
+[data-part="empty-state"],
+[data-part="settings-section"],
+[data-part="stat"] {
+  font-family: var(--suit-display);
+}
+[data-part="tab"],
+[data-part="panel-tab"],
+[data-part="button"],
+[data-part="turn-divider"] {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+[data-part="link"] {
+  color: var(--color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 28%, transparent);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"] {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/* ------------------------------------------------------------------ rail: the binder's spine */
+
+[data-part="rail"] {
+  box-shadow: inset -1px 0 0 var(--suit-rule);
+}
+[data-part="rail-item"] {
+  border-radius: 0;
+  fill: currentColor;
+}
+[data-part="rail-item"]:hover {
+  background: var(--color-hover);
+}
+[data-part="rail-item"][data-state="active"] {
+  background: var(--suit-ink);
+  color: var(--suit-paper);
+}
+
+/* ------------------------------------------------------------------ sidebar: table of contents */
+
+[data-part="sidebar"] {
+  box-shadow: inset -1px 0 0 var(--suit-rule);
+}
+[data-part="sidebar-header"] {
+  position: relative;
+}
+/* A thick-and-thin printer's rule under the manual's title. */
+[data-part="sidebar-header"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 5px;
+  background:
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 2px no-repeat,
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 4px / 100% 1px no-repeat;
+  pointer-events: none;
+}
+[data-part="project-header"] {
+  font-family: var(--suit-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[data-part="thread-list"] {
+  counter-reset: section;
+}
+/* The contents' own heading. */
+[data-part="thread-list"]::before {
+  content: "TABLE OF CONTENTS";
+  display: block;
+  margin: 8px 14px 4px;
+  padding-bottom: 3px;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-muted-foreground);
+  border-bottom: 1px solid var(--color-border);
+}
+[data-part="thread-row"] {
+  counter-increment: section;
+  position: relative;
+  border-radius: 0;
+  padding-left: 40px;
+  box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--color-border) 70%, transparent);
+  transition: background-color 120ms ease;
+}
+/* Each thread is a numbered section of the manual. */
+[data-part="thread-row"]::before {
+  content: "§" counter(section, decimal-leading-zero);
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  translate: 0 -50%;
+  min-width: 26px;
+  box-sizing: border-box;
+  padding: 1px 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--color-subtle-foreground);
+}
+[data-part="thread-row"]:hover {
+  background: var(--color-hover);
+}
+/* The open section is pulled forward like a page, with an index tab on the page edge. */
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 1px 0 var(--color-border),
+    inset 0 -1px 0 var(--color-border);
+}
+[data-part="thread-row"][data-state="active"]::before {
+  font-weight: 500;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+}
+[data-part="thread-row"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 7px;
+  background: var(--color-tint);
+  clip-path: polygon(3px 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px), 0 3px);
+  pointer-events: none;
+}
+[data-part="thread-row"][data-state="active"] [data-part="thread-title"] {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+[data-part="thread-meta"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+[data-part="status-icon"] {
+  border-radius: 0;
+}
+
+[data-part="sidebar-tabs"] {
+  border-radius: 0;
+  border: 1px solid var(--suit-rule);
+  background: var(--color-surface-1);
+}
+[data-part="sidebar-tabs"] [data-part="tab"] {
+  border-radius: 0;
+  font-size: 12px;
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  background: var(--suit-ink);
+  color: var(--suit-paper);
+}
+
+/* The sidebar's foot is the manual's document control block. */
+[data-part="sidebar-footer"] {
+  position: relative;
+  min-height: 26px;
+}
+[data-part="sidebar-footer"]::before {
+  content: "FM 1-ACE  ·  REV. A";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  padding: 3px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-subtle-foreground);
+  border: 1px solid var(--color-border-strong);
+  background: linear-gradient(var(--color-border-strong), var(--color-border-strong)) 62% 0 / 1px
+    100% no-repeat;
+  pointer-events: none;
+}
+[data-part="sidebar-footer"]::after {
+  content: "UNCLASSIFIED";
+  position: absolute;
+  right: 18px;
+  bottom: 10px;
+  font-family: var(--suit-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ header: the running head */
+
+[data-part="header"] {
+  position: relative;
+}
+[data-part="header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background:
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 1px no-repeat,
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 3px / 100% 1px no-repeat;
+  opacity: 0.85;
+  pointer-events: none;
+}
+[data-part="header-title"] {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* The document number leads the running head. */
+[data-part="header-title"]::before {
+  content: "FM 1-ACE";
+  display: inline-block;
+  margin-right: 10px;
+  padding: 2px 6px 1px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  vertical-align: 2px;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+}
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · REGISTER";
+}
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · REPORT";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · SPECS";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · NEW SECTION";
+}
+[data-page="usage"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · GAUGES";
+}
+[data-page="history"] [data-part="header-title"]::before {
+  content: "FM 1-ACE · ARCHIVE";
+}
+[data-part="header"] [data-part="icon-button"],
+[data-part="header"] [data-part="button"] {
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ transcript: manual pages */
+
+[data-part="transcript"] {
+  counter-reset: page order;
+}
+
+/*
+ * An agent's answer is a manual page: a running header (a thin rule, the page number at the
+ * left, the manual's number at the right) over the words.
+ */
+[data-part="message-agent"] {
+  counter-increment: page;
+  position: relative;
+  padding-top: 24px;
+}
+/* The running header's rule and page number, on a layer of its own over the page's top edge. */
+[data-part="message-agent"]::before {
+  content: "PAGE " counter(page) "-" counter(page, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding-top: 5px;
+  border-top: 1px solid var(--suit-rule);
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.18em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="message-agent"]::after {
+  content: "OPERATING NOTES";
+  position: absolute;
+  right: 0;
+  top: 5px;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.18em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+
+/*
+ * The person writes a work order: a slip with an ink band across its top ("WORK ORDER · No."),
+ * a field label, and the request written into the form.
+ */
+[data-part="message-user"] {
+  counter-increment: order;
+  position: relative;
+  padding: 44px 14px 12px;
+  border: 1.5px solid var(--suit-ink);
+  border-radius: 0;
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-print);
+}
+[data-part="message-user"]::before {
+  content: "WORK ORDER    No. " counter(order, decimal-leading-zero);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  padding-left: 12px;
+  font-family: var(--suit-display);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  letter-spacing: 0.18em;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+  pointer-events: none;
+}
+[data-part="message-user"]::after {
+  content: "DESCRIPTION OF WORK";
+  position: absolute;
+  top: 25px;
+  left: 14px;
+  right: 14px;
+  padding-bottom: 2px;
+  font-family: var(--suit-display);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  color: var(--color-subtle-foreground);
+  border-bottom: 1px dashed var(--color-border-strong);
+  pointer-events: none;
+}
+
+/*
+ * The time and copy actions print under each page and order like a page's issue line, always
+ * shown: ink that fades in on hover would read as no ink at all.
+ */
+[data-part="message-meta"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 1;
+}
+
+/* A change of hands is a NOTE set between rules. */
+[data-part="turn-divider"] {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+[data-part="turn-divider"][data-variant="interrupted"]::before {
+  content: "NOTE";
+  margin-right: 8px;
+  padding: 1px 6px;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+}
+
+[data-part="inline-code"] {
+  border-radius: 0;
+  background: var(--color-code);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding-inline: 4px;
+}
+/* A code block is a numbered listing with a labelled tab. */
+[data-part="code-block"] {
+  position: relative;
+  border-radius: 0;
+  border: 1px solid var(--suit-rule);
+  border-top: 3px solid var(--suit-ink);
+  background: var(--color-code);
+}
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-radius: 0;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--suit-rule);
+  background: var(--color-code);
+  font-family: var(--font-mono);
+}
+
+[data-part="attachment"] {
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ work log: the procedure */
+
+/*
+ * A group of steps is a procedure: a black PROCEDURE plate before ace's summary. Each step is
+ * numbered, carries a check box (ticked when done, crossed when it failed, empty while it runs)
+ * and a tool glyph for its kind: a manual for a read, a magnifier for a search, a clipboard for
+ * a list, a wrench for a command, a drafting pencil for an edit, a mast for the web, a gauge for
+ * a tool, a cog for thinking and a tag for a note. A running step keeps ace's spinner, a failed
+ * one ace's glyph.
+ */
+[data-part="tool-group-header"] {
+  counter-reset: step;
+  border-radius: 0;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+[data-part="tool-group-header"]::before {
+  content: "PROCEDURE";
+  flex: 0 0 auto;
+  margin-right: 10px;
+  padding: 1px 6px;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.16em;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+}
+[data-part="tool-group-header"]:hover,
+[data-part="tool-group-header"][data-state="open"] {
+  background: var(--suit-wash);
+  color: var(--color-foreground);
+}
+[data-part="tool-row"] {
+  counter-increment: step;
+  position: relative;
+  border-radius: 0;
+  font-family: var(--font-sans);
+  transition: background-color 120ms ease;
+}
+[data-part="tool-row"]:hover {
+  background: var(--color-hover);
+}
+[data-part="tool-row"][data-state="open"] {
+  background: var(--suit-wash);
+  box-shadow: inset 3px 0 0 var(--color-tint);
+}
+/* The step number. */
+[data-part="tool-row"]::before {
+  content: counter(step, decimal-leading-zero);
+  order: -2;
+  flex: 0 0 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--color-subtle-foreground);
+}
+/* The step's check box. */
+[data-part="tool-row"]::after {
+  content: "";
+  order: -1;
+  flex: 0 0 15px;
+  height: 15px;
+  margin-right: 6px;
+  background: var(--suit-box-tick) no-repeat center / 15px 15px;
+  pointer-events: none;
+}
+[data-part="tool-row"][data-state="working"]::after {
+  background-image: var(--suit-box-empty);
+}
+[data-part="tool-row"][data-state="failed"]::after {
+  background-image: var(--suit-box-cross);
+}
+[data-part="tool-row"][data-state="failed"] {
+  box-shadow: inset 3px 0 0 var(--status-failed);
+}
+
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-tool);
+  position: relative;
+  color: transparent;
+}
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  translate: -50% -50%;
+  background: var(--color-muted-foreground);
+  mask: var(--suit-glyph) no-repeat center / contain;
+  pointer-events: none;
+}
+[data-part="tool-row"][data-variant="read"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-read);
+}
+[data-part="tool-row"][data-variant="search"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-search);
+}
+[data-part="tool-row"][data-variant="list"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-list);
+}
+[data-part="tool-row"][data-variant="shell"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-shell);
+}
+[data-part="tool-row"][data-variant="edit"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-edit);
+}
+[data-part="tool-row"][data-variant="web"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-web);
+}
+[data-part="tool-row"][data-variant="think"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-think);
+}
+[data-part="tool-row"][data-variant="note"] [data-part="tool-icon"] {
+  --suit-glyph: var(--suit-glyph-note);
+}
+
+/* The Working line keeps ace's words and colour; the Suit sets it as a status line in caps. */
+[data-part="working-line"] {
+  font-family: var(--suit-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding-inline: 10px 8px;
+  border-left: 3px solid var(--status-working);
+  border-radius: 0;
+}
+[data-part="working-line"][data-state="waiting"] {
+  border-left-color: var(--status-needs-you);
+}
+
+/* Approvals and questions keep ace's words and colours, squared off inside the hazard frame. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 0;
+  font-family: var(--font-sans);
+}
+[data-part="question-card"] {
+  border: 1.5px solid var(--suit-ink);
+  padding: 8px 12px;
+}
+
+/* ------------------------------------------------------------------ the composer: a work order */
+
+/*
+ * The strip above the composer. A request waiting on the person is framed in hazard tape with a
+ * CAUTION tag; the queue is a stack of pending work orders; anything else is a NOTE.
+ */
+[data-part="composer-strip"] {
+  border-radius: 0;
+}
+[data-part="composer-strip"][data-variant="request"] {
+  padding: 22px 6px 0;
+  background: var(--suit-hazard);
+}
+/* The tag rides on the tape's top band, inside the strip, never over the transcript. */
+[data-part="composer-strip"][data-variant="request"]::before {
+  content: "CAUTION  ·  OPERATOR ACTION REQUIRED";
+  white-space: pre;
+  overflow: hidden;
+  position: absolute;
+  left: 14px;
+  top: 2px;
+  z-index: 2;
+  padding: 1px 8px;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.2em;
+  color: var(--suit-hazard-black);
+  background: var(--suit-hazard-yellow);
+  border: 1.5px solid var(--suit-hazard-black);
+  pointer-events: none;
+}
+[data-part="queue-strip"] {
+  font-family: var(--suit-display);
+  letter-spacing: 0.04em;
+}
+[data-part="queue-strip"]::before {
+  content: "PENDING WORK ORDERS";
+  display: block;
+  padding: 2px 8px 3px;
+  font-family: var(--suit-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--color-subtle-foreground);
+}
+[data-part="queue-strip"] {
+  counter-reset: pending;
+}
+[data-part="queue-item"] {
+  counter-increment: pending;
+  border-radius: 0;
+  font-family: var(--font-sans);
+  letter-spacing: normal;
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="queue-item"]::before {
+  content: "WO-" counter(pending, decimal-leading-zero);
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-subtle-foreground);
+}
+[data-part="queue-item"]:hover {
+  background: var(--color-hover);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--suit-wash-strong);
+  box-shadow: inset 3px 0 0 var(--color-tint);
+}
+
+[data-part="composer"] {
+  position: relative;
+  border-radius: 0;
+  border: 1.5px solid var(--suit-ink);
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-print);
+  padding-top: 20px;
+}
+/* The form's band, on a layer of its own so the form's fields read against paper alone. */
+[data-part="composer"]::before {
+  content: "WORK ORDER  ·  ENTER DESCRIPTION OF WORK";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  padding-left: 12px;
+  background: var(--suit-ink);
+  font-family: var(--suit-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 20px;
+  letter-spacing: 0.18em;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--suit-paper);
+  pointer-events: none;
+}
+[data-part="composer"]:focus-within {
+  border-color: var(--color-tint);
+}
+[data-part="composer"]:focus-within::before {
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+}
+[data-part="composer-input"] {
+  caret-color: var(--color-tint);
+}
+[data-part="composer-input"]::placeholder {
+  color: var(--color-subtle-foreground);
+}
+/* The form's lower row of fields. */
+[data-part="composer-toolbar"] {
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+
+/* Send is a rubber stamp: SUBMIT in a double-ruled frame, pressed a little off square. */
+[data-part="composer-send"] {
+  position: relative;
+  border-radius: 0;
+}
+[data-part="composer-send"][data-variant="send"] {
+  width: 76px;
+  color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+[data-part="composer-send"][data-variant="send"]::after {
+  content: "SUBMIT";
+  position: absolute;
+  inset: 3px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--suit-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--color-link);
+  border: 2px solid var(--color-tint);
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-surface-1),
+    inset 0 0 0 2.5px var(--color-tint);
+  rotate: -2deg;
+  transition:
+    rotate 120ms ease,
+    background-color 120ms ease;
+}
+[data-part="composer-send"][data-variant="send"]:hover::after {
+  rotate: 0deg;
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+}
+[data-part="composer-send"][data-variant="send"]:active::after {
+  scale: 0.96;
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"]::after {
+  color: var(--color-subtle-foreground);
+  border-color: var(--color-border-strong);
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-surface-1),
+    inset 0 0 0 2.5px var(--color-border-strong);
+  background: transparent;
+  rotate: 0deg;
+}
+[data-part="composer-send"][data-variant="stop"],
+[data-part="composer-send"][data-variant="steer"],
+[data-part="composer-send"][data-variant="queue"] {
+  border-radius: 0;
+}
+
+/* The model is the unit's model number on the form. */
+[data-part="model-picker"] {
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+[data-part="model-picker"]::before {
+  content: "MODEL";
+  margin-right: 6px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--color-subtle-foreground);
+}
+[data-part="model-picker"]:hover {
+  background: var(--color-hover);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--suit-rule);
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+[data-part="button"]:hover {
+  box-shadow: inset 0 0 0 1.5px var(--suit-ink);
+}
+[data-part="button"][data-variant="primary"] {
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+  box-shadow: var(--suit-print);
+}
+[data-part="button"][data-variant="primary"]:hover {
+  background: var(--color-tint-hover);
+}
+[data-part="button"][data-variant="primary"]:active {
+  box-shadow: none;
+  translate: 1px 1px;
+}
+[data-part="button"][data-variant="ghost"] {
+  box-shadow: none;
+}
+[data-part="button"][data-variant="ghost"]:hover {
+  background: var(--color-hover);
+}
+/* A danger button keeps ace's own fill; the Suit only squares it. */
+[data-part="button"][data-variant="danger"] {
+  box-shadow: none;
+}
+[data-part="button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  opacity: 1;
+}
+
+[data-part="icon-button"] {
+  border-radius: 0;
+}
+[data-part="icon-button"]:hover,
+[data-part="icon-button"][data-state="active"] {
+  background: var(--color-hover);
+}
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-faint-foreground);
+  opacity: 1;
+}
+
+/* Fields are form boxes: a ruled outline, the caret in signal orange. */
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 0;
+  caret-color: var(--color-tint);
+}
+[data-part="input"],
+[data-part="select"] {
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px var(--suit-rule);
+}
+[data-part="input"]:focus-within,
+[data-part="select"]:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--color-tint);
+}
+/* A search is a ruled line on the form; focused, the line is drawn in signal orange. */
+[data-part="search-field"] {
+  box-shadow: inset 0 -1px 0 var(--suit-rule);
+}
+[data-part="search-field"]:focus-within {
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus-within {
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-part="checkbox"] {
+  border-radius: 0;
+}
+/* A switch is a panel toggle: a square slot with a ridged lever. */
+[data-part="switch"] {
+  border-radius: 0;
+  background: color-mix(in oklab, var(--color-sidebar) 70%, var(--color-border-strong));
+  box-shadow: inset 0 0 0 1.5px var(--suit-rule);
+}
+[data-part="switch"][data-state="checked"] {
+  background: var(--color-tint);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-tint) 70%, #000);
+}
+[data-part="switch-thumb"] {
+  border-radius: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 3px, rgb(0 0 0 / 0.22) 3px 4px) center / 9px 60%
+      no-repeat,
+    #fbfaf6;
+  box-shadow:
+    0 0 0 1px rgb(26 28 30 / 0.55),
+    1px 1px 0 rgb(26 28 30 / 0.25);
+}
+[data-part="slider"],
+[data-part="progress"] {
+  border-radius: 0;
+}
+[data-part="slider-thumb"] {
+  border-radius: 0;
+  box-shadow: 0 0 0 1.5px var(--suit-ink);
+}
+/* One-of-n is a row of ruled form boxes; the chosen one is printed in ink. */
+[data-part="segmented"] {
+  border-radius: 0;
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px var(--suit-rule);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 0;
+  background: var(--suit-ink);
+  box-shadow: none;
+}
+[data-part="segment"] {
+  border-radius: 0;
+  font-family: var(--suit-display);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+[data-part="segment"][data-state="selected"] {
+  color: var(--suit-paper);
+}
+
+[data-part="tabs"] {
+  border-radius: 0;
+}
+[data-part="tab"] {
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  box-shadow: inset 0 -3px 0 var(--suit-ink);
+}
+
+[data-part="badge"],
+[data-part="label-chip"],
+[data-part="branch-chip"],
+[data-part="kbd"] {
+  border-radius: 0;
+}
+[data-part="badge"] {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+[data-part="kbd"] {
+  font-family: var(--font-mono);
+  box-shadow: inset 0 0 0 1px var(--suit-rule);
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="divider"] {
+  background: transparent;
+  border-color: transparent;
+  border-top: 1px solid var(--color-border-strong);
+}
+[data-part="avatar"] {
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ floating layers: spec sheets */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="tooltip"] {
+  border-radius: 0;
+  border: 1.5px solid var(--suit-ink);
+  background: var(--color-surface-2);
+  box-shadow: var(--suit-print);
+}
+/* A dialog is an insert sheet with an ink band across its head. */
+[data-part="dialog"],
+[data-part="command-palette"] {
+  border-top-width: 6px;
+}
+[data-part="menu"],
+[data-part="popover"] {
+  border-top-width: 4px;
+}
+[data-part="dialog"] [data-part="page-title"] {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+[data-part="tooltip"] {
+  border-width: 1px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+[data-part="menu-item"] {
+  border-radius: 0;
+}
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus,
+[data-part="menu-item"]:focus-visible {
+  background: var(--suit-wash-strong);
+  box-shadow: inset 3px 0 0 var(--color-tint);
+}
+[data-part="menu-item"][data-state="checked"] {
+  font-weight: 600;
+}
+
+/* Toasts are the manual's NOTE, CAUTION and WARNING blocks, each with its word on a plate. */
+[data-part="toast"] {
+  position: relative;
+  padding-top: 24px;
+}
+[data-part="toast"]::before {
+  content: "NOTE";
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 1px 10px;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.2em;
+  color: var(--suit-paper);
+  background: var(--suit-ink);
+  pointer-events: none;
+}
+[data-part="toast"][data-variant="warning"] {
+  border-color: var(--suit-hazard-black);
+  border-image: var(--suit-hazard) 6;
+  border-width: 5px;
+}
+[data-part="toast"][data-variant="warning"]::before {
+  content: "CAUTION";
+  color: var(--suit-hazard-black);
+  background: var(--suit-hazard-yellow);
+}
+[data-part="toast"][data-variant="error"]::before {
+  content: "WARNING";
+}
+[data-part="toast"][data-variant="success"]::before {
+  content: "INSPECTED";
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="page-title"] {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+[data-part="page-header"] {
+  position: relative;
+}
+[data-part="card"] {
+  border-radius: 0;
+  border: 1px solid var(--suit-rule);
+  background: var(--color-surface-1);
+}
+[data-part="card"][data-state="checked"] {
+  border-color: var(--color-tint);
+  box-shadow: inset 0 0 0 1.5px var(--color-tint);
+}
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 0;
+}
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  background: var(--color-active);
+  box-shadow: inset 3px 0 0 var(--color-tint);
+}
+[data-part="table"] {
+  border: 1px solid var(--suit-rule);
+}
+[data-part="table-row"] + [data-part="table-row"] {
+  border-top: 1px solid var(--color-border);
+}
+[data-part="stat"] {
+  border-radius: 0;
+}
+[data-part="label-chip"] {
+  font-family: var(--font-mono);
+}
+/* An empty view is a blank page under its exploded-view drawing; its words stay sentence case. */
+[data-part="empty-state"] {
+  font-family: var(--font-sans);
+  color: var(--color-muted-foreground);
+}
+
+/* ------------------------------------------------------------------ settings: specifications */
+
+[data-page="settings"] [data-part="page-title"]::before {
+  content: "SPECIFICATIONS  /  ";
+  white-space: pre;
+  color: var(--color-link);
+  font-size: 0.72em;
+  letter-spacing: 0.14em;
+}
+[data-part="nav-item"] {
+  position: relative;
+  border-radius: 0;
+}
+[data-part="nav-item"][data-state="active"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 1px 0 var(--color-border),
+    inset 0 -1px 0 var(--color-border);
+  font-weight: 600;
+}
+[data-part="nav-item"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 7px;
+  background: var(--color-tint);
+  clip-path: polygon(3px 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px), 0 3px);
+  pointer-events: none;
+}
+[data-part="settings-nav"] {
+  counter-reset: spec-page;
+}
+[data-part="settings-nav"] [data-part="nav-item"] {
+  counter-increment: spec-page;
+}
+[data-part="settings-nav"] [data-part="nav-item"]::before {
+  content: counter(spec-page) ".0";
+  flex: 0 0 26px;
+  order: -1;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-subtle-foreground);
+}
+[data-part="page-body"] {
+  counter-reset: spec;
+}
+/* Each settings group is a specification table under a numbered heading band. */
+[data-part="card"][data-variant="settings-group"] {
+  counter-increment: spec;
+  position: relative;
+  padding-top: 18px;
+  border: 1.5px solid var(--suit-ink);
+  background: var(--color-surface-1);
+}
+[data-part="card"][data-variant="settings-group"]::before {
+  content: "SPEC TABLE " counter(spec, decimal-leading-zero);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  padding-left: 12px;
+  background: var(--suit-ink);
+  font-family: var(--suit-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: 0.2em;
+  color: var(--suit-paper);
+  pointer-events: none;
+}
+[data-part="settings-section"] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+[data-part="settings-section"] [data-part="card"],
+[data-part="settings-section"] [data-part="settings-row"] {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px dotted var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ code review: the register */
+
+[data-page="pulls"] [data-part="page-title"]::before,
+[data-page="issues"] [data-part="page-title"]::before,
+[data-page="inbox"] [data-part="page-title"]::before {
+  content: "REGISTER  /  ";
+  white-space: pre;
+  color: var(--color-link);
+  font-size: 0.72em;
+  letter-spacing: 0.14em;
+}
+/* The list's box is an inspection register: a heading band over ruled rows. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"] {
+  position: relative;
+  padding-top: 22px;
+  border: 1.5px solid var(--suit-ink);
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-print);
+}
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before {
+  content: "INSPECTION REGISTER  ·  CHANGE ORDERS";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  padding-left: 12px;
+  background: var(--suit-ink);
+  font-family: var(--suit-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 22px;
+  letter-spacing: 0.2em;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--suit-paper);
+  pointer-events: none;
+}
+[data-page="issues"] [data-part="card"]::before {
+  content: "DEFECT REGISTER  ·  OPEN REPORTS";
+}
+[data-page="pulls"] [data-part="filter-bar"],
+[data-page="issues"] [data-part="filter-bar"],
+[data-page="inbox"] [data-part="filter-bar"] {
+  background: var(--color-code);
+  border-bottom: 1.5px solid var(--suit-ink);
+}
+/*
+ * Each pull request is a register line: a tick box (empty while open, ticked once merged,
+ * crossed when closed) and a stamped disposition in their own columns (OPEN, HOLD for a draft,
+ * PASSED, VOID), then its title. Rows are contained, so a register number can't count across.
+ */
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  position: relative;
+  border-radius: 0;
+  padding-left: 112px;
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color 120ms ease;
+}
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 34px;
+  background: var(--suit-box-empty) no-repeat center / 15px 15px;
+  border-right: 1px solid var(--color-border);
+  pointer-events: none;
+}
+[data-part="pr-row"][data-variant="merged"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  background-image: var(--suit-box-tick);
+}
+[data-part="pr-row"][data-variant="closed"]::before {
+  background-image: var(--suit-box-cross);
+}
+[data-part="pr-row"]::after,
+[data-part="issue-row"]::after {
+  content: "OPEN";
+  position: absolute;
+  left: 44px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 56px;
+  box-sizing: border-box;
+  padding: 1px 0;
+  text-align: center;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.14em;
+  color: var(--color-link);
+  border: 1.5px solid currentColor;
+  pointer-events: none;
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--color-hover);
+}
+[data-part="pr-row"][data-state="selected"] {
+  background: var(--suit-wash-strong);
+}
+[data-part="pr-row"][data-variant="draft"]::after {
+  content: "HOLD";
+  color: var(--color-subtle-foreground);
+  border-style: dashed;
+}
+[data-part="pr-row"][data-variant="merged"]::after {
+  content: "PASSED";
+  color: var(--color-foreground);
+  rotate: -3deg;
+}
+[data-part="pr-row"][data-variant="closed"]::after,
+[data-part="issue-row"][data-variant="closed"]::after {
+  content: "VOID";
+  color: var(--color-subtle-foreground);
+}
+
+/* ------------------------------------------------------------------ the pull request: a report */
+
+[data-page="pull"] [data-part="page-header"],
+[data-page="issue"] [data-part="page-header"] {
+  padding-bottom: 14px;
+}
+[data-page="pull"] [data-part="page-header"]::after,
+[data-page="issue"] [data-part="page-header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  background:
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 2px no-repeat,
+    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 4px / 100% 1px no-repeat;
+  pointer-events: none;
+}
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 26px;
+  line-height: 1.2;
+}
+/* The kicker names the report and where it stands. */
+[data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "INSPECTION REPORT  ·  CHANGE ORDER";
+  display: block;
+  margin-bottom: 4px;
+  white-space: pre;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-link);
+}
+[data-page="pull"][data-variant="draft"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "INSPECTION REPORT  ·  ON HOLD";
+}
+[data-page="pull"][data-variant="merged"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "INSPECTION REPORT  ·  PASSED";
+}
+[data-page="pull"][data-variant="closed"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "INSPECTION REPORT  ·  VOID";
+}
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "DEFECT REPORT";
+}
+
+/* The report's facts each sit under a ruled line, like entries on a form. */
+[data-page="pull"] [data-part="page-section"],
+[data-page="issue"] [data-part="page-section"] {
+  position: relative;
+  box-sizing: border-box;
+  border-top: 1px solid var(--suit-rule);
+}
+/*
+ * The pull request's state is stamped on the report: a ruled box in the state's own readable
+ * ink (ace's tone for it), on paper rather than a filled pill.
+ */
+[data-page="pull"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
+  font-family: var(--suit-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tone-text, var(--color-foreground));
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 2px var(--tone, var(--color-foreground)),
+    inset 0 0 0 3.5px var(--color-surface-1),
+    inset 0 0 0 4.5px var(--tone, var(--color-foreground));
+  rotate: -2deg;
+}
+[data-part="card"][data-variant="description"] {
+  border: 1.5px solid var(--suit-ink);
+  box-shadow: var(--suit-print);
+}
+[data-part="card"][data-variant="description"],
+[data-part="review-comment"] {
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/*
+ * The merge box is the inspector's sign-off box: a ruled form with its band, a signature line
+ * at its foot, and once merged an APPROVED stamp pressed across its corner.
+ */
+[data-part="merge-box"] {
+  position: relative;
+  border-radius: 0;
+  border: 1.5px solid var(--suit-ink);
+  padding-top: 24px;
+  padding-bottom: 28px;
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-print);
+}
+[data-part="merge-box"]::before {
+  content: "INSPECTOR SIGN-OFF";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  padding-left: 12px;
+  background: var(--suit-ink);
+  font-family: var(--suit-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 22px;
+  letter-spacing: 0.22em;
+  color: var(--suit-paper);
+  pointer-events: none;
+}
+[data-part="merge-box"]::after {
+  content: "SIGNATURE / DATE";
+  position: absolute;
+  left: 16px;
+  bottom: 2px;
+  width: 46%;
+  padding-top: 1px;
+  border-top: 1px solid var(--color-border-strong);
+  font-family: var(--suit-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="merge-box"][data-state="waiting"]::before {
+  content: "INSPECTOR SIGN-OFF  ·  HELD";
+  white-space: pre;
+}
+[data-part="merge-box"][data-state="done"]::after {
+  content: "APPROVED";
+  width: auto;
+  padding-top: 2px;
+  left: auto;
+  right: 18px;
+  bottom: 10px;
+  padding: 2px 10px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-link);
+  border: 2.5px solid currentColor;
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-surface-1),
+    inset 0 0 0 3px currentColor;
+  rotate: -7deg;
+}
+[data-part="merge-box"][data-state="closed"]::after {
+  content: "VOID";
+  width: auto;
+  padding-top: 2px;
+  left: auto;
+  right: 18px;
+  bottom: 10px;
+  padding: 2px 10px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-subtle-foreground);
+  border: 2px solid currentColor;
+  rotate: -5deg;
+}
+/* Each gate is a numbered inspection item on the form. */
+[data-part="merge-box"] {
+  counter-reset: gate;
+}
+[data-part="merge-box"] [data-part="list-row"] {
+  counter-increment: gate;
+  position: relative;
+  border-radius: 0;
+}
+[data-part="merge-box"] [data-part="list-row"]::after {
+  content: "ITEM " counter(gate, decimal-leading-zero);
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="merge-box"] [data-part="button"][data-variant="primary"] {
+  letter-spacing: 0.12em;
+}
+
+/* Checks are inspection items, each with its own box. */
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+[data-part="check-row"] {
+  border-bottom: 1px dotted var(--color-border-strong);
+}
+[data-part="check-row"][data-state="selected"] {
+  background: var(--color-active);
+  box-shadow: inset 3px 0 0 var(--color-tint);
+}
+[data-part="timeline-item"],
+[data-part="review-comment"],
+[data-part="review-thread"] {
+  border-radius: 0;
+}
+/* A file's diff is a drawing sheet: ruled frame, heavy rule across its head. */
+[data-part="diff-file"] {
+  border-radius: 0;
+  border: 1px solid var(--suit-rule);
+  border-top: 3px solid var(--suit-ink);
+}
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+
+/* ------------------------------------------------------------------ side panel: a ring binder */
+
+/*
+ * The side panel is a ring binder clipped to the page: punched holes down its left edge, index
+ * tabs along its head (the shown one joins its page), and its pages ruled in paper.
+ */
+[data-part="right-panel"] {
+  position: relative;
+  box-shadow: inset 1px 0 0 var(--suit-rule);
+}
+[data-part="right-panel"][data-variant="right"] {
+  padding-left: 16px;
+}
+[data-part="right-panel"][data-variant="right"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  background:
+    radial-gradient(
+        circle,
+        var(--color-background) 0 3.2px,
+        var(--suit-rule) 3.2px 4.2px,
+        transparent 4.6px
+      )
+      center 24px / 16px 64px repeat-y,
+    linear-gradient(90deg, transparent 15px, var(--suit-rule) 15px) 0 0 / 16px 100% no-repeat,
+    color-mix(in oklab, var(--color-sidebar) 80%, var(--color-border-strong));
+  pointer-events: none;
+}
+[data-part="panel-header"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 0 -1.5px 0 var(--suit-ink);
+}
+[data-part="panel-tab"] {
+  border-radius: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: color-mix(in oklab, var(--color-sidebar) 70%, var(--color-border));
+  box-shadow:
+    inset 1px 0 0 var(--color-border-strong),
+    inset -1px 0 0 var(--color-border-strong),
+    inset 0 1px 0 var(--color-border-strong);
+  clip-path: polygon(0 100%, 0 4px, 4px 0, calc(100% - 8px) 0, 100% 8px, 100% 100%);
+}
+[data-part="panel-tab"]:hover {
+  background: var(--color-hover);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  background: var(--color-background);
+  box-shadow:
+    inset 1.5px 0 0 var(--suit-ink),
+    inset -1.5px 0 0 var(--suit-ink),
+    inset 0 3px 0 var(--color-tint);
+}
+[data-part="panel-body"][data-state="active"] {
+  background: var(--suit-sheet, var(--color-background));
+}
+[data-part="panel-toolbar"] {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="file-tree"] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+[data-part="panel-body"] [data-part="diff-file"] {
+  margin: 6px 6px 10px;
+}
+/* The terminal is the workshop's console: a framed screen under its own plate. */
+[data-part="terminal-tab"] {
+  position: relative;
+  padding-top: 18px;
+  box-shadow: inset 0 0 0 1.5px var(--suit-ink);
+  background: #101213;
+}
+[data-part="terminal-tab"]::before {
+  content: "CONSOLE  ·  TEST STATION 01";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 16px;
+  padding-left: 10px;
+  background: var(--suit-ink);
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.2em;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--suit-paper);
+  pointer-events: none;
+}
+[data-scheme="light"] [data-part="terminal-tab"] {
+  background: #f4f2ec;
+}
