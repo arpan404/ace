@@ -1,6 +1,6 @@
-//! The skill index a conversation starts with. It is stored as an event before the first model
-//! call, so every later prompt repeats the same instructions and stays cached; skills added later
-//! are found with `skill_search`.
+//! The skill index a conversation starts with: the skills its bot used most, then by name. It is
+//! stored as an event before the first model call, so every later prompt repeats the same
+//! instructions and stays cached; skills added later are found with `skill_search`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,8 +28,12 @@ pub(super) async fn if_needed(engine: &Arc<Engine>, id: &str, events: &[Event]) 
     if begun {
         return false;
     }
+    let uses = engine
+        .agent_of(id)
+        .map(|agent| library.uses(&agent))
+        .unwrap_or_default();
     let text = match tokio::time::timeout(WAIT, library.list()).await {
-        Ok(Ok(list)) => skills::index(&list),
+        Ok(Ok(list)) => skills::index(&list, &uses),
         Ok(Err(error)) => {
             tracing::warn!(%error, "no skill index for this conversation");
             String::new()

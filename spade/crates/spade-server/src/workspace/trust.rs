@@ -110,6 +110,14 @@ impl Trust {
         });
     }
 
+    /// A loaded skill's file (ADR 0151): installed by the person, so trusted at this content.
+    pub fn record_installed(&self, path: &str, bytes: &[u8]) {
+        let digest = hash(bytes);
+        self.change(|record| {
+            record.files.insert(path.to_owned(), digest);
+        });
+    }
+
     /// `from` (a file, or a folder and what is in it) is now at `to`: what was trusted there
     /// stays trusted at its new path, by the same hash.
     pub fn moved(&self, from: &str, to: &str) {

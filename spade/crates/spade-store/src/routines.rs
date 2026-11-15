@@ -423,13 +423,15 @@ mod tests {
             }
         }
         {
-            // As a database from before the column: the column goes and the version steps back.
+            // As a database from before the column: the column goes and the version steps back,
+            // past the skill store that came after it.
             let connection = rusqlite::Connection::open(&path)?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
+            connection.execute_batch("DROP TABLE skill_uses; DROP TABLE skills;")?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 1,
+                crate::schema::current_version() as i64 - 2,
             )?;
         }
         let store = Store::open(&path)?;

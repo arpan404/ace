@@ -608,6 +608,13 @@ impl SkillLibrary for AceLink {
     }
 }
 
+/// The store mirrors ace's library while connected (ADR 0151).
+impl crate::skill_store::Upstream for AceLink {
+    fn library(&self) -> Option<Arc<AceSkills>> {
+        self.skills()
+    }
+}
+
 /// The keychain slot for this ace home's grant: the first 16 hex digits of the SHA-256 of its
 /// canonical path, so a development home and the person's own never share one.
 pub fn grant_slot(target: &AceTarget) -> String {

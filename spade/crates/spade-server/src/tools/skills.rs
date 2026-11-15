@@ -1,20 +1,16 @@
-//! The person's skill library (ace's, through spade-ace) as two tools: `skill_search` and
-//! `skill_load`. The library is reached through [`SkillLibrary`] so tests can supply their own.
+//! Where skills come from: [`SkillLibrary`], which Spade's skill store answers (ADR 0151), and
+//! [`AceLibrary`], ace's library through spade-ace. Tests supply their own libraries.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use spade_ace::{
     ALL_AGENTS, AceSkills, NewSkill, SkillEdit, SkillErrorCode, SkillScope, SkillsError,
 };
-use spade_core::skills::{self, SkillEntry};
-use spade_core::tools::{Risk, ToolDef};
-use spade_models::ToolSpec;
-
-use super::{Tool, ToolFuture, ToolOutput, parse};
+use spade_core::skills::{SkillEntry, Use};
 
 pub type LibraryFuture<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 pub type WriteFuture = Pin<Box<dyn Future<Output = Result<String, WriteError>> + Send>>;
@@ -51,6 +47,15 @@ pub enum WriteError {
 
 const READ_ONLY_LIBRARY: &str = "This skill library cannot be changed.";
 
+/// One of a skill's files besides SKILL.md, as `skill_load` puts it in the bot's workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillFileData {
+    /// Relative to the skill's folder, with `/`.
+    pub path: String,
+    pub bytes: Vec<u8>,
+    pub executable: bool,
+}
+
 /// Where skills come from.
 pub trait SkillLibrary: Send + Sync {
     /// Every skill, with its id.
@@ -69,6 +74,18 @@ pub trait SkillLibrary: Send + Sync {
     fn edit(&self, _base: &SkillSource, _description: &str, _body: &str) -> WriteFuture {
         Box::pin(async { Err(WriteError::Refused(READ_ONLY_LIBRARY.to_owned())) })
     }
+    /// The skill's files besides SKILL.md; none when the library keeps none.
+    fn files(&self, _id: &str) -> LibraryFuture<Vec<SkillFileData>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    /// How `agent` used each skill, by name, for ranking.
+    fn uses(&self, _agent: &str) -> HashMap<String, Use> {
+        HashMap::new()
+    }
+    /// `agent` loaded the skill `name`.
+    fn record_load(&self, _agent: &str, _name: &str) {}
+    /// `agent`'s latest verdict on the skill `name`.
+    fn record_verdict(&self, _agent: &str, _name: &str, _helpful: bool) {}
 }
 
 /// ace's skill library: personal, plugin and builtin skills.
@@ -87,6 +104,7 @@ impl SkillLibrary for AceLibrary {
                     name: s.name,
                     description: s.description,
                     manual: s.manual,
+                    body: String::new(),
                 })
                 .collect())
         })
@@ -172,22 +190,6 @@ impl SkillLibrary for AceLibrary {
     }
 }
 
-/// The bot's own note on a skill, after the skill.
-fn note_line(note: &crate::learning::Note) -> String {
-    let said = if note.note.is_empty() {
-        String::new()
-    } else {
-        format!(": {}", note.note)
-    };
-    match note.verdict {
-        crate::learning::Verdict::Helpful => format!("\nYour note on it: helpful{said}"),
-        crate::learning::Verdict::Outdated => format!(
-            "\nYour note on it: outdated{said}. Mind that, and propose an edit with \
-             skill_propose if you can fix it."
-        ),
-    }
-}
-
 /// The daemon's refusal, sorted by what the person can do about it.
 fn write_error(error: SkillsError) -> WriteError {
     let words = error.to_string();
@@ -229,149 +231,5 @@ pub fn body_of(text: &str) -> &str {
                 .unwrap_or(after)
         }
         None => text,
-    }
-}
-
-pub struct SkillSearch(pub Arc<dyn SkillLibrary>);
-/// Loads a skill, with the calling bot's own note on it when it left one (ADR 0130).
-pub struct SkillLoad {
-    library: Arc<dyn SkillLibrary>,
-    notes: Option<(Arc<crate::learning::Learning>, super::EngineHandle)>,
-}
-
-impl SkillLoad {
-    pub fn new(library: Arc<dyn SkillLibrary>) -> Self {
-        Self {
-            library,
-            notes: None,
-        }
-    }
-
-    /// Shows each bot its notes from `skill_feedback` with the skills it loads.
-    #[must_use]
-    pub fn with_notes(
-        mut self,
-        learning: Arc<crate::learning::Learning>,
-        bots: super::EngineHandle,
-    ) -> Self {
-        self.notes = Some((learning, bots));
-        self
-    }
-}
-
-#[derive(Deserialize)]
-struct SearchArgs {
-    query: String,
-}
-
-#[derive(Deserialize)]
-struct LoadArgs {
-    name: String,
-}
-
-fn def(name: &str, description: &str, field: &str) -> ToolDef {
-    ToolDef {
-        spec: ToolSpec {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            schema: json!({ "type": "object",
-                            "properties": { field: { "type": "string" } },
-                            "required": [field] }),
-        },
-        risk: Risk::Read,
-        untrusted_output: false,
-        deferred: false,
-        background: false,
-    }
-}
-
-impl Tool for SkillSearch {
-    fn def(&self) -> ToolDef {
-        def(
-            "skill_search",
-            "Find skills (instructions for particular tasks) by describing the task. Returns names \
-             and descriptions; load one with skill_load.",
-            "query",
-        )
-    }
-
-    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
-        let library = self.0.clone();
-        Box::pin(async move {
-            let args: SearchArgs = match parse(arguments) {
-                Ok(args) => args,
-                Err(output) => return output,
-            };
-            let all = match library.list().await {
-                Ok(all) => all,
-                Err(error) => {
-                    return ToolOutput::error(format!("The skill library is unavailable: {error}"));
-                }
-            };
-            let found = skills::search(&all, &args.query, 8);
-            if found.is_empty() {
-                return ToolOutput::ok("No skills matched. Try other words.");
-            }
-            let lines: Vec<String> = found
-                .iter()
-                .map(|s| format!("{}: {}", s.name, s.description))
-                .collect();
-            ToolOutput::ok(lines.join("\n"))
-        })
-    }
-}
-
-impl Tool for SkillLoad {
-    fn def(&self) -> ToolDef {
-        def(
-            "skill_load",
-            "Load a skill's full instructions by its name, then follow them.",
-            "name",
-        )
-    }
-
-    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let library = self.library.clone();
-        let notes = self
-            .notes
-            .as_ref()
-            .and_then(|(learning, bots)| Some((learning.clone(), bots.agent_for_key(key)?)));
-        Box::pin(async move {
-            let args: LoadArgs = match parse(arguments) {
-                Ok(args) => args,
-                Err(output) => return output,
-            };
-            let all = match library.list().await {
-                Ok(all) => all,
-                Err(error) => {
-                    return ToolOutput::error(format!("The skill library is unavailable: {error}"));
-                }
-            };
-            let Some(skill) = skills::find(&all, &args.name) else {
-                return ToolOutput::error(format!(
-                    "There is no skill named {}. Find skills with skill_search.",
-                    args.name
-                ));
-            };
-            match library.read(&skill.id).await {
-                Ok(text) => {
-                    let mut shown = format!("<skill name=\"{}\">\n{text}\n</skill>", skill.name);
-                    let note =
-                        notes.and_then(|(learning, agent)| learning.note_on(&agent, &skill.name));
-                    // A note written after reading untrusted content brings it along.
-                    let untrusted = note.as_ref().is_some_and(|note| note.source.is_some());
-                    if let Some(note) = &note {
-                        shown.push_str(&note_line(note));
-                    }
-                    let output = ToolOutput::ok(shown);
-                    if untrusted {
-                        output.untrusted()
-                    } else {
-                        output
-                    }
-                }
-                Err(error) => ToolOutput::error(format!("Could not load {}: {error}", skill.name)),
-            }
-        })
     }
 }

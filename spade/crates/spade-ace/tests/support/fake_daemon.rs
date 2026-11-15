@@ -6,8 +6,9 @@
 //! as if changed since). A
 //! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
-//! `review-code` has two files (`files`); a subscribed list hears `skills.changed` from
-//! [`FakeDaemon::push_change`].
+//! `review-code` has two files (`files`); [`FakeDaemon::edit_review`] gives it a new hash and
+//! one changed file, [`FakeDaemon::remove_review`] takes it away. A subscribed list hears
+//! `skills.changed` from [`FakeDaemon::push_change`].
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -40,7 +41,17 @@ pub struct FakeDaemon {
     writes: Arc<Mutex<Vec<Value>>>,
     changes: broadcast::Sender<()>,
     subscriptions: Arc<AtomicUsize>,
+    review: Arc<Mutex<Review>>,
 }
+
+/// What `review-code` is now.
+#[derive(Clone, Copy, Default)]
+struct Review {
+    edited: bool,
+    removed: bool,
+}
+
+pub const GUIDE_EDITED: &str = "# Guide, second edition\n";
 
 pub const GUIDE: &str = "# Guide\n";
 pub const SCRIPT: &str = "#!/bin/sh\necho hi\n";
@@ -71,6 +82,8 @@ impl FakeDaemon {
         let (changes, _) = broadcast::channel(16);
         let subscriptions = Arc::new(AtomicUsize::new(0));
         let watching = (changes.clone(), subscriptions.clone());
+        let review = Arc::new(Mutex::new(Review::default()));
+        let reviewing = review.clone();
         let accept = (hellos.clone(), connections.clone(), drop_all.clone());
         let recorded = writes.clone();
         let closes = saw_close.clone();
@@ -88,7 +101,7 @@ impl FakeDaemon {
                         accept.0.clone(),
                         (accept.2.subscribe(), watching.0.subscribe()),
                         recorded.clone(),
-                        watching.1.clone(),
+                        (watching.1.clone(), reviewing.clone()),
                     ));
                 }
             }
@@ -102,7 +115,18 @@ impl FakeDaemon {
             writes,
             changes,
             subscriptions,
+            review,
         }
+    }
+
+    /// `review-code` gets a new hash, a changed guide and no script.
+    pub fn edit_review(&self) {
+        lock(&self.review).edited = true;
+    }
+
+    /// `review-code` is no longer in the library.
+    pub fn remove_review(&self) {
+        lock(&self.review).removed = true;
     }
 
     /// Pushes `skills.changed` on every subscribed socket.
@@ -148,7 +172,7 @@ async fn serve(
     hellos: Arc<Mutex<Vec<Value>>>,
     (mut drop_all, mut changes): (broadcast::Receiver<()>, broadcast::Receiver<()>),
     writes: Arc<Mutex<Vec<Value>>>,
-    subscriptions: Arc<AtomicUsize>,
+    (subscriptions, review): (Arc<AtomicUsize>, Arc<Mutex<Review>>),
 ) {
     let mut subscribed: Option<Value> = None;
     let (mut sink, mut stream) = socket.split();
@@ -215,7 +239,11 @@ async fn serve(
                     subscribed = Some(request_id.clone());
                 }
                 let stale = operation["workspaceId"] == STALE_WORKSPACE;
-                let mut entries = vec![entry(REVIEW), entry(DEPLOY)];
+                let now = *lock(&review);
+                let mut entries = vec![entry(DEPLOY)];
+                if !now.removed {
+                    entries.insert(0, reviewed(now));
+                }
                 entries.extend(created(&lock(&writes)).into_iter().map(|(entry, _)| entry));
                 if stale {
                     entries.push(json!({ "id": "skl_broken", "scope": "personal" }));
@@ -237,6 +265,7 @@ async fn serve(
                 let made = created(&lock(&writes))
                     .into_iter()
                     .find(|(entry, _)| entry["id"] == json!(id));
+                let now = *lock(&review);
                 let out = out.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -244,7 +273,9 @@ async fn serve(
                         json!({ "kind": "hologram", "beam": 3 })
                     } else if let Some((entry, text)) = made {
                         json!({ "kind": "skill", "entry": entry, "text": text })
-                    } else if id == REVIEW || id == DEPLOY {
+                    } else if id == REVIEW && !now.removed {
+                        json!({ "kind": "skill", "entry": reviewed(now), "text": text_of(&id), "kept": [] })
+                    } else if id == DEPLOY {
                         json!({ "kind": "skill", "entry": entry(&id), "text": text_of(&id), "kept": [] })
                     } else {
                         json!({ "kind": "error", "code": "not_found", "message": "No skill with that id." })
@@ -263,10 +294,13 @@ async fn serve(
                         .map(|b| format!("{b:02x}"))
                         .collect::<String>()
                 };
-                let files = [
+                let all = [
                     ("references/guide.md", GUIDE, false),
                     ("scripts/run.sh", SCRIPT, true),
                 ];
+                let edited = [("references/guide.md", GUIDE_EDITED, false)];
+                let files: &[(&str, &str, bool)] =
+                    if lock(&review).edited { &edited } else { &all };
                 let file = |(path, text, executable): (&str, &str, bool)| {
                     json!({
                         "path": path, "size": text.len(), "hash": sha(text), "executable": executable
@@ -421,6 +455,15 @@ fn created(writes: &[Value]) -> Vec<(Value, String)> {
 
 pub fn text_of(id: &str) -> String {
     format!("---\nname: {id}\n---\nDo the thing carefully.\n")
+}
+
+/// `review-code`'s entry as it is now.
+fn reviewed(now: Review) -> Value {
+    let mut listed = entry(REVIEW);
+    if now.edited {
+        listed["hash"] = json!("c".repeat(64));
+    }
+    listed
 }
 
 fn entry(id: &str) -> Value {

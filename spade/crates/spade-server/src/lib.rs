@@ -14,6 +14,7 @@ pub mod presets;
 pub mod proof;
 pub mod research;
 pub mod routines;
+pub mod skill_store;
 pub mod startup;
 pub mod teams;
 pub mod tools;

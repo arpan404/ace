@@ -138,6 +138,11 @@ const MIGRATIONS: &[Migration] = &[
               UPDATE routines SET untrusted = 1 WHERE created_by IS NOT 'person';",
         backfill: None,
     },
+    Migration {
+        // ADR 0151: Spade's own skill store, and how each bot used each skill.
+        sql: crate::skills::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
