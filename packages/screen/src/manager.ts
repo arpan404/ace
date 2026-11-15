@@ -924,10 +924,3 @@ export class ScreenManager {
     this.lifecycle.fail(session, error);
   }
 }
-
-/** The helpers whose video can stream into ace-media: the Mac's (E3) and Linux's (E2). */
-function mediaPlatform(platform: string | undefined): "macos" | "linux" | undefined {
-  if (platform === "macos") return "macos";
-  if (platform?.startsWith("linux")) return "linux";
-  return undefined;
-}
