@@ -2,7 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import { stopTitle } from "@ace/ui-core";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";

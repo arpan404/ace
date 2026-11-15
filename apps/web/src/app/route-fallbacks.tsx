@@ -1,4 +1,4 @@
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { Link, useRouter, useRouterState, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -9,12 +9,12 @@ import { ThreadsSidebar } from "@/features/home/index.ts";
 import { Screen, ViewFrame } from "@/features/shell/index.ts";
 
 /**
- * The Threads frame a fallback stands in, as `/_home` gives the thread and New thread screens:
+ * The Projects frame a fallback stands in, as `/_home` gives the thread and New thread screens:
  * the same column and sidebar, so a missing page looks like a missing thread.
  */
 function ThreadsFrame(props: { children: ReactNode }) {
   return (
-    <ViewFrame label="Threads" sidebar={<ThreadsSidebar />} place="threads">
+    <ViewFrame label="Projects" sidebar={<ThreadsSidebar />} place="threads">
       {props.children}
     </ViewFrame>
   );

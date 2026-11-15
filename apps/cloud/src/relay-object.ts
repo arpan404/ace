@@ -4,6 +4,8 @@ import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
   EARLY_FRAME,
+  UPGRADE_MESSAGE,
+  upgradeMessage,
   HTTP_FEATURE,
   HostId,
   MEDIA_FEATURE,
@@ -117,9 +119,8 @@ export class RelayObject extends DurableObject<Env> {
         return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
       const purpose = clientPurpose(url);
       if (purpose === "invalid") return refuseUpgrade(1008, "Unknown purpose", protocol);
-      const offered = (request.headers.get("Sec-WebSocket-Protocol") ?? "")
-        .split(",")
-        .map((entry) => entry.trim());
+      const header = request.headers.get("Sec-WebSocket-Protocol") ?? "";
+      const offered = header.split(",").map((entry) => entry.trim());
       // Room for an early frame is reserved in this same turn, before the 101 is answered: a
       // client hears it may send early only once the object can hold what it sends.
       const early = offered.includes(EARLY_FRAME.subprotocol) && routes.reserveEarly(id, hostId);
@@ -127,6 +128,11 @@ export class RelayObject extends DurableObject<Env> {
       const actions = routes.request(id, hostId, ticket, now, purpose);
       const refusal = this.#refusal(actions, id, protocol);
       if (refusal) return refusal;
+      // Only with room reserved is the request's first message read (ADR 0155, step 3); it is
+      // then the client's held early frame, as one sent at once would be.
+      const message = early ? upgradeMessage(header) : undefined;
+      const held = message !== undefined && routes.early(id, message.length).length === 0;
+      if (held) this.#held.set(id, message);
       const server = this.#accept(id);
       const offer = actions.find((action) => action.type === "offer");
       if (offer)
@@ -136,13 +142,17 @@ export class RelayObject extends DurableObject<Env> {
           ticket,
           owner: offer.socket,
           expires: now + limits.ticketTimeoutMs,
-          ...(early ? { early: "reserved" } : {}),
+          ...(early ? { early: held ? "held" : "reserved" } : {}),
           ...(url.searchParams.get(EARLY_FRAME.query) === "1" ? { capable: true } : {}),
         });
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
-      // One subprotocol is echoed: the early one is the client's permission to send at once.
-      return upgraded(server.client, early ? EARLY_FRAME.subprotocol : protocol);
+      // One subprotocol is echoed: ace.v2 says the request's first message was taken, the
+      // early one that the client may send it at once; otherwise the grant, as before.
+      return upgraded(
+        server.client,
+        held ? UPGRADE_MESSAGE.subprotocol : early ? EARLY_FRAME.subprotocol : protocol,
+      );
     }
     if (url.pathname === "/join") {
       const actions = routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now);

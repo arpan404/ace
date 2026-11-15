@@ -1,7 +1,7 @@
 /**
  * A returning client reconnecting through the relay with one open thread and the sidebar
- * (ADR 0155, step 2): for XX (as on main, with step 1's early frame) and for NK, how long from
- * the reconnect's dial until
+ * (ADR 0155): with step 1's early frame only, and with step 3's first message in the upgrade
+ * request, how long from the reconnect's dial until
  *   (a) the welcome,
  *   (b) the open thread's new events are on screen (applied, even if not yet confirmed),
  *   (c) the open thread and the sidebar are confirmed current (neither syncing).
@@ -12,8 +12,7 @@
  *   bun apps/daemon/bench/relay-resume.ts [--profile=3g-slow] [--runs=7] [--join-rtt=MS]
  *     [--load=N] [--output=FILE.json]
  *
- * `--load=N` keeps N busy processes running beside it, for how often an NK admission misses the
- * relay's refusal time on a loaded machine (each reconnect reports the handshake it ended on).
+ * `--load=N` keeps N busy processes running beside it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -38,6 +37,8 @@ const output = argument("output", "");
 const joinRtt = Number(argument("join-rtt", "0"));
 const load = Number(argument("load", "0"));
 const timeoutMs = 60_000;
+const modes = ["step 1", "step 3"] as const;
+type Mode = (typeof modes)[number];
 
 const Thread = z.object({ id: z.string(), items: z.number(), turns: z.number() });
 const Ready = z.object({
@@ -57,13 +58,18 @@ const scheduler = {
 
 /** Relay sockets, each with when it was dialled and the size of its first frame. */
 function sockets() {
-  const dials: { at: number; first?: number; opened?: number }[] = [];
+  const dials: { at: number; first?: number; opened?: number; protocol?: string }[] = [];
   let current: { close(): void } | undefined;
   const socket: typeof browserDeviceSocket = (url, protocols) => {
-    const dial: { at: number; first?: number; opened?: number } = { at: performance.now() };
+    const dial: { at: number; first?: number; opened?: number; protocol?: string } = {
+      at: performance.now(),
+    };
     dials.push(dial);
     const real = browserDeviceSocket(url, protocols);
-    real.addEventListener("open", () => (dial.opened ??= performance.now()));
+    real.addEventListener("open", () => {
+      dial.opened ??= performance.now();
+      dial.protocol = real.protocol ?? "";
+    });
     current = real;
     return {
       get binaryType() {
@@ -93,7 +99,7 @@ function client(
   route: { relayUrl: string; relayHostId: string; deviceId: string; token: string },
   socket: ReturnType<typeof sockets>["socket"],
   snapshots: FileSnapshots,
-  nk: boolean,
+  inUpgrade: boolean,
 ) {
   const relayed = relayRoute({
     relayUrl: route.relayUrl,
@@ -101,7 +107,7 @@ function client(
     credential: async () => route.token,
     socket,
     schedule: (callback, delayMs) => scheduler.set(delayMs, callback),
-    nk,
+    inUpgrade,
   });
   return new Client({
     openTail: screenTail,
@@ -143,7 +149,8 @@ type Resume = {
   welcome: number;
   events: number;
   current: number;
-  handshake: "xx" | "nk";
+  /** The relay took the first message from the upgrade request. */
+  taken: boolean;
   dials: number;
 };
 
@@ -177,7 +184,7 @@ async function measure() {
     env: { ACE_RELAY_URL: daemonRelay.toString() },
   });
   let shaper: LinkShaper | undefined;
-  const results: Record<"xx" | "nk", Resume[]> = { xx: [], nk: [] };
+  const results: Record<Mode, Resume[]> = { "step 1": [], "step 3": [] };
   try {
     const { ready } = daemon;
     if (!ready.relayHostId) throw new Error("The daemon did not report a relay host id");
@@ -205,11 +212,11 @@ async function measure() {
     };
     const threadId = ready.threads.typical.id;
     for (let run = 0; run < runs; run++)
-      for (const mode of ["xx", "nk"] as const) {
+      for (const mode of modes) {
         process.stderr.write(`relay-resume: run ${run + 1} of ${runs}, ${mode}\n`);
         const links = sockets();
         const snapshots = new FileSnapshots(join(daemon.home, `client-${mode}-${run}.json`));
-        const connection = client(route, links.socket, snapshots, mode === "nk");
+        const connection = client(route, links.socket, snapshots, mode === "step 3");
         await connection.start();
         const thread = connection.thread(threadId);
         const sidebar = connection.threads();
@@ -239,7 +246,7 @@ async function measure() {
           welcome: Math.round(welcome - dialled),
           events: Math.round(events - dialled),
           current: Math.round(done - dialled),
-          handshake: last?.first === 32 ? "xx" : "nk",
+          taken: last?.protocol === "ace.v2",
           dials: links.dials.length - before,
         });
         thread.release();
@@ -264,12 +271,12 @@ const median = (values: number[]) => {
 const results = await measure();
 const lines = [
   `relay resume (median ms from the reconnect's dial, ${profile.name}, join rtt ${joinRtt}, load ${load})`,
-  "                  open  welcome  events  current  ended on NK  dials",
+  "                  open  welcome  events  current  taken  dials",
 ];
-for (const mode of ["xx", "nk"] as const) {
+for (const mode of modes) {
   const each = results[mode];
   lines.push(
-    `${mode.padEnd(14)} ${String(median(each.map((r) => r.open))).padStart(7)} ${String(median(each.map((r) => r.welcome))).padStart(8)} ${String(median(each.map((r) => r.events))).padStart(7)} ${String(median(each.map((r) => r.current))).padStart(8)} ${String(each.filter((r) => r.handshake === "nk").length).padStart(6)}/${each.length} ${String(Math.max(...each.map((r) => r.dials))).padStart(6)}`,
+    `${mode.padEnd(14)} ${String(median(each.map((r) => r.open))).padStart(7)} ${String(median(each.map((r) => r.welcome))).padStart(8)} ${String(median(each.map((r) => r.events))).padStart(7)} ${String(median(each.map((r) => r.current))).padStart(8)} ${String(each.filter((r) => r.taken).length).padStart(4)}/${each.length} ${String(Math.max(...each.map((r) => r.dials))).padStart(6)}`,
   );
 }
 process.stdout.write(`${lines.join("\n")}\n`);

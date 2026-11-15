@@ -1,7 +1,7 @@
 import { can } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon } from "@ace/icons";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { QueryState } from "./query-state.tsx";

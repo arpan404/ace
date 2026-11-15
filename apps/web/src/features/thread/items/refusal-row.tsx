@@ -1,5 +1,5 @@
 import type { ToolRefusal } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
+import { RobotIcon } from "@ace/icons";
 import { StaticRow } from "./transcript-row.tsx";
 
 /**

@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText, missingBranch } from "@ace/ui-core";
-import { GitBranchIcon } from "@phosphor-icons/react";
+import { GitBranchIcon } from "@ace/icons";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";

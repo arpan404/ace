@@ -1,4 +1,4 @@
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { Input } from "./input.tsx";

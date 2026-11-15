@@ -1,6 +1,6 @@
 import type { RowAttention, ThreadCard } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import { PushPinIcon } from "@phosphor-icons/react";
+import { PushPinIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";

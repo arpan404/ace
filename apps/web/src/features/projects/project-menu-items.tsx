@@ -4,7 +4,7 @@ import {
   ArrowSquareOutIcon,
   PencilSimpleIcon,
   TrashIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";

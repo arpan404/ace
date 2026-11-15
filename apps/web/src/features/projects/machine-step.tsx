@@ -1,4 +1,4 @@
-import { CaretDownIcon, LaptopIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, LaptopIcon } from "@ace/icons";
 import type { CommandChoice } from "@/components/ui/command-choices.tsx";
 import { machineIcons, defaultMachineIcon } from "@/components/ui/machine-label.tsx";
 import { machineStatus } from "@/lib/machine-status.ts";

@@ -13,7 +13,7 @@ import {
 import { inflate } from "./inflate.ts";
 import { RelayClosedError } from "./relay-closed.ts";
 import { RELAY_EARLY } from "./relay-early.ts";
-import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
+import { GRANT_SUBPROTOCOL_PREFIX, encodeBase64url } from "@ace/account-grant";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
@@ -85,6 +85,15 @@ export interface PortableRelayOptions {
    */
   early?: boolean | undefined;
   nk?: PortableRelayNk | undefined;
+  /**
+   * With `early`: also carry the first handshake message in the upgrade request (ADR 0155,
+   * step 3). With `nk`, the NK first message goes as `ace.n1.` beside the XX one as `ace.x1.`:
+   * a relay that takes NK's echoes `ace.v3`, one that knows only XX's takes that and echoes
+   * `ace.v2` (the stream is then XX), one that knows neither echoes what step 1's relay does and
+   * the NK message goes as its early frame. An NK message too large for the entry is offered
+   * in neither: it goes as the early frame, whole.
+   */
+  inUpgrade?: boolean | undefined;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
 const nkPrologue = new TextEncoder().encode("ace daemon relay stream v2 nk");
@@ -113,8 +122,44 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
+  const nk = options.nk;
+  const keys = options.keys();
+  const nkState = nk
+    ? NoiseNK.initiator({
+        remoteStatic: nk.hostKey,
+        ephemeralKey: keys.ephemeralKey,
+        prologue: nkPrologue,
+      })
+    : undefined;
+  const upgrade = options.early === true && options.inUpgrade === true;
+  const grantEntry = options.grant ? `${GRANT_SUBPROTOCOL_PREFIX}${options.grant}` : undefined;
+  // NK's first message, in the upgrade when its entry fits (ADR 0155, step 3).
+  const nkFirst = nkState && upgrade ? nkState.writeMessage(nk?.early) : undefined;
+  const nkEntry = nkFirst ? `${RELAY_EARLY.nkMessagePrefix}${encodeBase64url(nkFirst)}` : undefined;
+  const nkFits =
+    nkEntry !== undefined &&
+    nkEntry.length <= RELAY_EARLY.entryBytes &&
+    (grantEntry?.length ?? 0) + nkEntry.length + 256 <= RELAY_EARLY.headerBytes;
+  // XX: without NK, or beside an NK entry that fits, for a relay that knows only XX's entry.
+  const xxState =
+    !nkState || nkFits
+      ? new NoiseXX({
+          initiator: true,
+          // Its own fresh ephemeral beside NK's: the two are never the same key.
+          ...(nkState ? options.keys() : keys),
+          prologue,
+          pinnedFingerprint: options.pinnedFingerprint,
+        })
+      : undefined;
+  // XX's first message is the 32-byte ephemeral public key with no payload: written now when it
+  // goes in the upgrade, as 43 characters of base64url after `ace.x1.`.
+  const xxFirst = xxState && upgrade && (!nkState || nkFits) ? xxState.writeMessage() : undefined;
   const protocols = [
-    ...(options.grant ? [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`] : []),
+    ...(grantEntry ? [grantEntry] : []),
+    ...(nkFits && nkEntry ? [RELAY_EARLY.nkInUpgrade, nkEntry] : []),
+    ...(xxFirst
+      ? [RELAY_EARLY.inUpgrade, `${RELAY_EARLY.messagePrefix}${encodeBase64url(xxFirst)}`]
+      : []),
     ...(options.early
       ? [RELAY_EARLY.subprotocol, ...(options.grant ? [] : [RELAY_EARLY.neutral])]
       : []),
@@ -232,29 +277,31 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   const cancel = options.schedule(() => close(new Error("Relay handshake timed out")), 10000);
   let earlyCapable = false;
   let hostKey: Uint8Array | undefined;
-  const nk = options.nk;
-  const state = nk
-    ? NoiseNK.initiator({
-        remoteStatic: nk.hostKey,
-        ephemeralKey: options.keys().ephemeralKey,
-        prologue: nkPrologue,
-      })
-    : new NoiseXX({
-        initiator: true,
-        ...options.keys(),
-        prologue,
-        pinnedFingerprint: options.pinnedFingerprint,
-      });
+  // Until the upgrade answer says which handshake this stream runs.
+  let state: NoiseNK | NoiseXX = nkState ?? (xxState as NoiseXX);
   try {
     await new Promise<void>((resolve, reject) => {
       opened = { resolve, reject };
       if (options.signal?.aborted) aborted();
     });
     opened = undefined;
-    const first = () => state.writeMessage(nk?.early);
-    // The relay's upgrade answer is the permission: echoed, the first message goes now and the
-    // relay holds it until the daemon joins; otherwise it waits for the marker, as before.
+    // The relay's upgrade answer says what happened to the first message: `ace.v3` or `ace.v2`,
+    // NK's or XX's was taken from the request and is never sent again (and that is the stream's
+    // handshake); the early subprotocol, it goes now and the relay holds it until the daemon
+    // joins; otherwise it waits for the marker, as before. An NK client sends NK unless the
+    // relay took the XX message.
+    const tookNk = nkFits && socket.protocol === RELAY_EARLY.nkInUpgrade;
+    const tookXx = xxFirst !== undefined && socket.protocol === RELAY_EARLY.inUpgrade;
+    const taken = tookNk || tookXx;
+    if (tookXx && xxState) {
+      nkState?.destroy();
+      state = xxState;
+    } else xxState?.destroy();
     const permitted = options.early === true && socket.protocol === RELAY_EARLY.subprotocol;
+    const first = () =>
+      state instanceof NoiseNK
+        ? (nkFirst ?? state.writeMessage(nk?.early))
+        : (xxFirst ?? state.writeMessage());
     if (permitted) write(first());
     const marker = await next();
     if (
@@ -262,8 +309,8 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
       (marker[0] !== RELAY_EARLY.marker && marker[0] !== RELAY_EARLY.capableMarker)
     )
       throw new Error("Invalid relay pairing marker");
-    earlyCapable = permitted || marker[0] === RELAY_EARLY.capableMarker;
-    if (!permitted) write(first());
+    earlyCapable = taken || permitted || marker[0] === RELAY_EARLY.capableMarker;
+    if (!taken && !permitted) write(first());
     if (state.readMessage(await next()).length) throw new Error("Unexpected handshake payload");
     if (state instanceof NoiseXX) {
       write(state.writeMessage());
@@ -294,11 +341,12 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   let receiving = false;
   // The confirmation goes first, as soon as the answer is authenticated: before the welcome,
   // and ahead of anything the caller sends.
-  if (nk) void sendBody(nk.confirm.slice()).catch(() => {});
+  const usedNk = state instanceof NoiseNK;
+  if (usedNk && nk) void sendBody(nk.confirm.slice()).catch(() => {});
   return {
     earlyCapable,
     ...(hostKey ? { hostKey } : {}),
-    handshake: nk ? "nk" : "xx",
+    handshake: usedNk ? "nk" : "xx",
     close() {
       options.signal?.removeEventListener("abort", aborted);
       close();

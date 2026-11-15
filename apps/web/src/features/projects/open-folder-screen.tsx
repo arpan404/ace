@@ -1,4 +1,4 @@
-import { FolderSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { FolderSimpleIcon, LockSimpleIcon } from "@ace/icons";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { useConnectionState } from "@ace/client-react";

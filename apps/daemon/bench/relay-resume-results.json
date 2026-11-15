@@ -1,6 +1,6 @@
 {
   "bench": "relay-resume",
-  "note": "ADR 0155 step 2 review: a returning client with one open thread and the sidebar; XX (main with step 1) against NK on the same build.",
+  "note": "ADR 0155 step 3: a returning client with one open thread and the sidebar, step 1 only against step 3, 3g-slow.",
   "runs": [
     {
       "bench": "relay-resume",
@@ -16,121 +16,121 @@
       "joinRtt": 0,
       "load": 0,
       "runs": 7,
-      "startedAt": "2026-11-15T14:53:30.540Z",
+      "startedAt": "2026-11-15T15:26:43.735Z",
       "results": {
-        "xx": [
+        "step 1": [
           {
             "open": 821,
-            "welcome": 1672,
-            "events": 1710,
-            "current": 1747,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 824,
-            "welcome": 1684,
-            "events": 1701,
-            "current": 2340,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 830,
-            "welcome": 1677,
-            "events": 1696,
-            "current": 1746,
-            "handshake": "xx",
+            "welcome": 1711,
+            "events": 1726,
+            "current": 1755,
+            "taken": false,
             "dials": 1
           },
           {
             "open": 821,
-            "welcome": 1675,
-            "events": 1694,
-            "current": 1738,
-            "handshake": "xx",
+            "welcome": 2280,
+            "events": 2296,
+            "current": 2339,
+            "taken": false,
             "dials": 1
           },
           {
             "open": 821,
-            "welcome": 1679,
-            "events": 1697,
-            "current": 1744,
-            "handshake": "xx",
+            "welcome": 1663,
+            "events": 1682,
+            "current": 1725,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 827,
+            "welcome": 1678,
+            "events": 1700,
+            "current": 1742,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 1420,
+            "welcome": 2271,
+            "events": 2294,
+            "current": 2336,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 1727,
+            "events": 1741,
+            "current": 1783,
+            "taken": false,
             "dials": 1
           },
           {
             "open": 820,
-            "welcome": 1663,
-            "events": 1685,
-            "current": 1729,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 825,
-            "welcome": 1678,
-            "events": 1699,
-            "current": 1745,
-            "handshake": "xx",
+            "welcome": 1671,
+            "events": 1696,
+            "current": 1738,
+            "taken": false,
             "dials": 1
           }
         ],
-        "nk": [
+        "step 3": [
           {
-            "open": 821,
-            "welcome": 1278,
-            "events": 1278,
-            "current": 1720,
-            "handshake": "nk",
+            "open": 830,
+            "welcome": 1311,
+            "events": 1311,
+            "current": 1373,
+            "taken": true,
             "dials": 1
           },
           {
-            "open": 821,
-            "welcome": 1272,
-            "events": 1272,
-            "current": 2261,
-            "handshake": "nk",
+            "open": 822,
+            "welcome": 1267,
+            "events": 1287,
+            "current": 1327,
+            "taken": true,
             "dials": 1
           },
           {
-            "open": 821,
-            "welcome": 1273,
-            "events": 1273,
-            "current": 1732,
-            "handshake": "nk",
+            "open": 823,
+            "welcome": 1271,
+            "events": 1293,
+            "current": 1922,
+            "taken": true,
             "dials": 1
           },
           {
-            "open": 825,
-            "welcome": 1277,
-            "events": 1277,
-            "current": 1731,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 825,
-            "welcome": 1282,
+            "open": 823,
+            "welcome": 1264,
             "events": 1282,
-            "current": 1722,
-            "handshake": "nk",
+            "current": 1324,
+            "taken": true,
             "dials": 1
           },
           {
-            "open": 820,
-            "welcome": 1252,
-            "events": 1273,
-            "current": 1714,
-            "handshake": "nk",
+            "open": 823,
+            "welcome": 1336,
+            "events": 1336,
+            "current": 1378,
+            "taken": true,
             "dials": 1
           },
           {
             "open": 823,
             "welcome": 1282,
-            "events": 1282,
-            "current": 1719,
-            "handshake": "nk",
+            "events": 1307,
+            "current": 1348,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1271,
+            "events": 1295,
+            "current": 1338,
+            "taken": true,
             "dials": 1
           }
         ]
@@ -150,389 +150,121 @@
       "joinRtt": 60,
       "load": 0,
       "runs": 7,
-      "startedAt": "2026-11-15T14:56:08.811Z",
+      "startedAt": "2026-11-15T15:29:11.549Z",
       "results": {
-        "xx": [
+        "step 1": [
+          {
+            "open": 820,
+            "welcome": 1804,
+            "events": 1848,
+            "current": 1881,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 2396,
+            "events": 2417,
+            "current": 2463,
+            "taken": false,
+            "dials": 1
+          },
           {
             "open": 821,
+            "welcome": 2404,
+            "events": 2404,
+            "current": 2446,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
             "welcome": 1813,
-            "events": 1865,
-            "current": 1888,
-            "handshake": "xx",
+            "events": 1813,
+            "current": 1856,
+            "taken": false,
             "dials": 1
           },
           {
-            "open": 821,
-            "welcome": 2400,
-            "events": 2421,
-            "current": 2480,
-            "handshake": "xx",
+            "open": 833,
+            "welcome": 1811,
+            "events": 2433,
+            "current": 2433,
+            "taken": false,
             "dials": 1
           },
           {
-            "open": 822,
-            "welcome": 2399,
-            "events": 2421,
-            "current": 2461,
-            "handshake": "xx",
+            "open": 820,
+            "welcome": 1821,
+            "events": 1821,
+            "current": 1864,
+            "taken": false,
             "dials": 1
           },
           {
-            "open": 828,
-            "welcome": 1854,
-            "events": 1854,
-            "current": 1896,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 829,
-            "welcome": 1898,
-            "events": 1898,
-            "current": 1943,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 828,
-            "welcome": 2406,
-            "events": 2406,
-            "current": 2406,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 831,
-            "welcome": 1819,
-            "events": 1840,
-            "current": 1899,
-            "handshake": "xx",
+            "open": 820,
+            "welcome": 1808,
+            "events": 1808,
+            "current": 1852,
+            "taken": false,
             "dials": 1
           }
         ],
-        "nk": [
+        "step 3": [
           {
-            "open": 821,
-            "welcome": 1316,
-            "events": 1334,
-            "current": 1839,
-            "handshake": "nk",
+            "open": 830,
+            "welcome": 1571,
+            "events": 1571,
+            "current": 1612,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1544,
+            "events": 1544,
+            "current": 1587,
+            "taken": true,
             "dials": 1
           },
           {
             "open": 822,
-            "welcome": 1318,
-            "events": 1342,
-            "current": 1845,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1341,
-            "events": 1341,
-            "current": 1873,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 835,
-            "welcome": 1357,
-            "events": 1357,
-            "current": 1867,
-            "handshake": "nk",
+            "welcome": 1520,
+            "events": 1520,
+            "current": 1563,
+            "taken": true,
             "dials": 1
           },
           {
             "open": 821,
-            "welcome": 1344,
-            "events": 1344,
-            "current": 1857,
-            "handshake": "nk",
+            "welcome": 1523,
+            "events": 1523,
+            "current": 1566,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1543,
+            "events": 1543,
+            "current": 1587,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1521,
+            "events": 1546,
+            "current": 1588,
+            "taken": true,
             "dials": 1
           },
           {
             "open": 822,
-            "welcome": 1375,
-            "events": 1375,
-            "current": 1885,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 832,
-            "welcome": 1340,
-            "events": 1371,
-            "current": 1869,
-            "handshake": "nk",
-            "dials": 1
-          }
-        ]
-      }
-    },
-    {
-      "bench": "relay-resume",
-      "profile": {
-        "name": "3g-slow",
-        "downBitsPerSecond": 400000,
-        "upBitsPerSecond": 200000,
-        "rttMs": 400,
-        "loss": 0.02,
-        "stallMs": 600,
-        "queueBytes": 65536
-      },
-      "joinRtt": 0,
-      "load": 16,
-      "runs": 7,
-      "startedAt": "2026-11-15T14:58:58.409Z",
-      "results": {
-        "xx": [
-          {
-            "open": 821,
-            "welcome": 1681,
-            "events": 1722,
-            "current": 1757,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 834,
-            "welcome": 1719,
-            "events": 1719,
-            "current": 1757,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 826,
-            "welcome": 1684,
-            "events": 1706,
-            "current": 1747,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 822,
-            "welcome": 1693,
-            "events": 1693,
-            "current": 1735,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1870,
-            "events": 1893,
-            "current": 1938,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 822,
-            "welcome": 1679,
-            "events": 1702,
-            "current": 1745,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 822,
-            "welcome": 1697,
-            "events": 1700,
-            "current": 1744,
-            "handshake": "xx",
-            "dials": 1
-          }
-        ],
-        "nk": [
-          {
-            "open": 821,
-            "welcome": 1287,
-            "events": 1287,
-            "current": 1773,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1255,
-            "events": 1273,
-            "current": 1715,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1275,
-            "events": 1275,
-            "current": 2289,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1255,
-            "events": 1275,
-            "current": 1720,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1274,
-            "events": 1274,
-            "current": 1749,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1255,
-            "events": 1277,
-            "current": 1717,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 827,
-            "welcome": 1261,
-            "events": 1284,
-            "current": 1722,
-            "handshake": "nk",
-            "dials": 1
-          }
-        ]
-      }
-    },
-    {
-      "bench": "relay-resume",
-      "profile": {
-        "name": "3g-slow",
-        "downBitsPerSecond": 400000,
-        "upBitsPerSecond": 200000,
-        "rttMs": 400,
-        "loss": 0.02,
-        "stallMs": 600,
-        "queueBytes": 65536
-      },
-      "joinRtt": 0,
-      "load": 48,
-      "runs": 7,
-      "startedAt": "2026-11-15T15:02:22.409Z",
-      "results": {
-        "xx": [
-          {
-            "open": 829,
-            "welcome": 1677,
-            "events": 1720,
-            "current": 1755,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1705,
-            "events": 1705,
-            "current": 1746,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1679,
-            "events": 1700,
-            "current": 1741,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1677,
-            "events": 1701,
-            "current": 1751,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1705,
-            "events": 1705,
-            "current": 1747,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1689,
-            "events": 1718,
-            "current": 1756,
-            "handshake": "xx",
-            "dials": 1
-          },
-          {
-            "open": 820,
-            "welcome": 1675,
-            "events": 1699,
-            "current": 1742,
-            "handshake": "xx",
-            "dials": 1
-          }
-        ],
-        "nk": [
-          {
-            "open": 821,
-            "welcome": 1257,
-            "events": 1305,
-            "current": 1715,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 824,
-            "welcome": 1278,
-            "events": 1278,
-            "current": 2277,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1253,
-            "events": 1273,
-            "current": 1713,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1855,
-            "events": 1855,
-            "current": 1855,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1257,
-            "events": 1278,
-            "current": 1720,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1275,
-            "events": 1275,
-            "current": 1717,
-            "handshake": "nk",
-            "dials": 1
-          },
-          {
-            "open": 821,
-            "welcome": 1280,
-            "events": 1280,
-            "current": 1746,
-            "handshake": "nk",
+            "welcome": 1540,
+            "events": 1540,
+            "current": 1586,
+            "taken": true,
             "dials": 1
           }
         ]

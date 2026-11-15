@@ -1,7 +1,7 @@
 import { useThreadMeta } from "@ace/client-react";
 import { checkoutProblem, type CheckoutProblem as Problem } from "@ace/ui-core";
 
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {

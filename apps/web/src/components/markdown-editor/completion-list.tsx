@@ -1,4 +1,4 @@
-import { CheckCircleIcon, RecordIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, RecordIcon } from "@ace/icons";
 import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { MessageAvatar } from "@/components/ui/message.tsx";

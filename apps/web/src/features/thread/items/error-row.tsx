@@ -5,7 +5,7 @@ import {
   type ErrorInput,
   type ErrorView,
 } from "@ace/ui-core";
-import { HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { HourglassMediumIcon, WarningCircleIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";

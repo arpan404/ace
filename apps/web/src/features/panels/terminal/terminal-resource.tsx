@@ -8,7 +8,7 @@ import {
   TerminalWindowIcon,
   TrashIcon,
   WarningCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {

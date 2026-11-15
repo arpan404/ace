@@ -3,7 +3,7 @@ import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
 import { chooserWaitingCopy, screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { agentInitial } from "@ace/ui-core/cowork";
-import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, HandIcon, StopIcon } from "@ace/icons";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { AppMark } from "@/components/app-mark.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";

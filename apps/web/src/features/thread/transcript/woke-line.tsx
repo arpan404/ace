@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { formatAgo, wokeAtEnd, wokeSentence } from "@ace/ui-core";
-import { AlarmIcon } from "@phosphor-icons/react";
+import { AlarmIcon } from "@ace/icons";
 import { useNow } from "@/lib/time.ts";
 
 /**

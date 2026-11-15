@@ -1,6 +1,6 @@
 import { can } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
-import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@ace/icons";
 import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";

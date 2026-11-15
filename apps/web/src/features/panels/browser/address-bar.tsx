@@ -1,4 +1,4 @@
-import { ClockCounterClockwiseIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import { ClockCounterClockwiseIcon, GlobeSimpleIcon } from "@ace/icons";
 import {
   addressHost,
   addressProblems as reasons,

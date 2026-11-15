@@ -8,7 +8,7 @@ import { harness } from "@/test/harness.tsx";
 configure({ asyncUtilTimeout: 10000 });
 
 const hour = 3_600_000;
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const alarm = "Back from snooze: its time came";
 
 test("a snooze that ends by itself brings the row back with an alarm that says why, until the thread is opened", async () => {

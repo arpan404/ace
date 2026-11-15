@@ -1,4 +1,4 @@
-import { ProhibitIcon, WarningIcon, XCircleIcon, XIcon } from "@phosphor-icons/react";
+import { ProhibitIcon, WarningIcon, XCircleIcon, XIcon } from "@ace/icons";
 import { useCallback, useEffect, useState } from "react";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

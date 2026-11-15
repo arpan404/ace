@@ -2,7 +2,7 @@ import { goalResumable, goalTitle, goalUsage } from "@ace/ui-core";
 import { useThread } from "@ace/client-react";
 import type { ThreadReader } from "@ace/client";
 import type { ProviderGoal } from "@ace/protocol";
-import { CaretDownIcon, CaretUpIcon, TargetIcon, XIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon, TargetIcon, XIcon } from "@ace/icons";
 import { useId, useLayoutEffect, useState, type ReactNode } from "react";
 import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";

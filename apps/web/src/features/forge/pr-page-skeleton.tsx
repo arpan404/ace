@@ -1,5 +1,5 @@
 import type { ForgePrRow } from "@ace/protocol";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import { prWords } from "@ace/ui-core";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";

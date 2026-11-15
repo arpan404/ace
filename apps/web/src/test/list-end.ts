@@ -64,13 +64,13 @@ export async function rowsHeld(list: HTMLElement): Promise<number> {
   return held;
 }
 
-/** The Threads panel on its `tab`, with the list that tab draws. */
+/** The Projects panel on its `tab`, with the list that tab draws. */
 export async function openThreadsTab(
   app: ReturnType<typeof harness>,
   tab: RegExp,
 ): Promise<HTMLElement> {
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await userEvent.click(await nav.findByRole("tab", { name: tab }));
-  return nav.findByRole("list", { name: "Threads" });
+  return nav.findByRole("list", { name: "Projects" });
 }

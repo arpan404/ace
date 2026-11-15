@@ -4,7 +4,7 @@ import {
   spadeTaskLine,
   type SpadeSurfaceKind,
 } from "@ace/ui-core/spade-chat";
-import { ChatCircleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon } from "@ace/icons";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";

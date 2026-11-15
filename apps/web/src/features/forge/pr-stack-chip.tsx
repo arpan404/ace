@@ -1,4 +1,4 @@
-import { StackIcon } from "@phosphor-icons/react";
+import { StackIcon } from "@ace/icons";
 import type { ForgePrDetail } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";

@@ -5,7 +5,7 @@ import {
   CopyIcon,
   DownloadSimpleIcon,
   WarningCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { resolveHtmlMode } from "@ace/html";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

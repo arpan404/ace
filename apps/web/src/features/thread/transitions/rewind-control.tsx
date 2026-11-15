@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
+import { ClockCounterClockwiseIcon } from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

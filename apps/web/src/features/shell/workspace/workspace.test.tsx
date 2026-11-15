@@ -59,7 +59,7 @@ test("a thread's tabs stay with it and come back on return", async () => {
   const panel = await sidePanel();
   await waitFor(() => expect(selected(panel).textContent).toBe(web));
 
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
@@ -76,7 +76,7 @@ test("keyboard Back and Forward walk thread history, with the arrows in the top 
   await openColdStart();
   expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Forward" })).toBeTruthy();
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   await userEvent.keyboard("{Meta>}[[{/Meta}");

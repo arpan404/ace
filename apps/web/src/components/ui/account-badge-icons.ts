@@ -11,7 +11,7 @@ import {
   StarIcon,
   WrenchIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 
 /** The curated account badge icons, in the order the badge picker offers them. */
 export const accountBadgeIcons: readonly { icon: AccountBadgeIcon; label: string; glyph: Icon }[] =

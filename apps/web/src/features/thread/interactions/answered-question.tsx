@@ -6,7 +6,7 @@ import {
   type AnsweredMeta,
   type AnsweredQuestion,
 } from "@ace/ui-core";
-import { CheckIcon, QuotesIcon } from "@phosphor-icons/react";
+import { CheckIcon, QuotesIcon } from "@ace/icons";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";

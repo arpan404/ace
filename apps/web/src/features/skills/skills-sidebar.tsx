@@ -8,7 +8,7 @@ import {
   ScrollIcon,
   StackIcon,
   WrenchIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";

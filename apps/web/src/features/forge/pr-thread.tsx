@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";

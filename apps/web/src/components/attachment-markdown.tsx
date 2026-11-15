@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, ImageIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ImageIcon } from "@ace/icons";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ThreadReference, ThreadReferenceScope } from "./thread-reference.tsx";
 import { Suspense, useContext } from "react";

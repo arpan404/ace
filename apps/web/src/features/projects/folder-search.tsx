@@ -3,7 +3,7 @@ import {
   FolderSimpleIcon,
   FolderSimpleStarIcon,
   MagnifyingGlassIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";

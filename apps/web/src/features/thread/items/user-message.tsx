@@ -14,7 +14,7 @@ import {
 } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { QuotesCard } from "@/features/quotes/index.ts";
-import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
+import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@ace/icons";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCopy } from "@/components/use-copy.ts";

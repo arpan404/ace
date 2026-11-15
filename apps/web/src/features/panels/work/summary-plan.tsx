@@ -1,5 +1,5 @@
 import { planCount, todoStatusWords } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import type { ShownPlan } from "@/lib/use-plans.ts";
 import { Section } from "./summary-section.tsx";

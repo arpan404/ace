@@ -31,7 +31,7 @@ test("the Inbox spans projects, and the arrows walk its rows both ways", async (
   const app = harness();
   seed(app);
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await nav.findByRole("link", { name: /^Last task/ });
   const links = nav.getAllByRole("link");
   expect(links.map((link) => link.getAttribute("aria-label")?.split(".")[0])).toEqual([
@@ -67,7 +67,7 @@ test("the project filter narrows the Inbox to one project", async () => {
   const app = harness({ storage });
   seed(app);
   await app.open("/new?project=ace");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   const task = await nav.findByRole("link", { name: /^Last task/ });
   expect(task.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project filter: ace" })).toBeTruthy();
@@ -80,7 +80,7 @@ test("failed and working tasks say so in their names and icons, with no status w
   seed(app);
   app.daemon.apply("first", [facts.endTurn("root", "failed")]);
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   const failed = await nav.findByRole("link", { name: /^First task/ });
   expect(failed.getAttribute("aria-label")).toContain("Failed");
   // Its failure predates this device, so it reads as seen: the grey icon beside its age.
@@ -100,7 +100,7 @@ test("the project filter also narrows unsent starts without hiding matching work
   const app = harness({ storage });
   seed(app);
   await app.open("/new?project=ace");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await nav.findByRole("link", { name: /^Last task/ });
   app.client.networkOnline(false);
   for (const project of ["ace", "relay"])
@@ -119,7 +119,7 @@ test("a pinned thread leads the Inbox as a full task row, and arrows move on fro
   const app = harness();
   seed(app);
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await nav.findByRole("link", { name: /^Last task/ });
   await app.client.command({ type: "thread.pin", threadId: ThreadId.parse("first"), pinned: true });
   const pinned = await nav.findByRole("link", { name: /^First task.*Pinned/ });
@@ -132,7 +132,7 @@ test("a pinned thread leads the Inbox as a full task row, and arrows move on fro
   expect(nav.queryByRole("heading", { name: "Active" })).toBeNull();
   expect(rowText(pinned)).toMatch(/^ace.*First task/);
   // The next stop down: the Inbox's next row.
-  const navigation = screen.getByRole("navigation", { name: "Threads" });
+  const navigation = screen.getByRole("navigation", { name: "Projects" });
   const stops = [
     ...navigation.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
   ];
@@ -152,7 +152,7 @@ test("navigation includes every Unsent link in both directions", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
-  const navigation = await screen.findByRole("navigation", { name: "Threads" });
+  const navigation = await screen.findByRole("navigation", { name: "Projects" });
   const nav = within(navigation);
   await nav.findByRole("link", { name: /^First task/ });
   app.client.networkOnline(false);
@@ -188,7 +188,7 @@ test("snoozed tasks leave the Inbox for Snoozed, and a snoozed task that asks fo
   const app = harness({ clock: () => now, uiClock: () => now });
   seed(app);
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await nav.findByRole("link", { name: /^Last task/ });
   for (const id of ["first", "last"])
     await app.client.command({
@@ -230,7 +230,7 @@ test("Snoozed lists what wakes soonest first, and each row's name says when it w
   ] as const)
     createIdleTask(app.daemon, { id, title, workspaceId: "ace", provider: "codex" });
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await nav.findByRole("link", { name: /^Wakes later/ });
   for (const [id, hours] of [
     ["later", 3],
@@ -265,7 +265,7 @@ test("an Unsent-only list supports forward and backward navigation", async () =>
     ]),
   );
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   app.client.networkOnline(false);
   for (const title of ["First offline task", "Second offline task"])
     await app.client.enqueue({
@@ -305,7 +305,7 @@ test.each([
     ] as const)
       createIdleTask(app.daemon, { id, title, workspaceId: "ace", provider: "codex" });
     await app.open("/new");
-    const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+    const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
     await nav.findByRole("link", { name: /^Recover the saved message/ });
     for (const id of ["recovery", "quiet"])
       await app.client.command({

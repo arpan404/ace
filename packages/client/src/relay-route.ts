@@ -50,6 +50,8 @@ export interface RelayRouteOptions {
   clocks?: NkClocks | undefined;
   /** Open returning streams with Noise NK when the daemon announced it (ADR 0155); default on. */
   nk?: boolean | undefined;
+  /** Carry the first handshake message in the upgrade request (ADR 0155, step 3); default on. */
+  inUpgrade?: boolean | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -85,6 +87,12 @@ export function relayRoute(options: RelayRouteOptions): {
     options.clocks ?? { now: () => performance.now(), wallNow: () => Date.now() },
   );
   const encoder = new TextEncoder();
+  /**
+   * An upgrade carrying the first message failed before it opened and the same dial without it
+   * opened (a relay or proxy that won't take the larger header): this route no longer carries it
+   * there, for its life (ADR 0155).
+   */
+  let upgradeRefused = false;
   /** The grant the last attempt offered, when the relay failed before opening for it. */
   let unopened: string | undefined;
   /** An attempt offering `grant` failed before its WebSocket opened: twice in a row names it. */
@@ -159,7 +167,11 @@ export function relayRoute(options: RelayRouteOptions): {
             // Offer to send early only where any relay answers something offered: with a grant
             // (an older relay echoes it), or to a relay that said it is new.
             const early = grant !== undefined || earlyKnown;
-            const dial = (sendEarly: boolean, nkOpen?: PortableRelayOptions["nk"]) =>
+            const dial = (
+              sendEarly: boolean,
+              nkOpen?: PortableRelayOptions["nk"],
+              inUpgrade = false,
+            ) =>
               connectPortableRelay({
                 relayUrl: options.relayUrl,
                 pinnedFingerprint: options.hostId,
@@ -177,19 +189,43 @@ export function relayRoute(options: RelayRouteOptions): {
                 signal,
                 early: sendEarly,
                 nk: nkOpen,
+                inUpgrade,
               });
-            /** Today's XX path, with the one retry after a lost early frame. */
-            const dialXx = async () => {
+            /**
+             * One dial (NK when `nkOpen` is given, else XX) with its bounded retries: once at once
+             * without the upgrade message when an upgrade carrying it failed before opening, and
+             * once after the marker when the hosted relay lost the held frame.
+             */
+            const dialOnce = async (nkOpen?: PortableRelayOptions["nk"]) => {
+              // The first message rides in the upgrade wherever early sending is offered: with a
+              // grant, or to a relay that said it is new. Both answer something offered whether
+              // or not they know ace.v2 or ace.v3, so the offer can't fail an upgrade.
+              const inUpgrade = early && !upgradeRefused && options.inUpgrade !== false;
               try {
-                return await dial(early);
+                return await dial(early, nkOpen, inUpgrade);
               } catch (error) {
+                if (stamp !== epoch) throw error;
                 const lost =
                   error instanceof RelayClosedError && error.code === RELAY_EARLY.lostClose;
-                if (!early || !lost || stamp !== epoch) throw error;
+                if (inUpgrade && !upgraded) {
+                  // Refused before it opened, maybe for its header: once more at once without
+                  // the message in it, and not again on this route. This failure doesn't count
+                  // toward naming the grant refused; the retry's does.
+                  upgradeRefused = true;
+                  try {
+                    return await dial(early, nkOpen);
+                  } catch (retried) {
+                    // Refused without it too: the header wasn't why. Offer it again next time.
+                    if (!upgraded) upgradeRefused = false;
+                    throw retried;
+                  }
+                }
                 // The hosted relay lost the held frame: once more at once, after the marker.
-                return await dial(false);
+                if (early && lost) return await dial(false, nkOpen);
+                throw error;
               }
             };
+            const dialXx = () => dialOnce();
             const token =
               typeof credential === "string" ||
               (typeof credential === "object" && "token" in credential);
@@ -220,13 +256,15 @@ export function relayRoute(options: RelayRouteOptions): {
                 flight = gathered;
                 if (converted) {
                   try {
-                    opened = await dial(early, {
+                    opened = await dialOnce({
                       hostKey: plan.hostKey,
                       early: encoder.encode(JSON.stringify(converted.early)),
                       confirm: encoder.encode(JSON.stringify(converted.confirm)),
                     });
-                    viaNk = true;
-                    flight = converted.rest;
+                    // A relay that knows only XX's upgrade entry took that one: the stream is XX
+                    // (its best path there), and the whole flight goes over it.
+                    viaNk = opened.handshake === "nk";
+                    if (viaNk) flight = converted.rest;
                   } catch (error) {
                     if (stamp !== epoch) throw error;
                     // Refused (a burned ticket, a limit) or lost: one immediate XX attempt with

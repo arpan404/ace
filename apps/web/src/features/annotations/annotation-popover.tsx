@@ -1,4 +1,4 @@
-import { ImageIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import { ImageIcon, PencilSimpleIcon, TrashIcon } from "@ace/icons";
 import type { RefObject } from "react";
 import { ImageUrl } from "@/components/attachment-bytes.tsx";
 import type { ImageSource } from "@/components/attachment-format.ts";

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 
 /**
  * The top of a pull request's or issue's page, one level per line: "← Pull requests" with the

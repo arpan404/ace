@@ -15,7 +15,7 @@ import { harness } from "@/test/harness.tsx";
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).getByRole("link", { name: title });
 
 async function openHome() {
@@ -29,7 +29,7 @@ async function openHome() {
   };
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   const of = (type: CommandPayload["type"]) => received.filter((payload) => payload.type === type);
   const listed = (id: string) => {
     const view = app.daemon.snapshot({ kind: "threads" });

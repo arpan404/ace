@@ -5,7 +5,7 @@ import {
   GaugeIcon,
   ProhibitIcon,
   StopIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useInteraction, useInteractions } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import { approvalCopy } from "@ace/ui-core";
