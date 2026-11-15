@@ -401,6 +401,7 @@ mod tests {
                 tokens_before: 0,
                 images_left_out: None,
                 untrusted: false,
+                carried: None,
             }),
             with("- [n_2] kept"),
             Event::Known(Known::MemoryIndexed {

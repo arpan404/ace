@@ -8,8 +8,9 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | Type                             | Fields                                                                   | Meaning                                                                                                                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `user_message`                   | `text`, `context?`                                                       | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                           |
-| `skills_indexed`                 | `text`                                                                   | The skill index, fixed at the first turn                                                                                                                                            |
-| `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, fixed at the first turn ([plugins.md](plugins.md))                                                                                  |
+| `skills_indexed`                 | `text`                                                                   | The skill index, stored before the first model call and again after each compaction; the latest is in effect                                                                       |
+| `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, stored like the skill index and after `plugins_changed`; the latest is in effect ([plugins.md](plugins.md))                       |
+| `plugins_changed`                |                                                                          | The person changed which plugins the bot may use; its rules are stored again before the next model call                                                                             |
 | `hook_ran`                       | `hook`, `target`, `outcomes[]`                                           | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                        |
 | `memory_indexed`                 | `text`                                                                   | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                         |
 | `question_asked`                 | `reply`, `call_id`, `question`, `questions`                              | `ask_user` asked a card; the turn waits unless a `question_deferred` follows ([questions.md](questions.md))                                                                         |
@@ -20,11 +21,13 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_requested`             | `reply`, `call_id`, `name`, `arguments`                                  | The gate is waiting on the person                                                                                                                                                   |
 | `approval_answered`              | `reply`, `call_id`, `allowed`, `always`                                  | `always` allows that tool for the rest of the conversation                                                                                                                          |
 | `tool_started` / `tool_finished` | `reply`, `call_id`, `name`, (`content`, `is_error`)                      | A tool ran                                                                                                                                                                          |
-| `context_compacted`              | `summary`, `keep_from`, `tokens_before`                                  | The model now sees `summary`, then events from index `keep_from`                                                                                                                    |
+| `context_compacted`              | `summary`, `keep_from`, `tokens_before`, `carried?`                      | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction                              |
 | `job_started`                    | `reply`, `job`, `name`                                                   | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                  |
 | `job_finished`                   | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`       | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
+| `task_parked`                    | `reason`, `until_ms?`, `why`                                             | The bot's working task waits for a cap's reset; planned again at `until_ms` or when the cap is raised ([autonomy.md](autonomy.md))                                                 |
+| `turn_parked`                    | `reply`, `until_ms`, `round`, `why`                                      | The reply's model endpoint is down; the turn waits and sends its step again at `until_ms`. The reply stays open; a restart resumes the wait                                        |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -34,15 +37,17 @@ turn's total.
 `spade_core::turn::next_step(events)` decides, from stored events only:
 
 - **Call the model** when the last step's calls all have results (or there is no step yet). The
-  prompt is `context::prompt`: Spade's rules and the frozen skill index, the offered tools (core
+  prompt is `context::prompt`: Spade's rules and the skill index (fixed between compactions), the offered tools (core
   tools in name order, plus `tool_search` and `call_tool` when any tool is deferred), then the
   conversation. It only ever grows at the end.
 - **Handle calls** otherwise: each open call is new (to the gate), awaiting, allowed, declined or
   running. The gate runs reads; asks for writes unless allowed always; always asks for
   destructive calls and for any write in a turn that read untrusted output (`web_search`,
   `web_fetch`, email). That is the `ask` level; on `auto_review` and `full_access` what the gate
-  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 4); results are cut
-  to 20,000 characters. No call is timed out by the harness: one still running after the
+  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 16 at once, or what
+  `SPADE_PARALLEL_TOOLS` sets; the rest wait their turn); a result over 20,000 characters keeps its first and last
+  10,000, with a note of how much was left out between them (the end is where errors and summaries
+  usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
@@ -66,13 +71,25 @@ turn's total.
   streamed, or the endpoint answered at all (a `200` whose body was then cut or unreadable), the
   step is never sent again: it may have been billed, so it is paid for as an estimate and fails
   or is interrupted as below. Other
-  refusals (`400`, `401`, a missing model) fail at once.
+  refusals (`400`, `401`, `403`, a missing model) fail at once, and so does a `429` whose words
+  say the account's quota or credit is used up: the person has to act, and the reply's failure
+  says so.
+- **Waiting out an outage** (ADR 0158): when those three tries are used up on a failure that may
+  pass (unreachable, `408`, `429`, `5xx`), the turn does not fail. It stores `turn_parked {reply,
+  until_ms, round, why}` and waits on the engine's clock: 1 minute, then doubling to at most an
+  hour a round, or longer when the endpoint's `retry-after` asks for it; then the three quick tries
+  start again. As many rounds as it takes; the reply stays open, the bot reads as working with the
+  status "Waiting for <endpoint>; trying again in 4 minutes", and Stop ends the wait at any point.
+  A pause for an update ends the wait like any other; after a restart the turn resumes and keeps
+  waiting until the stored `until_ms`.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).
-  The person's controls are Stop and their spending caps: past the daily cap the turn ends with
-  `reply_failed` ("today's spending cap is used up"), and a bot at its own daily or monthly cap starts no model call: the turn closes and the bot
-  says so once ([oversight.md](oversight.md)). With the model review on, a write the gate would run
+  The person's controls are Stop and their spending caps: past the service's daily cap (unset by
+  default) the turn ends with `reply_failed` ("today's spending cap is used up"), and a bot at its
+  own daily or monthly cap starts no model call: the turn closes and the bot says so once
+  ([oversight.md](oversight.md)). Either way a task that was working waits for the cap's reset
+  (`task_parked`) and carries on then ([autonomy.md](autonomy.md)). With the model review on, a write the gate would run
   is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).
@@ -104,7 +121,14 @@ ace's tools (threads, agents, browser, screen, automations) come from the daemon
 and can change while Spade runs. All of them are deferred: the model finds them with
 `tool_search` and runs them through `call_tool`, so the offered list never changes and the cached
 prompt top stays valid. Their risk comes from their annotations (unlabelled means write); ace's
-`wait` runs as a background job. When every search backend fails and ace is there, `web_search`
+`wait` and `delegate` run as background jobs. Such a job stays open until ace says the children
+settled: ace's own wait ends after at most ten minutes with `timeout` (or `interrupted` while the
+daemon restarts) while the children keep working, so the job calls `wait` again on the same threads,
+as many times as it takes, and the bot reads as working meanwhile (AGENTS.md priority 1). Its one
+result comes when they are done, one needs the person, or one is held at a usage limit. While ace
+can't be reached the job keeps trying. After a restart a lost `delegate` or `wait` job is not
+"unknown outcome": once ace's tools are back (within ten minutes) it runs again, and `delegate`
+returns the same children for the same call, so it reattaches to them. When every search backend fails and ace is there, `web_search`
 tells the model to have an ace agent search on the cheapest model the person has.
 
 Connectors (the person's apps through their own remote MCP servers, [connectors.md](connectors.md))
@@ -115,22 +139,33 @@ The person's plugins ([plugins.md](plugins.md)) add rules to the standing instru
 at six points of a turn, and their local MCP servers' tools, offered like connectors': deferred,
 named `<plugin>__<tool>`, output untrusted, only to bots the person allowed the plugin.
 
-Each conversation gets a skill index frozen into its instructions before its first model call:
-the 40 skills its bot loaded most, then by name, manual ones left out. The bytes are fixed when
-the conversation starts; skills added later are found with `skill_search`, which ranks by text
-and then by the bot's use (workspace.md, "Ranking"). `skill_load` puts a skill's other files in
+Each conversation gets a skill index in its instructions before its first model call: the 40
+skills its bot loaded most, then by name, manual ones left out. It is stored again after each
+compaction, the one point where the prompt's top changes anyway, so a skill installed weeks into a
+bot's one conversation reaches its instructions; in between the bytes are fixed, and skills added
+meanwhile are found with `skill_search`, which ranks by text and then by the bot's use
+(workspace.md, "Ranking"). `skill_load` puts a skill's other files in
 the bot's workspace at `skills/<name>/`.
 
 ## Compaction
 
 Before each model call, if the endpoint's last reported prompt is at least 75% of the budget
-(the model's context window or 200,000 tokens, whichever is smaller), the engine compacts: it cuts
+(the model's own context window, 200,000 tokens for a model that doesn't say, capped only by
+`SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158), the engine compacts: it cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
 35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and
-miss the cache), counts that call's cost like any other, appends every write already carried out
-with its call id and exact arguments (from the events, never the summary), and stores
-`context_compacted`. Compaction is the one place earlier prompt bytes change: the system prompt and
+miss the cache), counts that call's cost like any other, appends the writes already carried out
+(from the events, never the summary), and stores `context_compacted`. The list stays bounded over
+weeks: it holds the writes made since the previous compaction, then the previous summary's own list
+carried forward (stored as `carried` on `context_compacted`, so the conversation is never walked from
+the start again). Each write is one line: its tool, call id and arguments, with text over 120
+characters cut to 80 plus its length, lists cut to their first 8 items and the whole kept under 400
+characters. Writes since the previous summary and jobs still running are always listed; past
+16,000 characters the oldest carried lines fold into a count that points at `history_search`. A job
+listed as still running is looked at again at the next compaction (done, unknown, or dropped if it
+failed). A summary stored before `carried` existed makes the next compaction walk from the start,
+once. Compaction is the one place earlier prompt bytes change: the system prompt and
 tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between
 turns (409 mid-reply).

@@ -42,10 +42,58 @@ spending caps they set (ADR 0135).
    turn, so its memory stays bounded at the price of a whole read per step.
 
 Kept, because they bound one call or one exchange rather than the bot's work: single tool results
-cut to 20,000 characters, the model-step retry policy, the 60 s auto-review (it escalates to the
-person), research depth budgets, transport timeouts (ace's tools, media endpoints), bot-to-bot
-and group chain limits (a refused message, not a stopped bot), plugin `Stop` hooks extending a
-reply at most three times, and at most four helpers running at once (a queue).
+cut to 20,000 characters (head and tail since decision 7), the model-step retry policy (an outage
+past it now waits, decision 9), the 60 s auto-review (it escalates to the person), research depth
+budgets, and transport timeouts (ace's tools, media endpoints). The chain, `Stop` hook, helper
+and parallel-call counts first kept here are relaxed by decision 11.
+
+### Amended 2026-11-15: week-long and multi-agent work
+
+Decided by the owner (2026-11-15: make Spade fully capable for multi-day, multi-agent work now;
+the OS sandbox, egress proxy and grants come later, so no approval ask or taint gate changes
+here). From the harness audit's wave 0.
+
+6. **Compaction's "already carried out" list is bounded.** It lists the writes since the previous
+   compaction and carries the previous summary's list forward (stored as `carried` on
+   `context_compacted`), one line per write with long text cut to 80 characters plus its length,
+   lists cut to 8 items and the line under 400 characters. Writes since the previous summary and
+   jobs still running are always listed; past 16,000 characters the oldest carried lines fold
+   into a count that points at `history_search`. The walk is one pass. Before, every compaction
+   re-listed every write since the conversation began with full arguments, so over weeks the
+   summary outgrew the context.
+7. **A long result keeps its start and its end**, 10,000 characters each, with a note of what was
+   left out between them; before, only the head was kept and the tail, where errors and summaries
+   sit, was lost.
+8. **The skill index and plugin rules follow the bot.** They are stored again after each
+   compaction (the one point the prompt's top changes anyway), and the plugin rules also before
+   the next model call after the person changes the bot's plugins, which is stored as
+   `plugins_changed` so prompts rebuild from events. Before, both were frozen at the bot's first
+   model call, and with one conversation per bot later skills and plugins never applied.
+9. **Work waits instead of ending.** A working task stopped by a spending cap is parked
+   (`task_parked {reason: cap, until_ms, why}`): the bot reads as waiting with the reason, and the
+   task carries on at the cap's reset, when the person raises the cap, or when Spade reopens. A
+   turn whose endpoint is down past the quick tries is parked (`turn_parked`) and sends its step
+   again after 1 minute, doubling to an hour a round (or the endpoint's longer `retry-after`), as
+   long as it takes; the reply stays open, Stop ends the wait and a restart resumes it. A refused
+   key and a `429` that says the quota or credit is used up still fail at once: the person has to
+   act. The service-wide daily cap (`SPADE_DAILY_CAP_USD`) is unset by default instead of $5 for
+   every bot together; the person's caps per bot are the money boundary.
+10. **A bot never reads idle while its ace children work** (AGENTS.md priority 1). A background
+    `delegate` or `wait` calls ace's `wait` again each time ace's ten-minute wait runs out, until
+    the children are done, need the person, or are held at a usage limit. After a restart such a
+    job runs again once ace's tools are back and reattaches to the same children (`delegate`'s
+    request ids come from the call key).
+11. **Leftover counts are relaxed.** A group run takes any number of asks (it was 8); a group
+    ask back to a bot already waiting up the asker's chain is refused as a cycle, and chains past
+    16 deep (it was 3) are refused as a runaway guard. Bot-to-bot messages may go 16 hops (it was
+    3). A plugin's `Stop` hook extends a reply as long as it asks, until it gives the same reason
+    three times in a row with nothing changed in between (it was at most three times). 16 helpers
+    and 16 tool calls of one step run at once by default (both were 4; `SPADE_HELPERS_AT_ONCE`,
+    `SPADE_PARALLEL_TOOLS`). Compaction's budget is the model's own window (200,000 tokens for a
+    model that doesn't say), capped only by `SPADE_CONTEXT_TOKENS`; before, it was never above
+    200,000. A bot's terminal runs commands in sessions, the bot's own and one per helper, each
+    with its own folder and variables; different sessions run at once (it was one command at a
+    time for the bot and all its helpers).
 
 ## Consequences
 
@@ -57,3 +105,11 @@ reply at most three times, and at most four helpers running at once (a queue).
   outlives the foreground window moves to the background and delivers its result once; a long
   turn paused for an update resumes from its events; the daily cap still stops new model calls;
   compaction keeps cutting further into one turn round after round.
+- Amendment tests: 400 compactions of 50 KB writes keep the list under 18,000 characters with every
+  recent write listed; a skill added and a plugin rule changed reach the instructions at the next
+  compaction, a plugin turned on or off at the next model call; a capped task waits through a
+  restart and carries on at the reset or when the cap is raised; an outage parks the turn, which
+  survives a restart and answers once the endpoint is back, and Stop ends the wait; a delegate job
+  stays open while ace's waits time out and reattaches after a restart; twelve reads of one step
+  run at once; a group ask back up the chain is refused; a `Stop` hook whose reason moves on
+  extends a reply five times; a helper's command runs while the bot's build does.

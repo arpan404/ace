@@ -181,7 +181,8 @@ impl Transcript {
                 self.running.retain(|id| id != call_id);
                 self.questions.retain(|q| &q.call_id != call_id);
             }
-            Known::TurnPaused { reply } => {
+            // A turn waiting for its endpoint (ADR 0158) runs nothing either: a restart resumes it.
+            Known::TurnPaused { reply } | Known::TurnParked { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.as_deref());
                 if open == Some(reply.as_str()) {
                     self.paused = true;
@@ -252,6 +253,7 @@ impl Transcript {
             }
             Known::SkillsIndexed { .. }
             | Known::PluginsStarted { .. }
+            | Known::PluginsChanged {}
             | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
@@ -276,7 +278,8 @@ impl Transcript {
             | Known::PersonActivity { .. }
             | Known::JobProgress { .. }
             | Known::ServiceStarted { .. }
-            | Known::ServiceEnded { .. } => {}
+            | Known::ServiceEnded { .. }
+            | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

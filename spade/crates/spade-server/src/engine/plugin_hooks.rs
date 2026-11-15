@@ -30,6 +30,19 @@ impl Engine {
     pub fn plugins(&self) -> Option<&Arc<Plugins>> {
         self.plugins.get()
     }
+
+    /// The person changed which plugins `agent` may use: its conversation stores the rules again
+    /// before its next model call. A bot without a conversation yet has nothing to change.
+    pub fn plugins_changed(&self, agent: &str) -> Result<(), StoreError> {
+        let Some(view) = self.agent_view(agent)? else {
+            return Ok(());
+        };
+        self.record(
+            &view.agent.conversation,
+            &Event::Known(Known::PluginsChanged {}),
+        )
+        .map(|_| ())
+    }
 }
 
 /// The plugins and the conversation's bot, when it has any plugin.
@@ -57,23 +70,18 @@ fn ran_event(hook: &str, target: &str, outcomes: Vec<HookOutcome>) -> Event {
     })
 }
 
-/// Stores the bot's plugin rules and `SessionStart` text if this conversation has not called a
-/// model yet. Returns whether it stored anything.
+/// Stores the bot's plugin rules and `SessionStart` text when they are due: before the first model
+/// call, after a compaction, or after the person changed the bot's plugins. Returns whether it
+/// stored anything.
 pub(super) async fn start_if_needed(
     engine: &Arc<Engine>,
     id: &str,
     events: &[Event],
     cli: bool,
 ) -> bool {
-    let begun = events.iter().any(|event| {
-        matches!(
-            event,
-            Event::Known(Known::StepFinished { .. } | Known::PluginsStarted { .. })
-        )
-    });
-    if begun {
+    let Some(due) = hooks::plugins_due(events) else {
         return false;
-    }
+    };
     let Some((plugins, agent)) = plugins_of(engine, id) else {
         return false;
     };
@@ -81,13 +89,24 @@ pub(super) async fn start_if_needed(
         tracing::warn!("ace's plugins did not answer in time; this conversation goes without");
     }
     if plugins.for_agent(&agent).is_empty() {
-        return false;
+        // Rules in effect from before are replaced by none; otherwise nothing is stored.
+        if !due.replaces(events) {
+            return false;
+        }
+        return store(
+            engine,
+            id,
+            Event::Known(Known::PluginsStarted {
+                rules: String::new(),
+                added: String::new(),
+            }),
+        );
     }
     let rules = plugins.rules(&agent, cli);
     let outcomes = if cli {
         Vec::new()
     } else {
-        let input = json!({ "session_id": id, "source": "startup" });
+        let input = json!({ "session_id": id, "source": due.source() });
         plugins
             .run_hooks(&agent, hooks::SESSION_START, None, input)
             .await
@@ -251,8 +270,9 @@ fn store_all(engine: &Engine, id: &str, events: &[Event]) -> Result<(), StoreErr
         })
 }
 
-/// As a reply is about to finish: runs `Stop`, at most [`hooks::MOST_STOP_EXTENSIONS`] times a
-/// reply. Returns whether a hook asked for one more step (its reason is stored for the model).
+/// As a reply is about to finish: runs `Stop`, as many times a reply as its hooks ask, unless they
+/// are stuck ([`hooks::stop_stuck`]). Returns whether a hook asked for one more step (its reason is
+/// stored for the model).
 pub(super) async fn at_stop(engine: &Arc<Engine>, id: &str) -> bool {
     let Some((plugins, agent)) = plugins_of(engine, id) else {
         return false;
@@ -267,7 +287,7 @@ pub(super) async fn at_stop(engine: &Arc<Engine>, id: &str) -> bool {
         return false;
     };
     let extended = hooks::stop_extensions(&events);
-    if hooks::ran(&events, hooks::STOP, &target) || extended >= hooks::MOST_STOP_EXTENSIONS {
+    if hooks::ran(&events, hooks::STOP, &target) || hooks::stop_stuck(&events) {
         return false;
     }
     let input = json!({ "session_id": id, "stop_hook_active": extended > 0 });

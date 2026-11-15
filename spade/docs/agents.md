@@ -47,7 +47,8 @@ Every agent has two tools:
   counts as untrusted, so a write after it asks. A bot cannot message itself. A turn that another
   bot's message started or steered counts as untrusted, so every write in it asks the person, even
   one they allowed "always". `depth` is 1 when the caller was answering the person and one more per
-  hop; a message deeper than 3 is refused.
+  hop; a message deeper than 16 is refused, a guard against bots messaging each other forever
+  (it was 3 before ADR 0158). The same holds for asks from other machines.
 
 ## Endpoints and models
 

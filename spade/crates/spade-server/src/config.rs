@@ -13,14 +13,24 @@ pub struct Config {
     pub listen: SocketAddr,
     /// `SPADE_DATA_DIR`: the database, token, lock, `server.json`, `models.json`, `search.json`.
     pub data_dir: PathBuf,
-    /// `SPADE_DAILY_CAP_USD`: a day's spending cap in dollars.
-    pub daily_cap_usd: f64,
+    /// `SPADE_DAILY_CAP_USD`: a day's spending cap in dollars for every bot together. Unset by
+    /// default: the person's own caps per bot are the money boundary (ADR 0158).
+    pub daily_cap_usd: Option<f64>,
+    /// `SPADE_PARALLEL_TOOLS`: tool calls of one step run at once; unset is the engine's default.
+    pub parallel_tools: Option<usize>,
+    /// `SPADE_HELPERS_AT_ONCE`: helpers of one bot run at once; unset is the engine's default.
+    pub helpers_at_once: Option<usize>,
+    /// `SPADE_CONTEXT_TOKENS`: compact before this many prompt tokens even when the model's own
+    /// window is larger (a cost choice); unset uses each model's window.
+    pub context_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
     InvalidListen(String),
     InvalidCap(String),
+    /// A setting that must be a whole number above zero: its name and value.
+    InvalidCount(&'static str, String),
 }
 
 impl fmt::Display for ConfigError {
@@ -34,6 +44,9 @@ impl fmt::Display for ConfigError {
                 f,
                 "SPADE_DAILY_CAP_USD must be a number of dollars, zero or more, got {value:?}"
             ),
+            Self::InvalidCount(name, value) => {
+                write!(f, "{name} must be a whole number above zero, got {value:?}")
+            }
         }
     }
 }
@@ -54,17 +67,36 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "data".to_owned()),
         );
-        let cap = lookup("SPADE_DAILY_CAP_USD").unwrap_or_else(|| "5".to_owned());
-        let daily_cap_usd = cap
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .ok_or(ConfigError::InvalidCap(cap))?;
+        let daily_cap_usd = match lookup("SPADE_DAILY_CAP_USD").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(cap) => Some(
+                cap.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                    .ok_or(ConfigError::InvalidCap(cap))?,
+            ),
+        };
+        let count = |name: &'static str| -> Result<Option<u64>, ConfigError> {
+            match lookup(name).filter(|v| !v.trim().is_empty()) {
+                None => Ok(None),
+                Some(value) => match value.trim().parse::<u64>() {
+                    Ok(n) if n > 0 => Ok(Some(n)),
+                    _ => Err(ConfigError::InvalidCount(name, value)),
+                },
+            }
+        };
+        let parallel_tools = count("SPADE_PARALLEL_TOOLS")?.map(|n| n as usize);
+        let helpers_at_once = count("SPADE_HELPERS_AT_ONCE")?.map(|n| n as usize);
+        let context_tokens =
+            count("SPADE_CONTEXT_TOKENS")?.map(|n| u32::try_from(n).unwrap_or(u32::MAX));
         Ok(Self {
             listen,
             data_dir,
             daily_cap_usd,
+            parallel_tools,
+            helpers_at_once,
+            context_tokens,
         })
     }
 }
@@ -101,15 +133,35 @@ mod tests {
     }
 
     #[test]
-    fn data_lives_in_data_and_the_cap_is_five_dollars_unless_set() {
+    fn data_lives_in_data_and_there_is_no_service_cap_unless_set() {
         let config = Config::from_env(env(&[])).map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(config, Ok((PathBuf::from("data"), 5.0)));
+        assert_eq!(config, Ok((PathBuf::from("data"), None)));
         let set = Config::from_env(env(&[
             ("SPADE_DATA_DIR", "/var/spade"),
             ("SPADE_DAILY_CAP_USD", "0.5"),
         ]))
         .map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(set, Ok((PathBuf::from("/var/spade"), 0.5)));
+        assert_eq!(set, Ok((PathBuf::from("/var/spade"), Some(0.5))));
+    }
+
+    #[test]
+    fn counts_are_unset_unless_given_and_must_be_above_zero() {
+        let config = Config::from_env(env(&[])).map(|c| (c.parallel_tools, c.context_tokens));
+        assert_eq!(config, Ok((None, None)));
+        let set = Config::from_env(env(&[
+            ("SPADE_PARALLEL_TOOLS", "32"),
+            ("SPADE_HELPERS_AT_ONCE", "8"),
+            ("SPADE_CONTEXT_TOKENS", "300000"),
+        ]))
+        .map(|c| (c.parallel_tools, c.helpers_at_once, c.context_tokens));
+        assert_eq!(set, Ok((Some(32), Some(8), Some(300_000))));
+        assert_eq!(
+            Config::from_env(env(&[("SPADE_HELPERS_AT_ONCE", "0")])),
+            Err(ConfigError::InvalidCount(
+                "SPADE_HELPERS_AT_ONCE",
+                "0".to_owned()
+            ))
+        );
     }
 
     #[test]

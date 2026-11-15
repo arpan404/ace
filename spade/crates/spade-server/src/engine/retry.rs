@@ -1,13 +1,17 @@
 //! Sending a model step again when it failed before anything streamed (docs/harness.md, Model
 //! calls). A request the endpoint never answered was never billed, so trying it again costs
-//! nothing; once output has started, a cut stream is handled by the turn as before.
+//! nothing; once output has started, a cut stream is handled by the turn as before. When the
+//! quick tries are used up on an outage, the turn waits for the endpoint (`turn_parked`, ADR
+//! 0158), minutes and then hours apart, until it answers or the person presses Stop.
 
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{Stream, StreamExt};
+use spade_core::event::{Event, Known};
 use spade_core::maintenance::{Pause, Point};
+use spade_core::park;
 use spade_models::{Delta, ModelError, Prompt};
 use tokio::sync::watch;
 
@@ -68,10 +72,12 @@ pub(super) enum Opened {
 
 /// Opens the step's stream and waits for its first item, sending the request again while it
 /// fails before anything streamed and the failure may pass. The status reads "Retrying"
-/// meanwhile; Stop and a pause end the wait.
+/// meanwhile; Stop and a pause end the wait. Once the quick tries are used up the turn waits for
+/// the endpoint and tries again, as long as it takes.
 pub(super) async fn open(
     engine: &Arc<Engine>,
     id: &str,
+    reply: &str,
     model: &str,
     prompt: &Prompt,
     stop: &mut watch::Receiver<bool>,
@@ -80,6 +86,16 @@ pub(super) async fn open(
     let policy = engine.limits.retry;
     let mut waited = Duration::ZERO;
     let mut tries = 1;
+    // A turn resumed after a restart (or an update) keeps waiting until its stored time.
+    let resumed = engine
+        .load(id)
+        .ok()
+        .and_then(|events| park::turn_wait(events.iter(), reply));
+    if let Some((until_ms, _)) = resumed
+        && let Some(end) = wait_for_endpoint(engine, id, model, until_ms, stop, pause).await
+    {
+        return end;
+    }
     loop {
         let first = tokio::select! {
             first = first_item(engine, model, prompt) => first,
@@ -95,7 +111,36 @@ pub(super) async fn open(
             .then(|| wait(&policy, tries + 1, waited, error.retry_after()))
             .flatten();
         let Some(pause_for) = pause_for else {
-            return Opened::Failed(error);
+            if !error.transient() {
+                // A refused key, a used-up quota or a bad request: the person has to act.
+                return Opened::Failed(error);
+            }
+            // An outage: wait for the endpoint, then start the quick tries again.
+            let round = engine
+                .load(id)
+                .map_or(0, |events| park::turn_rounds(events.iter(), reply))
+                + 1;
+            let wait = park::wait(&engine.limits.outage, round, error.retry_after());
+            let until_ms = engine
+                .now_ms()
+                .saturating_add(i64::try_from(wait.as_millis()).unwrap_or(i64::MAX));
+            tracing::warn!(%error, round, ?wait, "the endpoint is down; the turn waits for it");
+            let parked = Event::Known(Known::TurnParked {
+                reply: reply.to_owned(),
+                until_ms,
+                round,
+                why: error.to_string(),
+            });
+            if let Err(stored) = engine.record(id, &parked) {
+                tracing::error!(error = %stored, "could not store that a turn waits");
+                return Opened::Failed(error);
+            }
+            if let Some(end) = wait_for_endpoint(engine, id, model, until_ms, stop, pause).await {
+                return end;
+            }
+            waited = Duration::ZERO;
+            tries = 1;
+            continue;
         };
         tracing::info!(%error, try_next = tries + 1, ?pause_for, "sending a model step again");
         engine.set_status(id, Some(RETRYING.to_owned()));
@@ -108,6 +153,36 @@ pub(super) async fn open(
         waited += pause_for;
         tries += 1;
     }
+}
+
+/// Waits on the engine's clock until `until_ms`, the status saying what for. `None` once it is
+/// time to try again; Stop and a pause end the wait.
+async fn wait_for_endpoint(
+    engine: &Arc<Engine>,
+    id: &str,
+    model: &str,
+    until_ms: i64,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Option<Opened> {
+    let endpoint = model.split('/').next().unwrap_or(model);
+    loop {
+        let left = until_ms - engine.now_ms();
+        if left <= 0 {
+            break;
+        }
+        let minutes = (left + 59_999) / 60_000;
+        engine.set_status(id, Some(park::turn_words(endpoint, minutes)));
+        let left = Duration::from_millis(u64::try_from(left).unwrap_or(0));
+        // The engine's clock is looked at every second, so a test moves time instead of waiting.
+        tokio::select! {
+            () = tokio::time::sleep(left.min(Duration::from_secs(1))) => {}
+            _ = super::turn::stopped(stop) => return Some(Opened::Stopped),
+            _ = super::turn::pausing(pause, Point::Streaming) => return Some(Opened::Paused),
+        }
+    }
+    engine.set_status(id, Some(THINKING.to_owned()));
+    None
 }
 
 /// The stream with its first item read, or the error that came before anything else.

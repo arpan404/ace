@@ -209,7 +209,8 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     }
 }
 
-/// The last reply ended by finishing (not stopped, failed or cut off), and none is open.
+/// The last reply ended by finishing (not stopped, failed or cut off), or was ended by a spending
+/// cap before its next model call (the task waits for the cap, ADR 0158), and none is open.
 pub(crate) fn ended_finished(events: &[Event]) -> bool {
     let last = events.iter().rev().find(|e| {
         matches!(
@@ -223,7 +224,16 @@ pub(crate) fn ended_finished(events: &[Event]) -> bool {
             )
         )
     });
-    matches!(last, Some(Event::Known(Known::ReplyFinished { .. })))
+    matches!(
+        last,
+        Some(Event::Known(
+            Known::ReplyFinished { .. }
+                | Known::ReplyFailed {
+                    kind: crate::event::FailureKind::Cap,
+                    ..
+                }
+        ))
+    )
 }
 
 /// The person pressed Stop after the last reply started (an idle Stop cancels a step waiting to

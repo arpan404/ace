@@ -195,15 +195,13 @@ fn the_next_prompt_repeats_the_previous_one_and_adds_to_its_end() {
     ];
     let before = prompt(SYSTEM, tools.clone(), &events);
     events.push(step("r1", "Done.", &[]));
-    events.push(Event::Known(Known::SkillsIndexed {
-        text: "Skills: release, deploy".into(),
-    }));
+    assert!(
+        !crate::skills::index_due(&events),
+        "no new skill index before the next compaction"
+    );
     let after = prompt(SYSTEM, tools, &events);
 
-    assert_eq!(
-        before.system, after.system,
-        "the skill index stays the first one"
-    );
+    assert_eq!(before.system, after.system);
     assert_eq!(before.tools, after.tools);
     assert_eq!(after.messages[..before.messages.len()], before.messages[..]);
     assert!(
@@ -373,6 +371,7 @@ fn untrusted_content_stays_in_view_across_turns_until_compaction_leaves_it_out()
             tokens_before: 0,
             images_left_out: None,
             untrusted,
+            carried: None,
         })
     };
     let mut events = vec![
@@ -717,6 +716,7 @@ fn between_compactions_new_images_only_add_to_the_end_of_the_prompt() {
         tokens_before: 0,
         images_left_out: Some(fixed),
         untrusted: false,
+        carried: None,
     }));
     assert_eq!(shown_images(&messages_with(&events, &Shelf)), SHOWN_IMAGES);
     let mut before = messages_with(&events, &Shelf);

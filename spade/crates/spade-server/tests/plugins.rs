@@ -398,7 +398,8 @@ async fn text_a_hook_adds_is_untrusted_so_an_always_allowed_write_asks_again() -
 }
 
 #[tokio::test]
-async fn a_stop_hook_extends_a_reply_at_most_three_times() -> Result {
+async fn a_stop_hook_giving_the_same_reason_with_nothing_changed_stops_after_three_times() -> Result
+{
     let tests = plugin(
         "tests",
         &"e".repeat(64),
@@ -441,6 +442,40 @@ async fn a_stop_hook_extends_a_reply_at_most_three_times() -> Result {
         .map(|s| s.body.to_string())
         .unwrap_or_default();
     assert!(second.contains("Run the tests first."), "{second}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stop_hook_extends_a_reply_as_long_as_its_reason_moves_on() -> Result {
+    // Asks five times, each for the next round, then lets the reply finish.
+    let rounds = plugin(
+        "rounds",
+        &"d".repeat(64),
+        "/nowhere",
+        json!([]),
+        json!([hook(
+            "Stop",
+            "n=$(cat .rounds 2>/dev/null || echo 0); n=$((n+1)); echo $n > .rounds; \
+             if [ $n -le 5 ]; then echo \"Round $n: run the tests again.\" >&2; exit 2; fi",
+            None
+        )]),
+    );
+    let mut scripts: Vec<Script> = (1..=6)
+        .map(|n| Script::reply(&format!("Draft {n}.")))
+        .collect();
+    scripts.push(Script::reply("").plain(r#"{"title":"Drafts"}"#));
+    let spade =
+        Spade::start_with(scripts, Vec::new(), options(FakeAce::with(vec![rounds]))).await?;
+    let (_, chat) = bot(&spade, "Writer", &["rounds"]).await?;
+    spade.say(&chat, "Write it").await?;
+    let events = wait(&spade, &chat, "reply_finished", 1).await?;
+    assert_eq!(
+        of_type(&events, "step_finished").len(),
+        6,
+        "{:?}",
+        types(&events)
+    );
+    assert_eq!(of_type(&events, "reply_finished")[0]["text"], "Draft 6.");
     Ok(())
 }
 
@@ -497,6 +532,133 @@ async fn rules_and_session_start_text_are_frozen_when_a_conversation_starts() ->
     );
     assert!(start.contains("Today is release day."), "{start}");
     assert_eq!(start, later, "the cached top changed mid-conversation");
+    Ok(())
+}
+
+const SUMMARY: &str = r#"{"goal":"Say hello","decisions":[],"facts":[],"open":[],"references":[]}"#;
+
+fn rule(text: &str) -> Value {
+    json!([{ "kind": "rule", "name": "tabs", "path": "rules/tabs.md", "description": "",
+             "text": text }])
+}
+
+#[tokio::test]
+async fn a_rule_changed_in_ace_reaches_the_bot_at_its_next_compaction() -> Result {
+    let ace = FakeAce::with(vec![plugin(
+        "style",
+        &"f".repeat(64),
+        "/nowhere",
+        rule("Indent with tabs."),
+        json!([]),
+    )]);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Hi."),
+            Script::reply("").plain(r#"{"title":"Hi"}"#),
+            Script::reply("").plain(SUMMARY),
+            Script::reply("Hi again."),
+            Script::reply("And again."),
+        ],
+        Vec::new(),
+        options(ace.clone()),
+    )
+    .await?;
+    let (agent, chat) = bot(&spade, "Coder", &["style"]).await?;
+    spade.say(&chat, "Hello").await?;
+    wait(&spade, &chat, "reply_finished", 1).await?;
+    ace.replace(plugin(
+        "style",
+        &"0".repeat(64),
+        "/nowhere",
+        rule("Indent with spaces."),
+        json!([]),
+    ));
+    // The bot's plugins page reads ace again, as Spade does once its last reading is stale.
+    spade.get(&format!("/v1/agents/{agent}/plugins")).await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{chat}/compact"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    spade.say(&chat, "Again").await?;
+    wait(&spade, &chat, "reply_finished", 2).await?;
+    spade.say(&chat, "And again").await?;
+    wait(&spade, &chat, "reply_finished", 3).await?;
+    let seen = spade.fake.seen();
+    let system = |n: usize| {
+        seen.get(n)
+            .and_then(|s| s.body["messages"][0]["content"].as_str().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    assert!(system(0).contains("Indent with tabs."), "{}", system(0));
+    assert!(system(3).contains("Indent with spaces."), "{}", system(3));
+    assert!(!system(3).contains("Indent with tabs."), "{}", system(3));
+    assert_eq!(
+        system(3),
+        system(4),
+        "fixed again until the next compaction"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn plugins_the_person_turns_on_or_off_apply_from_the_bots_next_model_call() -> Result {
+    let ace = FakeAce::with(vec![plugin(
+        "style",
+        &"f".repeat(64),
+        "/nowhere",
+        rule("Indent with tabs."),
+        json!([]),
+    )]);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Hi."),
+            Script::reply("").plain(r#"{"title":"Hi"}"#),
+            Script::reply("With rules."),
+            Script::reply("With rules still."),
+            Script::reply("Without."),
+        ],
+        Vec::new(),
+        options(ace.clone()),
+    )
+    .await?;
+    let (id, chat) = bot(&spade, "Coder", &[]).await?;
+    spade.say(&chat, "Hello").await?;
+    wait(&spade, &chat, "reply_finished", 1).await?;
+    let allow = |names: Value| {
+        let spade = &spade;
+        let id = id.clone();
+        async move {
+            let (status, body) = spade
+                .put(
+                    &format!("/v1/agents/{id}/plugins"),
+                    json!({ "plugins": names }),
+                )
+                .await?;
+            assert_eq!(status, 200, "{body}");
+            Result::Ok(())
+        }
+    };
+    allow(json!(["style"])).await?;
+    spade.say(&chat, "Again").await?;
+    wait(&spade, &chat, "reply_finished", 2).await?;
+    spade.say(&chat, "Still").await?;
+    wait(&spade, &chat, "reply_finished", 3).await?;
+    allow(json!([])).await?;
+    spade.say(&chat, "Off now").await?;
+    wait(&spade, &chat, "reply_finished", 4).await?;
+    let seen = spade.fake.seen();
+    let system = |n: usize| {
+        seen.get(n)
+            .and_then(|s| s.body["messages"][0]["content"].as_str().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    assert!(!system(0).contains("Indent with tabs."), "{}", system(0));
+    assert!(system(2).contains("Indent with tabs."), "{}", system(2));
+    assert_eq!(system(2), system(3), "stored once, so the top stays cached");
+    assert!(!system(4).contains("Indent with tabs."), "{}", system(4));
+    let events = spade.events(&chat).await?;
+    // Once when the bot was made, then on and off.
+    assert_eq!(of_type(&events, "plugins_changed").len(), 3);
     Ok(())
 }
 

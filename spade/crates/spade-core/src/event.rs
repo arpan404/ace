@@ -42,20 +42,25 @@ pub enum Known {
         task: String,
         model: String,
     },
-    /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
-    /// cached; later skills are found with `skill_search`.
+    /// The skill index for this conversation, stored before its first model call and again after
+    /// each compaction, so the prompt's top stays cached in between; skills added meanwhile are
+    /// found with `skill_search`. The latest one is in effect.
     SkillsIndexed {
         text: String,
     },
-    /// The person's plugins at a conversation's first turn (ADR 0151): their rules, and what
-    /// their `SessionStart` hooks added, fixed like the skill index so the prompt's top stays
-    /// cached. `added` is a hook's text: untrusted.
+    /// The person's plugins for this conversation (ADR 0151): their rules, and what their
+    /// `SessionStart` hooks added. Stored before the first model call, after each compaction and
+    /// after the person changes the bot's plugins (`plugins_changed`); the latest one is in
+    /// effect. `added` is a hook's text: untrusted.
     PluginsStarted {
         #[serde(default)]
         rules: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         added: String,
     },
+    /// The person changed which plugins the bot may use. Its rules are stored again before the
+    /// next model call.
+    PluginsChanged {},
     /// What the person's plugin hooks answered at one of Spade's events (ADR 0151), stored once
     /// so a rebuilt prompt is the same and a restart never runs them again for it. `target` names
     /// what they answered: a call id, a message's or step's event index.
@@ -314,6 +319,24 @@ pub enum Known {
         #[serde(default)]
         cost_micros: u64,
     },
+    /// Spade could not start the next step of the bot's working task because of a spending cap,
+    /// so the task waits (ADR 0158): it carries on at `until_ms` (the cap's reset), or sooner
+    /// when the cap is raised. Ends at the next reply or message. `why` is what the person reads.
+    TaskParked {
+        reason: crate::park::ParkReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        until_ms: Option<i64>,
+        why: String,
+    },
+    /// A model step of `reply` failed for a while (the endpoint unreachable, overloaded or rate
+    /// limiting), so the turn waits and sends it again at `until_ms` (ADR 0158). The reply stays
+    /// open; Stop ends the wait, and a restart resumes it. `round` counts the waits this turn.
+    TurnParked {
+        reply: String,
+        until_ms: i64,
+        round: u32,
+        why: String,
+    },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
     /// without opening a reply. Later work is not affected.
@@ -405,6 +428,11 @@ pub enum Known {
         /// facts drawn from it are only suggested to the person (ADR 0128).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
+        /// The writes this summary lists as already carried out, so the next compaction carries
+        /// them forward instead of walking the whole conversation again. Missing on events from
+        /// before it was stored; the next compaction then walks from the start once.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        carried: Option<CarriedLedger>,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -797,6 +825,34 @@ impl Event {
             title: title.into(),
         })
     }
+}
+
+/// The "already carried out" list a compaction wrote (ADR 0158): one line per write, newest last.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CarriedLedger {
+    pub writes: Vec<CarriedWrite>,
+    /// Older writes no longer listed one by one, so the list stays bounded over weeks.
+    #[serde(default, skip_serializing_if = "is_none_earlier")]
+    pub earlier: u64,
+}
+
+fn is_none_earlier(n: &u64) -> bool {
+    *n == 0
+}
+
+/// One write in a compaction's "already carried out" list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarriedWrite {
+    pub call_id: String,
+    /// The tool, call id and arguments, trimmed to one line.
+    pub what: String,
+    /// What became of it ("" when done).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// Its background job had not ended when this list was written; the next compaction looks
+    /// again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub running: bool,
 }
 
 #[cfg(test)]

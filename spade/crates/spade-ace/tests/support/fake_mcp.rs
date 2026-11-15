@@ -59,6 +59,8 @@ struct State {
     redirect_calls: Mutex<Option<String>>,
     /// While true, every request is accepted and never answered.
     hang: std::sync::atomic::AtomicBool,
+    /// Whether the children `delegate` started have finished; until then `wait` times out.
+    children_done: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -86,6 +88,7 @@ impl FakeMcp {
             hold: tokio::sync::watch::channel(false).0,
             redirect_calls: Mutex::new(None),
             hang: std::sync::atomic::AtomicBool::new(false),
+            children_done: std::sync::atomic::AtomicBool::new(false),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -161,6 +164,11 @@ impl FakeMcp {
     /// Sends every held answer.
     pub fn release_answers(&self) {
         self.state.hold.send_replace(false);
+    }
+
+    /// The children `delegate` started finish: the next `wait` is ready.
+    pub fn settle_children(&self) {
+        self.state.children_done.store(true, Ordering::SeqCst);
     }
 
     /// Answers every `tools/call` POST with a 307 to `url`.
@@ -426,6 +434,29 @@ impl ServerHandler for Fake {
                         "message": "the person is using this tab; nothing was done" })
                 .to_string(),
             )]),
+            // ace's own: one child, still working until the test settles it; each wait answers
+            // `timeout` meanwhile, as ace does after `timeoutSeconds`.
+            "delegate" | "wait" => {
+                if request.name.as_ref() == "wait" {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let done = self.0.children_done.load(Ordering::SeqCst);
+                let wait = json!({
+                    "status": if done { "ready" } else { "timeout" },
+                    "mode": "all",
+                    "threads": [{ "threadId": "t1", "state": if done { "done" } else { "working" },
+                                  "title": "Fix the bug", "elapsedSeconds": 1,
+                                  "result": if done { "Fixed the bug." } else { "" } }],
+                });
+                let data = if request.name.as_ref() == "delegate" {
+                    json!({ "threadIds": ["t1"], "wait": wait })
+                } else {
+                    wait
+                };
+                CallToolResult::success(vec![ContentBlock::text(
+                    json!({ "ok": true, "data": data }).to_string(),
+                )])
+            }
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 CallToolResult::success(vec![])

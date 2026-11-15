@@ -88,7 +88,7 @@ impl Engine {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
             let events = self.load(&group.conversation).map_err(|e| e.to_string())?;
-            group::admit(&events, run, depth).map_err(|r| r.words())?;
+            group::admit(&events, run, depth, by.as_ref(), &to_bot).map_err(|r| r.words())?;
             let ask = self.ids.next("ask");
             self.record(
                 &group.conversation,

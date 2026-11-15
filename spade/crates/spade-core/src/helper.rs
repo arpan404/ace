@@ -8,8 +8,9 @@ use crate::tools::{Registry, Risk, ToolDef};
 
 /// The tool a bot starts a helper with.
 pub const TOOL: &str = "helper";
-/// Helpers that run at once for one bot; more wait for a free slot.
-pub const MOST_RUNNING: usize = 4;
+/// Helpers that run at once for one bot unless the service sets another number
+/// (`SPADE_HELPERS_AT_ONCE`); more wait for a free slot.
+pub const MOST_RUNNING: usize = 16;
 /// The profile used when the call names none.
 pub const DEFAULT_PROFILE: &str = "general";
 
@@ -152,10 +153,11 @@ pub fn stage(events: &[Event]) -> Stage {
     }
 }
 
-/// How many queued helpers may start now, given the stages of all of a bot's helpers.
-pub fn free_slots(stages: impl IntoIterator<Item = Stage>) -> usize {
+/// How many queued helpers may start now, given the stages of all of a bot's helpers and how many
+/// may run at once.
+pub fn free_slots(stages: impl IntoIterator<Item = Stage>, at_once: usize) -> usize {
     let running = stages.into_iter().filter(|s| *s == Stage::Running).count();
-    MOST_RUNNING.saturating_sub(running)
+    at_once.max(1).saturating_sub(running)
 }
 
 /// What a helper that ended hands back to its bot.
@@ -404,8 +406,10 @@ mod tests {
     #[test]
     fn at_most_four_run_at_once() {
         use Stage::*;
-        assert_eq!(free_slots([Running, Running, Queued]), 2);
-        assert_eq!(free_slots([Running; 4]), 0);
-        assert_eq!(free_slots([Ended, Ended, Ended, Ended, Running]), 3);
+        assert_eq!(free_slots([Running, Running, Queued], 4), 2);
+        assert_eq!(free_slots([Running; 4], 4), 0);
+        assert_eq!(free_slots([Ended, Ended, Ended, Ended, Running], 4), 3);
+        assert_eq!(free_slots([Running; 4], MOST_RUNNING), 12);
+        assert_eq!(free_slots([Running], 0), 0, "at least one runs");
     }
 }

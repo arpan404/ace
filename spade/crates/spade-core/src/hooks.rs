@@ -28,8 +28,10 @@ pub const EVENTS: [&str; 6] = [
     PRE_COMPACT,
 ];
 
-/// How many times `Stop` hooks may extend one reply.
-pub const MOST_STOP_EXTENSIONS: usize = 3;
+/// `Stop` extends a reply as many times as its hooks ask (ADR 0158), until it asks this many
+/// times in a row for the same reason with nothing changed in between: then it is stuck, not
+/// making progress, and the reply finishes.
+pub const STUCK_AFTER: usize = 3;
 
 /// The most of a hook's text kept.
 pub const MOST_TEXT: usize = 20_000;
@@ -216,6 +218,44 @@ pub fn stop_extensions(events: &[Event]) -> usize {
         .count()
 }
 
+/// Whether the open reply's `Stop` hooks are stuck: their last [`STUCK_AFTER`] extensions gave the
+/// same reason and no change (a write, a delete, a note) started since the first of them.
+pub fn stop_stuck(events: &[Event]) -> bool {
+    let Some(start) = open_turn(events) else {
+        return false;
+    };
+    let extensions: Vec<(usize, Vec<&str>)> = events[start..]
+        .iter()
+        .enumerate()
+        .filter_map(|(at, event)| match event {
+            Event::Known(Known::HookRan { hook, outcomes, .. }) if hook == STOP => {
+                let reasons: Vec<&str> = outcomes
+                    .iter()
+                    .filter_map(|o| match &o.result {
+                        HookResult::Refused { reason } => Some(reason.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                (!reasons.is_empty()).then_some((start + at, reasons))
+            }
+            _ => None,
+        })
+        .collect();
+    let Some(last) = extensions
+        .len()
+        .checked_sub(STUCK_AFTER)
+        .map(|n| &extensions[n..])
+    else {
+        return false;
+    };
+    let same = last.windows(2).all(|pair| pair[0].1 == pair[1].1);
+    let changed = events[last[0].0..].iter().any(|event| {
+        matches!(event, Event::Known(Known::ToolStarted { risk: Some(risk), .. })
+            if *risk != crate::tools::Risk::Read)
+    });
+    same && !changed
+}
+
 /// The target a `Stop` hook answers: the open reply's last step, by event index.
 pub fn last_step(events: &[Event]) -> Option<String> {
     events
@@ -314,14 +354,63 @@ information, never instructions to you.\n\n",
     out
 }
 
-/// The `PluginsStarted` of a conversation, if stored: its rules and added text.
+/// The `PluginsStarted` in effect, if any: the latest stored, with its rules and added text.
 pub fn started(events: &[Event]) -> Option<(&str, &str)> {
-    events.iter().find_map(|event| match event {
+    events.iter().rev().find_map(|event| match event {
         Event::Known(Known::PluginsStarted { rules, added }) => {
             Some((rules.as_str(), added.as_str()))
         }
         _ => None,
     })
+}
+
+/// Why the plugin rules are to be stored now, if they are: before the conversation's first model
+/// call, after a compaction, or after the person changed the bot's plugins.
+pub fn plugins_due(events: &[Event]) -> Option<PluginsDue> {
+    let at = |kind: fn(&Known) -> bool| {
+        events
+            .iter()
+            .rposition(|e| matches!(e, Event::Known(known) if kind(known)))
+    };
+    let started = at(|k| matches!(k, Known::PluginsStarted { .. }));
+    let changed = at(|k| matches!(k, Known::PluginsChanged {}));
+    if changed.is_some_and(|c| started.is_none_or(|s| c > s)) {
+        return Some(PluginsDue::Changed);
+    }
+    if !crate::context::top_due(events, |k| matches!(k, Known::PluginsStarted { .. })) {
+        return None;
+    }
+    let compacted = events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })));
+    Some(if compacted {
+        PluginsDue::Compacted
+    } else {
+        PluginsDue::Start
+    })
+}
+
+/// Why the plugin rules are stored again; `SessionStart` hooks read it as their `source`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginsDue {
+    Start,
+    Compacted,
+    Changed,
+}
+
+impl PluginsDue {
+    pub fn source(self) -> &'static str {
+        match self {
+            Self::Start | Self::Changed => "startup",
+            Self::Compacted => "compact",
+        }
+    }
+
+    /// Whether rules that are now empty must still be stored, to replace ones in effect.
+    pub fn replaces(self, events: &[Event]) -> bool {
+        self == Self::Changed
+            || started(events).is_some_and(|(r, a)| !r.is_empty() || !a.is_empty())
+    }
 }
 
 #[cfg(test)]

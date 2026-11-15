@@ -4,9 +4,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::context::{self, outcome_unknown};
+use crate::context;
 use crate::event::{Event, Known};
-use crate::tools::{CALL_TOOL, Registry, Risk, unwrap_call_tool};
 
 /// Compact once the prompt reaches this share of the budget...
 pub const HIGH: f64 = 0.75;
@@ -226,6 +225,13 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
             }
         }
     }
+    out.push_str(&carried_section(carried_out));
+    out
+}
+
+/// The "already carried out" part of a summary, or nothing when no write was carried out.
+pub fn carried_section(carried_out: &[String]) -> String {
+    let mut out = String::new();
     if !carried_out.is_empty() {
         out.push_str("\nAlready carried out (do not repeat):\n");
         for action in carried_out {
@@ -235,113 +241,8 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     out
 }
 
-/// The note for a write whose outcome is unknown.
-const MAYBE: &str = ", may have taken effect; check before trying it again";
-
-/// What became of a write made before the cut, for the summary's "already carried out" list.
-/// A call that outlived the foreground window and was handed to the background (ADR 0158) is
-/// stored with `background: false` and answered at once that its job began; like a background
-/// tool's, its outcome is its job's end, never that answer.
-fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static str> {
-    if background || started_job(events, call_id) {
-        let ended = events.iter().find_map(|event| match event {
-            Event::Known(Known::JobFinished {
-                job,
-                is_error,
-                uncertain,
-                content,
-                ..
-            }) if job == call_id => Some(ended(*is_error, *uncertain, content)),
-            _ => None,
-        });
-        return match ended {
-            Some(note) => note,
-            None if started_job(events, call_id) => {
-                Some(", still running in the background; its result has not arrived")
-            }
-            None => None,
-        };
-    }
-    let finished = events.iter().find_map(|event| match event {
-        Event::Known(Known::ToolFinished {
-            call_id: c,
-            is_error,
-            uncertain,
-            content,
-            ..
-        }) if c == call_id => Some(ended(*is_error, *uncertain, content)),
-        _ => None,
-    });
-    match finished {
-        Some(note) => note,
-        None if started(events, call_id).is_some() => Some(MAYBE),
-        None => None,
-    }
-}
-
-/// The note for a write that has a stored result: done, unknown, or failed (left out).
-fn ended(is_error: bool, uncertain: bool, content: &str) -> Option<&'static str> {
-    if outcome_unknown(is_error, uncertain, content) {
-        Some(MAYBE)
-    } else if is_error {
-        None
-    } else {
-        Some("")
-    }
-}
-
-fn started_job(events: &[Event], job: &str) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
-}
-
-/// The call's stored start: the risk and background flag it was recorded with, if any.
-fn started(events: &[Event], call_id: &str) -> Option<Option<(Risk, bool)>> {
-    events.iter().find_map(|event| match event {
-        Event::Known(Known::ToolStarted {
-            call_id: c,
-            risk,
-            background,
-            ..
-        }) if c == call_id => Some(risk.map(|risk| (risk, *background))),
-        _ => None,
-    })
-}
-
-/// Writes and destructive calls made before `keep_from`, each with its call id and exact
-/// arguments taken from the step, never from a summary. A write counts when it finished without
-/// error, wherever in the conversation that happened; one whose outcome is unknown (cut off, or a
-/// background job stopped or lost) or still running is listed as such, since repeating it could
-/// act twice. Failed writes are left out. A call's risk is the one stored when it ran; only events
-/// from before that was recorded fall back to `registry`.
-pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
-    let mut out = Vec::new();
-    for event in &events[..keep_from.min(events.len())] {
-        let Event::Known(Known::StepFinished { calls, .. }) = event else {
-            continue;
-        };
-        for call in calls {
-            let (name, arguments) = match call.name.as_str() {
-                CALL_TOOL => unwrap_call_tool(&call.arguments)
-                    .unwrap_or_else(|| (call.name.clone(), call.arguments.clone())),
-                _ => (call.name.clone(), call.arguments.clone()),
-            };
-            let recorded = started(events, &call.id).flatten();
-            let facts =
-                recorded.or_else(|| registry.get(&name).map(|tool| (tool.risk, tool.background)));
-            let Some((_, background)) =
-                facts.filter(|(risk, _)| !matches!(risk, Risk::Read | Risk::Memory))
-            else {
-                continue;
-            };
-            if let Some(note) = outcome(events, &call.id, background) {
-                out.push(format!("{name} (call {}) {arguments}{note}", call.id));
-            }
-        }
-    }
-    out
-}
+mod carried;
+pub use carried::{carried_out, ledger, lines};
 
 #[cfg(test)]
 mod tests;

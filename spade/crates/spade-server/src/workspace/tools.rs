@@ -457,7 +457,7 @@ impl Tool for ShellTool {
                 .bots
                 .agent_for_key(key)
                 .and_then(|bot| terminals.of(&bot).ok())
-                .map(|terminal| terminal.start_dir())
+                .map(|terminal| terminal.start_dir(&self.place.bots.session_for_key(key)))
                 .filter(|dir| !dir.as_os_str().is_empty()),
             Commands::OneShot(_) => None,
         }
@@ -494,7 +494,7 @@ impl Tool for ShellTool {
             .bots
             .agent_for_key(key)
             .and_then(|bot| terminals.of(&bot).ok())
-            .map(|terminal| terminal.state_digest())
+            .map(|terminal| terminal.state_digest(&self.place.bots.session_for_key(key)))
             .unwrap_or_default();
         Some(format!("{command}{STATE}{digest}]"))
     }
@@ -585,9 +585,10 @@ async fn in_terminal(
                 .rsplit_once(STATE)
                 .map(|(_, digest)| digest.trim_end_matches(']').to_owned())
         });
+    let session = place.bots.session_for_key(key);
     terminals
         .of(&bot)?
-        .run_in_state(command, timeout, expected.as_deref())
+        .run_in_state(&session, command, timeout, expected.as_deref())
         .await
 }
 

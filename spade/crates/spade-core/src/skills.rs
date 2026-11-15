@@ -34,6 +34,14 @@ const NAME_WEIGHT: f64 = 4.0;
 const DESCRIPTION_WEIGHT: f64 = 2.0;
 const BODY_WEIGHT: f64 = 1.0;
 
+/// Whether the skill index is to be stored now: before the conversation's first model call and
+/// once after each compaction, so skills added meanwhile reach the bot's standing instructions.
+pub fn index_due(events: &[crate::Event]) -> bool {
+    crate::context::top_due(events, |k| {
+        matches!(k, crate::event::Known::SkillsIndexed { .. })
+    })
+}
+
 /// The index frozen into the conversation's instructions at its first step: the skills this bot
 /// loaded most, then by name, with a short description. The same skills and use give the same
 /// bytes.

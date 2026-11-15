@@ -54,7 +54,7 @@ fn step(reply: &str, calls: &[&str]) -> Event {
 }
 
 #[test]
-fn rules_frozen_at_the_first_turn_stay_in_the_instructions_and_a_later_set_never_replaces_them() {
+fn rules_stay_fixed_mid_conversation_and_are_due_again_only_after_a_compaction_or_a_change() {
     let mut events = vec![
         Event::user_message("Hi"),
         Event::reply_started("r1", "m"),
@@ -66,11 +66,33 @@ fn rules_frozen_at_the_first_turn_stay_in_the_instructions_and_a_later_set_never
     let first = instructions(SYSTEM, &events);
     assert!(first.contains("Use tabs."));
     assert!(!first.contains("<hook_output"));
+    events.push(step("r1", &[]));
+    assert_eq!(crate::hooks::plugins_due(&events), None, "mid-conversation");
+    events.push(Event::Known(Known::PluginsChanged {}));
+    assert_eq!(
+        crate::hooks::plugins_due(&events),
+        Some(crate::hooks::PluginsDue::Changed)
+    );
     events.push(Event::Known(Known::PluginsStarted {
         rules: "Use spaces.".into(),
         added: String::new(),
     }));
-    assert_eq!(instructions(SYSTEM, &events), first);
+    assert_eq!(crate::hooks::plugins_due(&events), None, "stored once");
+    let changed = instructions(SYSTEM, &events);
+    assert!(changed.contains("Use spaces.") && !changed.contains("Use tabs."));
+    events.push(step("r1", &[]));
+    events.push(Event::Known(Known::ContextCompacted {
+        summary: "earlier".into(),
+        keep_from: 0,
+        tokens_before: 0,
+        images_left_out: None,
+        untrusted: false,
+        carried: None,
+    }));
+    assert_eq!(
+        crate::hooks::plugins_due(&events),
+        Some(crate::hooks::PluginsDue::Compacted)
+    );
 }
 
 #[test]

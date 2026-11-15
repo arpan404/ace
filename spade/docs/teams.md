@@ -75,9 +75,11 @@ another member: it is posted as a handoff line, the member answers in its own co
 answer is posted as the member's message, and the tool returns it to the asker (untrusted). The
 tool waits for the answer (up to 10 minutes). Only bots of the group's machine can call it.
 
-**Budget.** A run allows at most 8 asks (the person's own included) and a chain at most 3 deep
-(person to lead is 1, lead to member 2, member to member 3). Asks beyond either, asks after Stop
-and asks in a group being deleted are refused with words for the bot.
+**Chains.** A run takes as many asks as its work needs (ADR 0158). An ask to a bot already
+waiting up the asker's chain (the bot whose ask the asker is answering, or that bot's asker, and
+so on) is refused as a cycle: it could never answer. A chain deeper than 16 (person to lead is 1,
+lead to member 2, ...) is refused as a runaway guard. Those, asks after Stop and asks in a group
+being deleted are refused with words for the bot.
 
 **Stop** (`POST /groups/{id}/stop`) ends the run: every open ask is stopped (a bot of this
 machine has its turn stopped; a bot elsewhere is sent a stop through ace), stopped answers aren't

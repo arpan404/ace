@@ -174,7 +174,7 @@ fn spawn(
                 });
                 keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
-            let content = super::calls::trim(&output.content, engine.limits.result_chars);
+            let content = super::trim::trim(&output.content, engine.limits.result_chars);
             // A helper's spend shows with the turn that reads its result (ADR 0152).
             let cost_micros = if name == spade_core::helper::TOOL {
                 engine.helper_cost(&id, &job)
@@ -346,8 +346,15 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
             }
             continue;
         }
+        // A job waiting on ace's children runs again and reattaches to them, so the bot never
+        // reads as idle while they work (AGENTS.md priority 1).
+        let name = job_name(&events, &job);
+        if crate::tools::reattaches(&name) && !spade_core::turn::job_stopped(&events, &job) {
+            reattach_ace(engine, id, &events, &job, &name);
+            continue;
+        }
         let finished = Event::Known(Known::JobFinished {
-            name: job_name(&events, &job),
+            name,
             job,
             content: JOB_LOST.to_owned(),
             is_error: true,
@@ -361,20 +368,52 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
     Ok(())
 }
 
-/// A parked job's retry wake fired (ADR 0160): the same call runs again as the same job.
+/// A parked job's retry wake fired (ADR 0160): the same call runs again as the same job. A
+/// `delegate` or `wait` waits for ace's tools first, like after a restart.
 pub(super) fn rerun(engine: &Arc<Engine>, id: &str, job: &str) {
     let Ok(events) = engine.load(id) else { return };
     if spade_core::turn::job_stopped(&events, job) || engine.deleting(id) {
         return;
     }
     let name = job_name(&events, job);
-    reattach(engine, id, &events, job, &name);
+    if crate::tools::reattaches(&name) {
+        reattach_ace(engine, id, &events, job, &name);
+    } else {
+        reattach(engine, id, &events, job, &name);
+    }
     engine.announce(id);
 }
 
-/// Runs job `job` (of tool `tool`) again with its call's arguments: a helper's after a restart,
-/// which finds its helper and waits for its end; a parked job's at its retry.
-fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &str) {
+/// How long a reattached ace job waits for ace's tools to come back before it says its outcome is
+/// unknown.
+const ACE_BACK_WITHIN: Duration = Duration::from_secs(10 * 60);
+
+/// Runs a lost `delegate` or `wait` job again after a restart, once ace's tools are back: it
+/// reattaches to the same children and waits for them.
+fn reattach_ace(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, name: &str) {
+    let (reply, arguments) = call_of(events, job, name);
+    let live = engine.live(id);
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    let work = {
+        let (engine, key, name) = (engine.clone(), format!("{id}.{job}"), name.to_owned());
+        async move {
+            let started = std::time::Instant::now();
+            while engine.tools.get(&name).is_none() {
+                if started.elapsed() > ACE_BACK_WITHIN {
+                    return ToolOutput::maybe_ran(JOB_LOST.to_owned());
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            run(&engine, &key, &name, arguments).await
+        }
+    };
+    let handle = spawn(engine, id, &reply, job, name, Box::pin(work));
+    jobs.insert(job.to_owned(), Job::Running { reply, handle });
+}
+
+/// The reply that started job `job` of tool `tool` and its call's arguments, as stored: the inner
+/// tool's own when the call went through `call_tool`.
+fn call_of(events: &[Event], job: &str, tool: &str) -> (String, Value) {
     let reply = events.iter().find_map(|event| match event {
         Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => Some(reply.clone()),
         _ => None,
@@ -389,7 +428,17 @@ fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &
         .find(|call| call.id == job)
         .map(|call| call.arguments.clone())
         .unwrap_or(Value::Null);
-    let reply = reply.unwrap_or_default();
+    let arguments = match spade_core::tools::unwrap_call_tool(&arguments) {
+        Some((inner, arguments)) if inner == tool => arguments,
+        _ => arguments,
+    };
+    (reply.unwrap_or_default(), arguments)
+}
+
+/// Runs job `job` (of tool `tool`) again with its call's arguments: a helper's after a restart,
+/// which finds its helper and waits for its end; a parked job's at its retry.
+fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &str) {
+    let (reply, arguments) = call_of(events, job, tool);
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
     let work = {
@@ -398,6 +447,29 @@ fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &
     };
     let handle = spawn(engine, id, &reply, job, tool, Box::pin(work));
     jobs.insert(job.to_owned(), Job::Running { reply, handle });
+}
+
+impl Engine {
+    /// Ends every running job without storing anything, as the process exiting does, so a test
+    /// that restarts in one process sees what a real restart finds. Only with `test-hooks`.
+    #[cfg(feature = "test-hooks")]
+    pub fn drop_jobs_as_on_exit(&self) {
+        let live: Vec<Arc<super::Live>> = self
+            .live
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        for one in live {
+            let mut jobs = one.jobs.lock().unwrap_or_else(|p| p.into_inner());
+            for (_, job) in jobs.drain() {
+                if let Job::Running { handle, .. } = job {
+                    handle.abort();
+                }
+            }
+        }
+    }
 }
 
 fn job_name(events: &[Event], job: &str) -> String {

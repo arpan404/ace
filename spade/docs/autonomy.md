@@ -204,8 +204,17 @@ needs ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A
 {reason: budget}` stored by an earlier version still holds until the person writes.
 
 An effect is a started call of risk write, destructive or memory, or a `todo` / `task_status`
-call with arguments different from the one before it. The engine also starts nothing while the
-bot is at a cap, Spade is closing, or the person has the bot's computer.
+call with arguments different from the one before it. The engine also starts nothing while
+Spade is closing or the person has the bot's computer.
+
+**At a spending cap the task waits** (ADR 0158): a step due while the bot (or the service) is at a
+cap is not dropped. Spade stores `task_parked {reason: "cap", until_ms, why}` once, the bot reads
+as `waiting` with `why` as its status ("Porter is at its daily cap of $1.00 until midnight. It
+carries on then, or as soon as the cap is raised."), and the step is planned again at `until_ms`
+(the cap's reset: the person's next midnight, or the first of next month), as soon as the person
+raises or removes the bot's cap, or when Spade reopens. A reply the service's cap ended
+(`reply_failed` of kind `cap`) carries the task on the same way. The park ends at the next reply,
+message or Stop; Stop calls the wait off like any waiting step.
 
 A continued step is stored as `task_continued {step, nudge}` followed by `reply_started`, in one
 write. The model reads `nudge` (`<continue step="n">…</continue>`) as a note from Spade; CLI

@@ -16,21 +16,30 @@ use crate::tools::{SkillLibrary, Toolbox};
 /// it needs, and the person's controls are Stop and their own spending caps (ADR 0158).
 #[derive(Debug, Clone)]
 pub struct Limits {
+    /// Tool calls of one step that run at once (`SPADE_PARALLEL_TOOLS`); the rest wait their turn.
     pub max_parallel_tools: usize,
+    /// Helpers of one bot that run at once (`SPADE_HELPERS_AT_ONCE`); the rest wait queued.
+    pub helpers_at_once: usize,
     /// How long a call holds the turn. A call still running then moves to the background as a
     /// job, whose result arrives as a `<job_result>`; the turn carries on meanwhile.
     pub foreground: Duration,
     /// Longest tool result kept, in characters.
     pub result_chars: usize,
     pub longest_message: usize,
-    /// Compaction budget in tokens, capped by each model's own context window.
+    /// Compaction budget in tokens. Each model's own context window is the budget (ADR 0158);
+    /// this caps it (`SPADE_CONTEXT_TOKENS`, a cost choice), and is unset by default.
     pub context_budget: u32,
+    /// The window assumed for a model that doesn't say how large its own is.
+    pub context_fallback: u32,
     /// Asks one other machine may deliver here in a day (ADR 0132).
     pub remote_asks_per_day: usize,
     /// Asks to other machines that may wait in the outbox at once.
     pub remote_asks_waiting: usize,
     /// Sending a model step again when it failed before anything streamed.
     pub retry: super::retry::Retry,
+    /// Once those tries are used up on an outage, the turn waits this long and sends the step
+    /// again, round after round, until it works or the person presses Stop (ADR 0158).
+    pub outage: spade_core::park::Backoff,
     /// The access level a new bot starts on (ADR 0144).
     pub new_bot_access: spade_core::autonomy::Access,
     /// How far a bot's task goes on its own (ADR 0144).
@@ -45,14 +54,17 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_parallel_tools: 4,
+            max_parallel_tools: 16,
+            helpers_at_once: spade_core::helper::MOST_RUNNING,
             foreground: Duration::from_secs(30),
             result_chars: 20_000,
             longest_message: 100_000,
-            context_budget: 200_000,
+            context_budget: u32::MAX,
+            context_fallback: 200_000,
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
             retry: super::retry::Retry::default(),
+            outage: spade_core::park::Backoff::default(),
             new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
@@ -61,12 +73,16 @@ impl Default for Limits {
     }
 }
 
+/// The service cap when `SPADE_DAILY_CAP_USD` is unset: no cap.
+pub const NO_SERVICE_CAP: u64 = u64::MAX;
+
 pub struct Setup {
     pub store: Store,
     pub models: Models,
     pub tools: Toolbox,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
+    /// The service's daily cap for every bot together; [`NO_SERVICE_CAP`] when none is set.
     pub daily_cap_micros: u64,
     /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
@@ -279,4 +295,6 @@ pub struct Activity {
     pub wake: Option<spade_core::wake::Open>,
     /// Owned services running (ADR 0160).
     pub services: usize,
+    /// Why the bot's task waits for a cap's reset (ADR 0158); the bot reads as waiting meanwhile.
+    pub parked: Option<String>,
 }

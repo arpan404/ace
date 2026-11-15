@@ -83,7 +83,7 @@ command is a manual skill: never searched, indexed or loaded by the bot.
 
 ## Rules
 
-At a conversation's first turn, before its first model call, Spade stores `plugins_started
+Before a conversation's first model call, Spade stores `plugins_started
 {rules, added}`: the rules of the bot's plugins as one block, each under its name, in plugin and
 name order:
 
@@ -96,9 +96,13 @@ Indent with tabs.
 ```
 
 and `added`, the text the `SessionStart` hooks printed. Both become part of the standing
-instructions after the skill index (`context::instructions`), so the cached prompt top never
-changes mid-conversation: a rule changed or a plugin turned on later applies to the next
-conversation. A bot without plugins stores nothing. CLI bots' instructions are built the same
+instructions after the skill index (`context::instructions`). They are stored again after each
+compaction (with `SessionStart` run again, `source: "compact"`), and before the next model call
+after the person changes which plugins the bot may use (the change is stored as
+`plugins_changed`). So a rule changed in ace reaches the bot at its next compaction, and a plugin
+the person turns on or off applies from the bot's next model call; in between the cached prompt
+top never changes. The latest `plugins_started` is in effect; turning every plugin off stores an
+empty one. A bot that never had plugins stores nothing. CLI bots' instructions are built the same
 way.
 
 ## Hooks
@@ -113,7 +117,7 @@ conversation), `cwd`, and per event `prompt`, `tool_name`, `tool_input`, `tool_r
 
 | Plugin event       | When                                          | What its answer can do                                    |
 | ------------------ | --------------------------------------------- | --------------------------------------------------------- |
-| `SessionStart`     | a conversation's first turn                   | add text to the standing instructions (`plugins_started`) |
+| `SessionStart`     | first model call, each compaction, a change   | add text to the standing instructions (`plugins_started`) |
 | `UserPromptSubmit` | before the next model step, after the message | add text after the person's message                       |
 | `PreToolUse`       | before the gate sees a new call               | refuse the call, with a reason                            |
 | `PostToolUse`      | before the next model step, after the result  | add text after the step's results                         |
@@ -129,8 +133,10 @@ characters; `PreToolUse` and `PreCompact` add none); exit 2 refuses or asks for 
 as the reason; anything else, a timeout included, is a failed hook and the turn carries on. A
 refused call is answered "Not run: the person's plugin refused this call. <plugin>: <reason>" and
 the gate never sees it. The reason is the hook's text, so it is untrusted like added text: a
-later write in that turn asks. A hook never allows a call the gate would ask about. `Stop` can extend a
-reply at most 3 times.
+later write in that turn asks. A hook never allows a call the gate would ask about. `Stop` extends a
+reply as many times as its hooks ask (ADR 0158), until they ask three times in a row for the same
+reason with no change (a write, a delete, a note) started since the first of the three: then they
+are stuck, the hook is not run again, and the reply finishes. Stop ends it at any point.
 
 Every answer is stored as `hook_ran {hook, target, outcomes}` before the turn moves on, `target`
 being the call id, or the message's, step's or compaction cut's event index; a hook never runs

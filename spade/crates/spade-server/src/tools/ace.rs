@@ -21,8 +21,17 @@ const TRUSTED: &[&str] = &["machines", "models", "projects_find", "automations_l
 
 /// ace's tools that can run for minutes, run as background jobs. `delegate` waits for its
 /// children there, so the conversation shows as working while they run and their results come
-/// back as a `<job_result>`; nothing wakes Spade when a child finishes otherwise.
+/// back as a `<job_result>`; nothing wakes Spade when a child finishes otherwise. The job waits
+/// again each time ace's own wait runs out, until the children settle (`ace_wait`), and after a
+/// restart it runs again: `delegate` returns the same children for the same call, and `wait`
+/// only reads.
 const BACKGROUND: &[&str] = &["wait", "delegate"];
+
+/// Whether a lost job of ace's tool `name` runs again after a restart instead of reading as
+/// "unknown outcome": it reattaches to the same children.
+pub(crate) fn reattaches(name: &str) -> bool {
+    BACKGROUND.contains(&name)
+}
 
 /// How long a background `delegate` waits for its children unless the model asked otherwise.
 const DELEGATE_WAIT_SECONDS: u64 = 600;
@@ -220,10 +229,16 @@ impl Tool for AceCall {
         // From the call's key, which Spade made for the turn: never from the model's arguments.
         let bot = self.bots.as_ref().and_then(|bots| bots.agent_for_key(key));
         Box::pin(async move {
-            output(match bot {
-                Some(bot) => client.call_for(&name, arguments, &bot).await,
+            let first = match &bot {
+                Some(bot) => client.call_for(&name, arguments, bot).await,
                 None => client.call(&name, arguments).await,
-            })
+            };
+            let result = if BACKGROUND.contains(&name.as_str()) {
+                super::ace_wait::until_settled(&client, bot.as_deref(), &name, first).await
+            } else {
+                first
+            };
+            output(result)
         })
     }
 }

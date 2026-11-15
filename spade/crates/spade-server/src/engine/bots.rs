@@ -17,9 +17,11 @@ use super::{Engine, Frame};
 use crate::teams::Outcome;
 use crate::tools::ToolOutput;
 
-/// The deepest chain of bot-to-bot messages allowed: the person asks Spade, Spade asks A, A asks
-/// B, B asks C; C cannot ask further.
-pub const MOST_HOPS: u32 = 3;
+/// The deepest chain of bot-to-bot messages allowed (the person asks Spade, Spade asks A, A asks
+/// B, ...): a guard against bots messaging each other forever, set well past any real chain of
+/// orchestrator, workers, sub-workers and reviewers (ADR 0158). The same number holds for asks
+/// from other machines and for a group's chain of asks.
+pub const MOST_HOPS: u32 = 16;
 
 impl Engine {
     /// The other agents a bot can message: every agent but `caller` (Spade too, unless it is

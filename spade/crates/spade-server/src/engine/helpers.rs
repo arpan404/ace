@@ -3,7 +3,7 @@
 //! worker as any reply, so it streams, retries, compacts, pauses and resumes after a restart.
 //!
 //! - The job waits for the helper's conversation to end, then delivers its result once.
-//! - At most [`helper::MOST_RUNNING`] helpers of a bot have a reply open; the rest wait queued
+//! - At most `Limits::helpers_at_once` helpers of a bot have a reply open; the rest wait queued
 //!   (a task message and no reply) and start oldest first as slots free.
 //! - A call a helper's gate would ask about is asked in the bot's conversation too, naming the
 //!   helper; the person's answer there reaches the helper.
@@ -76,6 +76,12 @@ impl Engine {
             }
         }
         profiles
+    }
+
+    /// Whether conversation `id` is a helper's (its terminal commands run in a session of their
+    /// own, ADR 0158).
+    pub(crate) fn is_helper(&self, id: &str) -> bool {
+        self.helper_of(id).is_some()
     }
 
     /// The helper whose conversation is `id`, if it is one.
@@ -329,7 +335,8 @@ impl Engine {
                     (h, stage)
                 })
                 .collect();
-            let mut free = helper::free_slots(stages.iter().map(|(_, s)| *s));
+            let mut free =
+                helper::free_slots(stages.iter().map(|(_, s)| *s), self.limits.helpers_at_once);
             for (helper, stage) in stages {
                 match stage {
                     Stage::Running => drive.push(helper.conversation),

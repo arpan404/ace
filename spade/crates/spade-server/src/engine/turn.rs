@@ -459,7 +459,8 @@ async fn model_step(
     };
     // Sent again while it fails before anything streams; only a call the endpoint answered is
     // paid for, and one cut off while waiting for its answer may have been.
-    let mut stream = match super::retry::open(engine, id, &model, &prompt, stop, pause).await {
+    let mut stream = match super::retry::open(engine, id, reply, &model, &prompt, stop, pause).await
+    {
         super::retry::Opened::Answering(stream) => stream,
         super::retry::Opened::Stopped => {
             admitted.settle(&partly(""));

@@ -77,13 +77,17 @@ same; `snapshot` restores any reply text newer than the last checkpoint.
 ## Spending
 
 The presets in `config/models.json` give priced models a price per million input and output tokens, with cache read and write prices. Each finished
-reply records its cost in the usage ledger. `SPADE_DAILY_CAP_USD` (default 5) caps a day's spend in
-the machine's local day; a message after the cap is refused with `402` and no model is called.
+reply records its cost in the usage ledger. `SPADE_DAILY_CAP_USD` (unset by default: no service cap) caps a
+day's spend for every bot together in the person's day; a message after the cap is refused with
+`402` and no model is called.
 
 ## Settings
 
 | Variable              | Default | Meaning                               |
 | --------------------- | ------- | ------------------------------------- |
 | `SPADE_DATA_DIR`      | `data`  | Where `spade.sqlite` and `token` live |
-| `SPADE_DAILY_CAP_USD` | `5`     | Daily spending cap                    |
+| `SPADE_DAILY_CAP_USD` | unset   | Daily spending cap for all bots       |
+| `SPADE_PARALLEL_TOOLS` | `16`   | Tool calls of one step run at once    |
+| `SPADE_HELPERS_AT_ONCE` | `16`  | Helpers of one bot run at once        |
+| `SPADE_CONTEXT_TOKENS` | unset  | Compact before this many prompt tokens even on a larger window |
 | model settings        |         | See README                            |

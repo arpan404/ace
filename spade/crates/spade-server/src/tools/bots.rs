@@ -27,6 +27,16 @@ impl EngineHandle {
     pub(crate) fn agent_for_key(&self, key: &str) -> Option<String> {
         self.get()?.agent_of(caller(key))
     }
+
+    /// The terminal session the call with `key` runs its commands in: the bot's own, or the
+    /// helper's that made it (ADR 0158).
+    pub(crate) fn session_for_key(&self, key: &str) -> String {
+        let conversation = caller(key);
+        match self.get() {
+            Some(engine) if engine.is_helper(conversation) => conversation.to_owned(),
+            _ => crate::computer::terminal::MAIN.to_owned(),
+        }
+    }
 }
 
 /// The calling conversation, from the call's key (`<conversation>.<call>`).

@@ -192,7 +192,7 @@ async fn a_mention_goes_straight_to_that_member_and_not_to_the_lead() -> Result 
 }
 
 #[tokio::test]
-async fn members_ask_each_other_but_a_chain_deeper_than_three_is_refused() -> Result {
+async fn members_ask_each_other_but_an_ask_back_up_the_chain_is_refused_as_a_cycle() -> Result {
     let spade = Spade::start(
         vec![
             Script::reply("").call(
@@ -255,7 +255,7 @@ async fn members_ask_each_other_but_a_chain_deeper_than_three_is_refused() -> Re
             ("Spade".to_owned(), "Research".to_owned(), 2),
             ("Research".to_owned(), "Writer".to_owned(), 3),
         ],
-        "a member's ask to another member is shown; the fourth hop never happens"
+        "a member's ask to another member is shown; the ask back to Research never happens"
     );
     let writer_events = spade.events(&conversation(&writer)).await?;
     let refused = writer_events
@@ -268,8 +268,8 @@ async fn members_ask_each_other_but_a_chain_deeper_than_three_is_refused() -> Re
         refused["content"]
             .as_str()
             .unwrap_or("")
-            .contains("more than 3"),
-        "{refused}"
+            .contains("waiting on your answer already"),
+        "Research waits on Writer, so it could never answer: {refused}"
     );
     Ok(())
 }

@@ -30,10 +30,12 @@ pub(super) enum Planned {
     /// The bot claimed done with a goal open (ADR 0159): a verifier checks the claim first,
     /// registered under `token` like a step, so a Stop calls it off.
     Verify { claim: String, token: String },
+    /// A cap holds: the task waits until `until_ms` (ADR 0158).
+    Park { until_ms: Option<i64>, why: String },
 }
 
 /// How often a step waiting out its backoff looks at the clock again.
-const LOOK_AGAIN: Duration = Duration::from_secs(1);
+pub(super) const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
 impl Engine {
     /// When Spade reopens: carries the bot's task on if it is still working.
@@ -47,7 +49,7 @@ impl Engine {
     /// will start is registered before this returns, so the turn's worker calls this before it
     /// lets go of the conversation: a Stop pressed at any point after it ends calls the step off.
     pub(super) fn plan_carry_on(&self, id: &str) -> Option<Planned> {
-        if !self.may_continue(id) {
+        if !self.may_start_step(id) {
             return None;
         }
         let mut events = self.load(id).ok()?;
@@ -82,6 +84,10 @@ impl Engine {
         match task::next(&events, &self.limits.task) {
             Next::Nothing => None,
             Next::Pause { reason, steps } => Some(Planned::Pause { reason, steps }),
+            // At a cap the task waits for its reset instead of being dropped (ADR 0158).
+            Next::Continue { .. } if let Some((until_ms, why)) = self.cap_park(id) => {
+                Some(Planned::Park { until_ms, why })
+            }
             Next::Continue { step, after_ms } => {
                 let token = self.ids.next("k");
                 // Under the lock Stop takes, so a Stop that looked before this sees no step and
@@ -107,6 +113,7 @@ impl Engine {
     /// by the engine's clock, or says once that the task paused.
     pub(super) fn carry_on_as(self: &Arc<Self>, id: &str, planned: Planned) {
         match planned {
+            Planned::Park { until_ms, why } => self.park_task(id, until_ms, &why),
             Planned::Pause { reason, steps } => {
                 let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
                 // Said once, and only if nothing changed since it was decided.
@@ -158,7 +165,7 @@ impl Engine {
         }
     }
 
-    fn is_planned(&self, id: &str, token: &str) -> bool {
+    pub(super) fn is_planned(&self, id: &str, token: &str) -> bool {
         self.continuations
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -169,10 +176,12 @@ impl Engine {
     /// Whether a step of the bot's task may start now: Spade is open, the bot is not being
     /// deleted, the person doesn't have its computer, and it is under every cap.
     fn may_continue(&self, id: &str) -> bool {
-        self.admission.load(Ordering::SeqCst)
-            && !self.deleting(id)
-            && !self.held(id)
-            && self.may_spend(id).is_ok()
+        self.may_start_step(id) && self.may_spend(id).is_ok()
+    }
+
+    /// [`Engine::may_continue`] but for the caps.
+    fn may_start_step(&self, id: &str) -> bool {
+        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.held(id)
     }
 
     /// Starts step `step` if it is still the one due and `token` is still the latest plan. Stored

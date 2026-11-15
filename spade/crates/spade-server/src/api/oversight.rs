@@ -111,6 +111,8 @@ async fn agent_change(
     if let Err(error) = state.engine.set_agent_oversight(&id, change) {
         return oversight_problem(&error);
     }
+    // A task waiting for a cap that no longer holds carries on now (ADR 0158).
+    state.engine.cap_changed(&id);
     agent_view(State(state), Path(id)).await
 }
 

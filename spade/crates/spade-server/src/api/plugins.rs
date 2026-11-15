@@ -75,7 +75,12 @@ async fn set(
         .collect();
     let _ = tokio::time::timeout(WAIT, plugins.refresh()).await;
     match plugins.set_allowed(&id, names) {
-        Ok(()) => Json(plugins.view(&id, cli)).into_response(),
+        Ok(()) => {
+            if let Err(error) = state.engine.plugins_changed(&id) {
+                tracing::error!(%error, "could not note the bot's changed plugins");
+            }
+            Json(plugins.view(&id, cli)).into_response()
+        }
         Err(error @ AllowError::Unknown(_)) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
