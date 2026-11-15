@@ -13,7 +13,13 @@ export const NK_REFUSAL_MS = 150;
 export const NK_STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v2 nk");
 /** The one-byte marker a relay sends a client once its host stream is paired. */
 export const PAIRED_MARKER = 1;
-export { EARLY_FRAME, UPGRADE_MESSAGE, upgradeMessage } from "./early-frame.ts";
+export {
+  EARLY_FRAME,
+  NK_UPGRADE_MESSAGE,
+  UPGRADE_MESSAGE,
+  takenUpgradeMessage,
+  upgradeMessage,
+} from "./early-frame.ts";
 export {
   HostId,
   Ticket,

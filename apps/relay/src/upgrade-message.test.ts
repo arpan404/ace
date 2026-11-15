@@ -1,5 +1,10 @@
 import { expect, it } from "vitest";
-import { UPGRADE_MESSAGE, upgradeMessage } from "./early-frame.ts";
+import {
+  NK_UPGRADE_MESSAGE,
+  UPGRADE_MESSAGE,
+  takenUpgradeMessage,
+  upgradeMessage,
+} from "./early-frame.ts";
 
 // What a relay takes from an upgrade request as the client's first message (ADR 0155, step 3):
 // only something that can be one, the 32-byte XX first message, in canonical unpadded
@@ -35,4 +40,55 @@ it("without ace.v2, or with two entries, nothing is taken", () => {
   expect(
     upgradeMessage(offer(entry(encoded(key)), entry(encoded(new Uint8Array(32))))),
   ).toBeUndefined();
+});
+
+// With step 2: an NK first message in the upgrade, under its own entry and rule.
+
+const nkEntry = (bytes: Uint8Array) => NK_UPGRADE_MESSAGE.prefix + encoded(bytes);
+const both = (...entries: string[]) =>
+  [NK_UPGRADE_MESSAGE.subprotocol, UPGRADE_MESSAGE.subprotocol, ...entries].join(", ");
+
+it("an NK first message of 48 to 3,066 bytes is taken and answered with ace.v3, ahead of an XX one", () => {
+  for (const size of [NK_UPGRADE_MESSAGE.minBytes, 600, NK_UPGRADE_MESSAGE.maxBytes]) {
+    const message = new Uint8Array(size).fill(3);
+    expect(takenUpgradeMessage(both(nkEntry(message), entry(encoded(key))))).toEqual({
+      message,
+      echo: NK_UPGRADE_MESSAGE.subprotocol,
+    });
+  }
+  // The largest fits the 4 KiB entry.
+  expect(nkEntry(new Uint8Array(NK_UPGRADE_MESSAGE.maxBytes)).length).toBeLessThanOrEqual(
+    UPGRADE_MESSAGE.entryBytes,
+  );
+});
+
+it.each([
+  ["47 bytes", new Uint8Array(47)],
+  ["over the maximum", new Uint8Array(NK_UPGRADE_MESSAGE.maxBytes + 1)],
+])("an NK entry of %s isn't taken: an XX entry beside it is", (_name, bytes) => {
+  expect(takenUpgradeMessage(both(nkEntry(bytes), entry(encoded(key))))).toEqual({
+    message: key,
+    echo: UPGRADE_MESSAGE.subprotocol,
+  });
+});
+
+it("an NK entry is ignored without ace.v3, and a relay that knows only XX's entry never reads it", () => {
+  const nk = nkEntry(new Uint8Array(100).fill(1));
+  expect(takenUpgradeMessage(offer(nk, entry(encoded(key))))?.echo).toBe(
+    UPGRADE_MESSAGE.subprotocol,
+  );
+  expect(takenUpgradeMessage(offer(nk))).toBeUndefined();
+  // XX's own rule (what a step-3-only relay runs) takes nothing from it.
+  expect(upgradeMessage(both(nk))).toBeUndefined();
+});
+
+it.each([
+  [
+    "padded",
+    `${NK_UPGRADE_MESSAGE.prefix}${Buffer.from(new Uint8Array(100)).toString("base64").replaceAll("+", "-").replaceAll("/", "_")}`,
+  ],
+  ["non-canonical", `${nkEntry(new Uint8Array(100)).slice(0, -1)}B`],
+  ["empty", NK_UPGRADE_MESSAGE.prefix],
+])("a %s NK entry is as if it were absent", (_name, bad) => {
+  expect(takenUpgradeMessage(both(bad))).toBeUndefined();
 });

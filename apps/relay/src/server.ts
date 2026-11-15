@@ -20,7 +20,7 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
-import { EARLY_FRAME, UPGRADE_MESSAGE, upgradeMessage } from "./early-frame.ts";
+import { EARLY_FRAME, takenUpgradeMessage } from "./early-frame.ts";
 import { PAIRED_MARKER } from "./wire.ts";
 import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
@@ -107,7 +107,7 @@ export async function startRelay(options: RelayOptions = {}) {
     // subprotocol is echoed, so that answer is the client's permission to send at once.
     handleProtocols: (protocols, request) =>
       upgradeMessages.has(request)
-        ? UPGRADE_MESSAGE.subprotocol
+        ? (upgradeMessages.get(request)?.echo ?? false)
         : earlyUpgrades.has(request)
           ? EARLY_FRAME.subprotocol
           : ([...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ??
@@ -116,7 +116,7 @@ export async function startRelay(options: RelayOptions = {}) {
   /** Upgrades whose early frame has room reserved, until `ws` answers them. */
   const earlyUpgrades = new WeakSet<IncomingMessage>();
   /** Upgrades whose first message came in the request (step 3), taken once room was reserved. */
-  const upgradeMessages = new WeakMap<IncomingMessage, Uint8Array>();
+  const upgradeMessages = new WeakMap<IncomingMessage, { message: Uint8Array; echo: string }>();
   async function apply(actions: RouteAction[]): Promise<void> {
     for (const action of actions) {
       if (action.type === "pair") {
@@ -300,8 +300,8 @@ export async function startRelay(options: RelayOptions = {}) {
     ) {
       earlyUpgrades.add(request);
       // Only now, with room reserved, is the request's first message read (ADR 0155, step 3).
-      const message = upgradeMessage(request.headers["sec-websocket-protocol"] ?? "");
-      if (message) upgradeMessages.set(request, message);
+      const taken = takenUpgradeMessage(request.headers["sec-websocket-protocol"] ?? "");
+      if (taken) upgradeMessages.set(request, taken);
       // An upgrade that never completes gives the room back; a waiting client keeps it.
       socket.once("close", () => routing.releaseEarly(id));
     }
@@ -396,7 +396,9 @@ export async function startRelay(options: RelayOptions = {}) {
         connections.delete(id);
         void apply(routing.close(id)).catch(() => {});
       });
-      void route(id, url, connection, upgradeMessages.get(request)).catch(() => ws.terminate());
+      void route(id, url, connection, upgradeMessages.get(request)?.message).catch(() =>
+        ws.terminate(),
+      );
     });
   };
   http.on("upgrade", upgrade);

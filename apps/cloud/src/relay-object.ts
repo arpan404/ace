@@ -4,8 +4,7 @@ import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
   EARLY_FRAME,
-  UPGRADE_MESSAGE,
-  upgradeMessage,
+  takenUpgradeMessage,
   HTTP_FEATURE,
   HostId,
   MEDIA_FEATURE,
@@ -130,7 +129,8 @@ export class RelayObject extends DurableObject<Env> {
       if (refusal) return refusal;
       // Only with room reserved is the request's first message read (ADR 0155, step 3); it is
       // then the client's held early frame, as one sent at once would be.
-      const message = early ? upgradeMessage(header) : undefined;
+      const taken = early ? takenUpgradeMessage(header) : undefined;
+      const message = taken?.message;
       const held = message !== undefined && routes.early(id, message.length).length === 0;
       if (held) this.#held.set(id, message);
       const server = this.#accept(id);
@@ -151,7 +151,7 @@ export class RelayObject extends DurableObject<Env> {
       // early one that the client may send it at once; otherwise the grant, as before.
       return upgraded(
         server.client,
-        held ? UPGRADE_MESSAGE.subprotocol : early ? EARLY_FRAME.subprotocol : protocol,
+        held && taken ? taken.echo : early ? EARLY_FRAME.subprotocol : protocol,
       );
     }
     if (url.pathname === "/join") {

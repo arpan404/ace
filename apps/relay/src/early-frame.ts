@@ -51,6 +51,58 @@ export const UPGRADE_MESSAGE = {
 } as const;
 
 /**
+ * An NK first message in the upgrade request (ADR 0155, steps 2 and 3): `subprotocol` and one
+ * entry `prefix` + the message in canonical unpadded base64url. Unlike XX's, it is ciphertext
+ * (the early hello, sealed to the daemon's static key) of a bounded length: at least `minBytes`
+ * (the ephemeral key and the tag), at most `maxBytes` (what fits in a 4 KiB entry). A relay that
+ * knows only XX's entry ignores it, and a client whose message doesn't fit offers neither entry.
+ */
+export const NK_UPGRADE_MESSAGE = {
+  subprotocol: "ace.v3",
+  prefix: "ace.n1.",
+  minBytes: 48,
+  maxBytes: Math.floor(((UPGRADE_MESSAGE.entryBytes - "ace.n1.".length) * 3) / 4),
+} as const;
+
+/** One entry's message, canonical unpadded base64url of `min` to `max` bytes, or undefined. */
+function decodeEntry(offered: string[], prefix: string, min: number, max: number) {
+  const entries = offered.filter((entry) => entry.startsWith(prefix));
+  const [entry] = entries;
+  if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
+  const encoded = entry.slice(prefix.length);
+  if (!encoded.length || !/^[A-Za-z0-9_-]+$/.test(encoded)) return undefined;
+  const bytes = Uint8Array.from(Buffer.from(encoded, "base64url"));
+  // Canonical only: the bytes encode back to the same text.
+  if (bytes.length < min || bytes.length > max) return undefined;
+  if (Buffer.from(bytes).toString("base64url") !== encoded) return undefined;
+  return bytes;
+}
+
+/**
+ * What a relay takes from an upgrade request as the client's first frame, and the subprotocol it
+ * then echoes: an NK first message when one is offered by its rule, else an XX one, else
+ * nothing. Called only after room is reserved, so an upgrade without room never has an entry
+ * decoded.
+ */
+export function takenUpgradeMessage(
+  header: string,
+): { message: Uint8Array; echo: string } | undefined {
+  if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
+  const offered = header.split(",").map((entry) => entry.trim());
+  if (offered.includes(NK_UPGRADE_MESSAGE.subprotocol)) {
+    const message = decodeEntry(
+      offered,
+      NK_UPGRADE_MESSAGE.prefix,
+      NK_UPGRADE_MESSAGE.minBytes,
+      NK_UPGRADE_MESSAGE.maxBytes,
+    );
+    if (message) return { message, echo: NK_UPGRADE_MESSAGE.subprotocol };
+  }
+  const message = upgradeMessage(header);
+  return message ? { message, echo: UPGRADE_MESSAGE.subprotocol } : undefined;
+}
+
+/**
  * The first message an upgrade carries for the relay to take, or undefined: only when it offers
  * `UPGRADE_MESSAGE.subprotocol` and exactly one entry that can be an XX first message, 32 bytes
  * in canonical unpadded base64url (43 characters). Anything else is as if no entry were offered:
