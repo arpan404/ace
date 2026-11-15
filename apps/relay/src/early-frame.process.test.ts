@@ -70,9 +70,12 @@ it("a client the relay let send early is delivered once its host joins, in order
 
 it("with every early reservation for a host taken, a client is not told it may send early and connects as before", async () => {
   const h = await relayWithHost();
-  for (let n = 0; n < EARLY_FRAME.hostFrames; n++)
+  for (let n = 0; n < EARLY_FRAME.hostFrames; n++) {
     expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
+    expect(h.relay.earlyHeld()).toMatchObject({ reserved: n + 1, frames: 0, queuedBytes: 0 });
+  }
   const late = await h.client();
+  expect(h.relay.earlyHeld().reserved).toBe(EARLY_FRAME.hostFrames);
   expect(late.socket.protocol).toBe(EARLY_FRAME.neutral);
   // Today's path: wait for the marker, then send.
   for (let n = 0; n <= EARLY_FRAME.hostFrames; n++) await h.offer();
@@ -105,14 +108,19 @@ it("expiry, a newer registration and a client's own disconnect each free their r
     return clients;
   };
   const expiring = await fill();
+  expect(h.relay.earlyHeld().reserved).toBe(EARLY_FRAME.hostFrames);
   await new Promise((resolve) => setTimeout(resolve, 250));
   h.relay.sweep();
   for (const client of expiring) expect(await client.closed).toBe(1008);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(h.relay.earlyHeld()).toMatchObject({ reserved: 0, frames: 0, queuedBytes: 0 });
   // Freed by expiry: the next ones are told they may send early again.
   const replaced = await fill();
   const again = await register(h.relay.url, h.keys);
   cleanups.push(() => again.close());
   for (const client of replaced) expect(await client.closed).toBe(1008);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(h.relay.earlyHeld().reserved).toBe(0);
   const leaving = [];
   for (let n = 0; n < EARLY_FRAME.hostFrames; n++) leaving.push(await h.client());
   leaving[0]?.close();
@@ -154,4 +162,41 @@ it("an older client that didn't ask gets the marker it knows; a new one learns t
   cleanups.push(() => learning.close());
   await h.join(await h.offer());
   expect([...(await learning.next())]).toEqual([EARLY_FRAME.capableMarker]);
+});
+
+it("16 clients that each send two full frames and never answer the close hold at most 1 MiB", async () => {
+  const h = await relayWithHost({ ticketTimeoutMs: 300 });
+  const frame = new Uint8Array(EARLY_FRAME.frameBytes).fill(7);
+  let peak = 0;
+  let peakQueued = 0;
+  const watch = setInterval(() => {
+    const held = h.relay.earlyHeld();
+    peak = Math.max(peak, held.bytes);
+    peakQueued = Math.max(peakQueued, held.queuedBytes);
+  }, 5);
+  cleanups.push(() => clearInterval(watch));
+  for (let n = 0; n < EARLY_FRAME.hostFrames; n++) {
+    const client = await h.client();
+    expect(client.socket.protocol).toBe(EARLY_FRAME.subprotocol);
+    await client.send(frame);
+    await client.send(frame);
+    // It reads nothing more: the relay's close is never answered.
+    client.socket.pause();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(h.relay.earlyHeld().reserved).toBe(EARLY_FRAME.hostFrames);
+  // No room while their bytes may still be held.
+  expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.neutral);
+  // Expiry turns them away; the relay cuts each socket within its deadline, unanswered.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  h.relay.sweep();
+  const started = Date.now();
+  while (h.relay.earlyHeld().reserved > 0 && Date.now() - started < 3_000)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(Date.now() - started).toBeLessThan(1_500);
+  expect(h.relay.earlyHeld()).toEqual({ reserved: 0, frames: 0, bytes: 0, queuedBytes: 0 });
+  expect(peak).toBeLessThanOrEqual(EARLY_FRAME.hostBytes);
+  expect(peakQueued).toBeLessThanOrEqual(EARLY_FRAME.hostBytes);
+  // Room came back only once the sockets were gone.
+  expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
 });

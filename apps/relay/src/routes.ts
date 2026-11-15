@@ -21,8 +21,14 @@ export class RelayRoutes {
   #waiting = new Set<string>();
   #allowed: ReadonlySet<string> | undefined;
   #ttl: number;
-  /** Early-frame reservations by client socket, each counted against its host's socket. */
-  #early = new Map<string, { owner: string; state: EarlyState }>();
+  /**
+   * Early-frame reservations by client socket, counted against the host id they wait for.
+   * A reservation lasts until its bytes are really gone: the client's socket closed
+   * (`close`), or its frame forwarded after pairing (`releaseEarly`). Closing a client by
+   * policy (expiry, rejection, a newer registration) never frees it by itself, so the budgets
+   * hold for the bytes actually held at every moment, not only for the ones still wanted.
+   */
+  #early = new Map<string, { hostId: string; state: EarlyState; bytes: number }>();
   constructor(options: { allowedHostIds?: readonly string[]; ticketTimeoutMs: number }) {
     this.#allowed = options.allowedHostIds
       ? new Set(options.allowedHostIds.map((id) => HostId.parse(id)))
@@ -76,8 +82,9 @@ export class RelayRoutes {
         expires: entry.expires,
       });
       this.#waiting.add(entry.client);
-      if (entry.early === "reserved")
-        this.#early.set(entry.client, { owner: entry.owner, state: "reserved" });
+      const restoredHost = [...this.#hosts].find(([, socket]) => socket === entry.owner)?.[0];
+      if (entry.early === "reserved" && restoredHost)
+        this.#early.set(entry.client, { hostId: restoredHost, state: "reserved", bytes: 0 });
     }
     return actions;
   }
@@ -115,6 +122,7 @@ export class RelayRoutes {
   ): RouteAction[] {
     Ticket.parse(ticket);
     const owner = this.#hosts.get(hostId);
+    // Refused before it waits: nothing was received, so its room is free at once.
     if (!owner || (purpose === "media" && !this.#media.has(owner))) this.#early.delete(socket);
     if (!owner) return [{ type: "close", socket, code: 1008, reason: "Host unavailable" }];
     if (purpose === "media" && !this.#media.has(owner))
@@ -128,8 +136,8 @@ export class RelayRoutes {
     const entry = this.#pending.get(ticket);
     this.#pending.delete(ticket);
     if (entry) this.#waiting.delete(entry.client);
+    // Paired, the reservation stays until the frame has been forwarded (`releaseEarly`).
     const held = entry && this.#early.get(entry.client)?.state === "held";
-    if (entry) this.#early.delete(entry.client);
     if (!entry || entry.expires <= now)
       return [
         ...(entry
@@ -148,7 +156,7 @@ export class RelayRoutes {
     const owner = this.#hosts.get(hostId);
     if (!owner || this.#early.has(socket)) return false;
     let forHost = 0;
-    for (const reservation of this.#early.values()) if (reservation.owner === owner) forHost++;
+    for (const reservation of this.#early.values()) if (reservation.hostId === hostId) forHost++;
     const relay = this.#early.size;
     if (
       forHost >= EARLY_FRAME.hostFrames ||
@@ -157,12 +165,33 @@ export class RelayRoutes {
       (relay + 1) * EARLY_FRAME.frameBytes > EARLY_FRAME.relayBytes
     )
       return false;
-    this.#early.set(socket, { owner, state: "reserved" });
+    this.#early.set(socket, { hostId, state: "reserved", bytes: 0 });
     return true;
   }
-  /** An upgrade that reserved room but never became a waiting client gives it back. */
+  /**
+   * The reservation's bytes are gone without its socket closing: its frame was forwarded after
+   * pairing, or its upgrade never became a waiting client. A client still waiting keeps it.
+   */
   releaseEarly(socket: string): void {
     if (!this.#waiting.has(socket)) this.#early.delete(socket);
+  }
+  /**
+   * The early frames held, and their bytes, for `hostId` or the whole relay: an upper bound of
+   * what the relay's queues hold, since a reservation outlives its bytes.
+   */
+  earlyHeld(hostId?: string): { reserved: number; frames: number; bytes: number } {
+    let reserved = 0;
+    let frames = 0;
+    let bytes = 0;
+    for (const reservation of this.#early.values()) {
+      if (hostId !== undefined && reservation.hostId !== hostId) continue;
+      reserved++;
+      if (reservation.state === "held") {
+        frames++;
+        bytes += reservation.bytes;
+      }
+    }
+    return { reserved, frames, bytes };
   }
   /** What client `socket` holds: room for an early frame, the frame, or nothing. */
   earlyState(socket: string): EarlyState | undefined {
@@ -180,6 +209,7 @@ export class RelayRoutes {
       bytes <= EARLY_FRAME.frameBytes
     ) {
       reservation.state = "held";
+      reservation.bytes = bytes;
       return [];
     }
     return this.premature(socket);
@@ -189,7 +219,6 @@ export class RelayRoutes {
     if (!entry || entry.owner !== owner) return [];
     this.#pending.delete(ticket);
     this.#waiting.delete(entry.client);
-    this.#early.delete(entry.client);
     return [{ type: "close", socket: entry.client, code: 1013, reason: "Host busy" }];
   }
   premature(socket: string): RouteAction[] {
@@ -202,14 +231,13 @@ export class RelayRoutes {
     this.#media.delete(socket);
     const actions: RouteAction[] = [];
     this.#waiting.delete(socket);
+    // Only this socket's own reservation goes: the clients a closed host leaves waiting keep
+    // theirs until their sockets close too.
     this.#early.delete(socket);
-    for (const [client, reservation] of this.#early)
-      if (reservation.owner === socket) this.#early.delete(client);
     for (const [ticket, entry] of this.#pending) {
       if (entry.client === socket || entry.owner === socket) {
         this.#pending.delete(ticket);
         this.#waiting.delete(entry.client);
-        this.#early.delete(entry.client);
         if (entry.client !== socket)
           actions.push({
             type: "close",
@@ -227,7 +255,6 @@ export class RelayRoutes {
       if (entry.expires <= now) {
         this.#pending.delete(ticket);
         this.#waiting.delete(entry.client);
-        this.#early.delete(entry.client);
         actions.push({ type: "close", socket: entry.client, code: 1008, reason: "Ticket expired" });
       }
     return actions;

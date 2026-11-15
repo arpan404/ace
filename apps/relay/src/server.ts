@@ -51,7 +51,17 @@ type Connection = {
   control?: Transport;
   /** The readiness marker this client gets when paired. */
   marker: number;
+  /** A `/client` socket, and whether it was paired. */
+  client: boolean;
+  paired: boolean;
+  /** Its early frame is held: reading it is paused until pairing (ADR 0155). */
+  earlyHold?: (() => void) | undefined;
 };
+/**
+ * A client the relay closes before it is paired gets this long to finish the close; then its
+ * socket is cut, whether or not it answered, so withholding the answer holds nothing.
+ */
+const UNPAIRED_CLOSE_MS = 1000;
 /** Thin socket shell: registration proof, actions, forwarding and owned deadlines. */
 export async function startRelay(options: RelayOptions = {}) {
   const limits = LimitsSchema.parse(options.limits ?? {});
@@ -105,10 +115,17 @@ export async function startRelay(options: RelayOptions = {}) {
         const client = connections.get(action.client),
           host = connections.get(action.host);
         // A held early frame is still the first frame in the client's reader: pairing forwards
-        // it to this host, right after the marker, before anything sent later.
-        if (client && host)
+        // it to this host, right after the marker, before anything sent later. Its room is
+        // given back once it has left the reader, not before.
+        if (client && host) {
+          client.paired = true;
+          client.earlyHold?.();
+          client.earlyHold = undefined;
+          const id = action.client;
+          if (action.early) void client.reader.whenEmpty().then(() => routing.releaseEarly(id));
+          else routing.releaseEarly(id);
           pairStreams(client, host, limits, stats, options.onBackpressure, client.marker);
-        else {
+        } else {
           client?.socket.terminate();
           host?.socket.terminate();
         }
@@ -117,6 +134,17 @@ export async function startRelay(options: RelayOptions = {}) {
       const connection = connections.get(action.socket);
       if (!connection) continue;
       if (action.type === "close") {
+        if (connection.client && !connection.paired) {
+          // Nothing of an unpaired client is kept once it is turned away: its queued frames go
+          // now, it is read no more, and its socket is cut after a short deadline whatever it
+          // does. Its reservation comes back when the socket is gone.
+          connection.reader.fail(new Error("Closed by the relay"));
+          connection.socket.pause();
+          connection.socket.close(action.code, action.reason);
+          const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => connection.socket.terminate());
+          connection.socket.once("close", cut);
+          continue;
+        }
         connection.socket.close(action.code, action.reason);
         if (action.code === 4001) connection.socket.terminate();
         continue;
@@ -255,12 +283,25 @@ export async function startRelay(options: RelayOptions = {}) {
             ? EARLY_FRAME.capableMarker
             : PAIRED_MARKER,
         lastActivity: clock.now(),
+        client: url.pathname === "/client",
+        paired: false,
         reader: new FrameReader(ws, {
           permit: () => throttle.wait(peerBudget, abort.signal),
           onFrame: (bytes) => {
             connection.lastActivity = clock.now();
-            // Before pairing, a client may send one frame it reserved room for; any other closes.
-            void apply(routing.early(id, bytes)).catch(() => ws.terminate());
+            // Before pairing, a client may send one frame it reserved room for; any other is
+            // dropped on arrival and closes it.
+            const before = routing.earlyState(id);
+            const actions = routing.early(id, bytes);
+            if (actions.length) {
+              void apply(actions).catch(() => ws.terminate());
+              return false;
+            }
+            // The early frame is held: read nothing more from this client until it is paired,
+            // so no second frame can be buffered for it in the meantime.
+            if (before === "reserved" && routing.earlyState(id) === "held")
+              connection.earlyHold = connection.reader.hold();
+            return true;
           },
         }),
       };
@@ -346,6 +387,16 @@ export async function startRelay(options: RelayOptions = {}) {
     port: address.port,
     stats,
     sweep,
+    /**
+     * Early frames held for clients not yet paired (ADR 0155): what the routing policy has
+     * reserved and counted, and the bytes actually queued in those clients' readers.
+     */
+    earlyHeld() {
+      let queuedBytes = 0;
+      for (const [id, connection] of connections)
+        if (routing.earlyState(id) !== undefined) queuedBytes += connection.reader.bufferedBytes;
+      return { ...routing.earlyHeld(), queuedBytes };
+    },
     close(): Promise<void> {
       if (closing) return closing;
       cancelled = true;
