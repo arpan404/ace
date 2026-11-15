@@ -106,6 +106,8 @@ function until(
 
 const settled = (reader: ThreadSource) =>
   reader.thread !== undefined && !reader.syncing && !reader.unconfirmed;
+/** Settled and no longer filling in behind a painted tail (a first open's full snapshot). */
+const complete = (reader: ThreadSource) => settled(reader) && reader.filling !== true;
 
 async function session(path: LinkPath, profileName: string) {
   const profile = linkProfile(profileName);
@@ -327,7 +329,8 @@ async function session(path: LinkPath, profileName: string) {
         "big first content",
       );
       const firstContentBytes = down() - from;
-      const busy = await inFlight(down(), 4096, () => settled(big.store));
+      // The tail is painted; the full snapshot that completes the open follows it at once.
+      const busy = !complete(big.store);
       const result = await urgent(prepared, {
         reader: big.store,
         thread: ready.threads.big.id,
@@ -358,7 +361,13 @@ async function session(path: LinkPath, profileName: string) {
       const startedAt = performance.now();
       phone.networkOnline(true);
       const caughtUp = () => settled(lease.store) && (lease.store.cursor ?? 0) >= head;
-      const busy = await inFlight(from, 4096, caughtUp);
+      // Welcomed again, then the catch-up's first bytes are crossing.
+      await until(
+        (changed) => state.subscribe(changed),
+        () => state.getSnapshot() === "ready",
+        "welcome again",
+      );
+      const busy = await inFlight(down(), 4096, caughtUp);
       const result = await urgent(prepared, { reader: lease.store, thread, running: false });
       await until((changed) => lease.store.observe(changed), caughtUp, "caught up");
       const bulk = {
