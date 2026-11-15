@@ -634,13 +634,23 @@
 }
 [data-part="button"][data-variant="primary"] {
   --suit-fill: var(--color-tint);
-  --suit-shine: linear-gradient(180deg, rgb(255 255 255 / 0.28), rgb(255 255 255 / 0) 55%);
+  /* The sheen is a paler accent, not white, so the label reads on all of it. */
+  --suit-shine: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-tint) 88%, white),
+    var(--color-tint) 60%
+  );
   --suit-line: color-mix(in oklab, var(--color-tint) 70%, black);
   --suit-height: 0 2px 10px var(--suit-glow);
   color: var(--color-tint-foreground);
 }
 [data-part="button"][data-variant="primary"]:hover {
   --suit-fill: var(--color-tint-hover);
+  --suit-shine: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-tint-hover) 88%, white),
+    var(--color-tint-hover) 60%
+  );
 }
 [data-part="button"][data-state="disabled"] {
   --suit-height: 0 0 0 transparent;
@@ -678,6 +688,23 @@
   box-shadow:
     inset 0 1px 3px var(--suit-shade-near),
     0 0 0 3px var(--suit-wash);
+}
+
+/* A field inside a search well is the well's own text: no second frame. */
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus-within {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+/* The palette's search is a row of the pane, ruled off from the results. */
+[data-part="command-palette"] [data-part="search-field"],
+[data-part="command-palette"] [data-part="search-field"]:focus-within {
+  border-color: transparent;
+  border-bottom-color: var(--suit-edge);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 [data-part="switch"] {
