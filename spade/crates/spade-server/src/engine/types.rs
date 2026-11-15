@@ -13,7 +13,7 @@ use crate::images::{ImageError, ImageStore};
 use crate::tools::{SkillLibrary, Toolbox};
 
 /// How a turn runs. Nothing here ends a bot's work: a turn takes as many steps and as long as
-/// it needs, and the person's controls are Stop and their own spending caps (ADR 0157).
+/// it needs, and the person's controls are Stop and their own spending caps (ADR 0158).
 #[derive(Debug, Clone)]
 pub struct Limits {
     pub max_parallel_tools: usize,

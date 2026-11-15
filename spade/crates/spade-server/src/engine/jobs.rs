@@ -66,7 +66,7 @@ pub(super) fn start(
     begin(engine, id, reply, job, name, Box::pin(work), stop)
 }
 
-/// Moves a call still running after the foreground window to the background (ADR 0157): the same
+/// Moves a call still running after the foreground window to the background (ADR 0158): the same
 /// run carries on as job `job`, unless the turn was stopped, and then `work` is dropped, which
 /// cuts it off like any call in flight. The caller then answers the call with
 /// `context::moved_to_background`.
@@ -199,7 +199,7 @@ pub(super) fn cancel_all(live: &super::Live) {
     }
 }
 
-/// Runs the job's tool for as long as it takes (ADR 0157): Stop ends it, nothing else does.
+/// Runs the job's tool for as long as it takes (ADR 0158): Stop ends it, nothing else does.
 /// `key` is unique across conversations and stable for this job.
 async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOutput {
     let Some(tool) = engine.tools.get(name) else {

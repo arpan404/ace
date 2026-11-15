@@ -48,7 +48,7 @@ pub struct State {
 #[serde(rename_all = "snake_case")]
 pub enum PauseReason {
     /// It used the steps one task could take on its own. Only earlier Spades stored it: no step
-    /// count pauses a task now (ADR 0157).
+    /// count pauses a task now (ADR 0158).
     Budget,
     /// Several steps in a row changed nothing.
     NoProgress,
@@ -158,7 +158,7 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     }
     // The run started at the person's latest message. A bot's message or a routine's firing
     // carries on the task it belongs to, with any pause. However many steps it takes, it carries
-    // on while each step does something (ADR 0157).
+    // on while each step does something (ADR 0158).
     let run_start = events
         .iter()
         .rposition(|e| {

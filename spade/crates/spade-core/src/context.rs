@@ -77,7 +77,7 @@ waiting for."
 }
 
 /// The answer to a call still running after the turn's foreground window, `seconds` long: it
-/// carries on as job `job` (ADR 0157).
+/// carries on as job `job` (ADR 0158).
 pub fn moved_to_background(job: &str, seconds: u64) -> String {
     format!(
         "Still running after {seconds} seconds, so it carries on in the background as job {job}. \

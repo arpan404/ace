@@ -15,7 +15,7 @@ use super::{PathError, Workspace, Workspaces};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 /// The shell's deadline when the model names none. The model may name any longer one (ADR
-/// 0157); a command still running after the engine's foreground window moves to the background
+/// 0158); a command still running after the engine's foreground window moves to the background
 /// and its result arrives as a `<job_result>`.
 pub const SHELL_TIMEOUT: Duration = Duration::from_secs(60);
 

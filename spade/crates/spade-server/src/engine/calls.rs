@@ -670,7 +670,7 @@ enum Ran {
     Outlived(crate::tools::ToolFuture),
 }
 
-/// Runs a call for as long as the turn's foreground window (ADR 0157). No call is ever timed out
+/// Runs a call for as long as the turn's foreground window (ADR 0158). No call is ever timed out
 /// here: one still running then comes back as [`Ran::Outlived`] and runs on in the background.
 async fn run_one(
     engine: &Arc<Engine>,

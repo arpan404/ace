@@ -48,9 +48,11 @@ Windows still uses, and the rules both share.
 - Contained: on macOS and Linux its own process group (`process_group(0)`), killed with
   `kill -KILL -<group>`; on Windows a job object with kill-on-close, which the command is assigned
   to as it starts (anything it starts in the moment before that is not held). Everything is
-  killed when the deadline passes (default 60 s, `timeout_s` up to 110 s, inside the harness's
-  120 s limit) and again when the run ends however it ends (finished, timed out, or the call
+  killed when the deadline passes (default 60 s; the model may give any longer `timeout_s`) and
+  again when the run ends however it ends (finished, timed out, or the call
   dropped by Stop or the harness), and the output readers are aborted with it.
+- A command still running after the turn's 30 s foreground window keeps running as a background
+  job: the call answers with its job id and the output arrives as a `<job_result>` (ADR 0158).
 - Environment: cleared, then `LANG`, `TMPDIR`, `USER`, `LOGNAME` from Spade's own (POSIX) or
   `SystemRoot`, `SystemDrive`, `windir`, `TEMP`, `TMP` (Windows), plus `HOME` (and `USERPROFILE`)
   set to the workspace, `TERM=dumb`, `SHELL=/bin/sh` (POSIX) or

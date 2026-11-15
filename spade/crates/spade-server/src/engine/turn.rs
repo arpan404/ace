@@ -56,7 +56,7 @@ impl Failure {
         Self { kind, endpoint }
     }
 
-    /// A spending cap: the day's, or the turn's own cost limit.
+    /// A spending cap: the day's, or one of the bot's own caps.
     fn cap() -> Self {
         Self {
             kind: FailureKind::Cap,
@@ -257,7 +257,7 @@ async fn drive(
                 // spending cap and compaction are for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
-                // alone. No step count or cost per turn ends a turn (ADR 0157); the person's
+                // alone. No step count or cost per turn ends a turn (ADR 0158); the person's
                 // spending caps and Stop do.
                 let helper = engine.helper_of(id).is_some();
                 if !cli && !engine.within_cap().unwrap_or(false) {

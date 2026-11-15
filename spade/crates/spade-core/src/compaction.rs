@@ -17,7 +17,7 @@ pub const LOW: f64 = 0.35;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
     /// Index of the first event kept: a message from the person, or in a turn too long to keep
-    /// whole a step of it (ADR 0157); either way one that starts while no tool call waits for its
+    /// whole a step of it (ADR 0158); either way one that starts while no tool call waits for its
     /// result, so no call is cut from its result.
     pub keep_from: usize,
 }
@@ -68,7 +68,7 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
         return Some(Plan { keep_from: start });
     }
     // The latest turn alone is too big: it is cut at one of its own steps, so a turn of any
-    // length keeps its prompt bounded (ADR 0157).
+    // length keeps its prompt bounded (ADR 0158).
     let turn = starts.last().copied().unwrap_or(0).max(after);
     let steps: Vec<usize> = step_starts(events, turn)
         .into_iter()

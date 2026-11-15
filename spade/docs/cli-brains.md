@@ -85,8 +85,8 @@ Spade's grant as the bearer:
   the reply as stopped; a pause for an update or a stop of Spade sends the same turn again when it
   resumes; a turn cut off by a crash closes as interrupted. Messages that arrive while the CLI
   works are answered in a following turn of the same reply.
-- **Not Spade's money.** CLI turns cost nothing in Spade's ledger: the daily cap, the per-turn
-  cost limit and the step limit never stop them, and messages to a CLI bot are taken while the cap
+- **Not Spade's money.** CLI turns cost nothing in Spade's ledger: the daily cap never stops
+  them, and messages to a CLI bot are taken while the cap
   is used up. Compaction never runs for them. Usage shows in ace's usage display under the
   provider and account.
 
