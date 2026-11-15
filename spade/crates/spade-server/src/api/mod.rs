@@ -15,6 +15,7 @@ mod oversight;
 mod plugins;
 mod questions;
 mod routines;
+mod routing;
 mod search;
 mod skills;
 mod teams;
@@ -149,6 +150,7 @@ pub fn router(state: AppState) -> Router {
         .merge(brains::routes())
         .merge(memory::routes())
         .merge(oversight::routes())
+        .merge(routing::routes())
         .merge(workspace::routes())
         .merge(skills::routes())
         .merge(computer::routes())

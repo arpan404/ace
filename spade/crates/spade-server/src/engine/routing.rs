@@ -195,7 +195,7 @@ impl Engine {
     }
 
     /// `{today, month}` spend by role for the bot of `conversation`.
-    pub(crate) fn role_spend_json(&self, conversation: &str) -> Value {
+    pub fn role_spend_json(&self, conversation: &str) -> Value {
         let periods = self.periods();
         json!({
             "today": self.spend_by_role(conversation, periods.day_start),

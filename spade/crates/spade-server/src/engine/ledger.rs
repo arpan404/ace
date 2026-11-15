@@ -248,7 +248,8 @@ impl Engine {
             conversation: conversation.to_owned(),
             model: model.to_owned(),
             reserved,
-            role: None,
+            // Paid under the bot, but spent as a helper (ADR 0162).
+            role: owner.is_some().then_some(spade_core::routing::Role::Helper),
         })
     }
 

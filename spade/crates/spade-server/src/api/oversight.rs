@@ -157,10 +157,19 @@ async fn activity(
     };
     // Folding a long history is file work: off the async threads.
     let engine = state.engine.clone();
-    let found = tokio::task::spawn_blocking(move || engine.activity_log(&id, &query)).await;
+    let found = tokio::task::spawn_blocking(move || {
+        let page = engine.activity_log(&id, &query)?;
+        // What each role spent today and this month (ADR 0162).
+        let by_role = engine
+            .store_agent(&id)?
+            .map(|agent| engine.role_spend_json(&agent.conversation));
+        Ok::<_, OversightError>((page, by_role))
+    })
+    .await;
     match found {
-        Ok(Ok(page)) => Json(json!({
-            "entries": page.entries,
+        Ok(Ok((page, by_role))) => Json(json!({
+            "entries": super::routing::entries_with_roles(&page.entries),
+            "spend_by_role": by_role,
             "more": page.next_before.is_some(),
             "next_before": page.next_before,
         }))
