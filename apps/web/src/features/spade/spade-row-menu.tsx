@@ -115,7 +115,7 @@ function BotMenu(props: { bot: RosterBot; children: ReactNode }) {
                 Mark as read
               </MenuItem>
             )}
-            <MenuItem onClick={openProfile}>Open profile</MenuItem>
+            <MenuItem onClick={() => openProfile()}>Open profile</MenuItem>
             <MenuItem
               onClick={() =>
                 void duplicate(bot).then((copy) => {
