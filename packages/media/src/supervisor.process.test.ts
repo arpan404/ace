@@ -14,6 +14,7 @@ import {
   nodeMediaHost,
   systemMediaClock,
   type MediaExit,
+  type MediaHost,
 } from "./supervisor.ts";
 import type { FromMedia } from "./wire.ts";
 
@@ -54,6 +55,10 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 type Hooks = {
   replay?: (supervisor: MediaSupervisor) => void;
   onMessage?: (message: FromMedia) => void;
+  /** The lane secret, instead of the CSPRNG's. */
+  randomBytes?: (length: number) => Uint8Array;
+  /** Wraps the real host. */
+  host?: (host: MediaHost) => MediaHost;
 };
 
 function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
@@ -66,7 +71,10 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     runtimeDir,
     dataDir: runtimeDir,
     settings: () => ({ ...legacyMediaSettings, stills: "auto" }),
-    host: nodeMediaHost({ ...process.env, ...env }, target.launch),
+    host: (hooks.host ?? ((host) => host))(
+      nodeMediaHost({ ...process.env, ...env }, target.launch),
+    ),
+    ...(hooks.randomBytes ? { randomBytes: hooks.randomBytes } : {}),
     clock: systemMediaClock,
     random: Math.random,
     listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
@@ -120,6 +128,55 @@ it("supervises a process that speaks the control protocol: lanes up, revocation 
   supervisor.dispose();
   await until(() => exits.length === 1);
   expect(exits[0]).toMatchObject({ cause: "disposed", failure: false });
+});
+
+it("refuses the real secret on a lane tag already taken, and on any lane once both are up", async () => {
+  // The supervisor's egress lane waits until the duplicate has been tried, so the secret is still
+  // live in the child while only the priority tag is taken.
+  const secret = new Uint8Array(randomBytes(32));
+  let releaseEgress = () => {};
+  const egressGate = new Promise<void>((resolve) => (releaseEgress = resolve));
+  let priorityAccepted = false;
+  let connects = 0;
+  const { supervisor, control } = start(
+    {},
+    {
+      randomBytes: () => secret.slice(),
+      host: (host) => ({
+        spawn: (binary) => host.spawn(binary),
+        async connect(path) {
+          const first = connects++ === 0;
+          if (!first) await egressGate;
+          const socket = await host.connect(path);
+          if (!first) return socket;
+          return {
+            ...socket,
+            onData(listener) {
+              socket.onData((chunk) => {
+                priorityAccepted = true;
+                listener(chunk);
+              });
+            },
+          };
+        },
+      }),
+    },
+  );
+  supervisor.need();
+  await until(() => priorityAccepted);
+
+  const refused = async (lane: "priority" | "egress") => {
+    const intruder = await connectLane(control());
+    await expect(authenticateLane(intruder, lane, secret.slice())).rejects.toThrow();
+    intruder.destroy();
+  };
+  await refused("priority");
+  releaseEgress();
+  await until(() => supervisor.health() === "healthy");
+  // A replay of the secret that opened both lanes is refused on either tag.
+  await refused("priority");
+  await refused("egress");
+  expect(supervisor.health()).toBe("healthy");
 });
 
 it("answers revocations well inside the deadline while the normal lane is saturated", async () => {
