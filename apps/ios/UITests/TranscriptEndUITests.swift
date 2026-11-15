@@ -215,9 +215,35 @@ import XCTest
         XCTAssertTrue(message.isHittable, "the newest message stays on screen \(when)")
         XCTAssertFalse(app.buttons["Scroll to end"].exists, "Scroll to end goes once the end is in view \(when)")
     }
-    /// The caret after the answer streaming at the live end: the newest thing in the thread.
+    /// The answer at the live end: the thread's own last answer, drawn as `message.answer.<item>`.
+    /// Nothing in the row says it is streaming any more (`67b6b2fb1` took the caret, and its
+    /// "Streaming" label, away), so its place at the end of the thread is what marks it.
     private func newest(in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Streaming")).firstMatch
+        guard let id = lastAnswer() else {
+            XCTFail("the fixture's ios-stream thread lists no answer")
+            return app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer.ios-stream.")).firstMatch
+        }
+        return app.descendants(matching: .any)["message.answer.\(id)"]
+    }
+    /// The newest answer item id in the fixture's own view of `ios-stream`: its last answer, which
+    /// is the one streaming. Read from the fixture, not from what the app happens to have drawn, so
+    /// a test that finds it is a test that reached the thread's real end.
+    private func lastAnswer() -> String? {
+        var view: [String: Any] = [:]
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        if let url = URL(string: "http://127.0.0.1:\(port)/state?thread=ios-stream") {
+            let replied = expectation(description: "fixture sent ios-stream")
+            URLSession.shared.dataTask(with: url) { data, _, _ in
+                if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { view = json }
+                replied.fulfill()
+            }.resume()
+            wait(for: [replied], timeout: 10)
+        }
+        let items = view["items"] as? [String: [String: Any]] ?? [:]
+        return (view["itemOrder"] as? [String])?.last { id in
+            items[id]?["type"] as? String == "message" && items[id]?["role"] as? String == "assistant"
+        }
     }
     private func open(_ threadId: String) -> XCUIApplication {
         let app = XCUIApplication()
