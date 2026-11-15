@@ -1,0 +1,218 @@
+[
+  {
+    "input": {
+      "source": {
+        "width": 1280,
+        "height": 800,
+        "scale": 1,
+        "codecs": ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
+      },
+      "viewers": [
+        {
+          "id": "Z",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c0"],
+          "link": 8000000
+        },
+        {
+          "id": "a",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c1"],
+          "link": 8000000
+        },
+        {
+          "id": "b",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c2"],
+          "link": 8000000
+        },
+        {
+          "id": "c",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c3"],
+          "link": 8000000
+        },
+        {
+          "id": "d",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c4"],
+          "link": 8000000
+        }
+      ]
+    },
+    "output": {
+      "encodes": [
+        {
+          "key": "c0/1280x800",
+          "codec": "c0",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c1/1280x800",
+          "codec": "c1",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c2/1280x800",
+          "codec": "c2",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c3/1280x800",
+          "codec": "c3",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        }
+      ],
+      "capture": {
+        "width": 1280,
+        "height": 800
+      },
+      "viewers": [
+        ["Z", "c0/1280x800"],
+        ["a", "c1/1280x800"],
+        ["b", "c2/1280x800"],
+        ["c", "c3/1280x800"]
+      ]
+    }
+  },
+  {
+    "input": {
+      "source": {
+        "width": 1280,
+        "height": 800,
+        "scale": 1,
+        "codecs": ["c0", "c1", "c2", "c3", "c4", "c5", "c6"]
+      },
+      "viewers": [
+        {
+          "id": "b",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c2"],
+          "link": 8000000
+        },
+        {
+          "id": "c",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c3"],
+          "link": 8000000
+        },
+        {
+          "id": "d",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c4"],
+          "link": 8000000
+        },
+        {
+          "id": "😀",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c5"],
+          "link": 8000000
+        },
+        {
+          "id": "～",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "devicePixelRatio": 1
+          },
+          "codecs": ["c6"],
+          "link": 8000000
+        }
+      ]
+    },
+    "output": {
+      "encodes": [
+        {
+          "key": "c2/1280x800",
+          "codec": "c2",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c3/1280x800",
+          "codec": "c3",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c4/1280x800",
+          "codec": "c4",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        },
+        {
+          "key": "c5/1280x800",
+          "codec": "c5",
+          "width": 1280,
+          "height": 800,
+          "fps": 60,
+          "bitrate": 3686400
+        }
+      ],
+      "capture": {
+        "width": 1280,
+        "height": 800
+      },
+      "viewers": [
+        ["b", "c2/1280x800"],
+        ["c", "c3/1280x800"],
+        ["d", "c4/1280x800"],
+        ["😀", "c5/1280x800"]
+      ]
+    }
+  }
+]

@@ -10,7 +10,7 @@ import { planVideo } from "../src/video-policy.ts";
 import { QuantizerControl } from "../src/quantizer-control.ts";
 import { writeVectors } from "./media-vector-harness.ts";
 import { fanoutEdges, linkHints, linkRateEdges } from "./media-pacing-vectors.ts";
-import { linkCaps, planSteps, quantizerCap, scaleSteps } from "./media-step-vectors.ts";
+import { linkCaps, planSteps, planTies, quantizerCap, scaleSteps } from "./media-step-vectors.ts";
 import { linkFloor } from "../src/link-rate.ts";
 export function mediaVectors() {
   const gate = new VideoChunkGate();
@@ -148,6 +148,7 @@ export function mediaVectors() {
     "link-capped": linkCaps(),
     plan: { input: { source, viewers }, output: planVideo(source, viewers) },
     "plan-steps": planSteps(),
+    "plan-ties": planTies(),
   };
 }
 if (import.meta.main) writeVectors(mediaVectors());

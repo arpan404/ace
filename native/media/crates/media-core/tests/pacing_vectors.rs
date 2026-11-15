@@ -214,6 +214,12 @@ fn plan_replays_sizes_groups_rates_and_assignments() {
 fn plan_replays_stepped_viewers_frame_rates_in_place() {
     replay_plan(&load("plan-steps"));
 }
+#[test]
+fn plan_breaks_equal_viewers_ties_in_utf16_order_like_the_typescript() {
+    for case in rows(&load("plan-ties")) {
+        replay_plan(case);
+    }
+}
 fn replay_plan(v: &Value) {
     let i = &v["input"];
     let source = &i["source"];

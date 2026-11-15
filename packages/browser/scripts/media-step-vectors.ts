@@ -118,6 +118,30 @@ export function planSteps() {
   return { input: { source, viewers }, output: planVideo(source, viewers) };
 }
 
+/**
+ * Equal panes that each want their own codec, past the four-encoder limit: which one is left
+ * out depends only on the id order (UTF-16 code units), with mixed case and a character above
+ * U+FFFF against one just below it.
+ */
+export function planTies() {
+  const ids = ["Z", "a", "b", "c", "d", "\u{1F600}", "\uFF5E"];
+  const codecs = ids.map((_, index) => `c${index}`);
+  const source = { width: 1280, height: 800, scale: 1, codecs };
+  const viewers = ids.map((id, index) => ({
+    id,
+    viewport: { width: 1280, height: 800, devicePixelRatio: 1 },
+    codecs: [codecs[index] ?? ""],
+    link: 8_000_000,
+  }));
+  return [
+    {
+      input: { source, viewers: viewers.slice(0, 5) },
+      output: planVideo(source, viewers.slice(0, 5)),
+    },
+    { input: { source, viewers: viewers.slice(2) }, output: planVideo(source, viewers.slice(2)) },
+  ];
+}
+
 export function linkCaps() {
   const asked: ScreenStreamSettings = {
     codec: "h264",

@@ -148,7 +148,10 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
     ];
   });
   // Largest first, so a group's first member sets its size and later ones are no larger.
-  wanted.sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
+  // Ties by id in UTF-16 code-unit order (never locale order): media-core breaks them the same.
+  wanted.sort(
+    (a, b) => b.width * b.height - a.width * a.height || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
   const groups: Group[] = [];
   for (const viewer of wanted) {
     const fits = groups.find(

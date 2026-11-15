@@ -116,3 +116,19 @@ describe("video encodes for a tab's viewers", () => {
     expect([...backward.viewers].toSorted()).toEqual([...forward.viewers].toSorted());
   });
 });
+
+describe("ties between equal viewers", () => {
+  it("are broken by code-unit order, never locale order, as media-core does", () => {
+    // Five equal panes, each wanting its own codec: four encoders, so one is left out. In
+    // code-unit order `Z` sorts before `a`, so `d` is the one; locale order would drop `Z`.
+    const codecs = ["c1", "c2", "c3", "c4", "c5"];
+    const plan = planVideo(
+      { ...page, codecs },
+      ["Z", "a", "b", "c", "d"].map((id, index) =>
+        viewer(id, {}, 20_000_000, [codecs[index] ?? ""]),
+      ),
+    );
+    expect(plan.encodes).toHaveLength(maxEncodes);
+    expect([...plan.viewers.keys()].toSorted()).toEqual(["Z", "a", "b", "c"]);
+  });
+});

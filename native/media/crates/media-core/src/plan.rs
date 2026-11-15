@@ -125,7 +125,9 @@ pub fn plan_video(source: &Source<'_>, viewers: &[VideoViewer<'_>]) -> Plan {
     wanted.sort_by(|a, b| {
         area(b.picture)
             .cmp(&area(a.picture))
-            .then_with(|| a.id.cmp(b.id))
+            // Ties by id in UTF-16 code-unit order, as video-policy.ts (JavaScript's string order)
+            // breaks them; byte order differs above U+FFFF.
+            .then_with(|| a.id.encode_utf16().cmp(b.id.encode_utf16()))
     });
     let mut groups: Vec<Group<'_>> = Vec::with_capacity(4);
     let mut capture = Picture::default();
