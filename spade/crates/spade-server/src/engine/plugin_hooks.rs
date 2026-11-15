@@ -159,20 +159,34 @@ pub(super) async fn before_step(engine: &Arc<Engine>, id: &str, events: &[Event]
 
 /// Before the gate sees a step's calls: starts the bot's local servers when it searches for or
 /// calls a deferred tool, and runs `PreToolUse` for each new call. A refused call is answered
-/// with the refusal, so the gate never sees it. Returns whether it stored anything.
+/// with the refusal, so the gate never sees it; a refusal stored before a restart still stands,
+/// whatever the bot's hooks are now. Returns whether it stored anything.
 pub(super) async fn before_calls(
     engine: &Arc<Engine>,
     id: &str,
     reply: &str,
+    events: &[Event],
     calls: &[Pending],
 ) -> bool {
+    let fresh: Vec<&Pending> = calls.iter().filter(|p| p.status == Status::New).collect();
+    // Answered before a restart: the refusal is stored with the hook's answer from now on, but
+    // a store that failed half way (or an older Spade) can leave the answer alone.
+    let owed: Vec<Event> = fresh
+        .iter()
+        .filter_map(|pending| {
+            let outcomes = hooks::answered(events, hooks::PRE_TOOL_USE, &pending.call.id)?;
+            hooks::refusal(outcomes).map(|content| refused(reply, &pending.call, content))
+        })
+        .collect();
+    if !owed.is_empty() {
+        return store_all(engine, id, &owed);
+    }
     let Some((plugins, agent)) = plugins_of(engine, id) else {
         return false;
     };
-    let searching = calls.iter().any(|pending| {
-        pending.status == Status::New
-            && [spade_core::tools::TOOL_SEARCH, spade_core::tools::CALL_TOOL]
-                .contains(&pending.call.name.as_str())
+    let searching = fresh.iter().any(|pending| {
+        [spade_core::tools::TOOL_SEARCH, spade_core::tools::CALL_TOOL]
+            .contains(&pending.call.name.as_str())
     });
     if searching && plugins.has_servers(&agent) {
         plugins.start_servers(&agent).await;
@@ -180,17 +194,10 @@ pub(super) async fn before_calls(
     if !plugins.has_hooks(&agent, hooks::PRE_TOOL_USE) {
         return false;
     }
-    let events = match engine.load(id) {
-        Ok(events) => events,
-        Err(error) => {
-            tracing::error!(%error, "could not read the conversation for its hooks");
-            return false;
-        }
-    };
     let mut stored = false;
-    for pending in calls.iter().filter(|p| p.status == Status::New) {
+    for pending in fresh {
         let call = &pending.call;
-        if hooks::ran(&events, hooks::PRE_TOOL_USE, &call.id) {
+        if hooks::ran(events, hooks::PRE_TOOL_USE, &call.id) {
             continue;
         }
         let tool = hooks::tool_of(&call.name, &call.arguments);
@@ -203,29 +210,41 @@ pub(super) async fn before_calls(
             .run_hooks(&agent, hooks::PRE_TOOL_USE, Some(&tool), input)
             .await;
         let refusal = hooks::refusal(&outcomes);
-        stored |= store(
-            engine,
-            id,
-            ran_event(hooks::PRE_TOOL_USE, &call.id, outcomes),
-        );
-        if let Some(content) = refusal {
-            stored |= store(
-                engine,
-                id,
-                Event::Known(Known::ToolFinished {
-                    reply: reply.to_owned(),
-                    call_id: call.id.clone(),
-                    name: call.name.clone(),
-                    content,
-                    is_error: true,
-                    uncertain: false,
-                    images: Vec::new(),
-                    untrusted: false,
-                }),
-            );
-        }
+        let mut answer = vec![ran_event(hooks::PRE_TOOL_USE, &call.id, outcomes)];
+        // The answer and the refused call's result in one write: a crash keeps both or neither.
+        answer.extend(refusal.map(|content| refused(reply, call, content)));
+        stored |= store_all(engine, id, &answer);
     }
     stored
+}
+
+/// A refused call's result: the refusal, as an error.
+fn refused(reply: &str, call: &spade_core::event::Call, content: String) -> Event {
+    Event::Known(Known::ToolFinished {
+        reply: reply.to_owned(),
+        call_id: call.id.clone(),
+        name: call.name.clone(),
+        content,
+        is_error: true,
+        uncertain: false,
+        images: Vec::new(),
+        untrusted: false,
+    })
+}
+
+/// Stores `events` together, in order.
+fn store_all(engine: &Engine, id: &str, events: &[Event]) -> bool {
+    let _order = engine
+        .record_lock
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match engine.append_events(id, events) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(%error, "could not store what a plugin's hook answered");
+            false
+        }
+    }
 }
 
 /// As a reply is about to finish: runs `Stop`, at most [`hooks::MOST_STOP_EXTENSIONS`] times a

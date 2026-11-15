@@ -508,3 +508,91 @@ async fn a_hook_runs_once_for_each_message_in_the_bots_workspace() -> Result {
     assert_eq!(written.lines().count(), 2, "{written}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_refusal_stored_before_a_restart_still_stops_the_call_when_the_reply_resumes() -> Result {
+    use spade_core::Event;
+    use spade_core::event::{Call, Known, Tokens};
+    use spade_core::hooks::{HookOutcome, HookResult};
+    let guard = || {
+        plugin(
+            "guard",
+            &"b".repeat(64),
+            "/nowhere",
+            json!([]),
+            json!([hook("PreToolUse", "exit 0", Some("send_email"))]),
+        )
+    };
+    let ace = FakeAce::with(vec![guard()]);
+    let spade = Spade::start_with(Vec::new(), Vec::new(), options(ace.clone())).await?;
+    let (_, chat) = bot(&spade, "Mailer", &["guard"]).await?;
+    // Spade paused (its stop landing between two writes) after storing the hook's refusal and
+    // before the call's result, so the reply resumes after the restart.
+    let store = Store::open(&spade.database())?;
+    store.append_all(
+        &chat,
+        &[
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "fake/m"),
+            Event::Known(Known::PluginsStarted {
+                rules: String::new(),
+                added: String::new(),
+            }),
+            Event::Known(Known::StepFinished {
+                reply: "r1".into(),
+                text: String::new(),
+                calls: vec![Call {
+                    id: "c1".into(),
+                    name: "send_email".into(),
+                    arguments: json!({ "to": "sam" }),
+                }],
+                thoughts: Vec::new(),
+                usage: Tokens::default(),
+                cost_micros: 0,
+                seen: None,
+            }),
+            Event::Known(Known::HookRan {
+                hook: "PreToolUse".into(),
+                target: "c1".into(),
+                outcomes: vec![HookOutcome {
+                    plugin: "guard".into(),
+                    command: "check".into(),
+                    result: HookResult::Refused {
+                        reason: "No email without a review.".into(),
+                    },
+                }],
+            }),
+            Event::Known(Known::TurnPaused { reply: "r1".into() }),
+        ],
+        1,
+    )?;
+    let email = FakeTool::new("send_email", Risk::Write, "sent");
+    let sent = email.calls();
+    let spade = spade
+        .restart_with(
+            vec![Arc::new(email) as Arc<dyn Tool>],
+            vec![
+                Script::reply("I could not send it."),
+                Script::reply("").plain(r#"{"title":"Email"}"#),
+            ],
+            options(ace),
+        )
+        .await?;
+    let events = wait(&spade, &chat, "reply_finished", 1).await?;
+    let result = of_type(&events, "tool_finished");
+    assert_eq!(result.len(), 1, "{:?}", types(&events));
+    let content = result[0]["content"].as_str().unwrap_or_default();
+    assert!(
+        content.contains("guard: No email without a review."),
+        "{content}"
+    );
+    assert!(
+        of_type(&events, "approval_requested").is_empty(),
+        "the gate saw a refused call"
+    );
+    assert!(
+        sent.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "the tool ran"
+    );
+    Ok(())
+}

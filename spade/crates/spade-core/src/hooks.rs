@@ -107,8 +107,18 @@ pub fn tool_of(name: &str, arguments: &serde_json::Value) -> String {
 
 /// Whether hooks already answered `hook` for `target`.
 pub fn ran(events: &[Event], hook: &str, target: &str) -> bool {
-    events.iter().any(|event| {
-        matches!(event, Event::Known(Known::HookRan { hook: h, target: t, .. }) if h == hook && t == target)
+    answered(events, hook, target).is_some()
+}
+
+/// What hooks answered `hook` for `target`, if they did.
+pub fn answered<'a>(events: &'a [Event], hook: &str, target: &str) -> Option<&'a [HookOutcome]> {
+    events.iter().find_map(|event| match event {
+        Event::Known(Known::HookRan {
+            hook: h,
+            target: t,
+            outcomes,
+        }) if h == hook && t == target => Some(outcomes.as_slice()),
+        _ => None,
     })
 }
 

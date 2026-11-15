@@ -356,7 +356,7 @@ async fn drive(
             }
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
-                if super::plugin_hooks::before_calls(engine, id, &reply, &calls).await {
+                if super::plugin_hooks::before_calls(engine, id, &reply, &events, &calls).await {
                     continue;
                 }
                 match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {

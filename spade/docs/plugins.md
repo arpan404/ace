@@ -110,6 +110,9 @@ reply at most 3 times.
 Every answer is stored as `hook_ran {hook, target, outcomes}` before the turn moves on, `target`
 being the call id, or the message's, step's or compaction cut's event index; a hook never runs
 again for a target it answered, so a restart does not rerun it and a rebuilt prompt is the same.
+A `PreToolUse` refusal is stored in the same write as the refused call's result, and a refusal
+found stored without its result (a write that failed half way) is answered before anything else,
+whatever the bot's hooks are now: a refused call never runs.
 Added text reads to the model as
 
 ```
