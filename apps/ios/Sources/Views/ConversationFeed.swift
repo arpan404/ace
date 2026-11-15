@@ -208,6 +208,7 @@ struct ConversationFeed: View {
             case .tracking:
                 settle.cancel()
                 viewport.cancelPending()
+                readerTookOver(proxy)
                 model.beginReadingScroll()
                 intent.begin()
                 keep(.phase(.gesture), proxy: proxy)
@@ -215,6 +216,7 @@ struct ConversationFeed: View {
             case .interacting where old == .idle || old == .decelerating || old == .animating:
                 settle.cancel()
                 viewport.cancelPending()
+                readerTookOver(proxy)
                 model.beginReadingScroll()
                 intent.begin(); intent.active = true
                 keep(.phase(.gesture), proxy: proxy)
@@ -238,6 +240,12 @@ struct ConversationFeed: View {
                     // A scroll that wasn't the person's drag (the status bar's tap to the top,
                     // VoiceOver) left the end far behind: stop following, as a drag would.
                     setFollowing(false)
+                }
+                // An assistive scroll (VoiceOver's three-finger swipe, Switch Control) is the
+                // reader's own though no finger tracked it; the feed's own scrolls are excluded.
+                if !touched, old == .animating || old == .decelerating, !settle.isRunning, !keyboardMoving,
+                   UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning {
+                    readerTookOver(proxy)
                 }
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
@@ -307,13 +315,28 @@ struct ConversationFeed: View {
         return observeReading(scroller, proxy: proxy)
     }
 
-    /// What the feed does when what it reads changes, in four chains short enough to type-check
+    /// What the feed does when what it reads changes, in five chains short enough to type-check
     /// quickly (a single chain took the CI compiler too long).
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         let rows = observeRows(content, proxy: proxy)
         let layout = observeLayout(rows)
         let room = observeRoom(layout, proxy: proxy)
-        return observeLifecycle(room, proxy: proxy)
+        let landing = observeLanding(room, proxy: proxy)
+        return observeLifecycle(landing, proxy: proxy)
+    }
+    /// A focus landing (`TranscriptFocusLanding`): its target named, and its deadline.
+    private func observeLanding<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            // A turn's reply names its focus after its rows may have landed: aim at it now.
+            .onChange(of: reading.landing.target) { _, _ in place(.targetNamed, proxy: proxy) }
+            // Ticked when nothing else lays out: a row that never lands or a scroll that changes
+            // nothing must not hold paging and the end's reads for good.
+            .task(id: reading.landing.deadline) {
+                guard let deadline = reading.landing.deadline else { return }
+                try? await Task.sleep(for: .milliseconds(max(0, deadline - model.now())))
+                guard !Task.isCancelled else { return }
+                place(.deadline, proxy: proxy)
+            }
     }
     /// Sends, disclosures, the window's rows and paging, focus requests and the thread loading.
     private func observeRows<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
@@ -371,6 +394,7 @@ struct ConversationFeed: View {
     }
     /// A sent message or a Scroll to end tap: back to the live end, following it.
     private func returnToEnd(proxy: ScrollViewProxy) {
+        readerTookOver(proxy)
         reading.toEnd(model: model, thread: thread)
         setFollowing(true)
         toEnd(proxy)
@@ -396,11 +420,15 @@ struct ConversationFeed: View {
         if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
         updateExtent()
         let rows = TranscriptFeedRow.rows(shown)
-            if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
+        if reading.landing.holdsPlace {
+            // A focus still landing owns the place until its row has been shown: no saved
+            // session or held row takes it over, whatever row is on top as pages land.
+            viewport.clearSessionAnchor()
+            place(.revised, proxy: proxy)
+        } else if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
                 // Session restore owns this pass: a center jump would lose
                 // the saved pixel offset. Coarse-scroll until the row
                 // measures, then refine to the exact offset below.
-                reading.focus = nil
                 if anchor.keeper.frames.frame(session.rowID) == nil {
                     if viewport.correctionFrames == 0 {
                         proxy.scrollTo(session.rowID, anchor: .center)
@@ -409,9 +437,6 @@ struct ConversationFeed: View {
                 } else {
                     applySessionRestore(proxy: proxy)
                 }
-            } else if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
-            reading.focus = nil
-            proxy.scrollTo("block:\(row)", anchor: .center)
         } else {
             // Post-measurement layout event: apply the pending semantic
             // anchor correction, if the viewport still owes one. Gestures
@@ -563,6 +588,7 @@ struct ConversationFeed: View {
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
     private func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+        readerTookOver(proxy)
         let rows = TranscriptFeedRow.rows(shown)
         let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
         let top = intent.metrics.topInset
@@ -592,6 +618,15 @@ struct ConversationFeed: View {
         setFollowing(false)
         if let turn = focus.turn { reading.jump(toTurn: turn, model: model, live: thread) }
         else { reading.jump(to: focus.item, model: model, live: thread) }
+    }
+    /// The reader took the feed somewhere themselves (a drag, a turn key, Scroll to end, a
+    /// send, VoiceOver): a focus still landing or still awaited stops pulling them back.
+    private func readerTookOver(_ proxy: ScrollViewProxy) {
+        place(.takeover, proxy: proxy)
+    }
+    /// The row showing `item` in the history window, for a landing focus.
+    private func rowShowing(_ item: String) -> String? {
+        reading.shown.flatMap { TranscriptFeedRow.rows($0).first { $0.block.row.items.contains(item) }?.id }
     }
     /// Retry stale history: re-ask the bridge around the reader's anchor item
     /// so the rebuild loads fresh rows instead of merging cached chunks.
@@ -661,8 +696,8 @@ struct ConversationFeed: View {
             extent.measure(id, height: Double(frame.height))
         }
         // A pending session restore re-runs after the row actually measures, since revision
-        // events land before lazy remeasurement.
-        if viewport.sessionAnchor?.rowID == id { applySessionRestore(proxy: proxy) }
+        // events land before lazy remeasurement. A landing focus re-aims in `place`.
+        if !reading.landing.holdsPlace, viewport.sessionAnchor?.rowID == id { applySessionRestore(proxy: proxy) }
     }
     /// The feed scrolled: the content's top is at `origin` on screen. No row is touched.
     private func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
@@ -682,7 +717,22 @@ struct ConversationFeed: View {
     /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
     /// viewport's budget and never during a gesture, a jump re-aiming, VoiceOver or following.
     private func keep(_ event: TranscriptPlaceKeeper.Event, proxy: ScrollViewProxy) {
-        for action in anchor.keeper.next(event, facts: placeFacts(), now: model.now()) {
+        place(.keeper(event), proxy: proxy)
+    }
+    /// Routes `event` between the place keeper and a landing focus (`TranscriptFeedPlace`) and
+    /// does what they decide. The landing is written back only when it changed, so a scroll
+    /// with no focus landing writes nothing the feed observes.
+    private func place(_ event: TranscriptFeedPlace.Event, proxy: ScrollViewProxy) {
+        let metrics = intent.metrics
+        // The composer and keyboard float over the feed's bottom edge, inside its insets.
+        let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
+            topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
+            covered: Double(barHeight + keyboardLift))
+        let facts = TranscriptFeedPlace.Facts(keeper: placeFacts(), geometry: geometry, rowShowing: rowShowing)
+        var landing = reading.landing
+        let actions = TranscriptFeedPlace.next(event, keeper: &anchor.keeper, landing: &landing, facts: facts, now: model.now())
+        if landing != reading.landing { reading.landing = landing }
+        for action in actions {
             switch action {
             case .hold(let id, let top):
                 let item = viewport.held?.rowID == id ? viewport.held?.itemID
@@ -691,6 +741,9 @@ struct ConversationFeed: View {
             case .place(let id, let top):
                 if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
                 viewport.noteCorrectionApplied()
+            case .aim(let id, let fraction):
+                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
+            case .released: pageIfNeeded(proxy)
             }
         }
     }
@@ -793,13 +846,13 @@ struct ConversationFeed: View {
             // this fresh feed has none yet.
             if reading.thread == nil {
                 if let item = anchor.itemID ?? rows.first(where: { $0.id == anchor.rowID })?.block.row.items.first {
-                    reading.jump(to: item, model: model, live: thread)
+                    reading.reopen(around: item, model: model, live: thread)
                 }
             }
         } else if let item = anchor.itemID {
             // Saved row outside the live tail (paged history, or the tail moved
             // on): rebuild the window around the saved item identity.
-            reading.jump(to: item, model: model, live: thread)
+            reading.reopen(around: item, model: model, live: thread)
         } else if reading.thread == nil {
             reading.retry(model: model, live: thread)
         }
@@ -856,6 +909,8 @@ struct ConversationFeed: View {
     /// Tells the bridge the reader left the end or came back to it, when that changed
     /// (`TranscriptEndRead`), never on each turn of a gesture near the end.
     private func endRead(moving: Bool) {
+        // Wherever a landing focus's scroll passes, the reader isn't there yet.
+        guard !reading.landing.holdsPlace else { return }
         let facts = TranscriptEndRead.Facts(
             fromEnd: Double(intent.metrics.bottom), viewport: Double(intent.metrics.viewport),
             moving: moving, windowOpen: reading.thread != nil, joined: reading.joined,
@@ -871,7 +926,8 @@ struct ConversationFeed: View {
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
-        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil else { return }
+        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
+            !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
         let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)

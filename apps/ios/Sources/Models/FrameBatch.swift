@@ -12,8 +12,8 @@ import QuartzCore
 /// (streaming text, a step finishing) keep the display frame's pace.
 ///
 /// Each frame is still acknowledged as it arrives, so the bridge sends the next one at once. A
-/// streaming edit in a later frame applies to the text a held frame will show (`text`), the text
-/// the bridge's ledger believes native holds.
+/// streaming edit in a later frame applies to the row a held frame will show (`row`), the row the
+/// bridge's ledger believes native holds.
 @MainActor final class FrameBatch {
     /// How long the first held frame waits for others to join it, in ms: about a display frame.
     nonisolated static let window = 12.0
@@ -29,9 +29,9 @@ import QuartzCore
     private(set) var addsRows = false
     /// When a flush last added rows, in ms.
     private var rowsAt: Double?
-    /// The text each held item row will show once applied, by thread, epoch and item; nil for a
+    /// The row each held item patch will show once applied, by thread, epoch and item; nil for a
     /// row a held patch removes.
-    private var texts: [String: String?] = [:]
+    private var rows: [String: TranscriptRow?] = [:]
     /// Threads (by id and epoch) a held reset clears: what they show now no longer counts.
     private var cleared: Set<String> = []
 
@@ -45,10 +45,10 @@ import QuartzCore
     /// When everything held should apply; nil while nothing is held.
     var due: Double? { heldSince.map { Self.due(heldSince: $0, addsRows: addsRows, rowsAt: rowsAt) } }
 
-    /// What an item of the thread `id` at `epoch` will show once everything held applies,
+    /// The row an item of the thread `id` at `epoch` will show once everything held applies,
     /// given what it shows now.
-    func text(_ id: String, _ epoch: Int, _ itemId: String, shown: () -> String?) -> String? {
-        if let held = texts[Self.key(id, epoch, itemId)] { return held }
+    func row(_ id: String, _ epoch: Int, _ itemId: String, shown: () -> TranscriptRow?) -> TranscriptRow? {
+        if let held = rows[Self.key(id, epoch, itemId)] { return held }
         return cleared.contains(Self.scope(id, epoch)) ? nil : shown()
     }
     /// Notes what `patch` will change once applied, for edits resolved after it.
@@ -57,16 +57,16 @@ import QuartzCore
         case .threadReset(let id, let epoch, _, _), .snapshotBegin(let id, let epoch, _, _):
             let scope = Self.scope(id, epoch)
             cleared.insert(scope)
-            texts = texts.filter { !$0.key.hasPrefix(scope) }
+            rows = rows.filter { !$0.key.hasPrefix(scope) }
         case .item(let id, let epoch, let itemId, let row, _):
-            texts[Self.key(id, epoch, itemId)] = .some(row?.text)
+            rows[Self.key(id, epoch, itemId)] = .some(row)
         default: break
         }
     }
-    /// What the batch knows of held text, to put back when a frame is turned down part way.
-    struct Mark { fileprivate let texts: [String: String?]; fileprivate let cleared: Set<String> }
-    func mark() -> Mark { Mark(texts: texts, cleared: cleared) }
-    func restore(_ mark: Mark) { texts = mark.texts; cleared = mark.cleared }
+    /// What the batch knows of held rows, to put back when a frame is turned down part way.
+    struct Mark { fileprivate let rows: [String: TranscriptRow?]; fileprivate let cleared: Set<String> }
+    func mark() -> Mark { Mark(rows: rows, cleared: cleared) }
+    func restore(_ mark: Mark) { rows = mark.rows; cleared = mark.cleared }
     /// Holds a resolved frame that arrived at `now`; `addsRows` when it adds rows to the open
     /// thread after it first loaded.
     func hold(_ patches: [BridgePatch], bytes: Int, at now: Double, addsRows: Bool) {
@@ -93,7 +93,7 @@ import QuartzCore
         bytes = 0
         heldSince = nil
         addsRows = false
-        texts = [:]
+        rows = [:]
         cleared = []
     }
     private static func scope(_ id: String, _ epoch: Int) -> String { "\(id)\u{0}\(epoch)\u{0}" }
