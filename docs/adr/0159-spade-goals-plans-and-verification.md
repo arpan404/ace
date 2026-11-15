@@ -7,6 +7,10 @@ work"). Extends [ADR 0144](0144-spade-autonomous-bots.md) decision 6 (the task a
 limits), [ADR 0135](0135-spade-research-and-oversight.md) (the review model) and
 [spade/docs/harness.md](../../spade/docs/harness.md) (events, compaction).
 
+Amended by [ADR 0162](0162-spade-model-routing.md): with no verifier model on the goal, the check
+runs on the bot's `verify` role (the strongest model the person already uses, not the bot's own,
+when one lists at least the bot's price).
+
 ## Context
 
 A bot's only durable task state is its latest `task_status {status, note}` and the latest `todo`

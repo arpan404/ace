@@ -61,7 +61,7 @@ A bot is **at its cap** when its spend this day (or month) is at least that cap.
 - `cap_reached` is stored in its conversation once per day or month the cap is first hit; the
   chat shows it as one bubble of the bot's.
 - The person's messages answer `402 {"error": "Research is at its daily cap of $1.00 until
-midnight."}`; `bot_message` to it answers the caller with that error; its routines and
+  midnight."}`; `bot_message` to it answers the caller with that error; its routines and
   heartbeat are skipped with that detail.
 
 Every model call (a step, compaction, a title, a review, research) is admitted against the caps
@@ -126,12 +126,14 @@ escaped inside a shell string (`\"password\":\"…\"`) is read the same way, and
 characters or more), a JWT (`eyJ…` in three dotted parts), or 32 or more characters of letters,
 digits, `-`, `_`, `+`, `/` and `=` holding a digit, a lowercase and an uppercase letter (so
 single-case hex such as commit hashes stays). A shell command is its own summary, with the same
-redaction. `spend` and `review` carry `cost_micros`.
+redaction. `spend` and `review` carry `cost_micros`, and with it `role` (`main`, `review`; ADR 0162).
 
 `GET /v1/agents/{id}/activity` takes `kind` (comma-separated kinds), `day` (`YYYY-MM-DD` in the
 person's zone), `q` (words, case-insensitive, all must appear in `name`, `summary`, `sentence` or `detail`), `before`
 (an event `seq`; entries before it) and `limit` (1 to 500, default 200). Answer:
-`{"entries": [Entry], "more": bool, "next_before": seq|null}`, newest first. Spade reads the
+`{"entries": [Entry], "more": bool, "next_before": seq|null, "spend_by_role": {"today": {role:
+micros}, "month": {…}}}`, newest first; `spend_by_role` comes from the ledger, so it counts
+helpers, checks, summaries and titles too. Spade reads the
 history in windows of 2,000 events from the newest, SQLite filtering by event type and day and
 the rows decoded outside the database lock, and at most 20,000 events per request: a page may
 be empty with `more` true. `next_before` is where the next page starts; pass it as `before`. A call or job started in a page and ended above
@@ -142,7 +144,8 @@ than the day.
 
 Off by default. `review` is set for every bot (`PUT /v1/oversight {review_default}`) or per bot
 (`PUT /v1/agents/{id}/oversight {review}`, `null` to follow the default). The review model is
-`review_model`, else the fast model, else the bot's own model.
+the bot's `review` role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)): its own
+override, else `review_model`, else the fast model, else the bot's own model.
 
 When the gate (gate.rs) decides **Run** for a call of risk `write`, and the bot's review is on,
 the engine asks the review model, as typed output `{verdict: "allow" | "escalate", reason}`:
@@ -189,7 +192,7 @@ cap (read only); `today_micros` and `month_micros` are every bot's spend togethe
 | `PUT /oversight`             | any of `time_zone`, `review_default`, `review_model`                           | `200 {"oversight"}`; `400` for an unknown zone or model |
 | `GET /agents/{id}/oversight` |                                                                                | `{"spending", "review"}`                                |
 | `PUT /agents/{id}/oversight` | any of `daily_cap_micros`, `monthly_cap_micros`, `review` (each may be `null`) | `200 {"spending", "review"}`; `400` for a negative cap  |
-| `GET /agents/{id}/activity`  | query as above                                                                 | `{"entries", "more"}`                                   |
+| `GET /agents/{id}/activity`  | query as above                                                                 | `{"entries", "more", "spend_by_role"}`                  |
 
 A cap of 0 is allowed and means the bot makes no model calls. Settings are kept in the `settings`
 table (`oversight` and `oversight:<agent id>`), deleted with the bot.

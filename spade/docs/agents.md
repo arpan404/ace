@@ -107,6 +107,46 @@ context comes from `context_length`, `context_window`, `max_context_length` or
 `max_input_tokens`. At most 4 MB, 5,000 models and 10 seconds. A failure is one line that never
 carries the key.
 
+## Models per role
+
+Each bot uses a model per role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)):
+`main` (its turns: the bot's model), `helper`, `verify` (the check of done), `review`, `compact`
+(summaries) and `title`. A role's model is the bot's override, else the global one, else the
+default:
+
+| Role                         | Default                                                                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `helper`, `compact`, `title` | the fast model (`fast_model`), else the bot's                                                                                                   |
+| `review`                     | the review model (oversight `review_model`, the global override), else the fast model, else the bot's                                           |
+| `verify`                     | the most expensive model the person already uses (bots', review, fast, new-bot) listing at least the bot's price, not the bot's; else the bot's |
+
+Strength is the listed input plus output price; unpriced models never win a default. An override
+whose model is gone is skipped. Roles other than `main` take endpoint models only, never `cli:`.
+Overrides are JSON settings (`model_roles`, `model_roles:{agent}`); a bot's go with it when it is
+deleted.
+
+- **Per call.** `helper {model}` takes a role name or `endpoint/model`. A model must be listed on
+  one of the person's endpoints and, when the bot has an `allowed` list, on it; anything else is
+  refused with the roles and the allowed models.
+- **Escalation.** With `escalate` on (the call's, else the bot's, else the global setting; off by
+  default) a helper that failed on another model reruns once on the bot's model, stored as job
+  `<job>~2`. Its result starts "(The helper failed on X, so it ran again on Y.)".
+- **Budget.** A step Spade starts on its own (`task_continued.nudge`) ends with `<budget>`: spent
+  today and this month against the caps, today's spend by role and each role's model. Information
+  only.
+- **Spend.** The ledger (`spend.role`) records each call's role; a helper's calls are `helper`,
+  rows from before the column `main`.
+- **Cache.** A role's model applies from its next new request; past prompts are never rewritten.
+  Compaction moves to the `compact` model only when that model's context holds the prompt (plus
+  8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
+  the person chose the model, its cold estimate is below the conversation model's cached one.
+
+API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, escalate}`) and
+`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source}], overrides: {roles, allowed,
+escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`, `default` or `own`).
+`main` is refused there: change the bot's model. `PUT /v1/models/roles {roles: {review}}` sets
+oversight's `review_model`.
+
 ## Faces
 
 A bot's character face is eight fields; clients draw it (the model and geometry live in
@@ -203,7 +243,7 @@ then.
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
-| `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}` |
+| `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
 | `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}` | `201 {"endpoint"}`                                         |
 | `PATCH /endpoints/{id}`                       | same fields but `preset`                                                   | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}`                      |                                                                            | `204` (its keychain key goes too); `409 {error, agents}`   |
@@ -230,8 +270,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

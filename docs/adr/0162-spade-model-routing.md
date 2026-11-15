@@ -7,6 +7,7 @@ ones for decisions, within the person's endpoints"). Builds on
 (CLI brains), [ADR 0135](0135-spade-research-and-oversight.md) (review model, caps),
 [ADR 0152](0152-spade-helpers.md) (helpers), [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md)
 (caps park, never end) and [ADR 0159](0159-spade-goals-plans-and-verification.md) (the verifier).
+Amends ADR 0159 decision 4: the verifier's default model is the `verify` role's.
 
 ## Context
 
@@ -35,6 +36,7 @@ its own way and no bot can choose.
    "Fast model" is the one `GET /v1/models` shows as `fast_model`. "Strength" is the listed
    price (input plus output per million tokens); an unpriced model (a flat plan, a local server)
    is never picked as stronger or cheaper by a default.
+
 2. **The person overrides, per bot and globally.** A role's model is the bot's override, else the
    global one, else the default. An override names a model of the person's endpoints; one whose
    endpoint or model is gone is skipped, never an error at call time. Roles other than `main`
