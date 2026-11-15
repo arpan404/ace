@@ -231,8 +231,9 @@ function SceneFrame(props: {
       data-scene-fill={props.fill}
       style={
         props.fill === "above"
-          ? // A frame whose page has another colour scheme than its element draws an opaque
-            // canvas; the scene page declares none, so neither does its element.
+          ? // A frame is drawn on an opaque canvas unless its page and its element agree on a
+            // colour scheme: the scene page names `light dark` (daemon suits/http.ts), so the
+            // element names none and stays clear over the UI in either scheme.
             { colorScheme: "normal" }
           : props.region
             ? { opacity: regionSceneOpacity(props.region) }

@@ -268,6 +268,10 @@ test("a celebration scene is served like any region's, on its own sandbox page",
     (match) => match[1],
   );
   expect(scripts).toEqual([sceneRuntimeFile, "confetti.js"]);
+  // A page that names its colour schemes is see-through over the UI wherever nothing is drawn.
+  expect(await (await fetch(origin + read.sceneUrls.celebration)).text()).toContain(
+    '<meta name="color-scheme" content="light dark">',
+  );
 });
 
 test("a region scene alone runs with the runtime beside it; a missing one is a problem", async () => {

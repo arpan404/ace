@@ -31,9 +31,11 @@ export const sceneRuntimeFile = `scene-runtime-${createHash("sha256").update(run
  * A scene's page: the runtime first (it makes the one canvas and speaks to ace), then the
  * Suit's scene file (`scene.js`, or a region's own), which calls `ace.scene({...})`. Both load
  * same-origin, as `script-src 'self'` asks. `script` is a checked root file name (`isSceneFile`).
+ * The page names its colour schemes: a frame whose page names none is drawn on an opaque white
+ * canvas when ace runs dark, and a celebration over the UI must stay clear where it draws nothing.
  */
 export const scenePageFor = (script: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light dark">
 <style>html,body{margin:0;height:100%;overflow:hidden;background:transparent}</style>
 </head><body><script src="${sceneRuntimeFile}"></script><script src="${script}"></script></body></html>
 `;
