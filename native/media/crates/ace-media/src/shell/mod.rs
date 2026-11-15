@@ -175,7 +175,9 @@ async fn serve(
         Err(error) => return fail(&format!("ingest websocket: {error}")),
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
-    // Clients' media connections (D1): loopback, plain WebSocket.
+    // Clients' media connections (D1): loopback only, plain WebSocket. Nothing binds beyond
+    // loopback until the TLS listener lands: `listen`'s remote part is taken and wiped, never
+    // served (remote clients use the relay, D2).
     let media_listener = match TcpListener::bind(("127.0.0.1", 0)).await {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("media listener: {error}")),

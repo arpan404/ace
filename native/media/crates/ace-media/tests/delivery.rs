@@ -488,3 +488,30 @@ fn a_client_that_stops_reading_is_still_cut_off_within_250_ms_of_its_revocation(
         "the stalled client's connection was still open after its revocation"
     );
 }
+
+#[test]
+fn the_direct_listener_stays_on_loopback_whatever_listen_names_until_tls_lands() {
+    let mut media = Media::spawn("loopback");
+    media.start();
+    // A port nobody holds, named as the remote listener's, with a certificate and key.
+    let port = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
+        Ok(probe) => probe.local_addr().map_or(0, |a| a.port()),
+        Err(error) => panic!("probe: {error}"),
+    };
+    let pem = b"-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n";
+    let key = b"-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----\n";
+    let mut payload = pem.to_vec();
+    payload.extend_from_slice(key);
+    media.send(
+        json!({ "type": "listen", "loopback": true, "remote": { "addresses": ["0.0.0.0"],
+                "port": port, "certificateBytes": pem.len(), "keyBytes": key.len() } }),
+        &payload,
+    );
+    settle(&mut media, "listened");
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "a remote listener opened before TLS"
+    );
+    // The loopback listener is the only one, and it is on 127.0.0.1.
+    assert!(TcpStream::connect(("127.0.0.1", media.listen_port as u16)).is_ok());
+}
