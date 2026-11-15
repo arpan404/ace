@@ -43,6 +43,7 @@ async function readIdentity(
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    monotonic: () => host.monotonicMs(),
   });
   const connection = client.connectionState();
   let stop = noop;

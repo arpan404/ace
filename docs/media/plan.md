@@ -1361,9 +1361,10 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   sandbox, web security, the debugging transport and the profile can't be changed from outside.
 - **Lifetime.** A guard owns Chrome and its profile from the moment it exists, on every path.
   Chrome runs in its own process group (Unix) or a kill-on-close job (Windows), and cleanup ends
-  the whole tree. If ace-media dies, Chrome exits because its debugging pipe closes (checked on
-  macOS and Windows); Linux also sets `PR_SET_PDEATHSIG`, from a reaper thread that lives as
-  long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
+  the whole tree. On Unix an independent guard blocks on an owner pipe and kills Chrome’s
+  process group at EOF: Chrome’s own debugging-pipe shutdown can abandon utility helpers.
+  On Windows the kill-on-close job ends the tree when ace-media dies. Linux also sets
+  `PR_SET_PDEATHSIG`, from a reaper thread that lives as long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
   `SingletonLock` holder gone) are reclaimed at start.
 - **Bounds.** The page's request head is read under an absolute deadline (one second per
   client), and the token is compared in constant time. Unread replies from the pipe (16), page

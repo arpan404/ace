@@ -64,7 +64,7 @@ impl Fixture {
             .collect();
         // File settings name files inside the fixture's directory.
         for (key, value) in &mut owned {
-            if key == "FAKE_ONCE" || key == "FAKE_LOG" {
+            if key == "FAKE_ONCE" || key == "FAKE_LOG" || key == "FAKE_FLOOD_ENDED" {
                 *value = dir.join(value.as_str()).display().to_string();
             }
         }
@@ -326,12 +326,24 @@ fn failed_launches_count_toward_the_restart_budget_and_back_off() -> Result<(), 
 }
 
 fn ended_by_flood(flood: &str, expected: &str) -> Result<(), CodecError> {
-    let (_fixture, options) = Fixture::new(&format!("flood-{expected}"), &[("FAKE_FLOOD", flood)])?;
+    let (fixture, options) = Fixture::new(
+        &format!("flood-{expected}"),
+        &[("FAKE_FLOOD", flood), ("FAKE_FLOOD_ENDED", "flood-ended")],
+    )?;
     let mut encoder = ChromeEncoder::new(options);
     encoder.configure(&spec(SIZE))?;
     encoder.encode(picture(SIZE, 0)?, false)?;
     // Nobody takes the chunks while the page floods.
-    std::thread::sleep(Duration::from_secs(1));
+    // Wait for the peer to observe socket shutdown without draining the queue.
+    // Polling the encoder early would consume the flood and prevent overflow.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !fixture.dir.join("flood-ended").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the flood output was never closed"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match encoder.poll_result() {

@@ -195,6 +195,25 @@ export function acceptsDelta(
   if (field === "output") return type === "tool_call" && toolKind === "shell";
   return type === "reasoning" || type === "notice" || (type === "message" && field === "text");
 }
+/**
+ * Whether `applyDelta(item, field, append)` would change `item`. Any text does; an empty append
+ * still opens a message's text part after a non-text part, and a shell call's first output
+ * summary. Anything else it touches (reasoning, notice text) stays as it was.
+ */
+export function deltaChanges(
+  item: Item,
+  field: "text" | "reasoning" | "output",
+  append: string,
+): boolean {
+  if (append.length) return true;
+  if (field === "output")
+    return (
+      item.type === "tool_call" &&
+      item.call.detail.kind === "shell" &&
+      item.call.detail.output === undefined
+    );
+  return item.type === "message" && field === "text" && item.parts.at(-1)?.type !== "text";
+}
 export function applyDelta(
   item: Item,
   field: "text" | "reasoning" | "output",

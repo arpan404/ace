@@ -59,6 +59,10 @@
         "mediaTicket": {
           "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
         },
+        "nextTicket": {
+          "const": true,
+          "type": "boolean"
+        },
         "protocolVersion": {
           "const": 1,
           "type": "number"

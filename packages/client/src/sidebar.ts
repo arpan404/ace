@@ -333,8 +333,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       },
     });
   }
+  /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
-    if (this.#refs) this.#subscribe();
+    if (this.#refs && !this.#wire) this.#subscribe();
   }
   disconnect(): void {
     if (this.#refs) this.#await(["disconnected"]);
