@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -248,6 +249,19 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
       expect(logged).not.toContain(b64(key));
     }
     expect(t.logs.some((line) => /^relay\.keys \{rs_[^}]+\}$/.test(line))).toBe(true);
+
+    // A crash while ace-media holds the stream's keys leaves no core file behind.
+    const pid = t.supervisor.snapshot().pid;
+    if (!pid) throw new Error("no pid");
+    process.kill(pid, "SIGABRT");
+    await client.closed;
+    await until(() => t.supervisor.snapshot().pid !== pid);
+    for (const path of [
+      `/cores/core.${pid}`,
+      join(process.cwd(), "core"),
+      join(process.cwd(), `core.${pid}`),
+    ])
+      expect(existsSync(path), path).toBe(false);
   });
 
   it("refuses media hellos that name another channel, lack a ticket, reuse one or come from another device", async () => {
