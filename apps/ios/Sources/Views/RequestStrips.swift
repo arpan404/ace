@@ -62,6 +62,8 @@ struct RequestStrip: View {
             let more = !(request.reason ?? "").isEmpty || !(request.description.isEmpty) || !request.remaining.isEmpty
             return (more ? [DockAction(id: "details", label: "Details", identifier: "approval.details", aside: true, run: review)] : []) + words
         case "plan_review":
+            // A plan too large to review here is approved on a computer.
+            if request.tooLargeToApprove { return [DockAction(id: "review", label: "Review", primary: true, identifier: "plan.review", run: review)] }
             return [DockAction(id: "review", label: "Review", identifier: "plan.review", run: review),
                     DockAction(id: "approve", label: "Approve", primary: true, enabled: open, identifier: "plan.approve") {
                         model.resolve(request, answer: ["kind": "plan", "decision": "approve"])
@@ -87,7 +89,7 @@ struct RequestSheet: View {
     let close: () -> Void
     var body: some View {
         if request.kind == "plan_review" {
-            PlanReviewSheet(plan: request.plan, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
+            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "", submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
                 close()
                 model.resolve(request, answer: answer)
             }
