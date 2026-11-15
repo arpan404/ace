@@ -64,7 +64,10 @@ async function rawDaemon() {
 }
 
 async function within(next: Promise<Buffer>, ms = 300): Promise<Buffer | undefined> {
-  return Promise.race([next, new Promise<undefined>((resolve) => setTimeout(resolve, ms))]);
+  return Promise.race([
+    next,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms)),
+  ]);
 }
 
 it("a client told it may send early is delivered once its daemon joins, in order and once", async () => {

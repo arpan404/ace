@@ -119,7 +119,7 @@ function stampedSockets(shaper: LinkShaper) {
         return real.bufferedAmount;
       },
       get protocol() {
-        return real.protocol;
+        return real.protocol ?? "";
       },
       addEventListener: real.addEventListener.bind(real),
       send(data: string | Uint8Array) {

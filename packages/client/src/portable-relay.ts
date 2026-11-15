@@ -45,7 +45,7 @@ export interface PortableRelay {
    * This relay holds an early frame (ADR 0155, step 1): it let this connection send early, or
    * its marker said so. A client without a grant may then offer to send early next time.
    */
-  readonly earlyCapable: boolean;
+  readonly earlyCapable?: boolean;
 }
 export interface PortableRelayOptions {
   relayUrl: string;

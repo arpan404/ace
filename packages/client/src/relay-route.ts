@@ -176,7 +176,7 @@ export function relayRoute(options: RelayRouteOptions): {
               if (stamp === epoch && !upgraded && grant === undefined) earlyKnown = false;
               throw error;
             }
-            earlyKnown = opened.earlyCapable;
+            earlyKnown = opened.earlyCapable === true;
             unopened = undefined;
             if (stamp !== epoch) {
               opened.close();

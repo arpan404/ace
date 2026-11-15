@@ -44,7 +44,10 @@ async function relayWithHost(limits: { ticketTimeoutMs?: number } = {}) {
 
 /** The next frame, or undefined when none comes within `ms`. */
 async function within(next: Promise<Buffer>, ms = 300): Promise<Buffer | undefined> {
-  return Promise.race([next, new Promise<undefined>((resolve) => setTimeout(resolve, ms))]);
+  return Promise.race([
+    next,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms)),
+  ]);
 }
 
 it("a client the relay let send early is delivered once its host joins, in order and once", async () => {
