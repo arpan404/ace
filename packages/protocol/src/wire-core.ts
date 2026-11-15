@@ -268,15 +268,19 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key
        * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
-       * error code and live-end reason). Unknown names are ignored; without a name the
-       * daemon sends the full shape.
+       * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
+       * only show, in snapshots, pages, turn steps and live item events, come without them and
+       * marked `rawOmitted`; `item.raw` reads them). Unknown names are ignored; without a name
+       * the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
       /**
        * Frame packing this client can undo: `lines` lets the daemon put several server messages
        * in one text frame, each one's JSON on its own line (joined by `\n`, which JSON text
-       * never holds raw), in the order they were sent. Unknown names are ignored; without
-       * `lines` every frame holds exactly one message.
+       * never holds raw), in the order they were sent. `short-deltas` lets an events message
+       * name its thread once (`threadId`) and carry each streamed delta as
+       * `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`, without its event id.
+       * Unknown names are ignored; without `lines` every frame holds exactly one message.
        */
       framing: z.array(z.string().max(32)).max(8).optional(),
       /**

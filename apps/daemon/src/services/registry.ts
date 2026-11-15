@@ -18,6 +18,7 @@ import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createTransfersSession } from "./transfers.ts";
 import { createLongThreadSession } from "./long-thread.ts";
+import { createItemRawSession } from "./item-raw.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
@@ -73,6 +74,7 @@ export const socketServiceFactories = [
   createFleetSession,
   createOutsideClientsSession,
   createLongThreadSession,
+  createItemRawSession,
   createPreviewClientSession,
   createAutomationsSession,
   createActivityReadsSession,
