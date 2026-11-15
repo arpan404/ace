@@ -65,6 +65,19 @@ describe("webhook automations", () => {
     expect(h.service.inbox().runs).toHaveLength(2);
   });
 
+  it("a delivery stays deduplicated after its run leaves the kept history", async () => {
+    const { h, webhooks } = setup();
+    const { hookId, secret } = webhooks().rotate("deploy");
+    const first = webhooks().receive(hookId, signed(secret));
+    await h.nextExecution(0);
+    await h.finish(0);
+    // Run history keeps the latest 1,000 settled runs; push the finished first one out of it.
+    for (let i = 2; i <= 1002; i++) webhooks().receive(hookId, signed(secret, { id: `evt_${i}` }));
+    expect(webhooks().receive(hookId, signed(secret)).body).toEqual(first.body);
+    h.restart();
+    expect(webhooks().receive(hookId, signed(secret)).body).toEqual(first.body);
+  });
+
   it("refuses each kind of bad request with its own status and starts no run", () => {
     const { h, webhooks } = setup();
     const { hookId, secret } = webhooks().rotate("deploy");

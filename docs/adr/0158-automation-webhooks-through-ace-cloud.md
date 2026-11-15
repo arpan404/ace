@@ -76,8 +76,10 @@ restart.
 
 6. **Replay protection uses the timestamp and the delivery id.** A timestamp more than five
    minutes from the daemon's clock is refused. The delivery id (`webhook-id`) becomes the run's
-   event key, `webhook:<id>`. Runs are already unique per automation and event key in SQLite, so
-   a retried delivery returns the run it started, before or after a restart.
+   event key, `webhook:<id>`, and a receipt in its own table maps it to its run until its
+   timestamp could no longer be accepted. Run history is pruned to each automation's latest
+   runs, so it can't be the only record. A retried delivery returns the run it started, before
+   or after a restart.
 
 7. **The JSON body becomes prompt variables, within limits, and excess is refused.** The body is
    at most 64 KiB and must be a JSON object, nested at most 8 deep, with at most 256 values. Its
