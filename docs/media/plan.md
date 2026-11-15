@@ -1309,8 +1309,9 @@ For scale, today's measurements (ADR 0147's Context): the Linux and Windows scre
   keys only. Protocol vectors are generated once; exporters regenerate only legacy-rule vectors.
 - Optional control fields use absence for none; explicit JSON null is rejected on both sides,
   including nested optionals. Shared control-boundary fixtures cover absent, present and null
-  for every optional field. Identifiers must be well-formed Unicode and contain at most 64
-  scalar values. Rust constrained values have private storage and checked constructors, so
+  for every optional field. Every string, including those inside `record.meta.data` and
+  `log.fields`, must be well-formed Unicode (no lone UTF-16 surrogates), and identifiers
+  contain at most 64 scalar values. Rust constrained values have private storage and checked constructors, so
   constructing a value cannot bypass the same validation its deserializer applies.
 
 ## K2 contract clarifications
