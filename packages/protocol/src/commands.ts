@@ -161,6 +161,12 @@ export const CommandPayload = z.discriminatedUnion("type", [
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,
     resolution: InteractionResolution,
+    /**
+     * The person was shown the whole request, read with `interaction.read` (ADR 0156). Without
+     * it, a client's affirmative answer to a request too large to send whole is refused
+     * (`request_not_read`); a decline or cancel never needs it.
+     */
+    readWhole: z.literal(true).optional(),
   }),
   z.object({ type: z.literal("background_task.stop"), taskId: BackgroundTaskId }),
 ]);

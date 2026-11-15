@@ -13,7 +13,7 @@ import { DiagnosticsHealth } from "./diagnostics.ts";
 import { Event, UsageUpdated } from "./events.ts";
 import { ForgeStackOperation } from "./forge-stacks.ts";
 import { ForgePrRef, ForgePrStatus } from "./forge.ts";
-import { CommandId, DeviceId, HostId, InstallId, ThreadId } from "./ids.ts";
+import { CommandId, DeviceId, HostId, InstallId, InteractionId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Capabilities } from "./provider.ts";
@@ -396,6 +396,18 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
      */
     limit: seq.positive().max(256 * 1024),
   }),
+  /**
+   * A page of a request's whole JSON, for one a thread sends only summarized (`truncated`,
+   * ADR 0156). From `offset` 0, then each reply's `nextOffset`, until `eof`.
+   */
+  z.object({
+    type: z.literal("interaction.read"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    interactionId: InteractionId,
+    /** UTF-16 code units into the request's JSON. */
+    offset: seq,
+  }),
   z.object({
     type: z.literal("items.page"),
     requestId: z.string().min(1),
@@ -596,6 +608,23 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     bytes: z.string(),
     eof: z.boolean(),
   }),
+  /**
+   * A page of the request's JSON (`InteractionRequest`), `text` from `offset` to `nextOffset` of
+   * `total` UTF-16 code units. `version` names the request a page is from: a reader whose pages
+   * differ in it starts again from 0, as the request was replaced meanwhile.
+   */
+  z.object({
+    type: z.literal("interaction.data"),
+    requestId: z.string(),
+    threadId: ThreadId,
+    interactionId: InteractionId,
+    version: z.string().min(1).max(64),
+    offset: seq,
+    nextOffset: seq,
+    total: seq,
+    text: z.string(),
+    eof: z.boolean(),
+  }),
   ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() })
     .refine(
       (page) =>
@@ -629,6 +658,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "unsubscribe",
   "command",
   "output.read",
+  "interaction.read",
   "items.page",
   "threads.page",
   "entities.page",
@@ -650,6 +680,7 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "commandResult",
   "error",
   "output.data",
+  "interaction.data",
   "items.page",
   "threads.page",
   "entities.page",

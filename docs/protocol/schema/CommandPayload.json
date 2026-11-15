@@ -2356,6 +2356,10 @@
         "interactionId": {
           "$ref": "https://ace.local/protocol/v1/InteractionId.json"
         },
+        "readWhole": {
+          "const": true,
+          "type": "boolean"
+        },
         "resolution": {
           "$ref": "https://ace.local/protocol/v1/InteractionResolution.json"
         },

@@ -2230,6 +2230,7 @@ Example:
 | type | yes | `"interaction.resolve"` |  |
 | interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
 | resolution | yes | [InteractionResolution.json](schema/InteractionResolution.json) |  |
+| readWhole | no | `true` |  |
 
 Example:
 
