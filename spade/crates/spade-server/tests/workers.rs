@@ -40,6 +40,20 @@ fn warm_up() -> Vec<Script> {
     ]
 }
 
+/// The reviewer's answer to the call before it (the fake model answers reviews in script order).
+fn approve() -> Script {
+    Script::reply("").plain(r#"{"verdict":"approve","reason":"It makes a worker for the task."}"#)
+}
+
+/// A Spade whose reviewer is the fake model.
+async fn start(scripts: Vec<Script>, tools: Vec<Arc<dyn Tool>>) -> Result<Spade> {
+    let options = Options {
+        reviewer: None,
+        ..Options::default()
+    };
+    Spade::start_with(scripts, tools, options).await
+}
+
 /// A step that makes worker `name` with `extra` arguments, then pauses.
 fn makes(name: &str, extra: Value) -> Script {
     let mut arguments = json!({ "name": name, "task": format!("{name}: find the sources.") });
@@ -53,7 +67,7 @@ fn makes(name: &str, extra: Value) -> Script {
         .call(&format!("pause-{name}"), "pause", json!({}))
 }
 
-/// An orchestrator on full access that has had its first turn: its id and conversation.
+/// An orchestrator that has had its first turn: its id and conversation.
 async fn lead(spade: &Spade) -> Result<(String, String)> {
     let agent = spade.new_agent("Lead", "").await?;
     let id = agent["id"].as_str().unwrap_or_default().to_owned();
@@ -61,13 +75,6 @@ async fn lead(spade: &Spade) -> Result<(String, String)> {
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    let (status, body) = spade
-        .patch(
-            &format!("/v1/agents/{id}"),
-            json!({ "access": "full_access" }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
     spade.say(&conversation, "Hi").await?;
     spade.wait_for(&conversation, "renamed").await?;
     Ok((id, conversation))
@@ -155,10 +162,11 @@ async fn a_made_worker_starts_on_its_brief_shows_under_its_maker_and_reports_onc
     let mut scripts = warm_up();
     scripts.extend([
         makes("Scout", json!({ "brief": "Find three sources on tides." })),
+        approve(),
         Script::reply("Found three sources."),
         Script::reply("Scout reported."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(500)])).await?;
+    let spade = start(scripts, tools(vec![pause(500)])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade
         .say(&lead_chat, "Research tides with a worker")
@@ -205,8 +213,8 @@ async fn a_made_worker_starts_on_its_brief_shows_under_its_maker_and_reports_onc
     );
     assert_eq!(
         spade.fake.seen().len(),
-        5,
-        "two warm-up calls, two steps of the lead, one of the worker: no title for the worker"
+        6,
+        "two warm-up calls, two steps of the lead, a review, one of the worker: no title for the worker"
     );
     let shown = tree(&spade, &lead_id).await?;
     let children = shown["children"].as_array().cloned().unwrap_or_default();
@@ -236,7 +244,8 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
     let send = FakeTool::new("send", Risk::Write, "sent");
     let mut scripts = warm_up();
     scripts.extend([
-        makes("Mailer", json!({ "access": "ask" })),
+        makes("Mailer", json!({})),
+        approve(),
         // The worker's step is slow: the lead's turn ends first.
         Script::reply("")
             .call("s1", "send", json!({}))
@@ -248,7 +257,7 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
         Script::reply("Sent the mail."),
         Script::reply("Mailer is done."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300), send])).await?;
+    let spade = start(scripts, tools(vec![pause(300), send])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade
         .say(&lead_chat, "Send the mail through a worker")
@@ -266,7 +275,6 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
     .await?;
 
     let mailer = named(&spade, "Mailer").await?;
-    assert_eq!(mailer["access"], "ask", "the access it was given");
     let mailer_chat = mailer["conversation"]
         .as_str()
         .unwrap_or_default()
@@ -310,7 +318,7 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
 }
 
 #[tokio::test]
-async fn a_worker_is_never_granted_a_tool_or_access_its_maker_lacks() -> Result {
+async fn a_worker_is_never_granted_a_tool_its_maker_lacks() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
         Script::reply("")
@@ -319,9 +327,10 @@ async fn a_worker_is_never_granted_a_tool_or_access_its_maker_lacks() -> Result 
                 "bot_create",
                 json!({ "name": "Greedy", "task": "Do it all.", "tools": ["web_search", "launch_rockets"] }),
             ),
+        approve(),
         Script::reply("I can't give it that."),
     ]);
-    let spade = Spade::start(scripts, Vec::new()).await?;
+    let spade = start(scripts, Vec::new()).await?;
     let (_, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Make a worker").await?;
     let events = quiet(&spade, &lead_chat).await?;
@@ -343,44 +352,20 @@ async fn a_worker_is_never_granted_a_tool_or_access_its_maker_lacks() -> Result 
 }
 
 #[tokio::test]
-async fn a_workers_access_follows_its_maker_down() -> Result {
-    let mut scripts = warm_up();
-    scripts.extend([
-        makes("Bold", json!({ "access": "full_access" })),
-        Script::reply("Done.").held(Duration::from_millis(100)),
-        Script::reply("Bold reported."),
-    ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
-    let (lead_id, lead_chat) = lead(&spade).await?;
-    spade.say(&lead_chat, "Make a bold worker").await?;
-    spade.wait_for(&lead_chat, "worker_reported").await?;
-    quiet(&spade, &lead_chat).await?;
-    let bold = named(&spade, "Bold").await?;
-    assert_eq!(bold["access"], "full_access");
-    // The person lowers the maker: its worker never acts with more.
-    let (status, _) = spade
-        .patch(&format!("/v1/agents/{lead_id}"), json!({ "access": "ask" }))
-        .await?;
-    assert_eq!(status, 200);
-    let bold = named(&spade, "Bold").await?;
-    assert_eq!(bold["access"], "ask", "never above its maker's");
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_subtree_at_its_budget_waits_and_carries_on_when_the_budget_is_raised() -> Result {
     let noop = FakeTool::new("noop", Risk::Read, "nothing");
     let mut scripts = warm_up();
     scripts.extend([
         // $0.00005: one model call (92 micros) passes it.
         makes("Thrifty", json!({ "budget_usd": 0.00005 })),
+        approve(),
         Script::reply("").call("n1", "noop", json!({})),
         Script::reply("Thrifty waits for budget."),
         // Raised: the worker carries on and finishes; the lead hears it.
         Script::reply("Finished on the new budget."),
         Script::reply("Thrifty finished."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300), noop])).await?;
+    let spade = start(scripts, tools(vec![pause(300), noop])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Do it cheaply").await?;
     let events = spade.wait_for(&lead_chat, "worker_reported").await?;
@@ -440,10 +425,11 @@ async fn a_workers_spend_counts_toward_its_makers_daily_cap() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
         makes("Spender", json!({})),
+        approve(),
         Script::reply("").call("n1", "noop", json!({})),
         Script::reply("Never said by the worker"),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300), noop])).await?;
+    let spade = start(scripts, tools(vec![pause(300), noop])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     // The lead's own spend so far is under the cap; with its worker's it is over.
     let lead_now = agent(&spade, |a| a["id"] == lead_id.as_str()).await?;
@@ -491,10 +477,11 @@ async fn stop_on_the_maker_stops_its_whole_subtree() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
         makes("Slow", json!({})),
+        approve(),
         Script::reply("Never finished").held(Duration::from_secs(5)),
         Script::reply("Slow is working."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
+    let spade = start(scripts, tools(vec![pause(300)])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Start slow work").await?;
     spade.wait_for(&lead_chat, "reply_finished").await?;
@@ -533,10 +520,11 @@ async fn deleting_a_maker_asks_then_keeps_its_workers_as_their_own_bots() -> Res
     let mut scripts = warm_up();
     scripts.extend([
         makes("Keeper", json!({})),
+        approve(),
         Script::reply("Kept going."),
         Script::reply("Keeper reported."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
+    let spade = start(scripts, tools(vec![pause(300)])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Make a worker").await?;
     spade.wait_for(&lead_chat, "worker_reported").await?;
@@ -563,10 +551,11 @@ async fn deleting_a_maker_with_stop_stops_its_workers_and_keeps_them() -> Result
     let mut scripts = warm_up();
     scripts.extend([
         makes("Halted", json!({})),
+        approve(),
         Script::reply("Never finished").held(Duration::from_secs(5)),
         Script::reply("Halted is working."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
+    let spade = start(scripts, tools(vec![pause(300)])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Start slow work").await?;
     spade.wait_for(&lead_chat, "reply_finished").await?;
@@ -603,6 +592,8 @@ async fn a_worker_past_the_setting_waits_queued_and_starts_when_one_settles() ->
                 json!({ "name": "Second", "task": "Two." }),
             )
             .call("p1", "pause", json!({})),
+        approve(),
+        approve(),
         Script::reply("First done.").held(Duration::from_millis(600)),
         Script::reply("Both made."),
         Script::reply("First reported."),
@@ -614,6 +605,7 @@ async fn a_worker_past_the_setting_waits_queued_and_starts_when_one_settles() ->
             workers_at_once: 1,
             ..spade_server::engine::Limits::default()
         },
+        reviewer: None,
         ..Options::default()
     };
     let spade = Spade::start_with(scripts, tools(vec![pause(300)]), options).await?;
@@ -662,6 +654,7 @@ async fn wait_for_a_worker_wakes_the_maker_when_it_reports() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
         makes("Later", json!({})),
+        approve(),
         Script::reply("Done later.").held(Duration::from_millis(800)),
         Script::reply("").call(
             "w1",
@@ -671,7 +664,7 @@ async fn wait_for_a_worker_wakes_the_maker_when_it_reports() -> Result {
         Script::reply("Waiting for Later."),
         Script::reply("Later is done; carrying on."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
+    let spade = start(scripts, tools(vec![pause(300)])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Wait for a worker").await?;
     spade.wait_for(&lead_chat, "wake_set").await?;
@@ -706,6 +699,7 @@ async fn wait_for_a_worker_wakes_the_maker_when_it_reports() -> Result {
 fn with_ace(home: &Path) -> Options {
     Options {
         ace_home: Some(home.to_path_buf()),
+        reviewer: None,
         ..Default::default()
     }
 }
@@ -763,6 +757,7 @@ async fn ace_children_of_a_delegate_show_in_the_tree_until_they_settle() -> Resu
     let mut scripts = warm_up();
     scripts.extend([
         delegating(),
+        approve(),
         Script::reply("I handed the fix to an agent."),
         Script::reply("The agent fixed the bug."),
     ]);
@@ -803,7 +798,11 @@ async fn stop_on_the_maker_cancels_its_ace_children_through_ace() -> Result {
     let home = tempfile::tempdir()?;
     let mcp = FakeMcp::start(ace_tools()).await;
     let mut scripts = warm_up();
-    scripts.extend([delegating(), Script::reply("I handed the fix to an agent.")]);
+    scripts.extend([
+        delegating(),
+        approve(),
+        Script::reply("I handed the fix to an agent."),
+    ]);
     let spade = Spade::start_with(scripts, Vec::new(), with_ace(home.path())).await?;
     connect(&spade, home.path(), &mcp).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
@@ -836,6 +835,7 @@ async fn a_worker_the_person_stops_wakes_a_maker_waiting_on_it() -> Result {
     let mut scripts = warm_up();
     scripts.extend([
         makes("Stuck", json!({})),
+        approve(),
         Script::reply("Never finished").held(Duration::from_secs(5)),
         Script::reply("").call(
             "w1",
@@ -845,7 +845,7 @@ async fn a_worker_the_person_stops_wakes_a_maker_waiting_on_it() -> Result {
         Script::reply("Waiting for Stuck."),
         Script::reply("Stuck was stopped; doing it myself."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300)])).await?;
+    let spade = start(scripts, tools(vec![pause(300)])).await?;
     let (_, lead_chat) = lead(&spade).await?;
     spade.say(&lead_chat, "Wait for a worker").await?;
     spade.wait_for(&lead_chat, "wake_set").await?;
@@ -883,10 +883,11 @@ async fn a_brief_written_after_reading_untrusted_content_reaches_the_worker_as_u
     scripts.extend([
         Script::reply("").call("r1", "read_page", json!({})),
         makes("Reader", json!({})),
+        approve(),
         Script::reply("Read it."),
         Script::reply("Reader reported."),
     ]);
-    let spade = Spade::start(scripts, tools(vec![pause(300), page])).await?;
+    let spade = start(scripts, tools(vec![pause(300), page])).await?;
     let (_, lead_chat) = lead(&spade).await?;
     spade
         .say(&lead_chat, "Read the page, then hand it on")

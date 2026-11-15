@@ -10,8 +10,8 @@
 //!   as slots free;
 //! - every model call is admitted against the budgets and caps on its path to the top
 //!   (`budget`);
-//! - grants pass down as subsets (`create`, [`Engine::narrow_registry`],
-//!   [`Engine::narrow_level`]).
+//! - grants pass down as subsets (`create`, [`Engine::narrow_registry`]); there is one access level, so
+//!   none is narrowed.
 
 mod budget;
 mod coordinate;
@@ -28,7 +28,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use spade_core::Event;
-use spade_core::autonomy::Access;
 use spade_core::tools::Registry;
 use spade_core::tree::{self, Link};
 
@@ -279,26 +278,6 @@ impl Engine {
             let name = def.spec.name.as_str();
             tree::allows(granted.as_deref(), name) && parent.get(name).is_some()
         })
-    }
-
-    /// A worker's access level: never above its parent's now.
-    pub(super) fn narrow_level(&self, id: &str, own: Access) -> Access {
-        let owner = self
-            .helper_of(id)
-            .map_or_else(|| id.to_owned(), |h| h.parent);
-        let Some(link) = self.worker_link(&owner) else {
-            return own;
-        };
-        let parent = &link.parent_conversation;
-        let known = lock(&self.levels).get(parent).copied();
-        let level = match known {
-            Some(level) => self.narrow_level(parent, level),
-            None => {
-                let events = self.load(parent).unwrap_or_default();
-                self.level(parent, &events)
-            }
-        };
-        tree::narrow(own, level)
     }
 
     /// Starts checking workers for reports: every worker is looked at now (a report owed from

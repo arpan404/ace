@@ -141,13 +141,6 @@ impl Engine {
             json!({ "id": link.parent, "name": name })
         });
         shown.insert("parent".into(), parent);
-        // The level it acts with: never above its maker's now.
-        if self.worker_link(id).is_some() {
-            shown.insert(
-                "access".into(),
-                self.narrow_level(id, activity.access).name().into(),
-            );
-        }
         shown.insert("workers".into(), activity.workers.into());
     }
 

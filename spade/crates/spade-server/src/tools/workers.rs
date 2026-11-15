@@ -35,7 +35,7 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
              goal and plan, listed under you. Use it for parallel parts with separate scopes that \
              outlive one answer; use a helper for reading you need once, ace's delegate for \
              code, and do sequential work yourself. The brief says the objective, what to hand \
-             back, the boundaries and what is ruled out. It gets your tools, access, connectors \
+             back, the boundaries and what is ruled out. It gets your tools, connectors \
              and plugins at most; budget_usd bounds what it and its own workers spend. It \
              answers at once; the worker reports back here when it settles.",
             json!({ "type": "object", "properties": {
@@ -43,7 +43,6 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
                 "task": { "type": "string", "description": "What it is for: its standing instructions." },
                 "brief": { "type": "string", "description": "Its first message; the task when unset." },
                 "model": { "type": "string", "description": "endpoint/model; yours when unset." },
-                "access": { "type": "string", "enum": ["ask", "auto_review", "full_access"], "description": "At most yours." },
                 "tools": { "type": "array", "items": { "type": "string" }, "description": "Only these of your tools; all of yours when unset." },
                 "connectors": { "type": "array", "items": { "type": "string" } },
                 "plugins": { "type": "array", "items": { "type": "string" } },

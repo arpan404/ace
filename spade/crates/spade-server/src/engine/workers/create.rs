@@ -1,13 +1,12 @@
 //! `bot_create` (ADR 0161): a bot makes a worker bot for part of its work. The worker is a bot
 //! of the person's like any other, listed under its maker, with its own conversation, workspace,
-//! goal and plan. It never gets more than its maker has: its access level, tools, connectors and
+//! goal and plan. It never gets more than its maker has: its tools, connectors and
 //! plugins are subsets of the maker's.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_core::autonomy::Access;
 use spade_core::event::{FromAgent, Known};
 use spade_core::tree::{self, Grants, Kind, Link, Started};
 use spade_core::{Event, context};
@@ -48,8 +47,6 @@ struct Arguments {
     brief: Option<String>,
     #[serde(default)]
     model: Option<String>,
-    #[serde(default)]
-    access: Option<String>,
     #[serde(default)]
     tools: Option<Vec<String>>,
     #[serde(default)]
@@ -130,14 +127,6 @@ impl Engine {
             ));
         }
         let events = self.load(caller).map_err(|e| e.to_string())?;
-        // Access: never above the maker's now.
-        let mine = self.level(caller, &events);
-        let asked = match arguments.access.as_deref() {
-            Some(word) => Access::parse(word)
-                .ok_or("access is ask, auto_review or full_access.".to_owned())?,
-            None => mine,
-        };
-        let access = tree::narrow(asked, mine);
         // Tools: only the maker's.
         let registry = self.registry_for(caller);
         if let Some(tools) = &arguments.tools {
@@ -178,7 +167,6 @@ impl Engine {
             parent_name: me.name.clone(),
             call: key.to_owned(),
             grants: Grants {
-                access: Some(access),
                 tools: arguments.tools.clone(),
                 connectors: connectors.iter().cloned().collect(),
                 plugins: plugins.iter().cloned().collect(),
@@ -193,7 +181,6 @@ impl Engine {
                 task: task.clone(),
                 model: model.clone(),
             }),
-            Event::Known(Known::AccessChanged { level: access }),
             // Named by its maker: no model call for a title.
             Event::renamed(name.clone()),
         ];

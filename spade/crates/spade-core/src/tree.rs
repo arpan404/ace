@@ -5,7 +5,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::autonomy::Access;
 use crate::event::{Event, Known};
 use crate::goal::view::State as Progress;
 use crate::transcript::Transcript;
@@ -56,10 +55,6 @@ impl Kind {
 /// What a worker was given when it was made: never more than its parent had.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grants {
-    /// The access level it was made with (already no higher than the parent's then). Read for
-    /// each call against the parent's level now, so it never rises above it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access: Option<Access>,
     /// The tools it may use, by name; `None` for all of its parent's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<String>>,

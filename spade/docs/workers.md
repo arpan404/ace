@@ -32,7 +32,7 @@ nothing more.
 
 | Tool             | Risk  | Arguments                                                                                         |
 | ---------------- | ----- | ------------------------------------------------------------------------------------------------- |
-| `bot_create`     | write | `name`, `task`, `brief?`, `model?`, `access?`, `tools?`, `connectors?`, `plugins?`, `budget_usd?` |
+| `bot_create`     | write | `name`, `task`, `brief?`, `model?`, `tools?`, `connectors?`, `plugins?`, `budget_usd?` |
 | `worker_message` | write | `worker`, `text`                                                                                  |
 | `worker_status`  | read  | `worker?`                                                                                         |
 | `worker_result`  | read  | `worker` (untrusted output)                                                                       |
@@ -52,8 +52,8 @@ thread id or role), or one of its helpers (by job). `wait_for` takes
   - tools, connectors or plugins the maker lacks;
   - a budget that isn't a positive amount.
 - **Grants.**
-  - Access is the lower of `access` and the maker's level. It is read again for each call
-    against the maker's level now, and the roster's `access` for a worker is that level.
+  - There is one access level, the auto-review, so nothing narrows and `bot_create` takes no
+    `access`.
   - Tools are the grant (`tools`, all of the maker's when unset) intersected with what the maker
     may use now. `tool_search` and `call_tool` are always kept.
   - Connectors and plugins named are copied from the maker's at creation; a new bot has none of

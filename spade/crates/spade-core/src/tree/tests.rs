@@ -17,7 +17,7 @@ fn link(budget: Option<u64>) -> Value {
         "parent_conversation": "c1",
         "parent_name": "Lead",
         "call": "c1.call-1",
-        "grants": { "access": "auto_review", "tools": ["web_search"] },
+        "grants": { "tools": ["web_search"] },
         "brief": "Find the sources."
     });
     if let Some(budget) = budget {
@@ -341,17 +341,7 @@ fn ace_children_follow_delegate_and_wait_results_and_a_stop() {
 }
 
 #[test]
-fn a_worker_never_gets_more_access_or_tools_than_its_parent() {
-    use Access::{Ask, AutoReview, FullAccess};
-    let cases = [
-        (FullAccess, Ask, Ask),
-        (FullAccess, AutoReview, AutoReview),
-        (Ask, FullAccess, Ask),
-        (AutoReview, AutoReview, AutoReview),
-    ];
-    for (own, parent, expected) in cases {
-        assert_eq!(narrow(own, parent), expected, "{own:?} under {parent:?}");
-    }
+fn a_worker_never_gets_more_tools_than_its_parent() {
     let granted = vec!["web_search".to_owned()];
     assert!(allows(Some(&granted), "web_search"));
     assert!(!allows(Some(&granted), "shell"));

@@ -18,7 +18,7 @@ short-lived and hidden, and they answer once. `bot_message` reaches a bot the pe
 returns only that bot's first finished reply. `delegate` starts ace's coding agents, but the bot
 only hears back when its wait job ends, and nothing shows them as the bot's children. No tool
 creates a bot. Nothing gives part of a bot's work its own spend budget, and nothing stops a bot
-from handing a worker more access than it has itself.
+from handing a worker more tools or connectors than it has itself.
 
 Published practice is mixed on multi-agent work. An orchestrator with workers helps on
 breadth-first, parallel work, and costs several times the tokens of one agent. It hurts on
@@ -41,7 +41,7 @@ comes back up is checked against facts rather than taken at a worker's word.
    ace agents for code. Every brief says the objective, the output, the boundaries and what is
    already ruled out.
 
-2. **`bot_create {name, task, brief?, model?, access?, tools?, connectors?, plugins?,
+2. **`bot_create {name, task, brief?, model?, tools?, connectors?, plugins?,
    budget_usd?}`** creates a bot and answers at once with its id. `task` becomes the worker's
    standing task (the cached prompt top, ADR 0126); `brief` (else `task`) is its first message,
    which starts it. The model defaults to the orchestrator's. A call that runs again (a restart)
@@ -53,8 +53,8 @@ comes back up is checked against facts rather than taken at a worker's word.
    at start.
 
 3. **Grants pass down as subsets.** A worker never has more than its parent:
-   - **access**: the lower of what was asked and the parent's level, read again for each call,
-     so lowering the parent lowers the worker;
+   - **access**: there is one level, the auto-review ([ADR 0163](0163-spade-auto-review-only.md)),
+     so there is nothing to narrow and `bot_create` takes no `access`;
    - **tools**: `tools` names a subset of the parent's tools (unset: all of them); the worker's
      tools are its grant intersected with what its parent may use now, so a connector or plugin
      the person takes from the parent goes from the worker too. A name the parent lacks is
@@ -184,7 +184,7 @@ ace:
   on it;
 - a subtree at its budget parks and carries on when the budget is raised;
 - a worker's spend counts toward its orchestrator's cap;
-- a worker is never granted a tool or access level its parent lacks;
+- a worker is never granted a tool its parent lacks;
 - Stop on the orchestrator stops the subtree;
 - deleting asks, then stops or keeps the workers;
 - a worker past the concurrency setting waits queued and starts when one settles;
