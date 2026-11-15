@@ -1,4 +1,4 @@
-import { ClientCore, defaultLimits, type TransportEvents } from "./index.ts";
+import { ClientCore, ClientError, defaultLimits, type TransportEvents } from "./index.ts";
 import { ClientMessage, DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 
@@ -61,3 +61,18 @@ for (const [name, result] of Object.entries(answers)) {
     await expect(reply).resolves.toEqual({ type: "media.connect.result", requestId, result });
   });
 }
+
+test("a malformed media.connect answer is refused, never resolved", async () => {
+  const { client, sent, deliver } = await connected();
+  const reply = client.request({ type: "media.connect" });
+  const asked = () =>
+    sent.find((message) => (message as { type?: string }).type === "media.connect");
+  for (let tries = 0; tries < 200 && !asked(); tries++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  const request = ClientMessage.parse(asked());
+  const requestId = "requestId" in request ? request.requestId : "";
+  // Granted without its ticket or connection.
+  deliver({ type: "media.connect.result", requestId, result: { ok: true, expiresAt: 1 } });
+  // An unreadable frame breaks the connection, and the request ends with it.
+  await expect(reply).rejects.toBeInstanceOf(ClientError);
+});
