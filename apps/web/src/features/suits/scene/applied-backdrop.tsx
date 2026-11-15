@@ -26,7 +26,8 @@ export function AppliedSuitBackdrop(props: {
       <SceneBackdrop
         sceneUrl={url}
         scheme={resolved.scheme}
-        reduceMotion={resolved.reduceMotion}
+        reduceMotion={resolved.backdropMotion === "still"}
+        halfRate={resolved.backdropMotion === "reduced"}
         signals={scenes.signals}
         frames={scenes.frames}
         onStopped={(why) => scenes.stop(suit, "app", why)}

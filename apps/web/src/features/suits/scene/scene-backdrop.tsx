@@ -24,6 +24,8 @@ export interface SuitBackdropProps {
   sceneUrl: string | null;
   scheme: Scheme;
   reduceMotion: boolean;
+  /** Reduced backdrop motion: the scene ticks at half the rate. */
+  halfRate?: boolean | undefined;
   /** The scene failed and was taken down; the Suit carries on with its colours alone. */
   onStopped?: ((stop: SceneStop, sceneUrl: string) => void) | undefined;
 }
@@ -63,6 +65,7 @@ export function SceneBackdrop(props: SceneBackdropProps) {
       sceneUrl={sceneUrl}
       scheme={props.scheme}
       reduceMotion={props.reduceMotion}
+      halfRate={props.halfRate ?? false}
       signals={props.signals}
       frames={props.frames}
       fill={props.fill ?? "window"}
@@ -117,6 +120,7 @@ function SceneFrame(props: {
   sceneUrl: string;
   scheme: Scheme;
   reduceMotion: boolean;
+  halfRate: boolean;
   signals: SignalFeed;
   frames: SceneFrames | undefined;
   fill: "window" | "region" | "above";
@@ -152,13 +156,14 @@ function SceneFrame(props: {
       for (const message of queued.splice(0)) element.contentWindow?.postMessage(message, "*");
       scene.start();
     };
-    const { scheme, reduceMotion, frames, fill, region, wake } = latest.current;
+    const { scheme, reduceMotion, halfRate, frames, fill, region, wake } = latest.current;
     const viewport = () => (fill === "region" ? regionViewport(element) : windowViewport(window));
     const scene = createSceneController(
       {
         ...viewport(),
         scheme,
         reduceMotion,
+        halfRate,
         visible: documentVisibility.visible(),
         focused: document.hasFocus(),
         lowPower: false,
@@ -217,6 +222,7 @@ function SceneFrame(props: {
 
   useEffect(() => controller.current?.setScheme(props.scheme), [props.scheme]);
   useEffect(() => controller.current?.setReduceMotion(props.reduceMotion), [props.reduceMotion]);
+  useEffect(() => controller.current?.setHalfRate(props.halfRate), [props.halfRate]);
   const { signals } = props;
   useEffect(() => signals.watch((signal) => controller.current?.signal(signal)), [signals]);
 

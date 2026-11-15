@@ -1,5 +1,6 @@
 import type { SceneHostMessage } from "@ace/protocol/suits";
 import { expect, test } from "vitest";
+import { createSceneBeat } from "./scene-beat.ts";
 import {
   createSceneController,
   messageFromScene,
@@ -103,6 +104,48 @@ test("a ready scene gets at most 30 ticks a second, each only after the last was
   // 1 s of a prompt scene: 30 or 31 ticks counting the first one at 0 ms.
   expect(ticks().length).toBeGreaterThanOrEqual(30);
   expect(ticks().length).toBeLessThanOrEqual(31);
+});
+
+test("Reduced backdrop motion halves the tick rate and signals still play", () => {
+  const { controller, ticks, play, sent } = scene({ halfRate: true });
+  controller.start();
+  controller.receive({ type: "ready" });
+  play(1000);
+  expect(ticks().length).toBeGreaterThanOrEqual(15);
+  expect(ticks().length).toBeLessThanOrEqual(16);
+  controller.signal("done");
+  expect(sent.at(-1)).toEqual({ type: "signal", signal: "done" });
+
+  // Back to Full: the next second runs at 30 again.
+  controller.setHalfRate(false);
+  const before = ticks().length;
+  play(1000);
+  expect(ticks().length - before).toBeGreaterThanOrEqual(29);
+});
+
+test("Reduced backdrop motion halves the rate on the page's shared clock too", () => {
+  const time = manualTime();
+  const sent: SceneHostMessage[] = [];
+  const controller = createSceneController(
+    { ...start, halfRate: true },
+    {
+      clock: time.clock,
+      scheduler: time.scheduler,
+      frames: createSceneBeat(time),
+      post: (message) => sent.push(message),
+      stopped: () => {},
+    },
+  );
+  controller.start();
+  controller.receive({ type: "ready" });
+  for (let passed = 0; passed < 1000; passed += 10) {
+    time.advance(10);
+    const last = sent.at(-1);
+    if (last?.type === "tick") controller.receive({ type: "drawn", time: last.time });
+  }
+  const ticks = sent.filter((message) => message.type === "tick").length;
+  expect(ticks).toBeGreaterThanOrEqual(15);
+  expect(ticks).toBeLessThanOrEqual(16);
 });
 
 test("a scene that has not answered its last tick gets no new one", () => {

@@ -3,7 +3,7 @@ import type { SuitSceneRegion } from "@ace/protocol/suit-parts";
 
 /**
  * What decides a scene's frames (ADR 0150, "Scenes"). ace owns the clock: this sends `init`,
- * then at most 30 ticks a second while the scene may run, and pauses it when the page is hidden,
+ * then at most 30 ticks a second while the scene may run (15 at Reduced backdrop motion), and pauses it when the page is hidden,
  * the window has been blurred for 10 s, the device saves power, or Reduce motion is on (one
  * still frame). It also watches the scene: no `ready` within 3 s, an `error`, or three frames in
  * a row drawn more than 100 ms after their tick stop it for good. Pure: time and timers come in.
@@ -40,6 +40,8 @@ export interface SceneViewport {
 export interface SceneStart extends SceneViewport {
   scheme: Scheme;
   reduceMotion: boolean;
+  /** Reduced backdrop motion: half the tick rate; signals still play. */
+  halfRate?: boolean | undefined;
   visible: boolean;
   focused: boolean;
   lowPower: boolean;
@@ -71,6 +73,7 @@ export interface SceneController {
   setFocused(focused: boolean): void;
   setLowPower(lowPower: boolean): void;
   setReduceMotion(reduceMotion: boolean): void;
+  setHalfRate(halfRate: boolean): void;
   setScheme(scheme: Scheme): void;
   resize(viewport: SceneViewport): void;
   signal(signal: SceneSignal): void;
@@ -128,9 +131,20 @@ export function createSceneController(
     !facts.reduceMotion;
   const now = () => (ticking ? sceneTime + clock.now() - runningSince : sceneTime);
 
-  /** Asks for the next frame `wait` ms on (its own clock) or at its turn (a shared one). */
-  const nextFrame = (wait: number) =>
-    deps.frames ? deps.frames.next(frameDue) : scheduler.after(wait, frameDue);
+  const frameMs = () => (facts.halfRate ? sceneFrameMs * 2 : sceneFrameMs);
+  /**
+   * Asks for the next frame `wait` ms on (its own clock) or at its turn (a shared one, which
+   * paces 30 a second: a slower rate waits out its time first, then takes its turn).
+   */
+  const nextFrame = (wait: number) => {
+    const { frames } = deps;
+    if (!frames) return scheduler.after(wait, frameDue);
+    if (wait <= sceneFrameMs) return frames.next(frameDue);
+    let cancel = scheduler.after(wait, () => {
+      cancel = frames.next(frameDue);
+    });
+    return () => cancel();
+  };
   const sendTick = () => {
     const time = now();
     lastSentAt = clock.now();
@@ -155,7 +169,7 @@ export function createSceneController(
       if (phase === "over") return;
     }
     sendTick();
-    cancelTick = nextFrame(sceneFrameMs);
+    cancelTick = nextFrame(frameMs());
   };
   /** One frame for a scene that may not move: under Reduce motion it shows as a still. */
   const stillFrame = () => {
@@ -169,8 +183,8 @@ export function createSceneController(
       pauseSent = false;
       ticking = true;
       runningSince = clock.now();
-      // Never faster than 30 a second, even across a quick pause and resume.
-      const wait = Math.max(0, lastSentAt + sceneFrameMs - clock.now());
+      // Never faster than the rate, even across a quick pause and resume.
+      const wait = Math.max(0, lastSentAt + frameMs() - clock.now());
       cancelTick = nextFrame(wait);
     } else if (!mayRun() && (ticking || !pauseSent)) {
       if (ticking) sceneTime += clock.now() - runningSince;
@@ -257,6 +271,10 @@ export function createSceneController(
       post({ type: "motion", reduceMotion });
       update();
       stillFrame();
+    },
+    setHalfRate(halfRate) {
+      // The next frame is asked for at the new rate.
+      facts.halfRate = halfRate;
     },
     setScheme(scheme) {
       if (facts.scheme === scheme) return;

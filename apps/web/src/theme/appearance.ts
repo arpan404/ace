@@ -22,6 +22,12 @@ export type SurfaceSetting = "translucent" | "solid";
 /** "on" reduces motion; "system" follows `prefers-reduced-motion`. */
 export const ReduceMotion = z.enum(["system", "on", "off"]);
 export type ReduceMotion = z.infer<typeof ReduceMotion>;
+/**
+ * How much a look's scene moves: Full as drawn, Reduced at half the tick rate (signals still
+ * play), Still one still frame. Reduce motion always means Still.
+ */
+export const BackdropMotion = z.enum(["full", "reduced", "still"]);
+export type BackdropMotion = z.infer<typeof BackdropMotion>;
 export const Density = z.enum(densityIds);
 export type Density = z.infer<typeof Density>;
 export const TranscriptSize = z.enum(transcriptSizeIds);
@@ -39,6 +45,7 @@ export const Appearance = z.object({
    */
   translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),
+  backdropMotion: z.catch(BackdropMotion, "full"),
   density: z.catch(Density, "comfortable"),
   transcriptSize: z.catch(TranscriptSize, "default"),
   /** The Suit on this device (ADR 0150); it replaces the theme's palette while it can apply. */
@@ -53,6 +60,7 @@ export const defaultAppearance: Appearance = {
   customAccent: defaultCustomAccent,
   translucency: defaultTranslucency,
   reduceMotion: "system",
+  backdropMotion: "full",
   density: "comfortable",
   transcriptSize: "default",
   suit: null,
@@ -104,6 +112,8 @@ export interface ResolvedAppearance {
   /** The translucency on screen: the setting, or 0 wherever the layers are solid. */
   translucency: number;
   reduceMotion: boolean;
+  /** How a scene moves on screen: the setting, or Still while motion is reduced. */
+  backdropMotion: BackdropMotion;
 }
 
 /** Whether a theme's floating layers can be glass at all in `scheme`. */
@@ -128,16 +138,16 @@ export function resolveAppearance(
     : themeHasGlass(appearance.theme, scheme);
   const solid =
     translucency === 0 || system.reducedTransparency || system.softwareRendering || !glass;
+  const reduceMotion =
+    appearance.reduceMotion === "system" ? system.reducedMotion : appearance.reduceMotion === "on";
   return {
     theme: appearance.theme,
     suit: suit?.summary.id ?? null,
     scheme,
     surface: solid ? "solid" : "translucent",
     translucency: solid ? 0 : translucency,
-    reduceMotion:
-      appearance.reduceMotion === "system"
-        ? system.reducedMotion
-        : appearance.reduceMotion === "on",
+    reduceMotion,
+    backdropMotion: reduceMotion ? "still" : appearance.backdropMotion,
   };
 }
 

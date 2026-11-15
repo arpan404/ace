@@ -130,7 +130,10 @@ export function SuitScenesProvider(props: {
   const [playing, setPlaying] = useState<{ cue: CelebrationCue; turn: number } | null>(null);
   const facts = useRef({ hasScene: false, reduceMotion: false });
   useEffect(() => {
-    facts.current = { hasScene: celebrationUrl !== null, reduceMotion: resolved.reduceMotion };
+    facts.current = {
+      hasScene: celebrationUrl !== null,
+      reduceMotion: resolved.backdropMotion === "still",
+    };
   });
   const celebrate = useCallback(
     (cue: CelebrationCue) => {
@@ -140,8 +143,8 @@ export function SuitScenesProvider(props: {
     [gate],
   );
   const ended = useCallback(() => setPlaying(null), []);
-  // A celebration cut short by Reduce motion or a new Suit doesn't come back when it lifts.
-  const mayPlay = celebrationUrl !== null && !resolved.reduceMotion;
+  // A celebration cut short by a still backdrop or a new Suit doesn't come back when it lifts.
+  const mayPlay = celebrationUrl !== null && resolved.backdropMotion !== "still";
   if (!mayPlay && playing) setPlaying(null);
   return (
     <ScenesContext.Provider value={value}>
@@ -185,7 +188,8 @@ export function RegionScene(props: { region: Exclude<SuitSceneRegion, "app"> }) 
     <SceneBackdrop
       sceneUrl={url}
       scheme={resolved.scheme}
-      reduceMotion={resolved.reduceMotion}
+      reduceMotion={resolved.backdropMotion === "still"}
+      halfRate={resolved.backdropMotion === "reduced"}
       signals={scenes.signals}
       frames={scenes.frames}
       fill="region"
