@@ -41,7 +41,8 @@ import SwiftUI
         case "approval": [deny, allow].compactMap { $0 }
         case "question": [request.unanswerable == true ? Word(id: "open", label: "Open", primary: true, run: open)
                                                         : Word(id: "answer", label: "Answer", primary: true, run: review)]
-        case "browser_help": [Word(id: "open", label: "Open", primary: true, run: open)]
+        // Browser help is answered in the thread; a request too large to send, on a computer.
+        case "browser_help", "too_large": [Word(id: "open", label: "Open", primary: true, run: open)]
         default: [Word(id: "review", label: "Review", primary: true, run: review)]
         }
     }
@@ -76,6 +77,13 @@ enum NeedWords {
     /// The run's sentence: who asks for what ("Codex wants to run a command").
     static func sentence(_ request: ApprovalRow) -> String {
         request.strip?.sentence ?? request.heading ?? request.title
+    }
+    /// Where the shown request stands among those waiting: "1 of 3"; "1 of 231, 200 read" when
+    /// the phone's read stopped before finding them all. Nil for one alone.
+    static func position(total: Int, loaded: Int?) -> String? {
+        guard total > 1 else { return nil }
+        guard let loaded, loaded < total else { return "1 of \(total)" }
+        return "1 of \(total), \(loaded) read"
     }
     /// "3 need you" for the top of the list; nil while nothing does.
     static func count(_ total: Int) -> String? {

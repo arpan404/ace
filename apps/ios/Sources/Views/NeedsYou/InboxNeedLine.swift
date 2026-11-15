@@ -9,6 +9,8 @@ import SwiftUI
 struct InboxNeedLine: View {
     let requests: [ApprovalRow]
     let total: Int
+    /// How many were read, when the phone's read stopped before finding them all.
+    var loaded: Int? = nil
     let model: ClientModel
     let threadId: String
     /// Opens the thread, for what the phone answers there (browser help, long questions).
@@ -20,20 +22,25 @@ struct InboxNeedLine: View {
     var spoken: String? {
         guard let request = requests.first else { return nil }
         let subject = request.kind == "approval" && !request.command.isEmpty ? request.command : NeedWords.subject(request)
-        let count = total > 1 ? "1 of \(total) requests" : nil
+        let count = NeedWords.position(total: total, loaded: loaded).map { _ in spokenPosition }
         return [NeedWords.sentence(request), subject, count].compactMap { $0 }.joined(separator: ", ")
+    }
+
+    private var spokenPosition: String {
+        let read = loaded.map { $0 < total ? ", \($0) read on this phone" : "" } ?? ""
+        return "1 of \(total) requests" + read
     }
 
     var body: some View {
         if let request = requests.first {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 NeedSubject(request: request)
-                if total > 1 {
-                    Text("1 of \(total)")
+                if let position = NeedWords.position(total: total, loaded: loaded) {
+                    Text(position)
                         .aceFont(AceDesign.TextRole.time, relativeTo: .caption).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .fixedSize()
-                        .accessibilityLabel("1 of \(total) requests")
+                        .accessibilityLabel(spokenPosition)
                 }
                 // The words' own inset sits outside the row's trailing edge, so they end with it.
                 words(request).fixedSize().padding(.trailing, -AceDesign.Space.stripWord)
