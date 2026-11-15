@@ -3,8 +3,12 @@ import {
   afterFailure,
   afterSuccess,
   pathTiming,
+  missesToFail,
   pingEvery,
+  pongDeadline,
   raceOrder,
+  raceStagger,
+  rttSample,
   smoothRtt,
   standbyFor,
   standbyRetryMs,
@@ -15,9 +19,11 @@ import {
 } from "./path-plan.ts";
 import { racingTransport, type MachineRoute } from "./path-race.ts";
 import { GRANT_EXPIRED_CLOSE, GRANT_RETRY_MS } from "./grant-keeper.ts";
+import { defaultMonotonic } from "./monotonic.ts";
 export type { MachineRoute } from "./path-race.ts";
 import { ClientError, type ConnectionState, type Scheduler } from "./types.ts";
 import type { Selection } from "./observable.ts";
+import type { MachinePathKind } from "@ace/protocol";
 
 /** What the manager needs from the connection it moves (`Connection`). */
 export interface PathConnection {
@@ -29,6 +35,20 @@ export interface PathConnection {
   failover(reason: string): void;
   setStandby(standby: PathStandby | undefined): void;
   onWrongHost(refused: (() => void) | undefined): void;
+  /** This manager pings the active path: the connection's own heartbeat stands down. */
+  pingedElsewhere?(on: boolean): void;
+  /** A wake probe waits the active path's pong deadline, from this manager's estimate. */
+  probeDeadline?(deadline: (() => number | undefined) | undefined): void;
+}
+
+/** The active path's measured round trip (`Multipath.linkEstimate`). */
+export interface LinkEstimate {
+  /** Smoothed round trip in ms, from the active path's pings (as TCP's SRTT). */
+  rttMs: number;
+  /** When it last took a sample, on the manager's clock (`now`). */
+  at: number;
+  /** Which path it measures. */
+  path: MachinePathKind;
 }
 
 /** Where a dropped active path fails over to; `used` hears the active path's close code. */
@@ -53,10 +73,20 @@ export interface MultipathOptions {
   /** The paths this platform can use securely right now, from what the machine advertised. */
   routes(): readonly MachineRoute[];
   scheduler: Scheduler;
+  /**
+   * The wall clock, only for moments shown or kept: when the link estimate was last sampled
+   * (`linkEstimate().at`). Never for a duration.
+   */
   now(): number;
-  /** High resolution, for the swap's duration (`performance.now`); `now` when absent. */
+  /**
+   * The monotonic clock every duration here is measured on (ADR 0150): round-trip samples,
+   * rests, holds, the race stagger and swap timing. `clock`, else `performance.now()`, when
+   * absent.
+   */
+  monotonic?(): number;
+  /** High resolution, for the swap's duration (`performance.now`); `monotonic` when absent. */
   clock?(): number;
-  /** Whether the app is in front: pings are 5 s apart then, 15 s otherwise. */
+  /** Whether the app is in front: pings are 5 s apart then, 25 s otherwise. */
   visible?(): boolean;
   /** The path that won last time, tried first. */
   lastWinner?: string | undefined;
@@ -103,13 +133,20 @@ export class Multipath {
   #switching = false;
   #openingStandby = false;
   #lastWinner: string | undefined;
+  /** The active path's missed pongs in a row. */
+  #misses = 0;
+  /** How long the last race took to open its winner: the next race's stagger follows it. */
+  #lastOpenMs: number | undefined;
   /** Paths that reached another daemon: never used again by this manager. */
   #refused = new Set<string>();
   #closed = false;
   /** How long the last swap held the client, in ms. */
   lastSwapMs: number | undefined;
+  /** The clock every duration is measured on (`MultipathOptions.monotonic`). */
+  #elapsed: () => number;
   constructor(options: MultipathOptions) {
     this.#options = options;
+    this.#elapsed = options.monotonic ?? options.clock ?? defaultMonotonic;
     this.#lastWinner = options.lastWinner;
   }
   /** The path the connection uses now; undefined while connecting. */
@@ -127,15 +164,18 @@ export class Multipath {
         const order = raceOrder(
           this.#routes().map((route) => route.path),
           this.#health,
-          this.#options.now(),
+          this.#elapsed(),
           this.#lastWinner,
         );
         const routes = this.#routes();
+        const startedAt = this.#elapsed();
         return racingTransport({
           routes: order.flatMap((path) => routes.filter((route) => route.path.key === path.key)),
           scheduler: this.#options.scheduler,
+          staggerMs: raceStagger(this.#lastOpenMs),
           won: (route) => {
             this.#racing = route;
+            this.#lastOpenMs = this.#elapsed() - startedAt;
           },
           failed: (route) => this.#failed(route),
         });
@@ -157,6 +197,11 @@ export class Multipath {
     connection.onWrongHost(() => {
       if (this.#racing) this.#refuse(this.#racing);
     });
+    connection.pingedElsewhere?.(true);
+    connection.probeDeadline?.(() => {
+      const estimate = this.linkEstimate();
+      return estimate && pongDeadline(estimate.rttMs);
+    });
     this.#stopState = state.subscribe(() => this.#changed());
     this.#stopNetwork ??= this.#options.watchNetwork?.(() => this.networkChanged());
     this.#changed();
@@ -177,6 +222,8 @@ export class Multipath {
     this.#stopLoops();
     this.#connection?.setStandby(undefined);
     this.#connection?.onWrongHost(undefined);
+    this.#connection?.pingedElsewhere?.(false);
+    this.#connection?.probeDeadline?.(undefined);
   }
 
   /** The paths the platform offers, less any that reached another daemon. */
@@ -212,6 +259,7 @@ export class Multipath {
   #settle(route: MachineRoute): void {
     this.#stopLoops();
     this.#active = route;
+    this.#misses = 0;
     this.#lastWinner = route.path.key;
     this.#health.set(route.path.key, afterSuccess(this.#healthOf(route)));
     this.#options.chosen?.(route.path);
@@ -224,7 +272,7 @@ export class Multipath {
     return this.#health.get(route.path.key) ?? { failures: 0, restUntil: 0 };
   }
   #failed(route: MachineRoute): void {
-    this.#health.set(route.path.key, afterFailure(this.#healthOf(route), this.#options.now()));
+    this.#health.set(route.path.key, afterFailure(this.#healthOf(route), this.#elapsed()));
   }
   #later(delayMs: number, run: () => void): void {
     const cancel = this.#options.scheduler.set(delayMs, () => {
@@ -240,36 +288,67 @@ export class Multipath {
     this.#standby = undefined;
   }
 
-  /** Ping the active path; a pong sharpens its round trip, silence for 2 s fails it over. */
+  /**
+   * Ping the active path every 5 s while visible, 25 s while hidden, from one ping to the next
+   * whatever the round trip, so a keep-alive never lets a NAT forget the socket. A pong sharpens
+   * the round trip. Each ping has its own deadline (2 s, or four round trips on a slow link):
+   * silence past it is a miss. With a warm standby one miss fails the path over; without one, a
+   * second ping goes at once and must go unanswered too, since then a miss means a reconnect.
+   */
   #schedulePing(): void {
     this.#later(pingEvery(this.#options.visible?.() ?? true), () => {
-      const connection = this.#connection;
-      const route = this.#active;
-      if (!connection || !route || connection.state !== "ready") return;
-      const sentAt = this.#options.now();
-      const heard = connection.heard;
-      let answered = false;
-      void connection.ping().then(() => {
-        answered = true;
-        if (this.#active !== route) return;
-        const health = this.#healthOf(route);
-        this.#health.set(route.path.key, {
-          ...health,
-          rttMs: smoothRtt(health.rttMs, this.#options.now() - sentAt),
-        });
-      });
-      this.#later(pathTiming.pongDeadlineMs, () => {
-        if (this.#active !== route) return;
-        // Anything heard proves the path alive; a pong queued behind a busy stream is late.
-        if (answered || connection.heard > heard) {
-          this.#schedulePing();
-          return;
-        }
-        this.#failed(route);
-        this.#options.report?.("path.pong_missed", { path: route.path.kind });
-        connection.failover("Path missed its pong");
+      if (this.#ping()) this.#schedulePing();
+    });
+  }
+  /** Ping the active path once and watch for its answer; false when there is none to ping. */
+  #ping(): boolean {
+    const connection = this.#connection;
+    const route = this.#active;
+    if (!connection || !route || connection.state !== "ready") return false;
+    const sentAt = this.#elapsed();
+    const heard = connection.heard;
+    let answered = false;
+    void connection.ping().then(() => {
+      answered = true;
+      if (this.#active !== route) return;
+      // A sample no link gives (a clock fault) is left out rather than dragging the estimate.
+      const sample = rttSample(sentAt, this.#elapsed());
+      if (sample === undefined) return;
+      const health = this.#healthOf(route);
+      this.#health.set(route.path.key, {
+        ...health,
+        rttMs: smoothRtt(health.rttMs, sample),
+        rttAt: this.#options.now(),
       });
     });
+    this.#later(pongDeadline(this.#healthOf(route).rttMs), () => {
+      if (this.#active !== route) return;
+      // Anything heard proves the path alive; a pong queued behind a busy stream is late.
+      if (answered || connection.heard > heard) {
+        this.#misses = 0;
+        return;
+      }
+      this.#options.report?.("path.pong_missed", { path: route.path.kind });
+      if (++this.#misses < missesToFail(this.#standby !== undefined)) {
+        this.#ping();
+        return;
+      }
+      this.#misses = 0;
+      this.#failed(route);
+      connection.failover("Path missed its pong");
+    });
+    return true;
+  }
+  /**
+   * The link the connection uses now, as the planner measures it: the active path's smoothed
+   * round trip from its pings, when that last took a sample, and the path's kind. Undefined
+   * while connecting or before the first pong. Read-only; it changes as pongs arrive.
+   */
+  linkEstimate(): LinkEstimate | undefined {
+    const route = this.#active;
+    const health = route && this.#health.get(route.path.key);
+    if (!route || health?.rttMs === undefined || health.rttAt === undefined) return undefined;
+    return { rttMs: health.rttMs, at: health.rttAt, path: route.path.kind };
   }
   #scheduleUpgrade(): void {
     this.#later(pathTiming.upgradeProbeMs, () => {
@@ -288,7 +367,7 @@ export class Multipath {
       routes.map((route) => route.path),
       active.path,
       this.#health,
-      this.#options.now(),
+      this.#elapsed(),
     );
     for (const candidate of candidates) {
       const route = routes.find((entry) => entry.path.key === candidate.key);
@@ -307,7 +386,7 @@ export class Multipath {
       const verdict = switchVerdict({
         active: { ...active.path, rttMs: this.#healthOf(active).rttMs },
         candidate: { ...route.path, rttMs: smoothed },
-        now: this.#options.now(),
+        now: this.#elapsed(),
         switchedAt: this.#switchedAt,
       });
       if (verdict === "hold") return;
@@ -340,7 +419,7 @@ export class Multipath {
         opened.close();
         return false;
       }
-      const clock = this.#options.clock ?? this.#options.now;
+      const clock = this.#options.clock ?? this.#elapsed;
       const started = clock();
       const swapped = connection.swap(opened, "switch");
       const held = clock() - started;
@@ -349,7 +428,7 @@ export class Multipath {
         return false;
       }
       this.lastSwapMs = held;
-      this.#switchedAt = this.#options.now();
+      this.#switchedAt = this.#elapsed();
       this.#options.report?.("path.switched", {
         from: from.path.kind,
         to: route.path.kind,
@@ -371,7 +450,7 @@ export class Multipath {
     if (!active || !connection || this.#standby || this.#openingStandby || this.#closed) return;
     const routes = this.#routes();
     const paths = routes.map((route) => route.path);
-    const now = this.#options.now();
+    const now = this.#elapsed();
     const planned = standbyFor(paths, active.path, this.#health, now);
     const route = planned && routes.find((entry) => entry.path.key === planned.key);
     if (!route) {
@@ -465,7 +544,7 @@ export class Multipath {
     this.#standby = undefined;
     // A grant that ran out closes a socket on any path: the path itself is fine.
     if (this.#active && code !== GRANT_EXPIRED_CLOSE) this.#failed(this.#active);
-    this.#switchedAt = this.#options.now();
+    this.#switchedAt = this.#elapsed();
     this.#settle(standby.route);
   }
 }

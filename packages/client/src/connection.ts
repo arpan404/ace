@@ -1,6 +1,9 @@
-import { parseCredential, type Credential } from "./credentials.ts";
+import { parseCredential, relayGrant, type Credential } from "./credentials.ts";
 import { handshakePath, type PathRoute, type WelcomedPath } from "./path-handshake.ts";
 import { pathTiming } from "./path-plan.ts";
+import { stageDeadline } from "./handshake-deadline.ts";
+import { credentialFailure } from "./credential-failure.ts";
+import { defaultMonotonic } from "./monotonic.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
@@ -63,8 +66,15 @@ interface Draining {
 
 /** A server frame this build's schemas reject: the daemon is another version. */
 const heartbeatMissed = "Heartbeat missed";
-/** How long a woken app waits for the daemon to answer before it treats the socket as dead. */
+/**
+ * How long a woken app waits for the daemon to answer before it treats the socket as dead,
+ * when nothing has measured the link yet; once measured, the path's own pong deadline.
+ */
 const wakeProbeMs = 5000;
+/** Pings a socket may owe pongs for; past this, no more go out on it. */
+const maxUnansweredPings = 64;
+/** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
+const handedMarginMs = 15_000;
 
 const versionMismatch = () =>
   new ClientError("version_mismatch", "The daemon sent a message this app can't read");
@@ -91,6 +101,11 @@ export class Connection {
   #lastReadyAt: number | undefined;
   #lastClose: ConnectionClose | undefined;
   #heartbeat: Heartbeat;
+  /** Every duration this connection measures runs on this clock; `options.now` only stamps
+   * moments it shows or keeps (`since`, `lastReadyAt`, a close's `at`, `nextRetryAt`). */
+  #monotonic: () => number;
+  /** When the last close happened, on the monotonic clock: how long the connection was down. */
+  #lostAt: number | undefined;
   #healthy: (() => void) | undefined;
   #codec: WireCodec;
   #binary: ((bytes: Uint8Array) => void) | undefined;
@@ -109,6 +124,28 @@ export class Connection {
   #keepers = new Map<Transport, GrantKeeper>();
   /** Frames heard on the active path, so a late pong behind a busy stream isn't a miss. */
   #heard = 0;
+  /** The epoch whose hello went out: its socket takes read subscribes before the welcome. */
+  #greeted = -1;
+  #greeting: (() => void) | undefined;
+  /** The active path's pong deadline, from the path manager's link estimate, when it has one. */
+  #probeDeadline: (() => number | undefined) | undefined;
+  /**
+   * The next ticket the last welcome handed over (ADR 0150), in memory only: the next connect
+   * says hello with it instead of exchanging one. `epoch` is the attempt that used one.
+   */
+  #handed: { ticket: string; ttlMs: number; at: number; wallAt: number | undefined } | undefined;
+  #usedHanded = -1;
+  /** What each connect stage took last time it finished, and when the current one began. */
+  #lastOpenMs: number | undefined;
+  #lastWelcomeMs: number | undefined;
+  #stageAt: number | undefined;
+  /** The device grant this attempt's hello carried, and whether a refused one was retried. */
+  #helloGrant: string | undefined;
+  #grantRetried = false;
+  /** Each open socket's last refresh: its request id and the grant it carried. */
+  #refreshGrants = new Map<Transport, { requestId: string; grant: string }>();
+  /** The daemon of this attempt said `starting`: its welcome waits out a cold start. */
+  #starting = false;
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -125,7 +162,8 @@ export class Connection {
     this.#deliver = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
-    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs);
+    this.#monotonic = options.monotonic ?? defaultMonotonic;
+    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs, this.#monotonic);
     this.#held = new HeldFrames(limits.frameBytes * 4);
     this.#fragments = new FragmentAssembly(
       limits.fragmentBytes,
@@ -147,6 +185,7 @@ export class Connection {
   }
   stop(): void {
     this.#active = false;
+    this.#handed = undefined;
     this.#cleanup();
     this.#setState("offline");
     this.#disconnected();
@@ -193,7 +232,7 @@ export class Connection {
    */
   wake(): void {
     if (!this.#active) return;
-    if (this.state === "ready") this.#heartbeat.probe(wakeProbeMs);
+    if (this.state === "ready") this.#heartbeat.probe(this.#probeDeadline?.() ?? wakeProbeMs);
     else this.reconnectNow();
   }
   info(): ConnectionInfo {
@@ -243,6 +282,7 @@ export class Connection {
   }
   fail(error: ClientError): void {
     this.#report("connection.failed", { code: error.code });
+    this.#handed = undefined;
     this.error = error;
     this.#cleanup();
     this.#setState("fatal");
@@ -253,8 +293,12 @@ export class Connection {
    * help. `error` is what the person should know while it retries (a version mismatch).
    */
   #lost(code: number, reason: string, error?: ClientError): void {
+    // An ordinary drop says nothing about the grant: it stays (a relay refusing one at the
+    // upgrade is named by the relay route, `relayRoute.grantRefused`).
+    this.#helloGrant = undefined;
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
+    this.#lostAt = this.#monotonic();
     const decision = disconnectDecision(this.#active, this.#online, code, reason);
     const closed = {
       code,
@@ -325,24 +369,35 @@ export class Connection {
     this.#setState(this.#attempt ? "reconnecting" : "connecting");
     this.#restorer = new WireRestorer();
     const epoch = this.#epoch;
-    this.#cancel = this.#options.scheduler.set(this.#limits.handshakeMs, () =>
-      this.#lost(1006, "Handshake timed out"),
-    );
+    this.#starting = false;
+    this.#stage(this.#lastOpenMs);
     try {
       const transport = this.#options.transport();
       this.#transport = transport;
+      // The credential (a ticket exchange, on its own connection) is fetched while the socket
+      // dials, not after it opens, unless the last welcome handed one over. A transport with
+      // its own credential has it only once open.
+      const handed = transport.credential ? undefined : this.#takeHanded(epoch);
+      const early = transport.credential ? undefined : (handed ?? this.#prefetch());
       transport.open({
         open: () => {
           if (epoch !== this.#epoch) return;
+          this.#lastOpenMs = this.#elapsed() ?? this.#lastOpenMs;
+          this.#stage(this.#lastWelcomeMs);
           void Promise.resolve()
-            .then(() => transport.credential?.() ?? this.#options.credential())
+            .then(() => early ?? transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
-              if (epoch === this.#epoch) this.send(this.#hello(transport, credential));
+              const hello = this.#hello(transport, credential, true);
+              if (epoch !== this.#epoch || !this.send(hello)) return;
+              this.#helloGrant = relayGrant(credential);
+              this.#greeted = epoch;
+              this.#greeting?.();
             })
             .catch((error: unknown) => {
               if (epoch !== this.#epoch) return;
-              if (error instanceof ClientError && error.code === "offline")
-                this.#lost(1006, "Credential unavailable offline");
+              // Failing to get a credential is no refusal of one: it is retried with backoff.
+              if (credentialFailure(error) === "transient")
+                this.#lost(1006, "Credential unavailable");
               else this.fail(new ClientError("auth"));
             });
         },
@@ -354,7 +409,70 @@ export class Connection {
       this.#lost(1006, "Transport failed to open");
     }
   }
-  #hello(transport: Transport, credential: Credential): ClientMessage {
+  /**
+   * Start the next stage of this connect: it must finish within its deadline, scaled to what
+   * it took last time (`lastMs`), or the attempt is dropped and retried.
+   */
+  #stage(lastMs: number | undefined, deadlineMs?: number): void {
+    this.#cancel?.();
+    this.#stageAt = this.#monotonic();
+    const limit =
+      deadlineMs ?? stageDeadline(this.#limits.handshakeStageMs, this.#limits.handshakeMs, lastMs);
+    this.#cancel = this.#options.scheduler.set(limit, () =>
+      this.#lost(1006, "Handshake timed out"),
+    );
+  }
+  /** How long the current stage has run; nothing for a reading that went backwards. */
+  #elapsed(): number | undefined {
+    if (this.#stageAt === undefined) return undefined;
+    const elapsed = this.#monotonic() - this.#stageAt;
+    return elapsed >= 0 ? elapsed : undefined;
+  }
+  /** The route's credential, asked for now; a failure is read once the socket opens. */
+  #prefetch(): Promise<Credential> {
+    const credential = Promise.resolve().then(() => this.#options.credential());
+    // A socket that never opens never reads it: that failure is no one's to report.
+    credential.catch(() => {});
+    return credential;
+  }
+  /**
+   * The handed-over ticket, if it still has long enough to reach the daemon by both clocks;
+   * used once either way. The monotonic clock catches a wall clock set back; the wall clock
+   * catches a monotonic one that stood still while the device slept (iOS uptime does).
+   */
+  #takeHanded(epoch: number): Promise<Credential> | undefined {
+    const handed = this.#handed;
+    this.#handed = undefined;
+    if (!handed) return undefined;
+    const wall = this.#options.now?.();
+    const age = Math.max(
+      this.#monotonic() - handed.at,
+      wall === undefined || handed.wallAt === undefined ? 0 : wall - handed.wallAt,
+    );
+    if (handed.ttlMs - age < handedMarginMs) return undefined;
+    this.#usedHanded = epoch;
+    return Promise.resolve({ ticket: handed.ticket });
+  }
+  /** Keep the welcome's next ticket, in memory only, and pass the welcome on without it. */
+  #keepHanded(welcome: Extract<Message, { type: "welcome" }>): Message {
+    const { ticket, ...rest } = welcome;
+    this.#handed = ticket
+      ? {
+          ticket: ticket.ticket,
+          ttlMs: ticket.ttlMs,
+          at: this.#monotonic(),
+          wallAt: this.#options.now?.(),
+        }
+      : undefined;
+    return rest;
+  }
+  #hello(transport: Transport, credential: Credential, main = false): ClientMessage {
+    const parsed = parseCredential(credential);
+    // Asked only where the next connect can use it: on the main socket (not a side path), and
+    // on a transport without a credential of its own (not a relay attempt or a path race,
+    // whose winner's route picks the credential). Otherwise the daemon's per-device pool would
+    // hold a ticket nobody uses.
+    const ask = main && "ticket" in parsed && transport.credential === undefined;
     return {
       type: "hello",
       protocolVersion: 1,
@@ -365,7 +483,8 @@ export class Connection {
       framing: ["lines"],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
-      ...parseCredential(credential),
+      ...parsed,
+      ...(ask ? { nextTicket: true as const } : {}),
     };
   }
   /** A server frame that breaks the protocol: drop this socket and reconnect with backoff. */
@@ -444,6 +563,34 @@ export class Connection {
     }
     try {
       if (message.type === "error" && message.code === "unauthorized") {
+        // A handed-over ticket the daemon no longer knows (it restarted, or the ticket ran out
+        // on the way): exchange one at once instead of stopping. That attempt can't loop: the
+        // handed ticket is gone.
+        // A grant refused from the app's cache (a clock far off, a grant revoked meanwhile): it
+        // is dropped, and one fresh grant is tried before the refusal is final.
+        const grant = this.state === "ready" ? undefined : this.#helloGrant;
+        this.#helloGrant = undefined;
+        const fresh =
+          grant !== undefined &&
+          this.#options.grantRefused?.(grant) === true &&
+          !this.#grantRetried;
+        if (fresh) {
+          this.#grantRetried = true;
+          this.#report("connection.kept_grant_refused", {});
+          this.#cleanup();
+          this.#disconnected();
+          this.#connect();
+          return;
+        }
+        if (this.#usedHanded === epoch && this.state !== "ready") {
+          this.#report("connection.handed_ticket_refused", {});
+          // This socket is gone, as after any drop: what it carried (the subscribes sent with
+          // its hello) is let go before the next one subscribes again.
+          this.#cleanup();
+          this.#disconnected();
+          this.#connect();
+          return;
+        }
         this.fail(new ClientError("auth"));
         return;
       }
@@ -458,6 +605,9 @@ export class Connection {
           }
         }
         if (message.type === "starting") {
+          // A cold start: the attempt may now take the whole handshake limit.
+          this.#starting = true;
+          this.#stage(undefined, this.#limits.handshakeMs);
           this.#setState("starting");
           return;
         }
@@ -473,6 +623,9 @@ export class Connection {
         }
         this.#cancel?.();
         this.#cancel = undefined;
+        if (!this.#starting) this.#lastWelcomeMs = this.#elapsed() ?? this.#lastWelcomeMs;
+        this.#helloGrant = undefined;
+        this.#grantRetried = false;
         // Backoff starts over only once this connection has stayed up for a while.
         this.#healthy = this.#options.scheduler.set(this.#limits.healthyMs, () => {
           this.#attempt = 0;
@@ -483,10 +636,8 @@ export class Connection {
         this.#since = this.#lastReadyAt = this.#options.now?.();
         this.state = "ready";
         if (this.#lastClose) {
-          const down =
-            this.#since !== undefined && this.#lastClose.at !== undefined
-              ? this.#since - this.#lastClose.at
-              : undefined;
+          // A duration: on the monotonic clock, whatever the wall clock did meanwhile.
+          const down = this.#lostAt === undefined ? undefined : this.#monotonic() - this.#lostAt;
           this.#report("connection.recovered", {
             attempts: this.#attempt,
             ...(down === undefined ? {} : { downMs: down }),
@@ -495,7 +646,7 @@ export class Connection {
         this.#startHeartbeat();
         this.#keepGrant(this.#transport, message);
         this.#hostId = message.hostId;
-        this.#received(message);
+        this.#received(this.#keepHanded(message));
         this.#changed();
         return;
       } else if (message.type === "welcome") {
@@ -565,7 +716,7 @@ export class Connection {
   }
   #startHeartbeat(): void {
     this.#heartbeat.start({
-      ping: () => this.#ping(() => {}) && this.state === "ready",
+      ping: (answered) => this.#ping(answered ?? (() => {})) && this.state === "ready",
       missed: () => this.#lost(1006, heartbeatMissed),
     });
   }
@@ -580,6 +731,18 @@ export class Connection {
     else if (epoch === this.#draining?.epoch) this.#finishDrain();
   }
 
+  /**
+   * Whether read subscribes may go out now: once welcomed, or once this socket's hello is out.
+   * The daemon handles a socket's messages in order and nothing after the hello before its
+   * welcome, so a subscribe sent with the hello is answered one flight later, not two.
+   */
+  get subscribable(): boolean {
+    return this.state === "ready" || (this.#greeted === this.#epoch && !!this.#transport);
+  }
+  /** Called once a socket's hello is sent, before its welcome: send read subscribes then. */
+  onHello(greeting: () => void): void {
+    this.#greeting = greeting;
+  }
   /** What the client does when the connection moves to another path. */
   onPathSwitch(switched: PathSwitched): void {
     this.#switched = switched;
@@ -591,6 +754,20 @@ export class Connection {
   /** Where a dropped active path fails over to at once, before any reconnect backoff. */
   setStandby(standby: PathStandby | undefined): void {
     this.#standby = standby;
+  }
+  /**
+   * The path manager pings the active path itself and fails it over on a missed pong: the
+   * connection's own heartbeat stands down meanwhile, so one socket carries one ping loop.
+   */
+  pingedElsewhere(on: boolean): void {
+    this.#heartbeat.quiet(on);
+  }
+  /**
+   * How long a wake probe waits on this link: the path manager's pong deadline for the active
+   * path (`pongDeadline`), or undefined until it has measured one; then 5 s.
+   */
+  probeDeadline(deadline: (() => number | undefined) | undefined): void {
+    this.#probeDeadline = deadline;
   }
   /** Frames heard on the active path so far: a ping that hears anything was not missed. */
   get heard(): number {
@@ -607,9 +784,11 @@ export class Connection {
    * a socket's pings in order, so each pong settles the oldest ping, never a newer one.
    */
   #ping(answered: () => void): boolean {
+    // A socket owing this many pongs is not pinged again: no ping's answer is ever dropped to
+    // make room (the heartbeat and the path manager drop such a socket long before).
+    if (this.#pongs.length >= maxUnansweredPings) return false;
     if (!this.send({ type: "ping" })) return false;
-    // A socket that stops answering is dropped by the heartbeat long before this fills.
-    if (this.#pongs.push(answered) > 64) this.#pongs.shift();
+    this.#pongs.push(answered);
     return true;
   }
   /**
@@ -658,17 +837,31 @@ export class Connection {
         grant: () => grant(),
         scheduler: this.#options.scheduler,
         id: () => this.#options.id(),
-        send: (message) => transport.send(JSON.stringify(this.#codec.encode(message))),
+        send: (message) => {
+          if (message.type === "account.grant.refresh")
+            this.#refreshGrants.set(transport, {
+              requestId: message.requestId,
+              grant: message.grant,
+            });
+          transport.send(JSON.stringify(this.#codec.encode(message)));
+        },
         refused: () => this.#grantRefused(transport),
       }),
     );
   }
   #unkeep(transport: Transport | undefined): void {
     if (!transport) return;
+    this.#refreshGrants.delete(transport);
     this.#keepers.get(transport)?.stop();
     this.#keepers.delete(transport);
   }
   #grantAnswered(transport: Transport | undefined, message: GrantRefreshResult): void {
+    // A refused refresh's grant is never offered again: the keeper's retry fetches a fresh one.
+    // Only the answer to the socket's latest refresh names a grant: a late answer to an earlier
+    // one is stale, and the keeper ignores it too.
+    const last = transport && this.#refreshGrants.get(transport);
+    if (last && last.requestId === message.requestId && !message.result.ok)
+      this.#options.grantRefused?.(last.grant);
     if (transport) this.#keepers.get(transport)?.answered(message);
   }
   /**
@@ -698,6 +891,9 @@ export class Connection {
       welcome: path.welcome,
       get heard() {
         return path.heard;
+      },
+      get unanswered() {
+        return path.unanswered;
       },
       take: (events) => path.take(events),
       send: (text) => path.send(text),
@@ -733,7 +929,9 @@ export class Connection {
       this.#options.scheduler,
       this.#limits.fragmentMs,
     );
-    this.#pongs = [];
+    // Pings and pongs belong to a socket: the pings the promoted path already sent (a
+    // standby's) are still owed their pongs, and those must not answer a newer ping.
+    this.#pongs = Array.from({ length: path.unanswered }, () => () => {});
     path.take({
       frame: (frame) => this.#receiveFrame(frame, epoch),
       close: (code, reason) => this.#closed(epoch, code, reason),
