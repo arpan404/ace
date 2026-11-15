@@ -50,17 +50,19 @@ async function bridge() {
   const t = await idleThread();
   const d = delivery();
   const results: unknown[] = [];
+  const failing = { state: false };
   const b = connectBrowser(t.service, {
     connectionId: "viewer",
     authorize: () => true,
     send: (message) => {
+      if (failing.state && message.type === "browser.state") throw new Error("socket gone");
       results.push(message);
       return true;
     },
     sendStream: () => true,
     media: { owner: () => owner, delivery: () => d.port },
   });
-  return { ...d, bridge: b, results, service: t.service };
+  return { ...d, bridge: b, results, failing, service: t.service };
 }
 
 // UUID-sized subscriber ids, as clients make them: any id built by slicing names would collide.
@@ -110,5 +112,23 @@ test("a subscribe refused at a limit, or failing after its grant, leaves no gran
   await client.handle(subscribe("x", "mc_aaaaaaaaaaaa", "no-such-thread"));
   expect(views.size).toBe(7);
   client.close();
+  expect(views.size).toBe(0);
+});
+
+test("a subscribe that fails partway leaves the thread's subscription as it was", async () => {
+  const { bridge: client, views, failing } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  expect(views.size).toBe(1);
+  // `b` names another connection, and its setup fails after its view was granted.
+  failing.state = true;
+  await client.handle(subscribe(b, "mc_bbbbbbbbbbbb"));
+  failing.state = false;
+  expect(views.size).toBe(1);
+  // A later subscriber on that connection gets a live view, never the failed one's dead id.
+  await client.handle(subscribe("c", "mc_bbbbbbbbbbbb"));
+  expect(views.size).toBe(2);
+  // `b` was never added: once `a` and `c` leave, nothing is left.
+  await client.handle(unsubscribe(a));
+  await client.handle(unsubscribe("c"));
   expect(views.size).toBe(0);
 });

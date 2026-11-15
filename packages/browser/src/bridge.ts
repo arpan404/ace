@@ -119,14 +119,22 @@ export function connectBrowser(
    */
   const deliveredBy = (entry: Subscription, capture: CaptureViewer): CaptureViewer =>
     allMedia(entry) ? { ...capture, delivered: true } : capture;
-  /** A subscriber leaves its media connection's view; the last one out closes it. */
-  const retire = (entry: Subscription | undefined, subscriber: string) => {
+  /**
+   * A subscriber leaves its media connection's view: the view to close when it was the last one
+   * there (the caller closes it, so a subscribe can close it only once it has succeeded).
+   */
+  const leave = (entry: Subscription | undefined, subscriber: string): string | undefined => {
     const connection = entry?.media.get(subscriber);
-    if (!entry || connection === undefined) return;
+    if (!entry || connection === undefined) return undefined;
     entry.media.delete(subscriber);
-    if ([...entry.media.values()].includes(connection)) return;
+    if ([...entry.media.values()].includes(connection)) return undefined;
     const mediaViewer = entry.views.get(connection);
     entry.views.delete(connection);
+    return mediaViewer;
+  };
+  /** A subscriber leaves its media connection's view; the last one out closes it. */
+  const retire = (entry: Subscription | undefined, subscriber: string) => {
+    const mediaViewer = leave(entry, subscriber);
     if (mediaViewer !== undefined) options.media?.delivery()?.unbind(mediaViewer);
   };
   const subscriptions = new Map<string, Subscription>();
@@ -408,13 +416,23 @@ export function connectBrowser(
               if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
             } else if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
+            // Everything this subscribe changes, to put back if any of it fails.
+            const before = existing && {
+              subscribers: new Set(existing.subscribers),
+              media: new Map(existing.media),
+              views: new Map(existing.views),
+              binary: existing.binary,
+              video: existing.video,
+              shown: existing.shown,
+            };
             // A resubscribe replaces this subscriber's view: it leaves the old one first, so the
-            // two never both deliver.
-            retire(existing, subscriber);
-            const joined = message.media
-              ? bindMedia(threadId, message.media.connection, message, existing)
-              : undefined;
+            // two never both deliver; the old grant closes once this subscribe has succeeded.
+            const left = leave(existing, subscriber);
+            let joined: { viewer: string; created: boolean } | undefined;
             try {
+              joined = message.media
+                ? bindMedia(threadId, message.media.connection, message, existing)
+                : undefined;
               // The newest subscriber's build decides how frames travel on this connection.
               const binary = message.binaryFrames === true && sendStream !== undefined;
               // Video travels only as binary stream messages.
@@ -454,10 +472,32 @@ export function connectBrowser(
                 if (shown) service.configureCapture(threadId, options.connectionId, shown);
               }
             } catch (error) {
-              // A view granted for this subscribe goes with it.
+              // Undo it all: the view granted for this subscribe, a subscription it installed,
+              // and the thread's subscription as it was, capture settings included.
               if (joined?.created) options.media?.delivery()?.unbind(joined.viewer);
+              if (existing && before) {
+                Object.assign(existing, before);
+                if (before.shown)
+                  try {
+                    service.configureCapture(
+                      threadId,
+                      options.connectionId,
+                      deliveredBy(existing, before.shown),
+                    );
+                  } catch {
+                    // The capture keeps what it had; the error that matters is the one below.
+                  }
+              } else {
+                const installed = subscriptions.get(threadId);
+                if (installed) {
+                  installed.stop();
+                  subscriptions.delete(threadId);
+                }
+              }
               throw error;
             }
+            if (left !== undefined && left !== joined?.viewer)
+              options.media?.delivery()?.unbind(left);
             if (joined && message.media) {
               const poster = await options.media?.delivery()?.poster(joined.viewer);
               if (!closed)
