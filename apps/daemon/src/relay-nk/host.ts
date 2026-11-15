@@ -118,9 +118,7 @@ export function nkHost(options: NkHostOptions): NkHost {
       if (typeof claim === "string") return undefined;
       const held = await credential(early).catch(() => undefined);
       let channel: HostChannel | undefined;
-      const session = held
-        ? admission.admit(early.deviceId, () => channel?.close())
-        : undefined;
+      const session = held ? admission.admit(early.deviceId, () => channel?.close()) : undefined;
       if (!held || !session) {
         claim.release();
         return undefined;

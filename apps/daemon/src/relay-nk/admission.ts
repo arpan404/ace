@@ -47,7 +47,10 @@ class Bucket {
   }
   #refill(now: number): void {
     const elapsed = Math.max(0, now - this.#at);
-    this.#tokens = Math.min(this.#rate.burst, this.#tokens + (elapsed * this.#rate.perSecond) / 1000);
+    this.#tokens = Math.min(
+      this.#rate.burst,
+      this.#tokens + (elapsed * this.#rate.perSecond) / 1000,
+    );
     this.#at = now;
   }
   take(now: number): boolean {

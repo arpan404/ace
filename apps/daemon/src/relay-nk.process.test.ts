@@ -93,7 +93,10 @@ async function relayedDaemon() {
     const answer = await peer.next().catch(() => undefined);
     return { peer, answer };
   };
-  const nk = async (early: Record<string, unknown>, confirm: unknown = { type: "hello.confirm" }) => {
+  const nk = async (
+    early: Record<string, unknown>,
+    confirm: unknown = { type: "hello.confirm" },
+  ) => {
     const { noise, bytes } = firstMessage(early);
     const { peer, answer } = await answered(bytes);
     if (!answer) return undefined;

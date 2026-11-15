@@ -251,8 +251,13 @@ export function relayRoute(options: RelayRouteOptions): {
             if (flight) {
               // What the connection already sent: over XX all of it, after NK what didn't go early.
               const [hello, ...rest] = flight;
-              const queued = viaNk ? flight : hello === undefined ? rest : [askNextTicket(hello), ...rest];
-              for (const text of queued) void opened.sendText(text, 16 * 1024 * 1024).catch(() => {});
+              const queued = viaNk
+                ? flight
+                : hello === undefined
+                  ? rest
+                  : [askNextTicket(hello), ...rest];
+              for (const text of queued)
+                void opened.sendText(text, 16 * 1024 * 1024).catch(() => {});
             } else {
               pending = credential;
               own = credential;
@@ -307,10 +312,10 @@ export function relayRoute(options: RelayRouteOptions): {
           })().catch((error: unknown) => {
             if (stamp === epoch && nkUnwelcomed) nk.failed();
             return (
-            // The relay's own "not your machine" is final; anything else is a drop to retry.
-            error instanceof RelayClosedError && error.code === NOT_YOUR_MACHINE_CLOSE
-              ? ended(NOT_YOUR_MACHINE_CLOSE, error.message)
-              : ended(1006, "Relay channel closed")
+              // The relay's own "not your machine" is final; anything else is a drop to retry.
+              error instanceof RelayClosedError && error.code === NOT_YOUR_MACHINE_CLOSE
+                ? ended(NOT_YOUR_MACHINE_CLOSE, error.message)
+                : ended(1006, "Relay channel closed")
             );
           });
         },

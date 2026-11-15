@@ -69,5 +69,5 @@
     "deviceId"
   ],
   "type": "object",
-  "x-ace-constraint": "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids."
+  "x-ace-constraint": "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids; a threads scope needs its window."
 }

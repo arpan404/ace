@@ -18,7 +18,10 @@ function setup() {
   const store = new Store(join(mkdtempSync(join(tmpdir(), "ace-nk-tickets-")), "events.sqlite"));
   stores.push(store);
   let now = 1_000;
-  const auth = new RemoteAuth(store.devices, "a".repeat(64), { now: () => now, secret: randomUUID });
+  const auth = new RemoteAuth(store.devices, "a".repeat(64), {
+    now: () => now,
+    secret: randomUUID,
+  });
   const paired = auth.redeem(auth.pairing(["read"]).code, "Phone");
   const device = store.devices.authenticate(paired.token, now);
   if (!device) throw new Error("Not paired");

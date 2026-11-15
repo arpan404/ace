@@ -28,10 +28,11 @@ function xxPair() {
   return [a.transport, b.transport] as const;
 }
 
+const said = (text: string) => new TextEncoder().encode(text);
+const heard = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
 /** What the channel does with a finished handshake: ordered, rekeyed, snapshotted, exported. */
 function exercise([client, daemon]: readonly [SessionKeys, SessionKeys]) {
-  const said = (text: string) => new TextEncoder().encode(text);
-  const heard = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
   const log: string[] = [];
   log.push(heard(daemon.receive.decrypt(client.send.encrypt(said("up")))));
   log.push(heard(client.receive.decrypt(daemon.send.encrypt(said("down")))));
@@ -54,8 +55,10 @@ it("after NK the two cipher states interoperate exactly as after XX", () => {
 
 it("the NK initiator's first message is readable only by the static key it was sent to", () => {
   const host = keyPair();
-  const first = NoiseNK.initiator({ remoteStatic: host.publicKey, ephemeralKey: keyPair() })
-    .writeMessage(new TextEncoder().encode("early"));
+  const first = NoiseNK.initiator({
+    remoteStatic: host.publicKey,
+    ephemeralKey: keyPair(),
+  }).writeMessage(new TextEncoder().encode("early"));
   const other = NoiseNK.responder({ staticKey: keyPair(), ephemeralKey: keyPair() });
   expect(() => other.readMessage(first)).toThrow();
   expect(() => other.writeMessage()).toThrow("closed");
@@ -80,11 +83,16 @@ it("a first message bound to another prologue is refused", () => {
 
 it("an NK first message is never 32 bytes, so it can't be taken for an XX one", () => {
   const host = keyPair();
-  const first = NoiseNK.initiator({ remoteStatic: host.publicKey, ephemeralKey: keyPair() })
-    .writeMessage();
+  const first = NoiseNK.initiator({
+    remoteStatic: host.publicKey,
+    ephemeralKey: keyPair(),
+  }).writeMessage();
   expect(first.length).toBe(48);
-  const xxFirst = new NoiseXX({ initiator: true, staticKey: keyPair(), ephemeralKey: keyPair() })
-    .writeMessage();
+  const xxFirst = new NoiseXX({
+    initiator: true,
+    staticKey: keyPair(),
+    ephemeralKey: keyPair(),
+  }).writeMessage();
   expect(xxFirst.length).toBe(32);
   // An XX first message handed to an NK responder is refused for its size.
   const responder = NoiseNK.responder({ staticKey: host, ephemeralKey: keyPair() });
@@ -102,11 +110,15 @@ it("NK keeps turns, bounds sizes and fails for good", () => {
       new Uint8Array(MAX_MESSAGE - 47),
     ),
   ).toThrow("too large");
-  const largest = NoiseNK.initiator({ remoteStatic: host.publicKey, ephemeralKey: keyPair() })
-    .writeMessage(new Uint8Array(MAX_MESSAGE - 48));
+  const largest = NoiseNK.initiator({
+    remoteStatic: host.publicKey,
+    ephemeralKey: keyPair(),
+  }).writeMessage(new Uint8Array(MAX_MESSAGE - 48));
   expect(largest.length).toBe(MAX_MESSAGE);
-  const tampered = NoiseNK.initiator({ remoteStatic: host.publicKey, ephemeralKey: keyPair() })
-    .writeMessage(new Uint8Array([1]));
+  const tampered = NoiseNK.initiator({
+    remoteStatic: host.publicKey,
+    ephemeralKey: keyPair(),
+  }).writeMessage(new Uint8Array([1]));
   tampered[40] = (tampered[40] ?? 0) ^ 1;
   const reader = NoiseNK.responder({ staticKey: host, ephemeralKey: keyPair() });
   expect(() => reader.readMessage(tampered)).toThrow();

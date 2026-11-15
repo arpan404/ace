@@ -61,7 +61,30 @@ The budgets bound the **frames a relay holds to forward**: at most 16 frames of 
 
 ace's hosted relay also forwards plain HTTPS requests to a daemon that registered with `features=http`: it sends an `http` ticket over the control session and the daemon opens `/serve?ticket=...` for one request and its response. This relay never sends `http` tickets. See [Public HTTP to a machine](accounts.md#public-http-to-a-machine).
 
-The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. Handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
+The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. XX handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
+
+### One-round-trip handshake for a returning client (Noise NK)
+
+A client opens the stream with Noise NK instead ([ADR 0155](../adr/0155-relay-connect-in-one-round-trip.md), step 2) only when three things hold:
+
+- An earlier welcome on this relay, under the pinned host key, announced `relayHandshakes: ["nk1"]`.
+- It holds that key from its XX answer.
+- It has a fresh ticket the daemon handed on the relay, or an account grant.
+
+Its prologue is `ace daemon relay stream v2 nk`. The first message (`-> e, es`) is sealed to the daemon's static key and carries `hello.early`, an allowlist: protocol version, device id, exactly one of the ticket or the grant, session options, and at most 4 thread subscribes and 2 sidebar windows. The daemon tells the patterns apart by length: an XX first message is exactly 32 bytes. Its answer (`<- e, ee`) has an empty payload and goes before anything else on the stream.
+
+The client's first transport message is `hello.confirm`, sent as soon as the answer is authenticated. It carries the install id, a link proof and the request for the next ticket. Until it arrives, within 5 seconds of the answer:
+
+- the daemon records nothing about the device;
+- early subscribes hold their threads without making them viewed;
+- output past 256 KiB waits;
+- notifications, broadcasts and the next ticket wait.
+
+Once the session confirms, the daemon sends `hello.confirmed` with that ticket.
+
+A refused NK first message, for any reason, is answered the same way: the daemon closes the stream with nothing sent, 150 ms after the message arrived. The client then makes one XX attempt at once. If NK fails twice in a row, the client rests it for 10 minutes, doubling up to a day.
+
+The relay forwards an NK first message like any other client frame, early (step 1) or after the marker. It can force XX by dropping it, and nothing else: a fallback never replaces the pin.
 
 ## Framing, limits and backpressure
 

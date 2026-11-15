@@ -3,7 +3,12 @@ import type { CommandLanes } from "./command-lanes.ts";
 import { commandState } from "./command-status.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { SocketMessage } from "./services/socket.ts";
-import { pageSubscription, storePlacement, subscribe, type SubscriptionStore } from "./subscription.ts";
+import {
+  pageSubscription,
+  storePlacement,
+  subscribe,
+  type SubscriptionStore,
+} from "./subscription.ts";
 import type { WireEncoder } from "./wire-encoder.ts";
 import { outputReadBytes } from "./reply-bounds.ts";
 

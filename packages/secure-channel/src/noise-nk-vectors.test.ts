@@ -80,13 +80,19 @@ function independent(v: (typeof nk.vectors)[number]) {
   h = hash(h, second);
   const [toResponder, toInitiator] = hkdf2(ck, new Uint8Array());
   const counters = { toResponder: 0, toInitiator: 0 };
-  const transport = v.messages.slice(2).map((m, i) =>
-    i % 2 === 0
-      ? seal(toResponder, counters.toResponder++, new Uint8Array(), hex(m.payload))
-      : seal(toInitiator, counters.toInitiator++, new Uint8Array(), hex(m.payload)),
-  );
+  const transport = v.messages
+    .slice(2)
+    .map((m, i) =>
+      i % 2 === 0
+        ? seal(toResponder, counters.toResponder++, new Uint8Array(), hex(m.payload))
+        : seal(toInitiator, counters.toInitiator++, new Uint8Array(), hex(m.payload)),
+    );
   return {
-    ciphertexts: [Buffer.concat([iePublic, first]), Buffer.concat([rePublic, second]), ...transport],
+    ciphertexts: [
+      Buffer.concat([iePublic, first]),
+      Buffer.concat([rePublic, second]),
+      ...transport,
+    ],
     handshakeHash: h,
     keys: { toResponder, toInitiator },
   };
@@ -134,7 +140,9 @@ describe("Noise NK vectors", () => {
         const sender = i % 2 === 0 ? a : b;
         const receiver = i % 2 === 0 ? b : a;
         const ciphertext =
-          i < 2 ? sender.writeMessage(hex(m.payload)) : sender.transport.send.encrypt(hex(m.payload));
+          i < 2
+            ? sender.writeMessage(hex(m.payload))
+            : sender.transport.send.encrypt(hex(m.payload));
         expect(asHex(ciphertext)).toBe(m.ciphertext);
         const plain =
           i < 2 ? receiver.readMessage(ciphertext) : receiver.transport.receive.decrypt(ciphertext);
@@ -145,4 +153,3 @@ describe("Noise NK vectors", () => {
     });
   });
 });
-

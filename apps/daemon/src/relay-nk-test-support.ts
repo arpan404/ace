@@ -101,4 +101,3 @@ export function ready(client: Client, after = 0, attempts = () => 0): Promise<vo
     check();
   });
 }
-

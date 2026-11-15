@@ -44,5 +44,6 @@
     "subscriptionId",
     "scope"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "A threads scope needs its window."
 }

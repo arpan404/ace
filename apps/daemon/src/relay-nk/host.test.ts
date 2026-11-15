@@ -41,7 +41,10 @@ function setup() {
       timer.run();
     }
   };
-  const auth = new RemoteAuth(store.devices, "a".repeat(64), { now: () => now, secret: randomUUID });
+  const auth = new RemoteAuth(store.devices, "a".repeat(64), {
+    now: () => now,
+    secret: randomUUID,
+  });
   const admission = new NkAdmission(clock);
   let grantChecks = 0;
   // The account boundary: every grant checks out, as a stolen or replayed fresh grant would.
@@ -72,20 +75,21 @@ const early = (device: string) =>
     JSON.stringify({ type: "hello.early", protocolVersion: 1, deviceId: device, grant: "grant" }),
   );
 let keys = 0;
-const ephemeral = () => new Uint8Array(32).fill(++keys % 256).map((b, i) => (i === 1 ? keys >> 8 : b));
+const ephemeral = () =>
+  new Uint8Array(32).fill(++keys % 256).map((b, i) => (i === 1 ? keys >> 8 : b));
 
 /** A channel that never confirms until `confirm` is called. */
 function channel() {
-  let deliver: (text: string) => void = () => {};
-  let close: () => void = () => {};
+  let deliver: ((text: string) => void) | undefined;
+  let close: (() => void) | undefined;
   const closed = new Promise<undefined>((resolve) => (close = () => resolve(undefined)));
   const opened = {
     receiveRaw: () => new Promise<string>((resolve) => (deliver = resolve)),
     authorize() {},
-    close: () => close(),
+    close: () => close?.(),
     closed,
   } as unknown as HostChannel;
-  return { opened, confirm: () => deliver('{"type":"hello.confirm"}'), closed };
+  return { opened, confirm: () => deliver?.('{"type":"hello.confirm"}'), closed };
 }
 
 it("a flood of valid-grant first messages for one device opens at most 2 unconfirmed sessions and checks at most 4 grants", async () => {

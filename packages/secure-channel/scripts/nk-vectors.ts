@@ -16,8 +16,19 @@ const keys = {
   resp_ephemeral: "bbdb4cdbd309f1a1f2e1456967fe288cadd6f712d65dc7b7793d5e63da6b375b",
 };
 const cases = [
-  { prologue: "4a6f686e2047616c74", payloads: ["4c756477696720766f6e204d69736573", "4d757272617920526f746862617264", "462e20412e20486179656b", "4361726c204d656e676572"] },
-  { prologue: "616365206461656d6f6e2072656c61792073747265616d207632206e6b", payloads: ["", "", "00", "ff".repeat(40)] },
+  {
+    prologue: "4a6f686e2047616c74",
+    payloads: [
+      "4c756477696720766f6e204d69736573",
+      "4d757272617920526f746862617264",
+      "462e20412e20486179656b",
+      "4361726c204d656e676572",
+    ],
+  },
+  {
+    prologue: "616365206461656d6f6e2072656c61792073747265616d207632206e6b",
+    payloads: ["", "", "00", "ff".repeat(40)],
+  },
 ];
 
 const vectors = cases.map(({ prologue, payloads }) => {
@@ -44,7 +55,9 @@ const vectors = cases.map(({ prologue, payloads }) => {
   return {
     protocol_name: "Noise_NK_25519_ChaChaPoly_SHA256",
     init_prologue: prologue,
-    ...keys,
+    init_ephemeral: keys.init_ephemeral,
+    resp_static: keys.resp_static,
+    resp_ephemeral: keys.resp_ephemeral,
     resp_prologue: prologue,
     handshake_hash: asHex(a.transport.handshakeHash),
     messages,

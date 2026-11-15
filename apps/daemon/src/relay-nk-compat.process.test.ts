@@ -82,10 +82,13 @@ async function olderDaemon(announce: boolean) {
         headSeq: 0,
         // An older daemon announces nothing; `announce` models one that did before a downgrade.
         ...(announce ? { relayHandshakes: ["nk1"] } : {}),
-        ...(announce && hello.nextTicket ? { ticket: { ticket: "ab".repeat(32), ttlMs: 60_000 } } : {}),
+        ...(announce && hello.nextTicket
+          ? { ticket: { ticket: "ab".repeat(32), ttlMs: 60_000 } }
+          : {}),
       });
       for await (const frame of channel.frames())
-        if (!(frame instanceof Uint8Array) && frame.type === "ping") await channel.send({ type: "pong" });
+        if (!(frame instanceof Uint8Array) && frame.type === "ping")
+          await channel.send({ type: "pong" });
     },
   });
   cleanup.push(() => host.close());
@@ -95,7 +98,13 @@ async function olderDaemon(announce: boolean) {
 it("a new client and an older daemon stay on XX", async () => {
   const h = await olderDaemon(false);
   const sockets = recordedSockets();
-  const client = openClient(cleanup, h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
+  const client = openClient(
+    cleanup,
+    h.url,
+    h.hostId,
+    { id: "phone", token: "device token" },
+    sockets.socket,
+  );
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
@@ -108,7 +117,13 @@ it("a new client and an older daemon stay on XX", async () => {
 it("a daemon that announced NK but no longer takes it costs one refused NK first message, then XX in the same attempt", async () => {
   const h = await olderDaemon(true);
   const sockets = recordedSockets();
-  const client = openClient(cleanup, h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
+  const client = openClient(
+    cleanup,
+    h.url,
+    h.hostId,
+    { id: "phone", token: "device token" },
+    sockets.socket,
+  );
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;

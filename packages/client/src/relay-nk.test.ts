@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import { fingerprint, keyPair } from "@ace/secure-channel";
-import { NK_RETRY_MAX_MS, NK_RETRY_MS, RelayNkMemory, askNextTicket, earlyFlight } from "./relay-nk.ts";
+import {
+  NK_RETRY_MAX_MS,
+  NK_RETRY_MS,
+  RelayNkMemory,
+  askNextTicket,
+  earlyFlight,
+} from "./relay-nk.ts";
 
 // When a relay route opens with Noise NK and what it sends early (ADR 0155, step 2).
 
@@ -115,11 +121,17 @@ it("the first flight's hello and read subscribes go early; the token, install an
     nextTicket: true,
   });
   // The fifth thread, the unwindowed sidebar and the ping wait for after the confirmation.
-  expect(converted?.rest).toEqual([thread(5), subscribe("all", { kind: "threads" }), '{"type":"ping"}']);
+  expect(converted?.rest).toEqual([
+    thread(5),
+    subscribe("all", { kind: "threads" }),
+    '{"type":"ping"}',
+  ]);
 });
 
 it("a dedicated channel or a machine code keeps XX, and a paired XX hello asks for the next ticket", () => {
-  expect(earlyFlight([JSON.stringify({ ...hello, channel: "files" })], { ticket: "t" })).toBeUndefined();
+  expect(
+    earlyFlight([JSON.stringify({ ...hello, channel: "files" })], { ticket: "t" }),
+  ).toBeUndefined();
   expect(
     earlyFlight([JSON.stringify({ ...hello, token: undefined, grant: "g", machineCode: "1234" })], {
       grant: "g",

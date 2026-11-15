@@ -13093,6 +13093,8 @@ Example:
 
 [JSON Schema](schema/EarlySubscribe.json), input validation.
 
+Semantic rule: A threads scope needs its window.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
@@ -13105,10 +13107,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
-  "paced": true,
+  "afterSeq": 1,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example"
 }
@@ -14848,7 +14850,7 @@ Example:
 
 [JSON Schema](schema/HelloEarly.json), input validation.
 
-Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids.
+Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids; a threads scope needs its window.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |

@@ -20,30 +20,34 @@ export const RELAY_NK_HANDSHAKE = "nk1";
 export const EARLY_THREAD_SUBSCRIBES = 4;
 export const EARLY_SIDEBAR_WINDOWS = 2;
 
-const names = (max: number) => z.array(z.string().max(32)).max(max).optional();
+const Names8 = z.array(z.string().max(32)).max(8).optional();
+const Names16 = z.array(z.string().max(32)).max(16).optional();
 
 /** A read subscribe, as the main socket takes it, with nothing more. */
 export const EarlySubscribe = z
   .strictObject({
-  subscriptionId: z.string().min(1).max(128),
-  scope: SubscriptionScope,
-  paced: z.boolean().optional(),
-  afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  tail: z
-    .strictObject({
-      items: z.number().int().min(1).max(200),
-      bytes: z
-        .number()
-        .int()
-        .min(1024)
-        .max(1024 * 1024),
-    })
-    .optional(),
+    subscriptionId: z.string().min(1).max(128),
+    scope: SubscriptionScope,
+    paced: z.boolean().optional(),
+    afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+    tail: z
+      .strictObject({
+        items: z.number().int().min(1).max(200),
+        bytes: z
+          .number()
+          .int()
+          .min(1024)
+          .max(1024 * 1024),
+      })
+      .optional(),
   })
   // A sidebar subscribe without a window reads every thread: it waits for the confirmation.
-  .refine((subscribe) => subscribe.scope.kind === "thread" || subscribe.scope.window !== undefined, {
-    message: "A sidebar subscribe needs its window",
-  })
+  .refine(
+    (subscribe) => subscribe.scope.kind === "thread" || subscribe.scope.window !== undefined,
+    {
+      message: "A sidebar subscribe needs its window",
+    },
+  )
   .meta({ "x-ace-constraint": "A threads scope needs its window." });
 export type EarlySubscribe = z.infer<typeof EarlySubscribe>;
 
@@ -59,10 +63,10 @@ export const HelloEarly = z
       .optional(),
     /** The account device grant, as the relay upgrade already offered it. */
     grant: z.string().min(1).max(2048).optional(),
-    trims: names(16),
-    framing: names(8),
-    compression: names(8),
-    flowControl: names(8),
+    trims: Names16,
+    framing: Names8,
+    compression: Names8,
+    flowControl: Names8,
     subscribes: z
       .array(EarlySubscribe)
       .max(EARLY_THREAD_SUBSCRIBES + EARLY_SIDEBAR_WINDOWS)
@@ -109,5 +113,7 @@ export type HelloConfirm = z.infer<typeof HelloConfirm>;
 
 /** The threads a first message reads, for the daemon's budget checks. */
 export function earlyThreads(hello: HelloEarly): ThreadId[] {
-  return (hello.subscribes ?? []).flatMap((s) => (s.scope.kind === "thread" ? [s.scope.threadId] : []));
+  return (hello.subscribes ?? []).flatMap((s) =>
+    s.scope.kind === "thread" ? [s.scope.threadId] : [],
+  );
 }

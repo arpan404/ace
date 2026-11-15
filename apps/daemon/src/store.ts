@@ -83,7 +83,6 @@ import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
-
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";

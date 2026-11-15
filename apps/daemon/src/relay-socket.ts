@@ -43,7 +43,12 @@ export interface EarlyRelayMain {
 }
 
 /** Output an unconfirmed socket couldn't send yet, in order. */
-type Held = { data: string | Buffer | Uint8Array; binary: boolean; compress: boolean; done?: (error?: Error) => void };
+type Held = {
+  data: string | Buffer | Uint8Array;
+  binary: boolean;
+  compress: boolean;
+  done?: (error?: Error) => void;
+};
 
 const OPEN = 1;
 const CLOSING = 2;
@@ -103,12 +108,12 @@ export class RelaySocket extends EventEmitter implements MainSocket {
    */
   start(
     first: string,
-    early?: { then: string[]; after: string[]; readAfter: Promise<boolean>; session: NkSession },
+    early?: { now: string[]; after: string[]; readAfter: Promise<boolean>; session: NkSession },
   ): void {
     this.emit("message", Buffer.from(first), false);
     if (early) {
       this.#session = early.session;
-      for (const message of early.then) this.emit("message", Buffer.from(message), false);
+      for (const message of early.now) this.emit("message", Buffer.from(message), false);
     }
     void (async () => {
       try {
@@ -181,11 +186,11 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     }
     const task =
       binary && typeof data !== "string"
-      ? this.#channel.sendBinary(data)
-      : this.#channel.sendText(
-          typeof data === "string" ? data : Buffer.from(data).toString("utf8"),
-          this.#deflate && compress,
-        );
+        ? this.#channel.sendBinary(data)
+        : this.#channel.sendText(
+            typeof data === "string" ? data : Buffer.from(data).toString("utf8"),
+            this.#deflate && compress,
+          );
     task.then(
       () => done?.(),
       (error: unknown) => done?.(error instanceof Error ? error : new Error("Relay send failed")),

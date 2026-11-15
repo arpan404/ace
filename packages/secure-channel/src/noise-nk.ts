@@ -72,7 +72,12 @@ export class NoiseNK {
 
   static responder(options: NkResponderOptions): NoiseNK {
     const own = keyPair(options.staticKey.privateKey);
-    const state = new NoiseNK(false, options.ephemeralKey, own.publicKey, options.prologue ?? empty);
+    const state = new NoiseNK(
+      false,
+      options.ephemeralKey,
+      own.publicKey,
+      options.prologue ?? empty,
+    );
     state.#s = own;
     return state;
   }

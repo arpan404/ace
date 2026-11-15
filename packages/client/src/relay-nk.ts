@@ -140,7 +140,9 @@ export function earlyFlight(
     const fits =
       scope?.kind === "thread"
         ? threads < EARLY_THREAD_SUBSCRIBES
-        : scope?.kind === "threads" && scope.window !== undefined && windows < EARLY_SIDEBAR_WINDOWS;
+        : scope?.kind === "threads" &&
+          scope.window !== undefined &&
+          windows < EARLY_SIDEBAR_WINDOWS;
     if (subscribe?.success && fits) {
       if (scope?.kind === "thread") threads++;
       else windows++;

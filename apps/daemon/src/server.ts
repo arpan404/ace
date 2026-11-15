@@ -491,7 +491,9 @@ export async function startServer(options: ServerOptions): Promise<{
       }
       connections.set(socket, send);
     };
-    const authenticateServices = async (channel: Parameters<NonNullable<(typeof sessions)[number]["authenticated"]>>[0]) => {
+    const authenticateServices = async (
+      channel: Parameters<NonNullable<(typeof sessions)[number]["authenticated"]>>[0],
+    ) => {
       try {
         for (const service of sessions) await service.authenticated?.(channel);
         return true;
@@ -506,6 +508,7 @@ export async function startServer(options: ServerOptions): Promise<{
      * An NK session confirmed (ADR 0155): now it runs what a hello runs, as the welcome would
      * have, hands its next ticket, and the socket reads what the client sends.
      */
+    const open = () => socket.readyState === WebSocket.OPEN && cleanups.has(socket);
     const afterConfirm = async (
       pending: NonNullable<typeof early>,
       actor: SessionActor,
@@ -513,7 +516,6 @@ export async function startServer(options: ServerOptions): Promise<{
       epoch: string | undefined,
     ) => {
       const confirm = await pending.confirmed;
-      const open = () => socket.readyState === WebSocket.OPEN && cleanups.has(socket);
       if (!confirm || !open()) {
         pending.readable.resolve(false);
         return;
@@ -527,7 +529,8 @@ export async function startServer(options: ServerOptions): Promise<{
         pending.readable.resolve(false);
         return;
       }
-      const next = confirm.nextTicket && epoch !== undefined ? auth.handOver(actor, epoch) : undefined;
+      const next =
+        confirm.nextTicket && epoch !== undefined ? auth.handOver(actor, epoch) : undefined;
       send({ type: "hello.confirmed", ...(next ? { ticket: next } : {}) });
       for (const service of sessions) service.welcomed?.();
       pending.readable.resolve(true);
@@ -653,7 +656,9 @@ export async function startServer(options: ServerOptions): Promise<{
         // attempt, bound to the relay key; an NK session gets its own after it confirms.
         const epoch = relayed?.relayEpoch;
         const next =
-          message.nextTicket && !early && (relayed ? epoch !== undefined : message.ticket !== undefined)
+          message.nextTicket &&
+          !early &&
+          (relayed ? epoch !== undefined : message.ticket !== undefined)
             ? auth.handOver(actor, relayed ? epoch : undefined)
             : undefined;
         send({
@@ -753,7 +758,7 @@ export async function startServer(options: ServerOptions): Promise<{
     // Subscribes that fit the unconfirmed session's budgets run now; the rest after it confirms.
     const plan = planEarlySubscribes(early.subscribes, early.session, options.store);
     socket.start(entry.hello, {
-      then: plan.now.map((message) => JSON.stringify(message)),
+      now: plan.now.map((message) => JSON.stringify(message)),
       after: plan.later.map((message) => JSON.stringify(message)),
       readAfter: early.readable.promise,
       session: early.session,
