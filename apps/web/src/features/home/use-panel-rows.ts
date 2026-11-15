@@ -87,16 +87,15 @@ export function usePanelRows(input: {
       }),
     [panel, tab, paged, shown, settledPaging.hasMore],
   );
-  // The end in view asks for the next page once this one has filled: Settled waits for the
-  // daemon's page first, and a failed one waits for Show more to retry it. The list says so for
-  // the rows it drew, so a page just added isn't taken as in view before the list has drawn it.
+  // The end in view asks for the next page once this one has filled. Settled short of its page
+  // waits for the daemon's (a failed one, for Show more to retry it); while searching it pages
+  // through the matches it draws, whatever the daemon's page is doing. The list says so for the
+  // rows it drew, so a page just added isn't taken as in view before the list has drawn it.
   const count = rows.length;
   const [nearAt, setNearAt] = useState<number>();
   const onNearEnd = useCallback((near: boolean) => setNearAt(near ? count : undefined), [count]);
-  const next =
-    nearAt === count &&
-    rows.at(-1)?.kind === "more" &&
-    !(paged === "settled" && (filling || settledPaging.error));
+  const short = paged === "settled" && panel.settled.length < shown.settled;
+  const next = nearAt === count && rows.at(-1)?.kind === "more" && !short;
   const { more } = paging;
   useEffect(() => {
     if (next) more();

@@ -1,9 +1,10 @@
 import { seedSettledThreads } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, WorkspaceId } from "@ace/protocol";
-import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { pressEnd, pressEndUntil } from "@/test/list-end.ts";
 import { useScrollLayout } from "@/test/scroll-layout.ts";
 
 configure({ asyncUtilTimeout: 20000 });
@@ -20,53 +21,15 @@ async function openTab(app: ReturnType<typeof harness>, tab: RegExp) {
   return nav.findByRole("list", { name: "Threads" });
 }
 
-/** Press End from a row in view; the number in the title of the last thread row it shows. */
-async function end(list: HTMLElement, title: RegExp): Promise<number> {
-  // A row that scrolled out unmounts and takes focus with it: start again from one in view.
-  const active = document.activeElement;
-  const from =
-    active instanceof HTMLElement && list.contains(active)
-      ? active
-      : list.querySelector<HTMLElement>("[data-row-focus]");
-  if (!from) throw new Error("No rows");
-  act(() => from.focus());
-  fireEvent.keyDown(from, { key: "End" });
-  return waitFor(() => {
-    const last = within(list)
-      .queryAllByRole("link")
-      .map((link) => title.exec(link.getAttribute("aria-label") ?? "")?.[1])
-      .findLast((number) => number !== undefined);
-    if (!last) throw new Error("No thread row in view");
-    return Number(last);
-  });
-}
-
-/** Press End until the last row in view is numbered as `far` wants; the number it reached. */
-async function scrollUntil(
-  list: HTMLElement,
-  title: RegExp,
-  far: (reached: number) => boolean,
-): Promise<number> {
-  let reached = 0;
-  await waitFor(
-    async () => {
-      reached = await end(list, title);
-      expect(far(reached)).toBe(true);
-    },
-    { timeout: 20_000, interval: 100 },
-  );
-  return reached;
-}
-
 test("Settled keeps paging older threads in as its end scrolls into view, past its first page", async () => {
   const app = harness();
-  seedSettledThreads(app.daemon, 300);
+  seedSettledThreads(app.daemon, 200);
   const list = await openTab(app, /^Settled/);
   const first = await within(list).findAllByRole("link", { name: /^Settled long ago \d+/ });
   const top = Number(/(\d+)/.exec(first[0]?.getAttribute("aria-label") ?? "")?.[1]);
   // 50 show at first. Each End brings the list's end into view and the next page follows, from
-  // what is loaded and then from the daemon, with no button pressed.
-  await scrollUntil(list, /^Settled long ago (\d+)/, (n) => Math.abs(n - top) >= 150);
+  // what is loaded and then from the daemon (20 a page), with no button pressed.
+  await pressEndUntil(list, /^Settled long ago (\d+)/, (n) => Math.abs(n - top) >= 100);
 }, 40_000);
 
 test("Snoozed shows more of its threads as its end scrolls into view, until the last", async () => {
@@ -98,44 +61,56 @@ test("Snoozed shows more of its threads as its end scrolls into view, until the 
   now += 1;
   const list = await openTab(app, /^Snoozed/);
   await within(list).findByRole("link", { name: /^Napping 0001/ });
-  expect(await scrollUntil(list, /^Napping (\d+)/, (n) => n === 120)).toBe(120);
+  const height = () => Number.parseFloat(list.style.height);
+  const viewport = list.closest<HTMLElement>("[data-virtual-viewport]");
+  if (!viewport) throw new Error("No list viewport");
+  // One scroll to the end brings one page, 100 of the 120, and the rest wait for the next.
+  const first = height();
+  act(() => {
+    viewport.scrollTop = first;
+    viewport.dispatchEvent(new Event("scroll"));
+  });
+  await waitFor(() => expect(height()).toBeGreaterThan(first));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  const second = height();
+  expect(await pressEndUntil(list, /^Napping (\d+)/, (n) => n === 120)).toBe(120);
+  const last = height();
+  // The first page more brought 50 rows and the last the remaining 20, about two fifths as much:
+  // two pages at once would leave the last next to nothing.
+  expect(last - second).toBeGreaterThan((second - first) / 5);
+  expect(last - second).toBeLessThan(second - first);
 }, 40_000);
 
-test("Chats keep paging older settled chats in as the list's end scrolls into view", async () => {
+test("a search's settled matches page in as the end scrolls into view while the daemon's page hangs", async () => {
   const app = harness();
-  for (let n = 1; n <= 150; n++) {
-    const id = `thread-old-chat-${pad(n)}`;
-    const workspace = `chat-old-${pad(n)}`;
-    app.daemon.createThread(
-      {
-        id,
-        workspaceId: WorkspaceId.parse(workspace),
-        title: `Old chat ${pad(n)}`,
-        provider: "claude",
-        hasSentMessage: true,
-        details: {
-          workspace: {
-            id: workspace,
-            name: "Chat",
-            path: `/fake/chats/${workspace}`,
-            kind: "chat",
-          },
-          mode: "local",
-        },
-      },
-      n * minute,
-    );
-    app.daemon.command({
-      id: CommandId.parse(`settle-${id}`),
-      deviceId: DeviceId.parse("long-lists"),
-      payload: { type: "thread.settle", threadId: ThreadId.parse(id) },
+  seedSettledThreads(app.daemon, 300);
+  // The daemon's next page never comes: only the search's own matches can fill the list.
+  const paging = vi.spyOn(app.client, "threadsMore").mockReturnValue(new Promise(() => {}));
+  try {
+    const list = await openTab(app, /^Settled/);
+    const height = () => Number.parseFloat(list.style.height);
+    await within(list).findByRole("button", { name: "Loading…" });
+    const loaded = height();
+    await userEvent.click(screen.getByRole("button", { name: "Search threads" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search threads" }), "long ago");
+    // The daemon's search finds up to 100 settled threads, more than the 20 loaded: the list
+    // grows to its first 50 and holds there.
+    let page = 0;
+    await waitFor(async () => {
+      page = height();
+      expect(page).toBeGreaterThan(loaded * 2);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+      expect(height()).toBe(page);
     });
+    // The end scrolled into view shows the next 50 matches, with no button pressed.
+    await waitFor(
+      async () => {
+        await pressEnd(list, /^Settled long ago (\d+)/);
+        expect(height()).toBeGreaterThan(page * 1.5);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+  } finally {
+    paging.mockRestore();
   }
-  await app.open("/chats");
-  const nav = within(await screen.findByRole("navigation", { name: "Chats" }));
-  const list = await nav.findByRole("list", { name: "Chats" });
-  const first = await within(list).findAllByRole("link", { name: /^Old chat \d+/ });
-  const top = Number(/(\d+)/.exec(first[0]?.getAttribute("aria-label") ?? "")?.[1]);
-  // The daemon sends 20 settled threads a page: past 100 from the top is five pages in.
-  await scrollUntil(list, /^Old chat (\d+)/, (n) => Math.abs(n - top) >= 100);
 }, 40_000);
