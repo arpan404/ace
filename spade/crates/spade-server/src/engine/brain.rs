@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use serde_json::Value;
 use spade_ace::brains::{AceBrains, BrainError, Frame, Subscription, TurnRequest};
 use spade_core::brain::{self, CliModel};
-use spade_core::context::ASK_USER;
+use spade_core::context::{ANSWERED, ASK_USER};
 use spade_core::event::{Call, Known, Tokens};
 use spade_core::maintenance::{Pause, Point};
 use spade_core::tools::ToolDef;
@@ -414,16 +414,19 @@ fn result_of(events: &[Event], call_id: &str, name: &str) -> ToolOutput {
         }) if c == call_id => Some((content.clone(), *is_error, *uncertain)),
         _ => None,
     });
+    // Answered in the card, left for later or dismissed, the stored result says it all; only a
+    // typed answer is handed over as the message itself.
+    let typed = matches!(&finished, Some((content, false, false)) if content == ANSWERED);
     if name == ASK_USER
+        && typed
         && let Some(at) = events.iter().position(|event| {
             matches!(event, Event::Known(Known::QuestionAsked { call_id: c, .. }) if c == call_id)
         })
         && let Some(answer) = events[at..].iter().find_map(|event| match event {
-            Event::Known(Known::UserMessage {
-                text,
-                from_agent: None,
-                ..
-            }) => Some(text.clone()),
+            event if spade_core::question::typed_by_person(event) => match event {
+                Event::Known(Known::UserMessage { text, .. }) => Some(text.clone()),
+                _ => None,
+            },
             _ => None,
         })
     {
