@@ -13,10 +13,16 @@ import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useMediaQuery } from "@/lib/media.ts";
-import { BotScreen, botSearch, type BotPlace } from "./spade-bot-screen.tsx";
+import {
+  ConversationScreen,
+  botSearch,
+  useOpenProfile,
+  type BotPlace,
+} from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
+import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { ComputerPanel, type FilesAt } from "./computer/computer-view.tsx";
 import { panelWidth, readPanel, writePanel, type PanelSection } from "./computer/panel-place.ts";
@@ -29,6 +35,7 @@ import { useSpadeModels } from "./use-spade-models.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
+import { spadeWorks } from "./spade-works.ts";
 
 /** A window too narrow for the panel beside a readable chat: the panel covers the chat. */
 const coverQuery = "(max-width: 59.99rem)";
@@ -45,7 +52,7 @@ const showCard = (callId: string | undefined) => {
 const storage = () => (typeof localStorage === "undefined" ? undefined : localStorage);
 
 /**
- * A bot's conversation, with its right panel (the computer's Browser, Screen, Terminal and Files,
+ * A bot's conversation under its pill, which names the bot and opens its profile, with its right panel (the computer's Browser, Screen, Terminal and Files,
  * its Activity and its Helpers) beside it when open: opened by Computer in the top bar ("Computer
  * · in use" while the bot uses it), by Watch on the working line and by a file chip, resizable
  * from its edge. Open or closed, its section and its width are remembered per bot. In a narrow
@@ -65,6 +72,7 @@ export function Conversation(props: {
   const toast = useToast();
   const skills = useSkillProposals(bot.id, view);
   const navigate = useNavigate();
+  const openProfile = useOpenProfile(bot);
   const computer = useBotComputer(bot, conversation.side);
   const endpoints = useSpadeModels(true).data?.endpoints;
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
@@ -105,11 +113,7 @@ export function Conversation(props: {
   }, [section, memoryKey]);
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
-  // A waiting task with a step Spade will start is open too: Stop calls that step off.
-  const open =
-    view.busy ||
-    task?.tone === "working" ||
-    (task?.tone === "waiting" && bot.progress?.continuing === true);
+  const open = spadeWorks(view, task, bot.progress?.continuing === true);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
   const stop = () => {
@@ -149,8 +153,10 @@ export function Conversation(props: {
   const panelShown = section !== undefined;
 
   const chat = (
-    <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
-      <Scroller>
+    <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
+      <h1 className="sr-only">{bot.name}</h1>
+      <ConversationPill bot={bot} onOpen={openProfile} />
+      <Scroller top="pill">
         {bot.kind === "main" && <SpadeKeySetup main={bot} />}
         {problem ? (
           <Problem text={problem} onRetry={conversation.retry} />
@@ -245,8 +251,7 @@ export function Conversation(props: {
   );
 
   return (
-    <BotScreen
-      bot={bot}
+    <ConversationScreen
       actions={
         // Covered by the panel, the chat comes back by the panel's own Chat.
         !(panelShown && covering) && (
@@ -324,6 +329,6 @@ export function Conversation(props: {
           </aside>
         )}
       </div>
-    </BotScreen>
+    </ConversationScreen>
   );
 }

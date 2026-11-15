@@ -49,7 +49,28 @@ export function useOpenBot(bot: RosterBot) {
 }
 
 /**
- * The screen's frame for one bot. Its top bar: the bot's face (moving while it works), its name
+ * Opens the bot's profile: the one way the conversation's pill reaches the bot's details and
+ * what acts on it. Until the profile panel lands, that is the bot's own page.
+ */
+export function useOpenProfile(bot: RosterBot) {
+  const open = useOpenBot(bot);
+  return () => open({ view: "bot" });
+}
+
+/**
+ * A bot's conversation's frame: the bar carries no title, since the pill over the transcript
+ * names the bot; only the conversation's own actions sit at its end.
+ */
+export function ConversationScreen(props: { actions?: ReactNode; children: ReactNode }) {
+  return (
+    <Screen title="" actions={props.actions}>
+      {props.children}
+    </Screen>
+  );
+}
+
+/**
+ * The frame for one bot's own page. Its top bar: the bot's face (moving while it works), its name
  * over its machine, and a caret; they open the bot's own page. ⋯ holds what acts on the bot: Edit,
  * Memory (its notes, which never show in the chat), Duplicate, Export and Delete.
  */

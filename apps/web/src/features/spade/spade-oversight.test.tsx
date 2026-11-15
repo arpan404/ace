@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, profileMenu, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -42,15 +42,14 @@ const activityReads = (spade: FakeSpadeApi) =>
 /** Scout's whole activity: from its page's Activity section, All. */
 async function openActivity() {
   await userEvent.click(await botRow("Scout"));
-  await userEvent.click(await screen.findByRole("link", { name: /^Scout on .*open its page$/ }));
+  await openProfile("Scout");
   const section = within(await screen.findByRole("region", { name: "Activity" }));
   await userEvent.click(section.getByRole("button", { name: "All" }));
 }
 
 async function openMenu(item: string) {
   await userEvent.click(await botRow("Scout"));
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
+  await profileMenu("Scout", item);
 }
 
 test("a bot's activity lists what it did newest first, and its filters and search ask Spade for just that", async () => {

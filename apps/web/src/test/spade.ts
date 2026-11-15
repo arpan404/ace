@@ -88,3 +88,17 @@ export async function openNew(item: string) {
   await userEvent.click(await screen.findByRole("button", { name: "New" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: item }));
 }
+
+/** The pill over the open conversation, which opens the bot's profile. */
+export async function openProfile(name: string) {
+  await userEvent.click(
+    await screen.findByRole("button", { name: new RegExp(`^${name}( on .*)?: open its profile$`) }),
+  );
+}
+
+/** The open bot's profile, then one of its ⋯ menu's items. */
+export async function profileMenu(name: string, item: string) {
+  await openProfile(name);
+  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
+}

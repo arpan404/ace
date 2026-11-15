@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { profileMenu, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -181,8 +181,7 @@ test("an app still signing in can't be given to a bot yet", async () => {
     });
   });
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
+  await profileMenu("Garden", "Edit bot");
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
   expect(disabled(await dialog.findByRole("switch", { name: "Sentry" }))).toBe(true);
   expect(disabled(dialog.getByRole("switch", { name: "Linear" }))).toBe(false);
@@ -210,8 +209,7 @@ function withApps(api: FakeSpadeApi) {
 test("a bot's edit form turns on the apps it may use, and saves only that", async () => {
   const { spade } = await spadeApp("/spade/garden", withApps);
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
+  await profileMenu("Garden", "Edit bot");
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
   const app = await dialog.findByRole("switch", { name: "Linear" });
   expect(checked(app)).toBe(false);
@@ -229,8 +227,7 @@ test("a bot's edit form turns on the apps it may use, and saves only that", asyn
 test("Spade may use every connected app, each its own switch, until the person turns one off", async () => {
   const { spade } = await spadeApp("/spade/main", withApps);
   await feed("Spade");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit Spade" }));
+  await profileMenu("Spade", "Edit Spade");
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Spade" }));
   // Every app is on, each shown by name.
   expect(checked(await dialog.findByRole("switch", { name: "Linear" }))).toBe(true);

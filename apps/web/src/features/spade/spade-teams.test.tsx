@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, profileMenu, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -364,8 +364,7 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   Object.assign(URL, { createObjectURL: () => "blob:bot", revokeObjectURL: () => {} });
   const { spade } = await spadeApp("/spade", team);
   await userEvent.click(await botRow("Research"));
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Export" }));
+  await profileMenu("Research", "Export");
   await waitFor(() => expect(saved).toEqual(["Research.spade-bot.json"]));
   expect(spade.sent("GET", "/v1/agents/research/export")).toHaveLength(1);
 

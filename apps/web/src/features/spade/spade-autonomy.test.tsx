@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -15,9 +15,7 @@ const withSpade = (spade: FakeSpadeApi) => {
 /** A bot's page, from its row and its name in the header. */
 async function openPage(name: string) {
   await userEvent.click(await botRow(name));
-  await userEvent.click(
-    await screen.findByRole("link", { name: new RegExp(`^${name} on .*open its page$`) }),
-  );
+  await openProfile(name);
   return within(await screen.findByRole("region", { name: "Access" }));
 }
 

@@ -37,7 +37,7 @@ test("a running Spade with nothing to wait on shows no state line in its panel",
   expect(screen.queryByText(/waiting for the keychain/)).toBeNull();
 });
 
-test("a search with nothing set up ends the reply with a quiet line that opens the setting", async () => {
+test("a search with nothing set up leaves only the bot's own words, with no setup line under them", async () => {
   await spadeApp("/spade/garden", (api) => {
     const c = garden(api).conversation;
     api.store(c, { type: "user_message", text: "When do I plant garlic?" });
@@ -64,10 +64,9 @@ test("a search with nothing set up ends the reply with a quiet line that opens t
   });
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Garden" }));
   await chat.findByText(/I can't search the web yet/);
-  // Once, however often it searched, and nothing else of the tool.
-  expect(chat.getAllByText("Web search isn't set up.")).toHaveLength(1);
-  const open = chat.getByRole("link", { name: "Set up web search" });
-  expect(open.getAttribute("href")).toBe("/settings/spade#web-search");
+  // The bot says it in its own words; nothing of the tool and no nag line follow.
+  expect(chat.queryByText(/web search isn't set up/i)).toBeNull();
+  expect(chat.queryByRole("link", { name: /web search/i })).toBeNull();
 });
 
 test("Settings › Spade › Web search keeps a Brave key in the keychain and a SearXNG address", async () => {

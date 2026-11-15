@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { readingColumn } from "@/features/thread/index.ts";
+import { cn } from "@/lib/cn.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -23,7 +24,11 @@ function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
  * every render and whenever the content's height changes after it. A short conversation starts
  * at the top.
  */
-export function Scroller(props: { children: ReactNode }) {
+export function Scroller(props: {
+  /** What floats over its top: the pill of a bot's conversation, which the first line clears. */
+  top?: "pill" | undefined;
+  children: ReactNode;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
@@ -47,7 +52,11 @@ export function Scroller(props: { children: ReactNode }) {
       {/* Room under the last line for the composer floating over the conversation. */}
       <div
         ref={content}
-        className={`${readingColumn} w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
+        className={cn(
+          readingColumn,
+          "w-full pb-[calc(var(--composer-clearance,0px)+1rem)]",
+          props.top === "pill" ? "pt-18" : "pt-6",
+        )}
       >
         {props.children}
       </div>
