@@ -4,13 +4,17 @@ import type { ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
 import type { Store } from "../store.ts";
+import { ChildRow } from "./child-ledger.ts";
+import { questionFacts, questionFate } from "./child-question.ts";
 import type { MachineChildren } from "./children.ts";
 import {
   asks,
   children,
+  ids,
   live,
   notSent,
   parentView,
+  parentWithChildren,
   silentChild,
   stopTracking,
   type Fixture,
@@ -23,13 +27,30 @@ import {
  * nobody can answer. A real parent engine and store; the other machine played in memory.
  */
 
-/** Writes that can fail: write statements in the store's transactions, and the engine's writes to the parent. */
+/**
+ * Writes that can fail: write statements in the store's transactions, and the engine's writes to
+ * the parent. When the one failure has run its course (its transaction rolled back, or at once
+ * outside one) and before anything else runs, `check` reads the store as it is then.
+ */
 function faulty(f: Fixture) {
   let calls = 0;
   let failAt = Number.POSITIVE_INFINITY;
+  /** Transactions open through this store. */
+  let depth = 0;
+  let unwinding = false;
+  let check = () => {};
+  let checked = false;
+  const inspect = () => {
+    checked = true;
+    check();
+  };
   const hit = () => {
     calls++;
-    if (calls === failAt) throw new Error("database is locked");
+    if (calls !== failAt) return;
+    // Outside a transaction nothing rolls back: what is stored now is what the failure leaves.
+    if (depth === 0) inspect();
+    else unwinding = true;
+    throw new Error("database is locked");
   };
   const wrap = <T extends object>(target: T, keys: ReadonlySet<PropertyKey>): T =>
     new Proxy(target, {
@@ -58,7 +79,19 @@ function faulty(f: Fixture) {
     get(on, key) {
       const value: unknown = Reflect.get(on, key, on);
       if (key === "atomic")
-        return <T>(run: (db: DatabaseSync) => T) => on.atomic((db) => run(writes(db)));
+        return <T>(run: (db: DatabaseSync) => T) => {
+          depth++;
+          try {
+            return on.atomic((db) => run(writes(db)));
+          } finally {
+            depth--;
+            // The outermost transaction around the failure has ended, committed or rolled back.
+            if (depth === 0 && unwinding) {
+              unwinding = false;
+              inspect();
+            }
+          }
+        };
       return typeof value === "function" ? (value as () => unknown).bind(on) : value;
     },
   });
@@ -78,6 +111,15 @@ function faulty(f: Fixture) {
     disarm() {
       failAt = Number.POSITIVE_INFINITY;
     },
+    /** What reads the store the moment the failure has run its course. */
+    onFailure(run: () => void) {
+      check = run;
+      checked = false;
+    },
+    /** Whether the failure happened, and was checked. */
+    get checked() {
+      return checked;
+    },
     get calls() {
       return calls;
     },
@@ -87,11 +129,15 @@ function faulty(f: Fixture) {
 type Lost = Awaited<ReturnType<typeof silentChild>>;
 interface Transition {
   name: string;
+  /** Starts before its lease runs out, instead of with its question already open. */
+  lapsing?: boolean;
   /** What happens to the child, through the faulty daemon. */
   run(lost: Lost, on: MachineChildren): Promise<void> | void;
 }
 
 const transitions: Transition[] = [
+  // The lease runs out while polling: the question opens with the child's hold and row.
+  { name: "its lease runs out", lapsing: true, run: () => {} },
   {
     name: "its machine answers again",
     run: ({ rijan }) => {
@@ -149,6 +195,80 @@ function answerable(lost: Lost, on: MachineChildren) {
   expect(view?.needs?.map((need) => need.interactionId)).toContain(ask.id);
 }
 
+/**
+ * What the store says at one instant agrees with itself: each change to the question and the
+ * child state it goes with are both there or neither is. Every open question is the one its child
+ * points at, and its child is still one to ask about; an unpaired child has its pairing question
+ * and a child that lost contact its own;
+ * and while a question is open its parent holds the child, whose row isn't done.
+ */
+function inconsistencies(lost: Lost): string[] {
+  const { f, parent } = lost;
+  const problems: string[] = [];
+  const rows = f.store
+    .atomic((db) => db.prepare("SELECT * FROM machine_children").all())
+    .map((row) => ChildRow.parse(row));
+  const open = asks(f, parent);
+  for (const ask of open) {
+    const row = rows.find((candidate) => candidate.lost_ask === ask.id);
+    if (!row) problems.push(`question open that no child points at`);
+    else if (questionFate(questionFacts(row)) === "close")
+      problems.push(
+        `question open for a child no longer lost: ${JSON.stringify(questionFacts(row))}`,
+      );
+  }
+  for (const row of rows)
+    if (
+      row.settled === 0 &&
+      row.lost_at !== null &&
+      !open.some((ask) => ask.id === row.lost_ask && !ask.request.title.startsWith("Lost contact"))
+    )
+      problems.push("unpaired child without its pairing question");
+  // Its parent's session is live throughout here, so nothing else closes its question.
+  for (const row of rows)
+    if (
+      questionFate(questionFacts(row)) === "keep" &&
+      row.settled === 0 &&
+      row.lost_at === null &&
+      !open.some((ask) => ask.id === row.lost_ask && ask.request.title.startsWith("Lost contact"))
+    )
+      problems.push("child lost contact without its question");
+  if (open.length > 0) {
+    const view = parentView(f, parent);
+    if (!view.holds.some((hold) => hold.status === "running"))
+      problems.push("question open while the parent's hold isn't running");
+    const row = view.rows[0];
+    if (row?.kind === "agent" && row.agent.status.state === "done")
+      problems.push("question open while the child's row reads done");
+  }
+  return problems;
+}
+
+/**
+ * A working child whose machine stops answering, watched from the start by a daemon whose writes
+ * can fail, its lease a minute: the question opens as it lapses.
+ */
+async function lapsingWithFaults() {
+  const fixture = await parentWithChildren(1);
+  fixture.ledger.close();
+  const { f, parent, rijan } = fixture;
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  const faults = faulty(f);
+  const on = children(f, rijan, 60_000, () => faults.engine, faults.store);
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
+  await fixture.at(f.clock.now() + 1_000, on);
+  await f.complete(parent.threadId, "Delegated the review.");
+  rijan.silent = true;
+  await fixture.at(f.clock.now() + 1_000, on);
+  expect(asks(f, parent)).toEqual([]);
+  return { lost: { ...fixture, id, quiet: f.clock.now() }, faults, on };
+}
+
 /** A fresh child that lost contact, watched by a daemon whose writes can fail. */
 async function lostWithFaults() {
   const lost = await silentChild();
@@ -184,6 +304,8 @@ it("a Stop whose closing of the question fails still ends with no question and a
     // The person's Stop reported the failure.
   }
   expect(failed).toBe(true);
+  // Before any poll: the stop and the question's closing are both there or neither is.
+  expect(inconsistencies(lost)).toEqual([]);
   // Stopped again later: already under way, so nothing new.
   stopping.stop(lost.id);
   await settle(lost, stopping);
@@ -197,19 +319,26 @@ it("a Stop whose closing of the question fails still ends with no question and a
 it.each(transitions.map((transition) => [transition.name, transition] as const))(
   "when %s with any one write failing, no question is left that can't be answered",
   async (_name, transition) => {
+    const start = () => (transition.lapsing ? lapsingWithFaults() : lostWithFaults());
     // How many writes the transition makes, run once without a failure.
-    const dry = await lostWithFaults();
+    const dry = await start();
     dry.faults.arm(Number.POSITIVE_INFINITY);
     await transition.run(dry.lost, dry.on);
     await settle(dry.lost, dry.on);
     answerable(dry.lost, dry.on);
+    // Lapsing, the question did open.
+    if (transition.lapsing) expect(asks(dry.lost.f, dry.lost.parent)).toHaveLength(1);
     const writes = dry.faults.calls;
     dry.on.close();
     expect(writes).toBeGreaterThan(0);
 
     // Each of its writes in turn is the one that fails.
     for (let at = 1; at <= writes; at++) {
-      const { lost, faults, on } = await lostWithFaults();
+      const { lost, faults, on } = await start();
+      // The moment the failure has run its course, before any other write or poll: both
+      // changes or neither.
+      let atFailure: string[] = [];
+      faults.onFailure(() => (atFailure = inconsistencies(lost)));
       faults.arm(at);
       try {
         await transition.run(lost, on);
@@ -218,10 +347,16 @@ it.each(transitions.map((transition) => [transition.name, transition] as const))
       }
       await settle(lost, on);
       faults.disarm();
+      expect({ at, checked: faults.checked, atFailure }).toEqual({
+        at,
+        checked: true,
+        atFailure: [],
+      });
       answerable(lost, on);
+      expect(inconsistencies(lost)).toEqual([]);
       on.close();
     }
   },
   // About two dozen fresh daemons each, a quarter of a second apiece.
-  20_000,
+  25_000,
 );
