@@ -87,6 +87,11 @@ export interface VideoCaptureHandle {
   ingest?(target: VideoIngestTarget | undefined): void;
   /** What ace-media runs the capture on, while it carries it (ADR 0148). */
   acceleration?(): MediaAcceleration | undefined;
+  /**
+   * The codecs the encoder runs now, best first: present where ace-media plans the capture's
+   * views (`source.codecs`), so it never asks for one the encoder can't make.
+   */
+  codecs?(codecs: readonly string[]): void;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
