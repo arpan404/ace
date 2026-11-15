@@ -12,7 +12,7 @@
 //! - **Video's share.** A view takes at most 70 % of its link estimate, and half that while
 //!   `session.link` shows its main session's round trip inflating (smoothed above 1.5 × its
 //!   10 s minimum), so live video never starves the session that owns it (ADR 0149).
-use super::pieces::build;
+use super::pieces::{build, captured_ms};
 use super::{Effect, normal};
 use media_core::fanout::{Event, Piece, Viewer as Fanout, Window};
 use media_core::link_rate::{Limits, LinkRate};
@@ -141,6 +141,8 @@ pub struct Delivery {
     message: u32,
     last_stats: u64,
     bytes_out: u64,
+    /// The capture time of the unit being delivered.
+    stamp: f64,
 }
 
 fn media(out: &mut Vec<Effect>, connection: &str, message: MediaOut) {
@@ -469,10 +471,19 @@ impl Delivery {
     }
 
     /// A unit of `source`: to every view of it that takes this encode.
-    pub fn unit(&mut self, source: &str, frame: &MediaFrame, now_ms: u64, out: &mut Vec<Effect>) {
+    /// `wall_ms` is the wall clock in Unix ms: pieces carry the unit's capture time on it.
+    pub fn unit(
+        &mut self,
+        source: &str,
+        frame: &MediaFrame,
+        now_ms: u64,
+        wall_ms: u64,
+        out: &mut Vec<Effect>,
+    ) {
         if frame.kind != 1 && frame.kind != FRAME_AUDIO {
             return;
         }
+        self.stamp = captured_ms(frame, wall_ms);
         if frame.kind == 1 {
             let facts = self.sources.entry(source.to_owned()).or_default();
             facts.seen.insert(
@@ -517,7 +528,7 @@ impl Delivery {
                     source,
                     message,
                     view.sequence,
-                    now_ms as f64,
+                    self.stamp,
                     frame,
                 ) else {
                     continue;
@@ -572,14 +583,8 @@ impl Delivery {
             };
             view.sequence += 1;
             let sequence = view.sequence;
-            let Some(built) = build(
-                &view.target,
-                source,
-                message,
-                sequence,
-                now_ms as f64,
-                frame,
-            ) else {
+            let Some(built) = build(&view.target, source, message, sequence, self.stamp, frame)
+            else {
                 return;
             };
             let mut events = Vec::new();

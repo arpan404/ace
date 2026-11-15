@@ -12,6 +12,8 @@ function harness() {
       send: () => true,
       revoke: () => Promise.resolve("answered"),
       directPort: () => 41_000,
+      need: () => () => {},
+      sleep: () => Promise.resolve(),
     },
     issue: new MediaIssue(),
     now: () => now,
@@ -27,15 +29,15 @@ const phone: MediaOwner = {
   admission: { kind: "pairing", generation: 1 },
 };
 
-function ticket(connections: MediaConnections, owner = phone) {
-  const result = connections.connect(owner);
+async function ticket(connections: MediaConnections, owner = phone) {
+  const result = await connections.connect(owner);
   if (!result.ok) throw new Error(result.code);
   return result;
 }
 
-test("a ticket opens its relay connection once, for its own device, with a fresh issue number", () => {
+test("a ticket opens its relay connection once, for its own device, with a fresh issue number", async () => {
   const { connections } = harness();
-  const minted = ticket(connections);
+  const minted = await ticket(connections);
   const first = connections.claimRelay(minted.ticket, { device: "phone", admission: "pairing" });
   expect(first).toMatchObject({ connection: minted.connection, owner: phone });
   expect(first?.issued).toBeGreaterThan(1);
@@ -44,9 +46,9 @@ test("a ticket opens its relay connection once, for its own device, with a fresh
   );
 });
 
-test("a ticket presented by another device, or under another admission kind, is burnt", () => {
+test("a ticket presented by another device, or under another admission kind, is burnt", async () => {
   const { connections } = harness();
-  const stolen = ticket(connections);
+  const stolen = await ticket(connections);
   expect(connections.claimRelay(stolen.ticket, { device: "tablet", admission: "pairing" })).toBe(
     undefined,
   );
@@ -54,7 +56,7 @@ test("a ticket presented by another device, or under another admission kind, is 
   expect(connections.claimRelay(stolen.ticket, { device: "phone", admission: "pairing" })).toBe(
     undefined,
   );
-  const other = ticket(connections);
+  const other = await ticket(connections);
   expect(connections.claimRelay(other.ticket, { device: "phone", admission: "account" })).toBe(
     undefined,
   );
@@ -62,17 +64,17 @@ test("a ticket presented by another device, or under another admission kind, is 
 
 test("an expired ticket, a closed session's, a revoked device's or a malformed one opens nothing", async () => {
   const { connections, advance } = harness();
-  const late = ticket(connections);
+  const late = await ticket(connections);
   advance(ticketTtlMs);
   expect(connections.claimRelay(late.ticket, { device: "phone", admission: "pairing" })).toBe(
     undefined,
   );
-  const closed = ticket(connections);
+  const closed = await ticket(connections);
   await connections.sessionClosed(phone.session);
   expect(connections.claimRelay(closed.ticket, { device: "phone", admission: "pairing" })).toBe(
     undefined,
   );
-  const revoked = ticket(connections, { ...phone, session: "s2" });
+  const revoked = await ticket(connections, { ...phone, session: "s2" });
   await connections.revoke("phone");
   expect(connections.claimRelay(revoked.ticket, { device: "phone", admission: "pairing" })).toBe(
     undefined,
@@ -82,9 +84,9 @@ test("an expired ticket, a closed session's, a revoked device's or a malformed o
   );
 });
 
-test("a ticket a client already used directly can't open a relay connection too", () => {
+test("a ticket a client already used directly can't open a relay connection too", async () => {
   const { connections } = harness();
-  const minted = ticket(connections);
+  const minted = await ticket(connections);
   connections.received({
     type: "connection.open",
     connection: minted.connection,

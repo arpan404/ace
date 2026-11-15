@@ -120,7 +120,7 @@ async function setup() {
     const hold = supervisor.need();
     cleanups.push(hold);
     await until(() => (supervisor.listening()?.loopbackPort ?? 0) > 0);
-    const granted = runtime.connections.connect({
+    const granted = await runtime.connections.connect({
       session,
       device,
       admission: { kind: "pairing", generation: 1 },

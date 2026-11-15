@@ -26,6 +26,30 @@ const CODEC_H264_AVCC: u8 = 2;
 const CODEC_OPUS: u8 = 9;
 const FLAG_KEY: u32 = 1;
 
+/// When a unit was captured, in Unix ms: the producer stamp's exact time when it carries one
+/// (header extension tag 1: u64 sequence, f64 capture time, f64 scale), else the wall clock less
+/// the unit's age.
+pub fn captured_ms(frame: &MediaFrame, wall_ms: u64) -> f64 {
+    let mut rest = frame.extension.as_slice();
+    while rest.len() >= 4 {
+        let tag = u16::from_be_bytes([rest[0], rest[1]]);
+        let length = usize::from(u16::from_be_bytes([rest[2], rest[3]]));
+        let Some(value) = rest.get(4..4 + length) else {
+            break;
+        };
+        if tag == 1 && length == 24 {
+            let mut time = [0u8; 8];
+            time.copy_from_slice(&value[8..16]);
+            let at = f64::from_be_bytes(time);
+            if at.is_finite() && at > 0.0 {
+                return at;
+            }
+        }
+        rest = &rest[4 + length..];
+    }
+    wall_ms as f64 - f64::from(frame.age_us) / 1000.0
+}
+
 /// What a unit becomes for one view: its pieces, each one binary WebSocket message.
 pub struct Built {
     pub pieces: Vec<Vec<u8>>,

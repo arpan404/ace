@@ -200,7 +200,7 @@ function intents(connection: string): ViewIntent[] {
 async function watch(runtime: MediaRuntime) {
   const kinds = new Set<number>();
   let first: number | undefined;
-  const grant = runtime.connections.connect(owner);
+  const grant = await runtime.connections.connect(owner);
   if (!grant.ok) throw new Error(grant.code);
   const client = await MediaTestClient.open(grant, {
     onPiece: (piece, at) => {

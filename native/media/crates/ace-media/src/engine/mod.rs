@@ -752,7 +752,7 @@ impl Engine {
         if let Some(source) = self.sources.bound(conn) {
             self.stills.frame(source, &frame, &mut self.out);
             self.delivery
-                .unit(source, &frame, now.mono_ms, &mut self.out);
+                .unit(source, &frame, now.mono_ms, now.wall_ms, &mut self.out);
         }
         self.sources
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
@@ -762,7 +762,7 @@ impl Engine {
     pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
         if self.sources.encoder_is(source, token) {
             self.delivery
-                .unit(source, &frame, now.mono_ms, &mut self.out);
+                .unit(source, &frame, now.mono_ms, now.wall_ms, &mut self.out);
         }
         self.sources.encoded(
             source,

@@ -44,6 +44,10 @@ export type MediaConnectionsPort = {
   revoke(message: Revocation): Promise<RevocationResult>;
   /** ace-media's loopback listener port, once it is up. */
   directPort(): number | undefined;
+  /** Keeps ace-media running (starting it if needed) until the release is called. */
+  need(): () => void;
+  /** Resolves after `ms`, so a connect can wait for ace-media to come up. */
+  sleep(ms: number): Promise<void>;
 };
 
 export type MediaConnectionsOptions = {
@@ -63,6 +67,7 @@ export type MediaConnectGrant =
 type Held = {
   owner: MediaOwner;
   open: boolean;
+  release: () => void;
   /**
    * The SHA-256 of the unused ticket, for a relay stream's hello (D2), which the daemon checks
    * itself; gone once any hello presents it. The ticket itself is only ace-media's.
@@ -86,6 +91,10 @@ function ticketBytes(text: string): Uint8Array | undefined {
   const bytes = new Uint8Array(Buffer.from(text, "base64url"));
   return bytes.length === 32 ? bytes : undefined;
 }
+
+/** How long `media.connect` waits for ace-media to start. */
+export const startWaitMs = 5_000;
+const startPollMs = 20;
 
 function base64url(bytes: Uint8Array): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -128,16 +137,35 @@ export class MediaConnections {
     );
   }
 
-  /** `media.connect` from an authenticated main session. */
-  connect(owner: MediaOwner): MediaConnectGrant {
+  /**
+   * `media.connect` from an authenticated main session. A connection keeps ace-media running for
+   * as long as it is held; when nothing had started it yet, this waits up to `startWaitMs` for it.
+   */
+  async connect(owner: MediaOwner): Promise<MediaConnectGrant> {
+    const unavailable = {
+      ok: false,
+      code: "unavailable",
+      message: "ace-media isn't serving viewers.",
+    } as const;
     if (this.#isRevoked(owner))
       return { ok: false, code: "refused", message: "This device's access was revoked." };
-    const port = this.#options.port.directPort();
-    if (port === undefined || port === 0)
-      return { ok: false, code: "unavailable", message: "ace-media isn't serving viewers." };
     const mine = [...this.#held.values()].filter((h) => h.owner.session === owner.session);
     if (mine.length >= connectionsPerSession)
       return { ok: false, code: "limit", message: "Too many media connections." };
+    const { port: media } = this.#options;
+    const release = media.need();
+    let port = media.directPort();
+    for (let waited = 0; !port && waited < startWaitMs; waited += startPollMs) {
+      await media.sleep(startPollMs);
+      port = media.directPort();
+    }
+    // Revoked while it waited: nothing is minted for it.
+    if (!port || this.#isRevoked(owner)) {
+      release();
+      return port
+        ? { ok: false, code: "refused", message: "This device's access was revoked." }
+        : unavailable;
+    }
     const connection = `mc_${base64url(this.#options.randomBytes(18))}`;
     const ticket = this.#options.randomBytes(32);
     const ticketText = base64url(ticket);
@@ -154,9 +182,11 @@ export class MediaConnections {
       ticket,
     );
     ticket.fill(0);
-    if (!sent)
-      return { ok: false, code: "unavailable", message: "ace-media isn't serving viewers." };
-    this.#held.set(connection, { owner, open: false, ticket: hashed, expiresAt });
+    if (!sent) {
+      release();
+      return unavailable;
+    }
+    this.#held.set(connection, { owner, open: false, release, ticket: hashed, expiresAt });
     return {
       ok: true,
       connection,
@@ -225,7 +255,7 @@ export class MediaConnections {
     const closing: Promise<RevocationResult>[] = [];
     for (const [connection, held] of this.#held) {
       if (held.owner.session !== session) continue;
-      this.#held.delete(connection);
+      this.#drop(connection);
       closing.push(
         this.#options.port.revoke({
           type: "connection.close",
@@ -254,7 +284,7 @@ export class MediaConnections {
         held.owner.device === device &&
         (!admission || sameAdmission(admission, held.owner.admission))
       )
-        this.#held.delete(connection);
+        this.#drop(connection);
     return this.#options.port.revoke({
       type: "revoke",
       id: this.#options.id(),
@@ -273,13 +303,20 @@ export class MediaConnections {
         held.ticket = undefined;
       }
     } else if (message.type === "connection.closed") {
-      this.#held.delete(message.connection);
+      this.#drop(message.connection);
     }
   }
 
   /** ace-media exited: every media connection ended with it; clients ask again. */
   exited(): void {
-    this.#held.clear();
+    for (const connection of [...this.#held.keys()]) this.#drop(connection);
+  }
+
+  #drop(connection: string): void {
+    const held = this.#held.get(connection);
+    if (!held) return;
+    this.#held.delete(connection);
+    held.release();
   }
 
   /** The main sessions that hold a media connection now. */

@@ -3,7 +3,7 @@ import { RouteWatch } from "./route-watch.ts";
 import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
 import { IngestSources } from "./ingest-sources.ts";
 import { MediaConnections, MediaIssue } from "./media-connections.ts";
-import { MediaViewers } from "./media-viewers.ts";
+import { MediaViewers, type MediaDeliveryPort } from "./media-viewers.ts";
 import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
 import {
   MediaSupervisor,
@@ -99,6 +99,8 @@ export class MediaRuntime {
         send: (message, payload) => this.supervisor.send(message, payload),
         revoke: (message) => this.supervisor.revoke(message),
         directPort: () => this.supervisor.listening()?.loopbackPort,
+        need: () => this.supervisor.need(),
+        sleep: (ms) => new Promise((resolve) => options.clock.setTimeout(resolve, ms)),
       },
       issue: new MediaIssue(),
       now: options.wallClock ?? systemWallClock,
@@ -111,6 +113,7 @@ export class MediaRuntime {
       send: (message) => this.supervisor.send(message),
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+      now: () => options.clock.now(),
     });
     this.#stopLinks = pumpSessionLinks(this.links, options.clock, (message) =>
       this.supervisor.send(message),
@@ -132,6 +135,23 @@ export class MediaRuntime {
       if (!codecs.some((codec) => codec.startsWith(family))) codecs.push(entry.codec);
     }
     return codecs.toSorted((a, b) => Number(b.startsWith("avc1")) - Number(a.startsWith("avc1")));
+  }
+
+  /** What the bridges bind subscribes through (D1). */
+  delivery(): MediaDeliveryPort {
+    return {
+      // Frames must be in ace-media for it to deliver them: the producer streams there.
+      serves: (kind) => {
+        const route = this.routes.routes()[kind];
+        return route.deliverer === "ace-media" && route.producer === "ace-media";
+      },
+      bind: (intent) => this.viewers.bind(intent),
+      granted: (viewer) => this.viewers.granted(viewer),
+      poster: (viewer) => this.viewers.poster(viewer),
+      configure: (viewer, viewport, audio) => this.viewers.configure(viewer, viewport, audio),
+      pause: (viewer, paused) => this.viewers.pause(viewer, paused),
+      unbind: (viewer) => this.viewers.unbind(viewer),
+    };
   }
 
   /** A media setting changed: routes move, and sources follow. */
