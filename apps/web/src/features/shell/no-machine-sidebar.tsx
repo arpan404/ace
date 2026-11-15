@@ -1,4 +1,4 @@
-import { ChatsCircleIcon, GearSixIcon } from "@ace/icons";
+import { FolderSimpleIcon, GearSixIcon } from "@ace/icons";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
@@ -33,7 +33,7 @@ export function NoMachineSidebar() {
           data-slot="sidebar-panel"
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
         >
-          {!bodyClaimed && <PanelHeader title="Threads" />}
+          {!bodyClaimed && <PanelHeader title="Projects" />}
           <div ref={setBody} className="contents" />
         </div>
       </div>
@@ -55,14 +55,14 @@ function NoMachineRail() {
       className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
     >
       <TooltipSide value="right">
-        <Tip label="Threads" shortcut="goHome">
+        <Tip label="Projects" shortcut="goHome">
           <Link
             to="/"
-            aria-label="Threads"
+            aria-label="Projects"
             aria-current={settings ? undefined : "page"}
             className={railPlaceClass}
           >
-            <Icon icon={ChatsCircleIcon} size={20} active={!settings} />
+            <Icon icon={FolderSimpleIcon} size={20} active={!settings} />
           </Link>
         </Tip>
         <span className="flex-1" />

@@ -111,7 +111,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
     ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser"],
   },
   {
-    label: "Threads",
+    label: "Projects",
     ids: ["showInbox", "showSnoozed", "showSettled", "nextThreadsTab"],
   },
   {

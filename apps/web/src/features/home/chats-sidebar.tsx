@@ -1,5 +1,5 @@
 import { useSidebarLoaded } from "@ace/client-react";
-import { ChatCircleIcon, NotePencilIcon } from "@ace/icons";
+import { ChatsCircleIcon, NotePencilIcon } from "@ace/icons";
 import { useEffect, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PanelNoMatch, PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
@@ -69,7 +69,7 @@ export function ChatsSidebar() {
         ) : !chats.any ? (
           <EmptyState
             className="shrink-0 justify-start pt-6"
-            icon={ChatCircleIcon}
+            icon={ChatsCircleIcon}
             title={deviceName ? `No chats on ${deviceName}` : "No chats yet"}
             description={
               deviceName

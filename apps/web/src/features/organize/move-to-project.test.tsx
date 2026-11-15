@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
 
 async function openApp(path = "/", seed?: (app: ReturnType<typeof harness>) => void) {
@@ -18,7 +18,7 @@ async function openApp(path = "/", seed?: (app: ReturnType<typeof harness>) => v
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   seed?.(app);
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openApp>>;

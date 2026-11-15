@@ -130,7 +130,7 @@ export function HeaderNav() {
         // A phone's list is the sidebar sheet: going back to it is the header's first control.
         <IconButton
           icon={CaretLeftIcon}
-          label="Back to threads"
+          label="Back to projects"
           shortcut="toggleSidebar"
           onClick={frame.showSidebar}
         />

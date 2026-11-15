@@ -1,6 +1,6 @@
 import { useSidebarLoaded } from "@ace/client-react";
 import { homeRowThread } from "@ace/ui-core";
-import { ChatCircleIcon } from "@ace/icons";
+import { ChatsCircleIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -32,7 +32,7 @@ export function ChatsEmptyScreen() {
   return (
     <Screen title="Chats" namedByPanel>
       <EmptyState
-        icon={ChatCircleIcon}
+        icon={ChatsCircleIcon}
         heading
         title="No chats yet"
         description="A chat needs no project. Ask anything."

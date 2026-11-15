@@ -58,7 +58,7 @@ export function ThreadsTabs(props: {
   return (
     <div
       role="tablist"
-      aria-label="Threads"
+      aria-label="Projects"
       className="ace-floating threads-tabs-mount absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-full p-1"
       onKeyDown={(event) => {
         const by = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;

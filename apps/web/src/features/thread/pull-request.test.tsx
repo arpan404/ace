@@ -411,7 +411,7 @@ test("a live link publication leads the card's PR line, and the sidebar counts b
     pullRequests: { "thread-pr": pr({ ref: { repository, number: 283 } }) },
   });
   expect(await within(card).findByRole("button", { name: /^Open pull request #283/ })).toBeTruthy();
-  const sidebar = screen.getByRole("navigation", { name: "Threads" });
+  const sidebar = screen.getByRole("navigation", { name: "Projects" });
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
   expect(row.textContent).toContain("#283+1");
   expect(

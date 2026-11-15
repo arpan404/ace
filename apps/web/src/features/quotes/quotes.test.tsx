@@ -113,7 +113,7 @@ test("a quote waiting in the draft is still there after visiting another thread"
   await open();
   await reply("route 2 renders");
 
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Replay cursor resets/ }));
   await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
   expect(screen.queryByRole("list", { name: "Replying to" })).toBeNull();

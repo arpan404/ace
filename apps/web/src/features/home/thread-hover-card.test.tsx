@@ -19,7 +19,7 @@ test("the hover card names the model without the provider's name", async () => {
     facts.message("root", "ask", "user", "Fix replay"),
   ]);
   await app.open("/new");
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Model beside the account/ },
   );
@@ -45,7 +45,7 @@ test("the hover card shows no model line when the model is unknown", async () =>
     facts.message("root", "ask", "user", "Fix replay"),
   ]);
   await app.open("/new");
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Thread without a model/ },
   );
@@ -54,7 +54,7 @@ test("the hover card shows no model line when the model is unknown", async () =>
   expect(within(tip).queryByLabelText(/^Model:/)).toBeNull();
 });
 
-const threadsList = async () => within(await screen.findByRole("navigation", { name: "Threads" }));
+const threadsList = async () => within(await screen.findByRole("navigation", { name: "Projects" }));
 
 test("with two Claude accounts, a row's provider mark carries the account's badge and the hover card names it", async () => {
   const app = harness();

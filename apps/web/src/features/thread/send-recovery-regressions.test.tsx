@@ -356,7 +356,7 @@ test("a restored failed held message keeps sidebar recovery attention", async ()
   reloadPage();
   await app.open("/t/thread-router");
   await screen.findByRole("button", { name: "Retry" });
-  const navigation = screen.getByRole("navigation", { name: "Threads" });
+  const navigation = screen.getByRole("navigation", { name: "Projects" });
   expect(
     within(navigation).getByRole("link", { name: /Document the router.*Not sent/i }),
   ).toBeTruthy();

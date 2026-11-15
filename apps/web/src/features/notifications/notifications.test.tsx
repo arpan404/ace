@@ -13,7 +13,7 @@ const toastByText = (text: string | RegExp) => {
   return viewport ? within(viewport).queryByText(text) : null;
 };
 const inList = async (title: string) =>
-  within(await screen.findByRole("navigation", { name: "Threads" })).findByText(title);
+  within(await screen.findByRole("navigation", { name: "Projects" })).findByText(title);
 
 function crashingBuild(): Scenario {
   return {
