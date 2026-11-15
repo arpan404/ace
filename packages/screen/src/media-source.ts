@@ -368,7 +368,8 @@ export class ScreenMediaSource {
         this.#daemonReached();
       }
     }
-    return { codec: reply.codec };
+    // The daemon's side sees video either way: HEVC goes to ace-media's views only.
+    return { codec: reply.codec === "jpeg" ? "jpeg" : "h264" };
   }
 
   #serial<T>(task: () => Promise<T>): Promise<T> {

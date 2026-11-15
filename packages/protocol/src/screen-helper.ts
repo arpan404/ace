@@ -23,10 +23,18 @@ import {
 
 import { ScreenMeasurementOptions } from "./interaction-measurement.ts";
 
+/** The Mac helper's stream request: a client's settings, or HEVC, which only the daemon asks
+ * for and only toward ace-media's ingest (the helper's socket stays H.264). */
+export const ScreenHelperStreamSettings = ScreenStreamSettings.extend({
+  codec: z.enum(["jpeg", "h264", "hevc"]),
+});
+export type ScreenHelperStreamSettings = z.infer<typeof ScreenHelperStreamSettings>;
+
 /** The helper's answer to `stream.configure`: where video goes now and, after a switch, the
  * last frame sequence the previous path took (null when it took none). */
 export const ScreenStreamConfigured = z.object({
-  codec: z.enum(["jpeg", "h264"]),
+  /** What video goes out in: `hevc` only while it goes to ace-media's ingest. */
+  codec: z.enum(["jpeg", "h264", "hevc"]),
   ingest: z.enum(["on", "off"]).optional(),
   switched: z.boolean().optional(),
   boundary: z.number().int().nonnegative().nullable().optional(),
@@ -65,7 +73,7 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
   }),
   HelperEnvelope.extend({
     op: z.literal("stream.configure"),
-    settings: ScreenStreamSettings,
+    settings: ScreenHelperStreamSettings,
     /** ace-media's ingest socket and the source's single-use token (base64 of 32 bytes); absent
      * sends video to the daemon's socket. Each request carries the whole state. */
     ingest: ScreenStreamIngest.optional(),

@@ -3725,8 +3725,8 @@
       "sha256": "435ad6b1b235ba83fff65811da4ed2455ce5e6427ea99d3489817fe9ec541340"
     },
     "schema/ScreenCapabilities.json": {
-      "bytes": 2964,
-      "sha256": "d8aa6fa64b87048d4c617e6cfd9cc5cb85e527f416a053be4198455b11174582"
+      "bytes": 2982,
+      "sha256": "a044fc1c7f5e2b7782d6ed2485480fb4c17e8aa032ae7029805f0ca9cda3bae0"
     },
     "schema/ScreenChooserPick.json": {
       "bytes": 471,
@@ -3761,12 +3761,16 @@
       "sha256": "37a0ec36dfaa406f2f62cbca2a749e47f87980792820a93a8eb7a192bf0b5a30"
     },
     "schema/ScreenHelperRequest.json": {
-      "bytes": 29393,
-      "sha256": "6bc65bbe49ef7ae5a1db19dab2df6727fcbd7734647050f33e398e2eb86a7955"
+      "bytes": 29399,
+      "sha256": "3cb335e88178b5fb745ba10f45b575655a6aca8b8d280c33db522b1423ba3e57"
     },
     "schema/ScreenHelperRequestV2.json": {
       "bytes": 17664,
       "sha256": "07c5faccca1a19c3a06fa3886fd02bf3dc07372f235facd7ab77395e3385271e"
+    },
+    "schema/ScreenHelperStreamSettings.json": {
+      "bytes": 761,
+      "sha256": "7f56a85c28157e6e56f79cb62820fdfc434f609139f1b43740cdd4542ba8e866"
     },
     "schema/ScreenId.json": {
       "bytes": 171,
@@ -3841,8 +3845,8 @@
       "sha256": "115cce6dcba2c2563e512c22a635d62fa684ba51f281f4b1f1d484d0749db811"
     },
     "schema/ScreenStreamConfigured.json": {
-      "bytes": 665,
-      "sha256": "a73260c6d1c3ba975adc2ce2da735a77f366f5222f76b54095ca5a1cc7e077c2"
+      "bytes": 681,
+      "sha256": "42d8c8993cb35b236e587810f639b2f0b940d7eb9fd25224ca93f45b5a7d45cc"
     },
     "schema/ScreenStreamIngest.json": {
       "bytes": 505,
@@ -5313,10 +5317,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1069774,
-      "sha256": "cd4ad4398e52d0f721b663cf20f70e1a5d32beeb8964d77961ea7f9f66dafc12"
+      "bytes": 1070377,
+      "sha256": "9ea399989f06be00b7bf8e50f8dbb2dc00358b61799954e262a59e029e5f5a30"
     }
   },
-  "input": "e8e8936e94fded9211937ef9e1ac574d12c830d55fdb44d484688799379821fe",
+  "input": "76484ea9653bffc7db02e356472ab6c29f02eb17d0ba4bed22f74c625c927e4c",
   "version": 1
 }

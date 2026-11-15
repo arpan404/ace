@@ -261,7 +261,7 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "settings": {
-          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+          "$ref": "https://ace.local/protocol/v1/ScreenHelperStreamSettings.json"
         },
         "version": {
           "anyOf": [
