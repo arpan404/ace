@@ -62,13 +62,17 @@ export function usePanelRows(input: {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, nextAt]);
   const paged: Paged | undefined = tab === "inbox" ? undefined : tab;
-  const paging = useMemo((): PanelPaging => {
-    const grow = () =>
+  /** A page more of the open tab's threads, from what it holds: never a request. */
+  const grow = useCallback(
+    () =>
       setShown((current) => {
         const base = current.key === key ? current.shown : firstPage;
         return paged ? { key, shown: { ...base, [paged]: base[paged] + panelPage } } : current;
-      });
-    return {
+      }),
+    [key, paged],
+  );
+  const paging = useMemo(
+    (): PanelPaging => ({
       more() {
         // After a failed page, Show more asks again for the page it couldn't load.
         if (paged === "settled" && settledPaging.error) void loadMore();
@@ -76,8 +80,9 @@ export function usePanelRows(input: {
       },
       loading: paged === "settled" && settledPaging.loading,
       error: paged === "settled" && settledPaging.error,
-    };
-  }, [key, paged, settledPaging.loading, settledPaging.error, loadMore]);
+    }),
+    [paged, settledPaging.loading, settledPaging.error, loadMore, grow],
+  );
   const rows = useMemo(
     (): readonly HomeRow[] =>
       panelRows(panel, tab, {
@@ -87,18 +92,18 @@ export function usePanelRows(input: {
       }),
     [panel, tab, paged, shown, settledPaging.hasMore],
   );
-  // The end in view asks for the next page once this one has filled. Settled short of its page
-  // waits for the daemon's (a failed one, for Show more to retry it); while searching it pages
-  // through the matches it draws, whatever the daemon's page is doing. The list says so for the
-  // rows it drew, so a page just added isn't taken as in view before the list has drawn it.
+  // The end in view shows the next page once this one has filled. Settled short of its page
+  // waits for the daemon's; while searching it pages through the matches it draws, whatever the
+  // daemon's page is doing. Scrolling never asks the daemon itself: only Show more retries a
+  // failed page. The list says so for the rows it drew, so a page just added isn't taken as in
+  // view before the list has drawn it, and each page drawn re-arms the next.
   const count = rows.length;
   const [nearAt, setNearAt] = useState<number>();
   const onNearEnd = useCallback((near: boolean) => setNearAt(near ? count : undefined), [count]);
   const short = paged === "settled" && panel.settled.length < shown.settled;
   const next = nearAt === count && rows.at(-1)?.kind === "more" && !short;
-  const { more } = paging;
   useEffect(() => {
-    if (next) more();
-  }, [next, more]);
+    if (next) grow();
+  }, [next, grow]);
   return { rows, paging, onNearEnd };
 }
