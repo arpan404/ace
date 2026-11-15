@@ -3,6 +3,7 @@
 
 mod ace;
 mod ace_link;
+mod ace_wait;
 mod bots;
 mod cloud_account;
 mod connectors;
@@ -25,6 +26,7 @@ use serde_json::Value;
 use spade_core::event::{DocumentRef, ImageRef};
 use spade_core::tools::{Registry, ToolDef};
 
+pub(crate) use ace::reattaches;
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use cloud_account::CloudAccount;

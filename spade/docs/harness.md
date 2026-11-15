@@ -117,7 +117,14 @@ ace's tools (threads, agents, browser, screen, automations) come from the daemon
 and can change while Spade runs. All of them are deferred: the model finds them with
 `tool_search` and runs them through `call_tool`, so the offered list never changes and the cached
 prompt top stays valid. Their risk comes from their annotations (unlabelled means write); ace's
-`wait` runs as a background job. When every search backend fails and ace is there, `web_search`
+`wait` and `delegate` run as background jobs. Such a job stays open until ace says the children
+settled: ace's own wait ends after at most ten minutes with `timeout` (or `interrupted` while the
+daemon restarts) while the children keep working, so the job calls `wait` again on the same threads,
+as many times as it takes, and the bot reads as working meanwhile (AGENTS.md priority 1). Its one
+result comes when they are done, one needs the person, or one is held at a usage limit. While ace
+can't be reached the job keeps trying. After a restart a lost `delegate` or `wait` job is not
+"unknown outcome": once ace's tools are back (within ten minutes) it runs again, and `delegate`
+returns the same children for the same call, so it reattaches to them. When every search backend fails and ace is there, `web_search`
 tells the model to have an ace agent search on the cheapest model the person has.
 
 Connectors (the person's apps through their own remote MCP servers, [connectors.md](connectors.md))
