@@ -146,6 +146,8 @@ enum FrameFileEncoder {
                     let socket = object["socket"] as? String
                     let token = (object["token"] as? String).flatMap { Data(base64Encoded: $0) }
                     let target = socket.flatMap { socket in token.map { (socket: socket, token: $0) } }
+                    // An in-flight delta belongs to the old route, before the new route's keyframe.
+                    encoder.drain()
                     // A refused address leaves units where they were, and says so.
                     guard socket == nil || target != nil, let moved = try? route.route(to: target) else {
                         report(route.ingesting ? "on" : "off", nil); return
