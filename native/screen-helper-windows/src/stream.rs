@@ -74,6 +74,13 @@ impl Stream {
     pub fn epoch_at(&self, when: CaptureTime) -> u32 {
         self.epochs.epoch_at(when)
     }
+    /// The epoch of the newest picture, captured at `when`, which replaces every older one: the
+    /// ledger forgets what only an older picture could need.
+    pub fn epoch_for_newest(&mut self, when: CaptureTime) -> u32 {
+        let epoch = self.epochs.epoch_at(when);
+        self.epochs.forget_before(when.first);
+        epoch
+    }
     pub fn request_keyframe(&mut self) {
         self.keyframe = true;
     }

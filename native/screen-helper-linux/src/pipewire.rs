@@ -299,7 +299,7 @@ impl Frames {
             self.arrival = Arrival {
                 at: unix_ms(),
                 us,
-                epoch: self.video.control.epoch_at(us),
+                epoch: self.video.control.resolve_arrival(us),
             };
         }
         self.note_shown(raw.width, raw.height, raw.crop());

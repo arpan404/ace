@@ -56,11 +56,15 @@ impl StreamControl {
             epochs.apply(at_us as i64, epoch);
         }
     }
-    /// The epoch of a picture that arrived at `arrived_us` on the capture clock. With the
-    /// ledger unreadable (a poisoned lock), a placeholder that is never a clear epoch: 0.
-    pub fn epoch_at(&self, arrived_us: u64) -> u32 {
-        self.epochs.lock().map_or(0, |epochs| {
-            epochs.epoch_at(CaptureTime::exact(arrived_us as i64))
+    /// The epoch of a picture that arrived at `arrived_us` on the capture clock. Arrivals are
+    /// resolved once each, in order, so nothing older will be asked about again: the ledger
+    /// forgets what only an older one could need. With the ledger unreadable (a poisoned lock),
+    /// 0, a placeholder that is never a clear epoch.
+    pub fn resolve_arrival(&self, arrived_us: u64) -> u32 {
+        self.epochs.lock().map_or(0, |mut epochs| {
+            let epoch = epochs.epoch_at(CaptureTime::exact(arrived_us as i64));
+            epochs.forget_before(arrived_us as i64);
+            epoch
         })
     }
     pub fn want_key(&self) {
@@ -340,9 +344,9 @@ mod tests {
                 private: false,
             },
         );
-        assert_eq!(control.epoch_at(299), 4, "one tick before");
-        assert_eq!(control.epoch_at(300), 4, "exactly at: private wins");
-        assert_eq!(control.epoch_at(301), 5, "just after");
+        assert_eq!(control.resolve_arrival(299), 4, "one tick before");
+        assert_eq!(control.resolve_arrival(300), 4, "exactly at: private wins");
+        assert_eq!(control.resolve_arrival(301), 5, "just after");
     }
 
     #[test]
@@ -363,6 +367,26 @@ mod tests {
                 private: false,
             },
         );
-        assert_eq!(control.epoch_at(250), 4);
+        assert_eq!(control.resolve_arrival(250), 4);
+    }
+
+    #[test]
+    fn an_arrival_resolved_after_a_hundred_switches_keeps_its_private_epoch() {
+        let control = StreamControl::default();
+        for n in 0..101u32 {
+            let id = n + 1;
+            control.apply_epoch(
+                10 + u64::from(n) * 10,
+                Epoch {
+                    id,
+                    private: id % 2 == 1,
+                },
+            );
+        }
+        // Arrived at 15, under private epoch 1, looked up after every switch.
+        assert_eq!(control.resolve_arrival(15), 1);
+        // Later arrivals resolve exactly; history before them is no longer kept.
+        assert_eq!(control.resolve_arrival(1_005), 100);
+        assert_eq!(control.resolve_arrival(1_006), 100);
     }
 }

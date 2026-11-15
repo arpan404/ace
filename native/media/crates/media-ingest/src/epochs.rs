@@ -56,13 +56,19 @@ impl CaptureTime {
     }
 }
 
-/// Epoch applications kept: far more than can happen within a picture's lifetime in a helper.
-pub const KEPT: usize = 64;
+/// A safety bound on the history, for a caller that never says what it still has in flight
+/// (`forget_before`): far more switches than any picture can wait through.
+pub const KEPT: usize = 4096;
 
-/// When each epoch was applied, oldest first.
+/// When each epoch was applied, oldest first, back to the one in force at the oldest picture
+/// still in flight.
 #[derive(Clone, Debug, Default)]
 pub struct EpochLedger {
     applied: VecDeque<(i64, Epoch)>,
+    /// History before the oldest kept application was forgotten.
+    forgotten: bool,
+    /// The newest private epoch forgotten: what a picture older than the history resolves to.
+    forgotten_private: Option<Epoch>,
 }
 
 impl EpochLedger {
@@ -72,8 +78,25 @@ impl EpochLedger {
             return;
         }
         self.applied.push_back((at, epoch));
-        if self.applied.len() > KEPT {
-            self.applied.pop_front();
+        while self.applied.len() > KEPT {
+            self.forget_front();
+        }
+    }
+
+    /// No picture captured before `oldest` is in flight any more: forgets what only such a
+    /// picture could need, keeping the application in force at `oldest` and all after it.
+    pub fn forget_before(&mut self, oldest: i64) {
+        while self.applied.get(1).is_some_and(|(at, _)| *at < oldest) {
+            self.forget_front();
+        }
+    }
+
+    fn forget_front(&mut self) {
+        if let Some((_, epoch)) = self.applied.pop_front() {
+            self.forgotten = true;
+            if epoch.private {
+                self.forgotten_private = Some(epoch);
+            }
         }
     }
 
@@ -83,13 +106,22 @@ impl EpochLedger {
     /// candidate wins, the earliest one; otherwise the latest. So a tie at a switch from private
     /// to clear stays private, and one at a switch to private is private already. 0 before any
     /// epoch was given.
+    ///
+    /// A picture older than the history kept may have been under any forgotten epoch: it takes
+    /// the newest forgotten private one (or, if none was private, the oldest kept, as private),
+    /// never 0.
     pub fn epoch_at(&self, when: CaptureTime) -> u32 {
+        let unknown = || {
+            self.forgotten_private
+                .or_else(|| self.applied.front().map(|(_, e)| Epoch::unsaid(e.id)))
+        };
         let before = self
             .applied
             .iter()
             .rev()
             .find(|(at, _)| *at < when.first)
             .map(|(_, epoch)| *epoch)
+            .or_else(|| self.forgotten.then(unknown).flatten())
             .unwrap_or(Epoch {
                 id: 0,
                 private: false,
@@ -212,5 +244,67 @@ mod tests {
         );
         assert_eq!(ledger.epoch_at(CaptureTime::exact(9)), 0);
         assert_eq!(ledger.epoch_at(CaptureTime::exact(11)), 2);
+    }
+
+    /// Alternating private (odd ids) and clear (even ids) epochs, `count` of them, from tick 10,
+    /// 10 ticks apart.
+    fn many(count: u32) -> EpochLedger {
+        let mut ledger = EpochLedger::default();
+        for n in 0..count {
+            let id = n + 1;
+            ledger.apply(
+                10 + i64::from(n) * 10,
+                Epoch {
+                    id,
+                    private: id % 2 == 1,
+                },
+            );
+        }
+        ledger
+    }
+
+    #[test]
+    fn a_frame_delayed_across_more_than_64_switches_keeps_its_private_epoch() {
+        // Captured at 15, under private epoch 1, and resolved only after 100 more switches: the
+        // caller still has it in flight, so nothing it may need is forgotten.
+        let mut ledger = many(101);
+        ledger.forget_before(15);
+        assert_eq!(ledger.epoch_at(CaptureTime::exact(15)), 1);
+        assert_eq!(ledger.epoch_at(CaptureTime::exact(1_005)), 100);
+    }
+
+    #[test]
+    fn forgetting_keeps_the_epoch_in_force_at_the_oldest_frame_still_in_flight() {
+        let mut ledger = many(5); // 1 at 10, 2 at 20, 3 at 30, 4 at 40, 5 at 50
+        ledger.forget_before(25);
+        assert_eq!(
+            ledger.epoch_at(CaptureTime::exact(25)),
+            2,
+            "the transition before it is kept"
+        );
+        assert_eq!(ledger.epoch_at(CaptureTime::exact(31)), 3);
+        // Older than anything kept: never epoch 0 or a guess at clear, but private.
+        assert_eq!(ledger.epoch_at(CaptureTime::exact(15)), 1);
+    }
+
+    #[test]
+    fn past_its_bound_the_ledger_resolves_a_frame_older_than_it_keeps_to_private() {
+        // A caller that never reports what it has in flight: the history is bounded, and a frame
+        // older than all of it resolves to a private epoch, never 0.
+        let mut ledger = many(KEPT as u32 + 20);
+        let resolved = ledger.epoch_at(CaptureTime::exact(15));
+        assert_ne!(resolved, 0);
+        assert_eq!(
+            resolved % 2,
+            1,
+            "a private epoch (odd ids are private here), got {resolved}"
+        );
+        // And frames inside what is kept resolve exactly.
+        let last = 10 + i64::from(KEPT as u32 + 19) * 10;
+        assert_eq!(
+            ledger.epoch_at(CaptureTime::exact(last + 1)),
+            KEPT as u32 + 20
+        );
+        ledger.forget_before(last);
     }
 }
