@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, profileMenu, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -170,8 +170,7 @@ test("editing a bot sends only what changed", async () => {
     });
   });
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
+  await profileMenu("Garden", "Edit bot");
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
   const task = dialog.getByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
@@ -189,8 +188,7 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
     api.addAgent({ id: "garden", name: "Garden" });
   });
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete bot" }));
+  await profileMenu("Garden", "Delete bot");
   const confirm = within(await screen.findByRole("dialog", { name: "Delete Garden?" }));
   expect(confirm.getByText("This deletes Garden and its whole conversation.")).toBeTruthy();
   expect(spade.sent("DELETE", "/v1/agents/garden")).toEqual([]);
@@ -207,7 +205,8 @@ test("Spade itself can be edited but never deleted", async () => {
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   await feed("Spade");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await openProfile("Spade");
+  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
   expect(await screen.findByRole("menuitem", { name: "Edit Spade" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Delete bot" })).toBeNull();
 });

@@ -3,7 +3,7 @@ import { isValidFace, repairFace } from "@ace/ui-core/bot-face";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -173,9 +173,9 @@ test("Upload picture still gives a bot a picture instead of a face", async () =>
   );
 });
 
-/** Opens the open bot's Edit dialog. */
+/** Opens Fern's Edit dialog from its profile's ⋯. */
 async function editFern() {
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
   return within(await screen.findByRole("dialog", { name: "Edit Fern" }));
 }
@@ -183,6 +183,7 @@ async function editFern() {
 test("editing a bot's face sends the new face; leaving it sends none", async () => {
   const { spade } = await spadeApp("/spade/fern", crew);
   await screen.findByRole("feed", { name: "Conversation with Fern" });
+  await openProfile("Fern");
   let dialog = await editFern();
   expect(checkedIn(dialog, "Creature")).toBe("Creature: sprout");
   await userEvent.type(dialog.getByRole("textbox", { name: "Task" }), "Water the beds.");

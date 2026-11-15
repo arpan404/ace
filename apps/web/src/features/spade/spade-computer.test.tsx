@@ -2,7 +2,7 @@ import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -288,7 +288,7 @@ test("the bot's name opens its own page with its computer, routines, memory, fil
         resets_at: null,
       };
   });
-  await userEvent.click(await screen.findByRole("link", { name: /^Scout on .*open its page$/ }));
+  await openProfile("Scout");
   for (const section of ["Computer", "Routines", "Memory", "Files", "Activity", "Spending"])
     await screen.findByRole("heading", { name: section });
   const routines = screen.getByRole("heading", { name: "Routines" }).closest("section");
