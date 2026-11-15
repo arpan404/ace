@@ -49,7 +49,7 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 it.runIf(runs)(
   "a Linux screen streams through ace-media and egress to its legacy viewer, survives route flips without losing or repeating a frame, and falls back to the helper socket within 2 s of ace-media being killed",
-  { timeout: 180_000 },
+  { timeout: 240_000 },
   async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "ace-e2-"));
     onTestFinished(() => rmSync(dataDir, { recursive: true, force: true }));
@@ -154,8 +154,9 @@ it.runIf(runs)(
     const keyframes = setInterval(() => void manager.requestKeyframe(id).catch(() => {}), 100);
     onTestFinished(() => clearInterval(keyframes));
 
-    // Through ace-media: every H.264 frame came on egress, with today's header.
-    await until(() => h264().length >= 10);
+    // Through ace-media: every H.264 frame came on egress, with today's header. The first
+    // waits for ace-media to start and the last-resort encoder's Chrome with it.
+    await until(() => h264().length >= 10, 60_000);
     expect(producers.supervisor.health()).toBe("healthy");
     expect(h264().every((entry) => viaEgress.has(entry.frame.header.sequence))).toBe(true);
     const keyframe = h264().find((entry) => entry.frame.header.keyframe)?.frame;
@@ -171,7 +172,8 @@ it.runIf(runs)(
     expect(epochs.has(screenOpeningEpoch)).toBe(true);
     expect([...epochs].every((epoch) => epoch === 0 || epoch === screenOpeningEpoch)).toBe(true);
 
-    // Route flips: legacy (JPEG pictures on the helper socket), auto (H.264 through ace-media).
+    // Route flips: legacy (JPEG pictures on the helper socket: Calculator holds still, so the
+    // picture on screen once), auto (H.264 through ace-media).
     for (const encode of ["legacy", "auto", "legacy", "auto"] as const) {
       const flipped = performance.now();
       settings.encode = encode;
@@ -179,7 +181,7 @@ it.runIf(runs)(
       await until(() =>
         encode === "auto"
           ? h264().filter((entry) => entry.at > flipped).length >= 10
-          : stills(flipped).length >= 3,
+          : stills(flipped).length >= 1,
       );
     }
     await pause(500);

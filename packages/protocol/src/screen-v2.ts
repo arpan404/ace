@@ -1,4 +1,11 @@
-import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
+import {
+  ScreenId,
+  ScreenTarget,
+  ScreenAction,
+  ScreenBundle,
+  ScreenStreamIngest,
+  ScreenStreamSettings,
+} from "./screen-base.ts";
 import { z } from "zod";
 import { MediaCapability } from "./media-acceleration.ts";
 import { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
@@ -403,6 +410,15 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
     dx: z.number().int().min(-1000).max(1000),
     dy: z.number().int().min(-1000).max(1000),
   }),
+  // Live video (the Linux helper, docs/media/plan.md E2), as the v1 helper protocol's.
+  Envelope.extend({
+    op: z.literal("stream.configure"),
+    settings: ScreenStreamSettings,
+    ingest: ScreenStreamIngest.optional(),
+    epoch: z.number().int().nonnegative().max(0xffffffff).optional(),
+  }),
+  Envelope.extend({ op: z.literal("stream.keyframe") }),
+  Envelope.extend({ op: z.literal("stream.image") }),
 ]);
 export type ScreenHelperRequestV2 = z.infer<typeof ScreenHelperRequestV2>;
 export const ScreenHelperReplyV2 = Envelope.extend({

@@ -28743,6 +28743,74 @@ Example:
 }
 ```
 
+### Variant 20
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
+| op | yes | `"stream.configure"` |  |
+| settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
+| ingest | no | [ScreenStreamIngest.json](schema/ScreenStreamIngest.json) |  |
+| epoch | no | integer | {"minimum":0,"maximum":4294967295} |
+
+Example:
+
+```json
+{
+  "id": "jGB2ChFbRSFE5djpres1",
+  "op": "stream.configure",
+  "person": false,
+  "settings": {
+    "bitrate": 128003,
+    "codec": "jpeg",
+    "fps": 9,
+    "maxHeight": 67,
+    "maxWidth": 64
+  },
+  "version": 2
+}
+```
+
+### Variant 21
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
+| op | yes | `"stream.keyframe"` |  |
+
+Example:
+
+```json
+{
+  "id": "s3_891uqp-TUTx9cA-EHWCDPq3Goeshds",
+  "op": "stream.keyframe",
+  "version": 2
+}
+```
+
+### Variant 22
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
+| op | yes | `"stream.image"` |  |
+
+Example:
+
+```json
+{
+  "id": "fwG_6U-Kt6cesv3by0sz",
+  "op": "stream.image",
+  "version": 2
+}
+```
+
 ## ScreenId
 
 [JSON Schema](schema/ScreenId.json), input validation.

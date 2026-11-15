@@ -130,6 +130,9 @@ struct Frames {
     redelivering: bool,
     arrival: Arrival,
     last: Option<Published>,
+    /// Video ran at the last step: leaving it publishes the current picture as a still at once,
+    /// so a viewer on stills isn't left waiting for the desktop to change.
+    was_video: bool,
 }
 
 fn unix_ms() -> f64 {
@@ -350,6 +353,10 @@ impl Frames {
     fn catch_up(&mut self) -> Result<()> {
         self.video.drain();
         let watching = self.watching();
+        let video = self.video.active(watching).is_some();
+        if std::mem::replace(&mut self.was_video, video) && !video && watching {
+            self.control.refresh.store(true, Ordering::Release);
+        }
         let owed = if self.video.active(watching).is_some() {
             (self.fresh && self.due())
                 || self.video.control.key_owed()
@@ -539,6 +546,7 @@ pub fn capture(
         redelivering: false,
         arrival: Arrival::default(),
         last: None,
+        was_video: false,
     };
     let c = unsafe {
         ace_pw_open(
