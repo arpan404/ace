@@ -6,6 +6,8 @@ import Foundation
 struct MediaDelivery: Equatable, Sendable {
     let generation: Int
     let path: String?
+    /// The token naming the poster this subscribe's reply brought back (`PosterReply`), if any.
+    var poster: String? = nil
     static let channel = "channel"
 }
 
@@ -15,27 +17,43 @@ struct DeliveryKey: Hashable, Sendable {
     let source: String
 }
 
+/// Enough of a picture to ask for a fresh keyframe in its name, without its bytes.
+struct PictureId: Equatable, Sendable {
+    let streamId: String
+    let sequence: Int
+}
+
 /// What the gate needs of a picture.
 protocol GatedPicture {
     var key: Bool { get }
     var byteCount: Int { get }
+    var pictureId: PictureId { get }
 }
-extension DeviceFrameChunk: GatedPicture { var byteCount: Int { bytes.count } }
-extension BrowserVideoChunk: GatedPicture { var byteCount: Int { bytes.count } }
+extension DeviceFrameChunk: GatedPicture {
+    var byteCount: Int { bytes.count }
+    var pictureId: PictureId { PictureId(streamId: streamId, sequence: sequence) }
+}
+extension BrowserVideoChunk: GatedPicture {
+    var byteCount: Int { bytes.count }
+    var pictureId: PictureId { PictureId(streamId: "", sequence: sequence) }
+}
 
 /// One source's pictures held to its current delivery. A picture that comes the current way is
 /// shown with the generation it came for; one that comes another way is dropped. While the reply
 /// is pending, each way keeps its newest keyframe and the deltas after it, at most 4 MB or 2 s of
-/// arrivals; the way the reply settles on is released, the rest dropped. Before the script has set
-/// any delivery, pictures pass unstamped, as they did before generations. Pure.
+/// arrivals; the way the reply settles on is released, the rest dropped. A generation older than
+/// the one held (set late, out of order) changes nothing. Before the script has set any delivery,
+/// pictures pass unstamped, as they did before generations. Pure.
 struct DeliveryGate<Picture: GatedPicture> {
     enum Arrival { case show(generation: Int?), hold, drop }
     /// What a new delivery does: start the decoder over, show what was held, ask for a keyframe.
     struct Change {
+        /// False for a delivery older than the one held: it changed nothing.
+        var accepted = true
         var reset = false
         var released: [Picture] = []
         /// Past the bounds while pending: a fresh keyframe is due, asked in this picture's name.
-        var keyframe: Picture?
+        var keyframe: PictureId?
     }
     static var limits: (bytes: Int, seconds: TimeInterval) { (4 * 1024 * 1024, 2) }
 
@@ -44,10 +62,12 @@ struct DeliveryGate<Picture: GatedPicture> {
         var bytes = 0
         var first: TimeInterval = 0
         var overflowed = false
-        var ask: Picture?
+        var ask: PictureId?
     }
     private(set) var delivery: MediaDelivery?
     private var ways: [String: Way] = [:]
+    /// Every picture payload held while pending: the asks keep ids only.
+    var heldBytes: Int { ways.values.reduce(0) { $0 + $1.bytes } }
 
     mutating func arrive(_ picture: Picture, path: String, at now: TimeInterval) -> Arrival {
         guard let delivery else { return .show(generation: nil) }
@@ -60,6 +80,7 @@ struct DeliveryGate<Picture: GatedPicture> {
 
     mutating func set(_ next: MediaDelivery) -> Change {
         let previous = delivery
+        if let previous, next.generation < previous.generation { return Change(accepted: false) }
         delivery = next
         // A new subscribe: everything of the old one is stale, held or decoding.
         guard let previous, previous.generation == next.generation else {
@@ -84,7 +105,7 @@ struct DeliveryGate<Picture: GatedPicture> {
         if picture.key {
             // Too large to hold: only a fresh keyframe can follow it.
             ways[path] = picture.byteCount > limits.bytes
-                ? Way(first: now, overflowed: true, ask: picture)
+                ? Way(first: now, overflowed: true, ask: picture.pictureId)
                 : Way(pictures: [picture], bytes: picture.byteCount, first: now)
             return
         }
@@ -95,11 +116,19 @@ struct DeliveryGate<Picture: GatedPicture> {
             way.pictures = [first]
             way.bytes = first.byteCount
             way.overflowed = true
-            way.ask = first
+            way.ask = first.pictureId
         } else {
             way.pictures.append(picture)
             way.bytes = bytes
         }
         ways[path] = way
     }
+}
+
+/// Set once from any thread when a renderer closes: work queued before it then skips.
+final class ClosedLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isClosed: Bool { lock.withLock { value } }
+    func close() { lock.withLock { value = true } }
 }

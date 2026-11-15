@@ -72,6 +72,8 @@ export interface DeliveryState {
   source: string;
   generation: number;
   path: string | undefined;
+  /** The still this subscribe's reply brought back, accepted for it, until its first picture. */
+  poster?: MediaPoster;
 }
 
 export class MediaSubscriptions {
@@ -152,8 +154,8 @@ export class MediaSubscriptions {
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
     const via = bound && delivery.asked ? delivery.asked : channelPath;
     delivery.via = via;
-    this.#emit(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
+    this.#emit(source);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
     this.#candidates.delete(source);
@@ -249,10 +251,12 @@ export class MediaSubscriptions {
     if (!delivery) return;
     // Unsettled only while a named connection's reply is on its way; otherwise its way is known.
     const pending = delivery.via === undefined && delivery.asked !== undefined;
+    const poster = this.#posters.get(source);
     const state = {
       source,
       generation: delivery.generation,
       path: pending ? undefined : expected(delivery),
+      ...(poster ? { poster } : {}),
     };
     // A copy: a listener may stop listening while it hears this.
     for (const listener of Array.from(this.#deliveryListeners)) listener(state);

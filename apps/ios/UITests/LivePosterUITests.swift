@@ -1,8 +1,10 @@
 import XCTest
 
 /// The subscribe's poster (ADR 0149), on the spike fixture started with
-/// `ACE_IOS_SPIKE_POSTER=hold`: the live browser shows the poster at once while the page's video
-/// is held back, and the first live picture replaces it once the fixture lets video through.
+/// `ACE_IOS_SPIKE_MEDIA=1 ACE_IOS_SPIKE_POSTER=hold`: the live browser shows the poster of the
+/// subscribe bound to its media connection (the shared client accepts a poster only for that one)
+/// at once while the page's video is held back, and the first live picture replaces it once the
+/// fixture lets video through.
 final class LivePosterUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     private var port: String { ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841" }

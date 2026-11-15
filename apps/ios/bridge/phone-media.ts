@@ -114,6 +114,8 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
       source: state.source,
       generation: state.generation,
       path,
+      // Swift named the reply's poster with a token in place of its JPEG.
+      poster: state.poster?.jpeg ?? null,
     }).catch(() => {});
   };
   const generation = owner.connectionGeneration();

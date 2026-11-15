@@ -56,7 +56,11 @@ function phone(bound: string | undefined, binds = false) {
             ok: true,
             // As D1 serves screens today: the subscribe may name the connection, and the daemon
             // answers without `media`, keeping the pictures on the channel.
-            ...(media && binds ? { media } : {}),
+            ...(media && binds
+              ? {
+                  media: { ...media, poster: { width: 4, height: 2, jpeg: `poster-${requestId}` } },
+                }
+              : {}),
           }),
         ),
       );
@@ -161,7 +165,7 @@ test("Swift hears each subscribe's delivery: pending while it names a connection
   await settle();
   const [begun, settled] = app.deliveries;
   expect(begun).toMatchObject({ view: "screen", source: "app", path: undefined });
-  expect(settled).toEqual({ ...begun, path: "mc_aaaaaaaa" });
+  expect(settled).toMatchObject({ ...begun, path: "mc_aaaaaaaa", poster: { width: 4 } });
 });
 
 test("after a rebind, an ack stamped with the old delivery goes nowhere; the new one's goes on", async () => {
@@ -182,4 +186,16 @@ test("after a rebind, an ack stamped with the old delivery goes nowhere; the new
   expect(app.carried).toEqual([
     { type: "screen.ack", sessionId: "app", streamId: "capture-2", sequence: 1 },
   ]);
+});
+
+test("a reply's poster reaches Swift with its own subscribe's delivery, never a superseded one's", async () => {
+  const app = phone("mc_aaaaaaaa", true);
+  // Two subscribes before either reply: the first one's answer comes for a subscribe that is gone.
+  app.streams.hold("app");
+  app.streams.hold("app");
+  await settle();
+  const latest = Math.max(...app.deliveries.map((delivery) => delivery.generation));
+  const withPosters = app.deliveries.filter((delivery) => delivery.poster);
+  expect(withPosters.map((delivery) => delivery.generation)).toEqual([latest]);
+  expect(withPosters[0]).toMatchObject({ source: "app", path: "mc_aaaaaaaa" });
 });

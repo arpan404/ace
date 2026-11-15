@@ -69,22 +69,19 @@ import UIKit
         self.threadId = threadId
         let latest = LatestBrowserPicture()
         let acks = BrowserAcks(visible: visible, send: ack)
-        let renderer = BrowserRenderer(threadId: threadId, discard: { _ = latest.take() }, present: { latest.put($0) },
-                                       ack: { acks.acknowledge($0) })
+        let poster = LatestPoster()
+        self.poster = poster
+        let renderer = BrowserRenderer(threadId: threadId, discard: { _ = latest.take() }, showPoster: { poster.put($0) },
+                                       present: { latest.put($0) }, ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
         self.renderer = renderer
-        let poster = LatestPoster()
-        self.poster = poster
         streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
-        streams?.attachDelivery("browser") { renderer.delivery($0, $1) }
-        if let known = streams?.delivery(DeliveryKey(view: "browser", source: threadId)) { renderer.delivery(threadId, known) }
-        streams?.attachPoster(.browser) { poster.put($0) }
+        renderer.follow(streams)
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
         streams?.attachDelivery("browser", nil)
-        streams?.attachPoster(.browser, nil)
         poster = nil
         renderer?.close()
         acks?.close()

@@ -11,7 +11,10 @@ final class BrowserStreamHub: @unchecked Sendable {
     private var sink: Sink<BrowserVideoChunk>?
     private var screenSink: Sink<DeviceFrameChunk>?
     private var deviceSink: Sink<DeviceFrameChunk>?
-    private var posterSinks: [LivePoster.Kind: @Sendable (CGImage) -> Void] = [:]
+    /// Posters from subscribe replies by the token that names them there, the newest few, until
+    /// the script's delivery for their source and generation asks for one (`takePoster`).
+    private var posters: [(token: String, image: CGImage)] = []
+    private var posterCount = 0
     /// Each source's latest delivery as the script set it, and the open view that follows it.
     private var deliveries: [DeliveryKey: MediaDelivery] = [:]
     private var deliverySinks: [String: @Sendable (String, MediaDelivery) -> Void] = [:]
@@ -40,15 +43,26 @@ final class BrowserStreamHub: @unchecked Sendable {
     /// A source's latest delivery, for a renderer that opens after it was set.
     func delivery(_ key: DeliveryKey) -> MediaDelivery? { lock.withLock { deliveries[key] } }
 
-    /// The open view of `kind` takes the posters its subscribes bring back; nil when it closes.
-    func attachPoster(_ kind: LivePoster.Kind, _ sink: (@Sendable (CGImage) -> Void)?) { lock.withLock { posterSinks[kind] = sink } }
-    func deliver(_ poster: LivePoster) { lock.withLock { posterSinks[poster.kind] }?(poster.image) }
-    /// A text message from a socket: a subscribe reply's poster is taken out and drawn natively,
-    /// and the rest goes on to the script. Called on the delivering socket's queue.
+    /// A text message from a socket: a subscribe reply's poster is decoded here and kept under a
+    /// token that takes its JPEG's place in the reply, so the script can say which subscribe it
+    /// belongs to without the picture entering it. Called on the delivering socket's queue.
     func text(_ message: String) -> String {
-        let (rest, taken) = PosterReply.take(message)
-        if let taken, let poster = PosterReply.decode(taken) { deliver(poster) }
+        let token = lock.withLock { posterCount += 1; return "ace-poster-\(posterCount)" }
+        let (rest, taken) = PosterReply.take(message, token: token)
+        if let taken, let image = PosterReply.decode(taken) {
+            lock.withLock {
+                posters.append((token, image))
+                if posters.count > 8 { posters.removeFirst() }
+            }
+        }
         return rest
+    }
+    /// The poster named `token`, once: the script's delivery for its subscribe asked for it.
+    func takePoster(_ token: String) -> CGImage? {
+        lock.withLock {
+            guard let index = posters.firstIndex(where: { $0.token == token }) else { return nil }
+            return posters.remove(at: index).image
+        }
     }
 }
 

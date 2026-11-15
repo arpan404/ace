@@ -42,13 +42,19 @@ final class BrowserRenderer: @unchecked Sendable {
     private let clock: @Sendable () -> TimeInterval
     /// The decoded picture not yet drawn is let go when the delivery starts over.
     private let discard: @Sendable () -> Void
+    /// Shows the poster a delivery for this thread names, until the first live picture.
+    private let showPoster: @Sendable (CGImage) -> Void
+    private let latch = ClosedLatch()
+    /// Where this thread's deliveries and the posters they name come from, once following.
+    private var hub: BrowserStreamHub?
 
     init(threadId: String, clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         discard: @escaping @Sendable () -> Void = {},
+         discard: @escaping @Sendable () -> Void = {}, showPoster: @escaping @Sendable (CGImage) -> Void = { _ in },
          present: @escaping @Sendable (BrowserPicture) -> Void, ack: @escaping @Sendable (BrowserAck) -> Void) {
         self.threadId = threadId
         self.clock = clock
         self.discard = discard
+        self.showPoster = showPoster
         self.present = present
         self.ack = ack
     }
@@ -64,17 +70,35 @@ final class BrowserRenderer: @unchecked Sendable {
     /// shows what came its way while the reply was pending.
     func delivery(_ source: String, _ next: MediaDelivery) {
         guard source == threadId else { return }
+        queue.async { [self] in apply(next) }
+    }
+    /// Follows this thread's deliveries in `hub`: the registration and the latest one are taken
+    /// on this renderer's queue, in order with every update after them.
+    func follow(_ hub: BrowserStreamHub?) {
+        guard let hub else { return }
         queue.async { [self] in
-            guard !closed else { return }
-            let change = delivery.set(next)
-            if change.reset { forget(); discard() }
-            for chunk in change.released { handle(chunk, generation: next.generation) }
-            if let ask = change.keyframe { ack(BrowserAck(sequence: ask.sequence, generation: next.generation, keyframe: true)) }
+            guard !latch.isClosed else { return }
+            self.hub = hub
+            hub.attachDelivery("browser") { [weak self] in self?.delivery($0, $1) }
+            if let known = hub.delivery(DeliveryKey(view: "browser", source: threadId)) { apply(known) }
         }
+    }
+    private func apply(_ next: MediaDelivery) {
+        guard !closed else { return }
+        let change = delivery.set(next)
+        guard change.accepted else { return }
+        if change.reset { forget(); discard() }
+        for chunk in change.released { handle(chunk, generation: next.generation) }
+        if let ask = change.keyframe { ack(BrowserAck(sequence: ask.sequence, generation: next.generation, keyframe: true)) }
+        // The poster this thread's current subscribe brought back, once its way is settled.
+        if next.path != nil, let token = next.poster, let image = hub?.takePoster(token) { showPoster(image) }
     }
     /// The daemon starts this viewer's video again (a new tab, or a resubscribe).
     func reset() { queue.async { [self] in forget() } }
-    func close() { queue.async { [self] in closed = true; forget() } }
+    func close() {
+        latch.close()
+        queue.async { [self] in closed = true; forget() }
+    }
 
     private func forget() {
         gate.reset()

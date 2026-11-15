@@ -138,14 +138,16 @@ final class NativeHost: @unchecked Sendable {
         let source: String
         let generation: Int
         let path: String?
+        let poster: String?
     }
     private func mediaDelivery(_ input: Data, callback: Callback) {
         guard let value = try? JSONDecoder().decode(DeliveryInput.self, from: input),
               ["browser", "screen", "device"].contains(value.view), value.generation >= 0,
-              value.source.utf8.count <= 512, (value.path?.utf8.count ?? 0) <= 128 else {
+              value.source.utf8.count <= 512, (value.path?.utf8.count ?? 0) <= 128,
+              (value.poster?.utf8.count ?? 0) <= 64 else {
             reply(.failure(HostError.encoding), to: callback); return
         }
-        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path),
+        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, poster: value.poster),
                                              for: DeliveryKey(view: value.view, source: value.source))
         reply(.success(""), to: callback)
     }

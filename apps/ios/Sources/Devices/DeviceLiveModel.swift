@@ -42,11 +42,27 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     private var sequence = -1
     private var decoder: VideoDecoder?
     private var closed = false
+    private let latch = ClosedLatch()
+    /// Where this source's deliveries and the posters they name come from, once following.
+    private var hub: BrowserStreamHub?
+    /// Shows the poster a delivery for this source names, until the first live picture.
+    private let showPoster: @Sendable (CGImage) -> Void
     init(deviceId: String, sampler: StreamSampler? = nil, clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         discard: @escaping @Sendable () -> Void = {},
+         discard: @escaping @Sendable () -> Void = {}, showPoster: @escaping @Sendable (CGImage) -> Void = { _ in },
          present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
         self.deviceId = deviceId; self.sampler = sampler; self.clock = clock; self.discard = discard
-        self.present = present; self.acknowledge = acknowledge
+        self.showPoster = showPoster; self.present = present; self.acknowledge = acknowledge
+    }
+    /// Follows this source's deliveries in `hub` for `view`: the registration and the latest one
+    /// are taken on this renderer's queue, in order with every update after them.
+    func follow(_ hub: BrowserStreamHub?, view: String) {
+        guard let hub else { return }
+        queue.async { [self] in
+            guard !latch.isClosed else { return }
+            self.hub = hub
+            hub.attachDelivery(view) { [weak self] in self?.delivery($0, $1) }
+            if let known = hub.delivery(DeliveryKey(view: view, source: deviceId)) { apply(known) }
+        }
     }
     func receiveVideo(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) {
         guard chunk.isLiveVideo else { return }
@@ -59,16 +75,20 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     /// The script set this source's delivery; another source's is ignored.
     func delivery(_ source: String, _ delivery: MediaDelivery) {
         guard source == deviceId else { return }
-        queue.async { [self] in
-            guard !closed else { return }
-            let change = gate.set(delivery)
-            if change.reset { streamId = nil; sequence = -1; decoder = nil; discard() }
-            for chunk in change.released { decode(chunk, generation: delivery.generation) }
-            if let ask = change.keyframe {
-                acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: ask.streamId, sequence: ask.sequence, keyframe: true,
-                                            generation: delivery.generation))
-            }
+        queue.async { [self] in apply(delivery) }
+    }
+    private func apply(_ delivery: MediaDelivery) {
+        guard !closed else { return }
+        let change = gate.set(delivery)
+        guard change.accepted else { return }
+        if change.reset { streamId = nil; sequence = -1; decoder = nil; discard() }
+        for chunk in change.released { decode(chunk, generation: delivery.generation) }
+        if let ask = change.keyframe {
+            acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: ask.streamId, sequence: ask.sequence, keyframe: true,
+                                        generation: delivery.generation))
         }
+        // The poster this source's current subscribe brought back, once its way is settled.
+        if delivery.path != nil, let token = delivery.poster, let image = hub?.takePoster(token) { showPoster(image) }
     }
     private func receive(_ chunk: DeviceFrameChunk, path: String) {
         guard chunk.deviceId == deviceId else { return }
@@ -105,7 +125,10 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe,
                                     fallback: fallback, codec: fallback ? chunk.codec : "", generation: generation))
     }
-    func close() { queue.async { [self] in closed = true; decoder = nil } }
+    func close() {
+        latch.close()
+        queue.async { [self] in closed = true; decoder = nil }
+    }
 }
 
 @MainActor final class DeviceLiveModel {
@@ -121,8 +144,9 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         self.deviceId = deviceId
         let latest = LatestDevicePicture()
         self.latest = latest
+        let poster = LatestPoster(); self.poster = poster
         let renderer = NativeRemotePictureRenderer(deviceId: deviceId, sampler: sampler, discard: { _ = latest.take() },
-                                                   present: { latest.put($0) }) { ack in
+                                                   showPoster: { poster.put($0) }, present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if let generation = ack.generation { value["generation"] = generation }
             if ack.keyframe { value["keyframe"] = true }
@@ -131,17 +155,14 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         }
         self.renderer = renderer; streams = session.browserStreams
         streams?.attachDevice { renderer.receiveVideo($0, path: $1) }
-        streams?.attachDelivery("device") { renderer.delivery($0, $1) }
-        if let known = streams?.delivery(DeliveryKey(view: "device", source: deviceId)) { renderer.delivery(deviceId, known) }
-        let poster = LatestPoster(); self.poster = poster
-        streams?.attachPoster(.device) { poster.put($0) }
+        renderer.follow(streams, view: "device")
     }
     func nextPicture() -> NativeDevicePicture? { latest.take() }
     func nextPoster() -> CGImage? { poster.take() }
     func close(deviceId: String? = nil) {
         if let deviceId, deviceId != self.deviceId { return }
         self.deviceId = nil
-        streams?.attachDevice(nil); streams?.attachDelivery("device", nil); streams?.attachPoster(.device, nil); streams = nil; renderer?.close(); renderer = nil
+        streams?.attachDevice(nil); streams?.attachDelivery("device", nil); streams = nil; renderer?.close(); renderer = nil
         _ = latest.take()
     }
 }

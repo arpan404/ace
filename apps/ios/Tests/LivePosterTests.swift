@@ -31,31 +31,33 @@ import UniformTypeIdentifiers
         try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
-    @Test func eachLiveViewsReplyGivesUpItsPosterAndKeepsItsConnection() throws {
+    @Test func eachLiveViewsReplyGivesUpItsPostersJPEGForATokenAndKeepsItsConnection() throws {
         let bytes = try jpeg(width: 64, height: 40)
         let poster: [String: Any] = ["width": 64, "height": 40, "jpeg": bytes.base64EncodedString()]
         for (type, kind) in [("browser.result", LivePoster.Kind.browser), ("screen.result", .screen), ("devices.result", .device)] {
-            let (rest, taken) = PosterReply.take(try reply(type, poster: poster))
+            let (rest, taken) = PosterReply.take(try reply(type, poster: poster), token: "ace-poster-1")
             #expect(taken == PosterReply.Taken(kind: kind, width: 64, height: 40, jpeg: bytes), "\(type)")
             let media = try #require(try object(rest)["media"] as? [String: Any])
-            #expect(media["poster"] == nil && media["connection"] as? String == "mc_aaaaaaaa", "\(type)")
+            #expect(media["connection"] as? String == "mc_aaaaaaaa", "\(type)")
+            let named = try #require(media["poster"] as? [String: Any])
+            #expect(named["jpeg"] as? String == "ace-poster-1" && named["width"] as? Int == 64, "\(type)")
             #expect(!rest.contains(bytes.base64EncodedString()))
         }
     }
 
     @Test func messagesWithoutAPosterPassUntouched() throws {
         let plain = try reply("browser.result", poster: nil)
-        #expect(PosterReply.take(plain).text == plain && PosterReply.take(plain).poster == nil)
+        #expect(PosterReply.take(plain, token: "t").text == plain && PosterReply.take(plain, token: "t").poster == nil)
         // A page's own words naming a poster, in a message that isn't a subscribe reply.
         let state = #"{"type":"browser.state","state":{"title":"The \"poster\" shop","media":{"poster":1}}}"#
-        #expect(PosterReply.take(state).text == state && PosterReply.take(state).poster == nil)
+        #expect(PosterReply.take(state, token: "t").text == state && PosterReply.take(state, token: "t").poster == nil)
     }
 
     @Test func aPosterOutsideTheSchemasBoundsIsDroppedNotPassedOn() throws {
         let big = String(repeating: "A", count: 64 * 1024 + 4)
         for poster: [String: Any] in [["width": 0, "height": 40, "jpeg": "AAAA"], ["width": 64, "height": 9000, "jpeg": "AAAA"],
                                       ["width": 64, "height": 40, "jpeg": big], ["width": 64, "height": 40, "jpeg": "not base64!"]] {
-            let (rest, taken) = PosterReply.take(try reply("screen.result", poster: poster))
+            let (rest, taken) = PosterReply.take(try reply("screen.result", poster: poster), token: "t")
             #expect(taken == nil)
             #expect((try object(rest)["media"] as? [String: Any])?["poster"] == nil)
         }
@@ -63,26 +65,26 @@ import UniformTypeIdentifiers
 
     @Test func thePostersJPEGDecodesAtItsSizeAndGarbageDecodesToNothing() throws {
         let taken = PosterReply.Taken(kind: .browser, width: 64, height: 40, jpeg: try jpeg(width: 64, height: 40))
-        let poster = try #require(PosterReply.decode(taken))
-        #expect(poster.image.width == 64 && poster.image.height == 40 && poster.kind == .browser)
+        let image = try #require(PosterReply.decode(taken))
+        #expect(image.width == 64 && image.height == 40)
         #expect(PosterReply.decode(PosterReply.Taken(kind: .device, width: 1, height: 1, jpeg: Data([1, 2, 3]))) == nil)
     }
 
     @Test func thePosterShowsUntilTheFirstLivePictureAndNeverAfter() throws {
         let image = try #require(PosterReply.decode(PosterReply.Taken(kind: .screen, width: 8, height: 8, jpeg: try jpeg(width: 8, height: 8))))
         var gate = PosterGate()
-        let shows = gate.offer(image.image)
+        let shows = gate.offer(image)
         #expect(shows && gate.shown != nil)
         let hides = gate.pictureDrawn()
         #expect(hides && gate.shown == nil)
         // A later subscribe's poster (a reconnect) never covers the live picture.
-        let covers = gate.offer(image.image)
+        let covers = gate.offer(image)
         let hidesAgain = gate.pictureDrawn()
         #expect(!covers && !hidesAgain)
         // A live picture before any poster: the poster that arrives late is never shown.
         var late = PosterGate()
         let nothingToHide = late.pictureDrawn()
-        let lateShows = late.offer(image.image)
+        let lateShows = late.offer(image)
         #expect(!nothingToHide && !lateShows)
     }
 }

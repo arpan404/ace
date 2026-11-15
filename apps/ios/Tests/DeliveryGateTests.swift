@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 @testable import Ace
 
@@ -77,7 +79,10 @@ import Testing
     }
 
     // The gate alone, on stand-in pictures.
-    private struct Picture: GatedPicture, Equatable { let id: Int; let key: Bool; let byteCount: Int }
+    private struct Picture: GatedPicture, Equatable {
+        let id: Int; let key: Bool; let byteCount: Int
+        var pictureId: PictureId { PictureId(streamId: "s", sequence: id) }
+    }
 
     @Test func pendingWaysKeepTheirNewestKeyframeAndItsDeltasAndTheSettledOneIsReleased() {
         var gate = DeliveryGate<Picture>()
@@ -101,7 +106,7 @@ import Testing
             _ = gate.arrive(Picture(id: 3, key: false, byteCount: 10), path: "a", at: at)
             let change = gate.set(MediaDelivery(generation: 1, path: "a"))
             #expect(change.released.map(\.id) == [1], "\(bytes) bytes at \(at) s")
-            #expect(change.keyframe?.id == 1)
+            #expect(change.keyframe?.sequence == 1)
         }
     }
 
@@ -112,4 +117,61 @@ import Testing
         #expect(gate.set(MediaDelivery(generation: 2, path: nil)).reset)
         #expect(gate.set(MediaDelivery(generation: 2, path: "a")).released.isEmpty)
     }
+
+    @Test func aNewerGenerationIsKeptWhenAnOlderOneArrivesAfterIt() {
+        var gate = DeliveryGate<Picture>()
+        _ = gate.set(MediaDelivery(generation: 8, path: "b"))
+        // Generation 7, read before 8 was set, reaches the gate after it.
+        let late = gate.set(MediaDelivery(generation: 7, path: "a"))
+        #expect(!late.reset && late.released.isEmpty)
+        #expect(gate.delivery == MediaDelivery(generation: 8, path: "b"))
+        #expect({ if case .show(8) = gate.arrive(Picture(id: 1, key: true, byteCount: 1), path: "b", at: 0) { true } else { false } }())
+    }
+
+    @Test func aPendingSixMegabyteKeyframeHoldsLessThanFourMegabytes() {
+        var gate = DeliveryGate<Picture>()
+        _ = gate.set(MediaDelivery(generation: 1, path: nil))
+        _ = gate.arrive(Picture(id: 1, key: true, byteCount: 6 * 1024 * 1024), path: "a", at: 0)
+        #expect(gate.heldBytes < 4 * 1024 * 1024)
+        // Settled on it, it still asks for a fresh keyframe in its name.
+        let change = gate.set(MediaDelivery(generation: 1, path: "a"))
+        #expect(change.released.isEmpty && change.keyframe != nil)
+    }
+
+    @Test func aStalePosterAfterASwitchIsNeverDrawn() async throws {
+        let hub = BrowserStreamHub()
+        // Two replies' posters, each swapped for its token as it passed: thread A's, then B's.
+        let named = { (thread: String) -> String in
+            let reply = #"{"type":"browser.result","requestId":"r-\#(thread)","ok":true,"media":{"connection":"mc_aaaaaaaa","poster":{"width":8,"height":8,"jpeg":"\#(Self.jpeg8)"}}}"#
+            let rest = hub.text(reply)
+            let media = (try? JSONSerialization.jsonObject(with: Data(rest.utf8)) as? [String: Any])?["media"] as? [String: Any]
+            return ((media?["poster"] as? [String: Any])?["jpeg"] as? String) ?? ""
+        }
+        let posterA = named("A"), posterB = named("B")
+        let shown = Log()
+        let renderer = BrowserRenderer(threadId: "B", showPoster: { _ in shown.show(0) }, present: { _ in }, ack: { _ in })
+        defer { renderer.close() }
+        renderer.follow(hub)
+        hub.setDelivery(MediaDelivery(generation: 5, path: nil), for: DeliveryKey(view: "browser", source: "B"))
+        // A's reply arrives after the switch: its delivery is A's, never B's.
+        hub.setDelivery(MediaDelivery(generation: 3, path: "mc", poster: posterA), for: DeliveryKey(view: "browser", source: "A"))
+        // An older subscribe of B naming A's poster changes nothing either.
+        renderer.delivery("B", MediaDelivery(generation: 4, path: "mc", poster: posterA))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(shown.pictures.isEmpty)
+        hub.setDelivery(MediaDelivery(generation: 5, path: "mc", poster: posterB), for: DeliveryKey(view: "browser", source: "B"))
+        for _ in 0..<200 where shown.pictures.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(shown.pictures.count == 1)
+    }
+
+    /// An 8 × 8 JPEG, base64.
+    private static let jpeg8: String = {
+        let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+        CGImageDestinationFinalize(destination)
+        return (data as Data).base64EncodedString()
+    }()
 }

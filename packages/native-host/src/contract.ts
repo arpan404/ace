@@ -125,7 +125,8 @@ export interface HostOperations {
    * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
    * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code
    * draws and acknowledges only what came that way, with that generation, holds what comes while
-   * pending (bounded), and starts its decoder over on a new generation. It decides nothing else.
+   * pending (bounded), starts its decoder over on a new generation, and ignores a generation
+   * older than the one it holds. It decides nothing else.
    */
   "media.delivery": {
     input: {
@@ -133,6 +134,12 @@ export interface HostOperations {
       source: string;
       generation: number;
       path: string | null;
+      /**
+       * The poster this subscribe's reply brought back, as native code named it in the reply
+       * (`media.poster.jpeg`, a token: the JPEG itself never enters the script). Native code
+       * shows it only for this source and generation, until the first live picture.
+       */
+      poster: string | null;
     };
     body: never;
   };
