@@ -66,6 +66,9 @@ export type MediaSupervisorOptions = {
   random: () => number;
   /** The lane secret's source; the platform CSPRNG unless a test injects one. */
   randomBytes?: (length: number) => Uint8Array;
+  /** Each lane connection's fresh nonce; the platform CSPRNG unless a test injects one. Never
+   * the secret's source: a nonce goes on the wire. */
+  laneNonces?: (length: number) => Uint8Array;
   listen: () => { message: Listen; payload: Uint8Array };
   /** Called once both lanes are up: send every open source and recording again. */
   replay: () => void;
@@ -385,7 +388,8 @@ export class MediaSupervisor {
       socket.destroy();
       return undefined;
     }
-    return { socket, frames: await authenticateLane(socket, lane, run.secret) };
+    const nonces = this.#options.laneNonces ?? secureRandomBytes;
+    return { socket, frames: await authenticateLane(socket, lane, run.secret, nonces) };
   }
 
   #read(

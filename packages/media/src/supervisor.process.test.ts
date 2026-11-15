@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,8 @@ const target = real
       version: "0.0.0-test",
       launch: (script: string) => ({ command: process.execPath, args: [script] }),
     };
+
+const nonce = (length: number) => new Uint8Array(randomBytes(length));
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -130,7 +132,7 @@ it("supervises a process that speaks the control protocol: lanes up, revocation 
   for (const lane of ["priority", "egress"] as const) {
     const intruder = await connectLane(control());
     await expect(
-      authenticateLane(intruder, lane, new Uint8Array(randomBytes(32))),
+      authenticateLane(intruder, lane, new Uint8Array(randomBytes(32)), nonce),
     ).rejects.toThrow();
     intruder.destroy();
   }
@@ -145,6 +147,35 @@ it("supervises a process that speaks the control protocol: lanes up, revocation 
   supervisor.dispose();
   await until(() => exits.length === 1);
   expect(exits[0]).toMatchObject({ cause: "disposed", failure: false });
+});
+
+it("a squatting server that doesn't hold the lane secret gets the hello's nonce and nothing else", async () => {
+  // Any process of this user can open another instance of a Windows pipe name (or here, any
+  // socket the daemon is pointed at): it answers the hello, but can't prove the secret.
+  const secret = new Uint8Array(randomBytes(32));
+  const squatter = createServer();
+  const received: Buffer[] = [];
+  squatter.on("connection", (socket) => {
+    socket.on("data", (chunk: Buffer) => received.push(chunk));
+    socket.on("error", () => {});
+    // A guess at a proof, and a nonce.
+    socket.write(randomBytes(64));
+  });
+  const address =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\ace-media-squat-${process.pid}-${randomBytes(4).toString("hex")}`
+      : join(mkdtempSync(join(tmpdir(), "ace-squat-")), "c.sock");
+  await new Promise<void>((resolve) => squatter.listen(address, resolve));
+  cleanups.push(() => void squatter.close());
+  const lane = await connectLane(address);
+  await expect(authenticateLane(lane, "priority", secret, nonce)).rejects.toThrow(/did not prove/);
+  lane.destroy();
+  await until(() => received.length > 0);
+  const bytes = Buffer.concat(received);
+  // Only the hello: magic, tag and a nonce. No secret, and no proof derived from it.
+  expect(bytes.length).toBe(37);
+  expect(bytes.subarray(0, 5)).toEqual(Buffer.from([0x41, 0x43, 0x45, 0x4c, 1]));
+  expect(bytes.includes(Buffer.from(secret))).toBe(false);
 });
 
 it("refuses the real secret on a lane tag already taken, and on any lane once both are up", async () => {
@@ -184,7 +215,7 @@ it("refuses the real secret on a lane tag already taken, and on any lane once bo
 
   const refused = async (lane: "priority" | "egress") => {
     const intruder = await connectLane(control());
-    await expect(authenticateLane(intruder, lane, secret.slice())).rejects.toThrow();
+    await expect(authenticateLane(intruder, lane, secret.slice(), nonce)).rejects.toThrow();
     intruder.destroy();
   };
   await refused("priority");

@@ -5,7 +5,7 @@
  * egress lane full: 4 MiB of frames once the lanes are up, and one 64 KiB frame for every
  * `source.picture` it reads.
  */
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { encodeEgress } from "../frame.ts";
@@ -39,8 +39,20 @@ function send(sink: { write(chunk: Uint8Array): unknown }, message: FromMedia, l
   sink.write(encodeControl(message, new Uint8Array(0), lane).header);
 }
 
+const label = (direction: string) => new TextEncoder().encode(`ace-media lane v1 ${direction}`);
+function mac(key: Uint8Array, ...parts: Uint8Array[]): Uint8Array {
+  const hmac = createHmac("sha256", key);
+  for (const part of parts) hmac.update(part);
+  return new Uint8Array(hmac.digest());
+}
+
+/**
+ * The lane hello as ace-media serves it: a well-formed hello for a free tag is answered with
+ * this side's proof and a fresh nonce; the daemon's proof over both nonces opens the lane.
+ */
 function serveLane(socket: Socket): void {
-  let hello = new Uint8Array(0);
+  let buffered = new Uint8Array(0);
+  let challenge: { tag: number; expected: Uint8Array } | undefined;
   let reader: ReturnType<typeof controlFrameReader> | undefined;
   socket.on("error", () => {});
   socket.on("data", (chunk: Uint8Array) => {
@@ -55,19 +67,37 @@ function serveLane(socket: Socket): void {
       }
       return;
     }
-    hello = Uint8Array.from([...hello, ...chunk]);
-    if (hello.length < 37) return;
-    const tag = hello[4] ?? 0;
+    buffered = Uint8Array.from([...buffered, ...chunk]);
     const known = secret;
-    // The secret is compared in constant time whatever else is wrong, as ace-media does.
-    const matches =
-      known !== undefined && known.length === 32 && timingSafeEqual(hello.subarray(5, 37), known);
-    const valid =
-      matches &&
-      new DataView(hello.buffer).getUint32(0) === 0x4143454c &&
-      (tag === 1 || tag === 2) &&
-      !lanes.has(tag);
-    if (!valid) return void socket.destroy();
+    if (!challenge) {
+      if (buffered.length < 37) return;
+      const tag = buffered[4] ?? 0;
+      const valid =
+        known !== undefined &&
+        known.length === 32 &&
+        new DataView(buffered.buffer).getUint32(0) === 0x4143454c &&
+        (tag === 1 || tag === 2) &&
+        !lanes.has(tag);
+      if (!valid || !known) return void socket.destroy();
+      const clientNonce = buffered.slice(5, 37);
+      const serverNonce = new Uint8Array(randomBytes(32));
+      challenge = {
+        tag,
+        expected: mac(known, label("client"), Uint8Array.of(tag), clientNonce, serverNonce),
+      };
+      socket.write(
+        Uint8Array.from([
+          ...mac(known, label("server"), Uint8Array.of(tag), clientNonce),
+          ...serverNonce,
+        ]),
+      );
+      buffered = buffered.subarray(37);
+    }
+    if (buffered.length < 32) return;
+    const { tag, expected } = challenge;
+    // The proof is compared in constant time, as ace-media does.
+    if (!timingSafeEqual(buffered.subarray(0, 32), expected) || lanes.has(tag))
+      return void socket.destroy();
     lanes.add(tag);
     if (lanes.size === 2) secret?.fill(0);
     socket.write(Uint8Array.of(laneAccepted));
