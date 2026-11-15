@@ -538,3 +538,153 @@ fn calls_stored_before_their_risk_was_recorded_fall_back_to_the_registry() {
         vec![r#"send_email (call o1) {"id":"o1"}"#.to_owned()]
     );
 }
+
+/// A turn of `steps` steps, each calling `lookup` once and reading a long result; the turn is
+/// still open, as it is before its next model call.
+fn long_turn(reply: &str, steps: usize) -> Vec<Event> {
+    let mut events = vec![
+        Event::user_message("clean up every module"),
+        Event::reply_started(reply, "m"),
+    ];
+    for n in 0..steps {
+        let id = format!("{reply}-c{n}");
+        events.push(Event::Known(Known::StepFinished {
+            reply: reply.into(),
+            text: String::new(),
+            calls: vec![Call {
+                id: id.clone(),
+                name: "lookup".into(),
+                arguments: json!({ "n": n }),
+            }],
+            thoughts: Vec::new(),
+            usage: Tokens::default(),
+            cost_micros: 0,
+            seen: Some(events.len()),
+        }));
+        events.push(tool_ended(
+            &id,
+            "lookup",
+            false,
+            false,
+            &"word ".repeat(200),
+        ));
+    }
+    events
+}
+
+fn compacted(keep_from: usize) -> Event {
+    Event::Known(Known::ContextCompacted {
+        summary: "Summary of the earlier conversation".into(),
+        keep_from,
+        tokens_before: 9_000,
+        images_left_out: None,
+        untrusted: false,
+    })
+}
+
+#[test]
+fn a_turn_too_long_to_keep_whole_is_cut_at_one_of_its_own_steps() {
+    let mut events = conversation(2);
+    let turn_start = events.len();
+    events.extend(long_turn("r9", 50));
+    let keep_from = plan(&events, 9_000, 10_000).map(|p| p.keep_from);
+    let Some(keep_from) = keep_from else {
+        panic!("a full prompt in one long turn must still compact");
+    };
+    assert!(keep_from > turn_start + 1, "{keep_from}");
+    assert!(matches!(
+        events[keep_from],
+        Event::Known(Known::StepFinished { .. })
+    ));
+    // The kept part is under the low mark: about 35% of 50 steps.
+    let kept_steps = (events.len() - keep_from) / 2;
+    assert!((10..=20).contains(&kept_steps), "{kept_steps}");
+
+    // The model reads the summary, then whole steps: every result follows its own call.
+    events.push(compacted(keep_from));
+    let prompt = context::prompt(context::SYSTEM, Vec::new(), &events);
+    assert!(
+        matches!(&prompt.messages[0], Message::Person { text, .. } if text.starts_with("<summary>"))
+    );
+    assert!(matches!(&prompt.messages[1], Message::Spade { calls, .. } if calls.len() == 1));
+    let mut called = Vec::new();
+    for message in &prompt.messages {
+        match message {
+            Message::Spade { calls, .. } => called.extend(calls.iter().map(|c| c.id.clone())),
+            Message::ToolResult { call_id, .. } => assert!(called.contains(call_id), "{call_id}"),
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn a_turn_of_thousands_of_steps_keeps_compacting_further_on() {
+    let mut events = long_turn("r1", 60);
+    let mut cut = 0;
+    for round in 0..5 {
+        let keep_from = plan(&events, 9_000, 10_000).map(|p| p.keep_from);
+        let Some(keep_from) = keep_from else {
+            panic!("round {round}: the turn did not compact");
+        };
+        assert!(keep_from > cut, "round {round}: {keep_from} after {cut}");
+        cut = keep_from;
+        events.push(compacted(keep_from));
+        // A step reports the smaller prompt, then the turn goes on.
+        let more = long_turn("r1", 60).split_off(2);
+        events.extend(more.into_iter().map(|event| {
+            match event {
+                Event::Known(Known::StepFinished {
+                    reply,
+                    text,
+                    calls,
+                    thoughts,
+                    usage,
+                    cost_micros,
+                    ..
+                }) => Event::Known(Known::StepFinished {
+                    reply,
+                    text,
+                    calls: calls
+                        .into_iter()
+                        .map(|c| Call {
+                            id: format!("{}-{round}", c.id),
+                            ..c
+                        })
+                        .collect(),
+                    thoughts,
+                    usage,
+                    cost_micros,
+                    seen: None,
+                }),
+                Event::Known(Known::ToolFinished {
+                    call_id,
+                    name,
+                    content,
+                    ..
+                }) => tool_ended(&format!("{call_id}-{round}"), &name, false, false, &content),
+                other => other,
+            }
+        }));
+    }
+}
+
+#[test]
+fn a_turn_is_never_cut_at_a_step_whose_prompt_missed_a_message() {
+    let mut events = long_turn("r9", 3);
+    // "Only the tests" arrived while the next step was being asked for, so that step never saw
+    // it; cutting there would summarise away a message the model has yet to read.
+    let steered = events.len();
+    events.push(Event::user_message("only the tests"));
+    let missed = events.len();
+    events.push(Event::Known(Known::StepFinished {
+        reply: "r9".into(),
+        text: "Working through them.".into(),
+        calls: Vec::new(),
+        thoughts: Vec::new(),
+        usage: Tokens::default(),
+        cost_micros: 0,
+        seen: Some(steered),
+    }));
+    assert!(!step_starts(&events, 0).contains(&missed));
+    assert!(step_starts(&events, 0).contains(&2));
+}

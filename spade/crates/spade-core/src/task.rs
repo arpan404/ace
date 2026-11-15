@@ -106,8 +106,18 @@ pub enum Next {
 
 /// The task state from the latest `task_status` call with valid arguments.
 pub fn state(events: &[Event]) -> Option<State> {
-    events.iter().rev().find_map(|event| match event {
+    state_in(events.iter())
+}
+
+/// [`state`] over events in order, read from the newest.
+pub fn state_in<'a>(events: impl DoubleEndedIterator<Item = &'a Event>) -> Option<State> {
+    events.rev().find_map(|event| match event {
         Event::Known(Known::StepFinished { calls, .. }) => calls.iter().rev().find_map(|call| {
+            // Only a call that may be `task_status` is unwrapped, so reading the state of a
+            // long turn copies nothing.
+            if call.name != TASK_STATUS && call.name != CALL_TOOL {
+                return None;
+            }
             let (name, arguments) = resolved(&call.name, &call.arguments);
             (name == TASK_STATUS)
                 .then(|| serde_json::from_value::<State>(arguments).ok())
