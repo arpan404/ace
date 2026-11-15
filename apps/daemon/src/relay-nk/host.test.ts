@@ -157,3 +157,11 @@ it("a grant whose key isn't cached is refused at once, without waiting on the ne
   expect(await s.host.admit(early("phone"), ephemeral())).toBeUndefined();
   expect(s.admission.held()).toMatchObject({ sessions: 0, suppressed: 0 });
 });
+
+it("an admission the relay abandons as late gives its session back at once", async () => {
+  const s = setup();
+  const accepted = await s.host.admit(early("phone"), ephemeral());
+  expect(s.admission.held().sessions).toBe(1);
+  accepted?.abandon();
+  expect(s.admission.held()).toMatchObject({ sessions: 0, bytes: 0 });
+});

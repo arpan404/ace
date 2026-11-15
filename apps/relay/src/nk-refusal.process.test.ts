@@ -52,3 +52,27 @@ it.each(cases)("%s is refused at the same fixed time after arrival", async (_nam
   expect(took).toBeGreaterThanOrEqual(NK_REFUSAL_MS - 5);
   expect(took).toBeLessThan(NK_REFUSAL_MS + 150);
 });
+
+it("an admission whose own work runs past the refusal time is refused and abandoned, never answered", async () => {
+  let abandoned = 0;
+  let opened = 0;
+  const slow: NkHost = {
+    arrive: () => true,
+    admit: async () => {
+      // Synchronous work (or a stalled event loop) past the deadline.
+      const until = performance.now() + NK_REFUSAL_MS + 100;
+      while (performance.now() < until);
+      return {
+        open: () => {
+          opened++;
+        },
+        abandon: () => {
+          abandoned++;
+        },
+      };
+    },
+  };
+  await refusedAfter(slow);
+  expect(abandoned).toBe(1);
+  expect(opened).toBe(0);
+});

@@ -100,16 +100,24 @@ export async function answerNk(
     state.destroy();
     return refuse();
   }
-  const outcome = await Promise.race([admitting, deadline.reached]);
-  if (outcome === "refused" || !outcome || options.signal.aborted) {
-    // Admitted too late: give its session back; the stream is refused on time either way.
-    if (outcome === "refused") void admitting.then((late) => late?.abandon());
-    else outcome?.abandon();
+  const raced = await Promise.race([admitting, deadline.reached]);
+  // Late by the clock, not by which callback ran first: work or a stall past the deadline can
+  // still settle before its timer fires.
+  if (raced === "refused" || options.clock.now() > options.arrivedAt + NK_REFUSAL_MS) {
+    // Admitted too late: its session is given back (the daemon closes it; a ticket it consumed
+    // is spent, and the client's one XX attempt follows, as for any burned ticket). The stream
+    // is refused on time either way.
+    void admitting.then((admitted) => admitted?.abandon());
+    state.destroy();
+    return refuse();
+  }
+  if (!raced || options.signal.aborted) {
+    raced?.abandon();
     state.destroy();
     return refuse();
   }
   deadline.cancel();
-  const accepted = outcome;
+  const accepted = raced;
   try {
     // The answer goes first: nothing is queued on this stream before it.
     await sendFrame(socket, state.writeMessage());
