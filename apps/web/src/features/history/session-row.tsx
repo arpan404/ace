@@ -1,6 +1,6 @@
 import type { HistorySession } from "@ace/protocol";
 import { formatAgo, type PastSessionAction } from "@ace/ui-core";
-import { ArrowSquareInIcon, PlayIcon } from "@phosphor-icons/react";
+import { ArrowSquareInIcon, PlayIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useNow } from "@/lib/time.ts";

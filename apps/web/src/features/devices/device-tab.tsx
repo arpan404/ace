@@ -1,6 +1,6 @@
 import { deviceUnavailableHint } from "@ace/ui-core";
 import { useSampleTime, useWallClock } from "@/lib/time.ts";
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";

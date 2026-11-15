@@ -160,7 +160,7 @@ private struct BlockItemView: View {
         } else if block.kind == "user" {
             UserMessageRow(row: item.row)
         } else if block.kind == "message" {
-            AnswerRow(row: item.row, streaming: block.streaming ?? false, openMessage: links.openMessage)
+            AnswerRow(row: item.row, streaming: block.streaming ?? false, writing: block.writing, openMessage: links.openMessage)
         } else {
             ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage)
         }

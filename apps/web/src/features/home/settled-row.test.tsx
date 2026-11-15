@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 10000 });
 
 const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const openTab = (name: "Inbox" | "Settled") =>
   userEvent.click(within(threads()).getByRole("tab", { name: new RegExp(`^${name}`) }));
 
@@ -21,7 +21,7 @@ async function openSettled() {
   await app.client.start();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await openTab("Settled");
   const link = await within(threads()).findByRole("link", { name: named });
   const row = link.parentElement;

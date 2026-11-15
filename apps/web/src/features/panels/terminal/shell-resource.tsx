@@ -7,7 +7,7 @@ import {
   MagnifyingGlassIcon,
   StopIcon,
   TerminalIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { formatElapsed } from "@ace/ui-core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";

@@ -226,7 +226,7 @@ export interface ClientApi {
     options?: RequestOptions,
   ): Promise<OutputData>;
   /**
-   * The whole request of an interaction its thread sends summarized (`truncated`, ADR 0156).
+   * The whole request of an interaction its thread sends summarized (`truncated`, ADR 0157).
    * Fails as `daemon` with the daemon's code when it can't be read here (`read_denied`,
    * `interaction_not_found`, `request_not_whole_here`), `stale` when it kept changing.
    */

@@ -41,7 +41,11 @@ export async function beginUpload(
     "quota",
     `ace's attachment storage is full (${formatLimit(limits.globalBytes)} across all threads), which keeps files from filling your disk. Free space in Settings > Storage or delete threads you no longer need, then try again.`,
   );
-  const count = UploadCount.parse(metadata.get("SELECT COUNT(*) AS count FROM uploads"));
+  // Committed uploads stay in the table until they expire so a retried commit gets the same answer,
+  // but they are finished: only uploads still receiving bytes count toward this limit.
+  const count = UploadCount.parse(
+    metadata.get("SELECT COUNT(*) AS count FROM uploads WHERE done=0"),
+  );
   requireContext(
     count.count < limits.uploads,
     "quota",

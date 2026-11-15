@@ -213,7 +213,7 @@ export class ThreadReads {
   getInteraction(id: string) {
     return this.source.status.interaction(id);
   }
-  /** A page of a thread's request, read whole (`interaction.read`, ADR 0156). */
+  /** A page of a thread's request, read whole (`interaction.read`, ADR 0157). */
   readInteractionRequest(threadId: ThreadId, interactionId: string, offset: number) {
     this.source.flush();
     if (!this.source.readThread(threadId)) return "interaction_not_found";

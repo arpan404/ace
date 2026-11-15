@@ -1,0 +1,274 @@
+{
+  "bench": "relay-resume",
+  "note": "ADR 0155 step 3: a returning client with one open thread and the sidebar, step 1 only against step 3, 3g-slow.",
+  "runs": [
+    {
+      "bench": "relay-resume",
+      "profile": {
+        "name": "3g-slow",
+        "downBitsPerSecond": 400000,
+        "upBitsPerSecond": 200000,
+        "rttMs": 400,
+        "loss": 0.02,
+        "stallMs": 600,
+        "queueBytes": 65536
+      },
+      "joinRtt": 0,
+      "load": 0,
+      "runs": 7,
+      "startedAt": "2026-11-15T15:26:43.735Z",
+      "results": {
+        "step 1": [
+          {
+            "open": 821,
+            "welcome": 1711,
+            "events": 1726,
+            "current": 1755,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 2280,
+            "events": 2296,
+            "current": 2339,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 1663,
+            "events": 1682,
+            "current": 1725,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 827,
+            "welcome": 1678,
+            "events": 1700,
+            "current": 1742,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 1420,
+            "welcome": 2271,
+            "events": 2294,
+            "current": 2336,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 1727,
+            "events": 1741,
+            "current": 1783,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 1671,
+            "events": 1696,
+            "current": 1738,
+            "taken": false,
+            "dials": 1
+          }
+        ],
+        "step 3": [
+          {
+            "open": 830,
+            "welcome": 1311,
+            "events": 1311,
+            "current": 1373,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 822,
+            "welcome": 1267,
+            "events": 1287,
+            "current": 1327,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1271,
+            "events": 1293,
+            "current": 1922,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1264,
+            "events": 1282,
+            "current": 1324,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1336,
+            "events": 1336,
+            "current": 1378,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1282,
+            "events": 1307,
+            "current": 1348,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1271,
+            "events": 1295,
+            "current": 1338,
+            "taken": true,
+            "dials": 1
+          }
+        ]
+      }
+    },
+    {
+      "bench": "relay-resume",
+      "profile": {
+        "name": "3g-slow",
+        "downBitsPerSecond": 400000,
+        "upBitsPerSecond": 200000,
+        "rttMs": 400,
+        "loss": 0.02,
+        "stallMs": 600,
+        "queueBytes": 65536
+      },
+      "joinRtt": 60,
+      "load": 0,
+      "runs": 7,
+      "startedAt": "2026-11-15T15:29:11.549Z",
+      "results": {
+        "step 1": [
+          {
+            "open": 820,
+            "welcome": 1804,
+            "events": 1848,
+            "current": 1881,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 2396,
+            "events": 2417,
+            "current": 2463,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 2404,
+            "events": 2404,
+            "current": 2446,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 1813,
+            "events": 1813,
+            "current": 1856,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 833,
+            "welcome": 1811,
+            "events": 2433,
+            "current": 2433,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 1821,
+            "events": 1821,
+            "current": 1864,
+            "taken": false,
+            "dials": 1
+          },
+          {
+            "open": 820,
+            "welcome": 1808,
+            "events": 1808,
+            "current": 1852,
+            "taken": false,
+            "dials": 1
+          }
+        ],
+        "step 3": [
+          {
+            "open": 830,
+            "welcome": 1571,
+            "events": 1571,
+            "current": 1612,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1544,
+            "events": 1544,
+            "current": 1587,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 822,
+            "welcome": 1520,
+            "events": 1520,
+            "current": 1563,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 821,
+            "welcome": 1523,
+            "events": 1523,
+            "current": 1566,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1543,
+            "events": 1543,
+            "current": 1587,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 823,
+            "welcome": 1521,
+            "events": 1546,
+            "current": 1588,
+            "taken": true,
+            "dials": 1
+          },
+          {
+            "open": 822,
+            "welcome": 1540,
+            "events": 1540,
+            "current": 1586,
+            "taken": true,
+            "dials": 1
+          }
+        ]
+      }
+    }
+  ]
+}

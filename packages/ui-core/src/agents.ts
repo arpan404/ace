@@ -46,6 +46,9 @@ export function agentName(agent: AgentNaming | undefined, spawn?: Item | undefin
   );
 }
 
+/** An answer still arriving, as a screen reader hears it on the answer's row. */
+export const answerWritingLabel = "Writing";
+
 /** What an agent is doing, in the quiet lower-case phrasing of the tree ("waiting for subagents"). */
 export function describeActivity(status: AgentStatus, toolTitle?: string): string {
   switch (status.state) {
@@ -56,7 +59,7 @@ export function describeActivity(status: AgentStatus, toolTitle?: string): strin
       if (status.activity === "tool") return toolTitle ?? "running a tool";
       return {
         thinking: "thinking",
-        responding: "writing",
+        responding: answerWritingLabel.toLowerCase(),
         compacting: "compacting its context",
         retrying: "retrying",
         starting_turn: "starting a turn",

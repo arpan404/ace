@@ -57,6 +57,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
   const added: {
     producer: IngestProducer;
     encodes: unknown[];
+    codecs: string[][];
     pictures: string[];
     keys: number[];
     reconnects: number;
@@ -67,6 +68,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
       const record = {
         producer,
         encodes: [],
+        codecs: [],
         pictures: [],
         keys: [],
         reconnects: 0,
@@ -76,6 +78,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
       return {
         streaming: () => state.routed,
         encodes: (encodes) => void record.encodes.push(encodes),
+        codecs: (codecs) => void record.codecs.push([...codecs]),
         key: (encode) => void record.keys.push(encode),
         reconnect: () => void record.reconnects++,
         picture: (base64) => {
@@ -166,6 +169,22 @@ const daemonChunk = (encode: string, key: boolean, mark: number): EncodedChunk =
 const marks = (chunks: EncodedChunk[]) => chunks.map((chunk) => chunk.bytes[0]);
 
 describe("live video routed through ace-media", () => {
+  it.each(["tab", "tab-pictures"] as const)(
+    "a %s capture tells ace-media the codecs its encoder runs",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true, codecs: ["hvc1.1.6.L153.B0"] });
+      const { host } = fakeHost(kind, true);
+      const handle = await mediaVideoHost(host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+      );
+      handle.codecs?.(["hvc1.1.6.L153.B0", "avc1.42E033"]);
+      expect(added.map((record) => record.codecs)).toEqual([[["hvc1.1.6.L153.B0", "avc1.42E033"]]]);
+    },
+  );
+
   it("a tab's own encoder is pointed at the ingest with its token, and egress units reach the capture as its chunks", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const { host, captures } = fakeHost("tab", true);

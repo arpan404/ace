@@ -14,7 +14,7 @@ import {
   useModelCatalogState,
   type ModelControlView,
 } from "@/features/models/index.ts";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCatalogQuery } from "@/lib/model-catalog.ts";
 import { composerChip, useComposerCompact } from "@/features/thread/index.ts";

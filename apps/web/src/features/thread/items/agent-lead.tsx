@@ -1,6 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
 import { providerSlots } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
+import { RobotIcon } from "@ace/icons";
 import type { CSSProperties } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";

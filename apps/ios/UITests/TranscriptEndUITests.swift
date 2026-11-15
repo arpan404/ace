@@ -48,6 +48,36 @@ import XCTest
         try await assertAtTheEnd(app, "after reading a few screens up")
     }
 
+    /// VoiceOver's first stop on the answer still arriving says "Writing", and stays the same
+    /// while the text under it grows; once the answer finishes, that status goes from the same row.
+    func testTheStreamingAnswerSaysWritingUntilItFinishes() async throws {
+        // A fresh answer, short whatever ran before, so reading its text stays quick.
+        try await post("/stream/finish", "{}")
+        let app = open("ios-stream")
+        let id = try await lastAnswer()
+        let tail = app.descendants(matching: .any)["message.answer.\(id)"]
+        XCTAssertTrue(tail.waitForExistence(timeout: 30))
+        let status = tail.descendants(matching: .any)["message.answer.\(id).status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10), "the live answer has a status")
+        XCTAssertEqual(status.label, "Writing")
+        XCTAssertEqual(tail.descendants(matching: .any).element(boundBy: 0).identifier, status.identifier,
+                       "the status is VoiceOver's first stop in the answer, ahead of its text")
+        // The fixture streams a delta every 50 ms: the text grows, the status stays as it was.
+        let before = spoken(tail)
+        for _ in 0..<6 {
+            try await Task.sleep(for: .milliseconds(250))
+            XCTAssertEqual(status.label, "Writing", "the status stays the same through the deltas")
+        }
+        XCTAssertNotEqual(spoken(tail), before, "the answer's text grew meanwhile")
+        try await post("/stream/finish", "{}")
+        XCTAssertTrue(status.waitForNonExistence(timeout: 10), "the finished answer has no status")
+        XCTAssertTrue(tail.exists, "and the answer itself stays")
+    }
+    /// What VoiceOver reads of an answer's text: each of markit's text blocks, in order.
+    private func spoken(_ answer: XCUIElement) -> [String] {
+        answer.textViews.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label }
+    }
+
     /// Scrolled a little way up while the answer streams: Scroll to end shows above the composer
     /// and stays, still, through the streaming; tapping it reaches the end and it goes.
     func testScrollToEndShowsWhileScrolledUpAndStaysThroughTheStream() {
@@ -229,8 +259,8 @@ import XCTest
         XCTAssertLessThan(gap, 96, "the answer's end sits at the feed's end \(when), \(gap) pt above the composer")
     }
     /// The answer at the live end: the thread's own last answer, drawn as `message.answer.<item>`.
-    /// Nothing in the row says it is streaming any more (`67b6b2fb1` took the caret, and its
-    /// "Streaming" label, away), so its place at the end of the thread is what marks it.
+    /// Found by its place at the end of the thread, not by its "Writing" status, so these tests
+    /// still reach the end if that status breaks.
     private func newest(in app: XCUIApplication) async throws -> XCUIElement {
         app.descendants(matching: .any)["message.answer.\(try await lastAnswer())"]
     }

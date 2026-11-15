@@ -1182,7 +1182,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options,
     );
   }
-  /** A summarized request whole (ADR 0156), read in pages of its JSON. */
+  /** A summarized request whole (ADR 0157), read in pages of its JSON. */
   readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
     return readWholeRequest((offset) =>
       this.#readCore(

@@ -1,4 +1,4 @@
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { commandField, CommandSearchRow } from "./command.tsx";

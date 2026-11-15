@@ -1,4 +1,4 @@
-import { TerminalIcon, TerminalWindowIcon } from "@phosphor-icons/react";
+import { TerminalIcon, TerminalWindowIcon } from "@ace/icons";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { defineTabKind, type ClosingTab, type CloseWarning } from "@/lib/workspace/index.ts";
 import { OutputSkeleton } from "../tab-skeletons.tsx";

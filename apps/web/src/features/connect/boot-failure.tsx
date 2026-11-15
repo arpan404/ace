@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon } from "@ace/icons";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

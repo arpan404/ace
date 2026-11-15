@@ -3,7 +3,7 @@ import { requestChars, summarizeInteraction } from "@ace/projection/interaction-
 import { sha256Hex } from "./sha256.ts";
 
 /*
- * Requests too large to send with their thread, as the daemon sends them (ADR 0156): summarized
+ * Requests too large to send with their thread, as the daemon sends them (ADR 0157): summarized
  * everywhere a client gets an interaction, read whole with `interaction.read` in 64 Ki pages.
  */
 

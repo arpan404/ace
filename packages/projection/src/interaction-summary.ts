@@ -9,7 +9,7 @@ import type {
 } from "@ace/protocol";
 
 /*
- * How a request too large to send with its thread goes to clients (ADR 0156): as a summary that
+ * How a request too large to send with its thread goes to clients (ADR 0157): as a summary that
  * says it is one (`truncated`), never cut silently. A summary keeps what identifies the request
  * and every option and id an answer names, cuts each text to a few KiB and leaves out what has no
  * bound of its own (a tool's input, an elicitation's schema, raw payloads), so it stays small

@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ClockCounterClockwiseIcon, XIcon } from "@ace/icons";
 import { addressHost, displayAddress } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";

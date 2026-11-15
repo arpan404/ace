@@ -1,19 +1,18 @@
 import { panelPage, panelRows, type HomeRow, type ThreadsTab } from "@ace/ui-core";
-import { createContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import type { HomeList } from "./use-home-threads.ts";
 import { useSettledPaging } from "./settled-paging.ts";
 
-/** What Snoozed's and Settled's last row does: show a page more, or back to the first page. */
+/** What Snoozed's and Settled's last row does: show a page more. */
 export interface PanelPaging {
   more(): void;
-  less(): void;
   /** Older settled threads are on their way from the daemon. */
   loading: boolean;
   /** The last page of older settled threads failed: Show more retries it. */
   error: boolean;
 }
 
-const idle: PanelPaging = { more() {}, less() {}, loading: false, error: false };
+const idle: PanelPaging = { more() {}, loading: false, error: false };
 export const PanelPagingContext = createContext<PanelPaging>(idle);
 
 type Paged = "snoozed" | "settled";
@@ -21,9 +20,10 @@ const firstPage: Record<Paged, number> = { snoozed: panelPage, settled: panelPag
 
 /**
  * The rows the Threads panel draws for its open tab: the Inbox, every thread with Unsent on top;
- * Snoozed and Settled, a page (`panelPage`) at a time. Show more adds a page, asking the daemon
- * for older settled threads when Settled has shown all it has loaded; Show less goes back to the
- * first page. Changing the project or device filter starts both over.
+ * Snoozed and Settled, a page (`panelPage`) at a time. While the list's end is in view (the
+ * list tells `onNearEnd`) the next page follows each one that has filled, as Show more adds one; Settled
+ * asks the daemon for older settled threads when it has shown all it has loaded. Changing the
+ * project or device filter starts both over.
  */
 export function usePanelRows(input: {
   list: HomeList;
@@ -35,7 +35,12 @@ export function usePanelRows(input: {
    * the search found that it hasn't paged in (`useSettledSearch`).
    */
   settled?: readonly string[] | undefined;
-}): { rows: readonly HomeRow[]; paging: PanelPaging } {
+}): {
+  rows: readonly HomeRow[];
+  paging: PanelPaging;
+  /** For the list: whether its last rows are in view. */
+  onNearEnd: (near: boolean) => void;
+} {
   const { list, tab } = input;
   const found = input.settled;
   const panel = useMemo(
@@ -48,11 +53,8 @@ export function usePanelRows(input: {
   const shown = held.key === key ? held.shown : firstPage;
   const settled = list.panel.settled.length;
   // Settled shows more than it has loaded: the daemon's next page fills it.
-  const wanted =
-    settled < shown.settled &&
-    settledPaging.hasMore &&
-    !settledPaging.loading &&
-    !settledPaging.error;
+  const filling = settled < shown.settled;
+  const wanted = filling && settledPaging.hasMore && !settledPaging.loading && !settledPaging.error;
   const { more: loadMore, nextAt } = settledPaging;
   useEffect(() => {
     if (wanted) void loadMore();
@@ -60,23 +62,27 @@ export function usePanelRows(input: {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted, nextAt]);
   const paged: Paged | undefined = tab === "inbox" ? undefined : tab;
-  const paging = useMemo((): PanelPaging => {
-    const set = (to: (count: number) => number) =>
+  /** A page more of the open tab's threads, from what it holds: never a request. */
+  const grow = useCallback(
+    () =>
       setShown((current) => {
         const base = current.key === key ? current.shown : firstPage;
-        return paged ? { key, shown: { ...base, [paged]: to(base[paged]) } } : current;
-      });
-    return {
+        return paged ? { key, shown: { ...base, [paged]: base[paged] + panelPage } } : current;
+      }),
+    [key, paged],
+  );
+  const paging = useMemo(
+    (): PanelPaging => ({
       more() {
         // After a failed page, Show more asks again for the page it couldn't load.
         if (paged === "settled" && settledPaging.error) void loadMore();
-        else set((count) => count + panelPage);
+        else grow();
       },
-      less: () => set(() => panelPage),
       loading: paged === "settled" && settledPaging.loading,
       error: paged === "settled" && settledPaging.error,
-    };
-  }, [key, paged, settledPaging.loading, settledPaging.error, loadMore]);
+    }),
+    [paged, settledPaging.loading, settledPaging.error, loadMore, grow],
+  );
   const rows = useMemo(
     (): readonly HomeRow[] =>
       panelRows(panel, tab, {
@@ -86,5 +92,21 @@ export function usePanelRows(input: {
       }),
     [panel, tab, paged, shown, settledPaging.hasMore],
   );
-  return { rows, paging };
+  // The end in view shows the next page once this one has filled. Settled short of its page
+  // waits for the daemon's; while searching it pages through the matches it draws, whatever the
+  // daemon's page is doing. Scrolling never asks the daemon itself: only Show more retries a
+  // failed page. A new callback for each page drawn (and once Settled has filled) has the list
+  // say again whether its end is in view, judged for the rows it has just drawn: a page just
+  // added isn't taken as in view, and a list whose end stays in view keeps paging.
+  const short = paged === "settled" && panel.settled.length < shown.settled;
+  const ready = rows.at(-1)?.kind === "more" && !short;
+  const onNearEnd = useCallback(
+    (near: boolean) => {
+      if (near && ready) grow();
+    },
+    // The row count re-arms it: each page drawn hands the list a new callback to answer.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [ready, rows.length, grow],
+  );
+  return { rows, paging, onNearEnd };
 }

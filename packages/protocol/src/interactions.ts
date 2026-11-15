@@ -145,7 +145,7 @@ export const Interaction = z.object({
   closedAt: Timestamp.optional(),
   raw: z.array(RawPayload).default([]),
   /**
-   * Present when this copy is a summary, not the whole request (ADR 0156): the request is too
+   * Present when this copy is a summary, not the whole request (ADR 0157): the request is too
    * large to send with its thread, so its text is cut, its large parts are left out and `raw` is
    * empty. `chars` is the whole request's JSON length in UTF-16 code units. Clients say so where
    * they show it, read it whole with `interaction.read`, and offer an affirmative answer (allow,

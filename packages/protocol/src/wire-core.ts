@@ -398,7 +398,7 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
   }),
   /**
    * A page of a request's whole JSON, for one a thread sends only summarized (`truncated`,
-   * ADR 0156). From `offset` 0, then each reply's `nextOffset`, until `eof`.
+   * ADR 0157). From `offset` 0, then each reply's `nextOffset`, until `eof`.
    */
   z.object({
     type: z.literal("interaction.read"),

@@ -87,8 +87,9 @@ private struct PausedWork: View {
 struct ChangedFilesRow: View {
     let files: BlockRow.Files
     let open: () -> Void
+    @Environment(\.displayScale) private var displayScale
     var body: some View {
-        ChipFlow(spacing: AceDesign.Space.tight) {
+        ChipFlow(spacing: AceDesign.Space.tight, scale: displayScale) {
             ForEach(files.chips) { chip in
                 Button(action: open) {
                     HStack(spacing: AceDesign.Space.related) {
@@ -121,53 +122,96 @@ struct ChangedFilesRow: View {
     }
 }
 
-/// Lays chips out in rows, wrapping to the next row when one runs out of width. Each chip is
-/// measured once per width and the rows are kept in the layout's cache, so a transcript laying a
-/// row out again (as the lazy feed does while it scrolls) never measures its chips again.
+/// Lays chips out in rows, wrapping to the next row when one runs out of width.
+///
+/// A flow must lay out the same rows where SwiftUI places it as it reported: placed on the
+/// screen's pixels, a flow whose last chip wrapped would be a row taller than it said, and the
+/// layout would swap between the two widths (#2051). So packing always uses one capacity, the
+/// width rounded down to the pixel grid, and the reported width is the widest row rounded up to
+/// it, which never passes the capacity. Each chip is measured once at its own size (a row clamps
+/// one wider than itself), and the rows for the last capacity asked are kept.
 struct ChipFlow: Layout {
     var spacing: CGFloat
+    /// The screen's pixels per point (`displayScale`), for the pixel grid.
+    var scale: CGFloat
     struct Row: Equatable { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
-    /// The chips' sizes and their rows, for the width they were measured at; cleared when the chips change.
-    struct Cache { var width: CGFloat?; var sizes: [CGSize] = []; var rows: [Row] = [] }
+    /// The chips' own sizes and the rows for the last capacity asked; cleared when the chips change.
+    struct Cache {
+        private(set) var sizes: [CGSize] = []
+        private var measured = false
+        private var last: (capacity: CGFloat, rows: [Row])?
+        /// The rows at `capacity`. The chips are measured (`measure`) only the first time.
+        mutating func rows(capacity: CGFloat, spacing: CGFloat, measure: () -> [CGSize]) -> [Row] {
+            if let last, last.capacity == capacity { return last.rows }
+            if !measured { sizes = measure(); measured = true }
+            let rows = ChipFlow.rows(sizes, capacity: capacity, spacing: spacing)
+            last = (capacity, rows)
+            return rows
+        }
+    }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
-        let rows = arranged(width: proposal.width ?? .infinity, subviews: subviews, cache: &cache)
-        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
-        let width = rows.map(\.width).max() ?? 0
-        return CGSize(width: min(width, proposal.width ?? width), height: height)
+        let rows = arranged(capacity: Self.capacity(proposal.width ?? .infinity, scale: scale), subviews: subviews, cache: &cache)
+        return Self.reported(Self.size(of: rows, spacing: spacing, scale: scale), proposal: proposal.width)
     }
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
-        let rows = arranged(width: bounds.width, subviews: subviews, cache: &cache)
+        let capacity = Self.capacity(bounds.width, scale: scale)
+        let rows = arranged(capacity: capacity, subviews: subviews, cache: &cache)
         var y = bounds.minY
         for row in rows {
             var x = bounds.minX
             for index in row.indexes {
                 let size = cache.sizes[index]
-                let width = min(size.width, bounds.width)
+                let width = min(size.width, capacity)
                 subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(width: width, height: size.height))
                 x += width + spacing
             }
             y += row.height + spacing
         }
     }
-    /// The rows at `width`, measured only when the width differs from the cached one.
-    private func arranged(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
-        if cache.width == width, cache.sizes.count == subviews.count { return cache.rows }
-        PerfCounters.bump("chips.measure")
-        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
-        cache = Cache(width: width, sizes: sizes, rows: Self.rows(sizes, width: width, spacing: spacing))
-        return cache.rows
+    /// The flow's leading edge is its bounds' own. Without this, SwiftUI places every chip to
+    /// merge their guides each time the feed's leading-aligned stack asks.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
+    private func arranged(capacity: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
+        cache.rows(capacity: capacity, spacing: spacing) {
+            PerfCounters.bump("chips.measure")
+            return subviews.map { $0.sizeThatFits(.unspecified) }
+        }
     }
-    /// Chips of `sizes` in rows of at most `width`: a chip wider than the row takes one of its own,
-    /// at the row's width. Pure.
-    static func rows(_ sizes: [CGSize], width: CGFloat, spacing: CGFloat) -> [Row] {
+
+    /// What `sizeThatFits` returns for chips of `sizes` at a proposed width. Pure.
+    static func fit(_ sizes: [CGSize], proposal: CGFloat?, spacing: CGFloat, scale: CGFloat) -> (size: CGSize, rows: [Row]) {
+        let rows = rows(sizes, capacity: capacity(proposal ?? .infinity, scale: scale), spacing: spacing)
+        return (reported(size(of: rows, spacing: spacing, scale: scale), proposal: proposal), rows)
+    }
+    /// The room rows pack into at `width`: the width rounded down to the pixel grid.
+    static func capacity(_ width: CGFloat, scale: CGFloat) -> CGFloat {
+        guard width.isFinite, scale > 0 else { return width }
+        // Within a millionth of a pixel is on it: a width SwiftUI computed is never rounded down a whole pixel.
+        return (width * scale + 1e-6).rounded(.down) / scale
+    }
+    /// The size rows take: their widest rounded up to the pixel grid (never past their capacity,
+    /// which is on it), and their heights with the spacing between them.
+    static func size(of rows: [Row], spacing: CGFloat, scale: CGFloat) -> CGSize {
+        let widest = rows.map(\.width).max() ?? 0
+        let width = scale > 0 ? (widest * scale - 1e-6).rounded(.up) / scale : widest
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: max(0, width), height: height)
+    }
+    private static func reported(_ size: CGSize, proposal: CGFloat?) -> CGSize {
+        CGSize(width: min(size.width, proposal ?? size.width), height: size.height)
+    }
+    /// Chips of `sizes` in rows of at most `capacity`: a chip wider than the row takes one of its
+    /// own, at the row's width. Pure.
+    static func rows(_ sizes: [CGSize], capacity: CGFloat, spacing: CGFloat) -> [Row] {
         var rows: [Row] = []
         var row = Row()
         for (index, size) in sizes.enumerated() {
-            let item = min(size.width, width)
-            if !row.indexes.isEmpty, row.width + spacing + item > width {
+            let item = min(size.width, capacity)
+            if !row.indexes.isEmpty, row.width + spacing + item > capacity {
                 rows.append(row)
                 row = Row()
             }

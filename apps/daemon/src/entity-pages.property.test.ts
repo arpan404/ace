@@ -17,7 +17,7 @@ import { Store } from "./store.ts";
 // pending among them) read page by page while requests are answered and new ones arrive
 // between reads. Reading every page lists every request pending both when the read began and
 // when it ended, and every one resolved throughout, exactly once: whole, or summarized and saying
-// so when it is too large to send whole (ADR 0156). Every page holds what was asked, or one
+// so when it is too large to send whole (ADR 0157). Every page holds what was asked, or one
 // request larger than that alone.
 
 const cleanup: (() => void)[] = [];

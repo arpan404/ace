@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { pageReplyBytes } from "./reply-bounds.ts";
 
 /*
- * `interaction.read`: a request clients get summarized (ADR 0156), read back whole as pages of
+ * `interaction.read`: a request clients get summarized (ADR 0157), read back whole as pages of
  * its stored JSON. A reader asks for page after page of the same request, so the request is held
  * in memory while it is read: reading it from storage for each page would parse all of it again
  * every time. A held copy is checked against storage whenever any interaction was written since,

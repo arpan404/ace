@@ -1,4 +1,4 @@
-import { FileCssIcon, FileIcon, RocketIcon } from "@phosphor-icons/react";
+import { FileCssIcon, FileIcon, RocketIcon } from "@ace/icons";
 import { render } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { fileIcon, knownFileIcon } from "./file-icon.ts";

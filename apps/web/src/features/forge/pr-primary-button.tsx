@@ -9,7 +9,7 @@ import {
   WarningIcon,
   XCircleIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";

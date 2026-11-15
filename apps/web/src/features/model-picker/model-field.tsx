@@ -1,6 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { PickerModel } from "@ace/ui-core";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";

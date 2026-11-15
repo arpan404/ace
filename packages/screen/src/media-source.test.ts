@@ -100,6 +100,7 @@ function session(platform = "macos") {
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
   const sent: unknown[] = [];
   let producer: IngestProducer | undefined;
+  const codecs: string[][] = [];
   const source = new ScreenMediaSource({
     sessionId: "s1",
     platform,
@@ -120,6 +121,7 @@ function session(platform = "macos") {
         return {
           streaming: () => false,
           reconnect: () => {},
+          codecs: (told) => void codecs.push([...told]),
           encodes: () => {},
           key: () => {},
           picture: () => false,
@@ -158,7 +160,18 @@ function session(platform = "macos") {
         payload: new Uint8Array(annexB),
       },
     });
-  return { source, accepted, replies, sent, producer: ready, video, still, egress, address };
+  return {
+    source,
+    accepted,
+    replies,
+    sent,
+    codecs,
+    producer: ready,
+    video,
+    still,
+    egress,
+    address,
+  };
 }
 
 const video = (sequence: number, keyframe = false) => screenFrame(sequence, "h264", keyframe);
@@ -191,6 +204,13 @@ function screenFrame(sequence: number, codec: "h264" | "jpeg", keyframe: boolean
 
 const order = (frames: Frame[], codec: "h264" | "jpeg") =>
   frames.filter((f) => f.header.codec === codec).map((f) => f.header.sequence);
+
+it.each(["macos", "windows", "linux-wayland"])(
+  "a %s helper tells ace-media it encodes H.264 only, so no view is planned in HEVC",
+  (platform) => {
+    expect(session(platform).codecs).toEqual([["avc1.42E033"]]);
+  },
+);
 
 it("a still on the helper socket during a switch into ace-media neither waits for nor drops the held video", async () => {
   const s = session();

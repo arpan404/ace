@@ -10,7 +10,7 @@ import { answerResolution } from "./thread-controls.ts";
  * What a needs-you notification says and offers, read from the request pending now: the
  * request strip's sentence ("Claude Code wants to run a command") and its one line, and for a
  * single short question its options as buttons, plus Reply when the question takes the
- * person's own words. A request sent summarized (ADR 0156) offers only declines: no choices, no
+ * person's own words. A request sent summarized (ADR 0157) offers only declines: no choices, no
  * Reply, no Approve. Pure over the interaction and the thread's reader.
  */
 

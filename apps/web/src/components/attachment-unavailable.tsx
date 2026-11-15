@@ -1,4 +1,4 @@
-import { ImageIcon } from "@phosphor-icons/react";
+import { ImageIcon } from "@ace/icons";
 import type { CSSProperties } from "react";
 
 /** Bytes this device can't reach: a quiet tile with the name, so the message still reads. */

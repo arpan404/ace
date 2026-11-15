@@ -1,4 +1,4 @@
-import { CheckIcon, StackIcon, TerminalIcon, TerminalWindowIcon } from "@phosphor-icons/react";
+import { CheckIcon, StackIcon, TerminalIcon, TerminalWindowIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,

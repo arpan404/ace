@@ -1,4 +1,4 @@
-import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon } from "@ace/icons";
 import {
   Suspense,
   useEffect,

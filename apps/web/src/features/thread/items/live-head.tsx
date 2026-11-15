@@ -12,7 +12,7 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { PauseCircleIcon } from "@phosphor-icons/react";
+import { PauseCircleIcon } from "@ace/icons";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";

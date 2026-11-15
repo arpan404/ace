@@ -106,7 +106,7 @@ export function ThreadList(props: {
   /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
   scrollTop?: number | undefined;
   onScroll?: ((top: number) => void) | undefined;
-  /** The list's name for assistive tech: Threads, or Chats. */
+  /** The list's name for assistive tech: Projects, or Chats. */
   label?: string | undefined;
   /** Told whether the last few rows are in view, so older rows can page in as it scrolls. */
   onNearEnd?: ((near: boolean) => void) | undefined;
@@ -446,7 +446,7 @@ export function ThreadList(props: {
         <div
           ref={listRef}
           role="list"
-          aria-label={props.label ?? "Threads"}
+          aria-label={props.label ?? "Projects"}
           // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
           data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}

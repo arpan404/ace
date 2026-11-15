@@ -12,14 +12,14 @@ async function openHome() {
   if (!dedupe) throw new Error(`workbench lost ${title}`);
   app.play(dedupe).runUntilBlocked();
   await app.open("/");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = await screen.findByRole("navigation", { name: "Projects" });
   await within(nav).findAllByRole("link");
   return app;
 }
 
 test("Snooze and Pin are available from the task context menu", async () => {
   await openHome();
-  const row = within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+  const row = within(screen.getByRole("navigation", { name: "Projects" })).getByRole("link", {
     name: /^Dedupe/,
   });
   if (!row) throw new Error("no task");
@@ -55,7 +55,7 @@ test("hover menu shortcuts rename, pin and archive its row while another thread 
   expect(activeTitle.textContent).toBe(before);
   await userEvent.clear(field);
   await userEvent.type(field, "Renamed row{Enter}");
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await within(threads).findByRole("link", { name: /^Renamed row/ });
 
   await openActions("Renamed row");
@@ -80,7 +80,7 @@ test("the row overflow opens Snooze presets without navigation and can wake the 
   await userEvent.click(await screen.findByRole("button", { name: `Actions for ${title}` }));
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  const nav = screen.getByRole("navigation", { name: "Threads" });
+  const nav = screen.getByRole("navigation", { name: "Projects" });
   await waitFor(() => expect(within(nav).queryByRole("link", { name: /^Dedupe/ })).toBeNull());
   await userEvent.click(within(nav).getByRole("tab", { name: "Snoozed, 1" }));
   expect(screen.getByRole("link", { name: /^Dedupe.*Snoozed until tomorrow/ })).toBeTruthy();

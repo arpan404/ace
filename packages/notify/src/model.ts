@@ -47,7 +47,7 @@ export function interactionLink(interaction: Interaction): z.infer<typeof Intera
     const deny = interaction.request.options.find(
       (option) => option.kind === "deny" && option.id.length <= 200,
     );
-    // A request clients get summarized is approved only once shown whole (ADR 0156).
+    // A request clients get summarized is approved only once shown whole (ADR 0157).
     if (allow && allow.id.length <= 200 && !sentSummarized(interaction))
       actions.push({ action: "approve", optionId: allow.id });
     if (deny && deny.id.length <= 200) actions.push({ action: "deny", optionId: deny.id });

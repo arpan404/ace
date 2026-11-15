@@ -1,5 +1,5 @@
 import { useSidebarLoaded } from "@ace/client-react";
-import { ChatsCircleIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, NotePencilIcon } from "@ace/icons";
 import { useEffect, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PanelNoMatch, PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";

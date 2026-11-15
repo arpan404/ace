@@ -141,7 +141,7 @@ struct PlanReviewCard: View {
 /// what should change before it sends.
 struct PlanReviewSheet: View {
     let plan: PlanRequest?
-    /// Why it can only be sent back here (ADR 0156); "" when the plan came whole.
+    /// Why it can only be sent back here (ADR 0157); "" when the plan came whole.
     var summarized = ""
     let submission: ApprovalSubmission?
     let canAct: Bool

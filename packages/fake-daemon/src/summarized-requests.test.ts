@@ -4,7 +4,7 @@ import { DeviceId, InteractionId, ThreadId, type Interaction } from "@ace/protoc
 import { FakeDaemon, ScenarioPlayer, fakeTransport, uxAudit } from "./index.ts";
 
 /*
- * The fake daemon sends a request too large for its thread as the daemon does (ADR 0156):
+ * The fake daemon sends a request too large for its thread as the daemon does (ADR 0157):
  * summarized, readable whole, and answered yes only by a client that read it.
  */
 

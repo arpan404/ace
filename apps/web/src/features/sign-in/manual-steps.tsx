@@ -2,7 +2,7 @@ import { loginSuccessMessage } from "./login-copy.ts";
 import { accountDisplayName, accountStatus } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderLoginProgress } from "@ace/protocol";
-import { CheckIcon, TerminalWindowIcon } from "@phosphor-icons/react";
+import { CheckIcon, TerminalWindowIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";

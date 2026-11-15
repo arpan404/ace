@@ -12,7 +12,7 @@ import {
 import { inflate } from "./inflate.ts";
 import { RelayClosedError } from "./relay-closed.ts";
 import { RELAY_EARLY } from "./relay-early.ts";
-import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
+import { GRANT_SUBPROTOCOL_PREFIX, encodeBase64url } from "@ace/account-grant";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
@@ -69,6 +69,12 @@ export interface PortableRelayOptions {
    * the relay's upgrade answer says it may; otherwise after the marker, as before.
    */
   early?: boolean | undefined;
+  /**
+   * With `early`: also carry the first handshake message in the upgrade request (ADR 0155,
+   * step 3). A relay that took it echoes `ace.v2` and the message is never sent as a frame; one
+   * that didn't echoes what step 1's relay does, and it is sent as step 1 sends it.
+   */
+  inUpgrade?: boolean | undefined;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
 
@@ -96,8 +102,21 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
+  const state = new NoiseXX({
+    initiator: true,
+    ...options.keys(),
+    prologue,
+    pinnedFingerprint: options.pinnedFingerprint,
+  });
+  // XX's first message is the 32-byte ephemeral public key with no payload: written now when it
+  // goes in the upgrade, as 43 characters of base64url after `ace.x1.`.
+  const inUpgrade =
+    options.early === true && options.inUpgrade === true ? state.writeMessage() : undefined;
   const protocols = [
     ...(options.grant ? [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`] : []),
+    ...(inUpgrade
+      ? [RELAY_EARLY.inUpgrade, `${RELAY_EARLY.messagePrefix}${encodeBase64url(inUpgrade)}`]
+      : []),
     ...(options.early
       ? [RELAY_EARLY.subprotocol, ...(options.grant ? [] : [RELAY_EARLY.neutral])]
       : []),
@@ -214,30 +233,27 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   options.signal?.addEventListener("abort", aborted, { once: true });
   const cancel = options.schedule(() => close(new Error("Relay handshake timed out")), 10000);
   let earlyCapable = false;
-  const state = new NoiseXX({
-    initiator: true,
-    ...options.keys(),
-    prologue,
-    pinnedFingerprint: options.pinnedFingerprint,
-  });
   try {
     await new Promise<void>((resolve, reject) => {
       opened = { resolve, reject };
       if (options.signal?.aborted) aborted();
     });
     opened = undefined;
-    // The relay's upgrade answer is the permission: echoed, the first message goes now and the
-    // relay holds it until the daemon joins; otherwise it waits for the marker, as before.
+    // The relay's upgrade answer says what happened to the first message: `ace.v2`, it was
+    // taken from the request and is never sent again; the early subprotocol, it goes now and
+    // the relay holds it until the daemon joins; otherwise it waits for the marker, as before.
+    const taken = inUpgrade !== undefined && socket.protocol === RELAY_EARLY.inUpgrade;
     const permitted = options.early === true && socket.protocol === RELAY_EARLY.subprotocol;
-    if (permitted) write(state.writeMessage());
+    const first = () => inUpgrade ?? state.writeMessage();
+    if (permitted) write(first());
     const marker = await next();
     if (
       marker.length !== 1 ||
       (marker[0] !== RELAY_EARLY.marker && marker[0] !== RELAY_EARLY.capableMarker)
     )
       throw new Error("Invalid relay pairing marker");
-    earlyCapable = permitted || marker[0] === RELAY_EARLY.capableMarker;
-    if (!permitted) write(state.writeMessage());
+    earlyCapable = taken || permitted || marker[0] === RELAY_EARLY.capableMarker;
+    if (!taken && !permitted) write(first());
     if (state.readMessage(await next()).length) throw new Error("Unexpected handshake payload");
     write(state.writeMessage());
     const secured = state.transport;

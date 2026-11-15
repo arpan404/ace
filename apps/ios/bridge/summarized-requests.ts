@@ -2,7 +2,7 @@ import type { Interaction, InteractionResolution } from "@ace/protocol";
 import { answerRefusal, sentSummarized } from "@ace/projection/interaction-summary";
 
 /*
- * A request the daemon sends summarized (ADR 0156) is never read whole on the phone, so the
+ * A request the daemon sends summarized (ADR 0157) is never read whole on the phone, so the
  * phone never answers yes to it: its rows offer only declines and say why, and an affirmative
  * answer that reaches the bridge anyway is dropped before it is saved. The rules for which
  * answers are affirmative and which requests go summarized are `@ace/projection`'s.

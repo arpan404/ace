@@ -2,7 +2,7 @@ import type { Event, Interaction, ThreadView } from "@ace/protocol";
 import { summarizeInteraction } from "@ace/projection/interaction-summary";
 
 /*
- * Interactions as clients get them (ADR 0156): one whose request is too large to send with its
+ * Interactions as clients get them (ADR 0157): one whose request is too large to send with its
  * thread goes as its summary, in snapshots and in live or replayed events. Storage and the
  * engine keep them whole. Snapshot views and published events are shared objects, so each
  * interaction and event is weighed and summarized once, whoever it goes to.

@@ -12,7 +12,7 @@ import {
   type PickerModel,
   type PickerProvider,
 } from "@ace/ui-core";
-import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, MagnifyingGlassIcon } from "@ace/icons";
 import {
   useEffect,
   useId,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useClient } from "./context.ts";
 
 /**
- * An interaction's request as a card can show it (ADR 0156). `whole`: it came whole with its
+ * An interaction's request as a card can show it (ADR 0157). `whole`: it came whole with its
  * thread. A summarized one (`truncated`) is `loading` until it is read whole, then `loaded`, or
  * `failed` with why (the daemon's code, or the client's: `offline`, `timeout`, `stale`…).
  */

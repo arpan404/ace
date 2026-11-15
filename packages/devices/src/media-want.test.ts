@@ -24,6 +24,7 @@ it("ace-media's plan for a device's views becomes that device's stream request, 
         return {
           streaming: () => true,
           reconnect: () => {},
+          codecs: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,
@@ -69,6 +70,7 @@ it("ace-media's budget for a device goes with its plan, its route and its source
         return {
           streaming: () => true,
           reconnect: () => {},
+          codecs: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,

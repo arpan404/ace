@@ -63,6 +63,18 @@ ace's hosted relay also forwards plain HTTPS requests to a daemon that registere
 
 The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. Handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
 
+### The first message in the upgrade request
+
+A client that would offer `ace.early.1` (it has a grant, or this relay's marker said it is new) also offers `ace.v2` and one entry `ace.x1.<message>`. That entry carries its first stream handshake message in unpadded base64url ([ADR 0155](../adr/0155-relay-connect-in-one-round-trip.md), step 3). For Noise XX the message is the 32-byte ephemeral public key with no payload: 43 characters, 50 with the prefix. A relay takes the entry only when it reserved room for an early frame, before it decodes the entry:
+
+- **Room, and a valid entry:** at most 4 KiB, in a `Sec-WebSocket-Protocol` header of at most 8 KiB. The relay holds the message as the client's early frame and echoes `ace.v2`. The message reaches the joining host first and once, and the client never sends it as a frame; a frame it sends before pairing closes it at once.
+- **No room, or an entry it won't take:** the relay reads nothing of the entry and echoes as above (`ace.early.1`, the grant or `ace.relay.1`). The client sends its first message as step 1 sends it.
+- **Older relays:** they ignore both entries and echo what they did before.
+- **A proxy that refuses the larger upgrade:** it costs the client one immediate retry without the entry.
+- **Hosted relay hibernation:** a message lost to it closes the client with 4020, as a held frame does.
+
+The entry is never logged by the relay. A proxy or CDN in front of a self-hosted relay sees it in the request headers. For XX it is a public ephemeral key, sent in the clear today as the stream's first frame and authenticating nothing. A first message with an encrypted payload would put that ciphertext and its metadata in the headers too, so disable header logging in a proxy in front of the relay.
+
 ## Framing, limits and backpressure
 
 Each WebSocket binary message is one Noise message, at most 65,535 bytes. Compression is disabled. JSON has a 16 MiB encoded limit and fragments into encrypted chunks. Binary logical messages are capped at 64 KiB plus a 16-byte file envelope. Encrypted fragment kinds 0/1 retain JSON continuation/final framing; additive kinds 2/3 carry binary continuation/final fragments. Every fragment in a logical message must have the same kind. `sendBinary` copies admitted bytes so later caller changes cannot alter a queued encrypted message. The final-fragment flag is encrypted; no plaintext logical length or sequence number is added. Non-final chunks have a fixed size, and directions rekey every `2^20` fragments.

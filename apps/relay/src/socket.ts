@@ -41,11 +41,28 @@ export class FrameReader {
         return;
       }
       if (this.#error) return;
-      const frame = Array.isArray(data)
-        ? Buffer.concat(data)
-        : data instanceof ArrayBuffer
-          ? Buffer.from(data)
-          : data;
+      this.#take(
+        Array.isArray(data)
+          ? Buffer.concat(data)
+          : data instanceof ArrayBuffer
+            ? Buffer.from(data)
+            : data,
+      );
+    });
+    socket.on("close", () => this.fail(new Error("Relay connection closed")));
+    socket.on("error", (error) => this.fail(error));
+  }
+  /**
+   * A client's first frame that came in its upgrade request (ADR 0155, step 3): taken exactly as
+   * if it had arrived as a frame, before any that did.
+   */
+  inject(frame: Uint8Array): void {
+    if (this.#error) return;
+    this.#take(Buffer.from(frame));
+  }
+  #take(frame: Buffer): void {
+    {
+      const socket = this.#socket;
       if (!this.#onFrame(frame.length)) return;
       if (
         frame.length > FRAME_LIMIT ||
@@ -65,9 +82,7 @@ export class FrameReader {
         this.#bytes += frame.length;
         if (this.#bytes >= 256 * 1024 || this.#queue.length >= 128) socket.pause();
       }
-    });
-    socket.on("close", () => this.fail(new Error("Relay connection closed")));
-    socket.on("error", (error) => this.fail(error));
+    }
   }
   get bufferedBytes(): number {
     return this.#bytes;

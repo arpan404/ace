@@ -156,7 +156,7 @@ export class EntityWindow {
         return {
           ...page,
           collection,
-          // A request too large to send with its thread goes as its summary (ADR 0156).
+          // A request too large to send with its thread goes as its summary (ADR 0157).
           ...this.entries(thread, collection, before, limit, maxBytes, summarizeInteraction),
         };
       case "backgroundTasks":

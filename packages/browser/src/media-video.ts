@@ -28,7 +28,7 @@ import type { VideoEncode } from "./video-policy.ts";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "encodes" | "key" | "picture" | "reconnect" | "close"
+  "streaming" | "codecs" | "encodes" | "key" | "picture" | "reconnect" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -294,6 +294,7 @@ async function streamed(
       run();
     },
     keyframe: (key) => handle.keyframe(key),
+    codecs: (codecs) => source.codecs([...codecs]),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
     close: () => {
       merge.dispose();
@@ -486,6 +487,7 @@ function pictureCapture(options: {
       const id = encodeIds.id(key);
       if (id !== undefined) opened.key(id);
     },
+    codecs: (codecs) => opened.codecs([...codecs]),
     pictures: {
       width: options.width,
       height: options.height,

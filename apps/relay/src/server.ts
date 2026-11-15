@@ -20,7 +20,7 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
-import { EARLY_FRAME } from "./early-frame.ts";
+import { EARLY_FRAME, UPGRADE_MESSAGE, upgradeMessage } from "./early-frame.ts";
 import { PAIRED_MARKER } from "./wire.ts";
 import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
@@ -58,6 +58,8 @@ type Connection = {
   earlyHold?: (() => void) | undefined;
   /** It is being turned away (`turnAway`): closed, and cut at the deadline. */
   cutting?: boolean;
+  /** Its first message came in its upgrade request (ADR 0155, step 3). */
+  fromUpgrade?: boolean;
 };
 /**
  * A client the relay closes before it is paired gets this long to finish the close; then its
@@ -104,13 +106,17 @@ export async function startRelay(options: RelayOptions = {}) {
     // frame has room reserved is answered with the early subprotocol instead (ADR 0155): one
     // subprotocol is echoed, so that answer is the client's permission to send at once.
     handleProtocols: (protocols, request) =>
-      earlyUpgrades.has(request)
-        ? EARLY_FRAME.subprotocol
-        : ([...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ??
-          (protocols.has(EARLY_FRAME.neutral) ? EARLY_FRAME.neutral : false)),
+      upgradeMessages.has(request)
+        ? UPGRADE_MESSAGE.subprotocol
+        : earlyUpgrades.has(request)
+          ? EARLY_FRAME.subprotocol
+          : ([...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ??
+            (protocols.has(EARLY_FRAME.neutral) ? EARLY_FRAME.neutral : false)),
   });
   /** Upgrades whose early frame has room reserved, until `ws` answers them. */
   const earlyUpgrades = new WeakSet<IncomingMessage>();
+  /** Upgrades whose first message came in the request (step 3), taken once room was reserved. */
+  const upgradeMessages = new WeakMap<IncomingMessage, Uint8Array>();
   async function apply(actions: RouteAction[]): Promise<void> {
     for (const action of actions) {
       if (action.type === "pair") {
@@ -187,7 +193,13 @@ export async function startRelay(options: RelayOptions = {}) {
     const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => connection.socket.terminate());
     connection.socket.once("close", cut);
   }
-  async function route(id: string, url: URL, connection: Connection): Promise<void> {
+  async function route(
+    id: string,
+    url: URL,
+    connection: Connection,
+    /** The client's first message from its upgrade request, held as its early frame. */
+    upgraded?: Uint8Array,
+  ): Promise<void> {
     if (url.pathname === "/host") {
       const control = await respondHandshake(connection.socket, connection.reader, {
         prologue: CONTROL_PROLOGUE,
@@ -212,16 +224,22 @@ export async function startRelay(options: RelayOptions = {}) {
     } else if (url.pathname === "/client") {
       const purpose = clientPurpose(url);
       if (purpose === "invalid") turnAway(connection, 1008, "Unknown purpose");
-      else
-        await apply(
-          routing.request(
-            id,
-            url.searchParams.get("hostId") ?? "",
-            createTicket(),
-            clock.now(),
-            purpose,
-          ),
+      else {
+        const actions = routing.request(
+          id,
+          url.searchParams.get("hostId") ?? "",
+          createTicket(),
+          clock.now(),
+          purpose,
         );
+        // The upgrade's first message is the client's early frame, held as one sent at once,
+        // before the offer goes out, so no join can pair the client ahead of it.
+        if (upgraded) {
+          connection.fromUpgrade = true;
+          connection.reader.inject(upgraded);
+        }
+        await apply(actions);
+      }
     } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
@@ -281,6 +299,9 @@ export async function startRelay(options: RelayOptions = {}) {
       routing.reserveEarly(id, url.searchParams.get("hostId") ?? "")
     ) {
       earlyUpgrades.add(request);
+      // Only now, with room reserved, is the request's first message read (ADR 0155, step 3).
+      const message = upgradeMessage(request.headers["sec-websocket-protocol"] ?? "");
+      if (message) upgradeMessages.set(request, message);
       // An upgrade that never completes gives the room back; a waiting client keeps it.
       socket.once("close", () => routing.releaseEarly(id));
     }
@@ -320,8 +341,14 @@ export async function startRelay(options: RelayOptions = {}) {
               return false;
             }
             // The early frame is held: read nothing more from this client until it is paired,
-            // so no second frame can be buffered for it in the meantime.
-            if (before === "reserved" && routing.earlyState(id) === "held")
+            // so no second frame can be buffered for it in the meantime. One that came in the
+            // upgrade (step 3) keeps being read instead: a frame it sends before pairing would
+            // be its first message again, and closes it at once rather than after the join.
+            if (
+              before === "reserved" &&
+              routing.earlyState(id) === "held" &&
+              !connection.fromUpgrade
+            )
               connection.earlyHold = connection.reader.hold();
             return true;
           },
@@ -369,7 +396,7 @@ export async function startRelay(options: RelayOptions = {}) {
         connections.delete(id);
         void apply(routing.close(id)).catch(() => {});
       });
-      void route(id, url, connection).catch(() => ws.terminate());
+      void route(id, url, connection, upgradeMessages.get(request)).catch(() => ws.terminate());
     });
   };
   http.on("upgrade", upgrade);

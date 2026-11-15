@@ -108,7 +108,7 @@ test("a dismissed failure stays dismissed when the thread opens again", async ()
   await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByText(failure.message)).toBeNull();
   // Away to another thread, and back through the thread's row.
-  const threads = await screen.findByRole("list", { name: "Threads" });
+  const threads = await screen.findByRole("list", { name: "Projects" });
   await userEvent.click(await within(threads).findByRole("link", { name: /^Tidy the README/ }));
   await screen.findByRole("heading", { level: 1, name: "Tidy the README" });
   await userEvent.click(

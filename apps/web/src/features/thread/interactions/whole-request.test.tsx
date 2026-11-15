@@ -7,7 +7,7 @@ import { answerStore } from "./answers.ts";
 import { harness } from "@/test/harness.tsx";
 
 /*
- * A request too large to send with its thread (ADR 0156): its card shows the summary and takes
+ * A request too large to send with its thread (ADR 0157): its card shows the summary and takes
  * only a decline until the whole request has loaded, then shows it whole and takes a yes.
  */
 

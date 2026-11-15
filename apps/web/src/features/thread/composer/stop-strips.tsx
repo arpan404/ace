@@ -2,7 +2,7 @@ import { useClient, useThreadMeta } from "@ace/client-react";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import type { BackgroundTask } from "@ace/protocol";
 import { pluralCount, readStoppedTurn } from "@ace/ui-core";
-import { StopIcon } from "@phosphor-icons/react";
+import { StopIcon } from "@ace/icons";
 import { useCallback, useMemo, useState } from "react";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { Icon } from "@/components/icon.tsx";

@@ -138,7 +138,7 @@ function stripOf(interaction: Interaction, reader: RequestReader, command: strin
 }
 
 export function interactionRow(asked: Interaction, reader: RequestReader, fallback = "") {
-  // A summarized request offers only declines: the phone never shows it whole (ADR 0156).
+  // A summarized request offers only declines: the phone never shows it whole (ADR 0157).
   const summarized = summarizedNote(asked);
   const interaction = summarized ? declinesOnly(asked) : asked;
   const base = approvalRow(interaction, reader, fallback);

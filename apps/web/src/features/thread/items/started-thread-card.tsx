@@ -1,6 +1,6 @@
 import { useItem, useSidebarThread } from "@ace/client-react";
 import { delegatedState, startedThreadOf, subagentTerminal } from "@ace/ui-core";
-import { GitForkIcon } from "@phosphor-icons/react";
+import { GitForkIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useProjectName } from "@/lib/projects.ts";

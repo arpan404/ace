@@ -1,4 +1,4 @@
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { DraftQuotesState } from "./draft-quotes.ts";
 

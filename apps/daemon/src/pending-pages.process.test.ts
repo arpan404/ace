@@ -16,7 +16,7 @@ import type { Store } from "./store.ts";
 // Pending requests come first in a thread's interaction pages, but still paged by bytes: however
 // many and however large, a reader finds every one by reading on. A page holds what was asked,
 // or one request larger than that alone; one too large to send with its thread goes summarized
-// and says so (ADR 0156), in pages, snapshots and live events alike, and reads back whole with
+// and says so (ADR 0157), in pages, snapshots and live events alike, and reads back whole with
 // `interaction.read`. A real socket, because the bounds and failures are about the frames that go
 // out (#2099: an oversized snapshot resynced the connection in a loop).
 

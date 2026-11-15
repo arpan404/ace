@@ -4,7 +4,7 @@ import { ClientError } from "./errors.ts";
 /** One page of a request's JSON (`interaction.data`). */
 export type InteractionData = Extract<CoreServerMessage, { type: "interaction.data" }>;
 
-/** Which request to read: one its thread sends only summarized (`truncated`, ADR 0156). */
+/** Which request to read: one its thread sends only summarized (`truncated`, ADR 0157). */
 export interface WholeRequestInput {
   threadId: string;
   interactionId: string;

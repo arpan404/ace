@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { Suspense } from "react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";

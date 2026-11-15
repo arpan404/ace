@@ -1,4 +1,4 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import {
   formatTokens,
   ledgerChange,

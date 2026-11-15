@@ -9,7 +9,7 @@ import {
   MagnifyingGlassIcon,
   WarningCircleIcon,
   WifiSlashIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { fileLanguage, isMarkdownPath, pathParts, type LineMark } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";

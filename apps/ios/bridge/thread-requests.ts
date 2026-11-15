@@ -120,7 +120,7 @@ export function requestRow(request: Request) {
  * The canonical resolution for a request card, or undefined when the choice doesn't fit the
  * request: plan feedback must say what should change; a form is accepted only with values that
  * pass its schema, and a consent page only when it has a safe address. A summarized request
- * (ADR 0156) takes only a decline.
+ * (ADR 0157) takes only a decline.
  */
 export function requestResolution(
   interaction: Interaction | undefined,

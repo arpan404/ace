@@ -4,7 +4,7 @@ import { ClientError } from "./index.ts";
 import { harness, memory } from "./read-snapshots.fixture.ts";
 
 /*
- * A request too large to send with its thread, read whole (ADR 0156): its JSON in pages from
+ * A request too large to send with its thread, read whole (ADR 0157): its JSON in pages from
  * offset 0, joined, and read again from the start when the request changed in between.
  */
 

@@ -12,7 +12,7 @@ const failures: Record<string, string> = {
 const final = new Set(["request_not_whole_here", "read_denied", "interaction_not_found"]);
 
 /**
- * What a card says of a request its thread sent summarized (ADR 0156): that it is loading in
+ * What a card says of a request its thread sent summarized (ADR 0157): that it is loading in
  * full, or why it couldn't, with Retry. Nothing once it came whole or has loaded.
  */
 export function WholeRequestNote(props: { whole: WholeRequest | undefined }) {

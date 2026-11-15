@@ -8,7 +8,7 @@ import { answerResolution } from "./thread-controls.ts";
 import { requestResolution } from "./thread-requests.ts";
 
 /*
- * A request the daemon sends summarized (ADR 0156) is shown on the phone with what it is, says
+ * A request the daemon sends summarized (ADR 0157) is shown on the phone with what it is, says
  * it is too large to review here, and offers only declines: the phone never reads it whole, so
  * it never answers yes to it.
  */

@@ -3,7 +3,7 @@ import { tool } from "./facts.ts";
 import { cwd, scenario } from "./ux-facts.ts";
 
 /*
- * Requests too large to send with their thread (ADR 0156, #2099): clients get them summarized
+ * Requests too large to send with their thread (ADR 0157, #2099): clients get them summarized
  * and read them whole before they can say yes.
  */
 

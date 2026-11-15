@@ -1,6 +1,6 @@
 import type { WorktreeBase } from "@ace/protocol";
 import { baseOptions, sameBase, type BaseOption } from "@ace/ui-core";
-import { CheckIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { CheckIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useId, useState, type KeyboardEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { BaseRefs } from "@/lib/branches.ts";

@@ -9,7 +9,7 @@ import { answerOf, isAnswered, type QuestionDraft } from "./question-draft.ts";
  * (in place of a single pick, beside several) and every other question not answered yet, while
  * the picks made on the card stay. When the question on screen, or one still unanswered, takes
  * no free text, the message stays a message; so does one with no words, and one to a question
- * too large to send whole (ADR 0156): its answer goes on its card, once it shows it whole. Pure.
+ * too large to send whole (ADR 0157): its answer goes on its card, once it shows it whole. Pure.
  */
 export function composerReply(
   interaction: Pick<Interaction, "state" | "blocking" | "request" | "truncated"> | undefined,

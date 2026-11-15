@@ -52,7 +52,7 @@ async function started(made: ReturnType<typeof harness>) {
 test("⌘N, a project, a model and a message start a thread that then opens", async () => {
   const made = app();
   await made.open("/");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
   await screen.findByRole("heading", { level: 1, name: "New thread" });
 
@@ -75,7 +75,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   });
   const created = await started(made);
   expect(created).toMatchObject({ workspaceId: "relay", provider: "codex" });
-  const nav = screen.getByRole("navigation", { name: "Threads" });
+  const nav = screen.getByRole("navigation", { name: "Projects" });
   expect(within(nav).getByRole("link", { name: /Log every restart/ })).toBeTruthy();
 });
 

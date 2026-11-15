@@ -355,6 +355,19 @@ the daemon's answer comes back right behind the `101`.
   its size: the client retries once at once without the entry (step 1's path), and a second
   refusal goes to the ordinary reconnect backoff.
 
+### Measured after step 2, and what was built next (2026-11-15)
+
+Step 2 was built on PR #2106 and is on hold, unmerged, pending the owner's decision. Before confirmation it answers only bounded early events, which mark nothing current, so the open thread and the sidebar are confirmed current only after the confirmation's round trip.
+
+On the relay-resume bench (3g-slow, 7 runs, a returning client with one open thread and the sidebar), NK:
+
+- moves "confirmed current" by 23 to 76 ms (1,745 to 1,722 ms with a loopback join; 1,943 to 1,867 ms with a 60 ms daemon leg);
+- brings the welcome and the not-yet-confirmed events forward by about one round trip (1,677 to 1,277 ms).
+
+From the same traces, XX with step 3 reaches "confirmed current" at the same time as NK with step 3, about one round trip after the socket opens. NK's only gain over it is an earlier welcome and earlier unconfirmed events.
+
+Step 3 was therefore built first on XX, with no cryptographic change. The XX first message (the 32-byte ephemeral key) goes in the upgrade as `ace.x1.<base64url>`; an NK first message would use `ace.n1.` as above. Measured on the same bench for a returning client, confirmed current is 1,755 to 1,348 ms with a loopback join, and 1,881 to 1,587 ms with a 60 ms daemon leg.
+
 ### Not proposed now
 
 - **Resumption across a short drop** (Noise `NKpsk0` with a key from the last session): it saves

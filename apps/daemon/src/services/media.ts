@@ -103,7 +103,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let closed = false;
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
-  const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
+  const waiting = new Map<
+    IngestProducer,
+    { source: IngestSource | undefined; codecs?: string[] | undefined }
+  >();
   /** The runtime's relay port (D2): one for the runtime's life. */
   let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
@@ -134,7 +137,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         onExit: () => relayPort?.exit(),
       });
       relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
-      for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
+      for (const [producer, slot] of waiting) {
+        slot.source = runtime.sources.add(producer);
+        if (slot.codecs) slot.source.codecs(slot.codecs);
+      }
       runtime.settingsChanged();
     })().catch((error: unknown) => {
       starting = undefined;
@@ -176,11 +182,17 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     endpoint: () => runtime?.sources.endpoint(),
     attach: (producer) => {
       if (runtime) return runtime.sources.add(producer);
-      const slot: { source: IngestSource | undefined } = { source: undefined };
+      const slot: { source: IngestSource | undefined; codecs?: string[] | undefined } = {
+        source: undefined,
+      };
       waiting.set(producer, slot);
       return {
         streaming: () => slot.source?.streaming() ?? false,
         reconnect: () => slot.source?.reconnect(),
+        codecs: (codecs) => {
+          slot.codecs = [...codecs];
+          slot.source?.codecs(codecs);
+        },
         encodes: (encodes) => slot.source?.encodes(encodes),
         key: (encode) => slot.source?.key(encode),
         picture: (base64, ageMs) => slot.source?.picture(base64, ageMs) ?? false,

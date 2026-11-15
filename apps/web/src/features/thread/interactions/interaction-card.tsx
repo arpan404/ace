@@ -22,7 +22,7 @@ import {
   requestIdentity,
   closedMeta,
 } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";

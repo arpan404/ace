@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
+import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@ace/icons";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
@@ -39,14 +39,14 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * The Threads panel, under the window's top bar (ADR 0107): its title row ("Threads", Search),
+ * The Projects panel, under the window's top bar (ADR 0107): its title row ("Projects", Search),
  * the filter row under it (the project and device filter, then New thread), the tabs (Inbox,
  * Snoozed, Settled), then the open tab's list. The Inbox is one flat list across projects and
  * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
  * with no headings; the filter narrows every tab to a project or a device. 1, 2 and 3 switch
  * tabs from anywhere in the panel. The title row's magnifier opens a search in place that narrows
- * every tab to the threads whose title, project, branch or pull request match. Snoozed and Settled show 50 threads at a time, with Show
- * more and Show less at their end. Chats are the Chats panel's. Search (⌘K) opens the palette,
+ * every tab to the threads whose title, project, branch or pull request match. Snoozed and Settled show 50 threads at a time, the
+ * next 50 as the list's end scrolls into view. Chats are the Chats panel's. Search (⌘K) opens the palette,
  * which also finds older settled threads.
  */
 export function HomeSidebar() {
@@ -77,7 +77,7 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const { rows, paging } = usePanelRows({
+  const { rows, paging, onNearEnd } = usePanelRows({
     list,
     tab,
     project,
@@ -99,13 +99,13 @@ export function HomeSidebar() {
       : undefined;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PanelTitleSearch title="Threads" label="Search threads" query={query} onQuery={setQuery} />
+      <PanelTitleSearch title="Projects" label="Search threads" query={query} onQuery={setQuery} />
       <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
       </div>
       <nav
-        aria-label="Threads"
+        aria-label="Projects"
         className="relative flex min-h-0 flex-1 flex-col [&_[data-virtual-viewport]]:pb-[52px]"
         onKeyDown={(event) => {
           const next = tabKey(event);
@@ -173,7 +173,13 @@ export function HomeSidebar() {
         ) : (
           <PanelPagingContext value={paging}>
             <FoundHits value={older.hits}>
-              <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} triage />
+              <ThreadList
+                rows={rows}
+                needsYou={list.needsYou}
+                pinned={list.pinned}
+                onNearEnd={onNearEnd}
+                triage
+              />
             </FoundHits>
           </PanelPagingContext>
         )}

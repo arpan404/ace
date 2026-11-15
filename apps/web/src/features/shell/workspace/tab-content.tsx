@@ -1,4 +1,4 @@
-import { PuzzlePieceIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { PuzzlePieceIcon, WarningCircleIcon } from "@ace/icons";
 import {
   Activity,
   Component,

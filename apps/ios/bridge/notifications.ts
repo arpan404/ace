@@ -451,7 +451,7 @@ export class NotificationBridge {
   /**
    * A needs-you alert says what is asked ("Claude Code wants to run a command") and offers a
    * short question's options, read from the thread's confirmed state; Approve goes from one too
-   * large to review on the phone (ADR 0156). Past `requestMs`, or once the request is gone, it
+   * large to review on the phone (ADR 0157). Past `requestMs`, or once the request is gone, it
    * posts as the daemon sent it.
    */
   async #withRequest(notification: Notification): Promise<Delivered> {

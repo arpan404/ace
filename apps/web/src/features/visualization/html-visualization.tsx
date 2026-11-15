@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { LruCache } from "@ace/ui-core";
-import { ArrowsOutSimpleIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimpleIcon } from "@ace/icons";
 import type { HtmlVisualization } from "@ace/protocol";
 import { resolveHtmlMode } from "@ace/html";
 import { IconButton } from "@/components/ui/icon-button.tsx";

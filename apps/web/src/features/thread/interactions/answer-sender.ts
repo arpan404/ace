@@ -64,7 +64,7 @@ export interface AnswerTarget {
   /** Its questions, so a secret answer is kept on this device only as dots. */
   questions: readonly Question[];
   /**
-   * The summary, when its thread sent the request summarized (`truncated`, ADR 0156) and it
+   * The summary, when its thread sent the request summarized (`truncated`, ADR 0157) and it
    * hasn't been read whole here: only a decline goes then.
    */
   unread?: InteractionRequest | undefined;

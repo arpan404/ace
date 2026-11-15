@@ -4,7 +4,7 @@ import {
   GearSixIcon,
   NotePencilIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";

@@ -29,7 +29,7 @@ import {
   TimerIcon,
   UserPlusIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import {
   Menu,
   MenuContent,

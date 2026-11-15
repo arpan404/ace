@@ -8,7 +8,7 @@ import {
   FileTextIcon,
   FileVideoIcon,
   FileZipIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { splitName, type FileKind } from "./attachment-kind.ts";

@@ -1,4 +1,4 @@
-import { SelectionIcon } from "@phosphor-icons/react";
+import { SelectionIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   annotateHint,
