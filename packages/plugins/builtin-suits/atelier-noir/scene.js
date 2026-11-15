@@ -37,8 +37,8 @@ const tones = {
     sheen: 0.05,
   },
   light: {
-    top: "#f6f1e7",
-    bottom: "#efe8da",
+    top: "#fcfaf5",
+    bottom: "#f9f6ef",
     glow: "rgba(255, 255, 250, 0.5)",
     light: "rgba(255, 253, 244, ",
     pebbleLight: "rgba(255, 255, 255, 0.22)",

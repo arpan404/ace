@@ -89,8 +89,10 @@
 [data-scheme="light"] [data-part="tooltip"],
 [data-scheme="light"] [data-part="toast"],
 [data-scheme="light"] [data-part="command-palette"] {
-  --suit-gold-soft: color-mix(in oklab, var(--color-tint) 60%, transparent);
-  --suit-gold-faint: color-mix(in oklab, var(--color-tint) 30%, transparent);
+  /* By day the rules are drawn in a brighter gold than the accent, which is deepened for text. */
+  --suit-gold: #9c7d45;
+  --suit-gold-soft: color-mix(in oklab, #9c7d45 62%, transparent);
+  --suit-gold-faint: color-mix(in oklab, #9c7d45 32%, transparent);
   --suit-ink-shadow: rgb(60 40 10 / 0.18);
   --suit-cream-edge: #d8c9a6;
   --suit-lift: 0 22px 50px -26px rgb(70 50 20 / 0.35), 0 2px 6px -2px rgb(70 50 20 / 0.14);
@@ -226,6 +228,10 @@
 /* The open entry: lifted on a gold wash and ruled beneath in gold. */
 [data-part="thread-row"][data-state="active"] {
   background: linear-gradient(90deg, var(--suit-gold-wash), transparent 90%), var(--color-hover);
+}
+[data-scheme="light"] [data-part="thread-row"][data-state="active"] {
+  background: linear-gradient(90deg, var(--suit-gold-wash), transparent 90%), var(--color-surface-1);
+  box-shadow: 0 1px 2px rgb(70 50 20 / 0.08);
 }
 [data-part="thread-row"][data-state="active"]::before {
   color: var(--color-link);
