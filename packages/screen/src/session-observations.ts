@@ -106,9 +106,9 @@ export class SessionObservations {
       !session.helper.capabilities.codecs.includes("h264")
     )
       return { codec: "jpeg" };
-    const result = StreamCodec.parse(
-      await session.helper.request({ op: "stream.configure", settings }),
-    );
+    const result = session.media
+      ? await session.media.configure(settings)
+      : StreamCodec.parse(await session.helper.request({ op: "stream.configure", settings }));
     // A view may ask just before its subscription lands; the last one leaving switches back.
     if (result.codec === "h264") session.viewerVideo = true;
     return result;
@@ -119,18 +119,18 @@ export class SessionObservations {
    */
   private stillsOnly(session: Session): void {
     session.viewerVideo = false;
-    void session.helper
-      .request({
-        op: "stream.configure",
-        settings: {
-          codec: "jpeg",
-          maxWidth: 3840,
-          maxHeight: 3840,
-          fps: session.captureFps ?? 10,
-          bitrate: 4_000_000,
-        },
-      })
-      .catch(() => {});
+    const settings: ScreenStreamSettings = {
+      codec: "jpeg",
+      maxWidth: 3840,
+      maxHeight: 3840,
+      fps: session.captureFps ?? 10,
+      bitrate: 4_000_000,
+    };
+    void (
+      session.media
+        ? session.media.configure(settings)
+        : session.helper.request({ op: "stream.configure", settings })
+    ).catch(() => {});
   }
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);

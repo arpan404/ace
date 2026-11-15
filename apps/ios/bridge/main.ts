@@ -279,6 +279,8 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    // Liveness deadlines run on the host's monotonic clock, never the wall clock (ADR 0150).
+    monotonic: () => host.monotonicMs(),
     // Every drop and recovery, with its close code and reason, goes to the device log.
     report: (event) =>
       pump.put("connection.event", () => ({

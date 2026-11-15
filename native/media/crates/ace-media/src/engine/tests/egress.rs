@@ -348,3 +348,107 @@ fn a_source_without_egress_sends_no_marker() {
     ingest(&mut engine, 1, frame(4, 0, 0, Vec::new()), NOW);
     assert!(lane.drain().is_empty());
 }
+
+#[test]
+fn a_simulator_is_read_by_ace_media_its_units_stamped_with_the_source_epoch_and_its_close_ends_cleanly()
+ {
+    let lane = Lane::new(64);
+    let mut engine = with_lane(&lane);
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "sim", "handle": 4, "epoch": 6,
+                "origin": { "kind": "simulator",
+                            "streamUrl": "http://127.0.0.1:3100/stream.avcc",
+                            "stillUrl": "http://127.0.0.1:3100/frame.jpeg" } }),
+        &[2; 32],
+        NOW,
+    );
+    assert_eq!(statuses(&opened), [("sim".into(), Status::Starting, None)]);
+    let found = opened.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Read { source, token, url }) => {
+            assert_eq!(
+                (source.as_str(), url.as_str()),
+                ("sim", "http://127.0.0.1:3100/stream.avcc")
+            );
+            Some(*token)
+        }
+        _ => None,
+    });
+    let Some(token) = found else {
+        panic!("the reader starts with the source");
+    };
+    egress(&mut engine, "sim", true);
+    // What the reader read carries no epoch of its own: the source's is stamped on it.
+    engine.encoded("sim", token, frame(1, 1, 0, vec![7; 10]), NOW);
+    let units = lane.drain();
+    assert_eq!(sent(&units), [(4, 0, 7)]);
+    assert_eq!(units[0].frame.epoch, 6);
+    // A keyframe request reaches the reader.
+    let keyed = send(
+        &mut engine,
+        json!({ "type": "source.key", "source": "sim", "encode": 0 }),
+        &[],
+        NOW,
+    );
+    assert!(
+        keyed.iter().any(
+            |e| matches!(e, Effect::Encode(EncodeEffect::Key { token: t, .. }) if *t == token)
+        )
+    );
+    // Closing drains the reader, then the source's end marker follows its last unit.
+    let closing = send(
+        &mut engine,
+        json!({ "type": "source.close", "source": "sim" }),
+        &[],
+        NOW,
+    );
+    assert!(
+        closing
+            .iter()
+            .any(|e| matches!(e, Effect::Encode(EncodeEffect::Drain { .. })))
+    );
+    engine.encoder_drained("sim", token);
+    let ended = lane.drain();
+    assert_eq!(ended.len(), 1);
+    assert_eq!(ended[0].frame.kind, 4, "the end marker");
+    assert_eq!(ended[0].frame.flags & 8, 0, "a clean end");
+}
+
+#[test]
+fn a_simulators_encodes_go_to_its_reader_which_re_encodes_for_the_viewer() {
+    let lane = Lane::new(64);
+    let mut engine = with_lane(&lane);
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "sim", "handle": 4, "epoch": 1,
+                "origin": { "kind": "simulator",
+                            "streamUrl": "http://127.0.0.1:3100/stream.avcc",
+                            "stillUrl": "http://127.0.0.1:3100/frame.jpeg" } }),
+        &[2; 32],
+        NOW,
+    );
+    let reader = opened.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Read { token, .. }) => Some(*token),
+        _ => None,
+    });
+    let encodes = json!([{ "id": 1, "codec": "avc1.640033", "width": 588, "height": 1280,
+                           "fps": 60, "bitrate": 6000000 }]);
+    let configured = send(
+        &mut engine,
+        json!({ "type": "source.encodes", "source": "sim", "encodes": encodes }),
+        &[],
+        NOW,
+    );
+    let sent = configured.iter().find_map(|e| match e {
+        Effect::Encode(EncodeEffect::Configure { token, encodes, .. }) => {
+            Some((*token, encodes.len()))
+        }
+        _ => None,
+    });
+    assert_eq!(
+        sent,
+        reader.map(|token| (token, 1)),
+        "the reader's own token, no new encoder"
+    );
+    assert_eq!(statuses(&configured), []);
+}

@@ -1,4 +1,4 @@
-import { native } from "./test-host.ts";
+import { host, native } from "./test-host.ts";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { PatchPump } from "./patch-pump.ts";
 
@@ -70,5 +70,38 @@ test("a transcript reaches the phone while the inbox keeps changing", async () =
     expect(native.frames[index - 1]?.type).toBe("inbox.row");
   } finally {
     globalThis.aceHost.emit = emit;
+  }
+});
+
+test("a flush that takes under a millisecond traces its time, never zero", async () => {
+  // The wall clock is whole milliseconds (it stamps protocol Timestamps); here it never moves.
+  vi.spyOn(host, "now").mockReturnValue(1_800_000_000_000);
+  // Each step of the flush takes a fifth of a millisecond on the monotonic clock.
+  let monotonic = 0;
+  vi.spyOn(host, "monotonicMs").mockImplementation(() => (monotonic += 0.2));
+  const spans = new Map<string, number>();
+  const traced = { tracing: host.tracing, trace: host.trace };
+  Object.assign(host, {
+    tracing: true,
+    trace: (name: string, ms: number) => spans.set(name, ms),
+  });
+  try {
+    const queue = pump();
+    queue.put("thread:item:1", row(1));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(native.frames).toHaveLength(1);
+    // Each step is a fraction of a millisecond, and the whole flush holds all of them.
+    for (const name of ["pump.read", "pump.serialize", "pump.emit"]) {
+      expect(spans.get(name), name).toBeGreaterThan(0);
+      expect(spans.get(name), name).toBeLessThan(1);
+    }
+    const steps = ["pump.read", "pump.serialize", "pump.emit"].reduce(
+      (sum, name) => sum + (spans.get(name) ?? 0),
+      0,
+    );
+    expect(spans.get("pump.flush")).toBeGreaterThan(steps);
+  } finally {
+    Object.assign(host, traced);
+    vi.restoreAllMocks();
   }
 });

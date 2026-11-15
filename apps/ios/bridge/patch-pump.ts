@@ -277,6 +277,8 @@ export class PatchPump {
     let bytes = 2;
     const now = host.now();
     const tracing = host.tracing === true;
+    // Spans are timed on the monotonic clock: a flush often takes under a millisecond.
+    const flushAt = tracing ? host.monotonicMs() : 0;
     let reading = 0;
     let serializing = 0;
     const contentWaits = this.#waiting(2, now);
@@ -290,9 +292,9 @@ export class PatchPump {
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
         if (task.failures && frame.length) break outer;
         const read = task.read;
-        const readAt = tracing ? host.now() : 0;
+        const readAt = tracing ? host.monotonicMs() : 0;
         const original = read();
-        if (tracing) reading += host.now() - readAt;
+        if (tracing) reading += host.monotonicMs() - readAt;
         if (original === undefined) {
           queue.delete(task.key);
           continue;
@@ -304,7 +306,7 @@ export class PatchPump {
           queue.delete(task.key); // Native already shows exactly this.
           continue;
         }
-        const serializeAt = tracing ? host.now() : 0;
+        const serializeAt = tracing ? host.monotonicMs() : 0;
         // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
         const sent = record
           ? itemPatch(patch, record.ledger.streaming(task.key), host.utf8Length)
@@ -314,7 +316,7 @@ export class PatchPump {
         else if (sent.type === "thread.ready") this.#stampedReady(sent, task);
         const json = JSON.stringify(sent);
         const size = host.utf8Length(json);
-        if (tracing) serializing += host.now() - serializeAt;
+        if (tracing) serializing += host.monotonicMs() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
           this.#fragment = {
@@ -350,13 +352,13 @@ export class PatchPump {
           for (const entry of delivered) this.#confirm(entry);
         },
       };
-      const emitAt = tracing ? host.now() : 0;
+      const emitAt = tracing ? host.monotonicMs() : 0;
       host.emit(`[${texts.join(",")}]`);
       if (tracing) {
         host.trace?.("pump.read", reading, 0);
         host.trace?.("pump.serialize", serializing, bytes);
-        host.trace?.("pump.emit", host.now() - emitAt, 0);
-        host.trace?.("pump.flush", host.now() - now, frame.length);
+        host.trace?.("pump.emit", host.monotonicMs() - emitAt, 0);
+        host.trace?.("pump.flush", host.monotonicMs() - flushAt, frame.length);
       }
     } else this.#schedule();
   }

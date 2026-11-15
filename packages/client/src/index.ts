@@ -50,7 +50,7 @@ export { ticketCredential } from "./credentials.ts";
 export { machineCodeGate } from "./machine-code-gate.ts";
 export { relayRoute, MACHINE_CODE_CLOSE } from "./relay-route.ts";
 export { Multipath } from "./multipath.ts";
-export type { MachineRoute, MultipathOptions, PathConnection } from "./multipath.ts";
+export type { LinkEstimate, MachineRoute, MultipathOptions, PathConnection } from "./multipath.ts";
 export type { PathRoute } from "./path-handshake.ts";
 export { pathRank, isDirect, isPathKind, knownPaths, type PlannedPath } from "./path-plan.ts";
 export { machineCodeAdmin } from "./machine-code-admin.ts";

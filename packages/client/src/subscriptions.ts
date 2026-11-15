@@ -68,6 +68,10 @@ export class Subscriptions {
   #wires = new Map<string, Cached>();
   /** The database the current connection's daemon named, if it named one. */
   #database: string | undefined;
+  /** This socket's hello is out and its welcome not yet in: subscribes go ahead of it. */
+  #early = false;
+  /** Subscribes sent ahead of the welcome with a cursor, and the database each one assumed. */
+  #assumed = new Map<string, string | undefined>();
   #limits: Limits;
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
@@ -344,14 +348,17 @@ export class Subscriptions {
     if (entry.store.cursor !== undefined) entry.store.setSyncing(true);
     this.#wires.set(id, entry);
     this.#starting.add(id);
+    const resumable = this.#resumable(entry);
+    if (resumable && this.#early) this.#assumed.set(id, this.#database ?? entry.database);
     this.#send({
       type: "subscribe",
       paced: true,
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
-      ...(this.#resumable(entry) ? { afterSeq: entry.store.cursor } : {}),
+      ...(resumable ? { afterSeq: entry.store.cursor } : {}),
       // Only a store holding nothing opens from a small tail: one holding a copy resumes or
-      // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers.
+      // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers. The
+      // same before the welcome (a subscribe in the hello's flight) as after it.
       ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail.tail } : {}),
     });
   }
@@ -367,7 +374,9 @@ export class Subscriptions {
     }
     if (entry.fresh || entry.store.cursor === undefined) return false;
     if (!entry.restored) return true;
-    if (entry.database !== undefined && entry.database === this.#database) return true;
+    // Ahead of the first welcome, a disk copy assumes the database it was kept under.
+    const database = this.#database ?? (this.#early ? entry.database : undefined);
+    if (entry.database !== undefined && entry.database === database) return true;
     // Known to be another database's: its sequences say nothing here, so nothing of it is kept.
     if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
     return false;
@@ -389,13 +398,31 @@ export class Subscriptions {
   database(databaseId: string | undefined): void {
     const changed = this.#database !== undefined && this.#database !== databaseId;
     this.#database = databaseId;
-    if (!changed) return;
-    for (const entry of this.#cache.values()) {
-      entry.fresh = true;
-      entry.database = undefined;
-      entry.restored = false;
-      entry.store.replaceOnSnapshot();
+    this.#early = false;
+    const assumed = this.#assumed;
+    this.#assumed = new Map();
+    if (changed)
+      for (const entry of this.#cache.values()) {
+        entry.fresh = true;
+        entry.database = undefined;
+        entry.restored = false;
+        entry.store.replaceOnSnapshot();
+      }
+    // A subscribe sent with the hello resumed under the database it assumed. Under another one
+    // its cursor means nothing: drop it before any of its frames land, and subscribe afresh.
+    for (const [id, database] of assumed) {
+      const entry = this.#wires.get(id);
+      if (database === databaseId || !entry) continue;
+      this.#send({ type: "unsubscribe", subscriptionId: id });
+      this.#wires.delete(id);
+      this.#starting.delete(id);
+      entry.subscriptionId = undefined;
     }
+  }
+  /** This socket's hello went out: subscribe now, ahead of the welcome. */
+  early(): void {
+    this.#early = true;
+    this.#pump();
   }
   /** A live frame for `entry` landed: its cursor is now the current database's. */
   #confirmed(entry: Cached): void {
@@ -408,6 +435,8 @@ export class Subscriptions {
   disconnect(): void {
     this.#wires.clear();
     this.#starting.clear();
+    this.#early = false;
+    this.#assumed.clear();
     for (const entry of this.#cache.values()) {
       entry.subscriptionId = undefined;
       entry.rejected = false;

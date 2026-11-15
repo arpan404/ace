@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
@@ -24,16 +25,33 @@ import {
 // ace-media (`bun run check:media` does).
 const real = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
+const processBudgetMs = 30_000;
+const cleanupBudgetMs = 5_000;
+const progress = new EventEmitter();
+
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-async function until(condition: () => boolean, end: number, description: string): Promise<void> {
-  while (!condition()) {
-    if (performance.now() > end) throw new Error(`timed out waiting for ${description}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+function until(condition: () => boolean, end: number, description: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      if (!condition()) return;
+      clearTimeout(timer);
+      progress.off("change", finish);
+      resolve();
+    };
+    const timer = setTimeout(
+      () => {
+        progress.off("change", finish);
+        reject(new Error(`timed out waiting for ${description}`));
+      },
+      Math.max(0, end - performance.now()),
+    );
+    progress.on("change", finish);
+    finish();
+  });
 }
 
 function mediaUnit(kind: number, payload: Uint8Array): Uint8Array {
@@ -89,7 +107,7 @@ it.runIf(real)(
   "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
   async () => {
     // Share one condition-wait budget, leaving room for cleanup within the process tier.
-    const deadline = performance.now() + 25_000;
+    const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
     const binary = real ?? "";
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
     const settings: MediaSettings = {
@@ -106,6 +124,7 @@ it.runIf(real)(
     };
     const router = new EgressRouter((kind) => watch.routes()[kind]);
     const sources = { a: legacy(), b: legacy() };
+    const starting = new Set<string>();
     const handles = new Map<string, number>();
     const tokens = new Map<string, Uint8Array>();
     const changes: { at: number; routes: MediaRoutes }[] = [];
@@ -136,11 +155,20 @@ it.runIf(real)(
           if (route.egress) supervisor.send({ type: "source.egress", source: id, on: true });
         }
       },
-      onMessage: () => {},
-      onEgress: (frame) => router.push(frame),
+      onMessage: (message) => {
+        if (message.type === "source.status" && message.status === "starting") {
+          starting.add(message.source);
+          progress.emit("change");
+        }
+      },
+      onEgress: (frame) => {
+        router.push(frame);
+        progress.emit("change");
+      },
       onExit: () => {
         for (const handle of handles.values()) router.close(handle);
         watch.update();
+        progress.emit("change");
       },
       log: () => {},
     });
@@ -159,9 +187,9 @@ it.runIf(real)(
     expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
     supervisor.need();
     await until(
-      () => supervisor.health() === "healthy" && handles.size === 2,
+      () => supervisor.health() === "healthy" && starting.has("a") && starting.has("b"),
       deadline,
-      "healthy media process and both source handles",
+      "healthy media process and both sources acknowledged",
     );
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
@@ -171,6 +199,8 @@ it.runIf(real)(
       stills: "legacy",
     });
 
+    // Local handles only mean source.open was queued on stdin. Ingest is a separate socket:
+    // wait for the binary's starting events, or it can reject the hello before opening the source.
     const ingest = supervisor.ingest()?.socket ?? "";
     produce(ingest, tokens.get("a") ?? new Uint8Array(0), 0xa);
     produce(ingest, tokens.get("b") ?? new Uint8Array(0), 0xb);
@@ -212,5 +242,5 @@ it.runIf(real)(
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
     expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
   },
-  30_000,
+  processBudgetMs,
 );

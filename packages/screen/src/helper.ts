@@ -21,6 +21,7 @@ import {
   ScreenCapabilities,
   ScreenHelperReply,
   ScreenHelperRequest,
+  ScreenStreamIngestEvent,
 } from "@ace/protocol";
 import { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";
 import { nodeScheduler } from "./runtime.ts";
@@ -58,6 +59,8 @@ export type HelperOptions = {
   onFailure: (error: Error) => void;
   onSessionFailure?: (sessionId: string, error: Error) => void;
   onPermissionsChanged?: (permissions: ScreenPermissions) => void;
+  /** A session's connection to ace-media's ingest failed; its video is on the helper socket. */
+  onStreamIngestClosed?: (sessionId: string) => void;
   timeoutMs?: number;
   scheduler?: { schedule: (callback: () => void, milliseconds: number) => () => void };
 };
@@ -102,6 +105,11 @@ export class Helper {
         if (event.success) {
           this.permissionFacts.changed(event.data.permissions);
           this.options.onPermissionsChanged?.(event.data.permissions);
+          return;
+        }
+        const ingest = ScreenStreamIngestEvent.safeParse(raw);
+        if (ingest.success) {
+          this.options.onStreamIngestClosed?.(ingest.data.sessionId);
           return;
         }
         const failedSession = SessionFailedEvent.safeParse(raw);
