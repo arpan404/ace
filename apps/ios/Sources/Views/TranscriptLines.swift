@@ -121,14 +121,33 @@ struct ChangedFilesRow: View {
     }
 }
 
-/// Lays chips out in rows, wrapping to the next row when one runs out of width. Each chip is
-/// measured once per width and the rows are kept in the layout's cache, so a transcript laying a
-/// row out again (as the lazy feed does while it scrolls) never measures its chips again.
+/// Lays chips out in rows, wrapping to the next row when one runs out of width.
+///
+/// A flow must lay out the same way at the width it says it needs: SwiftUI places it there,
+/// rounded to the screen's pixels, and a chip wrapping at the rounded width would grow a row,
+/// send the layout back to the wider width, and swap between the two for good (#2051: 7,000
+/// chip measurements a second after opening a long finished thread). So each chip is measured
+/// once at its own size (a row clamps one wider than itself), rows pack with `slack` to spare
+/// for the rounding, and the rows for the last width asked are kept.
 struct ChipFlow: Layout {
     var spacing: CGFloat
+    /// Room the packing gives for SwiftUI rounding a placed width down to the screen's pixels.
+    static let slack: CGFloat = 0.5
     struct Row: Equatable { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
-    /// The chips' sizes and their rows, for the width they were measured at; cleared when the chips change.
-    struct Cache { var width: CGFloat?; var sizes: [CGSize] = []; var rows: [Row] = [] }
+    /// The chips' own sizes and the rows for the last width asked; cleared when the chips change.
+    struct Cache {
+        private(set) var sizes: [CGSize] = []
+        private var measured = false
+        private var last: (width: CGFloat, rows: [Row])?
+        /// The rows at `width`. The chips are measured (`measure`) only the first time.
+        mutating func rows(width: CGFloat, spacing: CGFloat, measure: () -> [CGSize]) -> [Row] {
+            if let last, last.width == width { return last.rows }
+            if !measured { sizes = measure(); measured = true }
+            let rows = ChipFlow.rows(sizes, width: width, spacing: spacing)
+            last = (width, rows)
+            return rows
+        }
+    }
     func makeCache(subviews: Subviews) -> Cache { Cache() }
     func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
 
@@ -152,13 +171,15 @@ struct ChipFlow: Layout {
             y += row.height + spacing
         }
     }
-    /// The rows at `width`, measured only when the width differs from the cached one.
+    /// The flow's leading edge is its bounds' own. Without this, SwiftUI places every chip to
+    /// merge their guides each time the feed's leading-aligned stack asks.
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
+                           subviews: Subviews, cache: inout Cache) -> CGFloat? { nil }
     private func arranged(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
-        if cache.width == width, cache.sizes.count == subviews.count { return cache.rows }
-        PerfCounters.bump("chips.measure")
-        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
-        cache = Cache(width: width, sizes: sizes, rows: Self.rows(sizes, width: width, spacing: spacing))
-        return cache.rows
+        cache.rows(width: width, spacing: spacing) {
+            PerfCounters.bump("chips.measure")
+            return subviews.map { $0.sizeThatFits(.unspecified) }
+        }
     }
     /// Chips of `sizes` in rows of at most `width`: a chip wider than the row takes one of its own,
     /// at the row's width. Pure.
@@ -166,8 +187,9 @@ struct ChipFlow: Layout {
         var rows: [Row] = []
         var row = Row()
         for (index, size) in sizes.enumerated() {
-            let item = min(size.width, width)
-            if !row.indexes.isEmpty, row.width + spacing + item > width {
+            // Within the slack a chip keeps its own width, so rounding never changes a row.
+            let item = size.width > width + slack ? width : size.width
+            if !row.indexes.isEmpty, row.width + spacing + item > width + slack {
                 rows.append(row)
                 row = Row()
             }
