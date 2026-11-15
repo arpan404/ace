@@ -186,6 +186,9 @@ export class RelayObject extends DurableObject<Env> {
         return;
       }
       case "waiting": {
+        // A frame the relay won't forward is never stored: closing the client frees its held
+        // frame and its reservation in one step (`#release`), and anything it sends after that
+        // finds no attachment and is dropped.
         const actions = this.#routing().early(attachment.id, frame.length);
         if (actions.length) return this.#apply(actions);
         // Held for the daemon's join: in memory, and marked in the attachment, so an eviction
@@ -346,9 +349,11 @@ export class RelayObject extends DurableObject<Env> {
         this.#save(client, { kind: "stream", id: action.client, peer: action.host });
         this.#save(host, { kind: "stream", id: action.host, peer: action.client });
         client.send(new Uint8Array([capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER]));
-        // The client's early frame is the first thing the joining daemon reads.
+        // The client's early frame is the first thing the joining daemon reads. Sent, it is no
+        // longer held here, so its room comes back now.
         if (action.early && held) host.send(held);
         else if (action.early) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        this.#routing().releaseEarly(action.client);
         continue;
       }
       const ws = this.#socket(action.socket);

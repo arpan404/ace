@@ -132,3 +132,33 @@ it("evicted after the frame arrives, the client is closed so it can connect agai
   // Its reservation was given back: a new client is told it may send early.
   expect((await host.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
 }, 15_000);
+
+it("16 clients that each send two frames and never answer the close free their room at once", async () => {
+  const host = await rawDaemon();
+  const frame = new Uint8Array(EARLY_FRAME.frameBytes).fill(7);
+  const clients = [];
+  for (let n = 0; n < EARLY_FRAME.hostFrames; n++) {
+    const client = await host.client();
+    expect(client.socket.protocol).toBe(EARLY_FRAME.subprotocol);
+    await client.send(frame);
+    await client.send(frame);
+    // It reads nothing more: the relay's close is never answered.
+    client.socket.pause();
+    clients.push(client);
+  }
+  // Each second frame turned its client away; the object freed the held frame and the room as
+  // it did, without waiting for an answer, so new clients are let in at once.
+  let admitted = false;
+  const started = Date.now();
+  while (!admitted && Date.now() - started < 3_000) {
+    admitted = (await host.client()).socket.protocol === EARLY_FRAME.subprotocol;
+    if (!admitted) await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  expect(admitted).toBe(true);
+  // None of their frames reaches a daemon that joins one of their tickets: the join is refused
+  // or hears nothing.
+  const joined = await host.join(await host.offer());
+  expect(await within(joined.next().catch(() => Buffer.alloc(0)))).toSatisfy(
+    (frame: Buffer | undefined) => frame === undefined || frame.length === 0,
+  );
+}, 30_000);
