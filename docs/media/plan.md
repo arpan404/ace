@@ -1803,6 +1803,25 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Route loss** closes the view's grant in ace-media.
   - **Loopback only.** The direct listener binds 127.0.0.1 alone, and a test pins that `listen`'s
     remote part opens nothing, until the TLS listener lands; remote clients use D2's relay.
+- **Review fixes (round 2, at `b64466d914`).**
+  - **One view per connection and target.** A client can't tell two views of one thread on one
+    connection apart, so a grant for a target its connection already shows replaces that view;
+    the bridges hold one view per thread and media connection, shared by its subscribers.
+  - **Opaque view ids** come from `MediaViewers.bind` (the daemon's id source), never built from
+    session, thread and subscriber names.
+  - **No leaked grants.** Capacity is checked before any grant, and a subscribe that fails after
+    its grant undoes it, in the browser, screen and device bridges.
+  - **The coupled keyframe cap.** A keyframe past about half a second of its views' share of
+    the link still goes once (an empty window takes any unit), and cuts the bit rate its encode
+    is asked for in proportion; keyframes within the cap let it back up. The encoders' own cap
+    is M2b's.
+  - **Screens and devices take `source.want`**: the helper through `stream.configure`, a device
+    as owner `ace-media` of its common stream budget (`wantedStreamSettings`, shared).
+  - **The zero-ticket check** reads every byte in constant time.
+  - **The daemon's encode ids** (from 2^20) are reused: a new encode takes the lowest free id,
+    and ids a plan gave back rest for one plan.
+  - The flight cap's round trip is the media path's own (`view.rate.rtt()`); the 70 % share and
+    its cut to 35 % come from `session.link` only.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
@@ -1816,8 +1835,6 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     `main`, which holds the TypeScript `LinkFollow` and the Rust step scale.
   - The TLS listener from `listen` (LAN and Tailscale clients); `media.connect` gives only a
     loopback URL today.
-  - Applying `source.want` to screen and device producers (the helper's `stream.configure`,
-    scrcpy, the emulator encoder), as the browser's capture now does.
   - A producer that vouches for its clear epochs (`IngestProducer.clearEpochs`), so posters can
     be made: the browser's tabs need their privacy history plumbed to the media producer.
   - The tee (encode `legacy` with delivery `auto`): such subscribes are served on the main
