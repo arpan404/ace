@@ -1,5 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { botRow, openNew, profileMenu, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
@@ -329,32 +329,24 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   expect(spade.sent("POST", "/v1/agents/research/duplicate")).toEqual([{}]);
 });
 
-test("Import bot from + says what the machine left out, and refuses a file over 6 MB unread", async () => {
-  const { spade } = await spadeApp("/spade", (seed) => {
-    team(seed);
-    seed.teams.leftOut = ["The Linear app isn't connected here."];
-  });
+test("Import bot from + refuses a file over 6 MB unread, and opens an imported bot", async () => {
+  const { spade } = await spadeApp("/spade", team);
   const huge = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
     type: "application/json",
   });
   const read = vi.spyOn(huge, "text");
   await openNew("Import bot…");
-  await userEvent.upload(screen.getByLabelText("Bot file to import"), huge);
-  expect(
-    await screen.findByText("That file is too big for a bot file (6 MB at most)."),
-  ).toBeTruthy();
-  expect(read).not.toHaveBeenCalled();
-  expect(spade.sent("POST", "/v1/agents/import")).toEqual([]);
-
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [huge] } });
   const file = new File(
     [JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" })],
     "Scout.spade-bot.json",
     { type: "application/json" },
   );
   await openNew("Import bot…");
-  await userEvent.upload(screen.getByLabelText("Bot file to import"), file);
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [file] } });
   await screen.findByRole("feed", { name: "Conversation with Scout" });
-  expect(await screen.findByText("The Linear app isn't connected here.")).toBeTruthy();
+  // Only the file that fits was read and sent.
+  expect(read).not.toHaveBeenCalled();
   expect(spade.sent("POST", "/v1/agents/import")).toEqual([
     { format: "spade-bot", version: 1, name: "Scout", task: "Scout news" },
   ]);

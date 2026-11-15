@@ -23,7 +23,9 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
+  // With no model for new bots set, the first choice leaves it to Spade.
   expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Your first usable model",
     "Saved model",
     "Llama128K context",
     "Sonnet200K context · images, tools",
