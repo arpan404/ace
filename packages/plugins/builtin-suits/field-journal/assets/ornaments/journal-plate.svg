@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="276" height="44" viewBox="0 0 276 44">
+<defs><filter id="fj-plate-wash" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.08" numOctaves="2" seed="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.6" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+<g filter="url(#fj-plate-wash)"><path d="M14 26Q11.4 21.5 6.2 21.5Q8.8 26 14 26ZM19 21Q23.9 20.3 25.4 15.6Q20.5 16.3 19 21ZM23 17Q20.9 12.8 16.2 13.1Q18.3 17.3 23 17ZM28 13Q32.4 12.7 33.5 8.4Q29.1 8.7 28 13ZM31 9Q32.3 5 28.7 2.8Q27.4 6.8 31 9Z" fill="#7d9461" fill-opacity="0.55"/></g>
+<path d="M10 33Q20 22 33 6" fill="none" stroke="#6b5338" stroke-opacity="0.7" stroke-width="1.1" stroke-linecap="round"/>
+<text x="42" y="29" font-family="Journal Hand, cursive" font-size="25" font-weight="600" fill="currentColor" fill-opacity="0.88">Field Journal</text>
+<path d="M42 36Q110 32 178 35" fill="none" stroke="#a0612f" stroke-opacity="0.55" stroke-width="1.2" stroke-linecap="round"/>
+<text x="268" y="28" text-anchor="end" font-family="Journal Hand, cursive" font-size="15" fill="currentColor" fill-opacity="0.62">vol. iv</text>
+</svg>

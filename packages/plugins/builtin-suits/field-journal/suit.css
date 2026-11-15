@@ -1,0 +1,849 @@
+/*
+ * Field Journal: ace as a naturalist's notebook. Every selector names a published part
+ * (docs/design/suit-parts.md).
+ *
+ * The page is warm paper with a faint field grid; ink is walnut brown. Threads are specimen
+ * labels in a catalogue, the open one carries a pressed leaf. An agent's answer is a field-note
+ * entry under a dated heading; the person's message is a note clipped onto the page. Steps are
+ * observations, each with a small drawn field icon for its kind. The composer is an index card
+ * headed "New observation", sent with a pencil. Titles are hand-lettered; everything read for long
+ * is set in a book face. In the dark scheme the same journal lies under a reading lamp.
+ */
+
+@font-face {
+  font-family: "Journal Hand";
+  src: url("assets/fonts/Caveat.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Journal Sans";
+  src: url("assets/fonts/AlegreyaSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Journal Sans";
+  src: url("assets/fonts/AlegreyaSans-Bold.ttf") format("truetype");
+  font-weight: 600 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Journal Serif";
+  src: url("assets/fonts/Alegreya-Italic.ttf") format("truetype");
+  font-weight: 400 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part (in a portal), so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-hand: "Journal Hand", "Bradley Hand", cursive;
+  --suit-grid: rgb(96 118 150 / 0.09);
+  --suit-grid-strong: rgb(96 118 150 / 0.16);
+  --suit-wash-sage: rgb(125 148 97 / 0.2);
+  --suit-wash-ochre: rgb(201 143 69 / 0.18);
+  --suit-tape: rgb(214 196 150 / 0.72);
+  --suit-paper-edge: rgb(78 60 36 / 0.16);
+  --suit-lift:
+    0 1px 0 rgb(255 255 255 / 0.6) inset, 0 1px 2px rgb(60 44 24 / 0.1),
+    0 6px 16px -8px rgb(60 44 24 / 0.22);
+  --suit-icon-search: url("assets/icons/search-light.svg");
+  --suit-icon-read: url("assets/icons/read-light.svg");
+  --suit-icon-list: url("assets/icons/list-light.svg");
+  --suit-icon-shell: url("assets/icons/shell-light.svg");
+  --suit-icon-edit: url("assets/icons/edit-light.svg");
+  --suit-icon-web: url("assets/icons/web-light.svg");
+  --suit-icon-tool: url("assets/icons/tool-light.svg");
+  --suit-icon-think: url("assets/icons/think-light.svg");
+  --suit-icon-note: url("assets/icons/note-light.svg");
+  --suit-leaf: url("assets/icons/pressed-leaf-light.svg");
+  --suit-pencil: url("assets/icons/pencil-light.svg");
+}
+
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-grid: rgb(232 200 150 / 0.045);
+  --suit-grid-strong: rgb(232 200 150 / 0.08);
+  --suit-wash-sage: rgb(157 181 124 / 0.14);
+  --suit-wash-ochre: rgb(201 147 90 / 0.14);
+  --suit-tape: rgb(150 128 92 / 0.55);
+  --suit-paper-edge: rgb(0 0 0 / 0.4);
+  --suit-lift:
+    0 1px 0 rgb(255 230 190 / 0.04) inset, 0 1px 2px rgb(0 0 0 / 0.4),
+    0 8px 18px -8px rgb(0 0 0 / 0.55);
+  --suit-icon-search: url("assets/icons/search-dark.svg");
+  --suit-icon-read: url("assets/icons/read-dark.svg");
+  --suit-icon-list: url("assets/icons/list-dark.svg");
+  --suit-icon-shell: url("assets/icons/shell-dark.svg");
+  --suit-icon-edit: url("assets/icons/edit-dark.svg");
+  --suit-icon-web: url("assets/icons/web-dark.svg");
+  --suit-icon-tool: url("assets/icons/tool-dark.svg");
+  --suit-icon-think: url("assets/icons/think-dark.svg");
+  --suit-icon-note: url("assets/icons/note-dark.svg");
+  --suit-leaf: url("assets/icons/pressed-leaf-dark.svg");
+  --suit-pencil: url("assets/icons/pencil-dark.svg");
+}
+
+[data-part="app"] {
+  /* The field grid: faint squares, like a surveyor's notebook. */
+  --suit-field-grid:
+    linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px;
+  --suit-transcript-background: var(--suit-field-grid), var(--color-background);
+  --suit-page-background: var(--suit-field-grid), var(--color-background);
+  /* The sidebar is the catalogue's card stock, darker toward the spine. */
+  --suit-sidebar-background: linear-gradient(
+    90deg,
+    var(--color-sidebar) 0%,
+    color-mix(in oklab, var(--color-sidebar) 70%, var(--color-background)) 100%
+  );
+  --suit-sidebar-shadow: inset -10px 0 14px -12px var(--suit-paper-edge);
+  --suit-rail-background: color-mix(in oklab, var(--color-sidebar) 88%, #000 4%);
+  --suit-header-background: transparent;
+  --suit-right-panel-background: var(--color-sidebar);
+  --suit-right-panel-shadow: inset 10px 0 14px -12px var(--suit-paper-edge);
+  font-family: var(--font-sans);
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"],
+[data-part="settings-section"],
+[data-part="empty-state"] {
+  font-family: var(--suit-hand);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+[data-part="link"] {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 55%, transparent);
+}
+[data-part="link"]:hover {
+  text-decoration-color: var(--color-link);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"] {
+  scrollbar-color: color-mix(in oklab, var(--color-border-strong) 70%, transparent) transparent;
+}
+
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 22%, transparent);
+}
+
+/* ------------------------------------------------------------------ window */
+
+[data-part="rail"] {
+  box-shadow: inset -1px 0 0 var(--color-border);
+}
+[data-part="rail-item"] {
+  border-radius: 6px;
+}
+[data-part="rail-item"][data-state="active"] {
+  background: color-mix(in oklab, var(--color-tint) 14%, transparent);
+  color: var(--color-link);
+}
+
+[data-part="sidebar-header"] {
+  position: relative;
+}
+[data-part="project-header"] {
+  border-bottom: 1px dashed var(--color-border-strong);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+[data-part="sidebar-tabs"] {
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--color-sidebar) 80%, var(--color-background));
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  background: var(--color-surface-1);
+  color: var(--color-link);
+  box-shadow: 0 1px 2px var(--suit-paper-edge);
+}
+
+/* ------------------------------------------------------------------ sidebar: the specimen catalogue */
+
+[data-part="thread-list"] {
+  counter-reset: specimen;
+}
+
+/*
+ * Each thread is a specimen label: a small card with a punched hole on its left, a catalogue
+ * number in hand, and a hairline frame. The open one is pressed under a leaf.
+ */
+[data-part="thread-row"] {
+  counter-increment: specimen;
+  position: relative;
+  margin-block: 3px;
+  padding-left: 46px;
+  border-radius: 3px 8px 8px 3px;
+  background: color-mix(in oklab, var(--color-surface-1) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 45%, transparent);
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+[data-part="thread-row"]:hover {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-strong),
+    0 2px 6px -4px var(--suit-paper-edge);
+}
+/* The punched hole and its reinforcement ring. */
+[data-part="thread-row"]::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--color-sidebar);
+  box-shadow:
+    inset 0 1px 1px var(--suit-paper-edge),
+    0 0 0 2px color-mix(in oklab, var(--color-border-strong) 55%, transparent);
+}
+/* The catalogue number. */
+[data-part="thread-row"]::after {
+  content: counter(specimen, decimal-leading-zero);
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--suit-hand);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-subtle-foreground);
+}
+
+[data-part="thread-row"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, var(--color-surface-1));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 45%, transparent);
+}
+
+/* The open specimen: raised off the page with a pressed leaf laid across its hole. */
+[data-part="thread-row"][data-state="active"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-strong),
+    inset 3px 0 0 var(--color-tint),
+    var(--suit-lift);
+}
+[data-part="thread-row"][data-state="active"]::before {
+  left: 4px;
+  width: 16px;
+  height: 22px;
+  margin-top: -11px;
+  border-radius: 0;
+  background: var(--suit-leaf) no-repeat center / 16px 22px;
+  box-shadow: none;
+  transform: rotate(-18deg);
+}
+[data-part="thread-row"][data-state="active"]::after {
+  color: var(--color-link);
+}
+
+[data-part="thread-title"] {
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+[data-part="thread-row"][data-state="active"] [data-part="thread-title"] {
+  font-weight: 600;
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+
+[data-part="thread-meta"] {
+  font-family: var(--font-sans);
+}
+
+/* The status mark sits in a small inked ring; its colour stays ace's. */
+[data-part="status-icon"] {
+  border-radius: 999px;
+}
+
+/* ------------------------------------------------------------------ header: the page heading */
+
+[data-part="header"] {
+  box-shadow:
+    inset 0 -1px 0 var(--color-border-strong),
+    inset 0 -4px 0 color-mix(in oklab, var(--color-background) 60%, transparent),
+    inset 0 -5px 0 var(--color-border);
+}
+[data-part="header-title"] {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-foreground);
+}
+[data-part="header-title"]::before {
+  content: "Entry · ";
+  color: var(--color-link);
+  font-weight: 500;
+}
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before {
+  content: "Catalogue · ";
+}
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "Specimen · ";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "Expedition kit · ";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "A fresh page · ";
+}
+[data-page="usage"] [data-part="header-title"]::before {
+  content: "Field log · ";
+}
+
+/* ------------------------------------------------------------------ transcript: field notes */
+
+/*
+ * An agent's answer is an entry in the journal: a dated hand-lettered heading on a ruled line, a
+ * book face for the words, and a soft wash in the margin.
+ */
+[data-part="message-agent"] {
+  position: relative;
+  padding: 26px 4px 4px 18px;
+  font-size: 15.5px;
+  line-height: 1.68;
+  border-left: 1px solid color-mix(in oklab, var(--color-tint) 35%, transparent);
+}
+[data-part="message-agent"]::before {
+  content: "Field note";
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 0;
+  padding-bottom: 2px;
+  font-family: var(--suit-hand);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-link);
+  border-bottom: 1px dotted color-mix(in oklab, var(--color-tint) 45%, transparent);
+}
+[data-part="message-agent"]::after {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-tint);
+  box-shadow: 0 0 0 3px var(--color-background);
+}
+
+/*
+ * The person's message is a note clipped onto the page: lighter paper, a strip of tape at its
+ * top edge, a hand-written "you wrote" tag, and a slight lift.
+ */
+[data-part="message-user"] {
+  position: relative;
+  overflow: visible;
+  padding: 16px 18px 12px;
+  border-radius: 2px;
+  background:
+    linear-gradient(
+        to bottom,
+        transparent 0 26px,
+        color-mix(in oklab, var(--color-tint) 10%, transparent) 26px 27px
+      )
+      0 6px / 100% 27px,
+    var(--color-surface-1);
+  border: 0;
+  box-shadow:
+    var(--suit-lift),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 40%, transparent);
+  font-size: 15px;
+  line-height: 1.6;
+}
+[data-part="message-user"]::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 64px;
+  height: 16px;
+  margin-left: -32px;
+  background: var(--suit-tape);
+  transform: rotate(-2deg);
+  box-shadow: 0 1px 1px var(--suit-paper-edge);
+}
+
+[data-part="message-meta"] {
+  font-family: var(--font-sans);
+}
+
+[data-part="turn-divider"] {
+  font-family: var(--suit-hand);
+  font-size: 16px;
+}
+
+[data-part="inline-code"] {
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-code) 80%, var(--color-background));
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding-inline: 4px;
+}
+
+[data-part="code-block"] {
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--color-tint) 35%, transparent);
+}
+
+/* Steps are observations: a drawn field icon for the kind, then the note in the reading face. */
+[data-part="tool-row"] {
+  position: relative;
+  padding-left: 32px;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  transition: background-color 140ms ease;
+}
+[data-part="tool-row"]:hover {
+  background: color-mix(in oklab, var(--color-hover) 60%, transparent);
+}
+[data-part="tool-row"][data-state="open"] {
+  background: color-mix(in oklab, var(--color-surface-1) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+[data-part="tool-row"]::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  background: var(--suit-icon-tool) no-repeat center / 20px 20px;
+}
+[data-part="tool-row"][data-variant="read"]::before {
+  background-image: var(--suit-icon-read);
+}
+[data-part="tool-row"][data-variant="search"]::before {
+  background-image: var(--suit-icon-search);
+}
+[data-part="tool-row"][data-variant="list"]::before {
+  background-image: var(--suit-icon-list);
+}
+[data-part="tool-row"][data-variant="shell"]::before {
+  background-image: var(--suit-icon-shell);
+}
+[data-part="tool-row"][data-variant="edit"]::before {
+  background-image: var(--suit-icon-edit);
+}
+[data-part="tool-row"][data-variant="web"]::before {
+  background-image: var(--suit-icon-web);
+}
+[data-part="tool-row"][data-variant="think"]::before {
+  background-image: var(--suit-icon-think);
+}
+[data-part="tool-row"][data-variant="note"]::before {
+  background-image: var(--suit-icon-note);
+}
+[data-part="tool-row"][data-state="failed"] {
+  box-shadow: inset 2px 0 0 var(--color-border-strong);
+}
+
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+/* The Working line keeps ace's words and colour; the Suit only sets it in the hand. */
+[data-part="working-line"] {
+  font-family: var(--suit-hand);
+  font-weight: 600;
+  padding-inline: 2px 8px;
+  border-bottom: 1px dotted currentColor;
+  border-radius: 0;
+}
+
+/* Approvals and questions: ace's strip, as a slip tucked into the journal. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 4px;
+  border: 1px dashed currentColor;
+  padding: 6px 10px;
+  font-family: var(--font-sans);
+}
+
+/* ------------------------------------------------------------------ composer: an index card */
+
+[data-part="composer"] {
+  position: relative;
+  border-radius: 4px;
+  border: 0;
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0 34px,
+      color-mix(in oklab, var(--color-tint) 50%, transparent) 34px 35px,
+      transparent 35px
+    ),
+    repeating-linear-gradient(to bottom, transparent 0 23px, var(--suit-grid-strong) 23px 24px) 0
+      35px / 100% calc(100% - 35px) no-repeat,
+    var(--color-surface-1);
+  box-shadow:
+    var(--suit-lift),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 50%, transparent);
+  padding-top: 24px;
+}
+[data-part="composer"]::before {
+  content: "New observation";
+  position: absolute;
+  top: 7px;
+  left: 16px;
+  font-family: var(--suit-hand);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-link);
+  pointer-events: none;
+}
+[data-part="composer"]:focus-within {
+  box-shadow:
+    var(--suit-lift),
+    inset 0 0 0 1px var(--color-tint);
+}
+
+[data-part="composer-input"] {
+  font-family: var(--font-prose);
+  font-size: 15px;
+  caret-color: var(--color-tint);
+}
+[data-part="composer-input"]::placeholder {
+  font-family: var(--font-prose);
+  font-style: italic;
+  color: var(--color-subtle-foreground);
+}
+
+/* Send is a pencil. */
+[data-part="composer-send"] {
+  position: relative;
+  border-radius: 999px;
+}
+[data-part="composer-send"][data-variant="send"] {
+  color: transparent;
+}
+[data-part="composer-send"][data-variant="send"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-pencil) no-repeat center / 17px 17px;
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"]::after {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+[data-part="model-picker"] {
+  font-family: var(--font-sans);
+  border-radius: 999px;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+[data-part="button"][data-variant="primary"] {
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.18) inset,
+    0 1px 2px var(--suit-paper-edge);
+}
+[data-part="button"][data-variant="secondary"] {
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+[data-part="icon-button"] {
+  border-radius: 6px;
+}
+
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 4px;
+  caret-color: var(--color-tint);
+}
+[data-part="input"],
+[data-part="select"] {
+  background: var(--color-surface-1);
+}
+
+[data-part="switch"][data-state="checked"] {
+  background: var(--color-tint);
+}
+
+[data-part="tab"] {
+  font-family: var(--font-sans);
+}
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+
+[data-part="badge"],
+[data-part="label-chip"] {
+  font-family: var(--font-sans);
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  border-radius: 3px;
+}
+
+[data-part="kbd"] {
+  border-radius: 3px;
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+
+[data-part="divider"] {
+  background: transparent;
+  border-color: transparent;
+  border-top: 1px dashed var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ floating layers: loose leaves */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="tooltip"] {
+  border-radius: 4px;
+  border: 1px solid var(--color-border-strong);
+  background:
+    linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--color-surface-2);
+  box-shadow:
+    0 1px 2px var(--suit-paper-edge),
+    0 14px 34px -12px var(--suit-paper-edge),
+    0 18px 40px -20px rgb(40 28 14 / 0.3);
+}
+[data-part="tooltip"] {
+  background: var(--color-surface-2);
+}
+[data-part="dialog"] [data-part="page-title"] {
+  font-size: 24px;
+}
+
+[data-part="menu-item"] {
+  border-radius: 3px;
+}
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus-visible {
+  background: color-mix(in oklab, var(--color-tint) 13%, transparent);
+}
+[data-part="menu-item"][data-state="checked"] {
+  color: var(--color-link);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="page-title"] {
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+[data-part="card"] {
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-1);
+  box-shadow: 0 1px 2px var(--suit-paper-edge);
+}
+
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 3px;
+}
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+
+[data-part="stat"] {
+  font-family: var(--font-sans);
+}
+
+/* Settings is the expedition kit list: each group is a page of the kit inventory. */
+[data-page="settings"] [data-part="page-title"]::before {
+  content: "Expedition kit · ";
+  color: var(--color-link);
+  font-weight: 500;
+}
+[data-part="nav-item"] {
+  border-radius: 4px;
+}
+[data-part="nav-item"][data-state="active"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-strong),
+    inset 3px 0 0 var(--color-tint);
+}
+[data-part="settings-section"] {
+  font-size: 20px;
+}
+[data-part="card"][data-variant="settings-group"] {
+  border-radius: 4px;
+  background:
+    linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--color-surface-1);
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px dashed var(--color-border);
+}
+
+/* The pull request list is a specimen catalogue: numbered labels in a drawer. */
+[data-page="pulls"] [data-part="page-title"]::before,
+[data-page="issues"] [data-part="page-title"]::before {
+  content: "Catalogue · ";
+  color: var(--color-link);
+  font-weight: 500;
+}
+[data-page="pulls"] [data-part="list"],
+[data-page="issues"] [data-part="list"] {
+  counter-reset: catalogue;
+}
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  counter-increment: catalogue;
+  position: relative;
+  padding-left: 52px;
+  transition: background-color 140ms ease;
+}
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "No. " counter(catalogue, decimal-leading-zero);
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-4deg);
+  font-family: var(--suit-hand);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-subtle-foreground);
+}
+[data-part="pr-row"] + [data-part="pr-row"],
+[data-part="issue-row"] + [data-part="issue-row"] {
+  border-top: 1px dashed var(--color-border);
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: color-mix(in oklab, var(--color-hover) 70%, transparent);
+}
+[data-part="pr-row"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+
+/* One pull request is a specimen sheet. */
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"],
+[data-page="automation"] [data-part="page-title"],
+[data-page="skill"] [data-part="page-title"] {
+  font-family: var(--font-prose);
+  font-weight: 600;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+[data-page="pull"][data-variant="merged"] [data-part="page-title"]::after {
+  content: " — collected";
+  font-family: var(--suit-hand);
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--color-link);
+}
+[data-part="card"][data-variant="description"],
+[data-part="review-comment"] {
+  font-family: var(--font-prose);
+  font-size: 15px;
+  line-height: 1.65;
+}
+[data-part="merge-box"] {
+  border-radius: 4px;
+}
+[data-part="timeline-item"],
+[data-part="review-comment"] {
+  border-radius: 4px;
+}
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------------ side panel */
+
+[data-part="panel-header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+[data-part="panel-tab"] {
+  border-radius: 4px 4px 0 0;
+  font-family: var(--font-sans);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  background: var(--color-background);
+  box-shadow:
+    inset 0 2px 0 var(--color-tint),
+    inset 1px 0 0 var(--color-border-strong),
+    inset -1px 0 0 var(--color-border-strong);
+}
+[data-part="file-tree"] {
+  font-family: var(--font-sans);
+}
+[data-part="diff-file"] {
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+[data-part="terminal-tab"] {
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+/* ------------------------------------------------------------------ empty states */
+
+[data-part="empty-state"] {
+  font-size: 19px;
+}

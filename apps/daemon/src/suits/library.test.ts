@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet"]);
+  expect(seeded).toEqual(["arcade-cabinet", "field-journal"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -179,6 +179,18 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "corner-bottom-left",
     "corner-bottom-right",
     "corner-top-left",
+    "corner-top-right",
+    "empty-state",
+    "sidebar-header",
+  ]);
+  // Field Journal brings its app scene, its celebration and its corner ornaments.
+  const journal = detail(await library.read("field-journal"));
+  expect(journal.sceneUrl).toMatch(/scene\.html$/);
+  expect(Object.keys(journal.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(journal.css).toContain('[data-suit="field-journal"]');
+  expect(Object.keys(journal.ornaments).toSorted()).toEqual([
+    "corner-bottom-left",
+    "corner-bottom-right",
     "corner-top-right",
     "empty-state",
     "sidebar-header",

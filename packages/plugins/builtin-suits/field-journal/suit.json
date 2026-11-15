@@ -1,0 +1,167 @@
+{
+  "format": 1,
+  "id": "field-journal",
+  "name": "Field Journal",
+  "description": "A naturalist's notebook: ruled paper, walnut ink and watercolour, specimen labels for threads, observation entries for every step, and dappled light drifting through leaves.",
+  "version": "1",
+  "base": "paper",
+  "light": {
+    "canvas": "#F4EDDC",
+    "sidebar": "#EAE0C9",
+    "surface": "#FAF6EB",
+    "raised": "#FDFAF2",
+    "hover": "#E5DAC0",
+    "active": "#DCCFB1",
+    "code": "#EFE7D3",
+    "border": "#DACDAE",
+    "borderStrong": "#B3A17A",
+    "text": "#2A2218",
+    "muted": "#4D4232",
+    "subtle": "#635643",
+    "faint": "#94846A",
+    "accent": "#8A5528",
+    "accentHover": "#744620",
+    "accentFg": "#FFFFFF",
+    "accentText": "#7A4A20",
+    "diffAdd": "#E3E5C8",
+    "diffAddFg": "#3F5E1E",
+    "diffDel": "#F1DACB",
+    "diffDelFg": "#8E3320",
+    "syntax": {
+      "kw": "#7A4A20",
+      "fn": "#36586A",
+      "str": "#4F6526",
+      "num": "#8A4733",
+      "type": "#58527F",
+      "com": "#7C6E57",
+      "punc": "#54483A"
+    },
+    "glass": null
+  },
+  "dark": {
+    "canvas": "#1E1A14",
+    "sidebar": "#18140F",
+    "surface": "#25201A",
+    "raised": "#2C261F",
+    "hover": "#332C24",
+    "active": "#3C342A",
+    "code": "#16130E",
+    "border": "#382F25",
+    "borderStrong": "#5A4C3C",
+    "text": "#F0E6D1",
+    "muted": "#D2C4A9",
+    "subtle": "#AE9F84",
+    "faint": "#7F7260",
+    "accent": "#C9935A",
+    "accentHover": "#D7A56F",
+    "accentFg": "#1C150E",
+    "accentText": "#DDAE79",
+    "diffAdd": "#232A1A",
+    "diffAddFg": "#AECB84",
+    "diffDel": "#35211A",
+    "diffDelFg": "#EBA286",
+    "syntax": {
+      "kw": "#DDAE79",
+      "fn": "#9FC2CB",
+      "str": "#B7CB8E",
+      "num": "#E5A98D",
+      "type": "#BDB8E2",
+      "com": "#978A73",
+      "punc": "#C6B9A0"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": { "asset": "assets/fonts/AlegreyaSans-Regular.ttf", "family": "Journal Sans" },
+    "prose": { "asset": "assets/fonts/Alegreya.ttf", "family": "Journal Serif" },
+    "mono": {
+      "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
+    }
+  },
+  "shape": { "radius": 0.5, "border": 1, "density": "comfortable" },
+  "motion": { "speed": 1.2 },
+  "layout": {
+    "messages": "flat",
+    "toolRows": "detailed",
+    "sidebarWidth": 300
+  },
+  "labels": {
+    "composer-placeholder": "New observation…",
+    "empty-transcript": "A blank page. What shall we look into?",
+    "empty-sidebar": "No entries yet. Begin a new page.",
+    "working-word": "Observing",
+    "send": "Note it"
+  },
+  "ornaments": [
+    { "slot": "sidebar-header", "asset": "assets/ornaments/journal-plate.svg" },
+    { "slot": "empty-state", "asset": "assets/ornaments/hand-lens.svg" },
+    { "slot": "corner-top-right", "asset": "assets/ornaments/fern.svg" },
+    { "slot": "corner-bottom-left", "asset": "assets/ornaments/oak-leaf.svg" },
+    { "slot": "corner-bottom-right", "asset": "assets/ornaments/compass-rose.svg" }
+  ],
+  "scenes": { "app": "scene.js", "celebration": "celebration.js" },
+  "reveal": {
+    "app": 0.85,
+    "rail": 0.5,
+    "header": 0.45,
+    "transcript": 0.3,
+    "page": 0.25,
+    "sidebar": 0.2
+  },
+  "terminal": {
+    "light": {
+      "background": "#F1E9D6",
+      "foreground": "#2A2218",
+      "cursor": "#8A5528",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#8A552833",
+      "ansi": {
+        "black": "#2A2218",
+        "red": "#9A3A22",
+        "green": "#4F6526",
+        "yellow": "#8A6414",
+        "blue": "#36586A",
+        "magenta": "#7A4A6E",
+        "cyan": "#2E6A66",
+        "white": "#8C7E66",
+        "brightBlack": "#635643",
+        "brightRed": "#B0482C",
+        "brightGreen": "#5E7A2E",
+        "brightYellow": "#9E7420",
+        "brightBlue": "#45708A",
+        "brightMagenta": "#8E5A82",
+        "brightCyan": "#3A7E78",
+        "brightWhite": "#4D4232"
+      }
+    },
+    "dark": {
+      "background": "#17130E",
+      "foreground": "#EDE2CB",
+      "cursor": "#C9935A",
+      "cursorAccent": "#1C150E",
+      "selection": "#C9935A44",
+      "ansi": {
+        "black": "#2C261F",
+        "red": "#E08A6E",
+        "green": "#AECB84",
+        "yellow": "#E2C07A",
+        "blue": "#8EB4C8",
+        "magenta": "#C9A0C0",
+        "cyan": "#8CC4BC",
+        "white": "#D2C4A9",
+        "brightBlack": "#7F7260",
+        "brightRed": "#EBA286",
+        "brightGreen": "#C3DA9E",
+        "brightYellow": "#EDD49A",
+        "brightBlue": "#AACBDB",
+        "brightMagenta": "#DDBAD6",
+        "brightCyan": "#A8D6CF",
+        "brightWhite": "#F0E6D1"
+      }
+    },
+    "fontSize": 13,
+    "lineHeight": 1.3,
+    "cursorStyle": "bar",
+    "cursorBlink": true
+  }
+}
