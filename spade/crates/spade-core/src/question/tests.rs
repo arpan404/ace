@@ -619,3 +619,27 @@ fn questions_round_trip_through_stored_json_and_old_events_read_as_one_text_ques
     );
     assert_eq!(views(&events)[0].questions[0].prompt, "Which city?");
 }
+
+#[test]
+fn a_card_left_for_later_counts_each_of_its_questions() {
+    let two = json!({ "questions": [
+        { "prompt": "Paste a token", "kind": "text" },
+        { "prompt": "Window or aisle?", "kind": "choice", "options": ["Window", "Aisle"] }
+    ] });
+    let mut events = vec![
+        Event::user_message("Watch the repo"),
+        Event::reply_started("r1", "m"),
+        step("r1", &[("q1", two.clone())]),
+        asked("r1", "q1", two),
+        k(Known::QuestionDeferred {
+            call_id: "q1".into(),
+            by_bot: false,
+        }),
+    ];
+    assert_eq!(for_later(&events), 2);
+    events.push(k(Known::QuestionDismissed {
+        call_id: "q1".into(),
+        late: true,
+    }));
+    assert_eq!(for_later(&events), 0);
+}

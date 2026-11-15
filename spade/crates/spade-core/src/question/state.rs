@@ -141,10 +141,12 @@ pub fn standing<'a>(
         .map(|c| c.standing)
 }
 
-/// How many question cards are left for later: deferred and not yet answered or dismissed.
+/// How many questions are left for later: every question of each card deferred and not yet
+/// answered or dismissed, so a card of two counts two.
 pub fn for_later<'a>(events: impl IntoIterator<Item = &'a Event>) -> usize {
     views(events)
         .iter()
         .filter(|c| c.standing == Standing::Deferred)
-        .count()
+        .map(|c| c.questions.len())
+        .sum()
 }
