@@ -3,7 +3,7 @@
   "id": "neon-district",
   "name": "Neon District",
   "description": "A rain-soaked city at night: magenta and cyan neon, a rainy window in the sidebar, terminal tool rows and signs that flash when a pull request merges. Dark only.",
-  "version": "2",
+  "version": "3",
   "base": "midnight",
   "dark": {
     "canvas": "#0B0912",
@@ -70,6 +70,39 @@
     "sidebar": 0.45,
     "header": 0.3,
     "composer": 0.2
+  },
+  "terminal": {
+    "dark": {
+      "background": "#0B0912",
+      "foreground": "#F0EAF8",
+      "cursor": "#FF2D95",
+      "cursorAccent": "#16030D",
+      "selection": "#FF2D9550",
+      "ansi": {
+        "black": "#15111F",
+        "red": "#FF4D7A",
+        "green": "#5FF2D6",
+        "yellow": "#FFC94D",
+        "blue": "#7D95FF",
+        "magenta": "#FF6FB8",
+        "cyan": "#3DF2FF",
+        "white": "#C0B7D2",
+        "brightBlack": "#73698C",
+        "brightRed": "#FF8FB0",
+        "brightGreen": "#A0FFE9",
+        "brightYellow": "#FFE08A",
+        "brightBlue": "#A6B6FF",
+        "brightMagenta": "#FFA3D2",
+        "brightCyan": "#8CF8FF",
+        "brightWhite": "#F0EAF8"
+      }
+    },
+    "fontFamily": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace",
+    "fontSize": 13,
+    "lineHeight": 1.35,
+    "cursorStyle": "bar",
+    "cursorBlink": true,
+    "reveal": 0.2
   },
   "labels": {
     "composer-placeholder": "Wire in a task, or ask the street\u2026",

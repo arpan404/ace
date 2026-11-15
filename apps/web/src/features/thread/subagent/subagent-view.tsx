@@ -101,6 +101,7 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
     <SubagentFocusProvider value={agentId}>
       <WorkCardContext value={details}>
         <Screen
+          page="thread"
           crumb={
             agent?.parentId && <SubagentCrumb threadId={threadId} parentAgentId={agent.parentId} />
           }

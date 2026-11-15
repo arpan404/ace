@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { HeartbeatDialog, RoutineDialog } from "./spade-routine-dialogs.tsx";
 import { editRoutine, runRoutine, saveHeartbeat } from "./spade-routines-api.ts";
 import { useSpadeRoutines } from "./use-spade-routines.ts";
@@ -37,7 +38,7 @@ export function SpadeRoutines(props: { bot: RosterBot }) {
     );
   return (
     <div className="h-full overflow-y-auto">
-      <div className={`${readingColumn} flex flex-col gap-8 py-6`}>
+      <div {...part("page-body")} className={`${readingColumn} flex flex-col gap-8 py-6`}>
         <SettingSection label="Routines">
           {routines.isPending ? (
             <ListSkeleton label="routines" shape="row" rows={2} />

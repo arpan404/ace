@@ -16,6 +16,7 @@ import { useState, type ReactNode } from "react";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useLedger } from "./ledger-data.ts";
 import type { UsageSpan } from "./usage-data.ts";
@@ -56,7 +57,7 @@ export function Ledger(
   const { lines, group } = props;
   return (
     <section aria-label="Spend by group">
-      <div className="mb-1 flex items-center justify-end gap-x-1">
+      <div {...part("filter-bar")} className="mb-1 flex items-center justify-end gap-x-1">
         <span aria-hidden className="text-xs text-subtle-foreground">
           Group by
         </span>
@@ -131,7 +132,7 @@ function Rows(
   if (lines.length === 0) return quiet("None in this period");
   return (
     <>
-      <ul aria-label={props.label}>
+      <ul {...part("list", undefined, "ledger")} aria-label={props.label}>
         {shown.map((line) => (
           <Row
             {...props}
@@ -249,13 +250,13 @@ function Row(
   const name = `${label}: ${figure}${change.label ? `, ${change.label}` : ""}`;
   if (!next)
     return (
-      <li aria-label={name} className={look}>
+      <li {...part("list-row")} aria-label={name} className={look}>
         {cells}
       </li>
     );
   const step: LedgerStep = { group, key: line.key, label };
   return (
-    <li>
+    <li {...part("list-row", open && "open")}>
       <button
         type="button"
         aria-label={name}
@@ -289,7 +290,12 @@ function Trend(props: { days: readonly LedgerFigure[]; metric: Metric }) {
     )
     .join(" ");
   return (
-    <svg viewBox="0 0 88 24" className="block h-6 w-[88px]" aria-hidden>
+    <svg
+      {...part("chart", undefined, "trend")}
+      viewBox="0 0 88 24"
+      className="block h-6 w-[88px]"
+      aria-hidden
+    >
       <polygon points={`0,24 ${points} 88,24`} className="fill-current opacity-15" />
       <polyline
         points={points}

@@ -6,6 +6,7 @@ import {
   type TokenRowKind,
   type UsageReport,
 } from "@ace/ui-core";
+import { part } from "@/lib/suit-part.ts";
 import { SectionHeading, Stat } from "./usage-parts.tsx";
 
 /** Token types in the chart's palette: cache in its blues, output in ink, reasoning violet. */
@@ -53,14 +54,18 @@ export function TokensSection(props: {
   const used = table.rows.filter((row) => row.tokens > 0);
   const unused = table.rows.filter((row) => row.tokens <= 0);
   return (
-    <section aria-labelledby="usage-tokens">
+    <section {...part("page-section", undefined, "tokens")} aria-labelledby="usage-tokens">
       <SectionHeading id="usage-tokens" title="Tokens">
         <span>
           {props.period} · {formatTokens(table.tokens)} tokens · {usagePercent(table.cacheHitRate)}{" "}
           of input from cache
         </span>
       </SectionHeading>
-      <div aria-hidden className="flex h-1.5 max-w-160 gap-0.5 overflow-hidden rounded-full">
+      <div
+        {...part("chart", undefined, "tokens")}
+        aria-hidden
+        className="flex h-1.5 max-w-160 gap-0.5 overflow-hidden rounded-full"
+      >
         {used.map((row) => (
           <span
             key={row.kind}
@@ -69,7 +74,7 @@ export function TokensSection(props: {
           />
         ))}
       </div>
-      <table className="mt-3 w-full max-w-160 text-ui">
+      <table {...part("table")} className="mt-3 w-full max-w-160 text-ui">
         <caption className="sr-only">Tokens and cost by type</caption>
         <thead>
           <tr className="text-xs text-subtle-foreground">
@@ -89,7 +94,7 @@ export function TokensSection(props: {
         </thead>
         <tbody>
           {used.map((row) => (
-            <tr key={row.kind} data-kind={row.kind} className="align-top">
+            <tr {...part("table-row")} key={row.kind} data-kind={row.kind} className="align-top">
               <th scope="row" className="py-1.5 text-left font-normal">
                 <span className="flex items-baseline gap-2">
                   <span aria-hidden className={`size-2 shrink-0 rounded-xs ${swatch[row.kind]}`} />

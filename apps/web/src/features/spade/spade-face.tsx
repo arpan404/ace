@@ -4,10 +4,21 @@ import { useEffect, useState } from "react";
 import { BotFace } from "@/components/bot-face.tsx";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import { holdSpadePicture } from "./spade-images.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 const moving = (state: BotFaceState | undefined) => state === "working" || state === "thinking";
+
+/** A face's state as the `avatar` part's `data-state`: working, waiting on the person, or done. */
+const faceStatus = (state: BotFaceState | undefined): SuitPartState | undefined =>
+  moving(state)
+    ? "working"
+    : state === "needs-you"
+      ? "waiting"
+      : state === "done"
+        ? "done"
+        : undefined;
 
 /**
  * A bot's face (ADR 0127): the Spade mark for Spade itself, a character face, or the person's
@@ -30,6 +41,7 @@ export function SpadeFace(props: {
     return (
       <span
         aria-hidden
+        {...part("avatar", faceStatus(props.state), "spade")}
         className={cn("grid shrink-0 text-foreground", props.className)}
         style={box}
       >
@@ -38,7 +50,12 @@ export function SpadeFace(props: {
     );
   if (avatar.kind === "character")
     return (
-      <span aria-hidden className={cn("grid shrink-0", props.className)} style={box}>
+      <span
+        aria-hidden
+        {...part("avatar", faceStatus(props.state), "character")}
+        className={cn("grid shrink-0", props.className)}
+        style={box}
+      >
         <BotFace face={avatar.face} size={size} state={props.state} />
       </span>
     );
@@ -46,6 +63,7 @@ export function SpadeFace(props: {
   return (
     <span
       aria-hidden
+      {...part("avatar", faceStatus(props.state), "picture")}
       data-working={moving(props.state) || undefined}
       className={cn("relative grid shrink-0 place-items-center rounded-full", props.className)}
       style={box}

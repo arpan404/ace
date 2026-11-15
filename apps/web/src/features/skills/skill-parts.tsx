@@ -2,6 +2,7 @@ import type { ProviderKind } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { agentsText } from "./library-model.ts";
 import { ProviderMarks } from "./provider-marks.tsx";
 
@@ -9,7 +10,9 @@ import { ProviderMarks } from "./provider-marks.tsx";
 export function SkillHeading(props: { title: string; description: string; children?: ReactNode }) {
   return (
     <>
-      <h2 className="text-2xl font-semibold tracking-title">{props.title}</h2>
+      <h2 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+        {props.title}
+      </h2>
       {props.description && (
         <p className="mt-2 max-w-[68ch] text-md text-muted-foreground">{props.description}</p>
       )}

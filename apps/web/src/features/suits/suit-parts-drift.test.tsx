@@ -1,6 +1,17 @@
 import type { InteractionRequest } from "@ace/protocol";
 import { suitParts } from "@ace/protocol/suit-parts";
-import { coldStartReplay, facts, replayCursor, seedPanels, type Scenario } from "@ace/fake-daemon";
+import {
+  chatScenario,
+  coldStartReplay,
+  facts,
+  replayCursor,
+  seedPanels,
+  workbench,
+  workbenchServices,
+  type Scenario,
+} from "@ace/fake-daemon";
+import { createMemoryHistory } from "@tanstack/react-router";
+import { spadeApp, withEndpoint } from "@/test/spade.ts";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -10,6 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Slider } from "@/components/ui/slider.tsx";
 import { ToastProvider, useToast } from "@/components/ui/toast.tsx";
@@ -216,7 +228,13 @@ test("a settings page names its list, sections, rows and controls", async () => 
   await waitFor(() => expect(missing(settingsScreen)).toEqual([]));
 });
 
-const panelsScreen = ["terminal", "terminal-tab", "browser-panel", "command-palette"] as const;
+const panelsScreen = [
+  "terminal",
+  "terminal-tab",
+  "browser-panel",
+  "command-palette",
+  "search-field",
+] as const;
 
 test("the terminal, the browser and the command palette name their surfaces", async () => {
   const app = harness();
@@ -255,6 +273,7 @@ const sharedParts = [
   "link",
   "attachment",
   "empty-state",
+  "progress",
 ] as const;
 
 test("the shared overlays and controls name themselves wherever they are used", async () => {
@@ -283,6 +302,7 @@ test("the shared overlays and controls name themselves wherever they are used", 
         <WebLink href="https://example.com">example.com</WebLink>
         <FileChips files={[{ key: "notes", name: "notes.md" }]} />
         <EmptyState title="Nothing here" />
+        <ProgressBar label="Receiving objects" value={52} />
       </ToastProvider>
     </TooltipProvider>,
   );
@@ -328,7 +348,6 @@ test("the side panel's tabs name their tab, body, toolbar, rows, diffs and cards
   expect(tabs.map((tab) => tab.getAttribute("data-variant"))).toEqual(["changes"]);
 });
 
-
 /** Drawn on the Code review pages, walked by features/forge-pages/forge-suit-parts.test.tsx. */
 const codeReviewPages = [
   "page",
@@ -358,6 +377,88 @@ const codeReviewPages = [
   "merge-box",
 ] as const;
 
+const pagesScreen = [
+  "page",
+  "page-header",
+  "page-title",
+  "page-toolbar",
+  "page-body",
+  "page-section",
+  "list",
+  "list-group",
+  "list-row",
+  "card",
+  "table",
+  "table-row",
+  "stat",
+  "chart",
+  "filter-bar",
+  "label-chip",
+  "chat-row",
+] as const;
+
+test("full pages name their header, body, lists, rows, cards and figures", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/usage"] });
+  const app = harness({ clock: () => Date.now(), history });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now(), "UTC"));
+  const chat = chatScenario("trip", "Three days in Lisbon", "claude", "Plan it.", "Alfama first.");
+  app.play(chat).runUntilBlocked();
+  app.daemon.services.usage.sources = [
+    {
+      provider: "codex",
+      account: "codex-personal",
+      model: "gpt-5.3-codex",
+      daily: 80_000,
+      steady: true,
+      apiUsdPerMillion: 5,
+      billing: "subscription",
+      threads: ["thread-codex"],
+    },
+  ];
+  await app.open("/usage");
+  // Each page draws some of the parts; together they draw them all.
+  const seen = new Set<string>();
+  const look = () => {
+    for (const element of document.querySelectorAll("[data-part]"))
+      seen.add(element.getAttribute("data-part") ?? "");
+  };
+  const visit = async (path: string, ready: () => Promise<unknown>) => {
+    act(() => history.push(path));
+    await ready();
+    look();
+  };
+  await screen.findByRole("list", { name: /^Spend by / });
+  await userEvent.click(screen.getByRole("button", { name: "Token types" }));
+  await screen.findByRole("table", { name: "Tokens and cost by type" });
+  look();
+  await visit("/history", () => screen.findAllByRole("heading", { name: "History" }));
+  await visit(`/t/${chat.thread.id}`, () =>
+    waitFor(() => expect(document.querySelector('[data-part="chat-row"]')).not.toBeNull()),
+  );
+  await visit("/automations/auto-dependency-audit", () =>
+    screen.findAllByText("Nightly dependency audit"),
+  );
+  await waitFor(() => {
+    look();
+    expect(pagesScreen.filter((part) => !seen.has(part))).toEqual([]);
+  });
+});
+
+const spadeScreen = ["spade-message", "avatar"] as const;
+
+test("Spade's conversation names its messages and faces", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    spade.store(garden.conversation, { type: "user_message", text: "When do I plant garlic?" });
+    spade.reply(garden, "In October.");
+  });
+  await screen.findByText("In October.");
+  await waitFor(() => expect(missing(spadeScreen)).toEqual([]));
+});
+
 const coverage = [
   codeReviewPages,
   workingThread,
@@ -369,6 +470,8 @@ const coverage = [
   panelsScreen,
   panelTabs,
   sharedParts,
+  pagesScreen,
+  spadeScreen,
 ];
 
 test("every part in the contract is drawn by a screen these tests walk", () => {

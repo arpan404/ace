@@ -17,6 +17,7 @@ export function ProgressBar(props: {
   return (
     <div
       role="progressbar"
+      data-part="progress"
       aria-label={props.label}
       {...part("progress", props.value === undefined ? "working" : undefined)}
       aria-valuemin={0}

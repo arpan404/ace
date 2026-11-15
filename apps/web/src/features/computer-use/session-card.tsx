@@ -14,6 +14,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.t
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * One agent-controlled (or person-controlled) app: its live picture (with the agent's pointer, and
@@ -45,7 +46,7 @@ export function SessionCard(props: {
   const controllable = !view.viewOnly && !view.awaitingChoice;
   if (props.compact)
     return (
-      <article aria-label={view.app} className="border-b">
+      <article {...part("list-row", expanded && "open")} aria-label={view.app} className="border-b">
         <button
           type="button"
           aria-expanded={expanded}
@@ -67,7 +68,11 @@ export function SessionCard(props: {
       </article>
     );
   return (
-    <article aria-label={view.app} className="flex min-w-0 flex-col overflow-hidden border-b">
+    <article
+      {...part("card", undefined, "session")}
+      aria-label={view.app}
+      className="flex min-w-0 flex-col overflow-hidden border-b"
+    >
       {props.live !== false && session && state.lifecycle === "live" && (
         <div className="relative aspect-video border-b">
           <LiveView
