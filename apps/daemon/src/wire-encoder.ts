@@ -107,5 +107,6 @@ function shortThread(message: Events, shape: EventShape): string | undefined {
 
 function eventsPrefix(message: Events, thread: string | undefined): string {
   const named = thread === undefined ? "" : `"threadId":${JSON.stringify(thread)},`;
-  return `{"type":"events","subscriptionId":${JSON.stringify(message.subscriptionId)},"afterSeq":${message.afterSeq},"throughSeq":${message.throughSeq},${named}"events":[`;
+  const early = message.early ? `"early":true,` : "";
+  return `{"type":"events","subscriptionId":${JSON.stringify(message.subscriptionId)},"afterSeq":${message.afterSeq},"throughSeq":${message.throughSeq},${early}${named}"events":[`;
 }

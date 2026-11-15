@@ -7,6 +7,7 @@ import { win32 } from "node:path";
 import { openLibrary, readInt32, wideString, cString } from "@ace/provider-kit/bun-ffi";
 
 const Request = z.object({
+  op: z.enum(["move", "exchange"]).default("move"),
   source: z.string().min(1).max(16384),
   destination: z.string().min(1).max(16384),
 });
@@ -16,7 +17,7 @@ const integer = z.number().int();
  * The reply for a POSIX rename's result. `errno` must be read right after the call, before any
  * other work: anything in between may make a call of its own that sets it.
  */
-function posixResult(result: unknown, error: number): Reply {
+function posixResult(result: unknown, error: number, message: string): Reply {
   if (integer.parse(result) === 0) return { ok: true };
   const codes = constants.errno;
   return {
@@ -31,27 +32,43 @@ function posixResult(result: unknown, error: number): Reply {
             : error === codes.ENOSYS || error === codes.EINVAL || error === codes.ENOTSUP
               ? "UNSUPPORTED"
               : "IO_ERROR",
-    message: "Exclusive rename failed",
+    message,
   };
 }
 /** Windows: the `\\?\` form of an absolute path, which lifts MAX_PATH for Win32 calls. */
 function windowsLongPath(path: string): string {
   return win32.toNamespacedPath(win32.resolve(path));
 }
-/** Bind once in this dedicated I/O worker; syscall and errno stay on the same thread. */
-function systemMover(): (source: string, destination: string) => Reply {
+type Mover = (source: string, destination: string) => Reply;
+const unsupported: Mover = () => ({
+  ok: false,
+  code: "UNSUPPORTED",
+  message: "Atomic exchange is unavailable on this platform",
+});
+/**
+ * Bind once in this dedicated I/O worker; syscall and errno stay on the same thread.
+ * `move` never replaces an existing name. `exchange` swaps two existing names in one step
+ * (macOS `RENAME_SWAP`, Linux `RENAME_EXCHANGE`); Windows has no such call.
+ */
+function systemMover(): { move: Mover; exchange: Mover } {
   if (process.platform === "darwin") {
     const library = openLibrary("/usr/lib/libSystem.B.dylib", {
       renamex_np: { args: ["ptr", "ptr", "u32"], returns: "i32" },
       __error: { args: [], returns: "ptr" },
     });
     const { renamex_np: rename, __error: location } = library.symbols;
-    return (source, destination) => {
-      const from = cString(source);
-      const to = cString(destination);
-      const result = rename(from, to, 4); // RENAME_EXCL
-      const error = result === 0 ? 0 : readInt32(Number(location()));
-      return posixResult(result, error);
+    const call =
+      (flags: number, message: string): Mover =>
+      (source, destination) => {
+        const from = cString(source);
+        const to = cString(destination);
+        const result = rename(from, to, flags);
+        const error = result === 0 ? 0 : readInt32(Number(location()));
+        return posixResult(result, error, message);
+      };
+    return {
+      move: call(4, "Exclusive rename failed"), // RENAME_EXCL
+      exchange: call(2, "Atomic exchange failed"), // RENAME_SWAP
     };
   }
   if (process.platform === "linux") {
@@ -60,12 +77,18 @@ function systemMover(): (source: string, destination: string) => Reply {
       __errno_location: { args: [], returns: "ptr" },
     });
     const { renameat2: rename, __errno_location: location } = library.symbols;
-    return (source, destination) => {
-      const from = cString(source);
-      const to = cString(destination);
-      const result = rename(-100, from, -100, to, 1); // AT_FDCWD, RENAME_NOREPLACE
-      const error = result === 0 ? 0 : readInt32(Number(location()));
-      return posixResult(result, error);
+    const call =
+      (flags: number, message: string): Mover =>
+      (source, destination) => {
+        const from = cString(source);
+        const to = cString(destination);
+        const result = rename(-100, from, -100, to, flags); // AT_FDCWD
+        const error = result === 0 ? 0 : readInt32(Number(location()));
+        return posixResult(result, error, message);
+      };
+    return {
+      move: call(1, "Exclusive rename failed"), // RENAME_NOREPLACE
+      exchange: call(2, "Atomic exchange failed"), // RENAME_EXCHANGE
     };
   }
   if (process.platform === "win32") {
@@ -76,7 +99,7 @@ function systemMover(): (source: string, destination: string) => Reply {
     const { MoveFileExW: rename, GetLastError: lastError } = library.symbols;
     const pause = new Int32Array(new SharedArrayBuffer(4));
     // Flags 0: never replace and never copy across volumes.
-    return (source, destination) => {
+    const move: Mover = (source, destination) => {
       for (let attempt = 0; ; attempt++) {
         const from = wideString(windowsLongPath(source));
         const to = wideString(windowsLongPath(destination));
@@ -102,19 +125,23 @@ function systemMover(): (source: string, destination: string) => Reply {
         };
       }
     };
+    return { move, exchange: unsupported };
   }
-  return () => ({
-    ok: false,
-    code: "UNSUPPORTED",
-    message: "Atomic no-replace rename is unavailable on this platform",
-  });
+  return {
+    move: () => ({
+      ok: false,
+      code: "UNSUPPORTED",
+      message: "Atomic no-replace rename is unavailable on this platform",
+    }),
+    exchange: unsupported,
+  };
 }
-let move: ReturnType<typeof systemMover> | undefined;
+let movers: ReturnType<typeof systemMover> | undefined;
 parentPort?.on("message", (raw: unknown) => {
   try {
     const request = Request.parse(raw);
-    move ??= systemMover();
-    parentPort?.postMessage(move(request.source, request.destination));
+    movers ??= systemMover();
+    parentPort?.postMessage(movers[request.op](request.source, request.destination));
   } catch {
     parentPort?.postMessage({
       ok: false,

@@ -532,6 +532,23 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     ticket: z
       .object({ ticket: z.string().regex(/^[0-9a-f]{64}$/), ttlMs: z.number().int().positive() })
       .optional(),
+    /**
+     * Relay stream handshakes this daemon takes besides Noise XX: `nk1` lets a client that holds
+     * a ticket or grant open its next relay stream with Noise NK and an early hello (ADR 0155).
+     * Trusted only as received in a welcome under the pinned host key. Unknown names are ignored.
+     */
+    relayHandshakes: z.array(z.string().max(16)).max(8).optional(),
+  }),
+  /**
+   * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's
+   * `hello.confirm` and has now run what a hello runs. With `nextTicket` asked, it carries the
+   * one-use ticket for the next connection, as a welcome does on the other paths.
+   */
+  z.object({
+    type: z.literal("hello.confirmed"),
+    ticket: z
+      .object({ ticket: z.string().regex(/^[0-9a-f]{64}$/), ttlMs: z.number().int().positive() })
+      .optional(),
   }),
   z
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })
@@ -557,6 +574,13 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       afterSeq: seq,
       throughSeq: seq,
       events: z.array(DeliveryEvent),
+      /**
+       * Events an NK relay session gets before it confirms (ADR 0155): applied ahead of the
+       * subscription, which doesn't exist yet. They mark nothing current, ready or confirmed,
+       * and the subscription that follows may still answer with a snapshot. Only an NK session
+       * gets them.
+       */
+      early: z.literal(true).optional(),
     })
     .refine(
       (message) => {

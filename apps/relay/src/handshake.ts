@@ -3,7 +3,7 @@ import type { KeyPair, Transport } from "@ace/secure-channel";
 import type { WebSocket } from "ws";
 import type { Clock } from "./clock.ts";
 import { FrameReader, sendFrame } from "./socket.ts";
-export { CONTROL_PROLOGUE, STREAM_PROLOGUE } from "./wire.ts";
+export { CONTROL_PROLOGUE, NK_STREAM_PROLOGUE, STREAM_PROLOGUE } from "./wire.ts";
 type Options = {
   staticKey?: KeyPair;
   pinnedFingerprint?: string;
@@ -49,10 +49,12 @@ export function initiateHandshake(
     await sendFrame(socket, state.writeMessage());
   });
 }
+/** `first`: the first message, when the caller already read it to tell the patterns apart. */
 export function respondHandshake(
   socket: WebSocket,
   reader: FrameReader,
   options: Options,
+  first?: Uint8Array,
 ): Promise<Transport> {
   const state = new NoiseXX({
     ...options,
@@ -61,7 +63,7 @@ export function respondHandshake(
     ephemeralKey: keyPair(),
   });
   return owned(socket, state, options, async () => {
-    readEmptyPayload(state, await reader.next());
+    readEmptyPayload(state, first ?? (await reader.next()));
     await sendFrame(socket, state.writeMessage());
     readEmptyPayload(state, await reader.next());
   });
