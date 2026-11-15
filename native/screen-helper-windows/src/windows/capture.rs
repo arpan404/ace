@@ -9,7 +9,7 @@ use crate::{
     errors::{Code, Error, Result},
     media::pump::SERVICE,
     media::shell::IngestShell,
-    stream::Stream,
+    stream::{CaptureTime, Stream},
 };
 use std::{
     sync::{Arc, Condvar, Mutex},
@@ -36,9 +36,9 @@ struct Signal {
     /// Use the last picture again now (video starting, a keyframe or a still asked for, on a
     /// screen that may not change).
     refresh: bool,
-    /// When the newest picture's arrival was signalled (QPC, 100 ns): its capture time when
+    /// When the newest picture's arrival was signalled (raw QPC ticks): its capture time when
     /// the frame carries none of its own.
-    arrived_100ns: Option<i64>,
+    arrived_ticks: Option<i64>,
 }
 /// Live video's side of a capture: media-mf's device (absent where the start-up trial found
 /// no H.264 MFT, which leaves the session on JPEG) and the route its units take.
@@ -160,7 +160,7 @@ impl Feed {
             let (lock, wake) = &*arrival;
             let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
             state.pending.arrived();
-            state.arrived_100ns = counter_100ns();
+            state.arrived_ticks = qpc().map(|(ticks, _)| ticks);
             drop(state);
             wake.notify_one();
             Ok(())
@@ -225,8 +225,18 @@ impl Drop for Capture {
         }
     }
 }
+/// The raw performance counter and its frequency: the clock epochs are applied on, unrounded.
+pub(super) fn qpc() -> Option<(i64, i64)> {
+    use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut count, mut frequency) = (0i64, 0i64);
+    unsafe {
+        QueryPerformanceCounter(&mut count).ok()?;
+        QueryPerformanceFrequency(&mut frequency).ok()?;
+    }
+    (frequency > 0).then_some((count, frequency))
+}
 /// The performance counter in 100 ns units, the clock of a frame's SystemRelativeTime.
-pub(super) fn counter_100ns() -> Option<i64> {
+fn counter_100ns() -> Option<i64> {
     use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
     let (mut count, mut frequency) = (0i64, 0i64);
     unsafe {
@@ -249,13 +259,26 @@ enum Woke {
     Service,
 }
 /// Units the encoder finished late, published with their own pictures' metadata. A failing
-/// encoder is dropped and replaced on the next picture.
-fn service(encoder: &mut Option<VideoEncoder>, video: &Video, stream: &Arc<Mutex<Stream>>) {
+/// encoder is dropped and replaced on the next picture. Returns whether the kept picture must
+/// be encoded again.
+fn service(encoder: &mut Option<VideoEncoder>, video: &Video, stream: &Arc<Mutex<Stream>>) -> bool {
     let Some(active) = encoder.as_mut() else {
-        return;
+        return false;
     };
     match active.service() {
-        Ok(units) => publish(units, video, stream),
+        Ok(service) => {
+            publish(service.units, video, stream);
+            if service.resend {
+                // The watchdog replaced a stalled MFT and the picture it held is gone: encode
+                // the kept picture again, with a keyframe, for a screen that sends nothing new.
+                stream
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .request_keyframe();
+                return true;
+            }
+            false
+        }
         Err(error) => {
             eprintln!("screen video: {error}");
             *encoder = None;
@@ -263,6 +286,7 @@ fn service(encoder: &mut Option<VideoEncoder>, video: &Video, stream: &Arc<Mutex
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .request_keyframe();
+            false
         }
     }
 }
@@ -348,11 +372,13 @@ fn run(
         if woke == Woke::Service {
             drop(state);
             serviced = Instant::now();
-            service(&mut encoder, &video, &stream);
+            if service(&mut encoder, &video, &stream) {
+                lock.lock().unwrap_or_else(|e| e.into_inner()).refresh = true;
+            }
             continue;
         }
         let refresh = woke == Woke::Refresh;
-        let arrived_100ns = state.arrived_100ns;
+        let arrived_ticks = state.arrived_ticks;
         drop(state);
         target.validate(allowlist)?;
         let mut newest: Option<Direct3D11CaptureFrame> = None;
@@ -425,9 +451,12 @@ fn run(
                 captured,
                 // The epoch in force when this picture was captured, by its own timestamp: a
                 // picture delivered after a later epoch was applied keeps the earlier one.
-                epoch: captured_100ns
-                    .or(arrived_100ns)
-                    .map_or(0, |at| lock_stream().epoch_at(at)),
+                epoch: lock_stream().epoch_at(match (captured_100ns, qpc()) {
+                    (Some(units), Some((_, frequency))) => {
+                        CaptureTime::from_100ns(units, frequency)
+                    }
+                    _ => CaptureTime::exact(arrived_ticks.unwrap_or(0)),
+                }),
             });
         } else if !refresh {
             continue;

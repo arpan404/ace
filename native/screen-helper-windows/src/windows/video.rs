@@ -11,11 +11,15 @@ use media_ingest::VideoUnit;
 use media_mf::{Copies, MfDevice, MfEncoder, MfSurface};
 
 pub use crate::media::pump::Captured;
-use crate::media::pump::{Live, Pump};
+use crate::media::pump::{Live, Pump, Service, Serviced};
 
 impl Live for MfEncoder {
-    fn service(&mut self) -> std::result::Result<(), CodecError> {
-        MfEncoder::service(self)
+    fn service(&mut self) -> std::result::Result<Serviced, CodecError> {
+        Ok(if MfEncoder::service(self)? {
+            Serviced::Replaced
+        } else {
+            Serviced::Kept
+        })
     }
 }
 
@@ -55,7 +59,7 @@ impl VideoEncoder {
     }
 
     /// Late output and the stall watchdog, between pictures.
-    pub fn service(&mut self) -> Result<Vec<VideoUnit>> {
+    pub fn service(&mut self) -> Result<Service> {
         self.pump.service().map_err(codec_error)
     }
 

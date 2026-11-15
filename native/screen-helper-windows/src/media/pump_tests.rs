@@ -49,7 +49,7 @@ impl Encoder for Late {
     }
 }
 impl Live for Late {
-    fn service(&mut self) -> Result<(), CodecError> {
+    fn service(&mut self) -> Result<Serviced, CodecError> {
         self.serviced += 1;
         for entry in &mut self.waiting {
             entry.2 = entry.2.saturating_sub(1);
@@ -79,7 +79,7 @@ impl Live for Late {
                 duration_us: 16_666,
             });
         }
-        Ok(())
+        Ok(Serviced::Kept)
     }
 }
 
@@ -131,8 +131,8 @@ fn a_keyframe_the_encoder_hands_back_late_comes_out_on_service_with_its_capture_
         .unwrap()
         .is_empty());
     assert!(pump.owed());
-    assert!(pump.service().unwrap().is_empty());
-    let units = pump.service().unwrap();
+    assert!(pump.service().unwrap().units.is_empty());
+    let units = pump.service().unwrap().units;
     assert_eq!(units.len(), 1);
     let unit = &units[0];
     assert!(unit.key);
@@ -143,7 +143,7 @@ fn a_keyframe_the_encoder_hands_back_late_comes_out_on_service_with_its_capture_
     assert!(!pump.owed());
     // With nothing owed, service leaves the encoder alone.
     let serviced = pump.encoder().serviced;
-    assert!(pump.service().unwrap().is_empty());
+    assert!(pump.service().unwrap().units.is_empty());
     assert_eq!(pump.encoder().serviced, serviced);
 }
 
@@ -160,9 +160,70 @@ fn each_late_unit_keeps_its_own_picture_metadata() {
     let second = pump.next_pts(1_000);
     assert!(second > first);
     pump.submit(picture(second), captured(2), false).unwrap();
-    let units = pump.service().unwrap();
+    let units = pump.service().unwrap().units;
     assert_eq!(
         units.iter().map(|u| u.epoch).collect::<Vec<_>>(),
         vec![1, 2]
     );
+}
+
+/// An encoder whose watchdog replaces a stalled MFT on its next service: the pictures it held
+/// are gone, and it encodes afresh only when given a picture again.
+struct Stalls {
+    late: Late,
+    stalled: bool,
+}
+impl Encoder for Stalls {
+    fn configure(&mut self, spec: &EncodeSpec) -> Result<(), CodecError> {
+        self.late.configure(spec)
+    }
+    fn encode(&mut self, picture: Picture, key: bool) -> Result<(), CodecError> {
+        self.late.encode(picture, key)
+    }
+    fn poll(&mut self) -> Option<EncodedUnit> {
+        self.late.poll()
+    }
+    fn caps(&self) -> EncoderCaps {
+        self.late.caps()
+    }
+}
+impl Live for Stalls {
+    fn service(&mut self) -> Result<Serviced, CodecError> {
+        if std::mem::take(&mut self.stalled) {
+            // Replaced: what the old MFT held is thrown away.
+            self.late.waiting.clear();
+            return Ok(Serviced::Replaced);
+        }
+        self.late.service()
+    }
+}
+
+#[test]
+fn a_stalled_encoder_replaced_on_a_static_screen_asks_for_the_picture_again_and_its_keyframe_comes()
+{
+    let mut pump = Pump::new(Stalls {
+        late: Late {
+            delay: 1,
+            waiting: VecDeque::new(),
+            ready: VecDeque::new(),
+            serviced: 0,
+        },
+        stalled: true,
+    });
+    let pts = pump.next_pts(1_000);
+    pump.submit(picture(pts), captured(3), true).unwrap();
+    // The watchdog replaces the MFT: nothing is owed any more, and the caller is told to
+    // encode its picture again with a keyframe (no new picture will come).
+    let serviced = pump.service().unwrap();
+    assert!(serviced.units.is_empty());
+    assert!(serviced.resend);
+    assert!(
+        !pump.owed(),
+        "the discarded picture would be serviced forever"
+    );
+    let again = pump.next_pts(1_000);
+    pump.submit(picture(again), captured(3), true).unwrap();
+    let units = pump.service().unwrap().units;
+    assert_eq!(units.len(), 1);
+    assert!(units[0].key);
 }

@@ -327,11 +327,11 @@ impl DesktopHost {
         stream
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            // Applied now on the capture clock: pictures captured before keep the old epoch.
+            // Applied now, in raw counter ticks: pictures captured before keep the old epoch.
             .configure(
                 settings,
                 configure.epoch,
-                capture::counter_100ns().unwrap_or(0),
+                capture::qpc().map_or(0, |(ticks, _)| ticks),
             );
         let shell = self
             .shell

@@ -24,7 +24,8 @@ pub enum Report {
 
 enum Item {
     Write(u64, Bytes),
-    /// The end frame is written: finish and close.
+    /// The end frame is written: finish (flush to the reader) and close. Cancelled by a cut, as
+    /// a write is.
     Shutdown,
 }
 
@@ -32,6 +33,7 @@ enum Item {
 struct State {
     queue: VecDeque<Item>,
     cut: bool,
+    /// A write or the final flush is in progress: a cut cancels it.
     in_write: bool,
 }
 
@@ -147,8 +149,12 @@ fn pump(shared: &Shared, mut link: Box<dyn Link>, report: impl Fn(Report)) {
         };
         match item {
             Item::Shutdown => {
+                // Cancellable like a write: a reader that stopped taking bytes would hold the
+                // flush, its thread and its handle forever.
+                state.in_write = true;
                 drop(state);
                 link.finish();
+                shared.lock().in_write = false;
                 return;
             }
             Item::Write(id, bytes) => {

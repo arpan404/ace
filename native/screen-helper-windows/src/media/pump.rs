@@ -21,10 +21,26 @@ pub struct Captured {
     pub epoch: u32,
 }
 
+/// What servicing the encoder did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Serviced {
+    Kept,
+    /// The watchdog replaced a stalled MFT: the pictures it held are gone.
+    Replaced,
+}
+
 /// An encoder that can be serviced between pictures: collect late output, replace a stalled
 /// MFT.
 pub trait Live: Encoder {
-    fn service(&mut self) -> Result<(), CodecError>;
+    fn service(&mut self) -> Result<Serviced, CodecError>;
+}
+
+/// Units serviced out, and whether the caller must encode its current picture again with a
+/// keyframe: the encoder threw away what it held, and a static screen sends nothing new.
+#[derive(Debug, Default)]
+pub struct Service {
+    pub units: Vec<VideoUnit>,
+    pub resend: bool,
 }
 
 pub struct Pump<E: Live> {
@@ -87,13 +103,19 @@ impl<E: Live> Pump<E> {
         self.collect()
     }
 
-    /// Between pictures: late output and the watchdog.
-    pub fn service(&mut self) -> Result<Vec<VideoUnit>, CodecError> {
+    /// Between pictures: late output and the watchdog. After a replacement nothing more is
+    /// owed for the discarded pictures, and the caller is asked to resend its picture.
+    pub fn service(&mut self) -> Result<Service, CodecError> {
         if self.in_flight.is_empty() {
-            return Ok(Vec::new());
+            return Ok(Service::default());
         }
-        self.encoder.service()?;
-        self.collect()
+        let serviced = self.encoder.service()?;
+        let units = self.collect()?;
+        let resend = serviced == Serviced::Replaced;
+        if resend {
+            self.in_flight.clear();
+        }
+        Ok(Service { units, resend })
     }
 
     /// Pictures in the encoder whose units haven't come out.

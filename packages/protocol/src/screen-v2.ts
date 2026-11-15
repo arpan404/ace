@@ -342,6 +342,9 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
     settings: ScreenStreamSettings,
     ingest: ScreenStreamIngest.optional(),
     epoch: z.number().int().nonnegative().max(0xffffffff).optional(),
+    /** Whether pictures under `epoch` are private. One it isn't said of counts as private, so
+     * a picture captured at the switch from it is labelled private. */
+    epochPrivate: z.boolean().optional(),
   }),
   Envelope.extend({ op: z.literal("stream.keyframe") }),
   /** One JPEG still of the current picture while video streams. */

@@ -312,3 +312,101 @@ fn a_cut_between_two_writes_still_ends_the_next_write_and_drops_the_queue() {
     );
     assert!(!s.in_write);
 }
+
+/// A link whose reader stops before the end: the final flush blocks until it is cancelled, and
+/// a cancel only ends a flush already in progress.
+struct StuckFlush {
+    state: Arc<(Mutex<FlushState>, std::sync::Condvar)>,
+}
+#[derive(Default)]
+struct FlushState {
+    flushing: bool,
+    cancelled: bool,
+    returned: bool,
+}
+impl Link for StuckFlush {
+    fn write_all(&mut self, _: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+    fn alive(&mut self) -> bool {
+        true
+    }
+    fn finish(&mut self) {
+        let (lock, wake) = &*self.state;
+        let mut state = lock.lock().unwrap();
+        state.flushing = true;
+        wake.notify_all();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !state.cancelled && Instant::now() < deadline {
+            state = wake
+                .wait_timeout(state, Duration::from_millis(50))
+                .unwrap()
+                .0;
+        }
+        state.flushing = false;
+        state.returned = true;
+        wake.notify_all();
+    }
+}
+struct FlushCancel(Arc<(Mutex<FlushState>, std::sync::Condvar)>);
+impl Cancel for FlushCancel {
+    fn cancel(&self) {
+        let (lock, wake) = &*self.0;
+        let mut state = lock.lock().unwrap();
+        if state.flushing {
+            state.cancelled = true;
+        }
+        wake.notify_all();
+    }
+}
+
+#[test]
+fn a_finish_whose_reader_stopped_reading_is_cancelled_past_its_deadline() {
+    let state = Arc::new((Mutex::new(FlushState::default()), std::sync::Condvar::new()));
+    let (link_state, cancel_state) = (state.clone(), state.clone());
+    let start = Instant::now();
+    let shell = IngestShell::new(
+        Box::new(move |_, _| {
+            let cancel: Arc<dyn Cancel> = Arc::new(FlushCancel(cancel_state.clone()));
+            Ok((
+                Box::new(StuckFlush {
+                    state: link_state.clone(),
+                }) as Box<dyn Link>,
+                cancel,
+            ))
+        }),
+        Sinks {
+            legacy: Box::new(|_| {}),
+            closed: Box::new(|_| {}),
+            keyframe: Box::new(|| {}),
+        },
+        Box::new(move || start.elapsed().as_micros() as u64),
+    );
+    let address = Address {
+        socket: "stuck".into(),
+        token: Zeroizing::new([1; 32]),
+    };
+    shell.configure(Some(address), None).unwrap();
+    shell.publish(&unit(0, true));
+    // Back to the daemon's path: the old connection writes its end frame, then flushes, and
+    // its reader never takes the bytes.
+    shell.configure(None, None).unwrap();
+    let flushed = Instant::now();
+    loop {
+        let s = state.0.lock().unwrap();
+        if s.returned {
+            break;
+        }
+        assert!(
+            flushed.elapsed() < FINISH_LIMIT + Duration::from_secs(2),
+            "the flush was never cancelled (flushing {})",
+            s.flushing
+        );
+        drop(s);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        state.0.lock().unwrap().cancelled,
+        "it ended by its own timeout, not a cancel"
+    );
+}

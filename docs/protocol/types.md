@@ -28334,6 +28334,7 @@ Example:
 | settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
 | ingest | no | [ScreenStreamIngest.json](schema/ScreenStreamIngest.json) |  |
 | epoch | no | integer | {"minimum":0,"maximum":4294967295} |
+| epochPrivate | no | boolean |  |
 
 Example:
 

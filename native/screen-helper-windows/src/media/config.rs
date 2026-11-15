@@ -1,6 +1,7 @@
 //! `stream.configure` (packages/protocol `ScreenHelperRequestV2`): each request is the whole
 //! state. `settings` says JPEG stills or H.264 video and its limits; an absent `ingest` means
 //! the daemon's pipe; `epoch` is the privacy epoch pictures captured from now on carry.
+use crate::stream::Epoch;
 use crate::{
     codec::Request,
     errors::{Code, Error, Result},
@@ -43,7 +44,9 @@ pub struct Configure {
     /// before the token or a frame is sent (another instance of the name can be created by
     /// any process of this user).
     pub server: Option<u32>,
-    pub epoch: Option<u32>,
+    /// The privacy epoch pictures captured from now on carry, and whether they are private
+    /// (`epochPrivate`; an epoch it isn't said of counts as private).
+    pub epoch: Option<Epoch>,
 }
 
 /// ace-media's ingest on Windows is a local named pipe.
@@ -89,6 +92,18 @@ pub fn parse(request: &Request) -> Result<Configure> {
     let epoch = match request.fields.get("epoch") {
         None => None,
         Some(_) => Some(request.get::<u32>("epoch")?),
+    };
+    let private = match request.fields.get("epochPrivate") {
+        None => None,
+        Some(_) => Some(request.get::<bool>("epochPrivate")?),
+    };
+    let epoch = match (epoch, private) {
+        (Some(id), Some(private)) => Some(Epoch { id, private }),
+        (Some(id), None) => Some(Epoch::unsaid(id)),
+        (None, None) => None,
+        (None, Some(_)) => {
+            return Err(Error::new(Code::Bounds, "epochPrivate needs an epoch"));
+        }
     };
     Ok(Configure {
         settings,
@@ -176,8 +191,32 @@ mod tests {
         assert_eq!(*ingest.token, std::array::from_fn::<u8, 32, _>(|i| i as u8));
         assert_eq!(
             (parsed.epoch, parsed.settings.codec, parsed.settings.fps),
-            (Some(3), StreamCodec::H264, 60)
+            (Some(Epoch::unsaid(3)), StreamCodec::H264, 60)
         );
+    }
+
+    #[test]
+    fn an_epoch_says_whether_it_is_private_and_counts_as_private_when_it_does_not() {
+        let clear = parse(&request(
+            json!({"settings":settings(),"epoch":6,"epochPrivate":false}),
+        ))
+        .unwrap();
+        assert_eq!(
+            clear.epoch,
+            Some(Epoch {
+                id: 6,
+                private: false
+            })
+        );
+        let unsaid = parse(&request(json!({"settings":settings(),"epoch":6}))).unwrap();
+        assert_eq!(
+            unsaid.epoch,
+            Some(Epoch {
+                id: 6,
+                private: true
+            })
+        );
+        assert!(parse(&request(json!({"settings":settings(),"epochPrivate":true}))).is_err());
     }
 
     #[test]

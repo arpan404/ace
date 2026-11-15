@@ -183,4 +183,32 @@ mod tests {
             let _ = CloseHandle(server);
         }
     }
+
+    #[test]
+    fn a_flush_to_a_reader_that_stopped_reading_ends_when_cancelled() {
+        let name = format!(r"\\.\pipe\ace-e1-flush-{}", std::process::id());
+        let server = serve(&name);
+        let (mut link, cancel) = dial(&name, Some(std::process::id())).expect("trusted server");
+        link.write_all(b"end frame").unwrap();
+        // The server never reads: the flush waits for it.
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let flushing = std::thread::spawn(move || {
+            link.finish();
+            let _ = done_tx.send(());
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            done.try_recv().is_err(),
+            "the flush did not wait for the reader"
+        );
+        cancel.cancel();
+        assert!(
+            done.recv_timeout(std::time::Duration::from_secs(2)).is_ok(),
+            "a cancel did not end the flush"
+        );
+        let _ = flushing.join();
+        unsafe {
+            let _ = CloseHandle(server);
+        }
+    }
 }
