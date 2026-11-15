@@ -381,3 +381,131 @@ fn a_bot_woken_early_by_the_person_is_told_so() {
     assert!(text.contains("cause=\"person\""));
     assert!(text.contains("The person woke you early. You gave this reason: the deploy settles."));
 }
+
+fn outage(wake: &str) -> Event {
+    set(
+        wake,
+        Purpose::Outage {
+            attempt: 2,
+            error: "the endpoint answered 503".into(),
+        },
+        Some(120_000),
+        None,
+    )
+}
+
+fn cap_park(wake: &str) -> Event {
+    k(Known::WakeSet {
+        wake: wake.into(),
+        reply: String::new(),
+        purpose: Purpose::Park {
+            reason: ParkReason::Cap,
+            attempt: 0,
+        },
+        due_ms: Some(9),
+        condition: None,
+        reason: "Porter reached its daily cap. It carries on then.".into(),
+    })
+}
+
+#[test]
+fn an_outage_wait_and_a_park_add_nothing_for_the_model_when_they_fire() {
+    for event in [outage("w1"), cap_park("w1")] {
+        let o = open(&[event]).remove(0);
+        assert_eq!(note(&o, Cause::Time, None), None, "{o:?}");
+        assert_eq!(note(&o, Cause::Person, None), None, "{o:?}");
+    }
+    // A closed reply's retry an earlier build stored still opens a reply with its note.
+    let legacy = set(
+        "w2",
+        Purpose::Retry {
+            attempt: 3,
+            job: None,
+            error: "rate limited".into(),
+        },
+        Some(1),
+        None,
+    );
+    let o = open(&[legacy]).remove(0);
+    let text = note(&o, Cause::Time, None).unwrap_or_default();
+    assert!(
+        text.contains("Your last reply failed (rate limited)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_persons_message_ends_an_outage_wait_and_any_message_ends_a_park() {
+    let events = vec![outage("w1"), cap_park("w2")];
+    let woken = |message: &Event| -> Vec<String> {
+        settled_by(&events, message)
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Known(Known::WakeFired { wake, .. }) => Some(wake),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(woken(&Event::user_message("Also the date")), ["w1", "w2"]);
+    // Another bot's message opens a reply too, which meets the cap again if it still holds; the
+    // person's turn waiting out an outage is theirs to hurry.
+    assert_eq!(woken(&from_bot("b2", "Builder")), ["w2"]);
+    assert!(woken(&job_done("j1")).is_empty());
+}
+
+#[test]
+fn the_person_reads_an_outage_wait_and_a_park_in_plain_words() {
+    let at = |ms: i64| format!("t{ms}");
+    let check = k(Known::WakeSet {
+        wake: "w3".into(),
+        reply: String::new(),
+        purpose: Purpose::Park {
+            reason: ParkReason::Check,
+            attempt: 1,
+        },
+        due_ms: Some(7),
+        condition: None,
+        reason: "the review model answered 503".into(),
+    });
+    let all = open(&[outage("w1"), cap_park("w2"), check]);
+    assert_eq!(
+        words(&all[0], at),
+        "The model is not answering; trying again at t120000 (the endpoint answered 503)"
+    );
+    assert_eq!(
+        words(&all[1], at),
+        "Porter reached its daily cap. It carries on then."
+    );
+    assert_eq!(
+        words(&all[2], at),
+        "Checking the work again at t7 (the review model answered 503)"
+    );
+}
+
+#[test]
+fn a_task_with_a_park_open_is_not_carried_on_until_it_fires() {
+    let mut events = vec![
+        Event::reply_started("r1", "m"),
+        k(Known::StepFinished {
+            reply: "r1".into(),
+            text: String::new(),
+            calls: vec![crate::event::Call {
+                id: "c1".into(),
+                name: crate::task::TASK_STATUS.into(),
+                arguments: json!({ "status": "working" }),
+            }],
+            thoughts: Vec::new(),
+            usage: crate::event::Tokens::default(),
+            cost_micros: 0,
+            seen: None,
+        }),
+        finished("r1"),
+        cap_park("w1"),
+    ];
+    assert_eq!(next(&events, &Policy::default()), Next::Nothing);
+    events.push(fired("w1", Cause::Time, None, Vec::new()));
+    assert!(matches!(
+        next(&events, &Policy::default()),
+        Next::Continue { .. }
+    ));
+}

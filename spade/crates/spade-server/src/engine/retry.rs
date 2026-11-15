@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use futures_util::{Stream, StreamExt};
 use spade_core::maintenance::{Pause, Point};
-use spade_core::wake::{self, Cause, Ended, Purpose};
+use spade_core::wake::{self, CancelledBy, Cause, Ended, Purpose};
 use spade_models::{Delta, ModelError, Prompt};
 use tokio::sync::watch;
 
@@ -248,7 +248,13 @@ async fn on_wake(
         // The engine's clock, so a test moves time instead of waiting.
         tokio::select! {
             () = tokio::time::sleep(left.min(Duration::from_secs(1))) => {}
-            _ = super::turn::stopped(stop) => return Waited::Stopped,
+            _ = super::turn::stopped(stop) => {
+                // A bot's Stop cancelled it already; a helper's ends with its job.
+                if let Err(error) = engine.cancel_wake(id, wake, CancelledBy::Stop) {
+                    tracing::warn!(%error, "could not cancel a stopped turn's outage wait");
+                }
+                return Waited::Stopped;
+            }
             _ = super::turn::pausing(pause, Point::Streaming) => return Waited::Paused,
         }
     }

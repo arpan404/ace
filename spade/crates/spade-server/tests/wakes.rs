@@ -457,6 +457,37 @@ async fn the_person_writing_ends_an_outage_wait_and_the_step_goes_again_with_the
 }
 
 #[tokio::test]
+async fn the_person_calling_off_an_outage_wait_ends_the_reply_stopped() -> Result {
+    let clock = ManualClock::at(T0);
+    let spade = Spade::start_with(
+        vec![Script::failing(503), Script::failing(503)],
+        Vec::new(),
+        retrying(&clock),
+    )
+    .await?;
+    let agent = spade.new_agent("Deployer", "").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Hello").await?;
+    let shown = state_reads(&spade, &conversation, "sleeping").await?;
+    let wake = shown["wake"]["id"].as_str().unwrap_or_default().to_owned();
+    let (status, _) = spade
+        .delete(&format!("/v1/agents/{id}/wakes/{wake}"))
+        .await?;
+    assert!(status < 300, "{status}");
+    spade.wait_for(&conversation, "reply_stopped").await?;
+    state_reads(&spade, &conversation, "idle").await?;
+    at(&spade, &clock, T0 + 2 * MINUTE).await;
+    let events = spade.events(&conversation).await?;
+    assert_eq!(count(&events, "wake_fired"), 0);
+    assert_eq!(count(&events, "reply_failed"), 0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_refused_key_is_reported_and_not_parked() -> Result {
     let clock = ManualClock::at(T0);
     let spade = Spade::start_with(

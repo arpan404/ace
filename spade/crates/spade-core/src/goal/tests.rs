@@ -401,6 +401,38 @@ fn a_claim_is_checked_once_and_not_while_a_job_runs() {
 }
 
 #[test]
+fn a_claim_waits_while_the_task_is_parked_and_is_checked_once_the_park_fires() {
+    let mut chat = worked();
+    let claim = chat.claim_done();
+    chat.events.push(k(Known::WakeSet {
+        wake: "w1".into(),
+        reply: String::new(),
+        purpose: crate::wake::Purpose::Park {
+            reason: crate::wake::ParkReason::Check,
+            attempt: 1,
+        },
+        due_ms: Some(60_000),
+        condition: None,
+        reason: "the review model answered 503".into(),
+    }));
+    assert_eq!(verify::claim(&chat.events), Claim::None);
+    assert_eq!(chat.state(), State::Checking, "never done while it waits");
+    chat.events.push(crate::wake::fired(
+        "w1",
+        crate::wake::Cause::Time,
+        None,
+        Vec::new(),
+    ));
+    assert_eq!(
+        verify::claim(&chat.events),
+        Claim::Check {
+            goal: "g1".into(),
+            claim
+        }
+    );
+}
+
+#[test]
 fn done_needs_every_criterion_met_whatever_the_verifier_says() {
     let cases = [
         (answer(true, &[true, true]), Finding::Done),

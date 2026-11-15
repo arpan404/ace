@@ -250,6 +250,34 @@ mod tests {
     }
 
     #[test]
+    fn an_outage_wait_is_open_until_it_fires_or_is_cancelled_and_only_for_its_reply() {
+        let mut events = vec![Event::reply_started("r1", "m"), outage("w1", "r1")];
+        assert_eq!(
+            open_outage(&events, "r1").map(|(at, o)| (at, o.wake)),
+            Some((1, "w1".into()))
+        );
+        assert_eq!(open_outage(&events, "r2"), None);
+        events.push(Event::user_message("still there?"));
+        assert!(
+            open_outage(&events, "r1").is_some(),
+            "a message alone does not end it"
+        );
+        events.push(fired("w1", Cause::Message, None, Vec::new()));
+        assert_eq!(open_outage(&events, "r1"), None);
+        assert_eq!(ended(&events, "w1"), Some(Ended::Fired));
+        events.push(outage("w2", "r1"));
+        events.push(Event::Known(Known::WakeCancelled {
+            wake: "w2".into(),
+            by: CancelledBy::Person,
+        }));
+        assert_eq!(open_outage(&events, "r1"), None);
+        assert_eq!(
+            ended(&events, "w2"),
+            Some(Ended::Cancelled(CancelledBy::Person))
+        );
+    }
+
+    #[test]
     fn a_checks_park_backs_off_until_a_verdict_is_stored() {
         let park = Event::Known(Known::WakeSet {
             wake: "w1".into(),

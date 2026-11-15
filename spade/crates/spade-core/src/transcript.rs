@@ -616,6 +616,45 @@ mod tests {
     }
 
     #[test]
+    fn a_turn_waiting_out_an_outage_stays_open_through_a_restart_until_its_wake_fires() {
+        let outage = |wake: &str| {
+            Event::Known(Known::WakeSet {
+                wake: wake.into(),
+                reply: "r1".into(),
+                purpose: crate::wake::Purpose::Outage {
+                    attempt: 1,
+                    error: "503".into(),
+                },
+                due_ms: Some(60_000),
+                condition: None,
+                reason: String::new(),
+            })
+        };
+        let mut events = vec![
+            Event::user_message("Hello"),
+            Event::reply_started("r1", "m"),
+            outage("w1"),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(transcript.outage.as_deref(), Some("w1"));
+        assert_eq!(
+            transcript.close_after_restart(),
+            None,
+            "it resumes, not interrupted"
+        );
+        events.push(crate::wake::fired(
+            "w1",
+            crate::wake::Cause::Time,
+            None,
+            Vec::new(),
+        ));
+        assert_eq!(Transcript::fold(&events).outage, None);
+        // An outage wake left over from another reply does not hold this one.
+        let other = vec![Event::reply_started("r2", "m"), outage("w2")];
+        assert_eq!(Transcript::fold(&other).outage, None);
+    }
+
+    #[test]
     fn a_paused_reply_that_ran_again_is_interrupted_by_a_crash() {
         let events = [
             Event::user_message("Search"),
