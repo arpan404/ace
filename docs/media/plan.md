@@ -1884,6 +1884,12 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
       until the new plan comes. `IngestSources` hands the producer a plan made while its
       source was still opening.
   - **A shared encode's keyframe cut** moves once per keyframe, however many views take it.
+  - **Screen and device resubscribes are transactional too.** A resubscribe is staged: the
+    old view keeps delivering until the new one is set up, its answer included (state, and
+    for devices the poster). Only then does it replace the old one. A failure closes only the
+    new view, and regrants the old one where the new one had replaced it in ace-media. The
+    three bridges share one swap, `viewSwap` in `media-viewers`. `DeviceSubscriptions` stages
+    a new slot beside the current one, and log subscriptions still replace theirs at once.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
