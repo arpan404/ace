@@ -466,8 +466,7 @@ function Single(props: {
         <div className={cn("flex items-center gap-1 pl-9 text-xs text-muted-foreground", space)}>
           <span>Web search isn't set up.</span>
           <Link
-            to="/settings/spade"
-            hash="web-search"
+            to="/settings/spade/search"
             className={buttonVariants({ size: "xs", variant: "ghost" })}
           >
             Set up web search

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   panelLabel,
   PanelRowBody,
@@ -40,16 +40,34 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
         const inGroup = pages.filter((page) => page.group === group);
         if (!inGroup.length) return null;
         const title = settingsGroupTitles[group];
-        return title ? (
-          <PanelSection key={group} label={title}>
-            <PageList pages={inGroup} current={current} />
-          </PanelSection>
-        ) : (
-          <section key={group} aria-label="You" className="mt-5 first:mt-1">
-            <ul className="flex flex-col gap-px">
-              <PageList pages={inGroup} current={current} />
-            </ul>
-          </section>
+        const own = inGroup.filter((page) => !page.section);
+        // A place's pages (Spade's) under their own label, after their group.
+        const sections = [
+          ...new Set(inGroup.flatMap((page) => (page.section ? [page.section.label] : []))),
+        ];
+        return (
+          <Fragment key={group}>
+            {own.length > 0 &&
+              (title ? (
+                <PanelSection label={title}>
+                  <PageList pages={own} current={current} />
+                </PanelSection>
+              ) : (
+                <section aria-label="You" className="mt-5 first:mt-1">
+                  <ul className="flex flex-col gap-px">
+                    <PageList pages={own} current={current} />
+                  </ul>
+                </section>
+              ))}
+            {sections.map((label) => (
+              <PanelSection key={label} label={label}>
+                <PageList
+                  pages={inGroup.filter((page) => page.section?.label === label)}
+                  current={current}
+                />
+              </PanelSection>
+            ))}
+          </Fragment>
         );
       })}
     </div>
@@ -62,10 +80,13 @@ function PageList(props: { pages: readonly SettingsPage[]; current: string | und
     <li key={page.to}>
       <Link
         to={page.to}
+        // The current page is worked out above (a sub-page marks its page), never by the
+        // router's prefix match, which would also mark Spade's General on its other pages.
+        activeOptions={{ exact: true }}
         aria-current={props.current === page.to ? "page" : undefined}
         {...panelRow()}
       >
-        <PanelRowBody icon={page.icon} title={page.title} />
+        <PanelRowBody icon={page.icon} title={page.section?.nav ?? page.title} />
       </Link>
     </li>
   ));

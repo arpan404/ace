@@ -171,6 +171,11 @@ export async function setFastModel(target: SpadeTarget, model: string | null): P
   await spadeHttp(target, "PUT", "/v1/settings", { body: { fast_model: model } });
 }
 
+/** `endpoint/model` a new bot starts on; null: the person's first usable model. */
+export async function setNewBotModel(target: SpadeTarget, model: string | null): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { new_bot_model: model } });
+}
+
 export async function setKey(target: SpadeTarget, endpoint: string, key: string): Promise<void> {
   await spadeHttp(target, "PUT", `/v1/keys/${segment(endpoint)}`, { body: { key } });
 }

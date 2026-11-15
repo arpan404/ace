@@ -38,6 +38,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     ],
   };
   here.endpoints.push(endpoint);
+  here.newBotModel = "openrouter/anthropic/claude-sonnet-5.5";
   // The person's subscriptions, as ace lists them (ADR 0133).
   here.subscriptions = [
     {
@@ -638,6 +639,7 @@ function seedConnectors(spade: FakeSpadeApi) {
       sign_in: "token",
       state: "connected",
       tools: 41,
+      bots: ["spade", "inbox"],
     },
     {
       id: "notion",
@@ -648,9 +650,31 @@ function seedConnectors(spade: FakeSpadeApi) {
       state: "needs_reconnect",
       account: "sam@example.com",
       tools: 12,
+      bots: ["spade"],
     },
   );
-  spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
+  spade.connectors.access.set("inbox", { all: false, connectors: ["github"] });
+  spade.skillStore = {
+    ace: true,
+    skills: [
+      {
+        id: "skl_trip",
+        name: "Trip budget",
+        description: "Totals a trip's bookings in one currency.",
+        origin: "spade",
+        written_by: ["spade"],
+        used_by: ["spade", "inbox"],
+      },
+      {
+        id: "skl_release",
+        name: "Release notes",
+        description: "Writes release notes from merged pull requests.",
+        origin: "ace",
+        written_by: [],
+        used_by: ["inbox"],
+      },
+    ],
+  };
 }
 
 /** A template with its own face, as Spade ships them. */

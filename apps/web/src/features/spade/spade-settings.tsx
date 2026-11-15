@@ -1,181 +1,121 @@
-import { spadeStateLine, type SpadeModels } from "@ace/ui-core/spade-chat";
+import { spadeSetupSentence, type SpadeModels } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
-import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { Select } from "@/components/ui/select.tsx";
+import { useId, type ReactNode } from "react";
+import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { AddEndpointDialog } from "./spade-add-endpoint.tsx";
-import { ConnectorSettings } from "./spade-connector-settings.tsx";
-import { setFastModel } from "./spade-api.ts";
-import { EndpointSection } from "./spade-endpoint-settings.tsx";
-import { OversightSettings } from "./spade-oversight-settings.tsx";
-import { SearchSettings } from "./spade-search-settings.tsx";
-import { SkillStoreSettings } from "./spade-skill-store-settings.tsx";
-import { TranscriptionRow, transcriptionWords } from "./spade-transcription-row.tsx";
-import { SpadeNotes } from "./spade-notes.tsx";
-import {
-  LoadingRow,
-  LoadingRows,
-  SelectSkeleton,
-  SwitchSkeleton,
-} from "./spade-settings-loading.tsx";
-import { useSpadeEnabled } from "./use-spade-enabled.ts";
+import { setFastModel, setNewBotModel, setTranscriptionModel } from "./spade-api.ts";
+import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
+import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
+import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
-import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
- * Settings › Spade: on or off and its state; the fast model; spending and the model review
- * (ADR 0135); About you, the notes every bot
- * sees (ADR 0128); then each of the person's model endpoints (its key, its saved models,
- * removing it) and Add endpoint, from a preset or custom; then web search's Brave key and
- * SearXNG; then the apps Spade is connected to (ADR 0131); then skills Spade wrote while ace was
- * away, to add to ace's library (ADR 0151). While the setting or Spade's state is
- * still being read, every group stands in place with placeholders, and the switch shows none of
- * on or off until the setting is known.
+ * Settings › Spade › General: Spade on or off on this machine; the models it starts new bots
+ * on and uses for small jobs, reviews and transcription; whether every bot's writes are
+ * reviewed (ADR 0135); then what every bot spent together. While the setting or Spade's state is
+ * still being read, the rows hold their place, and the switch shows neither on nor off.
  */
 export function SpadeSettings() {
   const id = useId();
-  const status = useSpadeStatus();
-  const [enabled, setEnabled, saving] = useSpadeEnabled();
-  const line = spadeStateLine(status, enabled);
+  const { status, enabled, setEnabled, saving, line, reading } = useSpadeRunning();
   const models = useSpadeModels(line.ready);
-  const [adding, setAdding] = useState(false);
-  // Not known yet whether Spade runs: the groups it would show hold their place.
-  const reading = !line.ready && (enabled === undefined || status === undefined);
-  const modelsLoading = (line.ready && models.isPending) || reading;
+  const oversight = useOversightSettings(line.ready);
+  // The switch says on or off; words only for what it can't (starting, stopped, waiting).
+  const sentence = line.ready
+    ? spadeSetupSentence(status)
+    : enabled === false || reading
+      ? undefined
+      : line.sentence;
+  const loading = reading || (line.ready && (models.isPending || oversight.oversight.isPending));
   return (
     <>
-      <SettingSection label="Assistant">
-        <SettingRow
-          title="Run Spade on this machine"
-          description={line.sentence}
-          htmlFor={id}
-          density="compact"
-          inline
-        >
-          {enabled === undefined ? (
-            <SwitchSkeleton />
-          ) : (
-            <Switch
-              id={id}
-              checked={enabled}
-              disabled={saving}
-              onCheckedChange={(checked) => void setEnabled(checked)}
-            />
-          )}
-        </SettingRow>
-        {models.data && <FastModelRow models={models.data} />}
-        {models.data && <TranscriptionRow models={models.data} />}
-        {modelsLoading && !models.data && (
-          <>
-            <LoadingRow
-              title="Fast model"
-              description={fastModelWords}
-              control={<SelectSkeleton />}
-            />
-            <LoadingRow
-              title="Transcription"
-              description={transcriptionWords}
-              control={<SelectSkeleton />}
-            />
-          </>
-        )}
-      </SettingSection>
-      {(line.ready || reading) && <OversightSettings ready={line.ready} />}
-      {(line.ready || reading) && (
-        <SettingSection label="About you" anchor="about-you">
-          {line.ready ? (
-            <SpadeNotes
-              scope={{ kind: "shared" }}
-              label="About you"
-              placeholder="Add something about you"
-            />
-          ) : (
-            <LoadingRows label="About you" rows={2} />
-          )}
-        </SettingSection>
-      )}
-      {(line.ready || reading) &&
-        (!models.data && !models.isError ? (
-          <SettingSection label="Endpoints">
-            <LoadingRows label="Endpoints" rows={2} />
-          </SettingSection>
-        ) : models.isError ? (
-          <SettingSection label="Endpoints">
-            <SettingRow title="Couldn't read Spade's endpoints" description={models.error.message}>
-              <Button size="sm" onClick={() => void models.refetch()}>
-                Try again
-              </Button>
-            </SettingRow>
-          </SettingSection>
-        ) : (
-          <>
-            {models.data.endpoints.map((endpoint) => (
-              <EndpointSection
-                key={endpoint.id}
-                endpoint={endpoint}
-                keychain={models.data.keychain}
+      <div className={settingsGroup}>
+        <SettingCard>
+          <SettingRow
+            title="Run Spade on this machine"
+            description={sentence}
+            htmlFor={id}
+            density="compact"
+            inline
+          >
+            {enabled === undefined ? (
+              <SwitchSkeleton />
+            ) : (
+              <Switch
+                id={id}
+                checked={enabled}
+                disabled={saving}
+                onCheckedChange={(checked) => void setEnabled(checked)}
               />
-            ))}
-            <SettingSection label="Endpoints">
-              <SettingAddRow onClick={() => setAdding(true)}>Add endpoint</SettingAddRow>
-            </SettingSection>
-            {adding && (
-              <AddEndpointDialog presets={models.data.presets} onClose={() => setAdding(false)} />
             )}
-          </>
-        ))}
-      {(line.ready || reading) && <SearchSettings ready={line.ready} />}
-      {(line.ready || reading) && <ConnectorSettings ready={line.ready} />}
-      {line.ready && <SkillStoreSettings ready={line.ready} />}
+          </SettingRow>
+          {loading && <LoadingRows label="Spade's models" rows={4} />}
+          {line.ready && models.isError && (
+            <CouldNotRead
+              what="Spade's models"
+              error={models.error}
+              retry={() => void models.refetch()}
+            />
+          )}
+          {line.ready && !loading && models.data && (
+            <ModelRows models={models.data} review={<ReviewRows settings={oversight} />} />
+          )}
+          {line.ready && oversight.oversight.isError && (
+            <CouldNotRead
+              what="the review settings"
+              error={oversight.oversight.error}
+              retry={() => void oversight.oversight.refetch()}
+            />
+          )}
+        </SettingCard>
+      </div>
+      {(line.ready || reading) && <SpendingSection settings={oversight} />}
     </>
   );
 }
 
-const fastModelWords = "Used for titles and other small jobs; defaults to each agent's own model.";
-
-/** The select's value for "no fast model": each bot uses its own. */
-const ownModel = "own";
-
-/** The fast model: titles and other small jobs; each bot's own model when none is set. */
-function FastModelRow(props: { models: SpadeModels }) {
+/**
+ * The model new bots start on (shown once Spade says it has the setting), the fast model, the
+ * review's rows (`review`) and the transcription model, each model one picker.
+ */
+function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
-  const toast = useToast();
-  const id = useId();
-  const current = props.models.fastModel ?? ownModel;
-  const options = [
-    { value: ownModel, label: "Each bot's own" },
-    ...props.models.endpoints.flatMap((endpoint) =>
-      endpoint.models.map((model) => ({
-        value: `${endpoint.id}/${model.id}`,
-        label: `${model.name} · ${endpoint.name}`,
-      })),
-    ),
-  ];
-  if (!options.some((option) => option.value === current))
-    options.push({ value: current, label: current });
+  const refresh = () => cache.invalidateQueries({ queryKey: modelsKey });
+  const saved = (put: (model: string | null) => Promise<void>) => async (model: string | null) => {
+    try {
+      await put(model);
+    } finally {
+      await refresh();
+    }
+  };
+  const { models } = props;
   return (
-    <SettingRow title="Fast model" description={fastModelWords} htmlFor={id} density="compact">
-      <Select
-        id={id}
-        label="Fast model"
-        value={current}
-        options={options}
-        onValueChange={(next) =>
-          void setFastModel(client, next === ownModel ? null : next).then(
-            () => cache.invalidateQueries({ queryKey: modelsKey }),
-            (error: unknown) =>
-              toast.error({
-                title: "Couldn't change the fast model",
-                description: error instanceof Error ? error.message : "Try again.",
-              }),
-          )
-        }
+    <>
+      {models.newBotModel !== undefined && (
+        <ModelSettingRow
+          title="Model for new bots"
+          value={models.newBotModel ?? undefined}
+          none="Your first usable model"
+          save={saved((model) => setNewBotModel(client, model))}
+        />
+      )}
+      <ModelSettingRow
+        title="Fast model"
+        description="Titles and other small jobs"
+        value={models.fastModel}
+        none="Each bot's own"
+        save={saved((model) => setFastModel(client, model))}
       />
-    </SettingRow>
+      {props.review}
+      <ModelSettingRow
+        title="Transcription"
+        description="Dictation and voice, when this device can't"
+        value={models.transcriptionModel}
+        none="Off"
+        save={saved((model) => setTranscriptionModel(client, model))}
+      />
+    </>
   );
 }

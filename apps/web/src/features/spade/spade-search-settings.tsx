@@ -1,107 +1,182 @@
 import type { SpadeSearchSettings } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "@tanstack/react-router";
-import { useEffect, useId, useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { useId, useState } from "react";
+import { SettingCard, SettingNote, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { readSearchSettings, removeBraveKey, setBraveKey, setSearxngUrl } from "./spade-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { LoadingRows } from "./spade-settings-loading.tsx";
+import {
+  CouldNotRead,
+  fault,
+  Refusal,
+  SpadeNotRunning,
+  useSpadeRunning,
+} from "./spade-settings-rows.tsx";
 
 const searchKey = ["spade", "search"] as const;
 
-const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
+type Engine = "brave" | "searxng" | "off";
+
+/** What Spade searches with now: its own SearXNG first, then Brave (spade/docs/design.md). */
+function engineOf(settings: SpadeSearchSettings): Engine {
+  if (settings.searxngUrl) return "searxng";
+  if (settings.braveKeySet) return "brave";
+  return "off";
+}
 
 /**
- * Settings › Spade › Web search (spade/docs/design.md, Web search): a Brave Search key, kept in
- * the OS keychain, and the address of the person's own SearXNG. Models whose endpoint searches
- * by itself need neither. A bot whose search found nothing set up links here (`#web-search`).
+ * Settings › Spade › Web search: one choice (Brave with the person's key, kept in the OS
+ * keychain; their own SearXNG; or off), then only the field it needs. Help shows only when a
+ * save fails, under the field. Models whose endpoint searches by itself need neither.
  */
-export function SearchSettings(props: { ready: boolean }) {
+export function SearchSettings() {
+  const { line, reading } = useSpadeRunning();
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
   const settings = useQuery({
     queryKey: [...searchKey, machine],
     queryFn: ({ signal }) => readSearchSettings(client, { signal }),
-    enabled: props.ready,
+    enabled: line.ready,
   });
-  // Opened from a reply's "Set up web search": brought into view once it is drawn, which is
-  // after the page's own jump to the anchor (this part loads later).
-  const hash = useLocation({ select: (location) => location.hash });
-  const loaded = settings.data !== undefined;
-  useEffect(() => {
-    if (hash === "web-search" && loaded)
-      document.getElementById("web-search")?.scrollIntoView({ block: "start" });
-  }, [hash, loaded]);
+  if (!line.ready && !reading)
+    return <SpadeNotRunning sentence={line.sentence} canTurnOn={line.canTurnOn} />;
   return (
-    <SettingSection label="Web search" anchor="web-search">
-      {settings.isError ? (
-        <SettingRow
-          title="Couldn't read the web search settings"
-          description={settings.error.message}
-        >
-          <Button size="sm" onClick={() => void settings.refetch()}>
-            Try again
-          </Button>
-        </SettingRow>
-      ) : (
-        <>
-          <BraveRow settings={settings.data} />
-          <SearxngRow settings={settings.data} />
-        </>
-      )}
-    </SettingSection>
+    <div className={settingsGroup} id="web-search">
+      <SettingCard>
+        {settings.isError ? (
+          <CouldNotRead
+            what="the web search settings"
+            error={settings.error}
+            retry={() => void settings.refetch()}
+          />
+        ) : settings.data ? (
+          <SearchChoice key={engineOf(settings.data)} settings={settings.data} />
+        ) : (
+          <LoadingRows label="Web search" rows={2} />
+        )}
+      </SettingCard>
+    </div>
   );
 }
 
-/** The Brave Search key: sent once, kept by Spade in the keychain, never shown again. */
-function BraveRow(props: { settings: SpadeSearchSettings | undefined }) {
-  const client = useSpadeClient();
+/** The choice, and what it needs: Brave's key, SearXNG's address, or nothing. */
+function SearchChoice(props: { settings: SpadeSearchSettings }) {
+  const { settings } = props;
+  const saved = engineOf(settings);
+  const [engine, setEngine] = useState<Engine>(saved);
+  return (
+    <>
+      <SettingRow title="Search with" density="compact" inline>
+        <SegmentedControl<Engine>
+          label="Search with"
+          size="sm"
+          value={engine}
+          options={[
+            { value: "brave", label: "Brave" },
+            { value: "searxng", label: "SearXNG" },
+            { value: "off", label: "Off" },
+          ]}
+          onValueChange={setEngine}
+        />
+      </SettingRow>
+      {engine === "brave" && <BraveRow settings={settings} />}
+      {engine === "searxng" && <SearxngRow settings={settings} />}
+      {engine === "off" && <OffRow settings={settings} />}
+    </>
+  );
+}
+
+/** Puts what Spade answered in place of what was read. */
+function useSaved() {
   const cache = useQueryClient();
-  const toast = useToast();
+  return {
+    put: (next: SpadeSearchSettings) => cache.setQueriesData({ queryKey: searchKey }, next),
+    reread: () => cache.invalidateQueries({ queryKey: searchKey }),
+  };
+}
+
+/**
+ * Brave's key: sent once, kept by Spade in the keychain, never shown again. Saving it while a
+ * SearXNG address is set forgets the address, since Spade asks SearXNG first.
+ */
+function BraveRow(props: { settings: SpadeSearchSettings }) {
+  const { settings } = props;
+  const client = useSpadeClient();
+  const saved = useSaved();
   const field = useId();
   const [draft, setDraft] = useState("");
+  const [replacing, setReplacing] = useState(false);
   const [sending, setSending] = useState(false);
-  const set = props.settings?.braveKeySet === true;
-  const about =
-    "Brave's search service, with your own key; Brave gives $5 of searches a month free.";
-  const change = async (action: "set" | "remove") => {
-    const key = draft.trim();
-    // The field empties before the request goes, so the key lives only in this call.
-    setDraft("");
+  const [refusal, setRefusal] = useState<string>();
+  const run = async (step: () => Promise<unknown>) => {
     setSending(true);
+    setRefusal(undefined);
     try {
-      if (action === "set") await setBraveKey(client, key);
-      else await removeBraveKey(client);
-      await cache.invalidateQueries({ queryKey: searchKey });
+      await step();
+      if (settings.searxngUrl) saved.put(await setSearxngUrl(client, null));
+      setReplacing(false);
     } catch (error) {
-      toast.error({
-        title: action === "set" ? "Couldn't save the key" : "Couldn't remove the key",
-        description: fault(error),
-      });
+      setRefusal(fault(error));
     } finally {
       setSending(false);
+      await saved.reread();
     }
   };
-  if (props.settings && !props.settings.keychain)
+  if (!settings.keychain)
     return (
       <SettingRow
-        title="Brave Search key"
-        description={`${about} This machine has no keychain: set BRAVE_API_KEY where Spade runs.`}
+        title="Key"
+        description="Set BRAVE_API_KEY where Spade runs: this machine has no keychain."
+        density="compact"
       />
+    );
+  if (settings.braveKeySet && !replacing)
+    return (
+      <SettingRow
+        title="Key"
+        description={refusal ? <Refusal>{refusal}</Refusal> : "Saved in the keychain"}
+        density="compact"
+        inline
+      >
+        {settings.searxngUrl && (
+          <Button size="sm" disabled={sending} onClick={() => void run(async () => {})}>
+            Use Brave
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" disabled={sending} onClick={() => setReplacing(true)}>
+          Replace
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          tone="danger"
+          aria-label="Remove key"
+          disabled={sending}
+          onClick={() => void run(() => removeBraveKey(client))}
+        >
+          Remove
+        </Button>
+      </SettingRow>
     );
   return (
     <SettingRow
-      title="Brave Search key"
+      title="Key"
       htmlFor={field}
-      description={set ? `Set. ${about}` : about}
+      description={refusal && <Refusal>{refusal}</Refusal>}
+      density="compact"
     >
       <form
         className="flex items-center gap-1.5"
         onSubmit={(event) => {
           event.preventDefault();
-          if (draft.trim()) void change("set");
+          const key = draft.trim();
+          if (!key) return;
+          // The field empties before the request goes, so the key lives only in this call.
+          setDraft("");
+          void run(() => setBraveKey(client, key));
         }}
       >
         <Input
@@ -109,74 +184,58 @@ function BraveRow(props: { settings: SpadeSearchSettings | undefined }) {
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={set ? "Replace key" : "Paste key"}
+          placeholder="Paste key"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          disabled={sending || !props.settings}
+          disabled={sending}
           className="w-52"
         />
+        {replacing && (
+          <Button size="sm" variant="ghost" onClick={() => setReplacing(false)}>
+            Cancel
+          </Button>
+        )}
         <Button size="sm" type="submit" disabled={sending || !draft.trim()}>
           Save
         </Button>
-        {set && (
-          <Button
-            size="sm"
-            variant="ghost"
-            tone="danger"
-            disabled={sending}
-            onClick={() => void change("remove")}
-          >
-            Remove
-          </Button>
-        )}
       </form>
     </SettingRow>
   );
 }
 
-/** The person's own SearXNG: edited in place, saved on Save or Enter, cleared with Remove. */
-function SearxngRow(props: { settings: SpadeSearchSettings | undefined }) {
+/** The person's own SearXNG: its address, saved on Save or Enter; a refusal says the fix. */
+function SearxngRow(props: { settings: SpadeSearchSettings }) {
   const client = useSpadeClient();
-  const cache = useQueryClient();
+  const saved = useSaved();
   const field = useId();
-  const saved = props.settings?.searxngUrl ?? null;
-  const [draft, setDraft] = useState<string>();
+  const current = props.settings.searxngUrl ?? "";
+  const [draft, setDraft] = useState(current);
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string>();
-  const shown = draft ?? saved ?? "";
-  const save = async (url: string | null) => {
+  const changed = draft.trim() !== current && draft.trim() !== "";
+  const save = async () => {
     setSending(true);
     setRefusal(undefined);
     try {
-      const next = await setSearxngUrl(client, url);
-      cache.setQueriesData({ queryKey: searchKey }, next);
-      setDraft(undefined);
+      saved.put(await setSearxngUrl(client, draft.trim()));
     } catch (error) {
       setRefusal(fault(error));
     } finally {
       setSending(false);
     }
   };
-  const changed = draft !== undefined && draft.trim() !== (saved ?? "");
   return (
     <SettingRow
-      title="SearXNG"
+      title="Address"
       htmlFor={field}
-      description={
-        refusal ? (
-          <span role="alert" className="text-destructive">
-            {refusal}
-          </span>
-        ) : (
-          "A search engine you run yourself, free and without a key; its settings must allow JSON results."
-        )
-      }
+      description={refusal && <Refusal>{refusal}</Refusal>}
+      density="compact"
     >
       <form
         className="flex items-center gap-1.5"
         onSubmit={(event) => {
           event.preventDefault();
-          if (changed) void save(draft?.trim() || null);
+          if (changed) void save();
         }}
       >
         <Input
@@ -184,26 +243,62 @@ function SearxngRow(props: { settings: SpadeSearchSettings | undefined }) {
           type="url"
           spellCheck={false}
           placeholder="http://localhost:8888"
-          value={shown}
+          value={draft}
+          aria-invalid={refusal ? true : undefined}
           onChange={(event) => setDraft(event.target.value)}
-          disabled={sending || !props.settings}
+          disabled={sending}
           className="w-52"
         />
         <Button size="sm" type="submit" disabled={sending || !changed}>
           Save
         </Button>
-        {saved && (
-          <Button
-            size="sm"
-            variant="ghost"
-            tone="danger"
-            disabled={sending}
-            onClick={() => void save(null)}
-          >
-            Remove
-          </Button>
-        )}
       </form>
+    </SettingRow>
+  );
+}
+
+/**
+ * Off: bots can't search, and say so when they need to. Turning it off from Brave or SearXNG
+ * forgets the address and removes the key, once asked.
+ */
+function OffRow(props: { settings: SpadeSearchSettings }) {
+  const { settings } = props;
+  const client = useSpadeClient();
+  const saved = useSaved();
+  const [sending, setSending] = useState(false);
+  const [refusal, setRefusal] = useState<string>();
+  const on = engineOf(settings) !== "off";
+  const turnOff = async () => {
+    setSending(true);
+    setRefusal(undefined);
+    try {
+      if (settings.searxngUrl) saved.put(await setSearxngUrl(client, null));
+      if (settings.braveKeySet && settings.keychain) await removeBraveKey(client);
+    } catch (error) {
+      setRefusal(fault(error));
+    } finally {
+      setSending(false);
+      await saved.reread();
+    }
+  };
+  if (!on)
+    return <SettingNote>Bots can't search the web. They say so when they need to.</SettingNote>;
+  return (
+    <SettingRow
+      title="Turn off web search"
+      description={
+        refusal ? (
+          <Refusal>{refusal}</Refusal>
+        ) : settings.braveKeySet && settings.keychain ? (
+          "Brave's key is removed from the keychain"
+        ) : undefined
+      }
+      density="compact"
+      inline
+    >
+      <Button size="sm" tone="danger" disabled={sending} onClick={() => void turnOff()}>
+        Turn off
+      </Button>
     </SettingRow>
   );
 }

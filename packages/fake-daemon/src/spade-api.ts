@@ -71,6 +71,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `new_bot_model`; undefined plays a Spade that predates the setting. */
+  newBotModel: string | null | undefined = undefined;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
   /** Stored images by hash with their media type; any other hash answers 404. */
@@ -466,6 +468,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
         fast_model: this.fastModel,
+        ...(this.newBotModel === undefined ? {} : { new_bot_model: this.newBotModel }),
         transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
@@ -477,6 +480,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("new_bot_model" in body)
+        this.newBotModel = typeof body.new_bot_model === "string" ? body.new_bot_model : null;
       if ("transcription_model" in body) {
         const model =
           typeof body.transcription_model === "string" ? body.transcription_model : null;

@@ -53,6 +53,11 @@ export interface SpadeConnector {
   /** `cloud`: signs in through Spade Cloud. */
   via: "cloud" | undefined;
   notice: SpadeCloudNotice | undefined;
+  /**
+   * The bots allowed to use it, by id, in roster order. Undefined from a Spade that predates
+   * the list, which then says nothing about who uses it.
+   */
+  bots: string[] | undefined;
 }
 
 /**
@@ -131,6 +136,7 @@ const connectorShape = z.object({
   via,
   // A notice this client doesn't know is left out: the row then reads as it would without one.
   notice: z.enum(notices).nullish().catch(undefined),
+  bots: z.array(z.unknown()).optional().catch(undefined),
 });
 
 /** Only https: the page goes straight to the person's browser. */
@@ -167,6 +173,7 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     device: deviceOf(connector.device),
     via: connector.via ?? undefined,
     notice: connector.notice ?? undefined,
+    bots: connector.bots?.filter((each): each is string => typeof each === "string"),
   };
 }
 
