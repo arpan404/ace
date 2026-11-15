@@ -1,11 +1,10 @@
 import { spadeSetupSentence, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { PlusIcon } from "@phosphor-icons/react";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { NewBotDialog } from "./spade-bot-dialog.tsx";
-import { NewGroupDialog } from "./spade-group-dialog.tsx";
 import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { searchSpadeList, spadeListEntries } from "./spade-list-rows.ts";
@@ -38,7 +37,8 @@ export function SpadeSidebar() {
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState<"bot" | "group">();
+  const [creating, setCreating] = useState<"bot">();
+  const navigate = useNavigate();
   const open = useParams({
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
@@ -57,7 +57,7 @@ export function SpadeSidebar() {
           onSearch={() => (searching ? closeSearch() : setSearching(true))}
           hosts={roster.hosts}
           onNewBot={() => setCreating("bot")}
-          onNewGroup={() => setCreating("group")}
+          onNewGroup={() => void navigate({ to: "/spade/groups/new" })}
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {searching && <SpadeListSearch query={query} onQuery={setQuery} onClose={closeSearch} />}
@@ -117,13 +117,6 @@ export function SpadeSidebar() {
       </nav>
       {creating === "bot" && (
         <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(undefined)} />
-      )}
-      {creating === "group" && (
-        <NewGroupDialog
-          hosts={roster.hosts}
-          bots={roster.bots}
-          onClose={() => setCreating(undefined)}
-        />
       )}
     </>
   );

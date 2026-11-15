@@ -2,6 +2,10 @@ import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import { SpadeFace } from "./spade-face.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
+/** The pill's capsule: floating at the top centre of a conversation, in the composer's glass. */
+export const conversationPill =
+  "ace-glass-dock absolute top-3 left-1/2 z-10 flex h-10 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-input pr-4 pl-1.5 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover";
+
 /** The pill's face, in px (`--spade-pill-face`). */
 const face = 28;
 
@@ -19,7 +23,7 @@ export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
       type="button"
       onClick={props.onOpen}
       aria-label={`${bot.name}${elsewhere ? ` on ${bot.machine.name}` : ""}: open its profile`}
-      className="ace-glass-dock absolute top-3 left-1/2 z-10 flex h-10 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-input pr-4 pl-1.5 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
+      className={conversationPill}
     >
       <SpadeFace avatar={bot.avatar} size={face} state={state} />
       <span className="min-w-0 truncate">{bot.name}</span>
