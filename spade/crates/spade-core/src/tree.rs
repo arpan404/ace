@@ -177,20 +177,20 @@ pub struct Report {
 
 /// A worker bot's link as it stands: `None` once detached (or never a worker).
 pub fn linked(events: &[Event]) -> Option<Link> {
-    let mut link: Option<Link> = None;
-    for event in events {
-        match event {
-            Event::Known(Known::WorkerOf(made)) => link = Some(made.clone()),
-            Event::Known(Known::WorkerBudget { budget_micros, .. }) => {
-                if let Some(link) = link.as_mut() {
-                    link.budget_micros = *budget_micros;
-                }
-            }
-            Event::Known(Known::WorkerDetached { .. }) => link = None,
-            _ => {}
-        }
+    events.iter().fold(None, apply)
+}
+
+/// `link` after `event`: made, its budget changed, or detached.
+pub fn apply(link: Option<Link>, event: &Event) -> Option<Link> {
+    match event {
+        Event::Known(Known::WorkerOf(made)) => Some(made.clone()),
+        Event::Known(Known::WorkerBudget { budget_micros, .. }) => link.map(|mut link| {
+            link.budget_micros = *budget_micros;
+            link
+        }),
+        Event::Known(Known::WorkerDetached { .. }) => None,
+        _ => link,
     }
-    link
 }
 
 /// Whether events of these kinds change a conversation's link.
@@ -282,7 +282,7 @@ pub struct AceChild {
 
 /// The ace children of this conversation: started by its `delegate` calls, followed through
 /// those calls' and later `wait` calls' results, and stopped by `worker_stop`.
-pub fn ace_children(events: &[Event]) -> Vec<AceChild> {
+pub fn ace_children<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceChild> {
     let mut children: Vec<AceChild> = Vec::new();
     let mut calls: Vec<(&str, &Value)> = Vec::new();
     for event in events {
@@ -357,9 +357,7 @@ pub fn delegated_threads(content: &str) -> Vec<String> {
     let Ok(body) = serde_json::from_str::<Value>(content) else {
         return Vec::new();
     };
-    body.get("data")
-        .map(|data| thread_ids(data))
-        .unwrap_or_default()
+    body.get("data").map(thread_ids).unwrap_or_default()
 }
 
 /// Each thread's state in a `delegate` or `wait` result: `data.wait.threads` or `data.threads`.
@@ -661,7 +659,7 @@ pub fn allows(tools: Option<&[String]>, name: &str) -> bool {
 }
 
 /// The names in `asked` the parent can't grant, because it hasn't them itself.
-pub fn ungrantable<'a>(asked: &'a [String], parent_has: impl Fn(&str) -> bool) -> Vec<&'a str> {
+pub fn ungrantable(asked: &[String], parent_has: impl Fn(&str) -> bool) -> Vec<&str> {
     asked
         .iter()
         .map(String::as_str)

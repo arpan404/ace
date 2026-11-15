@@ -261,6 +261,12 @@ impl Engine {
 
     /// The cap the conversation's bot is at, counting `pending` micros as spent already.
     pub(super) fn bot_hit_with(&self, conversation: &str, pending: u64) -> Option<(String, Hit)> {
+        self.own_hit_with(conversation, pending)
+            // A budget or a cap on its path to the top of its tree (ADR 0161).
+            .or_else(|| self.tree_cap(conversation, pending))
+    }
+
+    fn own_hit_with(&self, conversation: &str, pending: u64) -> Option<(String, Hit)> {
         let agent = self.store.agent_for_conversation(conversation).ok()??;
         let settings = self.agent_oversight(&agent.id).ok()?;
         let caps = Caps {

@@ -152,21 +152,23 @@ impl Tool for WaitFor {
              service_exit (service), file (a path in your workspace changes: path), url (a \
              localhost URL answers: url), thread (a delegated ace thread is done, failed or \
              needs the person: thread), bot_message (another bot writes: bot, optional), person \
-             (the person writes). You read as waiting, with your reason, until then. End your \
+             (the person writes), worker (a worker of yours reports: worker, optional). You read \
+             as waiting, with your reason, until then. End your \
              reply right after calling it.",
             json!({ "type": "object",
                     "properties": {
                         "condition": {
                             "type": "object",
                             "properties": {
-                                "kind": { "type": "string", "enum": ["job", "service_line", "service_exit", "file", "url", "thread", "bot_message", "person"] },
+                                "kind": { "type": "string", "enum": ["job", "service_line", "service_exit", "file", "url", "thread", "bot_message", "person", "worker"] },
                                 "job": { "type": "string" },
                                 "service": { "type": "string" },
                                 "pattern": { "type": "string" },
                                 "path": { "type": "string" },
                                 "url": { "type": "string" },
                                 "thread": { "type": "string" },
-                                "bot": { "type": "string" }
+                                "bot": { "type": "string" },
+                                "worker": { "type": "string" }
                             },
                             "required": ["kind"]
                         },

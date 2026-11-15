@@ -197,7 +197,7 @@ fn agent_problem(error: &AgentError) -> Response {
     let status = match error {
         AgentError::NotFound => StatusCode::NOT_FOUND,
         AgentError::Invalid(_) | AgentError::Image(_) => StatusCode::BAD_REQUEST,
-        AgentError::Main(_) => StatusCode::CONFLICT,
+        AgentError::Main(_) | AgentError::HasWorkers(_) => StatusCode::CONFLICT,
         AgentError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -385,8 +385,34 @@ pub(super) async fn update(
     }
 }
 
-pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.engine.delete_agent(&id).await {
+/// `?workers=stop|keep`: what becomes of a deleted bot's workers (ADR 0161).
+#[derive(Deserialize, Default)]
+pub(super) struct DeleteQuery {
+    #[serde(default)]
+    workers: Option<String>,
+}
+
+pub(super) async fn delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<DeleteQuery>,
+) -> Response {
+    let deleted = match query.workers.as_deref() {
+        None => state.engine.delete_agent(&id).await,
+        Some(word) => match crate::engine::Workers::parse(word) {
+            Some(workers) => state.engine.delete_agent_with(&id, workers).await,
+            None => return problem(StatusCode::BAD_REQUEST, "workers is stop or keep"),
+        },
+    };
+    if let Err(AgentError::HasWorkers(count)) = &deleted {
+        let error = AgentError::HasWorkers(*count).to_string();
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": error, "workers": count })),
+        )
+            .into_response();
+    }
+    match deleted {
         Ok(()) => {
             // Its workspace and proposals go with it (ADR 0130).
             let (workspaces, learning) = (state.workspaces.clone(), state.learning.clone());

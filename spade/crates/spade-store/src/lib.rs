@@ -13,6 +13,7 @@ mod schema;
 mod seen;
 mod skills;
 mod teams;
+mod workers;
 
 pub use agents::{Agent, NewAgent};
 pub use endpoints::{StoredEndpoint, StoredModel};

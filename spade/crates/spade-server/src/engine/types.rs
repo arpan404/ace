@@ -46,6 +46,9 @@ pub struct Limits {
     /// Most of a running turn's events kept in memory, by stored size in bytes. A turn past it
     /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
     pub turn_log_bytes: usize,
+    /// One orchestrator's worker bots that work at once (`SPADE_WORKERS_AT_ONCE`, ADR 0161);
+    /// the rest wait queued.
+    pub workers_at_once: usize,
 }
 
 impl Default for Limits {
@@ -65,6 +68,7 @@ impl Default for Limits {
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
             turn_log_bytes: 64 << 20,
+            workers_at_once: 32,
         }
     }
 }
@@ -165,6 +169,9 @@ pub enum AgentError {
     /// Spade, the main agent, cannot be deleted or renamed (ADR 0127).
     #[error("{0}")]
     Main(&'static str),
+    /// The bot has workers (ADR 0161): the person says whether they stop or keep working.
+    #[error("this bot has {0} workers; say whether to stop them or keep them as their own bots")]
+    HasWorkers(usize),
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -291,4 +298,8 @@ pub struct Activity {
     pub wake: Option<spade_core::wake::Open>,
     /// Owned services running (ADR 0160).
     pub services: usize,
+    /// An ace child of its `delegate` waits on the person or a usage limit (ADR 0161).
+    pub ace_waiting: bool,
+    /// Its worker bots that have not settled (ADR 0161); 0 before the tree is rolled up.
+    pub workers: usize,
 }

@@ -18,8 +18,10 @@ impl Engine {
     /// all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        // Its workers and ace children stop with it (ADR 0161).
+        let under = self.stop_workers(id);
         // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
-        let woke = self.stop_wakes(id);
+        let woke = self.stop_wakes(id) || under;
         let live = self.live(id);
         // What runs is read, a task's waiting step (ADR 0144) called off and the stop stored
         // under the one lock work starts under: no turn, job or step can begin between the

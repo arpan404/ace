@@ -107,7 +107,8 @@ impl Engine {
 
     /// The tools `id` may use: a helper's are its bot's, narrowed by its profile.
     pub(super) fn registry_for(&self, id: &str) -> Registry {
-        let registry = self.tools.registry_for(id);
+        // A worker's tools are never more than its parent's (ADR 0161).
+        let registry = self.narrow_registry(id, self.tools.registry_for(id));
         match self.helper_of(id) {
             Some(helper) => profile_of(&helper).registry(registry),
             None => registry,

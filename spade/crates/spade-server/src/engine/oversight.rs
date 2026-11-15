@@ -224,6 +224,12 @@ impl Engine {
     /// The cap the conversation's bot is at, with its name. `None` when it is at none (or the
     /// conversation has no bot).
     pub(crate) fn bot_cap(&self, conversation: &str) -> Option<(String, Hit)> {
+        self.own_cap(conversation)
+            // A budget or a cap on its path to the top of its tree (ADR 0161).
+            .or_else(|| self.tree_cap(conversation, 0))
+    }
+
+    fn own_cap(&self, conversation: &str) -> Option<(String, Hit)> {
         let agent = self.store.agent_for_conversation(conversation).ok()??;
         let (_, _, hit) = self.spending(&agent).ok()?;
         hit.map(|hit| (agent.name, hit))

@@ -379,6 +379,8 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // Workers get connectors only from their makers' (ADR 0161).
+    engine.set_connector_grants(connectors.clone());
     if let Some(plugins) = &plugins {
         engine.set_plugins(plugins.clone());
         // Plugin agents are helper profiles of the bots allowed their plugins.
@@ -503,6 +505,7 @@ fn limits(config: &Config) -> Limits {
     Limits {
         max_parallel_tools: config.parallel_tools.unwrap_or(defaults.max_parallel_tools),
         helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
+        workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
         ..defaults
     }
