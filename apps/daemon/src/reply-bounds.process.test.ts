@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { AgentId, Item, ItemId, ServerMessage, type ClientMessage } from "@ace/protocol";
 import { wireTrims } from "@ace/projection/wire-trim";
-import { pageReplyBytes } from "./reply-bounds.ts";
+import { outputReadBytes, pageReplyBytes } from "./reply-bounds.ts";
 import { entryBytes } from "./services/item-raw.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import type { Store } from "./store.ts";
@@ -15,6 +15,8 @@ import type { Store } from "./store.ts";
 
 /** What a reply may add around its payload: type, ids, offsets and cursors. */
 const envelopeBytes = 1024;
+/** An output read's JSON: its bytes as base64. */
+const outputReplyBytes = Math.ceil(outputReadBytes / 3) * 4 + envelopeBytes;
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -170,7 +172,7 @@ const rows: Row[] = [
   },
   {
     name: "output.read: a shell's whole output, asked for in the largest reads allowed",
-    bound: pageReplyBytes + envelopeBytes,
+    bound: outputReplyBytes,
     async read(store, threadId, ask) {
       const id = ItemId.parse("shell");
       const output = words(700 * 1024);
@@ -203,7 +205,7 @@ const rows: Row[] = [
   },
   {
     name: "output.read: a long message's full text (UTF-16), in the largest reads allowed",
-    bound: pageReplyBytes + envelopeBytes,
+    bound: outputReplyBytes,
     async read(store, threadId, ask) {
       const text = words(300 * 1024);
       const [created] = store.appendEvents(threadId as never, [
