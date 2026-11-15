@@ -4,7 +4,7 @@
 //! clock in milliseconds, the clock `media.ticket.expiresAt` is written in. Every grant first
 //! passes the [`Ledger`], before any secret is stored or imported for it.
 use super::ledger::{Full, Ledger};
-use super::relay::{Broken, Keyed, Pool, RelayEffect};
+use super::relay::{Broken, CloseMode, Keyed, Pool, RelayEffect};
 use super::{Effect, log, normal};
 use crate::secret::{SecretId, Vault};
 use media_noise::{FragmentKind, RelayStream};
@@ -438,7 +438,7 @@ impl Grants {
             .map(|(id, _)| id.clone())
             .collect();
         for stream in streams {
-            self.close_stream(&stream, out);
+            self.close_stream(&stream, CloseMode::for_reason(reason), out);
         }
         self.remove(key, reason, vault, out);
     }
@@ -461,7 +461,7 @@ impl Grants {
             .map(|(id, _)| id.clone())
             .collect();
         for stream in streams {
-            self.end_stream(&stream, out);
+            self.end_stream(&stream, CloseMode::for_reason(reason), out);
         }
         normal(
             out,
@@ -474,19 +474,20 @@ impl Grants {
 
     /// `relay.close`: ends one relay stream for good and wipes its cipher states. Its
     /// connection stays open.
-    pub fn close_stream(&mut self, stream: &str, out: &mut Vec<Effect>) {
+    pub fn close_stream(&mut self, stream: &str, mode: CloseMode, out: &mut Vec<Effect>) {
         let remembered = self.ledger.close_stream(stream);
         full(out, remembered);
-        self.end_stream(stream, out);
+        self.end_stream(stream, mode, out);
     }
 
     /// Wipes a keyed stream's cipher states and shuts its socket.
-    fn end_stream(&mut self, stream: &str, out: &mut Vec<Effect>) {
+    fn end_stream(&mut self, stream: &str, mode: CloseMode, out: &mut Vec<Effect>) {
         if let Some(mut keyed) = self.streams.remove(stream) {
             keyed.transport.close();
         }
         out.push(Effect::Relay(RelayEffect::Close {
             stream: stream.to_owned(),
+            mode,
         }));
     }
 

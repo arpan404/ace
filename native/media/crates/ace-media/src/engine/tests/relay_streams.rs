@@ -329,3 +329,45 @@ fn sealed_frames_reuse_pooled_buffers_once_written() {
         "the next frame was sealed into the pooled buffer"
     );
 }
+
+fn close_modes(effects: &[Effect]) -> Vec<relay::CloseMode> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Relay(RelayEffect::Close { mode, .. }) => Some(*mode),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_revocation_forces_its_streams_shut_while_the_daemons_close_lets_them_finish() {
+    let mut engine = engine();
+    dial(&mut engine, "st");
+    engine.relay_dialed(&sid("st"));
+    hand_over(&mut engine, "st", 1);
+    let revoked = send(
+        &mut engine,
+        json!({ "type": "revoke", "id": "r", "issued": 2, "device": "d1" }),
+        &[],
+        NOW,
+    );
+    assert!(!close_modes(&revoked).is_empty());
+    assert!(
+        close_modes(&revoked)
+            .iter()
+            .all(|m| *m == relay::CloseMode::Forced)
+    );
+
+    // The daemon closing a stream it refused: whatever it sent last still reaches the client.
+    dial(&mut engine, "st2");
+    engine.relay_dialed(&sid("st2"));
+    engine.effects().for_each(drop);
+    let closed = send(
+        &mut engine,
+        json!({ "type": "relay.close", "id": "x", "stream": "st2", "reason": "handover" }),
+        &[],
+        NOW,
+    );
+    assert_eq!(close_modes(&closed), [relay::CloseMode::Graceful]);
+}

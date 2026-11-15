@@ -3,11 +3,11 @@
 use super::pictures::Pictures;
 use super::priority_gate::PriorityGate;
 use super::readers::Readers;
-use super::relay::RelaySockets;
+use super::relay_sockets::RelaySockets;
 use super::viewers::Outboxes;
 use super::writer::Writer;
 use crate::engine::delivery::MediaOut;
-use crate::engine::relay::RelayEffect;
+use crate::engine::relay::{CloseMode, RelayEffect};
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, EncodeEffect, Engine};
 use crate::framing::{encode, encode_with};
@@ -63,8 +63,8 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             return exit;
         }
         for stream in backed_up {
-            let tasks = outputs.relays.close(&stream);
-            outputs.gate.closed(tasks);
+            let close = outputs.relays.close(&stream, CloseMode::Forced);
+            outputs.gate.closed(close);
             if let Ok(id) = media_wire::control::Id::new(stream) {
                 // Only the monotonic clock matters for a close.
                 let now = crate::engine::Now {
@@ -151,9 +151,9 @@ fn apply_once(
                 }
                 Ok(())
             }
-            Effect::Relay(RelayEffect::Close { stream }) => {
-                let tasks = outputs.relays.close(&stream);
-                outputs.gate.closed(tasks);
+            Effect::Relay(RelayEffect::Close { stream, mode }) => {
+                let close = outputs.relays.close(&stream, mode);
+                outputs.gate.closed(close);
                 Ok(())
             }
             Effect::Encode(command) => {

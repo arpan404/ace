@@ -24,7 +24,7 @@ use media_wire::capability::Acceleration;
 use media_wire::control::{EncodeSpec, EpochRange, FromMedia, Id, Level, ToMedia};
 use media_wire::frame::MediaFrame;
 use recorder::{RecordSpec, Recorders};
-use relay::{Pool, RelayEffect, Relays, ToDaemon};
+use relay::{CloseMode, Pool, RelayEffect, Relays, ToDaemon};
 use sources::{IngestId, Sources};
 use stills::{NoStills, StillMaker, StillOutcome, Stills};
 use zeroize::Zeroizing;
@@ -524,7 +524,8 @@ impl Engine {
                         return;
                     }
                     self.relays.take(stream.get());
-                    self.grants.close_stream(stream.get(), out);
+                    self.grants
+                        .close_stream(stream.get(), CloseMode::Forced, out);
                     return;
                 }
                 // The relay channel's welcome was the daemon's; the views start now.
@@ -536,7 +537,9 @@ impl Engine {
             }
             ToMedia::RelayClose { id, stream, .. } => {
                 self.relays.take(stream.get());
-                self.grants.close_stream(stream.get(), out);
+                // The daemon's close: what it sent (a refusal) still reaches the client.
+                self.grants
+                    .close_stream(stream.get(), CloseMode::Graceful, out);
                 priority(out, FromMedia::Closed { id });
             }
             ToMedia::ConnectionClose {
@@ -652,7 +655,8 @@ impl Engine {
         if self.relays.is_pending(stream.get()) {
             let next = self.relays.arrived(stream.get(), frame);
             if matches!(next, ToDaemon::Failed(_)) {
-                self.grants.close_stream(stream.get(), &mut self.out);
+                self.grants
+                    .close_stream(stream.get(), CloseMode::Forced, &mut self.out);
             }
             return relay_in(&mut self.out, stream.clone(), next);
         }
@@ -699,9 +703,14 @@ impl Engine {
             MediaOut::Text(text) => {
                 self.relay_send(connection, false, text.as_bytes());
             }
-            MediaOut::Close(_) => {
+            MediaOut::Close(code) => {
+                use media_wire::media_link::close;
+                let mode = match code {
+                    close::REVOKED | close::PROTOCOL => CloseMode::Forced,
+                    _ => CloseMode::Graceful,
+                };
                 if let Some(stream) = self.grants.relay_stream_of(connection).map(str::to_owned) {
-                    self.grants.close_stream(&stream, &mut self.out);
+                    self.grants.close_stream(&stream, mode, &mut self.out);
                 }
             }
         }
@@ -713,7 +722,9 @@ impl Engine {
         let out = &mut self.out;
         if self.relays.is_pending(stream.get()) {
             self.relays.take(stream.get());
-            self.grants.close_stream(stream.get(), out);
+            // The socket is gone already.
+            self.grants
+                .close_stream(stream.get(), CloseMode::Forced, out);
             return normal(
                 out,
                 FromMedia::RelayFailed {

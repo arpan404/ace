@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Relay stream sockets: the dial to the relay's `/join`, a reader that hands each binary frame
+//! A relay stream's socket: the dial to the relay's `/join`, a reader that hands each binary frame
 //! to the main loop, and a writer that masks pooled sealed frames in place and returns their
-//! buffers. Closing a stream aborts both at once, which shuts the socket, so a revocation's
-//! answer follows the shutdown of every socket it covers.
+//! buffers. `Socket::shut` closes it gracefully (what was written, then the WebSocket close, with
+//! normal linger, bounded) or forcibly (a reset at once), and resolves once every task that
+//! owns the socket has ended. The registry is `relay_sockets.rs`.
 use super::relay_tls::{Tls, pump_tls};
 use super::relay_ws::{self, Masks, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG, Parse};
-use crate::engine::relay::Pool;
+use crate::engine::relay::{CloseMode, Pool};
 use media_wire::control::Id;
-use std::collections::HashMap;
 use std::io::IoSlice;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -17,27 +17,77 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 /// The relay's own handshake deadline.
-const DIAL_DEADLINE: Duration = Duration::from_secs(10);
+pub(super) const DIAL_DEADLINE: Duration = Duration::from_secs(10);
+/// How long a graceful close may take to deliver what was written and the WebSocket close,
+/// before it is forced. Well inside the supervisor's 250 ms kill, for `closed` answers.
+pub(super) const GRACE: Duration = Duration::from_millis(100);
 /// Frames queued for one socket's writer; past it the stream is backed up and closes. The
 /// client's flow window (1 MiB) keeps a well-behaved stream far below it.
 const WRITE_QUEUE: usize = 256;
 
 pub enum RelayEvent {
-    Dialed { stream: Id, socket: Socket },
-    Frame { stream: Id, frame: Vec<u8> },
-    Ended { stream: Id, reason: &'static str },
+    /// The socket is up, in the registry's slot for the stream.
+    Dialed {
+        stream: Id,
+    },
+    Frame {
+        stream: Id,
+        frame: Vec<u8>,
+    },
+    Ended {
+        stream: Id,
+        reason: &'static str,
+    },
 }
 
 pub(super) enum Out {
     Frame(Vec<u8>),
     Pong(Vec<u8>),
+    /// A graceful close: send what is queued ahead of this, then the WebSocket close.
+    Close,
 }
 
-/// One dialed stream's socket tasks; dropping it aborts them, which closes the socket (with a
-/// reset: relay sockets have a zero linger, so nothing queued is sent after).
+/// One dialed stream's socket tasks, the writer first; dropping it aborts them, which closes
+/// the socket with a reset (relay sockets keep a zero linger unless closed gracefully).
 pub struct Socket {
     tx: mpsc::Sender<Out>,
     tasks: Vec<JoinHandle<()>>,
+}
+
+impl Socket {
+    /// Queues a sealed frame; the frame back when the writer is backed up or gone.
+    pub(super) fn send(&self, frame: Vec<u8>) -> Result<(), Vec<u8>> {
+        self.tx
+            .try_send(Out::Frame(frame))
+            .map_err(|error| match error.into_inner() {
+                Out::Frame(frame) => frame,
+                Out::Pong(data) => data,
+                Out::Close => Vec::new(),
+            })
+    }
+
+    /// Shuts the socket. Resolves once every task that owns it has ended, so the socket is
+    /// closed: gracefully within `GRACE`, then forced.
+    pub(super) async fn shut(mut self, mode: CloseMode) {
+        let mut tasks = std::mem::take(&mut self.tasks);
+        if mode == CloseMode::Graceful && self.tx.try_send(Out::Close).is_ok() {
+            let deadline = tokio::time::Instant::now() + GRACE;
+            // The writer delivers what it has and the close, then each task ends as the relay
+            // closes its side.
+            while let Some(task) = tasks.first_mut() {
+                if tokio::time::timeout_at(deadline, task).await.is_err() {
+                    break;
+                }
+                tasks.remove(0);
+            }
+        }
+        for task in &tasks {
+            task.abort();
+        }
+        for task in tasks {
+            let _ = task.await;
+        }
+    }
 }
 
 impl Drop for Socket {
@@ -48,112 +98,23 @@ impl Drop for Socket {
     }
 }
 
-pub struct RelaySockets {
-    events: mpsc::Sender<RelayEvent>,
-    dialing: HashMap<String, JoinHandle<()>>,
-    sockets: HashMap<String, Socket>,
-    pool: Pool,
-}
-
-impl RelaySockets {
-    pub fn new(events: mpsc::Sender<RelayEvent>, pool: Pool) -> Self {
-        Self {
-            events,
-            dialing: HashMap::new(),
-            sockets: HashMap::new(),
-            pool,
-        }
-    }
-
-    pub fn dial(&mut self, stream: String, url: String) {
-        let events = self.events.clone();
-        let pool = self.pool.clone();
-        let Ok(id) = Id::new(stream.clone()) else {
-            return;
-        };
-        let task = tokio::spawn(async move {
-            let opened = tokio::time::timeout(DIAL_DEADLINE, open(&url)).await;
-            let event = match opened {
-                Ok(Ok(Opened::Plain(read, write, leftover))) => RelayEvent::Dialed {
-                    stream: id.clone(),
-                    socket: spawn(id, read, write, leftover, events.clone(), pool),
-                },
-                Ok(Ok(Opened::Tls(tls, leftover))) => RelayEvent::Dialed {
-                    stream: id.clone(),
-                    socket: spawn_tls(id, tls, leftover, events.clone(), pool),
-                },
-                // A certificate the trust store doesn't vouch for is never retried or waived:
-                // the stream fails and the client stays on legacy delivery.
-                Ok(Err(reason)) => RelayEvent::Ended { stream: id, reason },
-                Err(_) => RelayEvent::Ended {
-                    stream: id,
-                    reason: "dial",
-                },
-            };
-            let _ = events.send(event).await;
-        });
-        self.dialing.insert(stream, task);
-    }
-
-    /// The engine took a dialed socket.
-    pub fn adopt(&mut self, stream: &Id, socket: Socket) {
-        self.dialing.remove(stream.get());
-        self.sockets.insert(stream.get().to_owned(), socket);
-    }
-
-    /// Queues a sealed frame. False when the stream has no socket or is backed up.
-    pub fn send(&mut self, stream: &str, frame: Vec<u8>) -> bool {
-        let Some(socket) = self.sockets.get(stream) else {
-            self.pool.give(frame);
-            return false;
-        };
-        match socket.tx.try_send(Out::Frame(frame)) {
-            Ok(()) => true,
-            Err(error) => {
-                if let Out::Frame(frame) = error.into_inner() {
-                    self.pool.give(frame);
-                }
-                false
-            }
-        }
-    }
-
-    /// Shuts the stream's socket: its tasks are aborted, and returned so that an answer saying
-    /// the socket is shut (`revoked`, `closed`) can wait until they, and the socket with them,
-    /// are gone.
-    pub fn close(&mut self, stream: &str) -> Vec<JoinHandle<()>> {
-        let mut tasks = Vec::new();
-        if let Some(task) = self.dialing.remove(stream) {
-            task.abort();
-            tasks.push(task);
-        }
-        if let Some(mut socket) = self.sockets.remove(stream) {
-            for task in &socket.tasks {
-                task.abort();
-            }
-            tasks.append(&mut socket.tasks);
-        }
-        tasks
-    }
-}
-
 /// A dialed socket, upgraded: plain TCP halves, or a TLS connection; either with the frame bytes
 /// read past the upgrade response.
-enum Opened {
+pub(super) enum Opened {
     Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>),
     Tls(Box<Tls>, Vec<u8>),
 }
 
 /// TCP connect, TLS for `wss://`, and the upgrade. The error is the `relay.failed` reason.
-async fn open(url: &str) -> Result<Opened, &'static str> {
+pub(super) async fn open(url: &str) -> Result<Opened, &'static str> {
     let address = relay_ws::address(url).ok_or("address")?;
     let stream = TcpStream::connect(&address.authority)
         .await
         .map_err(|_| "dial")?;
-    stream.set_nodelay(true).map_err(|_| "dial")?;
-    // Closed with a reset, never a graceful flush: once a stream is shut, nothing it had queued
-    // in the kernel reaches the relay.
+    // First, before anything can fail: a socket dropped without a graceful close resets, so
+    // nothing it had queued in the kernel reaches the relay. Only `Out::Close` turns it off.
     stream.set_zero_linger().map_err(|_| "dial")?;
+    stream.set_nodelay(true).map_err(|_| "dial")?;
     let key = relay_ws::key();
     let request = relay_ws::request(&address, &key);
     let mut head = Vec::with_capacity(1024);
@@ -216,7 +177,7 @@ fn accept(head: &[u8], end: usize, key: &str) -> Result<(), &'static str> {
     }
 }
 
-fn spawn_tls(
+pub(super) fn spawn_tls(
     stream: Id,
     tls: Box<Tls>,
     leftover: Vec<u8>,
@@ -231,7 +192,7 @@ fn spawn_tls(
     }
 }
 
-fn spawn(
+pub(super) fn spawn(
     stream: Id,
     read: OwnedReadHalf,
     write: OwnedWriteHalf,
@@ -250,7 +211,7 @@ fn spawn(
     let reader = tokio::spawn(read_frames(stream, read, leftover, tx.clone(), events));
     Socket {
         tx,
-        tasks: vec![reader, writer],
+        tasks: vec![writer, reader],
     }
 }
 
@@ -315,6 +276,7 @@ async fn write_frames(
         let (opcode, mut payload) = match out {
             Out::Frame(frame) => (OP_BINARY, frame),
             Out::Pong(data) => (OP_PONG, data),
+            Out::Close => return finish(&mut write, &mut masks).await,
         };
         let key = masks.next();
         let (head, n) = relay_ws::header(opcode, payload.len(), key);
@@ -333,8 +295,17 @@ async fn write_frames(
             return;
         }
     }
+}
+
+/// A graceful close's last bytes: the WebSocket close, then normal linger (so what the kernel
+/// holds is delivered, not reset) and our FIN.
+async fn finish(write: &mut OwnedWriteHalf, masks: &mut Masks) {
     let (head, n) = relay_ws::header(OP_CLOSE, 0, masks.next());
-    let _ = write.write_all(&head[..n]).await;
+    if write.write_all(&head[..n]).await.is_err() {
+        return;
+    }
+    #[allow(deprecated)] // `None` only turns linger off; nothing blocks on drop.
+    let _ = write.as_ref().set_linger(None);
     let _ = write.shutdown().await;
 }
 

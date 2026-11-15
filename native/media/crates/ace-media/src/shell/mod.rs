@@ -15,6 +15,7 @@ mod pipe;
 mod priority_gate;
 mod readers;
 mod relay;
+mod relay_sockets;
 #[cfg(test)]
 mod relay_tests;
 mod relay_tls;
@@ -25,6 +26,7 @@ mod viewers;
 mod writer;
 
 use crate::encode::worker::Output;
+use crate::engine::relay::CloseMode;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
@@ -290,7 +292,7 @@ async fn serve(
         engine = engine.with_stills(Box::new(threads));
     }
     let (relay_tx, mut relay_rx) = mpsc::channel(256);
-    let mut relays = relay::RelaySockets::new(relay_tx, engine.relay_pool());
+    let mut relays = relay_sockets::RelaySockets::new(relay_tx, engine.relay_pool());
     let mut gate = priority_gate::PriorityGate::default();
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
@@ -419,16 +421,18 @@ async fn serve(
                 }
             }
             Some(event) = relay_rx.recv() => match event {
-                relay::RelayEvent::Dialed { stream, socket } => {
-                    if engine.relay_dialed(&stream) {
-                        relays.adopt(&stream, socket);
+                relay::RelayEvent::Dialed { stream } => {
+                    // A stream the engine let go meanwhile: its socket goes at once.
+                    if !engine.relay_dialed(&stream) {
+                        gate.closed(relays.close(stream.get(), CloseMode::Forced));
+                        gate.settle();
                     }
                 }
                 relay::RelayEvent::Frame { stream, frame } => {
                     engine.relay_frame(&stream, frame, clock.now())
                 }
                 relay::RelayEvent::Ended { stream, reason } => {
-                    gate.closed(relays.close(stream.get()));
+                    gate.closed(relays.close(stream.get(), CloseMode::Forced));
                     engine.relay_ended(&stream, reason, clock.now());
                 }
             },

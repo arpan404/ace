@@ -21,6 +21,27 @@ const POOL_LIMIT: usize = 512;
 /// A sealed fragment: the plaintext's at most 65,519 bytes plus the tag.
 pub const FRAME_CAPACITY: usize = 65_535;
 
+/// How a relay stream's socket is shut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseMode {
+    /// What was already written still reaches the relay, then the WebSocket close (bounded):
+    /// the daemon's own close after a refusal, a session's end, expiry, shutdown.
+    Graceful,
+    /// At once, with a reset, so nothing queued leaves: a revocation, a client breaking the
+    /// protocol, a stream backed up or failed.
+    Forced,
+}
+
+impl CloseMode {
+    /// The mode a connection's close takes, from its reason.
+    pub fn for_reason(reason: &str) -> Self {
+        match reason {
+            "revoked" | "protocol" | "transport" | "backlog" => Self::Forced,
+            _ => Self::Graceful,
+        }
+    }
+}
+
 /// What the shell does for relay streams.
 pub enum RelayEffect {
     /// Open the stream's socket to the relay's `/join` address.
@@ -28,8 +49,8 @@ pub enum RelayEffect {
     /// Write one frame (already sealed) on the stream's socket. The buffer comes from the
     /// [`Pool`] and goes back to it once written.
     Send { stream: String, frame: Vec<u8> },
-    /// Shut the stream's socket now.
-    Close { stream: String },
+    /// Shut the stream's socket.
+    Close { stream: String, mode: CloseMode },
 }
 
 impl std::fmt::Debug for RelayEffect {
@@ -37,7 +58,7 @@ impl std::fmt::Debug for RelayEffect {
         match self {
             Self::Dial { stream, .. } => write!(f, "Dial({stream})"),
             Self::Send { stream, frame } => write!(f, "Send({stream}, {} bytes)", frame.len()),
-            Self::Close { stream } => write!(f, "Close({stream})"),
+            Self::Close { stream, mode } => write!(f, "Close({stream}, {mode:?})"),
         }
     }
 }

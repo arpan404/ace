@@ -157,6 +157,26 @@ impl Tls {
         }
     }
 
+    /// Ends the connection gracefully: TLS's close_notify, normal linger (what the kernel holds
+    /// is delivered, not reset), then our FIN.
+    pub async fn finish(&mut self) -> io::Result<()> {
+        let mut plain = Vec::new();
+        self.settle(&mut plain).await?;
+        let n = {
+            let UnbufferedStatus { state, .. } = self.conn.process_tls_records(&mut []);
+            let ConnectionState::WriteTraffic(mut writer) = state.map_err(failed)? else {
+                return Err(failed("not writable"));
+            };
+            writer
+                .queue_close_notify(&mut self.outgoing)
+                .map_err(failed)?
+        };
+        self.tcp.write_all(&self.outgoing[..n]).await?;
+        #[allow(deprecated)] // `None` only turns linger off; nothing blocks on drop.
+        self.tcp.set_linger(None)?;
+        self.tcp.shutdown().await
+    }
+
     /// Encrypts `parts` as application data into the outgoing buffer and writes it in one go.
     /// Data that arrives meanwhile is appended to `plain`.
     pub async fn send(&mut self, parts: &[&[u8]], plain: &mut Vec<u8>) -> io::Result<()> {
@@ -265,14 +285,25 @@ pub(super) async fn pump_tls(
                 }
             }
             out = rx.recv() => {
-                let Some(out) = out else {
-                    let (head, n) = relay_ws::header(OP_CLOSE, 0, masks.next());
-                    let _ = tls.send(&[&head[..n]], &mut plain).await;
-                    return;
-                };
+                let Some(out) = out else { return };
                 let (opcode, mut payload) = match out {
                     Out::Frame(frame) => (OP_BINARY, frame),
                     Out::Pong(data) => (OP_PONG, data),
+                    Out::Close => {
+                        // A graceful close: the WebSocket close, TLS's close_notify, normal
+                        // linger and our FIN; then the relay's side until it closes it.
+                        let (head, n) = relay_ws::header(OP_CLOSE, 0, masks.next());
+                        if tls.send(&[&head[..n]], &mut plain).await.is_ok() {
+                            let _ = tls.finish().await;
+                            while tls.wait_readable().await.is_ok()
+                                && matches!(tls.read_ready(), Ok(true))
+                                && tls.receive(&mut plain).await.is_ok()
+                            {
+                                plain.clear();
+                            }
+                        }
+                        return;
+                    }
                 };
                 let key = masks.next();
                 let (head, n) = relay_ws::header(opcode, payload.len(), key);
