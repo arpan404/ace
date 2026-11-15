@@ -478,6 +478,10 @@ impl Engine {
     pub(super) fn status_for(&self, id: &str, activity: &Activity) -> Option<String> {
         match activity.state {
             State::Idle => None,
+            // A worker of it waits on the person (ADR 0161).
+            State::Waiting if activity.waiting_for == Some("worker") => {
+                Some(roster::WORKER_WAITING.to_owned())
+            }
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
             State::Sleeping => activity
                 .wake
@@ -493,6 +497,8 @@ impl Engine {
                     .unwrap_or_else(|| {
                         if activity.answering {
                             roster::THINKING.to_owned()
+                        } else if activity.jobs == 0 && activity.workers > 0 {
+                            roster::workers_working(activity.workers)
                         } else {
                             roster::IN_BACKGROUND.to_owned()
                         }

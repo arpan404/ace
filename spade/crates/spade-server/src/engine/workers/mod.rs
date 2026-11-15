@@ -341,3 +341,30 @@ impl Engine {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_node_reads_waiting_over_working_over_sleeping_over_idle_from_anything_under_it() {
+        use State::{Idle, Sleeping, Waiting, Working};
+        let cases = [
+            (Idle, Working, Working),
+            (Idle, Waiting, Waiting),
+            (Working, Waiting, Waiting),
+            (Waiting, Working, Waiting),
+            (Idle, Sleeping, Sleeping),
+            (Sleeping, Working, Working),
+            (Working, Idle, Working),
+            (Idle, Idle, Idle),
+        ];
+        for (own, under, expected) in cases {
+            assert_eq!(
+                rolled(own, under),
+                expected,
+                "{own:?} with {under:?} under it"
+            );
+        }
+    }
+}

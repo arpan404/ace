@@ -177,6 +177,7 @@ comes back up is checked against facts rather than taken at a worker's word.
 children from `delegate` and `wait` results, report decisions and their once-only rule, grants
 as subsets, access narrowed to the parent's. Engine tests with scripted model fakes and a fake
 ace:
+
 - a created worker starts on its brief and appears under its orchestrator;
 - the orchestrator reads working while a worker works, and waiting while it waits on the person;
 - the worker's settled report arrives once, also across a restart, and `wait_for` a worker wakes

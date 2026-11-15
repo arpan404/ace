@@ -151,6 +151,9 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 - `access`, `task_state`, `continuing`: the bot's access level and its task as it last said, and
   whether Spade is carrying the task on by itself ([autonomy.md](autonomy.md)).
+- `parent`, `workers`: the bot that made it as a worker (`{id, name}`, else `null`), and how many
+  of its own worker bots have not settled ([workers.md](workers.md)). `state` rolls up its
+  workers: it reads `waiting` or `working` while any of them does.
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"character","v":1,"body","pair","ears","marking","eyes","mouth","cheeks","accessory"}`

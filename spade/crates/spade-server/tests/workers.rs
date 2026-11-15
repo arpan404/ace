@@ -258,7 +258,9 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
         "the lead reads working while its worker's step runs",
         || async {
             let lead = agent(&spade, |a| a["id"] == lead_id.as_str()).await?;
-            Ok(lead["state"] == "working" && lead["workers"] == 1)
+            Ok(lead["state"] == "working"
+                && lead["workers"] == 1
+                && lead["status"] == "1 worker working")
         },
     )
     .await?;
@@ -272,7 +274,9 @@ async fn the_maker_reads_working_while_its_worker_works_and_waiting_while_it_wai
     spade.wait_for(&mailer_chat, "approval_requested").await?;
     until("the lead reads waiting on the person", || async {
         let lead = agent(&spade, |a| a["id"] == lead_id.as_str()).await?;
-        Ok(lead["state"] == "waiting" && lead["waiting_for"] == "worker")
+        Ok(lead["state"] == "waiting"
+            && lead["waiting_for"] == "worker"
+            && lead["status"] == "A worker is waiting for you")
     })
     .await?;
     let events = spade.wait_for(&lead_chat, "worker_reported").await?;
