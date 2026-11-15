@@ -229,10 +229,24 @@ impl Engine {
             model,
             created_ms: self.now_ms(),
         };
+        self.helper_starting(bot);
         let created = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(bot) {
                 return Err(ToolOutput::error(context::NOT_RUN));
+            }
+            // Stop stores its marker under this lock, then stops the helpers it finds: a helper
+            // is either made before the marker, and found, or sees it here and is never made.
+            match self.load(bot) {
+                Ok(events) if spade_core::turn::job_stopped(&events, job) => {
+                    return Err(ToolOutput::error(context::JOB_STOPPED));
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(ToolOutput::error(format!(
+                        "Spade could not start it: {error}"
+                    )));
+                }
             }
             self.store
                 .create_helper(&stored, std::slice::from_ref(&message), self.now_ms())
@@ -500,6 +514,26 @@ impl Engine {
                 self.record(&helper.conversation, &close)?;
             }
         }
+        Ok(())
+    }
+
+    /// After a restart, for a helper whose bot's Stop was stored but not carried out: stores
+    /// the stop in the helper's conversation, so it never starts (queued) or closes as stopped
+    /// (running, by [`Engine::settle_helpers_after_restart`]).
+    pub(super) fn stop_helper_after_restart(
+        &self,
+        helper: &StoredHelper,
+    ) -> Result<(), StoreError> {
+        let events = self.load(&helper.conversation)?;
+        if helper::stage(&events) == Stage::Ended {
+            return Ok(());
+        }
+        let transcript = Transcript::fold(&events);
+        let marker = Event::Known(Known::StopRequested {
+            reply: transcript.open_reply().and_then(|m| m.reply.clone()),
+            jobs: Vec::new(),
+        });
+        self.record(&helper.conversation, &marker)?;
         Ok(())
     }
 

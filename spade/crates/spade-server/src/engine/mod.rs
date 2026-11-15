@@ -171,12 +171,20 @@ pub struct Engine {
     /// the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     turn_end_hold: Mutex<Option<TurnEndHold>>,
+    /// Run, blocking, by a `helper` job just before it stores its helper; none outside tests,
+    /// which hold it there to order a Stop against it. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    helper_start_hold: Mutex<Option<HelperStartHold>>,
 }
 
 /// What [`Engine::hold_turn_ends`] runs, given the conversation.
 #[cfg(feature = "test-hooks")]
 pub type TurnEndHold =
     Arc<dyn Fn(&str) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// What [`Engine::hold_helper_starts`] runs, given the bot's conversation.
+#[cfg(feature = "test-hooks")]
+pub type HelperStartHold = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// What `starting` says until setup has run long enough to say more.
 const STARTING: &str = "setting up endpoints";
@@ -242,6 +250,8 @@ impl Engine {
             helpers: helpers::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
+            #[cfg(feature = "test-hooks")]
+            helper_start_hold: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -766,6 +776,27 @@ impl Engine {
         *self.turn_end_hold.lock().unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
 
+    /// Has every `helper` job run `hold` (blocking) just before it stores its helper.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_helper_starts(&self, hold: HelperStartHold) {
+        *self
+            .helper_start_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(hold);
+    }
+
+    #[cfg(feature = "test-hooks")]
+    pub(super) fn helper_starting(&self, bot: &str) {
+        let hold = self
+            .helper_start_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hold) = hold {
+            hold(bot);
+        }
+    }
+
     #[cfg(feature = "test-hooks")]
     pub(super) async fn turn_ended(&self, id: &str) {
         let hold = self
@@ -781,6 +812,9 @@ impl Engine {
     /// Without the `test-hooks` feature nothing holds a worker.
     #[cfg(not(feature = "test-hooks"))]
     pub(super) async fn turn_ended(&self, _id: &str) {}
+
+    #[cfg(not(feature = "test-hooks"))]
+    pub(super) fn helper_starting(&self, _bot: &str) {}
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {
         if self.deleting(id) {
