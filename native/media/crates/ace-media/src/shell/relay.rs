@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::mpsc;
-use tokio::task::AbortHandle;
+use tokio::task::JoinHandle;
 
 /// The relay's own handshake deadline.
 const DIAL_DEADLINE: Duration = Duration::from_secs(10);
@@ -33,10 +33,11 @@ pub(super) enum Out {
     Pong(Vec<u8>),
 }
 
-/// One dialed stream's socket tasks; dropping it shuts the socket.
+/// One dialed stream's socket tasks; dropping it aborts them, which closes the socket (with a
+/// reset: relay sockets have a zero linger, so nothing queued is sent after).
 pub struct Socket {
     tx: mpsc::Sender<Out>,
-    tasks: Vec<AbortHandle>,
+    tasks: Vec<JoinHandle<()>>,
 }
 
 impl Drop for Socket {
@@ -49,7 +50,7 @@ impl Drop for Socket {
 
 pub struct RelaySockets {
     events: mpsc::Sender<RelayEvent>,
-    dialing: HashMap<String, AbortHandle>,
+    dialing: HashMap<String, JoinHandle<()>>,
     sockets: HashMap<String, Socket>,
     pool: Pool,
 }
@@ -91,7 +92,7 @@ impl RelaySockets {
             };
             let _ = events.send(event).await;
         });
-        self.dialing.insert(stream, task.abort_handle());
+        self.dialing.insert(stream, task);
     }
 
     /// The engine took a dialed socket.
@@ -117,11 +118,22 @@ impl RelaySockets {
         }
     }
 
-    pub fn close(&mut self, stream: &str) {
+    /// Shuts the stream's socket: its tasks are aborted, and returned so that an answer saying
+    /// the socket is shut (`revoked`, `closed`) can wait until they, and the socket with them,
+    /// are gone.
+    pub fn close(&mut self, stream: &str) -> Vec<JoinHandle<()>> {
+        let mut tasks = Vec::new();
         if let Some(task) = self.dialing.remove(stream) {
             task.abort();
+            tasks.push(task);
         }
-        self.sockets.remove(stream);
+        if let Some(mut socket) = self.sockets.remove(stream) {
+            for task in &socket.tasks {
+                task.abort();
+            }
+            tasks.append(&mut socket.tasks);
+        }
+        tasks
     }
 }
 
@@ -139,6 +151,9 @@ async fn open(url: &str) -> Result<Opened, &'static str> {
         .await
         .map_err(|_| "dial")?;
     stream.set_nodelay(true).map_err(|_| "dial")?;
+    // Closed with a reset, never a graceful flush: once a stream is shut, nothing it had queued
+    // in the kernel reaches the relay.
+    stream.set_zero_linger().map_err(|_| "dial")?;
     let key = relay_ws::key();
     let request = relay_ws::request(&address, &key);
     let mut head = Vec::with_capacity(1024);
@@ -212,7 +227,7 @@ fn spawn_tls(
     let task = tokio::spawn(pump_tls(stream, tls, leftover, rx, events, pool));
     Socket {
         tx,
-        tasks: vec![task.abort_handle()],
+        tasks: vec![task],
     }
 }
 
@@ -235,7 +250,7 @@ fn spawn(
     let reader = tokio::spawn(read_frames(stream, read, leftover, tx.clone(), events));
     Socket {
         tx,
-        tasks: vec![reader.abort_handle(), writer.abort_handle()],
+        tasks: vec![reader, writer],
     }
 }
 

@@ -12,8 +12,11 @@ mod listener;
 mod pictures;
 #[cfg(windows)]
 mod pipe;
+mod priority_gate;
 mod readers;
 mod relay;
+#[cfg(test)]
+mod relay_tests;
 mod relay_tls;
 mod relay_ws;
 #[cfg(target_os = "macos")]
@@ -288,6 +291,7 @@ async fn serve(
     }
     let (relay_tx, mut relay_rx) = mpsc::channel(256);
     let mut relays = relay::RelaySockets::new(relay_tx, engine.relay_pool());
+    let mut gate = priority_gate::PriorityGate::default();
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
@@ -361,6 +365,7 @@ async fn serve(
                         pictures: &mut pictures,
                         readers: &mut readers,
                         relays: &mut relays,
+            gate: &mut gate,
                         media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
@@ -406,6 +411,13 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            answer = gate.next(), if !gate.is_empty() => {
+                if let (Some(bytes), Some(priority)) = (answer, priority_out.as_ref())
+                    && priority.send(bytes).is_err()
+                {
+                    break fail("the priority lane is backed up past its bound");
+                }
+            }
             Some(event) = relay_rx.recv() => match event {
                 relay::RelayEvent::Dialed { stream, socket } => {
                     if engine.relay_dialed(&stream) {
@@ -416,7 +428,7 @@ async fn serve(
                     engine.relay_frame(&stream, frame, clock.now())
                 }
                 relay::RelayEvent::Ended { stream, reason } => {
-                    relays.close(stream.get());
+                    gate.closed(relays.close(stream.get()));
                     engine.relay_ended(&stream, reason, clock.now());
                 }
             },
@@ -454,6 +466,7 @@ async fn serve(
             pictures: &mut pictures,
             readers: &mut readers,
             relays: &mut relays,
+            gate: &mut gate,
             media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };

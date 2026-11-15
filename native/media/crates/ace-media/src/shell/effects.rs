@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Carrying out the engine's effects, in order.
 use super::pictures::Pictures;
+use super::priority_gate::PriorityGate;
 use super::readers::Readers;
 use super::relay::RelaySockets;
 use super::viewers::Outboxes;
@@ -33,6 +34,8 @@ pub struct Outputs<'a> {
     pub pictures: &'a mut Pictures,
     pub readers: &'a mut Readers,
     pub relays: &'a mut RelaySockets,
+    /// Priority answers held until the sockets they report shut are gone.
+    pub gate: &'a mut PriorityGate,
     /// Clients' media connections.
     pub media: &'a mut Outboxes,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
@@ -60,7 +63,8 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             return exit;
         }
         for stream in backed_up {
-            outputs.relays.close(&stream);
+            let tasks = outputs.relays.close(&stream);
+            outputs.gate.closed(tasks);
             if let Ok(id) = media_wire::control::Id::new(stream) {
                 // Only the monotonic clock matters for a close.
                 let now = crate::engine::Now {
@@ -72,6 +76,8 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             }
         }
         if !engine.has_effects() {
+            // Closes no answer followed don't hold the next one.
+            outputs.gate.settle();
             return step;
         }
     }
@@ -96,10 +102,19 @@ fn apply_once(
                         .send(bytes)
                         .map_err(|_| "an outbound lane is backed up past its bound")
                 }),
-            // The priority lane is only ever answered once it is up.
-            Effect::Priority(message) => outputs
-                .priority
-                .map_or(Ok(()), |p| send(p, message, Lane::Priority)),
+            // The priority lane is only ever answered once it is up, and an answer that follows a
+            // relay socket's close only once that socket is gone.
+            Effect::Priority(message) => match outputs.priority {
+                None => Ok(()),
+                Some(priority) => encode(message, Lane::Priority)
+                    .map_err(|_| "an outgoing message did not encode")
+                    .and_then(|bytes| match outputs.gate.answer(bytes) {
+                        Some(now) => priority
+                            .send(now)
+                            .map_err(|_| "an outbound lane is backed up past its bound"),
+                        None => Ok(()),
+                    }),
+            },
             Effect::Pong(id) => {
                 let lag_ms = outputs
                     .lag
@@ -137,7 +152,8 @@ fn apply_once(
                 Ok(())
             }
             Effect::Relay(RelayEffect::Close { stream }) => {
-                outputs.relays.close(&stream);
+                let tasks = outputs.relays.close(&stream);
+                outputs.gate.closed(tasks);
                 Ok(())
             }
             Effect::Encode(command) => {
