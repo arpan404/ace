@@ -9,8 +9,8 @@ export interface Persistence {
   scheduler: Scheduler;
   /**
    * Settles once the client has had a daemon's welcome (and stays settled). Until then nothing
-   * a subscription asks for can be answered, so a kept record still being read is waited for.
-   * None: the wait counts from the binding's start.
+   * a subscription asks for can be answered, so a kept record still being read is waited for
+   * until it. None: the wait is `firstReadMs` from the binding's start.
    */
   welcomed?(): Promise<void>;
 }
@@ -27,9 +27,12 @@ export const snapshotWriteMs = 1_000;
  * last.
  */
 /**
- * How long a new subscription waits for its kept record, past the client's first welcome,
- * before it goes without one. Before the welcome it waits for the read however long it takes:
- * a relaunch reads a cold store, and opening without what it kept costs a full snapshot.
+ * How long a new subscription waits for its kept record before it goes without one, unless the
+ * client has not had its first welcome by then: it then waits until the welcome, and no longer.
+ * A record read before the welcome costs nothing (the subscribe still goes ahead of it, with
+ * its cursor); one still unread at the welcome goes without it, as a subscribe after the
+ * welcome always went. A relaunch reads a cold store, and opening without what it kept costs a
+ * full snapshot.
  */
 const firstReadMs = 250;
 
@@ -47,8 +50,8 @@ export class SnapshotBinding {
   #written: Promise<void> = Promise.resolve();
   /**
    * Settles once the first read of the kept record has been tried (restored, missed or failed),
-   * or `firstReadMs` after the client's first welcome at most, so a subscription can resume
-   * from what it held (ADR 0128).
+   * or at the later of `firstReadMs` after this start and the client's first welcome, so a
+   * subscription can resume from what it held (ADR 0128).
    */
   readonly loaded: Promise<void>;
 
@@ -83,19 +86,27 @@ export class SnapshotBinding {
       () => {},
     );
     this.loaded = new Promise((resolve) => {
-      let cancel: (() => void) | undefined;
       let settled = false;
       const finish = () => {
         if (settled) return;
         settled = true;
-        cancel?.();
+        cancel();
         resolve();
       };
-      const giveUpAfter = () => {
-        if (!settled) cancel = persistence.scheduler.set(firstReadMs, finish);
+      // Gives up at the later of `firstReadMs` after this start and the client's first welcome.
+      let waited = false;
+      let welcomed = persistence.welcomed === undefined;
+      const giveUp = () => {
+        if (waited && welcomed) finish();
       };
-      if (persistence.welcomed) void persistence.welcomed().then(giveUpAfter);
-      else giveUpAfter();
+      const cancel = persistence.scheduler.set(firstReadMs, () => {
+        waited = true;
+        giveUp();
+      });
+      void persistence.welcomed?.().then(() => {
+        welcomed = true;
+        giveUp();
+      });
       void tried.then(finish);
     });
   }
