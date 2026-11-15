@@ -190,7 +190,7 @@ void main() {
   R = mix(BOKEH, max(px * 1.8, 0.005), focus);
   soft = mix(BOKEH * 0.75, px * 1.2, focus);
   tint = mix(vec3(1.0), vec3(1.07, 0.97, 0.82), mood.x);
-  gain = (1.0 + 0.32 * mood.z) * (1.0 - 0.45 * mood.y);
+  gain = (1.0 + 0.32 * mood.z) * (1.0 - 0.3 * mood.y);
   gapCentre = aspect * 0.6;
   float t = time;
 
@@ -355,7 +355,7 @@ void main() {
   }
 
   col += lights * tint * gain;
-  col *= 1.0 - 0.38 * mood.y;
+  col *= 1.0 - 0.24 * mood.y;
   outColor = vec4(col / store, 1.0);
 }`;
 
