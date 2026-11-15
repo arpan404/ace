@@ -73,7 +73,9 @@ it("one event larger than the budget is not decoded, and nothing is answered", (
       bytes: EARLY_REPLAY_BYTES,
     }),
   ).toBeUndefined();
-  h.early([{ subscriptionId: "t", scope: { kind: "thread", threadId: h.thread.id }, afterSeq: cursor }]);
+  h.early([
+    { subscriptionId: "t", scope: { kind: "thread", threadId: h.thread.id }, afterSeq: cursor },
+  ]);
   expect(h.sent).toEqual([]);
 });
 
@@ -118,7 +120,9 @@ it("a small resume is answered as XX answers it, and continues from where it end
   );
   stop();
   expect(h.sent).toEqual(xx);
-  expect(later).toEqual([{ type: "subscribe", ...request, afterSeq: h.store.headSeq(), paced: false }]);
+  expect(later).toEqual([
+    { type: "subscribe", ...request, afterSeq: h.store.headSeq(), paced: false },
+  ]);
   // What it read is charged to the session (its output is charged where it is sent).
   expect(h.session.remaining().events).toBe(NK_LIMITS.sessionEvents - 2);
   expect(h.session.remaining().bytes).toBeLessThan(NK_LIMITS.sessionBytes);

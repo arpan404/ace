@@ -181,7 +181,7 @@ export class Store {
   private markedSeq = 0;
   /** Rows from here on were written by this build and are read without validating again. */
   private readonly trust = untrusted();
-  readonly bounded = new BoundedEvents(() => this.db, this.trust, () => this.flushLiveWrites());
+  readonly bounded = new BoundedEvents(() => this.db, this.trust, this);
   /** Whether every entity row is in this build's shape, so read without validating again. */
   private readonly entityTrust = untrustedEntities();
   constructor(

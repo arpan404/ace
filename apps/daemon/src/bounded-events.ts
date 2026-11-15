@@ -15,16 +15,18 @@ const ENVELOPE_BYTES = 64;
 export class BoundedEvents {
   readonly #db: () => DatabaseSync;
   readonly #trust: StoredTrust;
-  readonly #flush: () => void;
-  constructor(db: () => DatabaseSync, trust: StoredTrust, flush: () => void) {
+  readonly #writes: { flushLiveWrites(): void };
+  /** `writes`: whose buffered live writes are flushed first, so the read sees them. */
+  constructor(db: () => DatabaseSync, trust: StoredTrust, writes: { flushLiveWrites(): void }) {
     this.#db = db;
     this.#trust = trust;
-    this.#flush = flush;
+    this.#writes = writes;
   }
 
   /**
    * The thread's events in (afterSeq, throughSeq], with the bytes they take, when there are at
-   * most `rows` of them taking at most `bytes`; otherwise undefined, having decoded nothing.
+   * most `rows` of them taking at most `bytes`; otherwise undefined. A range whose stored sizes
+   * don't fit is never decoded; one that fits is decoded under the same byte limit.
    */
   threadEvents(
     threadId: ThreadId,
@@ -32,7 +34,7 @@ export class BoundedEvents {
     throughSeq: number,
     limit: { rows: number; bytes: number },
   ): { events: Event[]; bytes: number } | undefined {
-    this.#flush();
+    this.#writes.flushLiveWrites();
     const db = this.#db();
     const sizes = db
       .prepare(

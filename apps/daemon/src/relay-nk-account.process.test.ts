@@ -27,7 +27,9 @@ afterEach(async () => {
 
 /** A daemon on an ace account behind the self-hosted relay; its grants live `grantLeftMs`. */
 async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
-  const backend = await startFakeAccountBackend(() => Date.now() - (GRANT_LIFETIME_MS - grantLeftMs));
+  const backend = await startFakeAccountBackend(
+    () => Date.now() - (GRANT_LIFETIME_MS - grantLeftMs),
+  );
   cleanup.push(() => backend.close());
   const root = await mkdtemp(join(tmpdir(), "ace-nk-account-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -117,7 +119,12 @@ async function nkWelcome(d: Daemon, early: Record<string, unknown>) {
   await peer.send(
     noise.writeMessage(
       new TextEncoder().encode(
-        JSON.stringify({ type: "hello.early", protocolVersion: 1, flowControl: ["credit"], ...early }),
+        JSON.stringify({
+          type: "hello.early",
+          protocolVersion: 1,
+          flowControl: ["credit"],
+          ...early,
+        }),
       ),
     ),
   );

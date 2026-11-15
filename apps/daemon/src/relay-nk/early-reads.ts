@@ -79,7 +79,11 @@ function answer(subscribe: EarlySubscribe, reads: EarlyReads): number | undefine
       throughSeq: head,
     });
   if (subscribe.paced)
-    messages.push({ type: "subscription.ready", subscriptionId: subscribe.subscriptionId, seq: head });
+    messages.push({
+      type: "subscription.ready",
+      subscriptionId: subscribe.subscriptionId,
+      seq: head,
+    });
   // Its JSON is at least what goes on the wire: the answer fits the output left, or isn't sent.
   const size = messages.reduce(
     (total, message) => total + Buffer.byteLength(JSON.stringify(message)),
