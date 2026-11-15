@@ -22,9 +22,9 @@ import { StreamMessages } from "./stream-messages.ts";
  * older daemon), the binding stays absent and everything keeps travelling on the main socket.
  * Whenever the binding changes, views resubscribe (`watch`).
  *
- * When only the relay reaches this client, `media.connect` gives no `url`: the connection is a
- * relay stream with the `media` purpose instead (`relay`, D2), whose hello carries the ticket and
- * whose welcome is the daemon's; what crosses it afterwards is the same. A stream refused before
+ * When the relay is how this client reaches the daemon (`media.connect` then gives no `url`, or
+ * one it can't reach), the connection is a relay stream with the `media` purpose instead
+ * (`relay`, D2), whose hello carries the ticket and whose welcome is the daemon's; what crosses it afterwards is the same. A stream refused before
  * its welcome (a spent or foreign ticket, a daemon or relay without media) leaves delivery on the
  * main socket.
  */
@@ -65,8 +65,10 @@ export interface MediaConnectionOptions {
   connect(): Promise<unknown>;
   socket: OpenMediaSocket;
   /**
-   * The relay stream opener, when this client reaches the daemon through a relay; asked at each
-   * `media.connect` that gives no `url`. Absent, or answering undefined: such a grant goes legacy.
+   * The relay stream opener, answered only while this client reaches the daemon through a relay;
+   * asked at each `media.connect`. While it answers one, the media connection is a relay stream
+   * even when the grant names a `url` (that address is the daemon's own, unreachable from here).
+   * Absent, or answering undefined: a grant without a `url` goes legacy.
    */
   relay?(): OpenMediaRelay | undefined;
   /** How long a relay stream may wait for its welcome; `mediaAdmissionMs` unless given. */
@@ -203,7 +205,11 @@ export class MediaConnection {
     if (!parsed.success) return this.#legacy("unsupported");
     const result = parsed.data.result;
     if (!result.ok) return this.#legacy(result.code);
-    if (!result.url) return this.#openRelay(epoch, result.connection, result.ticket);
+    // A client that reaches the daemon through the relay can't reach a direct address, whatever
+    // the grant says: its media connection is a relay stream too.
+    const relay = this.#options.relay?.();
+    if (relay || !result.url)
+      return this.#openRelay(epoch, result.connection, result.ticket, relay);
     const granted = result.connection;
     let hello: Uint8Array<ArrayBuffer>;
     try {
@@ -245,9 +251,13 @@ export class MediaConnection {
       this.#retry("unreachable");
     }
   }
-  /** Only the relay reaches this client: a relay stream with the `media` purpose. */
-  #openRelay(epoch: number, granted: MediaConnectionId, ticket: string): void {
-    const open = this.#options.relay?.();
+  /** The relay is how this client reaches the daemon: a relay stream with the `media` purpose. */
+  #openRelay(
+    epoch: number,
+    granted: MediaConnectionId,
+    ticket: string,
+    open: OpenMediaRelay | undefined,
+  ): void {
     if (!open) return this.#legacy("relay");
     const current = () => epoch === this.#epoch;
     let welcomed = false;
