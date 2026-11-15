@@ -69,15 +69,36 @@ afterEach(() => {
 });
 
 /** Adds `media` to the daemon's `browser.subscribe` replies, as a daemon delivering by ace-media does. */
-function withMediaReplies(api: ClientApi, poster: MediaPoster | undefined) {
+type Daemon = "binds" | "serves here" | "refuses";
+
+function withMediaReplies(
+  api: ClientApi,
+  poster: MediaPoster | undefined,
+  daemon: Daemon,
+  refused: unknown[],
+) {
   return new Proxy(api, {
     get(target, key) {
       if (key === "request")
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
+          const named =
+            input.type === "browser.subscribe" && "media" in input ? input.media : undefined;
+          if (named && daemon === "refuses") {
+            refused.push(input);
+            return {
+              type: "browser.result",
+              requestId: "r",
+              ok: false,
+              error: "media-connection: that media connection isn't this session's",
+            };
+          }
           const reply = await target.request(input, options);
-          if (input.type !== "browser.subscribe" || !("media" in input) || !input.media)
+          if (input.type !== "browser.subscribe" || !named || daemon === "serves here")
             return reply;
-          return { ...reply, media: { connection: input.media.connection, ...(poster ? { poster } : {}) } };
+          return {
+            ...reply,
+            media: { connection: named.connection, ...(poster ? { poster } : {}) },
+          };
         };
       const value: unknown = Reflect.get(target, key, target);
       return typeof value === "function" ? value.bind(target) : value;
@@ -85,7 +106,11 @@ function withMediaReplies(api: ClientApi, poster: MediaPoster | undefined) {
   });
 }
 
-async function watching(initial: string | undefined, poster?: MediaPoster) {
+async function watching(
+  initial: string | undefined,
+  poster?: MediaPoster,
+  answer: Daemon = "binds",
+) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   daemon.browser.drive(thread, { url: "http://localhost:5173" });
@@ -96,7 +121,8 @@ async function watching(initial: string | undefined, poster?: MediaPoster) {
   const link = fakeMedia(initial);
   const decoder = instantDecoder();
   const posters: MediaPoster[] = [];
-  const preview = daemonPreview(withMediaReplies(wire.api, poster), {
+  const refused: unknown[] = [];
+  const preview = daemonPreview(withMediaReplies(wire.api, poster, answer, refused), {
     schedule: () => () => {},
     visibility: { visible: () => true, watch: () => () => {} },
     videoDecoder: decoder.factory,
@@ -130,7 +156,7 @@ async function watching(initial: string | undefined, poster?: MediaPoster) {
         "type" in message &&
         message.type === "browser.ack",
     );
-  return { preview, wire, link, subscribes, mainAcks, posters, daemon };
+  return { preview, wire, link, subscribes, mainAcks, posters, daemon, refused };
 }
 
 test("the browser's video subscribes on the media connection, comes by it and is acked there", async () => {
@@ -183,4 +209,24 @@ test("the browser's view carries the degraded sentence exactly while its video i
   await waitFor(() => expect(sentence()).toBe(reason));
   daemon.browser.setAcceleration(thread, { steps, degraded: false });
   await waitFor(() => expect(sentence()).toBeUndefined());
+});
+
+test("acks stay on the socket when the daemon serves the video there itself", async () => {
+  const { wire, link, subscribes, mainAcks } = await watching(
+    "mc_aaaaaaaaaa",
+    undefined,
+    "serves here",
+  );
+  expect(subscribes()[0]).toMatchObject({ media: { connection: "mc_aaaaaaaaaa" } });
+  wire.stream(video(1, true));
+  await waitFor(() => expect(mainAcks()).toHaveLength(1));
+  expect(link.acks).toEqual([]);
+});
+
+test("a refused connection subscribes again on the socket", async () => {
+  const { subscribes, refused } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
+  expect(refused).toEqual([expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } })]);
+  // The one the daemon took names no connection.
+  expect(subscribes()).toHaveLength(1);
+  expect(subscribes()[0]).not.toHaveProperty("media");
 });

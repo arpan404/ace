@@ -347,7 +347,10 @@ export class DeviceClient {
   private readonly liveStreams = new SharedStreams();
   private subscribe(deviceId: string): void {
     void this.request({ op: "subscribe", deviceId, ...this.media.fields(deviceId) }).catch(
-      () => {},
+      (error: unknown) => {
+        // A connection the daemon won't bind here: the stream goes on this channel instead.
+        if (this.media.refused(deviceId, error)) this.subscribe(deviceId);
+      },
     );
   }
   private receiveMedia(message: StreamMessage): void {
@@ -460,7 +463,7 @@ export class DeviceClient {
               );
             return;
           }
-          if (pending.operation.op === "subscribe" && message.media) {
+          if (pending.operation.op === "subscribe") {
             this.media.subscribed(pending.operation.deviceId, message.media);
             if (this.media.poster(pending.operation.deviceId)) this.notify();
           }

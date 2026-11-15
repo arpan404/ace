@@ -50,6 +50,7 @@ import {
 } from "@/lib/video/codecs.ts";
 import type { MediaConnection } from "@ace/client/media";
 import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
+import { isMediaRefusal } from "@ace/browser/live-view";
 
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
 export type PreviewMedia = Pick<MediaConnection, "binding" | "settled" | "watch" | "onStream" | "ack">;
@@ -246,8 +247,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const frames = new Map<string, LivePicture>();
   const media = binaryFrames ? options.media : undefined;
-  /** The media connection each thread's video was subscribed on, so its acks follow it. */
+  /** The media connection each thread's video was confirmed on, so its acks follow it. */
   const bound = new Map<string, string>();
+  /** A connection the daemon refused for a thread: not named again while it is the binding. */
+  const refusedOn = new Map<string, string>();
   /** Each thread's tabs' last pictures from when they were shown (split view's other half). */
   const stills = new Map<string, Map<string, LivePicture>>();
   /** The shown tab changed: its picture stays as that tab's still instead of being dropped. */
@@ -340,6 +343,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     videos.delete(threadId);
     sounds.delete(threadId);
     bound.delete(threadId);
+    refusedOn.delete(threadId);
   };
   /**
    * The thread's stream starts over (a reconnect, a pause, another backend). Its last picture
@@ -373,7 +377,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * known, what it shows. A client that decodes none still subscribes, for the tabs and the
    * page's state; it shows no picture.
    */
-  const subscribe = async (threadId: string) => {
+  const subscribe = async (threadId: string): Promise<unknown> => {
     if (disposed) throw new Error("preview_disposed");
     const codecs = await videos.codecs();
     if (disposed) throw new Error("preview_disposed");
@@ -381,9 +385,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (codecs.length) await media?.settled();
     if (disposed) throw new Error("preview_disposed");
     const viewport = captures.get(threadId);
-    const binding = codecs.length ? media?.binding() : undefined;
-    if (binding) bound.set(threadId, binding.connection);
-    else bound.delete(threadId);
+    const offered = codecs.length ? media?.binding() : undefined;
+    const binding =
+      offered && refusedOn.get(threadId) !== offered.connection ? offered : undefined;
+    bound.delete(threadId);
     const reply = await request({
       type: "browser.subscribe",
       threadId: ThreadId.parse(threadId),
@@ -392,10 +397,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
       ...(binding ? { media: binding } : {}),
     });
-    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-    const poster = reply.media?.poster;
-    if (poster && binding && reply.media?.connection === binding.connection)
-      void showPoster(threadId, poster);
+    if (!reply.ok) {
+      // A connection the daemon won't bind for this session: subscribe on the socket instead.
+      if (binding && isMediaRefusal(new Error(reply.error))) {
+        refusedOn.set(threadId, binding.connection);
+        return subscribe(threadId);
+      }
+      throw new Error(reply.error ?? "browser_failed");
+    }
+    // Only a reply naming the connection moves the video there (ace-media may not serve it).
+    if (binding && reply.media?.connection === binding.connection) {
+      bound.set(threadId, binding.connection);
+      if (reply.media.poster) void showPoster(threadId, reply.media.poster);
+    }
     return reply.result;
   };
   /** A person's browser command, in the tab it names (else the one shown). */
