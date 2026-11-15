@@ -63,6 +63,11 @@ struct State {
     children_done: std::sync::atomic::AtomicBool,
     /// Every call a handler ran: its tool and arguments.
     ran: Mutex<Vec<(String, serde_json::Value)>>,
+    /// While true, `agent_cancel` answers an error, as ace does when it can't cancel a thread.
+    refuse_cancels: std::sync::atomic::AtomicBool,
+    /// While true, `delegate` starts two children and answers as a wait for any: `t1` done, `t2`
+    /// still working.
+    two_children: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -91,6 +96,8 @@ impl FakeMcp {
             redirect_calls: Mutex::new(None),
             hang: std::sync::atomic::AtomicBool::new(false),
             children_done: std::sync::atomic::AtomicBool::new(false),
+            refuse_cancels: std::sync::atomic::AtomicBool::new(false),
+            two_children: std::sync::atomic::AtomicBool::new(false),
             ran: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -167,6 +174,17 @@ impl FakeMcp {
     /// Sends every held answer.
     pub fn release_answers(&self) {
         self.state.hold.send_replace(false);
+    }
+
+    /// From now on `delegate` starts two children and returns once the first is done, the other
+    /// still working, as a wait for any does.
+    pub fn two_children(&self) {
+        self.state.two_children.store(true, Ordering::SeqCst);
+    }
+
+    /// From now on `agent_cancel` fails (`true`) or works (`false`).
+    pub fn refuse_cancels(&self, refuse: bool) {
+        self.state.refuse_cancels.store(refuse, Ordering::SeqCst);
     }
 
     /// The children `delegate` started finish: the next `wait` is ready.
@@ -448,6 +466,22 @@ impl ServerHandler for Fake {
             )]),
             // ace's own: one child, still working until the test settles it; each wait answers
             // `timeout` meanwhile, as ace does after `timeoutSeconds`.
+            "delegate" if self.0.two_children.load(Ordering::SeqCst) => {
+                let wait = json!({
+                    "status": "ready",
+                    "mode": "any",
+                    "threads": [
+                        { "threadId": "t1", "state": "done", "title": "One", "elapsedSeconds": 1,
+                          "result": "Done." },
+                        { "threadId": "t2", "state": "working", "title": "Two", "elapsedSeconds": 1,
+                          "result": "" },
+                    ],
+                });
+                CallToolResult::success(vec![ContentBlock::text(
+                    json!({ "ok": true, "data": { "threadIds": ["t1", "t2"], "wait": wait } })
+                        .to_string(),
+                )])
+            }
             "delegate" | "wait" => {
                 if request.name.as_ref() == "wait" {
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -467,6 +501,12 @@ impl ServerHandler for Fake {
                 };
                 CallToolResult::success(vec![ContentBlock::text(
                     json!({ "ok": true, "data": data }).to_string(),
+                )])
+            }
+            "agent_cancel" if self.0.refuse_cancels.load(Ordering::SeqCst) => {
+                CallToolResult::error(vec![ContentBlock::text(
+                    json!({ "ok": false, "error": "the thread could not be cancelled now" })
+                        .to_string(),
                 )])
             }
             // ace's own: a child is messaged or cancelled.
