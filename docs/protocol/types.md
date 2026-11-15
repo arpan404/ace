@@ -28064,7 +28064,7 @@ Example:
 | input | yes | object | {"properties":{"pointer":{"type":"boolean"},"keyboard":{"type":"boolean"},"scroll":{"type":"boolean"},"text":{"type":"boolean"}},"required":["pointer","keyboard","scroll","text"]} |
 | uiTree | yes | boolean |  |
 | semanticActions | yes | array | {"maxItems":8,"items":{"type":"string","enum":["press","focus","setValue","scroll","expand","select","performSecondaryAction","selectText"]}} |
-| codecs | yes | array | {"minItems":1,"maxItems":2,"items":{"type":"string","enum":["jpeg","h264"]}} |
+| codecs | yes | array | {"minItems":1,"maxItems":3,"items":{"type":"string","enum":["jpeg","h264","hevc"]}} |
 | permissions | yes | object | {"properties":{"screen":{"type":"string","enum":["granted","denied","prompt","n/a"]},"input":{"type":"string","enum":["granted","denied","prompt","n/a"]}},"required":["screen","input"]} |
 | watchOnly | no | string | {"minLength":1,"maxLength":500} |
 | encoders | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/MediaCapability.json"}} |
@@ -28079,7 +28079,7 @@ Example:
     "windows": false
   },
   "codecs": [
-    "jpeg"
+    "h264"
   ],
   "input": {
     "keyboard": false,
@@ -28454,7 +28454,7 @@ Example:
 | humanDeviceInput | no | boolean |  |
 | person | no | boolean |  |
 | op | yes | `"stream.configure"` |  |
-| settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
+| settings | yes | [ScreenHelperStreamSettings.json](schema/ScreenHelperStreamSettings.json) |  |
 | ingest | no | [ScreenStreamIngest.json](schema/ScreenStreamIngest.json) |  |
 | epoch | no | integer | {"minimum":0,"maximum":4294967295} |
 
@@ -28467,7 +28467,7 @@ Example:
   "op": "stream.configure",
   "settings": {
     "bitrate": 128003,
-    "codec": "h264",
+    "codec": "hevc",
     "fps": 2,
     "maxHeight": 73,
     "maxWidth": 64
@@ -29553,6 +29553,30 @@ Example:
   "op": "scroll",
   "version": 2,
   "y": 4
+}
+```
+
+## ScreenHelperStreamSettings
+
+[JSON Schema](schema/ScreenHelperStreamSettings.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| codec | yes | ["jpeg","h264","hevc"] |  |
+| maxWidth | yes | integer | {"minimum":64,"maximum":3840} |
+| maxHeight | yes | integer | {"minimum":64,"maximum":3840} |
+| fps | yes | integer | {"minimum":1,"maximum":60} |
+| bitrate | yes | integer | {"minimum":128000,"maximum":20000000} |
+
+Example:
+
+```json
+{
+  "bitrate": 128001,
+  "codec": "hevc",
+  "fps": 9,
+  "maxHeight": 68,
+  "maxWidth": 66
 }
 ```
 
@@ -30692,7 +30716,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| codec | yes | ["jpeg","h264"] |  |
+| codec | yes | ["jpeg","h264","hevc"] |  |
 | ingest | no | ["on","off"] |  |
 | switched | no | boolean |  |
 | boundary | no | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
@@ -30702,7 +30726,7 @@ Example:
 ```json
 {
   "boundary": 8,
-  "codec": "h264",
+  "codec": "hevc",
   "ingest": "on",
   "switched": false
 }

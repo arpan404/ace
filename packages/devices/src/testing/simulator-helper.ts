@@ -109,7 +109,8 @@ commands.on("line", (line) => {
       capturing = false;
       break;
     case "stream.configure":
-      codec = request.settings.codec;
+      // No hardware HEVC here: HEVC runs as H.264, as on such a Mac.
+      codec = request.settings.codec === "hevc" ? "h264" : request.settings.codec;
       data = { codec };
       setTimeout(() => paint(screen), 5);
       break;

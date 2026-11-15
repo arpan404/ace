@@ -963,7 +963,12 @@ FALSE)`.
 - **Frames.**
   - `stream.configure` gains `ingest: {socket, token}` and `epoch`.
   - The helper opens that socket, sends the hello, and writes `MediaFrame`s (H.264 Annex B,
-    with HEVC later) instead of frame packets on the daemon socket. It stamps each frame with
+    or HEVC Annex B with VPS, SPS and PPS before each keyframe) instead of frame packets on the
+    daemon socket.
+  - HEVC: the hello lists `hevc` in `codecs` only when a hardware HEVC trial encode worked. The
+    daemon then tells ace-media `[avc1…, hvc1…]` and asks `stream.configure` for `hevc` only
+    while video goes to ace-media, every planned view wants HEVC, and no legacy viewer or
+    recording needs H.264. The daemon socket stays H.264. It stamps each frame with
     the epoch at its ScreenCaptureKit callback.
   - With `ingest` absent, it keeps sending frame packets to the daemon (the legacy route).
   - JPEG stills for agents keep the existing path.

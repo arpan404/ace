@@ -16,6 +16,21 @@ final class IngestRouteTests: XCTestCase {
 
     private func route() -> IngestRoute { IngestRoute(legacy: { _ in }, now: { 0 }) }
 
+    func testAnHEVCUnitNeverReachesTheDaemonSocketNorMovesItsBoundary() throws {
+        let listener = try Listener()
+        var legacy: [UInt64] = []
+        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 })
+        defer { route.close() }
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        var hevc = unit(2, bytes: 100, keyframe: true)
+        hevc.format = .hevc
+        route.publish(hevc)
+        XCTAssertEqual(legacy, [1])
+        let moved = try route.route(to: (listener.path, token))
+        listener.accept()
+        XCTAssertEqual(moved.boundary, 1, "the daemon waits only for units its socket carries")
+    }
+
     func testSubmittedOutputStaysOnTheOldRouteBeforeAPlannedSwitch() throws {
         let listener = try Listener()
         var legacy: [UInt64] = []

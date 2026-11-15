@@ -41,7 +41,8 @@ import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./pol
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
-import { helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
+import { helperEncodesVideo } from "./helper-codecs.ts";
+import { ScreenMediaSource } from "./media-source.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
@@ -498,6 +499,9 @@ export class ScreenManager {
     session.media = new ScreenMediaSource({
       sessionId: session.state.sessionId,
       platform: capabilities.platform,
+      codecs: capabilities.codecs,
+      // A recording keeps the frames egress hands back in H.264.
+      daemonNeedsVideo: () => session.recording !== undefined || session.recordingStarting === true,
       helper: session.helper,
       media,
       accept: (frame) => this.acceptOrdered(session, frame),
