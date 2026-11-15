@@ -1686,3 +1686,49 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   marker for that path is clean and a planned switch hands over without a forced keyframe.
   Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
   without one.
+
+## A1 notes
+
+- **The degraded rule** (`crates/ace-media/src/acceleration.rs`, pure) is the one place a
+  source's `source.status.acceleration` is built: the JPEG encoder (`encode/worker.rs`) and the
+  Simulator transcode (`shell/sim_transcode.rs`) both call `assess(probed, steps)`. A source is
+  degraded when its encode isn't on hardware, or when a step runs on the CPU that a hardware
+  backend listed: an entry whose trial worked on hardware, or one whose trial failed or timed
+  out. A step no hardware backend lists at all (JPEG on NVIDIA, JPEG encode on most AMD) is the
+  machine's path and not degraded. The sentence names the step; the encode's wins.
+- **The probe** (`probe.rs`, extending F2's). Each trial gets a stop flag that ace-media sets
+  when it stops (`Cancel`; the Chrome trial shares it), so an abandoned trial closes its
+  sessions at its next step. `ready` waits at most 3 s (`READY_DEADLINE`) and each trial 2 s;
+  the probe returns as soon as every trial is done. An entry whose trial didn't succeed is
+  never hardware, never zero-copy, and has no size, whatever the backend listed. On Linux the
+  probe now runs B3's VA-API trial and B5's NVENC/NVDEC trial (`probe_linux.rs`); NVENC is
+  still gated off (B5 notes), so it lists nothing and NVIDIA machines take the last-resort
+  encoder. Media Foundation joins when ace-media runs on Windows (no lanes there yet).
+- **Ranking** (`rank.rs`). `Ranker` runs each candidate for at most 10 s, 20 s in all, only
+  while no source is open (`sources(n)`), and a source opening cancels it at once: nothing is
+  kept from a cancelled run, and the candidates come back for the next idle time. The winner
+  goes to `<dataDir>/media/encoder-rank.json` under adapter (PCI vendor, device, LUID), driver
+  and settings (codec family, size bucket), read leniently, written whole through a rename.
+  Without a result, `choice` is the first candidate in the caller's order (the MFT on Windows,
+  NVENC on Linux NVIDIA). It needs two hardware encoders on one GPU, which today means Windows,
+  so the shell doesn't construct a `Ranker` yet; that wiring comes with ace-media on Windows.
+- **Doctor.** `ace-media --probe [--data-dir <dir>]` runs the start probe alone (not the Chrome
+  trial) and prints `{probeMs, capabilities, ranking}`. `ace doctor`'s `media.capabilities`
+  and `media.ranking` (`apps/daemon/src/doctor/media.ts`) run it themselves, so they work with
+  the daemon down: the whole table, timed-out and failed trials included, warning when a
+  hardware trial fell back or the probe took over 3 s.
+- **The daemon side** (`packages/media/src/acceleration.ts`). `MediaAccelerationStore` keeps
+  the latest capability list (`ready`, then each `capabilities.changed`) and each source's
+  report under the daemon's name for it and the tab, screen session or device it shows
+  (`IngestSources` hands it on, and clears it when that path ends). Everything goes when
+  ace-media exits. The daemon has one store (`startMedia`), published as
+  `services.mediaAcceleration`. The screen and device bridges add their subject's report to
+  `ScreenState.acceleration` and `DeviceState.acceleration`, and send the state again when it
+  changes; the browser's capture handles read theirs (`VideoCaptureHandle.acceleration`), and
+  `LiveVideo.acceleration()` puts it on `BrowserState.acceleration`. Local sockets and the
+  relay both carry it.
+- **Not built or measured yet.** The probe's times (≤ 3 s at worst, ≤ 500 ms warm) and the
+  ranking's 20 s were not benched: the shared Mac's load stayed far above 24. A debug build
+  under load 100 took 1.1 s cold and 0.6–0.7 s warm. The Linux trial module is type-checked
+  against the real crates but not run on Linux. The live view's sentence for a degraded source
+  is the clients' to show.
