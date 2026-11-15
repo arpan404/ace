@@ -1321,8 +1321,9 @@ export class Store {
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,
+    maxBytes?: number,
   ) {
-    return this.threadReads.readEntityPage(threadId, collection, before, limit);
+    return this.threadReads.readEntityPage(threadId, collection, before, limit, maxBytes);
   }
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);

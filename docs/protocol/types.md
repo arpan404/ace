@@ -10147,6 +10147,7 @@ Example:
 | collection | yes | [EntityCollection.json](schema/EntityCollection.json) |  |
 | before | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | limit | yes | integer | {"exclusiveMinimum":0,"maximum":200} |
+| maxBytes | no | integer | {"minimum":16384,"maximum":131072} |
 
 Example:
 
@@ -10155,6 +10156,7 @@ Example:
   "before": 10,
   "collection": "agents",
   "limit": 3,
+  "maxBytes": 16387,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -12989,6 +12991,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | entitiesBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| tooLarge | no | array | {"maxItems":200,"items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string"},"active":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","active","bytes"]}} |
 | collection | yes | `"agents"` |  |
 | entries | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Agent.json"}} |
 
@@ -13011,6 +13014,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | entitiesBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| tooLarge | no | array | {"maxItems":200,"items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string"},"active":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","active","bytes"]}} |
 | collection | yes | `"runs"` |  |
 | entries | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Run.json"}} |
 
@@ -13033,6 +13037,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | entitiesBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| tooLarge | no | array | {"maxItems":200,"items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string"},"active":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","active","bytes"]}} |
 | collection | yes | `"interactions"` |  |
 | entries | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Interaction.json"}} |
 
@@ -13055,6 +13060,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | entitiesBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| tooLarge | no | array | {"maxItems":200,"items":{"type":"object","properties":{"id":{"type":"string"},"kind":{"type":"string"},"active":{"type":"boolean"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","active","bytes"]}} |
 | collection | yes | `"backgroundTasks"` |  |
 | entries | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/BackgroundTask.json"}} |
 

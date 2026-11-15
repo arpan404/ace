@@ -43,11 +43,13 @@ export interface Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
-  /** One thread's agents, runs, interactions or background tasks, newest last, one page. */
+  /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
   entities?(
     threadId: string,
     collection: import("@ace/protocol").EntityCollection,
+    before: number,
     limit: number,
+    maxBytes?: number,
   ): import("@ace/protocol").EntitiesPage | undefined;
   /** Full shell output for `output.read`; a host without a stream store answers not_found. */
   output?(
@@ -253,7 +255,13 @@ export class Connection {
         this.subscriptions.delete(message.subscriptionId);
         return;
       case "entities.page": {
-        const page = this.host.entities?.(message.threadId, message.collection, message.limit);
+        const page = this.host.entities?.(
+          message.threadId,
+          message.collection,
+          message.before,
+          message.limit,
+          message.maxBytes,
+        );
         if (page) this.send({ type: "entities.page", requestId: message.requestId, page });
         else this.error("not_found", { requestId: message.requestId });
         return;

@@ -16,6 +16,7 @@ import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 import { readHistoryBlob } from "./history-storage.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
+import { entityPageBytes } from "./entity-window.ts";
 
 /** How much transcript a thread snapshot carries: its newest items, by count and bytes. */
 export interface SnapshotTail {
@@ -186,6 +187,7 @@ export class ThreadReads {
     collection: EntityCollection,
     before: number,
     limit: number,
+    maxBytes = entityPageBytes,
   ): EntitiesPage {
     this.source.flush();
     const thread = this.source.readThread(threadId);
@@ -194,9 +196,9 @@ export class ThreadReads {
     return this.current(
       this.source.cache.read(
         threadId,
-        JSON.stringify(["entities", collection, before, limit]),
+        JSON.stringify(["entities", collection, before, limit, maxBytes]),
         (): EntitiesPage => ({
-          ...this.source.status.page(thread, collection, before, limit),
+          ...this.source.status.page(thread, collection, before, limit, maxBytes),
           seq: this.source.headSeq(),
         }),
       ),

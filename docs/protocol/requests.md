@@ -3783,6 +3783,7 @@ Example:
 | collection | yes | [EntityCollection.json](schema/EntityCollection.json) |  |
 | before | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | limit | yes | integer | {"exclusiveMinimum":0,"maximum":200} |
+| maxBytes | no | integer | {"minimum":16384,"maximum":131072} |
 
 Example:
 
