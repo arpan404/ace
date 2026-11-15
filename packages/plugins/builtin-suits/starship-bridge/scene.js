@@ -1,11 +1,12 @@
-// Starship Bridge: the view out of the bridge's forward viewport. Three layers of stars drift
-// slowly past at different depths, and the limb of a planet curves up from the lower right with
+// Starship Bridge: the view out of the bridge's forward viewport. Stars sit at three depths, the
+// nearer two drifting slowly past, and the limb of a planet curves up from the lower right with
 // a thin lit atmosphere. By day (light) the sky is the pale haze of a planet's upper air and the
 // stars are gone. Signals are moods, not state: working spools the drift up a little, done lifts
 // the stars for a moment. The jump to warp is the celebration (celebration.js), not here.
-// The sky and planet are painted once into one base canvas and the stars into three layers (at
-// one device pixel per CSS pixel: they are soft points anyway) in init and resize. A frame only
-// blits them, and skips the work when the stars have moved less than a pixel since the last.
+// The sky, the farthest stars (too far to drift) and the planet are painted once into one base
+// canvas, the two nearer star layers into their own (at one device pixel per CSS pixel: they are
+// soft points anyway), in init and resize. A frame only blits them, and skips the work when the
+// stars have moved less than a pixel since the last.
 
 const layerCount = 3;
 const layerSpeed = [3, 7, 14]; // CSS px per second, far to near
@@ -83,20 +84,20 @@ function paintLayers() {
     for (let i = 0; i < count; i++) {
       const x = random() * width;
       const y = random() * height;
-      const size = 0.6 + depth * 0.45 + random() * 0.5;
+      const dot = 0.6 + depth * 0.45 + random() * 0.5;
       const alpha = 0.25 + depth * 0.18 + random() * 0.25;
       // Most stars are white-blue; a few run warm or cyan.
       const pick = random();
       const hue = pick < 0.12 ? "255, 214, 170" : pick < 0.3 ? "150, 235, 245" : "214, 228, 255";
       g.fillStyle = `rgba(${hue}, ${alpha.toFixed(2)})`;
-      g.fillRect(x, y, size, size);
+      g.fillRect(x, y, dot, dot);
       if (depth === 2 && random() < 0.18) {
         // A near star with a soft halo.
-        const halo = g.createRadialGradient(x, y, 0, x, y, size * 4);
+        const halo = g.createRadialGradient(x, y, 0, x, y, dot * 4);
         halo.addColorStop(0, `rgba(${hue}, 0.22)`);
         halo.addColorStop(1, `rgba(${hue}, 0)`);
         g.fillStyle = halo;
-        g.fillRect(x - size * 4, y - size * 4, size * 8, size * 8);
+        g.fillRect(x - dot * 4, y - dot * 4, dot * 8, dot * 8);
       }
     }
     layers.push(layer);
@@ -185,6 +186,17 @@ function size(next) {
   base = canvas(width, height);
   const g = base.getContext("2d");
   g.drawImage(sky, 0, 0);
+  if (layers.length > 0) {
+    g.save();
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    g.beginPath();
+    g.rect(0, 0, width, height);
+    g.arc(disc.x, disc.y, disc.r, 0, Math.PI * 2);
+    g.clip("evenodd");
+    g.globalAlpha = 0.85;
+    g.drawImage(layers[0], 0, 0, width, height);
+    g.restore();
+  }
   g.drawImage(planet, 0, 0);
   sky = null;
   planet = null;
@@ -207,14 +219,14 @@ function draw() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.globalAlpha = 1;
   ctx.drawImage(base, 0, 0, width, height);
-  if (layers.length === 0) return;
+  if (layers.length < 2) return;
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, width, height);
   ctx.arc(disc.x, disc.y, disc.r, 0, Math.PI * 2);
   ctx.clip("evenodd");
   ctx.globalAlpha = 0.85 + lift * 0.15;
-  for (let depth = 0; depth < layers.length; depth++)
+  for (let depth = 1; depth < layers.length; depth++)
     blit(layers[depth], (travel * layerSpeed[depth]) / layerSpeed[layerCount - 1]);
   ctx.restore();
 }

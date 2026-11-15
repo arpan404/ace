@@ -291,7 +291,7 @@ const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
 
-test.each(["arcade-cabinet"])(
+test.each(["arcade-cabinet", "starship-bridge"])(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
     const source = readFileSync(
@@ -343,6 +343,26 @@ test("the shipped Arcade Cabinet celebration plays once on what woke it, then sa
   // Every tick is still answered, before and after it finished.
   expect(replies.filter((reply) => reply.type === "drawn")).toHaveLength(101);
 });
+
+test.each(["pr-merged", "done"])(
+  "the shipped Starship Bridge jump plays once on %s, then says it's done",
+  (signal) => {
+    const source = readFileSync(
+      new URL("../../plugins/builtin-suits/starship-bridge/celebration.js", import.meta.url),
+      "utf8",
+    );
+    const page = sandbox();
+    new Function("ace", "document", source)(page.ace, offscreenDocument);
+    page.send({ ...init, region: "celebration" });
+    page.send({ type: "signal", signal });
+    for (let time = 0; time <= 3300; time += 33) page.send({ type: "tick", time });
+    const replies = page.replies as { type: string }[];
+    expect(replies[0]).toEqual({ type: "ready" });
+    expect(replies.filter((reply) => reply.type === "finished")).toEqual([{ type: "finished" }]);
+    expect(replies.some((reply) => reply.type === "error")).toBe(false);
+    expect(replies.filter((reply) => reply.type === "drawn")).toHaveLength(101);
+  },
+);
 
 /*
  * Glass. Node has no canvas, so `painter` stands in for a 2D context with just enough of a model

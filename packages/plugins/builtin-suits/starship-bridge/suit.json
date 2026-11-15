@@ -40,7 +40,7 @@
   },
   "light": {
     "canvas": "#ECF0F4",
-    "sidebar": "#DCE3EB",
+    "sidebar": "#F6F8FA",
     "surface": "#F6F8FA",
     "raised": "#FFFFFF",
     "hover": "#E0E7EF",
@@ -51,7 +51,7 @@
     "text": "#0D1A2B",
     "muted": "#2F4359",
     "subtle": "#4A5D74",
-    "faint": "#74879E",
+    "faint": "#677A91",
     "accent": "#006C80",
     "accentHover": "#00586A",
     "accentFg": "#FFFFFF",
@@ -72,8 +72,12 @@
     "glass": null
   },
   "fonts": {
-    "ui": { "system": "\"SF Pro Text\", Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif" },
-    "prose": { "system": "\"SF Pro Text\", Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif" },
+    "ui": {
+      "system": "\"SF Pro Text\", Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    },
+    "prose": {
+      "system": "\"SF Pro Text\", Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif"
+    },
     "mono": { "asset": "assets/fonts/JetBrainsMono.woff2", "family": "Bridge Mono" }
   },
   "shape": { "radius": 0.25, "border": 1, "density": "comfortable" },

@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet"]);
+  expect(seeded).toEqual(["arcade-cabinet", "starship-bridge"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -183,6 +183,11 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "empty-state",
     "sidebar-header",
   ]);
+  // Starship Bridge serves its backdrop and its celebration, each on its own sandbox page.
+  const bridge = detail(await library.read("starship-bridge"));
+  expect(bridge.sceneUrls.app).toMatch(/scene\.html$/);
+  expect(bridge.sceneUrls.celebration).toMatch(/celebration\.html$/);
+  expect(bridge.css).toContain('[data-suit="starship-bridge"]');
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {

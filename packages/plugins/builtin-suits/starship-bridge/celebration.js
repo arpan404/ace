@@ -22,7 +22,6 @@ const angle = new Float32Array(maxStreaks);
 const start = new Float32Array(maxStreaks);
 const pace = new Float32Array(maxStreaks);
 const warm = new Uint8Array(maxStreaks);
-let count = 0;
 
 let seed = 5;
 function random() {

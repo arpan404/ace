@@ -59,14 +59,46 @@
     linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 9px 1.5px no-repeat,
     linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 1.5px 9px no-repeat;
   --suit-brackets-dim:
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 0 / 9px 1.5px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 0 / 1.5px 9px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 0 / 9px 1.5px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 0 / 1.5px 9px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 100% / 9px 1.5px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 100% / 1.5px 9px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 100% / 9px 1.5px no-repeat,
-    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 100% / 1.5px 9px no-repeat;
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 0 / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 0 / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 0 / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 0 / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 100% / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 100% / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 100% / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 100% / 1.5px 9px no-repeat;
 }
 [data-scheme="light"] [data-part="app"],
 [data-scheme="light"] [data-part="menu"],
@@ -90,18 +122,20 @@
   --suit-rail-background: var(--suit-scan), linear-gradient(180deg, #050a16, #08101f);
   --suit-sidebar-background:
     var(--suit-scan), linear-gradient(180deg, #08101f 0%, var(--color-sidebar) 40%);
-  --suit-header-background:
-    linear-gradient(180deg, rgb(10 18 38 / 0.92), rgb(10 18 38 / 0.78));
+  --suit-header-background: linear-gradient(180deg, rgb(10 18 38 / 0.92), rgb(10 18 38 / 0.78));
   --suit-right-panel-background: var(--color-sidebar);
   font-family: var(--font-sans);
 }
 [data-scheme="light"] [data-part="app"],
 [data-part="app"][data-scheme="light"] {
   --suit-rail-background: var(--suit-scan), linear-gradient(180deg, #d0d9e3, #d8e0e9);
-  --suit-sidebar-background:
-    var(--suit-scan), linear-gradient(180deg, #d5dde6 0%, var(--color-sidebar) 40%);
-  --suit-header-background:
-    linear-gradient(180deg, rgb(236 240 244 / 0.94), rgb(236 240 244 / 0.82));
+  /* By day the console is bright: ace's status colours need a near-white ground to read. */
+  --suit-sidebar-background: var(--color-sidebar);
+  --suit-header-background: linear-gradient(
+    180deg,
+    rgb(236 240 244 / 0.94),
+    rgb(236 240 244 / 0.82)
+  );
 }
 
 /* ------------------------------------------------------------------ the panel */
@@ -130,12 +164,7 @@
 [data-part="diff"] {
   border: 1px solid var(--suit-l);
   border-radius: 0;
-  background:
-    linear-gradient(135deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 0 0 /
-      var(--suit-c) var(--suit-c) no-repeat border-box,
-    linear-gradient(315deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 100% 100% /
-      var(--suit-c) var(--suit-c) no-repeat border-box,
-    var(--suit-f);
+  background: var(--suit-f);
   clip-path: polygon(
     var(--suit-c) 0,
     100% 0,
@@ -145,32 +174,65 @@
     0 var(--suit-c)
   );
 }
-
-/*
- * Panels that hold code draw their diagonal edges on a layer of their own: code reads against
- * the panel's fill alone, never against its edge colour.
- */
+[data-part="message-user"],
+[data-part="composer"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="tooltip"],
+[data-part="card"],
+[data-part="pr-row"],
+[data-part="issue-row"],
 [data-part="code-block"],
+[data-part="merge-box"],
+[data-part="diff-file"],
+[data-part="terminal-tab"],
+[data-part="button"],
+[data-part="select"],
+[data-part="search-field"],
+[data-part="model-picker"],
 [data-part="tool-output"],
-[data-part="diff"],
-[data-part="diff-file"] {
+[data-part="diff"] {
   position: relative;
-  background: var(--suit-f);
 }
+/*
+ * The cut edges are drawn on a layer of their own over the panel, so the words inside read
+ * against the panel's fill alone, never against its edge colour.
+ */
+[data-part="message-user"]::after,
+[data-part="menu"]::after,
+[data-part="popover"]::after,
+[data-part="dialog"]::after,
+[data-part="command-palette"]::after,
+[data-part="toast"]::after,
+[data-part="tooltip"]::after,
+[data-part="card"]::after,
+[data-part="pr-row"]::after,
+[data-part="issue-row"]::after,
 [data-part="code-block"]::after,
+[data-part="merge-box"]::after,
+[data-part="diff-file"]::after,
+[data-part="terminal-tab"]::after,
+[data-part="button"]::after,
+[data-part="select"]::after,
+[data-part="search-field"]::after,
+[data-part="model-picker"]::after,
 [data-part="tool-output"]::after,
 [data-part="diff"]::after,
-[data-part="diff-file"]::after {
+[data-part="composer"]::before {
   content: "";
   position: absolute;
   inset: -1px;
   z-index: 1;
   background:
-    linear-gradient(135deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 0 0 /
-      var(--suit-c) var(--suit-c) no-repeat,
+    linear-gradient(135deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 0 0 / var(--suit-c)
+      var(--suit-c) no-repeat,
     linear-gradient(315deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 100% 100% /
       var(--suit-c) var(--suit-c) no-repeat;
   pointer-events: none;
+}
+/* A text field may be a bare input, which draws no layers: it keeps square corners. */
+[data-part="input"] {
+  clip-path: none;
 }
 
 /* Small controls cut a smaller corner. */
@@ -275,8 +337,8 @@
   height: 4px;
   background:
     linear-gradient(90deg, var(--color-tint), transparent 70%) 0 0 / 100% 1px no-repeat,
-    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 8px) 0 1px /
-      100% 3px no-repeat;
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 8px) 0 1px / 100%
+      3px no-repeat;
   opacity: 0.8;
   pointer-events: none;
 }
@@ -322,7 +384,11 @@
 [data-part="thread-row"][data-state="active"],
 [data-part="thread-row"][data-state="selected"] {
   background:
-    linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent 85%),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 85%
+    ),
     var(--color-active);
   box-shadow: none;
 }
@@ -434,8 +500,8 @@
   background:
     linear-gradient(90deg, transparent, var(--color-tint), transparent) -30% 100% / 30% 1px
       no-repeat,
-    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 12px) 0 100% /
-      100% 4px no-repeat;
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 12px) 0 100% / 100%
+      4px no-repeat;
   opacity: 0.75;
   pointer-events: none;
   animation: edge-glint 9s linear infinite;
@@ -502,8 +568,8 @@
   counter-increment: transmission;
   position: relative;
   padding-left: 76px;
-  background: linear-gradient(var(--color-border-strong), var(--color-border-strong)) 62px 4px /
-    1px calc(100% - 4px) no-repeat;
+  background: linear-gradient(var(--color-border-strong), var(--color-border-strong)) 62px 4px / 1px
+    calc(100% - 4px) no-repeat;
 }
 [data-part="message-agent"]::before {
   content: "SHIP AI";
@@ -638,8 +704,8 @@
   letter-spacing: 0.14em;
   color: var(--color-muted-foreground);
   background:
-    radial-gradient(circle, var(--suit-lamp) 0 2.6px, transparent 3.2px) right 5px center / 8px
-      8px no-repeat,
+    radial-gradient(circle, var(--suit-lamp) 0 2.6px, transparent 3.2px) right 5px center / 8px 8px
+      no-repeat,
     var(--color-code);
   border: 1px solid var(--color-border);
   clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
@@ -762,8 +828,8 @@
   right: 0;
   top: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--status-working), transparent) -40% 0 /
-    35% 2px no-repeat;
+  background: linear-gradient(90deg, transparent, var(--status-working), transparent) -40% 0 / 35%
+    2px no-repeat;
   animation: transmit-sweep 2.2s linear infinite;
   pointer-events: none;
 }
@@ -792,9 +858,7 @@
 }
 [data-part="composer-send"][data-variant="send"] {
   color: transparent;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.22), transparent 55%),
-    var(--color-tint);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.22), transparent 55%), var(--color-tint);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint-foreground) 35%, transparent);
 }
 [data-part="composer-send"][data-variant="send"]::after {
@@ -806,8 +870,7 @@
 }
 [data-part="composer-send"][data-variant="send"]:hover {
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.26), transparent 55%),
-    var(--color-tint-hover);
+    linear-gradient(180deg, rgb(255 255 255 / 0.26), transparent 55%), var(--color-tint-hover);
 }
 [data-part="composer-send"][data-variant="send"][data-state="disabled"] {
   background: var(--color-hover);
@@ -991,7 +1054,11 @@
 [data-part="menu-item"]:hover,
 [data-part="menu-item"]:focus,
 [data-part="menu-item"]:focus-visible {
-  background: linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 20%, transparent), transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-tint) 20%, transparent),
+    transparent
+  );
   box-shadow: inset 2px 0 0 var(--color-tint);
 }
 [data-part="menu-item"][data-state="checked"] {
@@ -1054,7 +1121,11 @@
 }
 [data-part="nav-item"][data-state="active"] {
   background:
-    linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent 85%),
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 85%
+    ),
     var(--color-active);
 }
 [data-part="page-body"] {
@@ -1065,12 +1136,17 @@
   position: relative;
   box-shadow: inset 0 1px 0 var(--suit-glow);
 }
-/* Each group is a ship system with its own panel number, in the corner the cut leaves free. */
+/*
+ * Each group is a ship system with its own panel number, set in the corner the cut leaves free
+ * on the same layer that draws the cut.
+ */
 [data-part="card"][data-variant="settings-group"]::after {
   content: "SYS-" counter(system-group, decimal-leading-zero);
-  position: absolute;
-  right: 18px;
-  bottom: 6px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 0 18px 6px 0;
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.1em;
@@ -1228,8 +1304,8 @@
   height: 5px;
   background:
     linear-gradient(90deg, var(--color-tint), transparent 60%) 0 100% / 100% 1px no-repeat,
-    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 10px) 0 0 /
-      100% 4px no-repeat;
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 10px) 0 0 / 100%
+      4px no-repeat;
   pointer-events: none;
 }
 [data-page="pull"] [data-part="page-title"],
@@ -1373,18 +1449,15 @@
   line-height: 14px;
   color: var(--color-subtle-foreground);
   background:
-    repeating-linear-gradient(180deg, var(--suit-edge-dim) 0 1px, transparent 1px 9px) 2px 0 /
-      3px 100% no-repeat,
-    linear-gradient(var(--color-tint), var(--color-tint)) 0 calc(50% - 60px) / 1px 120px
-      no-repeat,
+    repeating-linear-gradient(180deg, var(--suit-edge-dim) 0 1px, transparent 1px 9px) 2px 0 / 3px
+      100% no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 calc(50% - 60px) / 1px 120px no-repeat,
     var(--color-code);
   border-left: 1px solid var(--color-border-strong);
   pointer-events: none;
 }
 [data-part="panel-body"][data-state="active"] {
-  background:
-    var(--suit-brackets-dim),
-    var(--color-sidebar);
+  background: var(--suit-brackets-dim), var(--color-sidebar);
 }
 /* The terminal's monitor frame is its own bezel. */
 [data-part="panel-body"][data-variant="terminal"][data-state="active"] {
