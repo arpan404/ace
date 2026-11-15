@@ -98,6 +98,10 @@ impl Stream {
         self.video_next_ms = now_ms + 1000.0 / settings.fps as f64;
         true
     }
+    /// The sequence the next frame will take.
+    pub fn sequence(&self) -> u64 {
+        self.seq
+    }
     /// The next frame sequence, shared by video units and stills so each path's order holds.
     pub fn next_sequence(&mut self) -> u64 {
         let seq = self.seq;
@@ -126,6 +130,9 @@ impl Stream {
     pub fn generation(&mut self, generation: u64) {
         self.generation = generation;
         self.refresh();
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session
     }
     pub fn capture_generation(&self) -> u64 {
         self.generation

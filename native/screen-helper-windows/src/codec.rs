@@ -69,6 +69,15 @@ pub fn read_line(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
         }
     }
 }
+/// One event line on stdout, between replies. stdout's lock keeps lines whole.
+pub fn event(value: &Value) {
+    let Ok(mut bytes) = serde_json::to_vec(value) else {
+        return;
+    };
+    bytes.push(b'\n');
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(&bytes).and_then(|_| out.flush());
+}
 pub fn reply(writer: &mut impl Write, request: &Request, result: Result<Value>) -> Result<()> {
     let value = match result {
         Ok(data) => {
