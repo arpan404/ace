@@ -116,7 +116,8 @@ settle, and the caller must notice so the parent never reads done while it runs.
     down has one source of evidence, used on both sides: when any call to it last got through (a
     status read, a refusal, a description, any other call). A child's failed read counts as the
     machine's only when nothing was heard from the machine within two polls before that read; any
-    call getting through ends the machine's episode and the waits it caused, and never the wait of
+    call sent once the machine was down that gets through ends the machine's episode and the waits
+    it caused (a reply to a call sent before the outage proves nothing of now), and never the wait of
     a child whose own read failed while the machine was heard from. Only that child answering ends
     its own wait. The calls of a turn run at once, each on its own deadline,
     and each answer is applied as it arrives; a child with a call on its way is skipped, so a slow
@@ -124,8 +125,15 @@ settle, and the caller must notice so the parent never reads done while it runs.
     in Settings plans again a poll later. While any child is tracked a poll is always set: pairings
     or a ledger that can't be read, a call whose answer can't be saved, or every child having a
     call on its way, each sets the next poll one interval away, never "nothing owed".
-    No child leaves tracking without a check answered at or after its 24-hour mark (its `settled_at`
-    is cleared then), never on a timer, across restarts too. A machine no longer paired as the
+    An answer proves a child's state only as of when its read was sent, so every rule that uses
+    an answer uses that send time: the final check is a read sent at or after the child's 24-hour
+    mark and answered, however late; a reply to a read sent before the mark is an ordinary re-check
+    whenever it arrives. The lease renews, and the next check is counted, from when the answered
+    read went out; a stop is read only by a read sent after its last cancel. Waits that start from
+    something learned (a failure, a call taken down beside others) run from when it was learned.
+    No child leaves tracking without that final check (its `settled_at` is cleared then), never on
+    a timer, across restarts too, and never while its pairing is gone and the person is asked
+    about it, even if the final check's reply arrives after. A machine no longer paired as the
     child's device is no answer: the child is never asked and costs no calls, its pairing is looked
     at again at least every slowest interval, and it is read again once its machine is paired back;
     still unpaired at its 24-hour mark, its parent asks the person, as for a working child whose
@@ -147,7 +155,7 @@ settle, and the caller must notice so the parent never reads done while it runs.
     runs out only when a read that went out a whole lease after that one comes back unanswered too,
     so however many children wait to be asked alone at 16 a second (10,000 take 625 s), none that
     answers when asked loses contact or its parent's hold. A stop gives up as unconfirmed only after the child was read since its
-    last cancel went out. The 24-hour window ends only on an answered check.
+    last cancel went out. The 24-hour window ends only on an answered check sent at or after the mark.
     A settled child found running again reopens: the parent's row shows it running and the parent waits until it
     settles again. One that ran and settled with a different result hands the parent that result;
     changes that leave the outcome and result alone (a title, a pin) are ignored. Work started
