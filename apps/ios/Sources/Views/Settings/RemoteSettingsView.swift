@@ -19,11 +19,14 @@ struct RemoteSettingsCategory: Identifiable {
     static let browser = RemoteSettingsCategory(title: "Browser", symbol: "safari", page: "browser")
     /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
     static let fleet = RemoteSettingsCategory(title: "Fleet", symbol: "point.3.connected.trianglepath.dotted", page: "fleet")
+    /// Features still being tried out on this machine, last, as web lists Settings › Beta.
+    static let beta = RemoteSettingsCategory(title: "Beta", symbol: "flask", page: "beta")
     static let all: [RemoteSettingsCategory] = [
         agents,
         .init(title: "Remote access", symbol: "antenna.radiowaves.left.and.right", page: "remote"),
         browser,
         simulators,
+        beta,
     ]
 }
 
