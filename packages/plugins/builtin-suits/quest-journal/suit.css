@@ -331,7 +331,7 @@
 
 /* ------------------------------------------------------------------ transcript: pages */
 
-/* The agent writes on a page of its own, which opens with an illuminated initial. */
+/* The agent writes on a page of its own, which opens with an illuminated versal. */
 [data-part="message-agent"] {
   position: relative;
   padding: 18px 24px 12px;
@@ -347,21 +347,23 @@
     inset 0 0 0 5px color-mix(in oklab, var(--color-border) 70%, transparent),
     0 14px 28px -22px var(--suit-shadow);
 }
-[data-part="message-agent"]::first-letter {
+/*
+ * The page opens with an illuminated versal: a gilt rosette in a crimson square that the first
+ * lines wrap around. It is an ornament rather than the answer's first letter, so it never splits
+ * a word and reads the same when the answer opens with code or bold.
+ */
+[data-part="message-agent"]::before {
+  content: "";
   float: left;
-  margin: 4px 10px 0 -2px;
-  padding: 7px 9px 3px;
-  font-family: var(--suit-display);
-  font-weight: 700;
-  font-size: 2.9em;
-  line-height: 0.92;
-  text-transform: uppercase;
-  color: #f2d496;
-  background: url("assets/sprites/initial.svg") no-repeat center / 100% 100%;
-  text-shadow: 0 1px 0 rgb(30 6 4 / 0.8);
+  width: 46px;
+  height: 46px;
+  margin: 4px 12px 2px -2px;
+  background: url("assets/sprites/versal.svg") no-repeat center / 100% 100%;
+  box-shadow: 0 3px 6px -3px var(--suit-shadow);
+  pointer-events: none;
 }
 /* A small fleuron in the page's top corner. */
-[data-part="message-agent"]::before {
+[data-part="message-agent"]::after {
   content: "";
   position: absolute;
   top: 9px;
@@ -438,39 +440,72 @@
 }
 
 /*
- * Deeds: the work log is a ledger. Each step is a ruled line on a solid page, and its kind is an
- * engraved mark (tome, lantern, map, rune-gear, quill, spyglass, hammer, candle, sealed letter)
- * laid over the step's own glyph: ::before is a patch of the line's paper, ::after the mark.
+ * Deeds: the work log is a ledger. Each group of deeds opens under a ruled heading, and each deed
+ * is a numbered entry (i., ii., iii.) on a ruled line with a double crimson margin rule; its
+ * kind is an engraved mark (tome, lantern, map, rune-gear, quill, spyglass, hammer, candle,
+ * sealed letter) drawn in place of the step's glyph. A failed deed keeps ace's own glyph.
  */
+[data-part="tool-group-header"] {
+  counter-reset: deed;
+  font-family: var(--font-prose);
+  font-size: 15px;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+  color: var(--color-muted-foreground);
+  border-radius: 1px;
+  box-shadow:
+    inset 0 -1px 0 var(--suit-rule),
+    inset 0 -3px 0 transparent,
+    inset 0 -4px 0 var(--suit-hairline);
+}
+[data-part="tool-group-header"]:hover {
+  color: var(--color-foreground);
+  background: color-mix(in oklab, var(--color-tint) 8%, transparent);
+}
+[data-part="tool-group-header"][data-state="open"] {
+  color: var(--color-foreground);
+}
 [data-part="tool-row"] {
   --suit-row-fill: color-mix(in oklab, var(--color-surface-1) 55%, var(--color-background));
   --suit-mark: var(--color-muted-foreground);
-  position: relative;
+  --suit-margin: color-mix(in oklab, var(--suit-wax) 70%, var(--color-border));
+  counter-increment: deed;
   font-family: var(--font-prose);
   font-size: 15px;
   border-radius: 1px;
-  background: var(--suit-row-fill);
+  background:
+    linear-gradient(
+        90deg,
+        transparent 38px,
+        var(--suit-margin) 38px 39px,
+        transparent 39px 41px,
+        var(--suit-margin) 41px 42px,
+        transparent 42px
+      )
+      no-repeat,
+    var(--suit-row-fill);
   box-shadow: inset 0 -1px 0 var(--suit-hairline);
   transition: background-color 140ms ease;
 }
-[data-part="tool-row"]::before,
-[data-part="tool-row"]::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  width: 20px;
-  height: 20px;
-  margin-top: -10px;
-  pointer-events: none;
+[data-scheme="dark"] [data-part="tool-row"] {
+  --suit-margin: color-mix(in oklab, #b0483a 55%, var(--color-border));
 }
+/* The entry's number, in the column before the margin rule. */
 [data-part="tool-row"]::before {
-  background: var(--suit-row-fill);
-  transition: background-color 140ms ease;
+  content: counter(deed, lower-roman) ".";
+  flex: 0 0 24px;
+  margin-right: 12px;
+  text-align: right;
+  font-size: 13px;
+  font-style: italic;
+  font-variant-numeric: oldstyle-nums;
+  color: var(--color-subtle-foreground);
 }
-[data-part="tool-row"]::after {
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"] {
+  color: transparent;
   background: var(--suit-mark);
-  mask: url("assets/sprites/deed-tool.svg") no-repeat center / 19px 19px;
+  mask: url("assets/sprites/deed-tool.svg") no-repeat center / 18px 18px;
 }
 [data-part="tool-row"]:hover {
   --suit-row-fill: var(--color-hover);
@@ -479,28 +514,28 @@
 [data-part="tool-row"][data-state="open"] {
   --suit-mark: var(--color-link);
 }
-[data-part="tool-row"][data-variant="read"]::after {
+[data-part="tool-row"][data-variant="read"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-read.svg");
 }
-[data-part="tool-row"][data-variant="search"]::after {
+[data-part="tool-row"][data-variant="search"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-search.svg");
 }
-[data-part="tool-row"][data-variant="list"]::after {
+[data-part="tool-row"][data-variant="list"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-list.svg");
 }
-[data-part="tool-row"][data-variant="shell"]::after {
+[data-part="tool-row"][data-variant="shell"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-shell.svg");
 }
-[data-part="tool-row"][data-variant="edit"]::after {
+[data-part="tool-row"][data-variant="edit"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-edit.svg");
 }
-[data-part="tool-row"][data-variant="web"]::after {
+[data-part="tool-row"][data-variant="web"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-web.svg");
 }
-[data-part="tool-row"][data-variant="think"]::after {
+[data-part="tool-row"][data-variant="think"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-think.svg");
 }
-[data-part="tool-row"][data-variant="note"]::after {
+[data-part="tool-row"][data-variant="note"] [data-part="tool-icon"] {
   mask-image: url("assets/sprites/deed-note.svg");
 }
 
@@ -640,6 +675,44 @@
   border-radius: 3px;
 }
 
+/*
+ * The queue above the quill line: a slip of notes pinned to the page, under a small-caps heading,
+ * each waiting message a ruled line. The frame is drawn inside the strip and never fills it.
+ */
+[data-part="composer-strip"][data-variant="queue"]::after {
+  content: "";
+  position: absolute;
+  inset: 4px 4px 14px;
+  border: 1px solid var(--suit-hairline);
+  border-radius: 2px;
+  pointer-events: none;
+}
+[data-part="queue-strip"] {
+  font-family: var(--font-prose);
+  font-size: 13px;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+  color: var(--color-muted-foreground);
+}
+[data-part="queue-strip"][data-variant="paused"] {
+  font-style: italic;
+}
+[data-part="queue-item"] {
+  font-variant-caps: normal;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: var(--color-foreground);
+  border-radius: 1px;
+  box-shadow: inset 0 -1px 0 var(--suit-hairline);
+}
+[data-part="queue-item"]:hover {
+  background: color-mix(in oklab, var(--color-tint) 8%, transparent);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+
 /* ------------------------------------------------------------------ controls */
 
 [data-part="button"] {
@@ -699,8 +772,53 @@
 [data-part="checkbox"] {
   border-radius: 2px;
 }
+/* A switch is a leather strap in a brass buckle: the thumb a gilt stud. */
 [data-part="switch"] {
-  box-shadow: inset 0 1px 2px var(--suit-press);
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-background) 80%, #000);
+  box-shadow:
+    inset 0 1px 3px var(--suit-press),
+    inset 0 0 0 1px var(--suit-hairline);
+}
+[data-part="switch"][data-state="checked"] {
+  background: linear-gradient(180deg, #b0483a, #7a2a20);
+  box-shadow:
+    inset 0 1px 0 rgb(255 200 170 / 0.25),
+    inset 0 0 0 1px color-mix(in oklab, #c9924f 75%, transparent);
+}
+[data-part="switch-thumb"] {
+  border-radius: 2px;
+  background: radial-gradient(circle at 40% 35%, #f6dfa6, #c9924f 60%, #8a5a2a);
+  box-shadow:
+    0 1px 2px var(--suit-press),
+    inset 0 0 0 1px rgb(90 50 20 / 0.5);
+}
+/* One-of-n choices are bookmarks in a row: the chosen one a crimson ribbon with gilt edges. */
+[data-part="segmented"] {
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-background) 70%, var(--color-sidebar));
+  box-shadow:
+    inset 0 0 0 1px var(--suit-hairline),
+    inset 0 1px 2px var(--suit-press);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--suit-wax) 85%, #fff 0%),
+    var(--suit-wax-deep)
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, #c9924f 70%, transparent),
+    0 1px 2px var(--suit-press);
+}
+[data-part="segment"] {
+  border-radius: 2px;
+  font-family: var(--font-prose);
+}
+[data-part="segment"][data-state="selected"] {
+  color: #f6e2b8;
+  font-weight: 600;
 }
 
 [data-part="tabs"] {
@@ -1080,6 +1198,36 @@
     inset 0 0 0 3px transparent,
     inset 0 0 0 4px color-mix(in oklab, var(--color-border) 60%, transparent);
 }
+/* The bounty's terms: the merge box opens under a heading set into a ruled band. */
+[data-part="merge-box"]::before {
+  content: "Terms of the bounty";
+  display: block;
+  padding: 8px 16px 6px;
+  font-family: var(--font-prose);
+  font-size: 14px;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.12em;
+  color: var(--color-link);
+  background: linear-gradient(180deg, rgb(255 236 200 / 0.03), transparent);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-rule),
+    inset 0 -3px 0 transparent,
+    inset 0 -4px 0 var(--suit-hairline);
+}
+[data-part="merge-box"][data-variant="merged"]::before {
+  content: "The bounty is claimed";
+}
+/* The description is the poster's page: parchment inside a double rule. */
+[data-page="pull"] [data-part="card"][data-variant="description"],
+[data-page="issue"] [data-part="card"][data-variant="description"] {
+  background: linear-gradient(180deg, rgb(255 236 200 / 0.025), transparent 40%), var(--suit-page);
+  border-color: var(--suit-hairline);
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 0 4px transparent,
+    inset 0 0 0 5px color-mix(in oklab, var(--color-border) 70%, transparent),
+    0 14px 28px -22px var(--suit-shadow);
+}
 /* A claimed bounty carries the guild's wax seal in its corner. */
 [data-part="merge-box"][data-state="done"]::after {
   content: "";
@@ -1113,22 +1261,46 @@
 [data-part="right-panel"] {
   box-shadow: inset 1px 0 0 color-mix(in oklab, var(--color-tint) 20%, transparent);
 }
+/* The panel's tabs hang from a strip of tooled leather, like the satchel's pockets. */
 [data-part="panel-header"] {
-  box-shadow: inset 0 -1px 0 var(--suit-hairline);
+  background:
+    repeating-linear-gradient(37deg, rgb(255 255 255 / 0.012) 0 2px, transparent 2px 5px),
+    var(--color-sidebar);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-rule),
+    inset 0 -3px 0 transparent,
+    inset 0 -4px 0 var(--suit-hairline);
 }
 [data-part="panel-tab"] {
   border-radius: 3px 3px 0 0;
-  font-family: var(--font-sans);
+  font-family: var(--font-prose);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+  font-size: 14px;
 }
+/* The open tab is a page pulled up from the satchel, with a crimson ribbon along its top. */
 [data-part="panel-tab"][data-state="selected"] {
-  background: var(--color-surface-1);
+  color: var(--color-foreground);
+  background: linear-gradient(180deg, rgb(255 236 200 / 0.04), transparent), var(--color-surface-1);
   box-shadow:
-    inset 0 2px 0 var(--color-tint),
+    inset 0 3px 0 var(--suit-wax),
+    inset 0 4px 0 color-mix(in oklab, #c9924f 60%, transparent),
     inset 1px 0 0 var(--suit-hairline),
     inset -1px 0 0 var(--suit-hairline);
 }
+/* The file list is an inventory: each entry on a ruled line, with a crimson margin rule. */
 [data-part="file-tree"] {
-  font-family: var(--font-sans);
+  font-family: var(--font-prose);
+  font-size: 14.5px;
+  background:
+    linear-gradient(
+        90deg,
+        transparent 6px,
+        color-mix(in oklab, var(--suit-wax) 55%, transparent) 6px 7px,
+        transparent 7px
+      )
+      no-repeat,
+    repeating-linear-gradient(180deg, transparent 0 31px, var(--suit-hairline) 31px 32px);
 }
 [data-part="diff-file"] {
   border-radius: 2px;

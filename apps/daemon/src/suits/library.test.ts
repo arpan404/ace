@@ -186,7 +186,7 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   // A Suit with a celebration serves it as a scene of its own, beside the app's backdrop.
   const journal = detail(await library.read("quest-journal"));
   expect(Object.keys(journal.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
-  expect(journal.css).toContain("::first-letter");
+  expect(journal.css).toContain('[data-suit="quest-journal"]');
   // Atelier Noir also serves its celebration, the moment that plays above the UI.
   const atelier = detail(await library.read("atelier-noir"));
   expect(Object.keys(atelier.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
