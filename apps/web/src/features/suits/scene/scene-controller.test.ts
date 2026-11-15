@@ -299,3 +299,28 @@ test("only valid messages from the scene's own frame are accepted", () => {
   expect(messageFromScene({ source: frame, data: "ready" }, frame)).toBeUndefined();
   expect(messageFromScene({ source: null, data: { type: "ready" } }, null)).toBeUndefined();
 });
+
+test("a celebration is told its region, hears what woke it once ready, and may say it's done", () => {
+  const time = manualTime();
+  const sent: SceneHostMessage[] = [];
+  let finished = 0;
+  const controller = createSceneController(
+    { ...start, region: "celebration", wake: "pr-merged" },
+    {
+      clock: time.clock,
+      scheduler: time.scheduler,
+      post: (message) => sent.push(message),
+      stopped: () => {},
+      finished: () => (finished += 1),
+    },
+  );
+  controller.start();
+  expect(sent).toEqual([expect.objectContaining({ type: "init", region: "celebration" })]);
+  // Finishing before it's ready isn't a celebration that played out.
+  controller.receive({ type: "finished" });
+  expect(finished).toBe(0);
+  controller.receive({ type: "ready" });
+  expect(sent[1]).toEqual({ type: "signal", signal: "pr-merged" });
+  controller.receive({ type: "finished" });
+  expect(finished).toBe(1);
+});

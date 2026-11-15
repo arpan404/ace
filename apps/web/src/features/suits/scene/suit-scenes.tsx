@@ -1,17 +1,34 @@
-import type { SceneSignal, SuitDetail } from "@ace/protocol/suits";
+import { SceneSignal, type SuitDetail } from "@ace/protocol/suits";
 import type { SuitSceneRegion } from "@ace/protocol/suit-parts";
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { z } from "zod";
+import { documentVisibility } from "@/lib/page-visibility.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { celebrationCue, createCelebrationGate, type CelebrationCue } from "./celebration.ts";
+import { CelebrationLayer } from "./celebration-layer.tsx";
 import { clock, SceneBackdrop, timers, type SignalFeed } from "./scene-backdrop.tsx";
 import { createSceneBeat, type SceneFrames } from "./scene-beat.ts";
 import type { SceneStop } from "./scene-controller.ts";
-import { useSceneSignals } from "./use-scene-signals.ts";
+import { sceneSignals } from "./scene-signals.ts";
+import { useSignalChanges } from "./use-scene-signals.ts";
 
 /*
  * Every scene on the page (ADR 0150, "Scenes per region"): the app's backdrop and one per region
  * (sidebar, header, composer) the Suit names. They share one clock (`createSceneBeat`: 30 frames
  * a second between them), one feed of thread signals, and the rule that a scene the watchdog
  * stops stays down for that version of the Suit; each keeps its own watchdog and pause rules.
+ *
+ * A Suit's `celebration` scene is not a region's backdrop: it plays above the UI for a moment
+ * when the open thread's run finishes or a pull request merges (`celebration.ts`).
  */
 
 interface ScenesValue {
@@ -41,14 +58,51 @@ function signalFeed(): SignalFeed & { send(signal: SceneSignal): void } {
   };
 }
 
-/** Reads the live thread list for signals, only while some scene could hear them. */
-function SignalSource(props: { send(signal: SceneSignal): void }) {
-  useSceneSignals(props.send);
+/** A development build's way to fire a signal by hand: `postMessage` it from the page itself. */
+const DevSignal = z.object({ type: z.literal("ace-dev-scene-signal"), signal: SceneSignal });
+
+/**
+ * Reads the live thread list for signals, only while some scene could hear them, and for the
+ * cues a celebration plays on.
+ */
+function SignalSource(props: {
+  send(signal: SceneSignal): void;
+  celebrate(cue: CelebrationCue): void;
+  openThreadId: string | undefined;
+}) {
+  const latest = useRef(props);
+  useEffect(() => {
+    latest.current = props;
+  });
+  useSignalChanges((previous, next) => {
+    for (const signal of sceneSignals(previous, next)) latest.current.send(signal);
+    const cue = celebrationCue(previous, next, latest.current.openThreadId);
+    if (cue) latest.current.celebrate(cue);
+  });
+  useEffect(() => {
+    // Only in a development build: lets a person or agent see a Suit's reactions without
+    // finishing a run or merging a pull request. Production builds drop this branch.
+    if (!import.meta.env.DEV) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const parsed = DevSignal.safeParse(event.data);
+      if (!parsed.success) return;
+      const { signal } = parsed.data;
+      latest.current.send(signal);
+      if (signal === "done" || signal === "pr-merged") latest.current.celebrate(signal);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
   return null;
 }
 
-export function SuitScenesProvider(props: { children: ReactNode }) {
-  const { suit } = useTheme();
+export function SuitScenesProvider(props: {
+  children: ReactNode;
+  /** The thread on screen: its run finishing is what `done` celebrates. */
+  openThreadId?: string | undefined;
+}) {
+  const { suit, resolved } = useTheme();
   const [frames] = useState(() => createSceneBeat({ clock, scheduler: timers }));
   const [feed] = useState(signalFeed);
   const [stoppedKeys, setStoppedKeys] = useState<ReadonlySet<string>>(new Set());
@@ -67,10 +121,46 @@ export function SuitScenesProvider(props: { children: ReactNode }) {
   );
   const anyScene =
     suit !== null && Object.keys(suit.sceneUrls).length + (suit.sceneUrl ? 1 : 0) > 0;
+
+  const celebrationUrl =
+    suit?.sceneUrls.celebration && !stopped(suit, "celebration")
+      ? suit.sceneUrls.celebration
+      : null;
+  const [gate] = useState(() => createCelebrationGate(clock));
+  const [playing, setPlaying] = useState<{ cue: CelebrationCue; turn: number } | null>(null);
+  const facts = useRef({ hasScene: false, reduceMotion: false });
+  useEffect(() => {
+    facts.current = { hasScene: celebrationUrl !== null, reduceMotion: resolved.reduceMotion };
+  });
+  const celebrate = useCallback(
+    (cue: CelebrationCue) => {
+      if (!gate.admit({ ...facts.current, visible: documentVisibility.visible() })) return;
+      setPlaying((now) => ({ cue, turn: (now?.turn ?? 0) + 1 }));
+    },
+    [gate],
+  );
+  const ended = useCallback(() => setPlaying(null), []);
+  // A celebration cut short by Reduce motion or a new Suit doesn't come back when it lifts.
+  const mayPlay = celebrationUrl !== null && !resolved.reduceMotion;
+  if (!mayPlay && playing) setPlaying(null);
   return (
     <ScenesContext.Provider value={value}>
-      {anyScene && <SignalSource send={feed.send} />}
+      {anyScene && (
+        <SignalSource send={feed.send} celebrate={celebrate} openThreadId={props.openThreadId} />
+      )}
       {props.children}
+      {/* Gone the moment Reduce motion turns on or the Suit (or its scene) goes away. */}
+      {playing && suit && celebrationUrl && mayPlay && (
+        <CelebrationLayer
+          key={playing.turn}
+          sceneUrl={celebrationUrl}
+          cue={playing.cue}
+          scheme={resolved.scheme}
+          frames={frames}
+          onEnd={ended}
+          onStopped={(why) => stop(suit, "celebration", why)}
+        />
+      )}
     </ScenesContext.Provider>
   );
 }

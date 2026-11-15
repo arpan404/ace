@@ -1,4 +1,5 @@
 import type { SceneHostMessage, SceneSignal } from "@ace/protocol/suits";
+import type { SuitSceneRegion } from "@ace/protocol/suit-parts";
 import { useEffect, useRef, useState } from "react";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { watchSavingPower } from "./power.ts";
@@ -34,10 +35,16 @@ export interface SceneBackdropProps extends SuitBackdropProps {
   /**
    * `window`: full-bleed behind the app (the app's scene). `region`: filling the positioned
    * region it is mounted in (the sidebar's, the header's, the composer's), sized to it.
+   * `above`: full-window over the app, transparent where it draws nothing (a celebration); no
+   * glass, and the live check never samples it as a backdrop.
    */
-  fill?: "window" | "region" | undefined;
+  fill?: "window" | "region" | "above" | undefined;
   /** The region a region scene runs in (`regionSceneOpacity` sets how much of it shows). */
-  region?: string | undefined;
+  region?: SuitSceneRegion | undefined;
+  /** A signal the scene hears as soon as it is ready (what woke a celebration). */
+  wake?: SceneSignal | undefined;
+  /** The scene said it has played out (`ace.finish()`). */
+  onFinished?: (() => void) | undefined;
 }
 
 /**
@@ -60,6 +67,8 @@ export function SceneBackdrop(props: SceneBackdropProps) {
       frames={props.frames}
       fill={props.fill ?? "window"}
       region={props.region}
+      wake={props.wake}
+      finished={() => props.onFinished?.()}
       stopped={(stop) => {
         setStoppedUrl(sceneUrl);
         onStopped?.(stop, sceneUrl);
@@ -110,8 +119,10 @@ function SceneFrame(props: {
   reduceMotion: boolean;
   signals: SignalFeed;
   frames: SceneFrames | undefined;
-  fill: "window" | "region";
-  region: string | undefined;
+  fill: "window" | "region" | "above";
+  region: SuitSceneRegion | undefined;
+  wake: SceneSignal | undefined;
+  finished: () => void;
   stopped: (stop: SceneStop) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -137,7 +148,7 @@ function SceneFrame(props: {
       for (const message of queued.splice(0)) element.contentWindow?.postMessage(message, "*");
       scene.start();
     };
-    const { scheme, reduceMotion, frames, fill } = latest.current;
+    const { scheme, reduceMotion, frames, fill, region, wake } = latest.current;
     const viewport = () => (fill === "region" ? regionViewport(element) : windowViewport(window));
     const scene = createSceneController(
       {
@@ -147,8 +158,17 @@ function SceneFrame(props: {
         visible: documentVisibility.visible(),
         focused: document.hasFocus(),
         lowPower: false,
+        region,
+        wake,
       },
-      { clock, scheduler: timers, post, frames, stopped: (stop) => latest.current.stopped(stop) },
+      {
+        clock,
+        scheduler: timers,
+        post,
+        frames,
+        stopped: (stop) => latest.current.stopped(stop),
+        finished: () => latest.current.finished(),
+      },
     );
     controller.current = scene;
     const onMessage = (event: MessageEvent) => {
@@ -202,16 +222,28 @@ function SceneFrame(props: {
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       title="Suit scene"
-      // Where the live check finds each scene to sample (`live/scene-sample.ts`).
-      data-suit-scene-frame={props.region ?? "app"}
+      // Where the live check finds each backdrop to sample (`live/scene-sample.ts`); a scene
+      // above the UI is no text's backdrop.
+      data-suit-scene-frame={props.fill === "above" ? undefined : (props.region ?? "app")}
+      data-suit-celebration-frame={props.fill === "above" ? "" : undefined}
       aria-hidden="true"
       tabIndex={-1}
       data-scene-fill={props.fill}
-      style={props.region ? { opacity: regionSceneOpacity(props.region) } : undefined}
+      style={
+        props.fill === "above"
+          ? // A frame whose page has another colour scheme than its element draws an opaque
+            // canvas; the scene page declares none, so neither does its element.
+            { colorScheme: "normal" }
+          : props.region
+            ? { opacity: regionSceneOpacity(props.region) }
+            : undefined
+      }
       className={
         props.fill === "region"
           ? "pointer-events-none absolute inset-0 -z-10 h-full w-full rounded-[inherit] border-0 bg-transparent"
-          : "pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
+          : props.fill === "above"
+            ? "pointer-events-none fixed inset-0 h-full w-full border-0 bg-transparent"
+            : "pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
       }
     />
   );

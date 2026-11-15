@@ -253,6 +253,23 @@ test("each region's scene gets its own sandbox page, and scene.js alone stays th
   expect((await fetch(new URL("header.html", origin + sceneUrls.sidebar))).status).toBe(404);
 });
 
+test("a celebration scene is served like any region's, on its own sandbox page", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon", { scenes: { celebration: "confetti.js" } }),
+    "confetti.js": "confetti()",
+  });
+  const read = detail(await library.read("neon"));
+  expect(read.summary.problems).toEqual([]);
+  expect(read.summary.scene).toBe(true);
+  expect(read.sceneUrl).toBeNull();
+  const page = await fetch(origin + read.sceneUrls.celebration);
+  expect(page.headers.get("content-security-policy")).toBe(sceneCsp);
+  const scripts = [...(await page.text()).matchAll(/<script src="([^"]+)"><\/script>/g)].map(
+    (match) => match[1],
+  );
+  expect(scripts).toEqual([sceneRuntimeFile, "confetti.js"]);
+});
+
 test("a region scene alone runs with the runtime beside it; a missing one is a problem", async () => {
   await suit("neon", {
     "suit.json": manifest("neon", { scenes: { header: "strip.js", sidebar: "gone.js" } }),

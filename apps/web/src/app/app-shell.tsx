@@ -7,7 +7,7 @@ import { ForgeButton } from "@/components/forge-button.tsx";
 import { UsageLink } from "@/components/usage-bars.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
-import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
+import { Outlet, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
 import {
@@ -77,6 +77,8 @@ export function AppShell() {
   // The startup screen stays over the shell until its route has resolved and every view has
   // its first data, then cross-fades to it: boot never shows a skeleton.
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
+  // The thread on screen, whose run finishing a Suit's celebration may mark.
+  const openThreadId = useParams({ strict: false }).threadId;
   useDesktopUpdates();
   return (
     <TransferOpenerProvider>
@@ -84,7 +86,7 @@ export function AppShell() {
         <ProjectsHost>
           <SignInHost>
             <AddAccountHost>
-              <SuitScenesProvider>
+              <SuitScenesProvider openThreadId={openThreadId}>
                 <PageOnScreenContext value={setShownPage}>
                   <div
                     ref={shell}

@@ -223,6 +223,11 @@ export const SceneHostMessage = z.discriminatedUnion("type", [
     height: z.number(),
     pixelRatio: z.number(),
     reduceMotion: z.boolean(),
+    /**
+     * The region this frame runs in, so one file can serve several (`view.region`). Absent from
+     * hosts older than it; the runtime then says `app`.
+     */
+    region: SuitSceneRegion.optional(),
   }),
   z.object({
     type: z.literal("resize"),
@@ -257,11 +262,19 @@ export const SceneHostMessage = z.discriminatedUnion("type", [
 ]);
 export type SceneHostMessage = z.infer<typeof SceneHostMessage>;
 
-/** What a scene may send back: that it is ready, that a tick's frame is drawn, or an error. */
+/**
+ * What a scene may send back: that it is ready, that a tick's frame is drawn, an error, a
+ * celebration that has finished, or a sample.
+ */
 export const SceneMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("drawn"), time: z.number() }),
   z.object({ type: z.literal("error"), message: z.string().max(500) }),
+  /**
+   * A celebration scene has played out (`ace.finish()`), so the host may take it down before its
+   * time is up. Other regions' scenes sending it are ignored.
+   */
+  z.object({ type: z.literal("finished") }),
   /** The answer to a host `sample`: RGBA bytes, row by row, `columns × rows × 4` of them. */
   z.object({
     type: z.literal("sample"),
