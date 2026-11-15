@@ -5,9 +5,11 @@ import {
   decodeStreamMessage,
   isStreamPiece,
   StreamAssembler,
+  type PictureChunk,
   type StreamMessage,
 } from "@ace/browser/stream";
 import {
+  channelPath,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -75,6 +77,8 @@ type Pending = {
   reject(error: Error): void;
   cancel(): void;
   operation: DeviceOperation;
+  /** A `subscribe`'s generation, matched by its reply (`MediaSubscriptions`). */
+  generation?: number;
 };
 const inventory = DeviceInventory;
 const statesResult = z.object({
@@ -251,6 +255,9 @@ export class DeviceClient {
     this.notify();
   }
   request(raw: DeviceOperation): Promise<unknown> {
+    return this.send(raw, undefined);
+  }
+  private send(raw: DeviceOperation, generation: number | undefined): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);
     const epoch = this.epoch;
     const transport = this.transport;
@@ -297,7 +304,13 @@ export class DeviceClient {
                   ? Math.max(60000, deviceInputTimeout(operation.input) + 5000)
                   : 60000,
       );
-      this.pending.set(message.requestId, { resolve, reject, cancel, operation });
+      this.pending.set(message.requestId, {
+        resolve,
+        reject,
+        cancel,
+        operation,
+        ...(generation === undefined ? {} : { generation }),
+      });
       try {
         void Promise.resolve(transport.send(message)).catch((error: unknown) =>
           this.rejectSend(message.requestId, error, epoch),
@@ -346,7 +359,10 @@ export class DeviceClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
-    if (this.media.ack(picture.sourceId, message)) return;
+    const way = this.media.way(picture.sourceId, picture.generation);
+    // A picture of an earlier subscribe: its ack belongs to a delivery that is gone.
+    if (way === "stale") return;
+    if (way === "media") return void this.media.route?.ack(message);
     try {
       void Promise.resolve(transport.send(message)).catch(() => {});
     } catch {
@@ -355,17 +371,29 @@ export class DeviceClient {
   }
 
   private readonly liveStreams = new SharedStreams();
+  /** Whether `picture` is of its device's current subscribe: an older one is never drawn. */
+  current(picture: DevicePicture): boolean {
+    return this.media.current(picture.sourceId, picture.generation);
+  }
   private subscribe(deviceId: string): void {
-    void this.request({ op: "subscribe", deviceId, ...this.media.fields(deviceId) }).catch(
-      (error: unknown) => {
-        // A connection the daemon won't bind here: the stream goes on this channel instead.
-        if (this.media.refused(deviceId, error)) this.subscribe(deviceId);
-      },
-    );
+    const { generation, fields } = this.media.begin(deviceId);
+    // What the earlier subscribe delivered and nobody drew yet is stale now.
+    this.pictures.discardSource(deviceId);
+    void this.send({ op: "subscribe", deviceId, ...fields }, generation).catch((error: unknown) => {
+      // A connection the daemon won't bind here: the stream goes on this channel instead.
+      if (this.media.refused(deviceId, generation, error)) this.subscribe(deviceId);
+    });
   }
   private receiveMedia(message: StreamMessage): void {
-    if (message.kind !== "device.frame" || !this.connected || message.frame.still) return;
-    this.pictures.publish({ ...message.frame, sourceId: message.sourceId });
+    const connection = this.media.route?.binding()?.connection;
+    if (message.kind !== "device.frame" || !connection || !this.connected) return;
+    if (message.frame.still) return;
+    this.publishPicture(message.sourceId, message.frame, connection);
+  }
+  /** A live picture that came by `path`, stamped with its delivery's generation, else dropped. */
+  private publishPicture(sourceId: string, frame: PictureChunk, path: string): void {
+    const generation = this.media.accept(sourceId, path);
+    if (generation !== undefined) this.pictures.publish({ ...frame, sourceId, generation });
   }
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
@@ -473,8 +501,8 @@ export class DeviceClient {
               );
             return;
           }
-          if (pending.operation.op === "subscribe") {
-            this.media.subscribed(pending.operation.deviceId, message.media);
+          if (pending.operation.op === "subscribe" && pending.generation !== undefined) {
+            this.media.subscribed(pending.operation.deviceId, pending.generation, message.media);
             if (this.media.poster(pending.operation.deviceId)) this.notify();
           }
           if (pending.operation.op === "list") {
@@ -515,7 +543,7 @@ export class DeviceClient {
     if (message?.kind !== "device.frame") return;
     const picture = { ...message.frame, sourceId: message.sourceId };
     if (picture.still) this.screenshots.retain(picture);
-    else this.pictures.publish(picture);
+    else this.publishPicture(message.sourceId, message.frame, channelPath);
   }
   private putState(state: DeviceState): void {
     const previous = this.states.get(state.device.id);

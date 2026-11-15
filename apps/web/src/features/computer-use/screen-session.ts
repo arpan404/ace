@@ -84,6 +84,8 @@ export interface ScreenSession {
   retainStream: ScreenStreamClient["retainStream"];
   /** The still a session's subscribe brought back, shown until its first live picture. */
   poster: ScreenStreamClient["poster"];
+  /** Whether a picture is of its session's current subscribe; an older one is never drawn. */
+  current: ScreenStreamClient["current"];
   /** A session's view couldn't decode `codec`: that session alone asks again without it. */
   fallBack: ScreenStreamClient["fallBack"];
   close(): void;
@@ -232,6 +234,7 @@ function openSession(
     retainStream: (sessionId) => client.retainStream(sessionId),
     poster: (sessionId) => client.poster(sessionId),
     fallBack: (sessionId, codec) => client.fallBack(sessionId, codec),
+    current: (picture) => client.current(picture),
     close() {
       stop();
       client.useMedia(undefined);

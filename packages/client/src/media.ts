@@ -8,6 +8,7 @@ export {
   MediaConnection,
   mediaHello,
   mediaLegacyRetryMs,
+  mediaAdmissionMs,
   mediaPingMs,
   mediaRetryMs,
   mediaSettleMs,

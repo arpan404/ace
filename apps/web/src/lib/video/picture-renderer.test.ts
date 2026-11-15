@@ -373,3 +373,38 @@ test("a view that can't play HEVC names it, then plays the same stream once it f
   await renderer.render(picture(2, { codec: "avc1.42E033" }));
   expect(shown).toEqual([1, 2]);
 });
+
+test("a picture still decoding when its source rebinds is neither drawn nor acked", async () => {
+  const shown: number[] = [];
+  const acks: number[] = [];
+  const decoders: { out(): void }[] = [];
+  const holding: VideoDecoderFactory = (handlers) => {
+    const held: number[] = [];
+    decoders.push({
+      out: () => {
+        for (const sequence of held.splice(0))
+          handlers.output({ sequence, draw: () => {}, close: () => {} });
+      },
+    });
+    return {
+      configure: () => {},
+      decode: (chunk) => void held.push(chunk.sequence),
+      close: () => {},
+    };
+  };
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: holding,
+    show: (_image, at) => shown.push(at.sequence),
+    ack: (at) => acks.push(at.sequence),
+    fallback: () => {},
+    pressure: () => {},
+  });
+  await renderer.render({ ...picture(7, { key: true }), generation: 1 });
+  // The source rebound: its pictures now come by the new connection, a new generation.
+  await renderer.render({ ...picture(1, { key: true }), generation: 2 });
+  decoders[0]!.out();
+  expect(shown).not.toContain(7);
+  expect(acks).not.toContain(7);
+  decoders.at(-1)!.out();
+  expect(shown).toEqual([1]);
+});

@@ -5,4 +5,10 @@
  */
 export { PictureQueue, type SourcePicture } from "./picture-queue.ts";
 export { SharedStreams } from "./shared-streams.ts";
-export { isMediaRefusal, MediaSubscriptions, type MediaRoute } from "./media-route.ts";
+export {
+  channelPath,
+  isMediaRefusal,
+  MediaSubscriptions,
+  type AckWay,
+  type MediaRoute,
+} from "./media-route.ts";

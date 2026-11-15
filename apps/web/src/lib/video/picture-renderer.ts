@@ -20,6 +20,11 @@ export interface LivePicture {
   codec: string;
   key: boolean;
   bytes: Uint8Array;
+  /**
+   * The source's subscribe it was delivered for. A new one (a media rebind) starts the stream
+   * over, so nothing the decoder still holds from the old one is drawn or acked.
+   */
+  generation?: number;
 }
 
 export interface PictureRendererPorts<P extends LivePicture> {
@@ -67,6 +72,7 @@ export const keyframeRetryMs = 1000;
 export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPorts<P>) {
   const ack = (picture: P, keyframe: boolean) => ports.ack(picture, keyframe);
   let stream: string | undefined;
+  let generation: number | undefined;
   let previous = -1;
   let video: VideoStream | undefined;
   /** The newest H.264 picture handed to the decoder: acks name its stream. */
@@ -236,9 +242,11 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   return {
     async render(picture: P): Promise<void> {
       if (closed) return;
-      if (picture.streamId !== stream) {
-        // A new capture: its sequence starts over, and its first picture to show is a keyframe.
+      if (picture.streamId !== stream || picture.generation !== generation) {
+        // A new capture, or a new delivery of it: its sequence starts over, and its first
+        // picture to show is a keyframe.
         stream = picture.streamId;
+        generation = picture.generation;
         reset();
         failures = 0;
         unsupported = false;

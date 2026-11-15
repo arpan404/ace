@@ -230,3 +230,15 @@ test("a refused connection subscribes again on the socket", async () => {
   expect(subscribes()).toHaveLength(1);
   expect(subscribes()[0]).not.toHaveProperty("media");
 });
+
+test("video that still comes on the socket after the view moved to the media connection is dropped", async () => {
+  const { preview, wire, link, mainAcks } = await watching("mc_aaaaaaaaaa");
+  // The socket's subscription from before: neither drawn nor acked anywhere.
+  wire.stream(video(1, true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(preview.frame(thread)).toBeUndefined();
+  expect(mainAcks()).toEqual([]);
+  expect(link.acks).toEqual([]);
+  link.deliver(video(2, true));
+  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(2));
+});
