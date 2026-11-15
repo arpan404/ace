@@ -3,16 +3,22 @@
 // Day: a pale mint field warmed by the sun at the top left, two layers of water-like caustics
 // drifting very slowly across it, a few soft sun shafts, and the blurred shadows of fronds
 // swaying at the edges. Night: the same room under moonlight from the top right, cool and dim.
-// Everything is drawn from sprites built in init and on resize or scheme change, so a frame is a
-// gradient fill and a few dozen blits. The brightness range stays narrow in each scheme, so text
+// Everything is drawn from sprites built once (the caustic tile once per scheme) into a field a
+// third of the window's size, which is soft light anyway, then stretched onto the canvas in one
+// blit, so a frame costs a small fill, a few dozen small blits and one full-size copy. The brightness range stays narrow in each scheme, so text
 // on the panes reads the same everywhere. Signals only brighten the light for a moment.
 
-let ctx = null;
+const fieldScale = 1 / 3;
+
+let out = null; // the scene's own canvas
+let field = null; // the small canvas the light is composed in
+let ctx = null; // its context
 let doc = null;
-let width = 1;
+let width = 1; // the field's size
 let height = 1;
-let ratio = 1;
-let scheme = "light";
+let viewWidth = 0;
+let viewHeight = 0;
+let scheme = "";
 let now = 0;
 let liftAt = -1e9;
 let lift = 0;
@@ -181,22 +187,34 @@ function buildBase() {
 }
 
 function build(view) {
-  width = view.width;
-  height = view.height;
-  ratio = view.pixelRatio || 1;
-  scheme = view.scheme === "dark" ? "dark" : "light";
-  ctx = view.canvas.getContext("2d");
-  if (!glow) {
+  out = view.canvas.getContext("2d");
+  if (!field) {
+    field = canvas(1, 1);
+    ctx = field.getContext("2d");
     buildGlow();
     buildShaft();
     fronds = [buildFrond(0), buildFrond(1)];
   }
-  buildTile();
+  if (view.width !== viewWidth || view.height !== viewHeight) {
+    viewWidth = view.width;
+    viewHeight = view.height;
+    width = Math.max(1, Math.ceil(viewWidth * fieldScale));
+    height = Math.max(1, Math.ceil(viewHeight * fieldScale));
+    field.width = width;
+    field.height = height;
+  }
+  const next = view.scheme === "dark" ? "dark" : "light";
+  // The blurred caustic tile is the costly sprite: it only changes with the scheme.
+  if (next !== scheme || !pattern) {
+    scheme = next;
+    buildTile();
+  }
   buildBase();
 }
 
-function draw(time, still) {
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+function draw(time, view) {
+  const still = view.reduceMotion;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = base;
@@ -229,28 +247,30 @@ function draw(time, still) {
 
   // Caustics: the same tile twice, at two scales, drifting against each other.
   if (pattern) {
+    const near = 1.4 * fieldScale;
+    const far = 2.1 * fieldScale;
     ctx.globalAlpha = (dark ? 0.06 : 0.32) + bright * 0.1;
     ctx.fillStyle = pattern;
     ctx.setTransform(
-      ratio * 1.4,
+      near,
       0,
       0,
-      ratio * 1.4,
-      ratio * ((t * 3) % (tileSize * 1.4)),
-      ratio * ((t * 1.6) % (tileSize * 1.4)),
+      near,
+      (t * 3 * fieldScale) % (tileSize * near),
+      (t * 1.6 * fieldScale) % (tileSize * near),
     );
-    ctx.fillRect(-tileSize, -tileSize, width / 1.4 + tileSize * 2, height / 1.4 + tileSize * 2);
+    ctx.fillRect(-tileSize, -tileSize, width / near + tileSize * 2, height / near + tileSize * 2);
     ctx.globalAlpha = (dark ? 0.045 : 0.22) + bright * 0.08;
     ctx.setTransform(
-      ratio * 2.1,
+      far,
       0,
       0,
-      ratio * 2.1,
-      -ratio * ((t * 2.2) % (tileSize * 2.1)),
-      ratio * ((t * 1.1) % (tileSize * 2.1)),
+      far,
+      -((t * 2.2 * fieldScale) % (tileSize * far)),
+      (t * 1.1 * fieldScale) % (tileSize * far),
     );
-    ctx.fillRect(-tileSize, -tileSize, width / 2.1 + tileSize * 2, height / 2.1 + tileSize * 2);
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.fillRect(-tileSize, -tileSize, width / far + tileSize * 2, height / far + tileSize * 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   // Frond shadows at the edges, swaying a few degrees.
@@ -266,6 +286,12 @@ function draw(time, still) {
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+
+  // One stretch of the small field onto the canvas, in device pixels.
+  out.setTransform(1, 0, 0, 1, 0, 0);
+  out.globalAlpha = 1;
+  out.imageSmoothingEnabled = true;
+  out.drawImage(field, 0, 0, view.canvas.width, view.canvas.height);
 }
 
 ace.scene({
@@ -279,8 +305,9 @@ ace.scene({
   scheme(_next) {},
   frame(time, view) {
     now = time;
-    if (view.scheme !== scheme || view.width !== width || view.height !== height) build(view);
-    draw(time, view.reduceMotion);
+    if (view.scheme !== scheme || view.width !== viewWidth || view.height !== viewHeight)
+      build(view);
+    draw(time, view);
   },
   signal(name) {
     lift = name === "done" || name === "pr-merged" ? 1 : name === "working" ? 0.35 : 0;
