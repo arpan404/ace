@@ -21,12 +21,15 @@
     "./ingest-sources": "./src/ingest-sources.ts",
     "./ingest-writer": "./src/ingest-writer.ts",
     "./path-merge": "./src/path-merge.ts",
-    "./runtime": "./src/runtime.ts"
+    "./runtime": "./src/runtime.ts",
+    "./media-connections": "./src/media-connections.ts",
+    "./testing/media-test-client": "./src/testing/media-test-client.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
+    "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/service": "workspace:*",
     "zod": "^4.6.5"

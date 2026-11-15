@@ -2,9 +2,13 @@ import { EgressRouter } from "./egress.ts";
 import { RouteWatch } from "./route-watch.ts";
 import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
 import { IngestSources } from "./ingest-sources.ts";
+import { MediaConnections, MediaIssue } from "./media-connections.ts";
+import { MediaViewers } from "./media-viewers.ts";
+import { SessionLinks, pumpSessionLinks } from "./session-link.ts";
 import {
   MediaSupervisor,
   secureRandomBytes,
+  systemWallClock,
   type MediaExit,
   type MediaSupervisorOptions,
 } from "./supervisor.ts";
@@ -23,6 +27,8 @@ export type MediaRuntimeOptions = Omit<
   id: () => string;
   /** What this build routes through ace-media; `builtRouteCapabilities` unless a test says. */
   capabilities?: RouteCapabilities;
+  /** The daemon's wall clock in Unix ms, which media tickets expire on. */
+  wallClock?: () => number;
   onMessage?: (message: FromMedia, payload: Uint8Array) => void;
   onExit?: (exit: MediaExit) => void;
 };
@@ -32,6 +38,12 @@ export class MediaRuntime {
   readonly routes: RouteWatch;
   readonly egress: EgressRouter;
   readonly sources: IngestSources;
+  /** Clients' media connections and the views ace-media delivers on them (D1). */
+  readonly connections: MediaConnections;
+  readonly viewers: MediaViewers;
+  /** Each main session's link, told to ace-media while the session has a media connection. */
+  readonly links = new SessionLinks();
+  readonly #stopLinks: () => void;
 
   constructor(options: MediaRuntimeOptions) {
     const capabilities = options.capabilities ?? builtRouteCapabilities;
@@ -43,12 +55,18 @@ export class MediaRuntime {
       },
       onMessage: (message, payload) => {
         this.sources.message(message);
+        this.connections.received(message);
+        this.viewers.received(message, payload);
+        this.links.received(message);
         options.onMessage?.(message, payload);
       },
       onEgress: (frame) => this.egress.push(frame),
       onExit: (exit) => {
         // Producers go back to the daemon first, with nothing left to drain.
         this.sources.exited();
+        this.connections.exited();
+        this.viewers.exited();
+        this.links.restarted();
         this.routes.update();
         options.onExit?.(exit);
       },
@@ -73,7 +91,30 @@ export class MediaRuntime {
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+      onLive: (producer, path) => this.viewers.live(producer, path),
     });
+    const randomBytes = options.randomBytes ?? secureRandomBytes;
+    this.connections = new MediaConnections({
+      port: {
+        send: (message, payload) => this.supervisor.send(message, payload),
+        revoke: (message) => this.supervisor.revoke(message),
+        directPort: () => this.supervisor.listening()?.loopbackPort,
+      },
+      issue: new MediaIssue(),
+      now: options.wallClock ?? systemWallClock,
+      randomBytes,
+      id: options.id,
+    });
+    this.viewers = new MediaViewers({
+      connections: this.connections,
+      live: () => this.sources.live(),
+      send: (message) => this.supervisor.send(message),
+      id: options.id,
+      schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+    });
+    this.#stopLinks = pumpSessionLinks(this.links, options.clock, (message) =>
+      this.supervisor.send(message),
+    );
   }
 
   /**
@@ -100,6 +141,7 @@ export class MediaRuntime {
   }
 
   dispose(): void {
+    this.#stopLinks();
     this.supervisor.dispose();
   }
 }
