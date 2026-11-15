@@ -159,6 +159,6 @@ it("16 clients that each send two frames and never answer the close free their r
   // or hears nothing.
   const joined = await host.join(await host.offer());
   expect(await within(joined.next().catch(() => Buffer.alloc(0)))).toSatisfy(
-    (frame: Buffer | undefined) => frame === undefined || frame.length === 0,
+    (heard: Buffer | undefined) => heard === undefined || heard.length === 0,
   );
 }, 30_000);
