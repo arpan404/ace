@@ -29,6 +29,7 @@ import {
   foldCall,
   failureOf,
   heardFrom,
+  stampRead,
   wentDown,
   type Reachability,
   nextDue,
@@ -133,9 +134,9 @@ export class MachineChildren implements RemoteChildren {
   /**
    * What is known of whether each machine is up (child-schedule.ts, `Reachability`), every time
    * as of when a call was sent, by the injected clock: when the latest call to it that got
-   * through went out (a status read, a refusal, a description), and its outages. The one evidence
-   * for both sides: a child's failed read is the machine's only when the machine was down when
-   * that read was sent, whenever its failure arrives.
+   * through went out (a status read, a refusal, a description), and whether it is down now. Each
+   * read is stamped with it as it goes out: a child's failed read is the machine's only when the
+   * machine was down when that read was sent, whenever its failure arrives.
    */
   private reachability = new Map<string, Reachability>();
   /** Status calls on their way. */
@@ -609,6 +610,9 @@ export class MachineChildren implements RemoteChildren {
     const first = rows.get(ids[0] ?? "");
     if (!first) return;
     const startedAt = this.deps.now();
+    // What is known of the machine as this read goes out: its failure, whenever it arrives, is
+    // judged by this, however many outages come and go meanwhile.
+    const stamp = stampRead(this.reachability.get(machine) ?? {}, startedAt, this.schedule);
     for (const id of ids)
       if (!this.unanswered.has(id)) this.unanswered.set(id, { since: startedAt });
     let outcome: CallOutcome;
@@ -627,7 +631,7 @@ export class MachineChildren implements RemoteChildren {
       // child stays settled. Neither is ever settled for want of an answer.
       // The machine's failure, not the child's own, only if the machine was down when this read
       // went out; one sent during an outage that has ended since starts no wait.
-      const of = failureOf(this.reachability.get(machine) ?? {}, startedAt, this.schedule);
+      const of = failureOf(this.reachability.get(machine) ?? {}, stamp);
       outcome = refusedNotFound(error)
         ? { kind: "not_found" }
         : { kind: "failed", machineWide: of !== "own", machineBack: of === "machine_back" };
