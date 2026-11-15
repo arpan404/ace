@@ -250,12 +250,22 @@ it("every shipped guide is reachable from the always-on guidance and serves thro
   for (const topic of guideTopics) expect(aceInstructions).toContain(topic);
   // The guide tool's topic enum names every guide once; the shared text names the families.
   const pointers = `${aceInstructions}\n${JSON.stringify(guide.inputSchema)}`;
-  for (const { name, body } of await builtinGuides()) {
+  for (const { name, body, files } of await builtinGuides()) {
     expect(pointers, name).toContain(name);
     const served = await full.call("guide", { topic: name });
     expect(served.failed, name).toBe(false);
     expect(z.object({ guide: z.string() }).parse(served.data).guide).toBe(body);
+    // Providers without native skills read a guide's reference files through guide too.
+    for (const [file, content] of Object.entries(files)) {
+      const reference = await full.call("guide", { topic: name, file });
+      expect(reference.failed, file).toBe(false);
+      expect(z.object({ guide: z.string() }).parse(reference.data).guide).toBe(content);
+    }
   }
+  const missing = await full.call("guide", { topic: "make-a-suit", file: "references/nope.md" });
+  expect(missing.failed).toBe(true);
+  expect(missing.text).toContain("invalid_arguments");
+  expect(missing.text).toContain("references/suit-json.md");
 });
 
 it("a wrong guide topic or an unavailable tool tells the agent what to call next", async () => {
