@@ -68,6 +68,16 @@ import VideoToolbox
 
 /// A real hardware HEVC encode on this Mac, decoded back. Skips where no hardware HEVC encoder exists.
 final class HEVCEncodeTests: XCTestCase {
+    /// Whether this Mac has a hardware HEVC encoder, asked of VideoToolbox apart from the encoder
+    /// under test, so a broken encode fails instead of skipping.
+    private func requireHardwareHEVC() throws {
+        var properties: CFDictionary?
+        let specification = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true] as CFDictionary
+        let status = VTCopySupportedPropertyDictionaryForEncoder(width: 640, height: 360, codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: specification, encoderIDOut: nil, supportedPropertiesOut: &properties)
+        if status != noErr { throw XCTSkip("No hardware HEVC encoder on this Mac (\(status))") }
+    }
+
     /// The NAL units of an Annex B payload with 4-byte start codes.
     private func nalUnits(_ payload: Data) -> [Data] {
         let bytes = [UInt8](payload)
@@ -93,10 +103,9 @@ final class HEVCEncodeTests: XCTestCase {
         let done = DispatchSemaphore(value: 0)
         var produced: EncodedVideo?
         let encoder = VideoEncoder(units: { unit in produced = unit }, completed: { done.signal() })
+        try requireHardwareHEVC()
         encoder.use(.hevc)
-        guard encoder.encode(try picture(), sequence: 1, timestamp: 0, scale: 1, at: 1_000_000) == .submitted else {
-            throw XCTSkip("No hardware HEVC encoder on this Mac")
-        }
+        XCTAssertEqual(encoder.encode(try picture(), sequence: 1, timestamp: 0, scale: 1, at: 1_000_000), .submitted)
         XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
         let unit = try XCTUnwrap(produced)
         XCTAssertTrue(unit.keyframe)
@@ -158,10 +167,9 @@ final class HEVCEncodeTests: XCTestCase {
         let done = DispatchSemaphore(value: 0)
         var produced: EncodedVideo?
         let encoder = VideoEncoder(units: { unit in produced = unit }, completed: { done.signal() })
+        try requireHardwareHEVC()
         encoder.use(.hevc)
-        guard encoder.encode(try picture(), sequence: 1, timestamp: 0, scale: 1, at: 1_000_000) == .submitted else {
-            throw XCTSkip("No hardware HEVC encoder on this Mac")
-        }
+        XCTAssertEqual(encoder.encode(try picture(), sequence: 1, timestamp: 0, scale: 1, at: 1_000_000), .submitted)
         XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
         encoder.use(.h264)
         XCTAssertEqual(encoder.encode(try picture(), sequence: 2, timestamp: 0, scale: 1, at: 2_000_000), .submitted)
