@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { logError, logFields } from "@ace/diagnostics";
 import {
   Command,
@@ -35,7 +34,6 @@ import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { MachineConnections } from "../machines/connections.ts";
-import { cachedProfiles, fileStamp } from "../machines/profile-cache.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferClient, transferTransport, type TransferTransport } from "../transfers/client.ts";
 import { findHostThread } from "../spade/host-thread.ts";
@@ -217,20 +215,13 @@ export function startMachines(context: ServiceContext): void {
     connections,
     now,
     reachable: (machine, sentAt) => machineReachable?.(machine, sentAt),
-    // Read again only when the pairings file changes, not on every call and poll.
-    profiles: cachedProfiles({
-      stamp: () => fileStamp(join(config.dataDir, "cli-profiles.sqlite")),
-      read: () => {
-        const profiles = new Profiles(config.dataDir);
-        try {
-          return profiles.list();
-        } finally {
-          profiles.close();
-        }
-      },
-      now,
-      maxAgeMs: 60_000,
-    }),
+    // The one reader of the pairings the connection pool checks too: read again only when the
+    // file is replaced or any connection (Settings here, the CLI elsewhere) commits to it.
+    profiles: () => {
+      const list = saved.list();
+      if (!list) throw new Error("The saved pairings can't be read just now");
+      return list;
+    },
     transport: options.machines?.transport ?? machineRequest,
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
