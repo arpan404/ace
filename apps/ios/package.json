@@ -29,6 +29,7 @@
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/settings": "workspace:*",
+    "@ace/suits": "workspace:*",
     "@ace/themes": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "zod": "^4.6.5"

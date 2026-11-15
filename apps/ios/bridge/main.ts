@@ -31,6 +31,7 @@ import { MachineFollowers } from "./machine-followers.ts";
 import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
+import { followSuits } from "./suit-library.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { NeedsAction, followNeeds, type NeedsFollow } from "./inbox-needs.ts";
 import { Sheets } from "./sheets.ts";
@@ -357,6 +358,7 @@ async function start(json: string): Promise<void> {
   ahead.allow(readAheadAllowed);
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
+  followSuits(client, pump);
   followMachine(client, pump, trust);
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);

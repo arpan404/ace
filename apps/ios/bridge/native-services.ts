@@ -85,6 +85,13 @@ import { answerSettingsPage, settingsPageRequest } from "./settings-page-service
 import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
 import { answerSourceControlScreen, SourceControlScreenRequest } from "./source-control-screen.ts";
 import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
+import {
+  readPhoneSuit,
+  readSuitAsset,
+  SuitAssetRequest,
+  SuitReadRequest,
+  SuitRefused,
+} from "./suit-library.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -367,6 +374,23 @@ export class NativeServices {
           fitted ?? null,
           fitted ? "" : "That colour can't be used.",
         );
+        return;
+      }
+      // A Suit for this phone, or one of its assets (`suit-library.ts`); a refusal says why.
+      const suit = SuitReadRequest.safeParse(raw);
+      const asset = SuitAssetRequest.safeParse(raw);
+      if (suit.success || asset.success) {
+        try {
+          const value = suit.success
+            ? await readPhoneSuit(this.owner, suit.data, controller.signal)
+            : asset.success
+              ? await readSuitAsset(this.owner, asset.data, controller.signal)
+              : null;
+          this.#reply(id, true, value, "");
+        } catch (error) {
+          if (!(error instanceof SuitRefused)) throw error;
+          this.#reply(id, false, null, error.message);
+        }
         return;
       }
       const sent = SentPromptRequest.safeParse(raw);
