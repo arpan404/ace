@@ -53,6 +53,9 @@ export async function startRelayTransport(
     get canReadThread() {
       return options.canReadThread;
     },
+    get mediaDelivery() {
+      return options.mediaDelivery;
+    },
     get context() {
       return options.context;
     },

@@ -49,6 +49,8 @@ pub struct Grants {
     ledger: Ledger,
     viewers: HashMap<String, Viewer>,
     streams: HashMap<String, Stream>,
+    /// Connections dropped since the engine last asked, with why: delivery closes their sockets.
+    closed: Vec<(String, String)>,
 }
 
 pub struct Grant<'a> {
@@ -70,6 +72,14 @@ fn refuse(out: &mut Vec<Effect>, grant: &Grant<'_>, reason: Refusal) {
     );
 }
 
+/// Every byte zero (or nothing at all): a wiped buffer, never a ticket. Every byte is read, in
+/// constant time, so how long this takes says nothing about where a presented ticket differs.
+fn is_zero(bytes: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+    let folded = bytes.iter().fold(0u8, |acc, byte| acc | byte);
+    bool::from(folded.ct_eq(&0))
+}
+
 fn full(out: &mut Vec<Effect>, result: Result<(), Full>) {
     if result.is_err() {
         out.push(Effect::Fatal("closed-id bookkeeping is full"));
@@ -87,6 +97,11 @@ impl Grants {
 
     pub fn streams(&self) -> usize {
         self.streams.len()
+    }
+
+    /// The connections dropped since the last call, with their reasons.
+    pub fn take_closed(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.closed)
     }
 
     /// The ledger's verdict, sent as `grant.refused` when it refuses.
@@ -118,6 +133,22 @@ impl Grants {
         }
         if expires_at <= now {
             return refuse(out, &grant, Refusal::Expired);
+        }
+        // A wiped buffer is never a ticket: storing it would let anyone present zeros.
+        if is_zero(ticket) {
+            log(
+                out,
+                Level::Warn,
+                "media.ticket refused: an all-zero ticket",
+                grant.connection,
+            );
+            return normal(
+                out,
+                FromMedia::ConnectionClosed {
+                    connection: grant.connection.clone(),
+                    reason: "invalid-ticket".into(),
+                },
+            );
         }
         let key = grant.connection.get().to_owned();
         self.remove(&key, "replaced", vault, out);
@@ -160,6 +191,9 @@ impl Grants {
         now: u64,
         out: &mut Vec<Effect>,
     ) -> Option<Id> {
+        if is_zero(presented) {
+            return None;
+        }
         let pending = self
             .connections
             .iter()
@@ -342,6 +376,7 @@ impl Grants {
             vault.erase(secret);
         }
         self.viewers.retain(|_, v| v.connection != key);
+        self.closed.push((key.to_owned(), reason.to_owned()));
         let streams: Vec<String> = self
             .streams
             .iter()

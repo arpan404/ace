@@ -4,6 +4,7 @@ import { ForgeInboxAction } from "./forge-inbox.ts";
 import { RepositoryPublication } from "./hosted-repositories.ts";
 import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
+import { MediaTicket } from "./media-connection.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -247,7 +248,15 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
-      channel: z.enum(["files", "devices", "browser", "screen", "provider_auth"]).optional(),
+      channel: z
+        .enum(["files", "devices", "browser", "screen", "provider_auth", "media"])
+        .optional(),
+      /**
+       * With `channel: "media"` on a relay stream with the `media` purpose: the ticket from the
+       * same device's `media.connect` (ADR 0147 §5.2). Refused on any other channel, and a
+       * `media` channel without it is refused.
+       */
+      mediaTicket: MediaTicket.optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),

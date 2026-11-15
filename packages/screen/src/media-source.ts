@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { wireFrame, type Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
+import { StreamOwners } from "./stream-owners.ts";
 import { PathMerge } from "@ace/media/path-merge";
 
 /**
@@ -85,6 +86,28 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
   }
 }
 
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(high, Math.max(low, Math.round(value)));
+
+/**
+ * ace-media's plan for a stream's views (`source.want`) as one stream request, for a producer
+ * that runs one stream (the screen helper, a device): the largest wanted encode, held to what
+ * `stream.configure` takes. Undefined for an empty plan.
+ */
+export function wantedStreamSettings(
+  encodes: readonly { width: number; height: number; fps: number; bitrate: number }[],
+): ScreenStreamSettings | undefined {
+  const encode = encodes.toSorted((a, b) => b.width * b.height - a.width * a.height)[0];
+  if (!encode) return undefined;
+  return {
+    codec: "h264",
+    maxWidth: clamp(encode.width, 64, 3840),
+    maxHeight: clamp(encode.height, 64, 3840),
+    fps: clamp(encode.fps, 1, 60),
+    bitrate: clamp(encode.bitrate, 128_000, 20_000_000),
+  };
+}
+
 export type ScreenMediaSourceOptions = {
   sessionId: string;
   /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's
@@ -98,6 +121,9 @@ export type ScreenMediaSourceOptions = {
 };
 
 const daemonPath = "daemon";
+/** The two demands on the helper's stream. */
+const legacyOwner = "legacy";
+const mediaOwner = "ace-media";
 
 export class ScreenMediaSource {
   readonly #options: ScreenMediaSourceOptions;
@@ -105,6 +131,13 @@ export class ScreenMediaSource {
   readonly #merge: PathMerge<Frame>;
   readonly #source: IngestSource;
   #settings: ScreenStreamSettings | undefined;
+  /** What the helper runs while nobody asks for video: the legacy viewers' JPEG request. */
+  #idle: ScreenStreamSettings | undefined;
+  /** The helper's one stream, shared by the legacy viewers and ace-media's views. */
+  readonly #owners = new StreamOwners({
+    apply: (settings) => this.#apply(settings),
+    idle: () => this.#idle,
+  });
   /** The current ace-media address, as the helper takes it, and its path's name. */
   #address: { ingest: ScreenStreamIngest; path: string } | undefined;
   /** Where the helper sends video now: the daemon's path or an ace-media path. */
@@ -140,10 +173,26 @@ export class ScreenMediaSource {
       // The screen's legacy viewer, recorder and stills all hang off the frames the helper
       // socket feeds, so each unit goes in once whichever of them egress serves.
       consumers: { deliver: unit, record: unit, still: unit },
-      point: (address) => this.#point(address),
+      point: (address) => {
+        // Back on the helper socket (a route flip, ace-media gone): ace-media's views no longer
+        // ask for anything.
+        if (!address) void this.#owners.remove(mediaOwner).catch(() => {});
+        return this.#point(address);
+      },
       keyframe: () => void options.helper.request({ op: "stream.keyframe" }).catch(() => {}),
       // ace-media's end marker for a path, after its last unit.
       pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
+      // ace-media's plan for the views it delivers (D1): the helper runs one encode, the
+      // largest wanted, held to what `stream.configure` takes.
+      // One owner of the helper's stream beside the legacy viewers', removed when its plan is
+      // empty: neither ever overwrites the other.
+      want: (encodes) => {
+        const settings = wantedStreamSettings(encodes);
+        const update = settings
+          ? this.#owners.set(mediaOwner, settings)
+          : this.#owners.remove(mediaOwner);
+        void update.catch(() => {});
+      },
     });
   }
 
@@ -174,8 +223,24 @@ export class ScreenMediaSource {
     this.#daemonReached();
   }
 
-  /** `stream.configure` with the current route's ingest and epoch. */
+  /**
+   * The legacy viewers' stream request (`stream.configure`). It shares the helper's one stream
+   * with ace-media's views through `StreamOwners`: the helper runs the stream both can take. A
+   * request for JPEG ends the legacy viewers' live demand; it is what the helper runs once
+   * nobody asks for video.
+   */
   configure(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
+    if (settings.codec !== "h264") {
+      this.#idle = settings;
+      return this.#owners.has(legacyOwner)
+        ? this.#owners.remove(legacyOwner)
+        : this.#owners.refresh();
+    }
+    return this.#owners.set(legacyOwner, settings);
+  }
+
+  /** `stream.configure` with the current route's ingest and epoch. */
+  #apply(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
     this.#settings = settings;
     return this.#serial(async () => {
       try {
@@ -206,6 +271,7 @@ export class ScreenMediaSource {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
+    void this.#owners.close();
     this.#source.close();
     this.#merge.dispose();
   }

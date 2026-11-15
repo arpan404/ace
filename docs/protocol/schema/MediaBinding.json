@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaBinding.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "connection": {
+      "$ref": "https://ace.local/protocol/v1/MediaConnectionId.json"
+    }
+  },
+  "required": [
+    "connection"
+  ],
+  "type": "object"
+}

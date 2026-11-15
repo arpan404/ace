@@ -180,7 +180,7 @@ describe("named routes", () => {
     expect(routes.simulator).toMatchObject({ producer: "daemon", tee: true, egress: false });
   });
 
-  it("this build streams browser producers into ace-media with every consumer still legacy", () => {
+  it("this build streams browser producers into ace-media, which delivers them, with recordings and stills still legacy", () => {
     const auto: MediaSettings = {
       encode: "auto",
       delivery: "auto",
@@ -193,12 +193,12 @@ describe("named routes", () => {
         producer: "ace-media",
         tee: false,
         egress: true,
-        deliverer: "legacy",
+        deliverer: "ace-media",
         recorder: "legacy",
         stills: "legacy",
       });
     for (const kind of ["screen", "simulator", "scrcpy", "emulator-frames"] as const)
-      expect(routes[kind]).toMatchObject({ producer: "daemon", tee: false, egress: false });
+      expect(routes[kind]).toMatchObject({ producer: "daemon", egress: false });
     for (const health of ["restarting", "unavailable"] as const)
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
   });
@@ -216,7 +216,7 @@ describe("named routes", () => {
         producer: "ace-media",
         tee: false,
         egress: true,
-        deliverer: "legacy",
+        deliverer: "ace-media",
         recorder: "legacy",
         stills: "legacy",
       });
@@ -235,7 +235,7 @@ describe("named routes", () => {
       for (const kind of kinds)
         expect(
           mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
-        ).toMatchObject({ producer: "daemon", tee: false, egress: false });
+        ).toMatchObject({ producer: "daemon", egress: false });
   });
 
   it("on Windows the screen helper's Media Foundation video streams into ace-media, with egress feeding its legacy consumers", () => {

@@ -793,6 +793,7 @@
     "packages/media": {
       "name": "@ace/media",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",

@@ -277,6 +277,12 @@ impl Sources {
     }
 
     /// The source an admitted ingest connection feeds.
+    /// Whether `token` is `id`'s live encoder (a draining one's output still reaches egress,
+    /// but viewers have moved on).
+    pub fn encoder_is(&self, id: &str, token: u64) -> bool {
+        self.by_id.get(id).is_some_and(|s| s.encoder == Some(token))
+    }
+
     pub fn bound(&self, conn: IngestId) -> Option<&str> {
         self.bindings.get(&conn).map(String::as_str)
     }

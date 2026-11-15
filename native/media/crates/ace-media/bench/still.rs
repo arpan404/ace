@@ -21,7 +21,7 @@ mod probed;
 mod screen;
 
 #[cfg(unix)]
-use ace_media::engine::stills::{StillInput, StillJob, StillOutcome};
+use ace_media::engine::stills::{Make, StillInput, StillJob, StillOutcome};
 #[cfg(unix)]
 use ace_media::stills::{BackendFactory, StillThreads};
 use media_codec::*;
@@ -99,7 +99,7 @@ impl Bench {
             stream: 1,
             input,
             target,
-            quality: 80,
+            make: Make::Still { quality: 80 },
             deadline_us: self.started.elapsed().as_micros() as u64 + 5_000_000,
         };
         let at = Instant::now();

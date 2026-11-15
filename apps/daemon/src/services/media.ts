@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
 import { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
+import type { MediaDeliveryPort } from "@ace/media/media-viewers";
 import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import {
@@ -14,6 +16,7 @@ import {
   mediaBinaryPath,
   nodeMediaHost,
   systemMediaClock,
+  systemWallClock,
   type MediaSettings,
 } from "@ace/media/supervisor";
 import type { ServiceContext } from "./types.ts";
@@ -24,7 +27,8 @@ import type { ServiceContext } from "./types.ts";
  * healthy, every capture takes the browser's own path.
  */
 
-const MediaEncode = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
+const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
+const mediaKeys = ["media.encode", "media.delivery"] as const;
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
 export function findMediaBinary(): string | undefined {
@@ -45,8 +49,23 @@ export function findMediaBinary(): string | undefined {
   });
 }
 
+/**
+ * Delivery by ace-media (D1): clients' media connections and the views on them. Present while
+ * the runtime exists, so sessions are always cleaned up; it connects and serves only while
+ * `media.delivery` is `auto`. Every call answers at once, so a subscribe never waits on
+ * ace-media longer than its poster's deadline.
+ */
+export type DaemonDelivery = MediaDeliveryPort & {
+  connect(owner: MediaOwner): Promise<MediaConnectGrant>;
+  sessionStarted(session: string): void;
+  sessionEnded(session: string): void;
+  /** One round trip measured on a main session, with the bytes queued to it. */
+  sample(session: string, rttMs: number, backlogBytes: number): void;
+};
+
 /** The daemon's ace-media as its producers see it. */
 export type DaemonMedia = BrowserMedia & {
+  delivery(): DaemonDelivery | undefined;
   /**
    * For a long-lived producer (a screen session): its source, kept until closed. Before the
    * runtime exists (`media.encode` never asked for it) the producer waits, and is added once it
@@ -64,6 +83,7 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
   if (started.has(context.services)) return started.get(context.services);
   const media = createMedia(context);
   started.set(context.services, media);
+  if (media) context.services.mediaDelivery = () => media.delivery();
   if (media) context.services.mediaAcceleration = media.acceleration;
   return media;
 }
@@ -95,6 +115,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         settings: () => settings,
         host: nodeMediaHost(process.env),
         clock: systemMediaClock,
+        wallClock: systemWallClock,
         // Backoff jitter only.
         random: Math.random,
         listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
@@ -112,14 +133,21 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     }));
 
   const read = async () => {
-    const value = (await services.settings?.get("media.encode"))?.value;
-    settings = { ...legacyMediaSettings, encode: MediaEncode(value) };
-    if (settings.encode === "auto") await start();
+    const [encode, delivery] = await Promise.all(
+      mediaKeys.map(async (key) => MediaSetting((await services.settings?.get(key))?.value)),
+    );
+    settings = {
+      ...legacyMediaSettings,
+      encode: encode ?? "legacy",
+      delivery: delivery ?? "legacy",
+    };
+    if (settings.encode === "auto" || settings.delivery === "auto") await start();
     runtime?.settingsChanged();
   };
   void read().catch(() => {});
   const stop = services.settings?.onChange((layer, keys) => {
-    if (layer.kind === "global" && keys.includes("media.encode")) void read().catch(() => {});
+    if (layer.kind === "global" && mediaKeys.some((key) => keys.includes(key)))
+      void read().catch(() => {});
   });
   resources.own(() => {
     closed = true;
@@ -128,7 +156,26 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
   });
 
+  const delivery = (live: MediaRuntime): DaemonDelivery => ({
+    ...live.delivery(),
+    connect: (owner) =>
+      settings.delivery === "auto"
+        ? live.connections.connect(owner)
+        : Promise.resolve({
+            ok: false,
+            code: "unavailable",
+            message: "ace-media isn't serving viewers.",
+          }),
+    sessionStarted: (session) => live.links.started(session),
+    sessionEnded: (session) => {
+      live.links.ended(session);
+      void live.connections.sessionClosed(session);
+    },
+    sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
+  });
+
   return {
+    delivery: () => (runtime ? delivery(runtime) : undefined),
     acceleration,
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,

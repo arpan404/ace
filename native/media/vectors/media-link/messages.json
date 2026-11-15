@@ -1,0 +1,181 @@
+[
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "browser.ack",
+      "threadId": "th_0123456789",
+      "sequence": 42,
+      "video": true
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "browser.ack",
+      "threadId": "th_0123456789",
+      "sequence": 0,
+      "video": true,
+      "keyframe": true
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "screen.ack",
+      "sessionId": "screen-1",
+      "streamId": "capture-1",
+      "sequence": 7
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "screen.ack",
+      "sessionId": "screen-1",
+      "streamId": "capture-1",
+      "sequence": 7,
+      "keyframe": true
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "devices.ack",
+      "deviceId": "ios:4C0E4A44-6C2F-4C80-9D59-4C9E3A1E2B10",
+      "streamId": "capture-2",
+      "sequence": 9007199254740991
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "ping"
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "message": {
+      "type": "ping",
+      "rttMs": 420
+    }
+  },
+  {
+    "direction": "client",
+    "valid": true,
+    "lenient": true,
+    "message": {
+      "type": "browser.ack",
+      "requestId": "r1",
+      "threadId": "th_0123456789",
+      "sequence": 3,
+      "video": true,
+      "future": 1
+    },
+    "parsed": {
+      "type": "browser.ack",
+      "threadId": "th_0123456789",
+      "sequence": 3,
+      "video": true
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "a subscribe",
+    "message": {
+      "type": "browser.subscribe",
+      "requestId": "r",
+      "threadId": "th_0123456789"
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "an rpc",
+    "message": {
+      "type": "command",
+      "command": {}
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "a hello",
+    "message": {
+      "type": "hello",
+      "protocolVersion": 1,
+      "deviceId": "d",
+      "token": "t"
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "unknown",
+    "message": {
+      "type": "media.keys"
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "no sequence",
+    "message": {
+      "type": "browser.ack",
+      "threadId": "th_0123456789"
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "negative",
+    "message": {
+      "type": "screen.ack",
+      "sessionId": "s",
+      "streamId": "c",
+      "sequence": -1
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "unsafe",
+    "message": {
+      "type": "devices.ack",
+      "deviceId": "d",
+      "streamId": "c",
+      "sequence": 9007199254740992
+    }
+  },
+  {
+    "direction": "client",
+    "valid": false,
+    "why": "null",
+    "message": {
+      "type": "ping",
+      "rttMs": null
+    }
+  },
+  {
+    "direction": "server",
+    "valid": true,
+    "message": {
+      "type": "media.welcome",
+      "connection": "mc_AAAAAAAAAAAA"
+    }
+  },
+  {
+    "direction": "server",
+    "valid": true,
+    "message": {
+      "type": "pong"
+    }
+  }
+]

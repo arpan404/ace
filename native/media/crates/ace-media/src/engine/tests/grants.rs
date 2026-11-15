@@ -10,7 +10,8 @@ fn viewer(engine: &mut Engine, connection: &str, who: Value, issued: u64) -> Vec
     send(
         engine,
         json!({ "type": "viewer.open", "viewer": "v", "connection": connection, "owner": who,
-                "issued": issued, "source": "s1", "codecs": ["avc1.640028"],
+                "issued": issued, "source": "s1", "target": { "kind": "browser", "threadId": "t1" },
+                "codecs": ["avc1.640028"],
                 "viewport": { "width": 800, "height": 600, "dpr": 2, "scale": 1 },
                 "local": true, "audio": false }),
         &[],
@@ -238,9 +239,16 @@ fn a_ticket_opens_its_connection_once_and_only_before_it_expires() {
     ticket(&mut engine, "c1", owner("d1", pairing(1)), 1, 1);
     let claimed = engine.claim_ticket(&[1; 32], NOW);
     assert_eq!(claimed.as_ref().map(|c| c.get()), Some("c1"));
+    // The daemon hears the connection opened; the client hears its welcome.
     assert!(matches!(
         engine.effects().collect::<Vec<_>>().as_slice(),
-        [Effect::Normal(FromMedia::ConnectionOpen { .. })]
+        [
+            Effect::Normal(FromMedia::ConnectionOpen { .. }),
+            Effect::Media {
+                out: crate::engine::delivery::MediaOut::Text(_),
+                ..
+            }
+        ]
     ));
     assert!(engine.claim_ticket(&[1; 32], NOW).is_none(), "reused");
     assert!(engine.claim_ticket(&[2; 32], NOW).is_none(), "never issued");
@@ -354,4 +362,25 @@ fn closing_a_connection_ends_its_viewers_and_is_answered_after_it() {
         Some(Effect::Priority(FromMedia::Closed { .. }))
     ));
     assert_eq!(engine.counts().viewers, 0);
+}
+
+#[test]
+fn an_all_zero_ticket_is_never_stored_and_never_opens_a_connection() {
+    let mut engine = engine();
+    // A grant whose ticket is zeros (a wiped buffer, say) opens nothing.
+    let effects = ticket(&mut engine, "c0", owner("d1", pairing(1)), 1, 0);
+    assert_eq!(closed_connections(&effects), ["c0"]);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    // Presenting zeros never matches a real ticket either.
+    ticket(&mut engine, "c1", owner("d1", pairing(1)), 2, 5);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    assert!(engine.claim_ticket(&[5; 32], NOW).is_some());
+    // Zero but for its last byte is a ticket like any other: every byte counts.
+    let mut last = [0u8; 32];
+    last[31] = 1;
+    ticket(&mut engine, "c2", owner("d1", pairing(1)), 3, 1);
+    assert!(
+        engine.claim_ticket(&last, NOW).is_none(),
+        "not the ticket granted"
+    );
 }

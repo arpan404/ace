@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaPing.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "rttMs": {
+      "maximum": 60000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "ping",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "type": "object"
+}
