@@ -71,6 +71,15 @@ export const adapterWarning = "adapter.warning";
 export class InputRejected extends Error {}
 
 /**
+ * Whose input a send carries when it is not the person's: `ace` for ace's own input (child
+ * results, notices), which providers may mark synthetic, and `agent` for anything else the
+ * person didn't send (another agent's message, an automation's prompt). A steer from either
+ * joins the running turn without cutting into it: it waits for the running tool and never
+ * aborts the model's reply. Only the person's steer (no source) may preempt.
+ */
+export type InputSource = "ace" | "agent";
+
+/**
  * A person's steer aimed at one turn. The adapter checks it synchronously after its last await,
  * immediately before writing the steer: if `current()` says no (or, where the provider names its
  * turns, the turn running isn't `turn`), the steer is refused unread with `SteerTargetLost` and
@@ -246,14 +255,15 @@ export interface ProviderSession {
   setGoal?(change: import("@ace/protocol").GoalChange): Promise<void>;
   clearGoal?(): Promise<void>;
   /**
-   * Optional engine command correlation for providers with durable admission. `fence` (a
-   * person's steer aimed at one turn) is checked right before the write: see `SteerFence`.
+   * Optional engine command correlation for providers with durable admission. `origin` names
+   * input that isn't the person's (`InputSource`). `fence` (a person's steer aimed at one turn)
+   * is checked right before the write: see `SteerFence`.
    */
   send(
     input: ContentPart[],
     delivery: "steer" | "queue",
     commandId?: string,
-    origin?: "ace",
+    origin?: InputSource,
     fence?: SteerFence,
   ): Promise<void>;
   /**

@@ -5,6 +5,7 @@ import {
   assertSteerTarget,
   InputRejected,
   SteerTargetLost,
+  type InputSource,
   type ProviderSession,
   type SessionContext,
   type SteerFence,
@@ -80,7 +81,7 @@ export function createSessionCommands(
     threadId: string,
     parts: ContentPart[],
     delivery: "steer" | "queue",
-    origin?: "ace",
+    origin?: InputSource,
     commandId?: string,
     fence?: SteerFence,
   ): Promise<void> {

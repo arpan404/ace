@@ -14,6 +14,7 @@ import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import {
   InputRejected,
   SteerTargetLost,
+  type InputSource,
   type ProviderSession,
   type SessionContext,
   type SteerFence,
@@ -46,7 +47,7 @@ interface Queued {
   batch: Batch;
   input: ContentPart[];
   commandId?: string;
-  origin?: "ace";
+  origin?: InputSource;
   /** A fenced steer: written only while its turn is still current (ACP writes when idle). */
   fence?: SteerFence;
   bytes: number;
@@ -379,7 +380,7 @@ class AcpSession implements ProviderSession {
     input: ContentPart[],
     delivery: "steer" | "queue",
     commandId?: string,
-    origin?: "ace",
+    origin?: InputSource,
     fence?: SteerFence,
   ): Promise<void> {
     // Refusals before queueing write nothing, so the agent provably took none of the input.
@@ -416,7 +417,7 @@ class AcpSession implements ProviderSession {
     inputs: ContentPart[][],
     batch: Batch,
     commandId: string | undefined,
-    origin: "ace" | undefined,
+    origin: InputSource | undefined,
     fence: SteerFence | undefined,
   ): Promise<void[]> {
     return Promise.all(

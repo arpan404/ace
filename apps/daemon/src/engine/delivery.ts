@@ -8,6 +8,7 @@ import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
 import { SteerTargetLost, type SteerFence } from "@ace/engine-api";
 import { steerLostRun } from "./steer-selection.ts";
+import { inputSource } from "./steer-yield.ts";
 
 export class InteractionUnavailable extends Error {
   readonly code: "interaction_expired" | "interaction_unavailable";
@@ -218,13 +219,16 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
+      // Whose input this is decides whether its steer may cut in: only the person's does.
       await session.send(
         input,
         steering ? "steer" : "queue",
         intent.command.id,
-        repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
-          ? "ace"
-          : undefined,
+        inputSource(
+          intent,
+          repo.steerNotes.personChose(intent.id),
+          repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind,
+        ),
         fence,
       );
       await repo.store.writable();

@@ -398,9 +398,11 @@ export async function openSession(
             session_id: sessionId,
             parent_tool_use_id: null,
             message: { role: "user", content: body },
-            // A `now` message joins the running turn, but the CLI holds it until the running
-            // foreground tool returns. The engine calls backgroundTools for a person's steer.
-            priority: delivery === "steer" ? "now" : "next",
+            // Both `now` and `next` join the running turn at its next tool boundary. `now` also
+            // preempts: it aborts the reply being written and moves running calls to the
+            // background, or interrupts the turn for a call that can't move. Only the person's
+            // steer does that; another agent's or ace's waits for the running tool.
+            priority: delivery === "steer" && origin === undefined ? "now" : "next",
           };
           if (origin === "ace") message.isSynthetic = true;
           return message;
