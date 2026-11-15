@@ -78,6 +78,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "previewClient",
     "previewSuggestions",
     "automations",
+    "automationWebhooks",
     "threadAutomations",
     "activityReads",
     "sidebarPlacement",
@@ -193,6 +194,10 @@ export function daemonHandle({
     /** The endpoint for MCP clients outside ace, with its relay and Tailscale handlers. */
     get externalMcp() {
       return services.externalMcp;
+    },
+    /** Webhook automations: their URLs, secrets and relayed requests (ADR 0158). */
+    get automationWebhooks() {
+      return services.automationWebhooks;
     },
     storage: services.storage,
     engine: services.engine,

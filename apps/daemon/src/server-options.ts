@@ -53,6 +53,8 @@ export interface ServerOptions {
   /** Detected dev servers per thread (`preview.request` list with suggestions). */
   previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** Webhook automations' URLs, secrets and relayed requests (ADR 0158). */
+  automationWebhooks?: import("./automation-webhooks.ts").AutomationWebhookService;
   /** Automations agents made from threads (`source: "thread"`, `includeThreads`). */
   threadAutomations?: import("./agent-control/thread-automations.ts").ThreadAutomations;
   /** Threads whose browser an agent works in now (`browser.browsing.watch`). */

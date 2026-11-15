@@ -78,6 +78,7 @@ export async function startRelayTransport(
     http: relayHttp({
       settings: () => options.settings,
       handler: () => options.outsideMcpHttp,
+      webhooks: () => options.automationWebhooks,
     }),
     // Read when a media ticket comes: ace-media's runtime starts after the relay does.
     media: lateMediaRelay(() => options.mediaDelivery?.()?.relay, { hostKeys: relay.keys }),
