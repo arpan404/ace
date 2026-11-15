@@ -7,15 +7,27 @@ import {
   type SpadeBubble,
   type SpadeDraft,
 } from "@ace/ui-core/spade-chat";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { QuestionPager } from "@/components/question-pager.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import { cardKeyHint, CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
+import {
+  botBubble,
+  CardBody,
+  cardKeyHint,
+  CardFooter,
+  CardPrimary,
+  CardSecondary,
+  CardWord,
+  LaterClock,
+  NeedsYouLine,
+  personBubble,
+  RaisedCard,
+  settledLine,
+} from "./spade-card.tsx";
 
 type Card = Extract<SpadeBubble, { kind: "question" }>;
 
@@ -53,19 +65,19 @@ export function SpadeQuestionBubble(props: {
         onFocus={(event) => {
           if (event.target === event.currentTarget) setOpened(true);
         }}
-        className={cn(quietBubble, "flex items-center gap-3 focus-ring")}
+        className={cn(settledLine, "items-center rounded-sm focus-ring")}
       >
-        <span className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
+        <LaterClock />
+        <span className="min-w-0 truncate">
           {`For later · ${lone ? lone.prompt : `${item.questions.length} questions`}`}
         </span>
-        <Button
-          size="xs"
-          variant="ghost"
-          className="-my-1 -mr-1.5 text-foreground"
+        <button
+          type="button"
           onClick={() => setOpened(true)}
+          className="-mx-1 shrink-0 touch-hit rounded-sm px-1 font-medium text-foreground focus-ring hover:underline"
         >
           Answer
-        </Button>
+        </button>
       </div>
     );
   if (item.standing === "waiting" || item.standing === "deferred")
@@ -176,6 +188,7 @@ function OpenCard(props: {
       }}
     >
       <NeedsYouLine
+        glyph="question"
         aside={
           count > 1 && (
             <QuestionPager
@@ -192,52 +205,64 @@ function OpenCard(props: {
       >
         <SpadeBubbleText text={current.prompt} />
       </NeedsYouLine>
-      <QuestionInputs
-        // One question's inputs at a time; its draft stays with the card.
-        key={at}
-        question={current}
-        draft={draftOf(at) ?? spadeEmptyDraft(current)}
-        onDraft={draft}
-        onSubmit={advance}
-        disabled={sending !== undefined}
-      />
-      {problem && (
-        <p role="alert" className="mt-3 text-ui text-destructive">
-          {problem}
-        </p>
+      {(!loneConfirm || problem) && (
+        <CardBody>
+          {!loneConfirm && (
+            <QuestionInputs
+              // One question's inputs at a time; its draft stays with the card.
+              key={at}
+              question={current}
+              draft={draftOf(at) ?? spadeEmptyDraft(current)}
+              onDraft={draft}
+              onSubmit={advance}
+              disabled={sending !== undefined}
+              refused={problem !== undefined}
+            />
+          )}
+          {problem && (
+            <p role="alert" className="text-xs leading-4 text-destructive">
+              {problem}
+            </p>
+          )}
+        </CardBody>
       )}
       <CardFooter
         start={
           <>
             {(item.standing === "waiting" || props.onFold) && (
-              <Button
-                size="sm"
-                variant="ghost"
+              <CardWord
                 disabled={sending !== undefined}
                 onClick={() => (props.onFold ? props.onFold() : reply("defer", { defer: true }))}
               >
                 Answer later
-              </Button>
+              </CardWord>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
+            <CardWord
               disabled={sending !== undefined}
               onClick={() => reply("dismiss", { dismiss: true })}
             >
               Never mind
-            </Button>
+            </CardWord>
           </>
         }
         end={
-          !loneConfirm &&
-          (last ? (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={sending !== undefined}
-              onClick={() => send()}
-            >
+          loneConfirm ? (
+            <>
+              <CardSecondary
+                disabled={sending !== undefined}
+                onClick={() => draft({ kind: "confirm", value: false })}
+              >
+                No
+              </CardSecondary>
+              <CardPrimary
+                disabled={sending !== undefined}
+                onClick={() => draft({ kind: "confirm", value: true })}
+              >
+                Yes
+              </CardPrimary>
+            </>
+          ) : last ? (
+            <CardPrimary disabled={sending !== undefined} onClick={() => send()}>
               {sending === "send" ? "Sending…" : "Send"}
               <Kbd
                 aria-hidden
@@ -246,47 +271,71 @@ function OpenCard(props: {
                 variant="on-primary"
                 className={cardKeyHint}
               />
-            </Button>
+            </CardPrimary>
           ) : (
-            <Button size="sm" variant="primary" onClick={advance}>
-              Next
-            </Button>
-          ))
+            <CardPrimary onClick={advance}>Next</CardPrimary>
+          )
         }
       />
     </RaisedCard>
   );
 }
 
-/** Settled flat: each prompt over its answer, then one quiet word on how it ended. */
+/**
+ * Settled: each question as a quiet bubble of the bot's and its answer as the person's own
+ * bubble, in the accent. Unanswered (dismissed, closed, or answered by typing in the chat), the
+ * questions keep their bubble and one quiet line says how it ended.
+ */
 function SettledCard(props: { item: Card; label: string }) {
   const { item } = props;
+  const answers = item.standing === "answered" ? item.answers : undefined;
   return (
     <div
       role="group"
       aria-label={props.label}
       data-question={item.callId}
       tabIndex={-1}
-      className={cn(quietBubble, "flex flex-col gap-0.5 focus-ring")}
+      className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap) rounded-lg focus-ring"
     >
-      {item.questions.map((question, at) => {
-        const answer = item.answers?.[at];
-        return (
-          // Questions keep their place in the card; the bot gives no other identity.
-          // eslint-disable-next-line react/no-array-index-key
-          <div key={at} className={cn("flex min-w-0 flex-col gap-0.5", at > 0 && "mt-2")}>
-            <div className="text-ui text-muted-foreground">
-              <SpadeBubbleText text={question.prompt} />
-            </div>
-            {answer !== undefined && (
-              <p className="text-base leading-5 text-foreground wrap-anywhere">
-                {spadeAnswerWords(question, answer)}
-              </p>
-            )}
+      {answers ? (
+        item.questions.map((question, at) => {
+          const answer = answers[at];
+          return (
+            // Questions keep their place in the card; the bot gives no other identity.
+            // eslint-disable-next-line react/no-array-index-key
+            <Fragment key={at}>
+              <div
+                className={cn(
+                  botBubble,
+                  "text-muted-foreground",
+                  at > 0 && "mt-[calc(var(--chat-turn-gap)-var(--chat-run-gap))]",
+                )}
+              >
+                <SpadeBubbleText text={question.prompt} />
+              </div>
+              {answer !== undefined && (
+                <div
+                  role="article"
+                  aria-label="You"
+                  className={cn(personBubble, "self-end whitespace-pre-wrap")}
+                >
+                  {spadeAnswerWords(question, answer)}
+                </div>
+              )}
+            </Fragment>
+          );
+        })
+      ) : (
+        <>
+          <div className={cn(botBubble, "flex flex-col gap-2.5 text-muted-foreground")}>
+            {item.questions.map((question, at) => (
+              // eslint-disable-next-line react/no-array-index-key
+              <SpadeBubbleText key={at} text={question.prompt} />
+            ))}
           </div>
-        );
-      })}
-      <p className="mt-1 text-xs leading-4 text-subtle-foreground">{settled(item)}</p>
+          <p className={cn(settledLine, "mt-1 text-subtle-foreground")}>{settled(item)}</p>
+        </>
+      )}
     </div>
   );
 }

@@ -4,12 +4,15 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 
 const code =
-  "no-scrollbar mt-1.5 max-h-72 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]";
+  "no-scrollbar -mx-2.5 mt-2.5 max-h-72 overflow-auto rounded-(--chat-code-radius) bg-chat-code px-3 py-2.5 font-mono text-[13px] leading-5 whitespace-pre-wrap";
+
+/** The proposal's answers: words, as pills, at the bubble's size. */
+const word = "rounded-full px-3 text-ui hover:bg-hover";
 
 /**
  * A skill the bot offers (ADR 0130), as its bubble: one sentence, what it learned, the skill
- * folded away (a new one's text, an edit's changed lines), and Save and Discard. Answered, the
- * buttons give way to what happened.
+ * folded away (a new one's text, an edit's changed lines), and Save and Discard as words. It is
+ * never raised: only questions and requests are. Answered, the words give way to what happened.
  */
 export function SkillProposal(props: {
   proposal: SpadeProposal;
@@ -35,20 +38,20 @@ export function SkillProposal(props: {
       </p>
       {proposal.why && <p className="mt-1 text-muted-foreground">{proposal.why}</p>}
       {open && <SkillText proposal={proposal} />}
-      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap items-center gap-1">
+      <div className="-mx-3 mt-1.5 -mb-1 flex flex-wrap items-center gap-1">
         {proposal.state === "open" ? (
           <>
             <Button
-              size="xs"
               variant="ghost"
+              className={cn(word, "text-foreground")}
               disabled={answering !== undefined}
               onClick={() => answer(true)}
             >
               {answering === true ? "Saving…" : "Save"}
             </Button>
             <Button
-              size="xs"
               variant="ghost"
+              className={word}
               disabled={answering !== undefined}
               onClick={() => answer(false)}
             >
@@ -56,15 +59,20 @@ export function SkillProposal(props: {
             </Button>
           </>
         ) : (
-          <span className="px-2 text-ui text-muted-foreground">
+          <span className="px-3 text-ui text-muted-foreground">
             {proposal.state === "saved" ? "Saved to your skills" : "Discarded"}
           </span>
         )}
-        <Button size="xs" variant="ghost" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Button
+          variant="ghost"
+          className={word}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
           {editing ? (open ? "Hide changes" : "Show changes") : open ? "Hide skill" : "Show skill"}
         </Button>
         {proposal.source && (
-          <span className="min-w-0 px-2 text-ui wrap-anywhere text-muted-foreground">
+          <span className="min-w-0 px-3 text-ui wrap-anywhere text-subtle-foreground">
             Written after reading {proposal.source}
           </span>
         )}
@@ -78,9 +86,9 @@ function SkillText(props: { proposal: SpadeProposal }) {
   const base = proposal.base;
   const describedAgain = base && base.description !== proposal.description;
   return (
-    <div className="mt-1.5">
+    <div>
       {(!base || describedAgain) && (
-        <p className="text-ui text-muted-foreground">
+        <p className="mt-2.5 text-ui text-muted-foreground">
           {describedAgain ? `Use it: ${proposal.description}` : proposal.description}
         </p>
       )}

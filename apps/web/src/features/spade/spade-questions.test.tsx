@@ -63,10 +63,13 @@ test("a card shows one question at a time: a digit picks, Next keeps the answer,
   ).toBe("3");
   await userEvent.click(asked.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: ["Aisle", 3] }]));
-  // Answered, it settles into a bubble with the answers in it.
+  // Answered, each question stays the bot's and each answer becomes the person's own bubble.
   const settled = await cardWith("Travel asks 2 questions", "3 nights");
-  expect(settled.getByText("Aisle")).toBeTruthy();
-  expect(settled.getByText("Answered")).toBeTruthy();
+  expect(settled.getByText("Window or aisle?")).toBeTruthy();
+  expect(settled.getAllByRole("article", { name: "You" }).map((each) => each.textContent)).toEqual([
+    "Aisle",
+    "3 nights",
+  ]);
   expect(settled.queryByRole("button", { name: "Send" })).toBeNull();
   expect(settled.queryByRole("spinbutton")).toBeNull();
 });
@@ -130,8 +133,9 @@ test("a lone yes-or-no question is answered by Yes or No", async () => {
   expect(asked.queryByRole("button", { name: "Send" })).toBeNull();
   await userEvent.click(asked.getByRole("button", { name: "Yes" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: [true] }]));
-  const settled = await cardWith("Travel asks: Book the 9:40?", "Answered");
-  expect(settled.getByText("Yes")).toBeTruthy();
+  const settled = await cardWith("Travel asks: Book the 9:40?", "Yes");
+  expect(settled.getByRole("article", { name: "You" }).textContent).toBe("Yes");
+  expect(settled.queryByRole("button", { name: "Yes" })).toBeNull();
 });
 
 test("Answer later folds the card to one line, the header counts its questions, and reaching it opens it again until folded back", async () => {
