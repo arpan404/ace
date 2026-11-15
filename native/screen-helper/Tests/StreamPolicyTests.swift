@@ -24,7 +24,7 @@ final class StreamPolicyTests: XCTestCase {
         XCTAssertFalse(motion.keyframe)
     }
     func testRefineIsAKeyframeFinerOnFasterLinks() {
-        let local = videoEncoderSettings(.refine, bitrate: 6_000_000, width: 1600, height: 1000)
+        let local = videoEncoderSettings(.refine, bitrate: 16_000_000, width: 1600, height: 1000)
         let relay = videoEncoderSettings(.refine, bitrate: 1_200_000, width: 1600, height: 1000)
         XCTAssertTrue(local.keyframe)
         XCTAssertTrue(relay.keyframe)
@@ -32,6 +32,14 @@ final class StreamPolicyTests: XCTestCase {
     }
     func testHugePicturesOnSlowLinksStillRefineAtTheCoarsestCap() {
         XCTAssertEqual(refineFrameQP(bitrate: 128_000, pixels: 3840 * 2160), refineBytesPerPixel.last?.qp)
+    }
+    func testAFinerRefineCapIsChosenOnlyWhenItsWorstCaseFitsHalfASecondOfTheBitrate() {
+        // 1600 × 1000 at QP 12 is 912 KB at worst: within half a second of 16 Mbit/s, not of 8.
+        XCTAssertEqual(refineFrameQP(bitrate: 16_000_000, pixels: 1600 * 1000), 12)
+        XCTAssertEqual(refineFrameQP(bitrate: 8_000_000, pixels: 1600 * 1000), 24)
+    }
+    func testNoHalfSecondCarriesMoreThanHalfASecondOfTheBitrate() {
+        XCTAssertEqual(keyframeDataRateLimits(bitrate: 400_000), [25_000, 0.5])
     }
     func testStillJPEGsAreEncodedFinerThanMovingOnes() {
         XCTAssertGreaterThan(jpegQuality(.refine), jpegQuality(.motion))

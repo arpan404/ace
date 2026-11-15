@@ -82,7 +82,7 @@ test("beside a viewer on the main socket, the capture runs the daemon's plan and
   const encoder = host();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.video, page }, "tab-1", { width: 640, height: 400, scale: 1 });
-  video.add("main", { send: () => true }, pane, undefined, true);
+  video.add("main", { send: () => true }, pane, undefined, { local: true });
   video.add("delivered", { send: () => true }, { ...pane, delivered: true });
   await ticks(video);
   encoder.opened[0]?.want?.([wanted]);

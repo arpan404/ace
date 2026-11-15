@@ -1,15 +1,17 @@
 import type { BrowserCaptureViewport } from "@ace/protocol";
 import { longestFrameSide } from "./capture-policy.ts";
+import { linkFloor } from "./link-rate.ts";
 
 /*
  * Which video encodes a tab runs for its viewers, and who watches which (ADR 0088). Pure: the
  * live capture feeds it the page, what the encoder can do and each viewer's pane and load.
  *
- * A viewer gets the pixels its screen shows the page at, always at 60 frames per second.
- * Viewers share an encode when their codec matches and the shared picture is at most a quarter
- * larger than their own. What a link can't carry costs picture quality, never frames: each
- * encode's bit rate is the lowest its viewers' links carry (`link-rate.ts`), and changes in
- * place without a new encoder.
+ * A viewer gets the pixels its screen shows the page at, at 60 frames per second while its link
+ * carries them. Viewers share an encode when their codec matches and the shared picture is at
+ * most a quarter larger than their own. Each encode's bit rate is the lowest its viewers' links
+ * carry (`link-rate.ts`), and its frame rate the lowest they take (`video-scale.ts`: a thin
+ * link steps down the frame rate before the size). Both change in place, without a new
+ * encoder or a keyframe; only a new size is a new encode.
  */
 
 export interface VideoViewer {
@@ -19,8 +21,10 @@ export interface VideoViewer {
   codecs: readonly string[];
   /** Bits per second the viewer's link carries now. */
   link: number;
-  /** The share of its full picture (per side) the link carries at 60 fps (`video-scale.ts`). */
+  /** The share of its full picture (per side) the link carries (`video-scale.ts`). */
   scale?: number;
+  /** The frame rate its link carries (`video-scale.ts`); 60 without one. */
+  fps?: number;
 }
 
 export interface VideoSource {
@@ -36,7 +40,7 @@ export interface VideoSource {
 export interface VideoEncode {
   /**
    * Stable while the encoder's codec and size are: a new key is a new encoder (and a keyframe).
-   * The bit rate is not part of it; the encoder takes a new one in place.
+   * The bit and frame rates are not part of it; the encoder takes new ones in place.
    */
   key: string;
   codec: string;
@@ -60,11 +64,14 @@ export interface VideoPlan {
 export const maxEncodes = 4;
 /** A shared picture may be this much larger (per side) than a member's own. */
 const shareSlack = 1.25;
-/** Every live view runs at this rate (owner decision, ADR 0088 amendment). */
+/** A live view runs at this rate while its link carries it (ADR 0088 amendment, ADR 0149). */
 export const videoFps = 60;
-/** Bits per pixel per frame a picture gets at most: sharp text, more is wasted. */
+/**
+ * Bits per pixel per frame a picture gets at most at 60 fps: sharp text, more is wasted. At a
+ * lower frame rate each frame carries more of the motion, as in `video-scale.ts`.
+ */
 const ceilingBpp = 0.06;
-export const minBitrate = 500_000;
+export const minBitrate = linkFloor;
 export const maxBitrate = 16_000_000;
 
 const even = (value: number) => Math.max(2, 2 * Math.round(value / 2));
@@ -83,12 +90,15 @@ export function viewerPicture(
   return { width: even(source.width * scale), height: even(source.height * scale) };
 }
 
-/** The most bits per second a picture of this size is worth at 60 fps. */
-export function bitrateCeiling(picture: { width: number; height: number }): number {
+/** The most bits per second a picture of this size is worth at this frame rate. */
+export function bitrateCeiling(picture: { width: number; height: number }, fps = videoFps): number {
   return Math.round(
     Math.min(
       maxBitrate,
-      Math.max(minBitrate, picture.width * picture.height * videoFps * ceilingBpp),
+      Math.max(
+        minBitrate,
+        picture.width * picture.height * fps * ceilingBpp * Math.sqrt(videoFps / fps),
+      ),
     ),
   );
 }
@@ -97,11 +107,11 @@ export function encodeSettings(
   codec: string,
   picture: { width: number; height: number },
   link: number,
+  fps = videoFps,
 ): VideoEncode {
-  const fps = videoFps;
-  const bitrate = Math.round(Math.max(minBitrate, Math.min(bitrateCeiling(picture), link)));
+  const bitrate = Math.round(Math.max(minBitrate, Math.min(bitrateCeiling(picture, fps), link)));
   return {
-    key: `${codec}/${picture.width}x${picture.height}/${fps}`,
+    key: `${codec}/${picture.width}x${picture.height}`,
     codec,
     width: picture.width,
     height: picture.height,
@@ -113,6 +123,7 @@ export function encodeSettings(
 interface Group {
   codec: string;
   link: number;
+  fps: number;
   width: number;
   height: number;
   members: string[];
@@ -129,6 +140,7 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
         id: viewer.id,
         codec,
         link: viewer.link,
+        fps: viewer.fps ?? videoFps,
         full,
         width: even(full.width * scale),
         height: even(full.height * scale),
@@ -136,7 +148,10 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
     ];
   });
   // Largest first, so a group's first member sets its size and later ones are no larger.
-  wanted.sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
+  // Ties by id in UTF-16 code-unit order (never locale order): media-core breaks them the same.
+  wanted.sort(
+    (a, b) => b.width * b.height - a.width * a.height || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
   const groups: Group[] = [];
   for (const viewer of wanted) {
     const fits = groups.find(
@@ -148,12 +163,14 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
     if (fits) {
       fits.members.push(viewer.id);
       fits.link = Math.min(fits.link, viewer.link);
+      fits.fps = Math.min(fits.fps, viewer.fps);
       continue;
     }
     if (groups.length < maxEncodes) {
       groups.push({
         codec: viewer.codec,
         link: viewer.link,
+        fps: viewer.fps,
         width: viewer.width,
         height: viewer.height,
         members: [viewer.id],
@@ -171,6 +188,7 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
     if (nearest) {
       nearest.members.push(viewer.id);
       nearest.link = Math.min(nearest.link, viewer.link);
+      nearest.fps = Math.min(nearest.fps, viewer.fps);
     }
   }
   const capture = { width: 0, height: 0 };
@@ -180,7 +198,7 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
   }
   const plan: VideoPlan = { encodes: [], capture, viewers: new Map() };
   for (const group of groups) {
-    const encode = encodeSettings(group.codec, group, group.link);
+    const encode = encodeSettings(group.codec, group, group.link, group.fps);
     plan.encodes.push(encode);
     for (const member of group.members) plan.viewers.set(member, encode.key);
   }

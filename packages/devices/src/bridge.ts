@@ -301,10 +301,12 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                       .catch(() => {}),
                   guard: live,
                   link: pictureLinkLimits,
+                  ...(operation.link ? { hint: operation.link } : {}),
                 });
                 view = opened;
                 const follow = new LinkFollow({
-                  rate: () => opened.rate(),
+                  link: () => opened.link(),
+                  now: peer.now ?? (() => performance.now()),
                   apply: (settings) =>
                     service.request({ op: "stream.configure", deviceId, settings }, actor),
                 });
