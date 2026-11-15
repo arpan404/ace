@@ -23,13 +23,26 @@
   font-display: swap;
 }
 
-[data-part="app"] {
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part (in a portal), so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
   --suit-px: 3px;
   --suit-ink: #07061a;
   --suit-line: #6a62c8;
   --suit-edge: #4a43a0;
   --suit-glow: #38e0d4;
   --suit-display: "Arcade Display", var(--font-sans);
+}
+
+[data-part="app"] {
   /* The cabinet's side art: a two-tone pixel dither. */
   --suit-dither: repeating-conic-gradient(#0d0b22 0 25%, #110e2a 0 50%) 0 0 / 6px 6px;
   --suit-rail-background: var(--suit-dither);

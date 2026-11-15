@@ -61,7 +61,7 @@
   },
   "ornaments": [
     { "slot": "sidebar-header", "asset": "assets/ornaments/title-plate.svg" },
-    { "slot": "empty-state", "asset": "assets/ornaments/press-start.svg" },
+    { "slot": "empty-state", "asset": "assets/ornaments/joystick.svg" },
     { "slot": "corner-top-left", "asset": "assets/ornaments/corner-top-left.svg" },
     { "slot": "corner-top-right", "asset": "assets/ornaments/corner-top-right.svg" },
     { "slot": "corner-bottom-left", "asset": "assets/ornaments/corner-bottom-left.svg" },
