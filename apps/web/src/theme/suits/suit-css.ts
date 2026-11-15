@@ -1,12 +1,6 @@
 import type { SuitDetail, SuitFont, SuitManifest } from "@ace/protocol/suits";
-import {
-  customPalette,
-  themeSources,
-  type Palette,
-  type Scheme,
-  type ThemeFonts,
-  type ThemeId,
-} from "@ace/themes";
+import { suitPalette, suitSchemeFor } from "@ace/suits/palette";
+import { themeSources, type Scheme, type ThemeFonts } from "@ace/themes";
 import { declarationBlock, paletteDeclarations } from "../css.ts";
 import { defaultTranslucency } from "../translucency.ts";
 import { revealDeclarations, suitGuardSheet, suitLayerSheet } from "./suit-layers.ts";
@@ -20,25 +14,8 @@ import { revealDeclarations, suitGuardSheet, suitLayerSheet } from "./suit-layer
 
 const schemes: readonly Scheme[] = ["light", "dark"];
 
-/** Suit bases are the built-in theme ids. */
-export const suitBaseTheme = (manifest: SuitManifest): ThemeId => manifest.base;
-
-/** The schemes a Suit has, light first. */
-export function suitSchemes(manifest: SuitManifest): Scheme[] {
-  return schemes.filter((scheme) => manifest[scheme] !== undefined);
-}
-
-/** The scheme a Suit draws in when `wanted` is asked for: a one-scheme Suit runs only in its own. */
-export function suitSchemeFor(manifest: SuitManifest, wanted: Scheme): Scheme {
-  const has = suitSchemes(manifest);
-  return has.includes(wanted) ? wanted : (has[0] ?? wanted);
-}
-
-/** The Suit's palette in the scheme it draws in for `wanted`. */
-export function suitPalette(manifest: SuitManifest, wanted: Scheme): Palette {
-  const scheme = suitSchemeFor(manifest, wanted);
-  return customPalette(suitBaseTheme(manifest), scheme, manifest[scheme] ?? {});
-}
+// Shared with every client, so a phone resolves a Suit's scheme, palette and density as the page does.
+export { suitDensity, suitPalette, suitSchemeFor, suitSchemes } from "@ace/suits/palette";
 
 /** An internal family name per slot, so a bundled font never shadows an installed one. */
 export const suitFaceName = (id: string, slot: keyof ThemeFonts) => `ace-suit-${id}-${slot}`;
@@ -83,7 +60,7 @@ interface FontPlan {
 
 function fontPlan(detail: Pick<SuitDetail, "manifest" | "assets">): FontPlan {
   const { manifest, assets } = detail;
-  const base = themeSources[suitBaseTheme(manifest)].fonts;
+  const base = themeSources[manifest.base].fonts;
   const faces: string[] = [];
   const sources: FontPlan["sources"] = [];
   const stack = (slot: keyof ThemeFonts, font: SuitFont | undefined): string => {
@@ -229,11 +206,4 @@ export function suitSheets(
   return [suitStylesheet(detail, translucency), suitLayerSheet(detail), suitGuardSheet]
     .filter(Boolean)
     .join("\n");
-}
-
-/** Density as the app has it: Spacious draws as Comfortable, the roomiest the app has. */
-export function suitDensity(manifest: SuitManifest): "comfortable" | "compact" | undefined {
-  const density = manifest.shape?.density;
-  if (density === undefined) return undefined;
-  return density === "compact" ? "compact" : "comfortable";
 }

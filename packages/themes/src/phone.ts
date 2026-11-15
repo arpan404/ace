@@ -53,10 +53,11 @@ function phoneAccent(palette: Palette): PhoneAccentPair {
 
 /** Every role of one theme, accent and scheme, from the web's fitted palette. */
 export function phoneColours(theme: ThemeId, accent: PhoneAccentId, scheme: Scheme): PhoneColours {
-  return coloursOf(themedPalette(theme, scheme, { accent, customAccent: "#000000" }));
+  return phoneColoursOf(themedPalette(theme, scheme, { accent, customAccent: "#000000" }));
 }
 
-function coloursOf(palette: Palette): PhoneColours {
+/** A full palette (a theme's, or a Suit's over its base) as the phone's colour roles. */
+export function phoneColoursOf(palette: Palette): PhoneColours {
   return {
     background: palette.s0,
     secondaryBackground: palette.s1,
@@ -100,7 +101,7 @@ export function phoneCustomAccent(colour: string): PhoneCustomAccent | undefined
   if (!/^#[0-9a-f]{6}$/i.test(colour)) return undefined;
   const choice: AccentChoice = { accent: "custom", customAccent: colour.toUpperCase() };
   const fit = (theme: ThemeId, scheme: Scheme): PhoneAccentPair => {
-    const colours = coloursOf(themedPalette(theme, scheme, choice));
+    const colours = phoneColoursOf(themedPalette(theme, scheme, choice));
     return { accent: colours.accent, onAccent: colours.onAccent };
   };
   return Object.fromEntries(
@@ -138,15 +139,33 @@ export function phoneContrastWarnings(
           ? { ...phoneOverrides(theme, "theme", scheme), ...custom[theme][scheme] }
           : phoneOverrides(theme, accent as PhoneAccentId, scheme);
         const colours = { ...base[scheme], ...overrides };
-        const rgb = (role: PhoneColourRole) => parseOpaqueColor(colours[role]) ?? [0, 0, 0];
-        const surfaces = (["background", "secondaryBackground", "card", "fill"] as const).map(rgb);
-        const check = (label: string, ratio: number, minimum: number) => {
-          if (ratio < minimum) warnings.push({ theme, accent, scheme, label, ratio, minimum });
-        };
-        for (const role of ["foreground", "mutedForeground", "subtleForeground", "accent"] as const)
-          check(role, worstContrast(rgb(role), surfaces), 4.5);
-        check("decoration", contrastRatio(rgb("decoration"), rgb("background")), 3);
-        check("onAccent", contrastRatio(rgb("onAccent"), rgb("accent")), 4.5);
+        for (const failure of phoneColourWarnings(colours))
+          warnings.push({ theme, accent, scheme, ...failure });
       }
+  return warnings;
+}
+
+/** One failed pairing of a phone's colours: which role, its worst ratio, and the least it needs. */
+export interface PhoneColourWarning {
+  label: string;
+  ratio: number;
+  minimum: number;
+}
+
+/**
+ * Every WCAG AA failure of one set of phone colours: words at 4.5:1 on every surface a phone
+ * draws text on, marks at 3:1 on the page, and the label on the accent fill at 4.5:1.
+ */
+export function phoneColourWarnings(colours: PhoneColours): PhoneColourWarning[] {
+  const warnings: PhoneColourWarning[] = [];
+  const rgb = (role: PhoneColourRole) => parseOpaqueColor(colours[role]) ?? [0, 0, 0];
+  const surfaces = (["background", "secondaryBackground", "card", "fill"] as const).map(rgb);
+  const check = (label: string, ratio: number, minimum: number) => {
+    if (ratio < minimum) warnings.push({ label, ratio, minimum });
+  };
+  for (const role of ["foreground", "mutedForeground", "subtleForeground", "accent"] as const)
+    check(role, worstContrast(rgb(role), surfaces), 4.5);
+  check("decoration", contrastRatio(rgb("decoration"), rgb("background")), 3);
+  check("onAccent", contrastRatio(rgb("onAccent"), rgb("accent")), 4.5);
   return warnings;
 }

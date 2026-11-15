@@ -6,7 +6,9 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./folder": "./src/folder.ts"
+    "./folder": "./src/folder.ts",
+    "./palette": "./src/palette.ts",
+    "./phone": "./src/phone.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
