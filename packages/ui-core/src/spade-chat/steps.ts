@@ -51,7 +51,9 @@ export function spadeStepsSummary(steps: readonly SpadeStep[]): string {
   const groups = [...counts];
   const phrases = groups
     .slice(0, named)
-    .map(([line, count], index) => (index ? lowerFirst(counted(line, count)) : counted(line, count)));
+    .map(([line, count], index) =>
+      index ? lowerFirst(counted(line, count)) : counted(line, count),
+    );
   const rest = groups.slice(named).reduce((sum, [, count]) => sum + count, 0);
   const listed = phrases.join(", ");
   return rest ? `${listed} and ${rest} more` : listed;

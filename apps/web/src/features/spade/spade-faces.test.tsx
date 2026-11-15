@@ -68,7 +68,7 @@ test("each roster row's face is its bot's state: working, needs you, blocked or 
   expect(faceOf(await botRow("Scout"))?.getAttribute("data-face")).toBe("round lagoon");
 });
 
-test("while a bot works, the working line carries its face working; asking, its face asks beside the request's bubble", async () => {
+test("while a bot works, the working line carries its face working; asking, the line goes and no face sits by the request", async () => {
   const { spade } = await spadeApp("/spade/scout", crew);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   const line = await chat.findByRole("status");
@@ -78,8 +78,8 @@ test("while a bot works, the working line carries its face working; asking, its 
   if (!scout) throw new Error("no Scout");
   spade.ask(scout, "k-sheet", "write_sheet", undefined, "r-scout");
   const request = await chat.findByRole("group", { name: /^Scout wants to/ });
-  const bubble = request.closest<HTMLElement>("[role=article]");
-  expect(bubble && faceOf(bubble)?.getAttribute("data-state")).toBe("needs-you");
+  // A one-to-one chat keeps no face beside its bubbles: the pill and the list carry its pose.
+  expect(request.closest<HTMLElement>("[role=article]")?.querySelector("svg.bot-face")).toBeNull();
   // The wait is said once, in the request: the working line goes.
   await waitFor(() => expect(chat.queryByRole("status")).toBeNull());
 });

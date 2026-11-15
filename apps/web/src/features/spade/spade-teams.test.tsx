@@ -90,21 +90,21 @@ test("a group's row stacks its members' faces and reads its last message with wh
   await waitFor(() => expect(faces()).toEqual(["round lagoon", "fox ember"]));
 });
 
-test("a group's chat shows the person, each member's name and face once per run, and handoffs as lines, never tool calls", async () => {
+test("a group's chat shows the person, each member's face and name at the start of its turn, and handoffs as lines, never tool calls", async () => {
   await spadeApp("/spade", withGroup, { machines: [studio] });
   const chat = await openTrips();
   expect(chat.getByRole("article", { name: "You" }).textContent).toBe("Find flights");
   expect(chat.getAllByRole("note").map((line) => line.textContent)).toEqual([
     "Spade asked Research",
   ]);
-  // The name above the first of the run, the face beside the last.
+  // Each member's turn starts with its face and name.
   expect(chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent)).toEqual([
     "ResearchThree options",
     "Tuesday is cheapest",
   ]);
   const [firstRun, lastRun] = chat.getAllByRole("article", { name: "Research" });
-  expect(firstRun?.querySelector("svg.bot-face")).toBeNull();
-  expect(lastRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
+  expect(firstRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
+  expect(lastRun?.querySelector("svg.bot-face")).toBeNull();
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 

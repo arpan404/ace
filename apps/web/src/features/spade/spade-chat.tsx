@@ -4,6 +4,7 @@ import {
   parseSpadeAvatar,
   spadeBubbles,
   spadeChatRows,
+  spadePlainText,
   type SpadeChatRow,
   withProposals,
   type SpadeAvatar,
@@ -19,10 +20,15 @@ import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import { botBubble, personBubble } from "./spade-card.tsx";
-import { Failure, FileChips, ReadAloud, WorkingLine } from "./spade-chat-parts.tsx";
-import { SpadeFace } from "./spade-face.tsx";
-import { useFaceState } from "./use-face-state.ts";
+import { chatBubble, mineBubble } from "./spade-bubble-style.ts";
+import {
+  BubbleFrame,
+  Failure,
+  FileChips,
+  SpeakerLine,
+  StepsLine,
+  WorkingLine,
+} from "./spade-chat-parts.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
@@ -42,11 +48,13 @@ export interface ChatBot {
 }
 
 /**
- * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right, the bot's on
- * the left in runs (`spadeChatRows`), its face once at the top of each run and the run's time
- * under it, a day line before the first thing said each day, and messages other bots sent here
- * under their name and face. Nothing of how the bot works shows: no tool calls,
- * jobs, compaction or the notes it saves (they are in its Memory dialog, ADR 0128). A request
+ * A bot's conversation as a messenger (ADR 0127, docs/design/spade.md §3): the person's bubbles
+ * on the right in the accent, the bot's filled on the left in runs (`spadeChatRows`), with no
+ * face beside them (the pill and the working line carry it); a time line only after a pause or
+ * on a new day, a routine's run named in its line; messages other bots sent here under their
+ * face and name. Each bubble offers its exact time, Copy and Read aloud on hover or a long
+ * press. A reply's steps fold into one line under it; nothing else of how the bot works shows:
+ * no tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
  * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set
@@ -100,20 +108,16 @@ export function SpadeChat(props: {
   // while the bot works itself.
   const busy = view.busy;
   const waiting = view.approvals.length > 0 || view.asking;
-  // The working line's face shows what the bot does; once it stops, the face by its last
-  // bubble shows it finished, then rests.
   const lineState: BotFaceState = waiting
     ? "needs-you"
     : view.status === "Thinking"
       ? "thinking"
       : "working";
-  const lastFace = useFaceState(busy ? lineState : "idle", true);
   // The working line shows while the bot works itself, not while it waits on the person; a
   // task that carries on or waits on the person keeps its line between replies too.
   const working = busy && !waiting;
   const task = props.task;
   const lined = working || task !== undefined;
-  const lastRun = rows.findLastIndex((row) => row.kind === "run" && row.sender.kind === "bot");
   const handlers: Handlers = {
     endpointName: props.endpointName,
     onProposal: props.onProposal,
@@ -131,15 +135,7 @@ export function SpadeChat(props: {
       className="flex flex-col"
     >
       {rows.map((row, index) => (
-        <Row
-          key={row.key}
-          row={row}
-          previous={rows[index - 1]}
-          bot={bot}
-          // The bot's last run's face shows how it stands, unless the working line has it.
-          face={index === lastRun && !lined ? lastFace : "idle"}
-          handlers={handlers}
-        />
+        <Row key={row.key} row={row} previous={rows[index - 1]} bot={bot} handlers={handlers} />
       ))}
       {lined &&
         (props.paused ? (
@@ -196,19 +192,27 @@ interface Handlers {
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
 }
 
-/** Room above a row, by what it is and what came before: 4 in a run, 24 between runs. */
+/**
+ * Room above a row: 4px within a run (the person's messages one after another too), 16px between
+ * turns, 24px above a time line and 12px under it.
+ */
 function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): string {
   if (!previous) return "";
-  if (row.kind === "day") return "mt-10";
-  if (row.kind === "run") return "mt-6";
+  if (row.kind === "time") return "mt-6";
+  if (previous.kind === "time") return "mt-3";
+  if (row.kind === "run") return "mt-(--chat-turn-gap)";
   switch (row.item.kind) {
     case "person":
-      return previous.kind === "item" && previous.item.kind === "person" ? "mt-2" : "mt-6";
-    case "routine":
-    case "group":
-      return previous.kind === "day" ? "mt-2" : "mt-6";
+      return previous.kind === "item" && previous.item.kind === "person"
+        ? "mt-(--chat-run-gap)"
+        : "mt-(--chat-turn-gap)";
+    case "helper":
+      // A helper line reads under the reply that started it, as its steps do.
+      return previous.kind === "run" || previous.item.kind === "helper"
+        ? "mt-1"
+        : "mt-(--chat-turn-gap)";
     default:
-      return "mt-4";
+      return "mt-(--chat-turn-gap)";
   }
 }
 
@@ -216,69 +220,68 @@ const Row = memo(function Row(props: {
   row: SpadeChatRow;
   previous: SpadeChatRow | undefined;
   bot: ChatBot;
-  face: BotFaceState;
   handlers: Handlers;
 }) {
   const { row, bot } = props;
   const space = spaceAbove(row, props.previous);
-  if (row.kind === "day")
+  if (row.kind === "time")
     return (
       <div
         role="separator"
-        aria-label={row.label}
-        className={cn("text-center text-xs leading-4 font-medium text-subtle-foreground", space)}
+        aria-label={row.routine ? `${row.routine} · ${row.label}` : row.label}
+        className={cn("text-center text-xs leading-4 text-subtle-foreground tabular-nums", space)}
       >
+        {row.routine && (
+          <>
+            <span className="font-medium text-muted-foreground">{row.routine}</span>
+            {" · "}
+          </>
+        )}
         {row.label}
       </div>
     );
   if (row.kind === "run") {
     const other = row.sender.kind === "other" ? row.sender.agent : undefined;
-    const avatar = other
-      ? (bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id))
-      : bot.avatar;
-    // The run's finished words, for Read aloud on its time line.
-    const spoken = row.items
-      .flatMap((item) => (item.kind === "bot" && item.text && !item.live ? [item.text] : []))
-      .join("\n\n");
     return (
       <div
         role="article"
         aria-label={other ? other.name : bot.name}
-        className={cn("group/reply grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2", space)}
+        className={cn("flex min-w-0 flex-col items-start gap-(--chat-run-gap)", space)}
       >
-        <div className={cn(other ? "pt-5" : "pt-1")}>
-          <SpadeFace avatar={avatar} size={28} state={other ? "idle" : props.face} />
-        </div>
-        <div className="flex min-w-0 flex-col items-start gap-1">
-          {other && (
-            <span className="pl-1 text-xs leading-4 text-subtle-foreground">{other.name}</span>
-          )}
-          {row.items.map((item) => (
-            <RunItem key={item.key} item={item} bot={bot} handlers={props.handlers} />
-          ))}
-        </div>
-        {(row.time || spoken) && (
-          <div className="col-start-2 mt-1 flex h-4 items-center gap-1 pl-1">
-            {row.time && (
-              <span className="text-xs leading-4 text-subtle-foreground tabular-nums">
-                {row.time}
-              </span>
-            )}
-            {spoken && <ReadAloud text={spoken} />}
-          </div>
+        {other && (
+          <SpeakerLine
+            avatar={bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id)}
+            name={other.name}
+          />
         )}
+        {row.items.map((item, index) => (
+          <RunItem
+            key={item.key}
+            item={item}
+            when={row.whens[index]}
+            bot={bot}
+            handlers={props.handlers}
+          />
+        ))}
       </div>
     );
   }
-  return <Single item={row.item} time={row.time} space={space} handlers={props.handlers} />;
+  return <Single item={row.item} when={row.when} space={space} handlers={props.handlers} />;
 });
 
-/** One of a run's bubbles: the bot's words, its files, a card, a request or a skill. */
-function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers }) {
+/** One of a run's bubbles: the bot's words, its files, a card, a request, a skill or its steps. */
+function RunItem(props: {
+  item: SpadeChatItem;
+  when: string | undefined;
+  bot: ChatBot;
+  handlers: Handlers;
+}) {
   const { item, bot, handlers } = props;
   switch (item.kind) {
     case "bot": {
       const words = Boolean(item.text || item.end);
+      // Finished words only: a reply still being written isn't copied or read yet.
+      const said = item.text && !item.live ? item.text : undefined;
       const media = (
         <>
           {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
@@ -286,29 +289,38 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
         </>
       );
       return (
-        <div className="flex w-full min-w-0 flex-col items-start gap-1">
+        <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
           {words ? (
-            <div className={botBubble}>
-              {item.text && <SpadeBubbleText text={item.text} />}
-              {item.end === "failed" && item.failure ? (
-                <Failure
-                  failure={item.failure}
-                  endpoint={item.failure.endpoint && handlers.endpointName?.(item.failure.endpoint)}
-                  spaced={Boolean(item.text)}
-                  onRetry={handlers.onRetry}
-                />
-              ) : (
-                item.end && (
-                  <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
-                    {item.end === "stopped"
-                      ? "Stopped"
-                      : item.end === "failed"
-                        ? "Couldn't finish"
-                        : "Interrupted"}
-                  </p>
-                )
-              )}
-            </div>
+            <BubbleFrame
+              side="bot"
+              when={props.when}
+              copy={said && spadePlainText(said)}
+              speak={said}
+            >
+              <div className={chatBubble}>
+                {item.text && <SpadeBubbleText text={item.text} />}
+                {item.end === "failed" && item.failure ? (
+                  <Failure
+                    failure={item.failure}
+                    endpoint={
+                      item.failure.endpoint && handlers.endpointName?.(item.failure.endpoint)
+                    }
+                    spaced={Boolean(item.text)}
+                    onRetry={handlers.onRetry}
+                  />
+                ) : (
+                  item.end && (
+                    <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
+                      {item.end === "stopped"
+                        ? "Stopped"
+                        : item.end === "failed"
+                          ? "Couldn't finish"
+                          : "Interrupted"}
+                    </p>
+                  )
+                )}
+              </div>
+            </BubbleFrame>
           ) : (
             media
           )}
@@ -320,16 +332,25 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
     }
     case "other":
       return (
-        <div className={botBubble}>
-          <SpadeBubbleText text={item.text} />
-        </div>
+        <BubbleFrame
+          side="bot"
+          when={props.when}
+          copy={spadePlainText(item.text)}
+          speak={item.text}
+        >
+          <div className={chatBubble}>
+            <SpadeBubbleText text={item.text} />
+          </div>
+        </BubbleFrame>
       );
     case "files":
       return (
-        <div className={botBubble}>
+        <div className={chatBubble}>
           <FileChips paths={item.paths} onOpen={handlers.onOpenFile} first />
         </div>
       );
+    case "steps":
+      return <StepsLine summary={item.summary} steps={item.steps} />;
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
     case "ask":
@@ -348,7 +369,7 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
         <SkillProposal
           proposal={item.proposal}
           botName={bot.name}
-          className={botBubble}
+          className={chatBubble}
           onAnswer={(save) => (answer ? answer(item.proposal.id, save) : Promise.resolve(false))}
         />
       );
@@ -361,7 +382,7 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
 /** A row of its own: the person's message, a routine's or group's label, a quiet line. */
 function Single(props: {
   item: SpadeChatItem;
-  time: string | undefined;
+  when: string | undefined;
   space: string;
   handlers: Handlers;
 }) {
@@ -373,21 +394,31 @@ function Single(props: {
           role="article"
           aria-label="You"
           aria-busy={item.sending || undefined}
-          title={props.time}
-          className={cn("flex flex-col items-end gap-1", item.sending && "opacity-70", space)}
+          className={cn(
+            "flex flex-col items-end gap-(--chat-run-gap)",
+            item.sending && "opacity-70",
+            space,
+          )}
         >
           {item.images.length > 0 && <Pictures images={item.images} side="person" />}
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (
-            <div className={personBubble}>
-              <SpadeBubbleText text={item.text} />
-              {/* A voice message: its transcript, and the recording to play. */}
-              {item.voice && (
-                <div className="-mx-2 mt-0.5 -mb-1 flex">
-                  <VoicePlay voice={item.voice} />
-                </div>
-              )}
-            </div>
+            <BubbleFrame
+              side="mine"
+              when={props.when}
+              copy={spadePlainText(item.text)}
+              speak={undefined}
+            >
+              <div className={mineBubble}>
+                <SpadeBubbleText text={item.text} side="mine" />
+                {/* A voice message: its transcript, and the recording to play. */}
+                {item.voice && (
+                  <div className="-mx-2 mt-0.5 -mb-1 flex">
+                    <VoicePlay voice={item.voice} />
+                  </div>
+                )}
+              </div>
+            </BubbleFrame>
           )}
         </div>
       );
@@ -396,15 +427,6 @@ function Single(props: {
         <p role="note" className={cn("text-xs text-muted-foreground", space)}>
           {item.text}
         </p>
-      );
-    case "routine":
-      // A routine fired (ADR 0129): a small label in the middle, never the person's bubble.
-      return (
-        <div role="note" className={cn("flex justify-center", space)}>
-          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
-            {`${item.name} · ${item.label}`}
-          </span>
-        </div>
       );
     case "group":
       // A group the bot is in sent it (ADR 0132): a small label, then what was asked, quietly.
@@ -455,6 +477,7 @@ function Single(props: {
           <SpadeHelperLine
             text={item.text}
             open={item.open}
+            since={item.at}
             readSteps={read ? () => read(item.job) : undefined}
           />
         </div>
@@ -463,7 +486,7 @@ function Single(props: {
     case "search-setup":
       // Web search had nothing to search with: one quiet line and the way to set it up.
       return (
-        <div className={cn("flex items-center gap-1 pl-9 text-xs text-muted-foreground", space)}>
+        <div className={cn("flex items-center gap-1 pl-1.5 text-xs text-muted-foreground", space)}>
           <span>Web search isn't set up.</span>
           <Link
             to="/settings/spade"

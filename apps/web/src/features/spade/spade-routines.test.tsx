@@ -18,7 +18,7 @@ const routineMessage = (heartbeat: boolean, label: string) => ({
   },
 });
 
-test("a routine's message shows as its label, not as the person, and a quiet heartbeat shows nothing", async () => {
+test("a routine's run names itself in its time line, not as the person, and a quiet heartbeat shows nothing", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -33,12 +33,14 @@ test("a routine's message shows as its label, not as the person, and a quiet hea
   });
   await userEvent.click(await botRow("Scout"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
-  expect((await chat.findByRole("note")).textContent).toBe("Daily briefing · 9:00");
+  expect(
+    (await chat.findByRole("separator", { name: /^Daily briefing · Today \d/ })).textContent,
+  ).toMatch(/^Daily briefing · Today \d{1,2}:\d{2}/);
   expect(chat.queryByRole("article", { name: "You" })).toBeNull();
-  // The bot's one bubble, with its face beside it; the heartbeat left none.
+  // The bot's one bubble; the heartbeat left none.
   const bubbles = chat.getAllByRole("article");
-  expect(bubbles.map((bubble) => bubble.textContent)).toEqual(["Three meetings today."]);
-  expect(bubbles[0]?.querySelector("svg.bot-face")).not.toBeNull();
+  expect(bubbles).toHaveLength(1);
+  expect(within(bubbles[0] ?? document.body).getByText("Three meetings today.")).toBeTruthy();
 });
 
 test("the person adds, pauses and edits a bot's routines from its page, and turns its heartbeat on", async () => {

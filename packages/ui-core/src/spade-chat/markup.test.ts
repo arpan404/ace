@@ -122,6 +122,8 @@ test("a link must be http(s); anything else stays the text it is", () => {
 
 test("plain text, for Copy, keeps the words and drops the marks", () => {
   expect(
-    spadePlainText("## Two PRs\n- **#2081** fails\n- [#2079](https://x.dev/2079)\n\n| a | b |\n|---|---|\n| 1 | 2 |"),
+    spadePlainText(
+      "## Two PRs\n- **#2081** fails\n- [#2079](https://x.dev/2079)\n\n| a | b |\n|---|---|\n| 1 | 2 |",
+    ),
   ).toBe("Two PRs\n\n- #2081 fails\n- #2079\n\na\tb\n1\t2");
 });

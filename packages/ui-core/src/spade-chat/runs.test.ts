@@ -57,6 +57,9 @@ const routine = (key: string, name: string, when?: string): SpadeChatItem => ({
   ...(when ? { at: at(when) } : {}),
 });
 
+/** The time line a lone message said at `when` gets. */
+const lines = (when: string) => read(spadeChatRows([person("x", when)], { now, ...zone }))[0];
+
 /** The rows as short lines: "time Today 9:00 AM", "run a b", "item you". */
 const read = (rows: SpadeChatRow[]) =>
   rows.map((row) =>
@@ -104,8 +107,6 @@ describe("the chat's rows", () => {
   });
 
   test("a time line names the day in the reader's words", () => {
-    const lines = (when: string) =>
-      read(spadeChatRows([person("x", when)], { now, ...zone }))[0];
     expect(lines("2025-12-30T18:00:00Z")).toBe("time Dec 30, 2025 6:00 PM");
     expect(lines("2026-11-03T18:00:00Z")).toBe("time Nov 3 6:00 PM");
     expect(lines("2026-11-13T03:11:00Z")).toBe("time Fri 3:11 AM");

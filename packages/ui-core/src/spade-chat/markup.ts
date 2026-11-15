@@ -153,8 +153,7 @@ export function spadeInlines(text: string): SpadeInline[] {
   return out;
 }
 
-const inlineText = (inlines: readonly SpadeInline[]) =>
-  inlines.map((inline) => inline.text).join("");
+const inlineText = (inlines: readonly SpadeInline[]) => inlines.map((each) => each.text).join("");
 
 /**
  * A message's words without their marks: what Copy puts on the clipboard and Read aloud says.

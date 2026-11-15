@@ -93,9 +93,7 @@ export function spadeChatRows(
     }
     if (at !== undefined) {
       const fresh =
-        latest === undefined ||
-        at - latest >= spadeTimeGapMs ||
-        days.key(at) !== days.key(latest);
+        latest === undefined || at - latest >= spadeTimeGapMs || days.key(at) !== days.key(latest);
       latest = at;
       if (fresh && when !== undefined) {
         rows.push({ kind: "time", key: `time:${item.key}`, label: when, routine: undefined });
@@ -162,9 +160,7 @@ function dayReader(clock: SpadeChatClock) {
     if (ago === 0) return "Today";
     if (ago === 1) return "Yesterday";
     if (ago > 1 && ago < 7) return weekday.format(at);
-    return dayKey.slice(0, 4) === todayKey.slice(0, 4)
-      ? thisYear.format(at)
-      : otherYear.format(at);
+    return dayKey.slice(0, 4) === todayKey.slice(0, 4) ? thisYear.format(at) : otherYear.format(at);
   };
   return {
     key,
