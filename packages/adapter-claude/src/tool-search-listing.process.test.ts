@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import type { Frame } from "@ace/engine-api";
+import { SteerTargetLost, type Frame } from "@ace/engine-api";
 import { harness, subtype } from "./session.test-helper.ts";
 import { object } from "./native.ts";
 
@@ -118,6 +118,41 @@ test("a narrowing whose reconnect failed is retried on the next turn and ends on
     expect(aceHeaders(object(object(retried[1]?.data)["request"])["servers"])["X-Ace-Tools"]).toBe(
       "core",
     );
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+test("a fenced steer whose turn is replaced while the listing settles is refused before it reaches the CLI", async () => {
+  const h = await open({ ACE_FAKE_CLAUDE_ACE_CONNECT_FAILURES: "2" });
+  try {
+    await h.wait(isInitialize);
+    // A failed narrowing leaves the session unsettled: the next send settles it first.
+    await expect(
+      h.session.configure?.({
+        provider: "claude",
+        model: "claude-3-5-haiku-20241022",
+        options: {},
+      }),
+    ).rejects.toThrow("connection refused");
+    // The turn's own send retries the reconnect, which fails again: still unsettled.
+    await h.session.send([{ type: "text", text: "running" }], "queue");
+    const before = h.frames.filter(isSetServers).length;
+    // The engine checked the turn just before; it is replaced while the adapter awaits the settle.
+    const fence = { current: () => h.frames.filter(isSetServers).length === before };
+    const users = () =>
+      h.frames.filter((f) => f.dir === "send" && object(f.data)["type"] === "user").length;
+    const pushed = users();
+    const sent = h.session.send(
+      [{ type: "text", text: "correction" }],
+      "steer",
+      "fenced",
+      undefined,
+      fence,
+    );
+    await expect(sent).rejects.toBeInstanceOf(SteerTargetLost);
+    expect(h.frames.filter(isSetServers).length).toBeGreaterThan(before);
+    expect(users()).toBe(pushed);
   } finally {
     await h.session.close("shutdown");
   }

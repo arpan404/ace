@@ -1,7 +1,6 @@
 import type { Item, ToolSurface } from "@ace/protocol";
 import {
   groupSteps,
-  thoughtLabel,
   thoughtMs,
   type GroupIcon,
   type GroupedSteps as Grouped,
@@ -32,7 +31,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
-import { memo, useCallback, useId, useMemo, useState } from "react";
+import { memo, use, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -40,13 +39,16 @@ import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
 import { BackgroundStep, useBackgroundCalls } from "./background-step.tsx";
-import { RailMark, StepRail } from "./step-rail.tsx";
+import { RailMark, StepRail, StepsLive } from "./step-rail.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
 import { useRunEnded, useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
+import { thoughtTitle } from "./live-words.ts";
+import { currentLive } from "@/lib/live-connection.ts";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -100,13 +102,15 @@ export function GroupedSteps(props: {
   const opened = useOpenSteps();
   // A thought in flight with no words yet is the live log's state, not a step: it titles the
   // last group (or stands as "Thinking" before the first step), so the rows never regroup for it.
-  const thinking = props.live ? log.thinking : undefined;
+  // Only a current copy has a step in flight or a thought under way to show.
+  const current = useThreadLiveState(props.threadId).fresh;
+  const thinking = props.live && current ? log.thinking : undefined;
   const rows = groups.map((group, index) => (
     <GroupView
       key={group.key}
       threadId={props.threadId}
       group={group}
-      live={!!props.live && index === groups.length - 1}
+      live={!!props.live && current && index === groups.length - 1}
       thinking={index === groups.length - 1 ? thinking : undefined}
       contexts={ace.contexts}
       surfaces={props.surfaces}
@@ -116,18 +120,20 @@ export function GroupedSteps(props: {
     />
   ));
   return (
-    <OpenStepsContext value={opened}>
-      {props.rail ? (
-        <StepRail id={props.id} label="Steps">
-          {rows}
-        </StepRail>
-      ) : (
-        <ul id={props.id} aria-label="Steps" className="flex flex-col">
-          {rows}
-          {thinking && !groups.length && <ThinkingRow />}
-        </ul>
-      )}
-    </OpenStepsContext>
+    <StepsLive value={current}>
+      <OpenStepsContext value={opened}>
+        {props.rail ? (
+          <StepRail id={props.id} label="Steps">
+            {rows}
+          </StepRail>
+        ) : (
+          <ul id={props.id} aria-label="Steps" className="flex flex-col">
+            {rows}
+            {thinking && !groups.length && <ThinkingRow />}
+          </ul>
+        )}
+      </OpenStepsContext>
+    </StepsLive>
   );
 }
 
@@ -154,6 +160,7 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
 
 /** The turn is working with no step in flight: the model is thinking, as a header like a running group. */
 export function ThinkingRow() {
+  if (!use(StepsLive)) return null;
   return (
     <li className="relative">
       <RailMark state="running" />
@@ -162,7 +169,7 @@ export function ThinkingRow() {
         stepGroup
         lead={<Icon icon={BrainIcon} size={16} />}
         leadKind="thought"
-        title={thoughtLabel(false, undefined)}
+        title={thoughtTitle(currentLive, false, undefined)}
         titleClassName="step-shimmer"
       />
     </li>
@@ -190,6 +197,8 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
     [props.itemId],
   );
   const took = useThread(props.threadId, thoughtKeys, readTook, Object.is);
+  const live = use(StepsLive);
+  const { live: copy } = useThreadLiveState(props.threadId);
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
   // A thought whose turn is over is finished, whatever its stream last said.
@@ -206,8 +215,10 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
         onToggle={() => setOpen(!open)}
         lead={<Icon icon={BrainIcon} size={16} />}
         leadKind="thought"
-        title={thoughtLabel(done, took)}
-        titleClassName={done ? undefined : "step-shimmer"}
+        // A cached thought still under way may have ended: unfinished, it says only the stale
+        // wording, never "Thinking…".
+        title={thoughtTitle(copy, done, took)}
+        titleClassName={done || !live ? undefined : "step-shimmer"}
       />
       {open && (
         <div

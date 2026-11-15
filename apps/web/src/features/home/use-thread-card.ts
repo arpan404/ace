@@ -1,8 +1,9 @@
-import { useSidebarThread, useSidebarUnconfirmed } from "@ace/client-react";
+import { useSidebarThread } from "@ace/client-react";
 import { useState } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, projectLabel, type ThreadCard } from "@ace/ui-core";
 import { useProjectMetadata } from "@/lib/projects.ts";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useFailedSend } from "@/lib/recovery-attention.ts";
 import { useNow } from "@/lib/time.ts";
@@ -28,9 +29,10 @@ export function useThreadCard(
     }
   | undefined {
   const liveEntry = useOverlaidEntry(useSidebarThread(threadId));
-  // Rows painted from a saved list before the daemon answers claim no status (AGENTS.md: never
-  // show done while the tree may be working).
-  const unconfirmed = useSidebarUnconfirmed();
+  // Rows claim no status unless the list is current (AGENTS.md: never show done while the tree
+  // may be working): not one painted from a saved list before the daemon answers, nor one still
+  // catching up after a reconnect's welcome, nor while the connection is down.
+  const unconfirmed = !useLiveList();
   // Pagination removes archived entries immediately. Only this mounted row retains its
   // last immutable entry, so an inert exit animation can finish without keeping history
   // in the sidebar store. Its snapshot is released when the row unmounts.

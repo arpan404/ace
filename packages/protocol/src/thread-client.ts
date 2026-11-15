@@ -373,7 +373,17 @@ export const ThreadOrganizationCommands = [
    */
   z.object({ type: z.literal("thread.title.regenerate"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.delete"), threadId: ThreadId, force: z.boolean().optional() }),
+  z.object({
+    type: z.literal("thread.delete"),
+    threadId: ThreadId,
+    force: z.boolean().optional(),
+    /**
+     * The thread event the person decided at (its cursor, or its list entry's activitySeq): the
+     * daemon refuses (`thread_changed`) once a run started or a person's message arrived after
+     * it, so a replayed Stop and delete never stops newer work. Omitted: as before.
+     */
+    beforeSeq: z.number().int().nonnegative().optional(),
+  }),
   z.object({
     type: z.literal("thread.pin"),
     threadId: ThreadId,

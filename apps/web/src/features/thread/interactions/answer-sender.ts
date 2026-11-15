@@ -1,14 +1,18 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useIntentSender } from "@ace/client-react";
-import type { CommandPayload, Interaction, InteractionResolution, Question } from "@ace/protocol";
+import type { CommandPayload, InteractionResolution, Question } from "@ace/protocol";
 import { withoutSecrets } from "@ace/ui-core";
 import { refusalMessage } from "@/lib/daemon-command.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { answerRequest } from "@/lib/live-actions.ts";
 import type { Answer } from "./answer.ts";
 import { answerStore, pendingAnswers } from "./answers.ts";
 import { questionDrafts } from "./question-drafts.ts";
 
 const failures: Record<string, string> = {
-  already_resolved: "Already answered on another device.",
+  // Also what the daemon answers for a request withdrawn or replaced while this one was away.
+  already_resolved: "Already answered or closed.",
+  interaction_expired: "This request expired before your answer arrived.",
   not_found: "This request no longer exists.",
   permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
   read_only_mutation_denied: "Read only mode can't approve a change.",
@@ -45,6 +49,8 @@ function settleAnswer(
 
 /** What answering one request needs to know of it. */
 export interface AnswerTarget {
+  /** The thread whose request it answers: its copy must be current as the answer goes. */
+  threadId: string;
   interactionId: string;
   /** The request it answers (`requestIdentity`): an answer only counts for the same request. */
   identity: string | undefined;
@@ -53,33 +59,38 @@ export interface AnswerTarget {
 }
 
 /**
- * Send one answer as a durable intent. The pick shows at once (IR-2, SY-9), a secret in it
- * masked; it is remembered once the daemon accepts it, and offered again if the daemon refuses
- * it. A second answer while one is on its way is dropped.
+ * Send one answer as a durable intent, through the one gated sender (`answerRequest`): while the
+ * thread's copy isn't current it sends nothing (`stale`). The pick shows at once (IR-2, SY-9), a
+ * secret in it masked; it is remembered once the daemon accepts it, and offered again if the
+ * daemon refuses it. A second answer while one is on its way is dropped (`busy`).
  */
 export function sendAnswer(
   client: ClientApi,
   send: (payload: CommandPayload) => Promise<string>,
   target: AnswerTarget,
   resolution: InteractionResolution,
-): boolean {
+): "sent" | "busy" | "stale" {
   const { interactionId } = target;
-  if (pendingAnswers.get(interactionId)) return false;
+  if (pendingAnswers.get(interactionId)) return "busy";
+  const live = answerRequest(client, target.threadId, interactionId, resolution, send);
+  if (!live.ok) return "stale";
   pendingAnswers.set(interactionId, withoutSecrets(target.questions, resolution));
-  void send({
-    type: "interaction.resolve",
-    interactionId: interactionId as Interaction["id"],
-    resolution,
-  }).then(
+  void live.sent.then(
     (commandId) => settleAnswer(client, commandId, interactionId, target.identity),
     () => pendingAnswers.clear(interactionId),
   );
-  return true;
+  return "sent";
 }
 
-/** Answer one request from its card, with what went wrong if the daemon refused it. */
+/**
+ * Answer one request of `threadId`'s, with what went wrong if the daemon refused it. Every
+ * control that answers goes through it: while the thread's copy isn't confirmed (`held`) an
+ * answer sends nothing, since the request may have been answered, withdrawn or replaced.
+ */
 export function useAnswerSender(target: AnswerTarget) {
   const client = useClient();
+  // For disabling and wording only: the send itself checks as it goes.
+  const live = useThreadFreshness(target.threadId);
   const { send, intent, error } = useIntentSender();
   const state = intent?.state;
   const answer: Answer = (resolution) => void sendAnswer(client, send, target, resolution);
@@ -89,5 +100,5 @@ export function useAnswerSender(target: AnswerTarget) {
       : error
         ? "Couldn't send the answer. Check the connection and try again."
         : undefined;
-  return { answer, failed };
+  return { answer, failed, held: !live.fresh };
 }

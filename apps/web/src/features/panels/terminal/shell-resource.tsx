@@ -38,6 +38,8 @@ import { shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
 import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { stopTask } from "@/lib/live-actions.ts";
 import { ToolbarButton } from "./toolbar.tsx";
 
 /*
@@ -189,9 +191,13 @@ function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
 /** Who owns it, what it runs, how long, and what you can do about it. */
 function ShellHeader(props: { scope: string; task: BackgroundTask; command: string }) {
   const { task } = props;
+  // A task that was running when last seen may have ended: while the thread's copy isn't
+  // current its state reads the stale wording, no age ticks, and Stop waits.
+  const live = useThreadFreshness(props.scope);
   const running = task.status === "running";
-  const now = useSeconds(running);
+  const now = useSeconds(running && live.fresh);
   const { send, intent, error } = useIntentSender();
+  const client = useClient();
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
@@ -211,8 +217,8 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
         {props.command}
       </code>
       <span className="shrink-0">
-        {state[task.status]}
-        {age && ` · ${age.replace(/ \d+s$/, "")}`}
+        {live.staleLabel ?? state[task.status]}
+        {!live.staleLabel && age && ` · ${age.replace(/ \d+s$/, "")}`}
       </span>
       <span className="flex-1" />
       {(intent?.state === "failed" || !!error) && (
@@ -233,10 +239,11 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
             <Button
               size="sm"
               variant="ghost"
-              disabled={!task.stoppable || stopping}
-              onClick={() =>
-                void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
-              }
+              disabled={!task.stoppable || stopping || !live.fresh}
+              onClick={() => {
+                const stop = stopTask(client, { threadId: props.scope }, task.id, send);
+                if (stop.ok) void stop.sent.catch(() => {});
+              }}
             >
               {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
               {stopping ? "Stopping" : "Stop"}
