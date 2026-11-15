@@ -1,6 +1,7 @@
 import type { ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import {
+  answerWritingLabel,
   bubbleContent,
   bubbleSegments,
   describeProviderError,
@@ -288,10 +289,16 @@ export function eventFollows(store: ThreadSource, kind: string, itemId: string):
   return isEvent(kind, item) && eventFollowsOrder(item);
 }
 
-/** A one-item block's message fields: an answer's streaming, or an event's row. */
+/**
+ * A one-item block's message fields: an answer's streaming, with the word a screen reader hears
+ * on its row while it arrives, or an event's row.
+ */
 export function messageBlock(store: ThreadSource, kind: string, itemId: string | undefined) {
   if (itemId === undefined) return {};
-  if (kind === "message") return { streaming: streamingOf(store, store.item(itemId)) };
+  if (kind === "message") {
+    const streaming = streamingOf(store, store.item(itemId));
+    return streaming ? { streaming, writing: answerWritingLabel } : { streaming };
+  }
   return { event: eventRow(store, kind, itemId) };
 }
 

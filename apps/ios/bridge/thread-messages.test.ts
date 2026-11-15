@@ -149,9 +149,16 @@ test("an answer streams while its turn runs and stops when the turn ends", async
     facts.message("root", "reply", "assistant", "Working", false),
   ]);
   open(connect(fake), "answer");
-  expect((await until(answerBlock, "the answer block")).streaming).toBe(true);
+  const streaming = await until(answerBlock, "the answer block");
+  expect(streaming.streaming).toBe(true);
+  // What VoiceOver hears on the row while it arrives, in ui-core's words.
+  expect(streaming.writing).toBe("Writing");
   fake.apply("answer", [facts.endTurn("root")]);
-  await until(() => answerBlock()?.streaming === false, "the answer settled");
+  const settled = await until(
+    () => (answerBlock()?.streaming === false ? answerBlock() : undefined),
+    "the answer settled",
+  );
+  expect(settled.writing).toBeUndefined();
 });
 
 test("a settled turn's opened log times its thought by the step after it", async () => {
