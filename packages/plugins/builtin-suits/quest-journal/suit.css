@@ -688,6 +688,10 @@
 [data-part="icon-button"] {
   border-radius: 3px;
 }
+/* Faded ink, but still legible. */
+[data-part="icon-button"]:disabled {
+  opacity: 0.62;
+}
 [data-part="icon-button"][data-state="active"] {
   color: var(--color-link);
   background: color-mix(in oklab, var(--color-tint) 14%, transparent);
@@ -842,20 +846,33 @@
   color: var(--color-link);
 }
 [data-part="card"][data-variant="settings-group"] {
-  --suit-rivet: radial-gradient(circle, #f2d79c 0 1px, #b07a3c 1.6px, #5c3a16 2.6px, transparent 3.2px);
   position: relative;
   border-radius: 6px;
-  background:
-    var(--suit-rivet) 0 0 / 8px 8px no-repeat,
-    var(--suit-rivet) 100% 0 / 8px 8px no-repeat,
-    var(--suit-rivet) 0 100% / 8px 8px no-repeat,
-    var(--suit-rivet) 100% 100% / 8px 8px no-repeat,
-    var(--color-surface-1);
-  background-origin: padding-box;
+  background: var(--color-surface-1);
   border: 1px solid var(--suit-hairline);
   outline: 1px dashed color-mix(in oklab, var(--color-border-strong) 75%, transparent);
   outline-offset: -6px;
   box-shadow: 0 10px 22px -18px var(--suit-shadow);
+}
+/* Brass rivets at the pocket's corners, on a layer of their own so no text sits on them. */
+[data-part="card"][data-variant="settings-group"]::before {
+  --suit-rivet: radial-gradient(
+    circle,
+    #f2d79c 0 1px,
+    #b07a3c 1.6px,
+    #5c3a16 2.6px,
+    transparent 3.2px
+  );
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    var(--suit-rivet) 0 0 / 8px 8px no-repeat,
+    var(--suit-rivet) 100% 0 / 8px 8px no-repeat,
+    var(--suit-rivet) 0 100% / 8px 8px no-repeat,
+    var(--suit-rivet) 100% 100% / 8px 8px no-repeat;
+  pointer-events: none;
 }
 [data-part="settings-row"] + [data-part="settings-row"] {
   border-top: 1px solid var(--suit-hairline);
@@ -1067,10 +1084,27 @@
   line-height: 1.6;
 }
 [data-part="merge-box"] {
+  position: relative;
   border-radius: 3px;
   box-shadow:
     inset 0 0 0 3px transparent,
     inset 0 0 0 4px color-mix(in oklab, var(--color-border) 60%, transparent);
+}
+/* A claimed bounty carries the guild's wax seal in its corner. */
+[data-part="merge-box"][data-state="done"]::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  right: -10px;
+  width: 38px;
+  height: 38px;
+  background:
+    radial-gradient(circle at 38% 32%, rgb(255 190 170 / 0.3), transparent 45%),
+    radial-gradient(circle, var(--suit-wax), var(--suit-wax-deep));
+  mask: url("assets/sprites/seal-wax.svg") no-repeat center / 100% 100%;
+  filter: drop-shadow(0 2px 3px var(--suit-shadow));
+  rotate: 12deg;
+  pointer-events: none;
 }
 [data-part="timeline-item"],
 [data-part="review-comment"] {
