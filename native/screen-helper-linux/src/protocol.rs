@@ -92,6 +92,8 @@ pub struct Request {
     pub ingest: Option<Value>,
     /// `stream.configure`: the privacy epoch pictures captured from now on carry.
     pub epoch: Option<u32>,
+    /// `stream.configure`: whether pictures under `epoch` are private (absent: private).
+    pub epoch_private: Option<bool>,
 }
 #[derive(Debug, Deserialize, Default)]
 pub struct Query {

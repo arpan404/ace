@@ -7,11 +7,12 @@ use super::select::Capture;
 use super::stream::StreamSettings;
 use media_codec::CodecError;
 use media_ingest::VideoUnit;
+use media_ingest::epochs::{CaptureTime, Epoch, EpochLedger};
 use media_wire::capability::Backend;
 use std::collections::VecDeque;
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 
 /// Encode failures in a row after which the stream gives up on video and sends stills.
@@ -23,7 +24,9 @@ const MAX_IN_FLIGHT: usize = 16;
 #[derive(Default)]
 pub struct StreamControl {
     settings: Mutex<Option<StreamSettings>>,
-    epoch: AtomicU32,
+    /// Epoch applications on the capture clock (µs since the helper started): each picture
+    /// takes the one in force when it arrived, with ties to private (`media_ingest::epochs`).
+    epochs: Mutex<EpochLedger>,
     key: AtomicBool,
     still: AtomicBool,
     running: Mutex<Running>,
@@ -47,11 +50,18 @@ impl StreamControl {
     pub fn settings(&self) -> Option<StreamSettings> {
         self.settings.lock().ok().and_then(|s| s.clone())
     }
-    pub fn set_epoch(&self, epoch: u32) {
-        self.epoch.store(epoch, Ordering::Release);
+    /// `epoch` applies from `at_us` on the capture clock.
+    pub fn apply_epoch(&self, at_us: u64, epoch: Epoch) {
+        if let Ok(mut epochs) = self.epochs.lock() {
+            epochs.apply(at_us as i64, epoch);
+        }
     }
-    pub fn epoch(&self) -> u32 {
-        self.epoch.load(Ordering::Acquire)
+    /// The epoch of a picture that arrived at `arrived_us` on the capture clock. With the
+    /// ledger unreadable (a poisoned lock), a placeholder that is never a clear epoch: 0.
+    pub fn epoch_at(&self, arrived_us: u64) -> u32 {
+        self.epochs.lock().map_or(0, |epochs| {
+            epochs.epoch_at(CaptureTime::exact(arrived_us as i64))
+        })
     }
     pub fn want_key(&self) {
         self.key.store(true, Ordering::Release);
@@ -303,5 +313,56 @@ impl Video {
         if let Some(encoder) = self.encoder.take() {
             encoder.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StreamControl;
+    use media_ingest::epochs::Epoch;
+
+    #[test]
+    fn an_arrival_takes_the_epoch_in_force_when_it_arrived_and_a_tie_at_a_switch_to_clear_stays_private()
+     {
+        let control = StreamControl::default();
+        // On the capture clock (µs): private epoch 4 from 100, clear epoch 5 from 300.
+        control.apply_epoch(
+            100,
+            Epoch {
+                id: 4,
+                private: true,
+            },
+        );
+        control.apply_epoch(
+            300,
+            Epoch {
+                id: 5,
+                private: false,
+            },
+        );
+        assert_eq!(control.epoch_at(299), 4, "one tick before");
+        assert_eq!(control.epoch_at(300), 4, "exactly at: private wins");
+        assert_eq!(control.epoch_at(301), 5, "just after");
+    }
+
+    #[test]
+    fn an_arrival_read_after_a_later_switch_still_takes_its_own_epoch() {
+        let control = StreamControl::default();
+        control.apply_epoch(
+            100,
+            Epoch {
+                id: 4,
+                private: true,
+            },
+        );
+        // The picture arrived at 250; the switch to clear came at 300, before it was looked up.
+        control.apply_epoch(
+            300,
+            Epoch {
+                id: 5,
+                private: false,
+            },
+        );
+        assert_eq!(control.epoch_at(250), 4);
     }
 }

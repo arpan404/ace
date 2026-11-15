@@ -287,10 +287,13 @@ impl Frames {
     fn picture(&mut self, raw: &RawPicture) -> Result<bool> {
         if !std::mem::take(&mut self.redelivering) {
             self.fresh = true;
+            // The arrival's epoch is resolved once, against the epochs' application times on
+            // the same clock, and kept through every redelivery of this buffer.
+            let us = self.video.now_us();
             self.arrival = Arrival {
                 at: unix_ms(),
-                us: self.video.now_us(),
-                epoch: self.video.control.epoch(),
+                us,
+                epoch: self.video.control.epoch_at(us),
             };
         }
         self.note_shown(raw.width, raw.height, raw.crop());

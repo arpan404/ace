@@ -101,8 +101,9 @@ impl Runtime {
             .as_mut()
             .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
         let stream = &capture.stream;
-        if let Some(epoch) = r.epoch {
-            stream.set_epoch(epoch);
+        if let Some(epoch) = requested_epoch(r)? {
+            // On the capture clock, so arrivals are resolved against it (ties go private).
+            stream.apply_epoch(self.clock.us(), epoch);
         }
         let previous = stream.settings();
         if video
@@ -591,6 +592,18 @@ fn p_shown(portal: &Portal) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
     portal.shown.clone()
 }
 
+/// `stream.configure`'s epoch and whether the daemon says it is private (`epochPrivate`). An
+/// epoch it doesn't say of counts as private; the flag without an epoch is refused.
+fn requested_epoch(r: &Request) -> Result<Option<media_ingest::epochs::Epoch>> {
+    use media_ingest::epochs::Epoch;
+    match (r.epoch, r.epoch_private) {
+        (Some(id), Some(private)) => Ok(Some(Epoch { id, private })),
+        (Some(id), None) => Ok(Some(Epoch::unsaid(id))),
+        (None, Some(_)) => Err(Fault::new("bounds", "epochPrivate needs an epoch")),
+        (None, None) => Ok(None),
+    }
+}
+
 /// `stream.configure`'s `ingest`: ace-media's socket and the source's token (base64 of 32
 /// bytes), parsed at the boundary. Absent means the daemon's socket.
 fn ingest_address(raw: Option<&Value>) -> Result<Option<media_ingest::Address>> {
@@ -692,5 +705,48 @@ mod tests {
         let short = json!({"socket": "/run/m.sock", "token": "AQID"});
         assert!(ingest_address(Some(&short)).is_err());
         assert!(ingest_address(Some(&json!({"token": TOKEN}))).is_err());
+    }
+}
+
+#[cfg(test)]
+mod epoch_tests {
+    use super::requested_epoch;
+    use media_ingest::epochs::Epoch;
+    use serde_json::json;
+
+    fn request(fields: serde_json::Value) -> crate::protocol::Request {
+        let mut line = json!({"version": 2, "id": "r1", "op": "stream.configure"});
+        line.as_object_mut()
+            .unwrap()
+            .extend(fields.as_object().unwrap().clone());
+        crate::protocol::Request::parse(line.to_string().as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn an_epoch_the_daemon_marks_clear_is_clear_and_one_it_doesnt_mark_is_private() {
+        assert_eq!(
+            requested_epoch(&request(json!({"epoch": 6, "epochPrivate": false}))).unwrap(),
+            Some(Epoch {
+                id: 6,
+                private: false
+            })
+        );
+        assert_eq!(
+            requested_epoch(&request(json!({"epoch": 6, "epochPrivate": true}))).unwrap(),
+            Some(Epoch {
+                id: 6,
+                private: true
+            })
+        );
+        assert_eq!(
+            requested_epoch(&request(json!({"epoch": 6}))).unwrap(),
+            Some(Epoch::unsaid(6))
+        );
+        assert_eq!(requested_epoch(&request(json!({}))).unwrap(), None);
+    }
+
+    #[test]
+    fn a_privacy_flag_without_an_epoch_is_refused() {
+        assert!(requested_epoch(&request(json!({"epochPrivate": false}))).is_err());
     }
 }
