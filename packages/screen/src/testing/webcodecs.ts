@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,15 @@ export async function decodeInChromium(
   units: { payload: Uint8Array; keyframe: boolean }[],
 ): Promise<Decoded> {
   const profile = mkdtempSync(join(tmpdir(), "ace-webcodecs-"));
+  // WebCodecs needs a secure context: a loopback page is one, `about:blank` may not be.
+  const server = createServer((_, response) => {
+    response.setHeader("Content-Type", "text/html");
+    response.end("<!doctype html><title>webcodecs</title>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No loopback page");
+  const page = `http://127.0.0.1:${address.port}/`;
   const chrome = spawn(
     executable,
     [
@@ -43,7 +53,7 @@ export async function decodeInChromium(
       `--user-data-dir=${profile}`,
       "--no-first-run",
       "--no-default-browser-check",
-      "about:blank",
+      page,
     ],
     { stdio: "ignore" },
   );
@@ -59,9 +69,9 @@ export async function decodeInChromium(
     }
     if (!port) throw new Error("Chromium did not open DevTools");
     const targets = Targets.parse(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json());
-    const page = targets.find((target) => target.type === "page");
-    if (!page) throw new Error("No page target");
-    const socket = new WebSocket(page.webSocketDebuggerUrl);
+    const target = targets.find((entry) => entry.type === "page");
+    if (!target) throw new Error("No page target");
+    const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.addEventListener("open", resolve, { once: true });
       socket.addEventListener("error", reject, { once: true });
@@ -112,6 +122,7 @@ export async function decodeInChromium(
     const timer = setTimeout(() => chrome.kill(), 5_000);
     await exited;
     clearTimeout(timer);
+    server.close();
     try {
       rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     } catch {
