@@ -1,13 +1,13 @@
 {
   "name": "Abyss",
-  "glass": "rgba(4, 16, 26, 0.50)",
-  "glassStrong": "rgba(4, 16, 26, 0.62)",
+  "glass": "rgba(4, 16, 26, 0.30)",
+  "glassStrong": "rgba(4, 16, 26, 0.42)",
   "edge": "rgba(140, 230, 240, 0.10)",
   "ink": "#E9F4F6",
-  "muted": "rgba(222, 240, 244, 0.72)",
-  "subtle": "rgba(206, 230, 236, 0.50)",
+  "muted": "rgba(222, 240, 244, 0.84)",
+  "subtle": "rgba(206, 230, 236, 0.74)",
   "accent": "#5ED6E6",
   "accentInk": "#031418",
-  "blur": "30px",
+  "blur": "16px",
   "saturate": "1.4"
 }

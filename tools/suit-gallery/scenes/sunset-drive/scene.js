@@ -15,9 +15,11 @@ const swell = (age, rise, hold, fall) =>
   "use strict";
 
   /** Backing pixels per device pixel; the browser scales the canvas up smoothly. */
-  const DETAIL = 0.5;
+  const DETAIL = 0.75;
+  /** Never fewer backing pixels per CSS pixel than this, even on a 1x display. */
+  const MIN_SCALE = 1;
   /** At most this many backing pixels, whatever the window. */
-  const MAX_PIXELS = 1_400_000;
+  const MAX_PIXELS = 3_200_000;
   /** Scene seconds of the still frame drawn under Reduce motion. */
   const STILL = 26;
   /** How much quicker the scene moves while agents work. */
@@ -79,11 +81,13 @@ float ridge(float x, float seed) {
   return h;
 }
 
-// An anti-aliased grid line: 1 on the line, fading over about a pixel either side.
-float gridLine(float w, float width) {
+// An anti-aliased grid line about 1.4 px wide: distance to the nearest line in pixels, measured
+// with the gradient's true length (not fwidth, which overestimates on diagonals), filtered
+// symmetrically over about 1.6 px so near lines stay smooth and far ones fade instead of crawl.
+float gridLine(float w, float halfWidth) {
   float d = abs(fract(w - 0.5) - 0.5);
-  float px = fwidth(w);
-  return 1.0 - smoothstep(width * px, (width + 1.5) * px, d);
+  float px = max(length(vec2(dFdx(w), dFdy(w))), 1e-5);
+  return 1.0 - smoothstep(halfWidth - 0.8, halfWidth + 0.8, d / px);
 }
 
 void main() {
@@ -117,8 +121,9 @@ void main() {
 
     // The sun: yellow at its crown to rose at its foot, cut by bands that widen as they fall.
     float glowR = toSun / sunR;
-    vec3 sunTop = srgb(mix(vec3(1.0, 0.80, 0.30), vec3(1.0, 0.62, 0.22), warm * 0.7)) * 1.45;
-    vec3 sunMid = srgb(vec3(1.0, 0.40, 0.36)) * 1.3;
+    // a dusk sun: a deep gold crown rather than yellow, so text over glass stays readable
+    vec3 sunTop = srgb(mix(vec3(1.0, 0.66, 0.26), vec3(1.0, 0.56, 0.20), warm * 0.7)) * 1.15;
+    vec3 sunMid = srgb(vec3(1.0, 0.38, 0.36)) * 1.1;
     vec3 sunFoot = srgb(vec3(0.95, 0.16, 0.50)) * 1.15;
     float sy = (p.y - (sunAt.y - sunR)) / (2.0 * sunR);
     vec3 sunCol = mix(sunFoot, sunMid, smoothstep(0.0, 0.5, sy));
@@ -129,8 +134,8 @@ void main() {
     float band = smoothstep(gap - 0.04, gap + 0.04, abs(fract(bandY) - 0.5) * 2.0);
     band = mix(1.0, band, step(0.001, below));
     float disc = 1.0 - smoothstep(sunR - 1.2 / res.y, sunR + 1.2 / res.y, toSun);
-    col += srgb(vec3(1.0, 0.32, 0.45)) * exp(-max(glowR - 1.0, 0.0) * 2.4) * 0.22 * (1.0 + 0.6 * warm + 1.4 * flare);
-    col = mix(col, sunCol * (1.0 + 0.5 * flare), disc * band);
+    col += srgb(vec3(1.0, 0.32, 0.45)) * exp(-max(glowR - 1.0, 0.0) * 2.4) * 0.22 * (1.0 + 0.6 * warm + 0.8 * flare);
+    col = mix(col, sunCol * (1.0 + 0.15 * flare), disc * band);
 
     // Two ridges in front of the sun; light spills over the crests nearest it.
     float farRidge = horizon + 0.015 + 0.13 * ridge(p.x * 1.5 + 4.0, 3.0);
@@ -153,9 +158,9 @@ void main() {
     float wx = p.x * z * 3.2;
     float wz = z * 3.2 + t * 0.55;
     float fade = exp(-z * 0.32) * (0.55 + 0.45 * smoothstep(0.02, 0.2, dy));
-    float lines = max(gridLine(wx, 0.6), gridLine(wz, 0.6));
+    float lines = max(gridLine(wx, 1.0), gridLine(wz, 1.0));
     // lines that crowd closer than a pixel near the horizon melt into the haze
-    lines *= 1.0 - smoothstep(0.25, 0.6, max(fwidth(wx), fwidth(wz)));
+    lines *= 1.0 - smoothstep(0.2, 0.5, max(length(vec2(dFdx(wx), dFdy(wx))), length(vec2(dFdx(wz), dFdy(wz)))));
     float softLines = max(exp(-abs(fract(wx - 0.5) - 0.5) * 22.0), exp(-abs(fract(wz - 0.5) - 0.5) * 22.0));
     vec3 lineCol = mix(srgb(vec3(1.0, 0.22, 0.78)), srgb(vec3(0.55, 0.45, 1.0)), drain * 0.8);
     col = srgb(vec3(0.06, 0.015, 0.09)) * (0.6 + 0.4 * (1.0 - smoothstep(0.0, 0.25, dy)));
@@ -164,7 +169,7 @@ void main() {
     // pr-merged: a band of light running in along the grid
     float pulseZ = 9.0 - burst.x * 2.6;
     float pulse = flare * exp(-abs(z - pulseZ) * 1.6) * step(0.0, pulseZ + 0.5);
-    col += lineCol * (lines * 0.55 + softLines * 0.10) * fade * bright * (1.0 + 2.5 * pulse);
+    col += lineCol * (lines * 0.75 + softLines * 0.10) * fade * bright * (1.0 + 2.5 * pulse);
     col += srgb(vec3(1.0, 0.4, 0.8)) * pulse * 0.10 * fade;
     // the sun's reflection, a soft column on the floor
     col += srgb(vec3(1.0, 0.36, 0.48)) * exp(-abs(p.x - sunAt.x) * 5.0) * exp(-dy * 9.0) * 0.18 * (1.0 + warm + flare);
@@ -224,7 +229,7 @@ void main() {
   }
 
   function fit(view) {
-    let scale = Math.min(view.pixelRatio, Math.max(0.75, view.pixelRatio * DETAIL));
+    let scale = Math.min(view.pixelRatio, Math.max(MIN_SCALE, view.pixelRatio * DETAIL));
     const pixels = view.width * view.height * scale * scale;
     if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
     view.canvas.width = Math.max(1, Math.round(view.width * scale));

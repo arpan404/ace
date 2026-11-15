@@ -1,13 +1,13 @@
 {
   "name": "Aurora",
-  "glass": "rgba(6, 14, 22, 0.52)",
-  "glassStrong": "rgba(6, 14, 22, 0.64)",
+  "glass": "rgba(6, 14, 22, 0.38)",
+  "glassStrong": "rgba(6, 14, 22, 0.50)",
   "edge": "rgba(150, 240, 210, 0.10)",
   "ink": "#EAF2F4",
-  "muted": "rgba(226, 240, 242, 0.72)",
-  "subtle": "rgba(214, 232, 236, 0.50)",
+  "muted": "rgba(226, 240, 242, 0.84)",
+  "subtle": "rgba(214, 232, 236, 0.74)",
   "accent": "#6FE3B4",
   "accentInk": "#04150F",
-  "blur": "32px",
+  "blur": "16px",
   "saturate": "1.45"
 }

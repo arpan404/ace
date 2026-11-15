@@ -262,9 +262,10 @@ body {
   gap: 10px;
 }
 .head {
-  padding: 6px 4px 0;
+  align-self: center;
+  padding: 5px 18px 6px;
+  border-radius: 999px;
   text-align: center;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
 }
 .head-title {
   font-weight: 600;

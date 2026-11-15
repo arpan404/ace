@@ -17,8 +17,10 @@ const swell = (age, rise, hold, fall) =>
 
   /** Backing pixels per device pixel; the browser scales the canvas up smoothly. */
   const DETAIL = 0.5;
+  /** Never fewer backing pixels per CSS pixel than this, even on a 1x display. */
+  const MIN_SCALE = 1;
   /** At most this many backing pixels, whatever the window. */
-  const MAX_PIXELS = 1_400_000;
+  const MAX_PIXELS = 2_000_000;
   /** Scene seconds of the still frame drawn under Reduce motion. */
   const STILL = 88;
   /** How much quicker the scene moves while agents work. */
@@ -81,25 +83,71 @@ float fbm(vec2 p) {
   return s;
 }
 
-// Distance to a branch y = f(x) running in from a corner, tapering as it goes.
-float branch(vec2 p, float y0, float slope, float bend, float freq, float x0, float x1, float w0) {
+// A limb y = f(x) from x0 to x1, thick at the trunk end and tapering to the tip. Returns the
+// distance to its surface (negative inside); along is 0 at the trunk end and 1 at the tip,
+// across runs -1 (underside) to 1 (top).
+float limb(vec2 p, float y0, float slope, float bend, float freq, float x0, float x1, float w0,
+           out float along, out float across) {
   float x = clamp(p.x, x0, x1);
   float y = y0 + slope * (x - x0) + bend * sin((x - x0) * freq);
   float dy = slope + bend * freq * cos((x - x0) * freq);
-  float d = abs(p.y - y) / sqrt(1.0 + dy * dy) + max(max(x0 - p.x, p.x - x1), 0.0);
-  float along = clamp((p.x - x0) / (x1 - x0), 0.0, 1.0);
-  float w = w0 * (1.0 - 0.8 * abs(along));
-  return d - w;
+  float perp = (p.y - y) / sqrt(1.0 + dy * dy);
+  along = (x - x0) / (x1 - x0);
+  float w = w0 * (1.0 - 0.75 * along) * (1.0 - smoothstep(0.82, 1.0, along) * 0.85);
+  across = clamp(perp / max(w, 1e-4), -1.0, 1.0);
+  return abs(perp) + max(max(x0 - p.x, p.x - x1), 0.0) - w;
 }
 
-// Blossoms packed into a cluster: soft round flowers of varied pinks, shadow between them.
-float flowers(vec2 p, float cells, float seed) {
+vec2 limbPoint(float a, float y0, float slope, float bend, float freq, float x0, float x1) {
+  float x = mix(x0, x1, a);
+  return vec2(x, y0 + slope * (x - x0) + bend * sin((x - x0) * freq));
+}
+
+// Blossom clumps along a limb, summed as a soft field. Each clump also says how out of focus it
+// is (the ends by the frame's corners are nearest the eye) and where a point sits in it, high
+// or low, for light from the sky above and the lanterns below.
+void clumps(vec2 p, float y0, float slope, float bend, float freq, float x0, float x1,
+            float size, float seed, inout float field, inout float blurW, inout float lowW) {
+  for (int k = 0; k < 9; k++) {
+    float fk = float(k);
+    ivec2 id = ivec2(k, int(seed) * 13);
+    float a = 0.04 + fk * 0.11 + (hash(id) - 0.5) * 0.08;
+    vec2 c = limbPoint(a, y0, slope, bend, freq, x0, x1);
+    // clumps sit above and below the limb, some big, some small, some missing
+    c += vec2((hash(id + ivec2(0, 9)) - 0.5) * 0.06, (hash(id + ivec2(0, 4)) - 0.35) * 0.08);
+    float r = size * (1.0 - 0.4 * a) * (0.45 + 0.85 * hash(id + ivec2(0, 2)));
+    r *= step(0.15, hash(id + ivec2(0, 7)));
+    vec2 rel = (p - c) / max(vec2(r * 1.15, r), 1e-4);
+    float w = exp(-dot(rel, rel) * 2.2) * step(1e-4, r);
+    field += w;
+    blurW += w * (1.0 - smoothstep(0.08, 0.5, a));
+    lowW += w * clamp(-rel.y, -1.0, 1.0);
+  }
+}
+
+// One layer of five-petalled flowers, each with its own size, turn and tone. Returns how much
+// of this point a flower covers, and paints its colour into tone.
+float flowerLayer(vec2 p, float cells, float seed, float soft, inout vec3 tone) {
   vec2 q = p * cells;
-  ivec2 c = ivec2(floor(q)) + ivec2(int(seed) * 37, 0);
-  vec2 at = 0.28 + 0.44 * hash2(c);
-  float r = 0.30 + 0.16 * hash(c + ivec2(2, 2));
-  float d = length(fract(q) - at);
-  return (1.0 - smoothstep(r * 0.45, r, d)) * (0.55 + 0.45 * hash(c + ivec2(6, 1)));
+  ivec2 c = ivec2(floor(q)) + ivec2(int(seed) * 37, int(seed) * 11);
+  vec2 v = fract(q) - 0.5 - (hash2(c) - 0.5) * 0.3;
+  // each flower is tilted a little away from the eye, so they don't all face front
+  float tilt = hash(c + ivec2(4, 8)) * 3.1416;
+  vec2 axis = vec2(cos(tilt), sin(tilt));
+  v = axis * dot(v, axis) / (0.6 + 0.4 * hash(c + ivec2(1, 6))) + vec2(-axis.y, axis.x) * dot(v, vec2(-axis.y, axis.x));
+  float h = hash(c + ivec2(2, 2));
+  float r = 0.2 + 0.14 * h;
+  float ang = atan(v.y, v.x) + hash(c + ivec2(7, 3)) * 6.2832;
+  float rad = length(v);
+  float lobe = r * (0.62 + 0.38 * pow(abs(cos(ang * 2.5)), 0.5));
+  float e = mix(0.035, 0.2, soft);
+  float cover = 1.0 - smoothstep(lobe - e, lobe + e, rad);
+  float pick = hash(c + ivec2(5, 9));
+  vec3 t = pick < 0.4 ? srgb(vec3(1.0, 0.88, 0.92)) : pick < 0.8 ? srgb(vec3(0.97, 0.70, 0.80)) : srgb(vec3(0.90, 0.52, 0.68));
+  t *= (0.72 + 0.28 * hash(c + ivec2(9, 9))) * (0.8 + 0.2 * smoothstep(0.0, lobe, rad)); // paler toward the tips
+  t = mix(srgb(vec3(0.72, 0.30, 0.45)), t, smoothstep(0.02, 0.07, rad)); // a deeper heart
+  tone = mix(tone, t, cover);
+  return cover;
 }
 
 // Petals at one depth. size: radius in screen-heights; soft: edge blur (0 sharp .. 1 soft).
@@ -111,17 +159,20 @@ vec4 petals(vec2 p, float cells, float seed, float size, float soft, float densi
   if (h > density) return vec4(0.0);
   vec2 r = hash2(c + ivec2(5, 1));
   vec2 at = 0.3 + 0.4 * r + vec2(0.12 * sin(t * 0.55 + r.x * 20.0), 0.10 * sin(t * 0.42 + r.y * 17.0));
-  vec2 l = (f - at) / (size * cells);
+  float grow = 0.7 + 0.6 * hash(c + ivec2(3, 3));
+  vec2 l = (f - at) / (size * grow * cells);
   float spin = t * (0.25 + 0.45 * r.y) * (r.x < 0.5 ? 1.0 : -1.0) + h * 40.0;
   l = mat2(cos(spin), sin(spin), -sin(spin), cos(spin)) * l;
-  float tumble = 0.3 + 0.7 * abs(cos(t * (0.35 + 0.5 * r.x) + r.y * 9.0));
+  float tumble = 0.42 + 0.58 * abs(cos(t * (0.35 + 0.5 * r.x) + r.y * 9.0));
   l.y /= tumble;
   float body = length(vec2(l.x, l.y * 1.7)) - 1.0;
   float notch = 0.32 - length(l - vec2(1.05, 0.0));
   float d = max(body, notch);
   float edge = mix(0.12, 0.9, soft);
   float m = 1.0 - smoothstep(-edge, edge * 0.4, d);
-  vec3 tint = mix(srgb(vec3(1.0, 0.86, 0.90)), srgb(vec3(0.96, 0.58, 0.72)), smoothstep(-0.6, 1.0, l.x));
+  float depthTone = hash(c + ivec2(8, 6));
+  vec3 base = mix(srgb(vec3(1.0, 0.90, 0.93)), srgb(vec3(0.98, 0.74, 0.83)), depthTone);
+  vec3 tint = mix(base, base * srgb(vec3(0.97, 0.70, 0.82)), smoothstep(-0.6, 1.0, l.x));
   tint *= 0.75 + 0.35 * tumble; // the face turned toward the light is brighter
   return vec4(tint, m);
 }
@@ -147,6 +198,18 @@ void main() {
   col = mix(col, srgb(vec3(0.17, 0.11, 0.22)) * 0.6, 1.0 - smoothstep(hillNear - 0.008, hillNear + 0.008, uv.y));
   col += srgb(vec3(0.7, 0.45, 0.55)) * 0.05 * exp(-abs(uv.y - 0.2) * 14.0);
 
+  // A far line of blossoming trees along the hills, out of focus, a few lanterns among them.
+  float grove = 0.205 + 0.045 * fbm(vec2(p.x * 3.2 + 1.0, 8.0)) + 0.02 * noise(vec2(p.x * 9.0, 3.0));
+  float onGrove = 1.0 - smoothstep(grove - 0.012, grove + 0.012, uv.y);
+  vec3 groveCol = mix(srgb(vec3(0.30, 0.17, 0.26)), srgb(vec3(0.62, 0.38, 0.50)), smoothstep(0.12, 0.24, uv.y) * (0.6 + 0.4 * fbm(p * 9.0)));
+  col = mix(col, groveCol * 0.6, onGrove);
+  for (int i = 0; i < 5; i++) {
+    float fi = float(i);
+    vec2 at = vec2((0.1 + 0.2 * fi + 0.06 * sin(fi * 7.1)) * aspect, 0.16 + 0.025 * sin(fi * 3.3));
+    float glowAt = exp(-length((p - at) * vec2(1.0, 1.3)) * 70.0) * 0.5 + exp(-length(p - at) * 16.0) * 0.05;
+    col += srgb(vec3(1.0, 0.65, 0.35)) * glowAt * lamp * (0.9 + 0.1 * noise(vec2(t * 0.6, fi * 5.0)));
+  }
+
   // The garden: dark shrubs, two stone lanterns glowing low among them.
   float shrubs = 0.115 + 0.04 * fbm(vec2(p.x * 2.6, 6.0)) + 0.025 * abs(noise(vec2(p.x * 9.0, 1.0)));
   vec3 warm = srgb(vec3(1.0, 0.62, 0.30));
@@ -164,26 +227,63 @@ void main() {
   col += warm * (flameA + flameB) * 0.9 * lamp;
   col += warm * pools * 0.05 * lamp;
 
-  // Branches reaching in from the top corners, heavy with blossom.
-  float left = branch(p, 0.98, -0.42, 0.04, 6.0, -0.05, 0.62, 0.012);
-  left = min(left, branch(p, 0.80, -0.08, 0.03, 9.0, -0.05, 0.40, 0.008));
-  float right = branch(vec2(aspect - p.x, p.y), 0.99, -0.30, 0.05, 5.0, -0.05, 0.70, 0.013);
-  right = min(right, branch(vec2(aspect - p.x, p.y), 0.86, -0.12, 0.03, 8.0, -0.05, 0.36, 0.008));
-  float wood = min(left, right);
+  // Two cherry trees reaching in from the top corners: tapering limbs with bark, heavy with
+  // blossom, the clumps nearest the corners out of focus.
   float sway = 0.004 * sin(t * 0.5) + 0.002 * sin(t * 1.1);
   vec2 bp = p + vec2(sway * smoothstep(0.6, 1.0, uv.y), 0.0);
-  float puff = fbm(bp * 6.0) + 0.4 * fbm(bp * 15.0 - 3.0);
-  float fl = max(flowers(bp, 36.0, 1.0), flowers(bp + 0.37, 54.0, 2.0) * 0.8);
-  float region = 0.075 - wood * 0.85 + puff * 0.08;
-  float bloom = smoothstep(0.0, 0.03, region + (fl - 0.5) * 0.04);
-  vec3 shade = srgb(vec3(0.42, 0.21, 0.33));
-  vec3 petal = mix(srgb(vec3(0.86, 0.52, 0.66)), srgb(vec3(0.98, 0.80, 0.86)), smoothstep(0.6, 1.0, fl));
-  vec3 blossom = mix(shade, petal, fl * smoothstep(-0.02, 0.25, puff + 0.1));
-  blossom += warm * 0.12 * lamp * (1.0 - smoothstep(0.6, 0.9, uv.y)) * fl; // lit from below by the lanterns
-  blossom *= 0.58;
-  col = mix(col, blossom, bloom);
-  float woodMask = 1.0 - smoothstep(-0.0015, 0.0015, wood);
-  col = mix(col, srgb(vec3(0.05, 0.03, 0.045)), woodMask * (1.0 - bloom * 0.75 * fl));
+  vec2 mp = vec2(aspect - bp.x, bp.y); // the right tree, mirrored
+
+  // Trees only reach the upper part of the frame; nothing below it pays for them.
+  if (uv.y > 0.52) {
+    float along, across, a2, c2;
+    float wood = limb(bp, 0.93, -0.30, 0.035, 5.0, -0.06, 0.80, 0.032, along, across);
+    float d = limb(bp, 0.75, -0.17, 0.02, 8.0, -0.06, 0.44, 0.015, a2, c2);
+    if (d < wood) { wood = d; along = a2; across = c2; }
+    d = limb(bp, 0.83, 0.28, 0.012, 9.0, 0.20, 0.40, 0.008, a2, c2);
+    if (d < wood) { wood = d; along = a2; across = c2; }
+    d = limb(mp, 0.97, -0.26, 0.04, 4.5, -0.06, 0.74, 0.034, a2, c2);
+    if (d < wood) { wood = d; along = a2; across = c2; }
+    d = limb(mp, 0.81, -0.12, 0.025, 7.0, -0.06, 0.40, 0.015, a2, c2);
+    if (d < wood) { wood = d; along = a2; across = c2; }
+    d = limb(mp, 0.90, 0.20, 0.01, 10.0, 0.24, 0.42, 0.008, a2, c2);
+    if (d < wood) { wood = d; along = a2; across = c2; }
+    float px = 1.2 / res.y;
+    float onWood = 1.0 - smoothstep(-px, px, wood);
+    float bark = noise(vec2(along * 9.0, across * 3.5 + 2.0)) + 0.5 * noise(vec2(along * 34.0, across * 9.0));
+    float round_ = sqrt(max(1.0 - across * across, 0.0));
+    vec3 barkCol = srgb(vec3(0.085, 0.05, 0.06)) * (0.5 + 0.5 * round_) * (0.8 + 0.4 * bark);
+    barkCol += warm * 0.05 * lamp * (1.0 - smoothstep(-0.95, -0.3, across));    // lantern light below
+    barkCol += srgb(vec3(0.40, 0.34, 0.52)) * 0.05 * smoothstep(0.3, 0.95, across); // sky on top
+    col = mix(col, barkCol, onWood);
+
+    float field = 0.0, blurW = 0.0, lowW = 0.0;
+    clumps(bp, 0.93, -0.30, 0.035, 5.0, -0.06, 0.80, 0.085, 1.0, field, blurW, lowW);
+    clumps(bp, 0.75, -0.17, 0.02, 8.0, -0.06, 0.44, 0.06, 2.0, field, blurW, lowW);
+    clumps(mp, 0.97, -0.26, 0.04, 4.5, -0.06, 0.74, 0.09, 3.0, field, blurW, lowW);
+    clumps(mp, 0.81, -0.12, 0.025, 7.0, -0.06, 0.40, 0.06, 4.0, field, blurW, lowW);
+    float blur = blurW / max(field, 1e-3);
+    float low = lowW / max(field, 1e-3);
+    vec3 deep = srgb(vec3(0.34, 0.15, 0.27));
+    vec3 tone = deep;
+    float soft = 0.2 + 0.8 * blur;
+    if (field > 0.12) {
+    float fl = flowerLayer(bp - 0.17, 50.0, 3.0, soft, tone) * 0.8;  // the back layer, in shade
+    tone *= 0.8;
+    fl = max(fl, flowerLayer(bp + 0.31, 34.0, 2.0, soft, tone));
+    fl = max(fl, flowerLayer(bp, 22.0, 1.0, soft, tone));
+    // out of focus, the flowers melt into one soft average tone
+    vec3 bloomCol = mix(tone, mix(deep, srgb(vec3(0.86, 0.58, 0.70)), 0.62), blur);
+    float under = smoothstep(-0.3, 0.9, low);
+    bloomCol *= 0.62 * (1.0 - 0.35 * smoothstep(0.9, 2.2, field)); // deep inside a clump is in shade
+    bloomCol += warm * 0.16 * lamp * under * (0.5 + 0.5 * mix(fl, 1.0, blur));
+    bloomCol += srgb(vec3(0.45, 0.42, 0.65)) * 0.05 * (1.0 - under);
+    float edge = mix(0.05, 0.28, blur);
+    float mass = smoothstep(0.5 - edge, 0.5 + edge, field + (fl - 0.45) * 0.55 * (1.0 - blur));
+    // the limbs show through the gaps between flowers
+    mass *= mix(1.0, 0.35 + 0.65 * max(fl, blur), onWood);
+    col = mix(col, bloomCol, mass);
+    }
+  }
 
   // A string of paper lanterns, sagging across the garden.
   float x0 = 0.04 * aspect, x1 = 0.96 * aspect;
@@ -220,7 +320,7 @@ void main() {
   vec4 near = petals(p, 2.6, 3.0, 0.026, 0.55, 0.16 + 0.15 * mood.x + 0.2 * mood.w, t, wind * 1.6);
   col = mix(col, far.rgb * 0.42 * (0.7 + 0.3 * lamp), far.a * 0.6);
   col = mix(col, midP.rgb * 0.62 * (0.7 + 0.3 * lamp), midP.a * 0.9);
-  col = mix(col, near.rgb * 0.55, near.a * 0.35);
+  col = mix(col, near.rgb * 0.62, near.a * 0.42);
 
   col = mix(col, vec3(dot(col, vec3(0.3, 0.5, 0.2))) * vec3(0.75, 0.82, 1.05), cool * 0.5);
   col *= 1.0 - 0.3 * smoothstep(0.55, 1.25, length((uv - 0.5) * vec2(aspect, 1.0)));
@@ -270,7 +370,7 @@ void main() {
   }
 
   function fit(view) {
-    let scale = Math.min(view.pixelRatio, Math.max(0.75, view.pixelRatio * DETAIL));
+    let scale = Math.min(view.pixelRatio, Math.max(MIN_SCALE, view.pixelRatio * DETAIL));
     const pixels = view.width * view.height * scale * scale;
     if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
     view.canvas.width = Math.max(1, Math.round(view.width * scale));

@@ -1,13 +1,13 @@
 {
   "name": "Rain City",
-  "glass": "rgba(10, 10, 20, 0.52)",
-  "glassStrong": "rgba(10, 10, 20, 0.64)",
+  "glass": "rgba(10, 10, 20, 0.24)",
+  "glassStrong": "rgba(10, 10, 20, 0.36)",
   "edge": "rgba(150, 210, 255, 0.10)",
   "ink": "#EEF0F7",
-  "muted": "rgba(232, 236, 246, 0.72)",
-  "subtle": "rgba(218, 224, 240, 0.50)",
+  "muted": "rgba(232, 236, 246, 0.84)",
+  "subtle": "rgba(218, 224, 240, 0.74)",
   "accent": "#4FD3FF",
   "accentInk": "#03121A",
-  "blur": "30px",
+  "blur": "16px",
   "saturate": "1.5"
 }

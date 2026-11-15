@@ -22,8 +22,18 @@ The bar across the top:
 - Hide UI: the scene alone.
 
 `?scene=<name>` opens a scene directly, and `&reduce=1` opens it still. From the console,
-`gallery.signal("pr-merged")`, `gallery.load("nebula")`, `gallery.hide(true)` and
-`gallery.state()` drive it.
+`gallery.signal("pr-merged")`, `gallery.load("nebula")`, `gallery.hide(true)`,
+`gallery.state()` and `gallery.contrast()` drive it.
+
+## Glass and text contrast
+
+`gallery.contrast()` reads the live scene through the runtime's own `sample` message (a 32 × 32
+grid of the canvas) and, for every text element in the mock, composites what is under it the way
+the browser draws it: the scene blurred by the glass's blur and saturated, the glass tint, any
+fills between, then the text colour with its alpha. It returns the worst WCAG ratio per text and
+shows the least in the bar. Each scene's `palette.json` sets the lightest glass that keeps every
+text at 4.5:1 or better, at rest and at the peak of `pr-merged`, so the scene shows as much as it
+can.
 
 ## How a scene runs here
 

@@ -16,6 +16,8 @@ const swell = (age, rise, hold, fall) =>
 
   /** Backing pixels per device pixel; the browser scales the canvas up smoothly. */
   const DETAIL = 0.375;
+  /** Never fewer backing pixels per CSS pixel than this, even on a 1x display. */
+  const MIN_SCALE = 0.75;
   /** At most this many backing pixels, whatever the window. */
   const MAX_PIXELS = 1_400_000;
   /** Scene seconds of the still frame drawn under Reduce motion. */
@@ -133,15 +135,20 @@ void main() {
   float toCore = length((p - core) * vec2(0.75, 1.0));
   float gather = exp(-toCore * 1.9) + 0.45 * exp(-length((p - vec2(-0.6, -0.25)) * vec2(0.6, 1.0)) * 2.4);
 
-  float dens = smoothstep(-0.12, 0.55, f + 0.3 * gather);
-  float glow = dens * dens * (0.06 + 1.35 * gather);
+  float dens = smoothstep(-0.08, 0.6, f + 0.32 * gather);
+  float glow = dens * dens * dens * (0.08 + 2.1 * gather);
 
   // Colour drifts over large regions, not per wisp: teal and blue into rose, warm where dense.
-  float hue = smoothstep(-0.28, 0.28, fbm3(q * 0.45 + vec2(7.0, 3.0) + w1 * 0.4));
-  vec3 teal = srgb(vec3(0.16, 0.50, 0.64));
-  vec3 rose = srgb(vec3(0.70, 0.22, 0.55));
-  vec3 gas = mix(teal, rose, hue);
-  gas = mix(gas, srgb(vec3(1.0, 0.80, 0.92)), smoothstep(0.45, 1.1, glow) * 0.5);
+  float hue = smoothstep(-0.1, 0.3, fbm3(q * 0.45 + vec2(7.0, 3.0) + w1 * 0.4)) * (0.35 + 0.65 * (1.0 - smoothstep(0.2, 1.4, toCore)));
+  vec3 indigo = srgb(vec3(0.24, 0.30, 0.78));
+  vec3 teal = srgb(vec3(0.12, 0.62, 0.72));
+  vec3 rose = srgb(vec3(0.74, 0.22, 0.52));
+  float cool = smoothstep(-0.2, 0.2, fbm3(q * 0.35 - vec2(4.0, 9.0)));
+  vec3 gas = mix(mix(indigo, teal, cool), rose, hue);
+  // gas near the core is lit warm, gold into pale rose
+  float nearCore = exp(-toCore * 3.0);
+  gas = mix(gas, srgb(vec3(1.0, 0.70, 0.50)), nearCore * 0.45);
+  gas = mix(gas, srgb(vec3(1.0, 0.86, 0.92)), smoothstep(0.5, 1.3, glow) * 0.45);
 
   // waiting: the core warms and breathes once; failed: the gas cools toward grey and dims
   float warmth = mood.y * exp(-toCore * 1.5);
@@ -151,16 +158,20 @@ void main() {
   float light = glow * (1.0 + 0.3 * mood.x + 0.4 * warmth) * (1.0 - 0.4 * mood.z);
 
   // Dust lanes: dark threads across the brighter gas.
-  float dust = smoothstep(0.0, 0.3, fbm3(q * 1.7 + w2 * 1.2 + vec2(40.0, 12.0)));
-  float veil = 1.0 - 0.75 * dust * smoothstep(0.05, 0.5, dens);
+  float dust = smoothstep(-0.05, 0.28, fbm3(q * 1.7 + w2 * 1.2 + vec2(40.0, 12.0)));
+  float veil = 1.0 - 0.88 * dust * smoothstep(0.05, 0.45, dens);
 
-  vec3 col = srgb(vec3(0.010, 0.010, 0.028)) + gas * light * veil * 0.9;
-  // light scattered around the core, under the gas
-  col += srgb(vec3(0.55, 0.32, 0.50)) * exp(-toCore * 2.6) * 0.10 * (1.0 + warmth) * (1.0 - 0.4 * mood.z);
+  vec3 col = srgb(vec3(0.004, 0.004, 0.014)) + gas * light * veil;
+  // The core: a soft warm-white heart and its halo, always there, breathing very slowly.
+  float coreFade = (1.0 + warmth * 0.6) * (1.0 - 0.45 * mood.z) * (0.92 + 0.08 * sin(t * 0.12));
+  col += srgb(vec3(1.0, 0.95, 0.92)) * exp(-toCore * toCore / 0.00012) * 0.9 * coreFade;
+  col += srgb(vec3(1.0, 0.78, 0.62)) * exp(-toCore * 16.0) * 0.22 * coreFade;
+  col += srgb(vec3(0.95, 0.50, 0.62)) * exp(-toCore * 6.0) * 0.10 * coreFade * (0.5 + 0.5 * veil);
+  col += srgb(vec3(0.50, 0.32, 0.60)) * exp(-toCore * 2.2) * 0.04 * coreFade;
   col += stars(p, cam, t, veil);
 
   // pr-merged: a soft bloom from the core with a faint ring moving outward.
-  float bloom = exp(-toCore * 7.0) * 0.6;
+  float bloom = exp(-toCore * 7.0) * 0.18;
   float ringAt = (toCore - burst.x * 0.16) / 0.07;
   float ring = exp(-ringAt * ringAt) * (1.0 - smoothstep(1.5, 5.0, burst.x)) * exp(-toCore * 3.0);
   col += (srgb(vec3(1.0, 0.78, 0.90)) * bloom + srgb(vec3(0.75, 0.70, 1.0)) * ring * 0.12) * flare;
@@ -178,7 +189,7 @@ void main() {
   }
 
   // a quiet vignette keeps the edges deep
-  col *= 1.0 - 0.35 * smoothstep(0.35, 1.05, length(p * vec2(0.85, 1.1)));
+  col *= 1.0 - 0.5 * smoothstep(0.3, 1.05, length(p * vec2(0.85, 1.1)));
   outColor = finish(col);
 }`;
 
@@ -227,7 +238,7 @@ void main() {
   }
 
   function fit(view) {
-    let scale = Math.min(view.pixelRatio, Math.max(0.75, view.pixelRatio * DETAIL));
+    let scale = Math.min(view.pixelRatio, Math.max(MIN_SCALE, view.pixelRatio * DETAIL));
     const pixels = view.width * view.height * scale * scale;
     if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
     view.canvas.width = Math.max(1, Math.round(view.width * scale));

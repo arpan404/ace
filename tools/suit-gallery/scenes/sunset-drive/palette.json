@@ -1,13 +1,13 @@
 {
   "name": "Sunset Drive",
-  "glass": "rgba(22, 8, 30, 0.64)",
+  "glass": "rgba(22, 8, 30, 0.60)",
   "glassStrong": "rgba(22, 8, 30, 0.72)",
   "edge": "rgba(255, 150, 210, 0.12)",
   "ink": "#F7EEF5",
-  "muted": "rgba(246, 232, 242, 0.74)",
-  "subtle": "rgba(240, 218, 234, 0.52)",
+  "muted": "rgba(246, 232, 242, 0.84)",
+  "subtle": "rgba(240, 218, 234, 0.78)",
   "accent": "#FF6FB5",
   "accentInk": "#220414",
-  "blur": "30px",
+  "blur": "16px",
   "saturate": "1.35"
 }

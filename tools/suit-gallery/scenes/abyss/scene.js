@@ -17,6 +17,8 @@ const swell = (age, rise, hold, fall) =>
 
   /** Backing pixels per device pixel; the browser scales the canvas up smoothly. */
   const DETAIL = 0.375;
+  /** Never fewer backing pixels per CSS pixel than this, even on a 1x display. */
+  const MIN_SCALE = 0.75;
   /** At most this many backing pixels, whatever the window. */
   const MAX_PIXELS = 1_400_000;
   /** Scene seconds of the still frame drawn under Reduce motion. */
@@ -121,11 +123,15 @@ void main() {
   float sunWarm = mood.y;
   float dim = 1.0 - 0.6 * mood.z;
   float s = (p.x + 0.25) / (1.0 + depth * 0.7) + depth * 0.16;
-  float bands = smoothstep(0.05, 0.6, noise(vec2(s * 5.5, t * 0.045)) + 0.35)
-              * (0.5 + 0.5 * smoothstep(-0.3, 0.5, noise(vec2(s * 17.0, t * 0.07 + 4.0))));
-  float shaft = bands * exp(-depth * 2.6) * (0.75 + 0.25 * caustic(vec2(s * 6.0, 0.5), t));
+  // Broad, soft bands only: two slow noise octaves across the shafts, squared for gentle
+  // falloff, and a slow shimmer along them rather than across, so nothing reads as stripes.
+  float spread = noise(vec2(s * 4.2, t * 0.04)) + 0.45 * noise(vec2(s * 8.5 + 3.0, t * 0.06));
+  float bands = smoothstep(-0.3, 0.55, spread);
+  bands *= bands;
+  float shimmer = 0.85 + 0.15 * noise(vec2(s * 2.0, depth * 3.0 - t * 0.2));
+  float shaft = bands * shimmer * exp(-depth * 1.9);
   vec3 shaftCol = mix(srgb(vec3(0.35, 0.75, 0.80)), srgb(vec3(0.95, 0.85, 0.62)), sunWarm * 0.7);
-  col += shaftCol * shaft * 0.16 * (1.0 + 0.9 * sunWarm) * dim;
+  col += shaftCol * shaft * 0.24 * (1.0 + 0.9 * sunWarm) * dim;
 
   // The underside of the surface, a thin bright skin of caustics at the very top.
   float skin = exp(-depth * 16.0);
@@ -238,7 +244,7 @@ void main() {
   }
 
   function fit(view) {
-    let scale = Math.min(view.pixelRatio, Math.max(0.75, view.pixelRatio * DETAIL));
+    let scale = Math.min(view.pixelRatio, Math.max(MIN_SCALE, view.pixelRatio * DETAIL));
     const pixels = view.width * view.height * scale * scale;
     if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
     view.canvas.width = Math.max(1, Math.round(view.width * scale));

@@ -18,10 +18,12 @@ const swell = (age, rise, hold, fall) =>
 
   /** Backing pixels per device pixel; the browser scales the canvas up smoothly. */
   const DETAIL = 0.5;
+  /** Never fewer backing pixels per CSS pixel than this, even on a 1x display. */
+  const MIN_SCALE = 0.75;
   /** At most this many backing pixels, whatever the window. */
   const MAX_PIXELS = 1_400_000;
   /** Scene seconds of the still frame drawn under Reduce motion. */
-  const STILL = 53;
+  const STILL = 90;
   /** How much quicker the scene moves while agents work. */
   const SPEEDUP = 0.35;
 
@@ -188,16 +190,21 @@ float path(float y, float n) {
 // Large drops that gather, then run in slow slides. Returns normal.xy, coverage, trail.
 vec4 runners(vec2 uv, float cols, float seed, float t, float present) {
   vec2 cell = vec2(1.0, 3.0) / cols;
+  // Each row of cells is shifted sideways by its own amount, so drops never line up in
+  // columns down the whole pane.
   vec2 q = uv / cell;
+  float row = floor(q.y);
+  q.x += hash(ivec2(int(row), int(seed) * 7 + 3)) * 1.7;
   float column = floor(q.x);
-  q.y += hash(ivec2(int(column), int(seed))) * 5.0;
-  ivec2 id = ivec2(int(column), int(floor(q.y)) + int(seed) * 1000);
+  ivec2 id = ivec2(int(column), int(row) + int(seed) * 1000);
   vec2 f = fract(q) - 0.5;
   float n = hash(id);
   float on = step(hash(id + ivec2(4, 4)), present);
   float phase = fract(t * (0.045 + 0.04 * n) + n * 7.3);
-  float slide = phase - sin(phase * 6.2831853) / 6.2831853; // rests, then slides
-  float y = 0.36 - slide * 0.72;
+  float slide = phase - 0.7 * sin(phase * 6.2831853) / 6.2831853; // rests a little, then slides
+  // each drop gathers at its own height, so resting drops never form a row
+  float start = 0.36 - 0.6 * hash(id + ivec2(9, 31));
+  float y = mix(start, -0.36, slide);
   float r = (0.25 + 0.09 * n) * cell.x;
   vec2 d = vec2((f.x - path(y, n)) * cell.x, (f.y - y) * cell.y);
   d.y *= d.y > 0.0 ? 0.8 : 1.05; // a little heavier at the bottom
@@ -226,7 +233,10 @@ void main() {
   float t = time;
   float heavy = mood.x;
 
-  vec4 run = runners(uv, 11.0, 1.0, t, 0.75);
+  // two interleaved sets, half a cell apart both ways, so resting drops never band by row
+  vec4 runA = runners(uv, 11.0, 1.0, t, 0.42);
+  vec4 runB = runners(uv + vec2(0.5 / 11.0, 1.5 / 11.0), 11.0, 3.0, t * 0.93, 0.42);
+  vec4 run = runA.z >= runB.z ? vec4(runA.xyz, max(runA.w, runB.w)) : vec4(runB.xyz, max(runA.w, runB.w));
   vec4 run2 = runners(uv + vec2(0.043, 0.0), 15.0, 2.0, t * 1.1, heavy * 0.5);
   float trail = max(run.w, run2.w);
   vec3 small = beads(uv, 34.0, 1.0, t, 0.42 + 0.18 * heavy) * (1.0 - trail);
@@ -297,7 +307,7 @@ void main() {
   }
 
   function fit(view) {
-    let scale = Math.min(view.pixelRatio, Math.max(0.75, view.pixelRatio * DETAIL));
+    let scale = Math.min(view.pixelRatio, Math.max(MIN_SCALE, view.pixelRatio * DETAIL));
     const pixels = view.width * view.height * scale * scale;
     if (pixels > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / pixels);
     view.canvas.width = Math.max(1, Math.round(view.width * scale));

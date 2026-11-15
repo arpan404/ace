@@ -23,8 +23,31 @@
   let drawnCount = 0;
   let drawnSince = performance.now();
   let fps = 0;
+  let lastContrast = null;
 
   const post = (message) => frame.contentWindow?.postMessage(message, "*");
+  const samples = new Map();
+  let sampleId = 0;
+
+  /** The scene's canvas as a small grid, read through the runtime's own `sample` message. */
+  function sample() {
+    const { columns, rows } = window.galleryContrast;
+    return new Promise((resolve, reject) => {
+      sampleId += 1;
+      samples.set(sampleId, resolve);
+      post({ type: "sample", id: sampleId, columns, rows });
+      setTimeout(() => samples.delete(sampleId) && reject(new Error("no sample")), 2000);
+    });
+  }
+
+  /** Worst text contrast over the scene as it is now; the least of them shows in the bar. */
+  async function contrast() {
+    const results = window.galleryContrast.report(await sample(), frame);
+    const least = Math.min(...results.map((r) => r.contrast));
+    lastContrast = least;
+    show();
+    return { least, results };
+  }
   const box = () => frame.getBoundingClientRect();
 
   function show() {
@@ -32,6 +55,7 @@
     if (error) parts.push(`error: ${error}`);
     else if (!ready) parts.push("loading");
     else parts.push(reduce ? "still frame" : `${fps.toFixed(0)} fps`);
+    if (lastContrast !== null) parts.push(`text contrast ≥ ${lastContrast.toFixed(1)}`);
     status.textContent = parts.join(" · ");
   }
 
@@ -48,6 +72,7 @@
 
   function load(name) {
     current = name;
+    lastContrast = null;
     ready = false;
     error = "";
     sceneTime = 0;
@@ -82,6 +107,10 @@
       if (reduce) post({ type: "tick", time: sceneTime });
     } else if (data.type === "drawn") {
       drawnCount += 1;
+    } else if (data.type === "sample") {
+      const waiting = samples.get(data.id);
+      samples.delete(data.id);
+      waiting?.(data.pixels);
     } else if (data.type === "error") {
       error = data.message;
       console.error(`scene ${current}: ${data.message}`);
@@ -160,6 +189,7 @@
     reduce: setReduce,
     hide: (value) => document.getElementById("app").classList.toggle("hidden", value),
     state: () => ({ scene: current, ready, error, fps, sceneTime }),
+    contrast,
   };
 
   load(current);
