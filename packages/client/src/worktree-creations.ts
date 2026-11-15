@@ -21,6 +21,9 @@ export type WorktreeRefusal =
   | "settled"
   | "offline";
 
+/** What became of an action: taken, turned down, or not sent while another was on its way. */
+export type WorktreeActResult = "accepted" | WorktreeRefusal;
+
 export interface WorktreeCreationState {
   /** The newest progress the daemon reported; undefined until it has said anything. */
   progress: WorktreeCreationProgress | undefined;
@@ -129,9 +132,13 @@ export class WorktreeCreations {
     };
   }
 
-  /** Cancel, Retry or the local checkout; one at a time per create. */
-  async act(commandId: string, action: WorktreeAction): Promise<void> {
-    if (this.read(commandId).sending) return;
+  /**
+   * Cancel, Retry or the local checkout; one at a time per create. Says what became of it:
+   * `accepted` once the daemon took it, its refusal, or `busy` when another action on the
+   * same create was still on its way, so this one was never sent.
+   */
+  async act(commandId: string, action: WorktreeAction): Promise<WorktreeActResult> {
+    if (this.read(commandId).sending) return "busy";
     this.patch(commandId, { sending: action, refused: undefined });
     let refused: WorktreeRefusal | undefined;
     try {
@@ -146,6 +153,7 @@ export class WorktreeCreations {
       refused = "offline";
     }
     this.patch(commandId, { sending: undefined, refused });
+    return refused ?? "accepted";
   }
 
   close(): void {
