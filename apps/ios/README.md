@@ -128,7 +128,10 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   (`Sources/Spike/PerfProbe.swift`, fixture builds only) as one hidden accessibility value.
   Before measuring, the tests check their workload: the fixture's `/health` must report the
   seed below (`streamed`, `busy`), the app must hold every busy row, and streaming must reach
-  the app's rows while it is measured.
+  the app's rows while it is measured. Time budgets stretch by `ACE_PERF_SLACK` (pass it as
+  `TEST_RUNNER_ACE_PERF_SLACK`, as for `TerminalPerformanceTests` below), so a slower runner
+  can run them; patch, byte and memory budgets don't stretch, since a slower runner sends and
+  holds no more.
 - `AceUITests/DisclosureBudgetUITests`, same scheme, against the fixture's `ios-log-long` thread
   (six finished turns of 80 steps): opening a "Worked for" log the first time and again, a group
   of about 60 steps, a step's diff, a thought, and a thought read in full. The app times each from

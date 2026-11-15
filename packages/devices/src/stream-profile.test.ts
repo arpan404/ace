@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
-import { deviceStreamProfile } from "./stream-profile.ts";
+import { deviceStreamProfile, screenStreamProfile } from "./stream-profile.ts";
 
 const phone = { width: 1290, height: 2796 };
 
-it("every connection asks for 60 fps H.264, under any pressure", () => {
+it("every connection asks for 60 fps H.264, under any pressure (the followed link steps it)", () => {
   for (const connection of ["local", "remote", "relay"] as const)
     for (const pressure of [0, 1, 2, 3])
       expect(deviceStreamProfile(phone, connection, pressure)).toMatchObject({
@@ -12,17 +12,16 @@ it("every connection asks for 60 fps H.264, under any pressure", () => {
       });
 });
 
-it("pressure lowers the bit rate step by step and never below a 60 fps floor", () => {
+it("pressure lowers the bit rate step by step, with no 1 Mbit/s floor of its own", () => {
   for (const connection of ["local", "remote", "relay"] as const) {
     const rates = [0, 1, 2, 3].map(
       (pressure) => deviceStreamProfile(phone, connection, pressure).bitrate,
     );
     for (let index = 1; index < rates.length; index++)
       expect(rates[index]).toBeLessThan(rates[index - 1] ?? 0);
-    expect(rates[3]).toBeGreaterThanOrEqual(1_000_000);
+    expect(rates[3]).toBe(Math.round((rates[0] ?? 0) / 2.5));
   }
   expect(deviceStreamProfile(phone, "remote").bitrate).toBe(8_000_000);
-  expect(deviceStreamProfile(phone, "relay").bitrate).toBe(5_000_000);
 });
 
 it("a phone viewing remotely keeps its full screen size until pressure is at its worst", () => {
@@ -38,12 +37,9 @@ it("a phone viewing remotely keeps its full screen size until pressure is at its
   expect(worst.maxHeight).toBeLessThan(calm.maxHeight);
 });
 
-it("the relay fits a phone screen in a smaller box than a direct remote view", () => {
-  const relay = deviceStreamProfile(phone, "relay");
-  const remote = deviceStreamProfile(phone, "remote");
-  expect(relay.maxWidth).toBeLessThan(remote.maxWidth);
-  expect(relay.maxHeight).toBeLessThan(remote.maxHeight);
-  expect(relay.maxHeight).toBeGreaterThanOrEqual(2048);
+it("a relay view is not fixed at 1080 × 2160 and 5 Mbit/s: it asks as a remote one, and its link decides", () => {
+  expect(deviceStreamProfile(phone, "relay")).toEqual(deviceStreamProfile(phone, "remote"));
+  expect(screenStreamProfile(phone, "relay")).toEqual(screenStreamProfile(phone, "remote"));
 });
 
 it("local pressure keeps the viewer's pixel density", () => {

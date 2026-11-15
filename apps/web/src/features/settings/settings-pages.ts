@@ -4,6 +4,7 @@ import {
   DatabaseIcon,
   DeviceMobileIcon,
   DevicesIcon,
+  FlaskIcon,
   GearSixIcon,
   GitBranchIcon,
   GlobeSimpleIcon,
@@ -33,6 +34,7 @@ export type SettingsPath =
   | "/settings/simulators"
   | "/settings/keyboard"
   | "/settings/advanced"
+  | "/settings/beta"
   | "/settings/storage";
 
 /**
@@ -74,6 +76,7 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/simulators", title: "Simulators", icon: DeviceMobileIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
+  { to: "/settings/beta", title: "Beta", icon: FlaskIcon, group: "machine" },
   { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
   { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },

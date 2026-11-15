@@ -322,10 +322,12 @@ export function screenConnection(
                 if (closed) throw new Error("Screen connection closed");
               },
               link: pictureLinkLimits,
+              ...(operation.link ? { hint: operation.link } : {}),
             });
             view = opened;
             const follow = new LinkFollow({
-              rate: () => opened.rate(),
+              link: () => opened.link(),
+              now,
               apply: async (settings) => {
                 const result = await manager.configureStream(sessionId, settings);
                 if (result.codec === "h264" || settings.codec !== "h264") {

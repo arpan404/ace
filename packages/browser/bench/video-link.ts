@@ -191,7 +191,14 @@ try {
     threadId: "bench",
     requestId: "phone-subscribe",
     binaryFrames: true,
-    viewport: pane,
+    // A phone on 3G says so, as the web client does from `navigator.connection` (K3): it
+    // starts the viewer low. The default profile sends no hint.
+    viewport: threeG
+      ? {
+          ...pane,
+          link: { effectiveType: "3g", downlinkKbps: threeG.downKbps, rttMs: threeG.rttMs },
+        }
+      : pane,
     // What a current web client offers (apps/web lib/video/codecs.ts), HEVC first.
     video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
   });

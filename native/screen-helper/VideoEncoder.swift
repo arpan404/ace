@@ -91,7 +91,9 @@ final class VideoEncoder {
     /// keyframe, so a live view can follow its link. A capped refine frame keeps its own rate.
     func retune(bitrate: Int) {
         self.bitrate = bitrate
-        if let session, appliedQP == nil {
+        guard let session else { return }
+        limitDataRate(session)
+        if appliedQP == nil {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
         }
     }
@@ -100,8 +102,14 @@ final class VideoEncoder {
         if let session {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: fps as CFNumber)
+            limitDataRate(session)
         }
         requestKeyframe()
+    }
+    /// Keyframes, refines included, stay within half a second of the bitrate (ADR 0149 §3).
+    private func limitDataRate(_ session: VTCompressionSession) {
+        let limits = keyframeDataRateLimits(bitrate: bitrate).map { $0 as CFNumber } as CFArray
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
     }
     private func prepare(_ image: CVPixelBuffer) -> Bool {
         let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image)

@@ -1,0 +1,194 @@
+[
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": null,
+      "step": null
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 8000000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 30000000,
+      "step": null
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 8000000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 3100000,
+      "step": null
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 3000000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 420000,
+      "step": null
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 400000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 90000,
+      "step": null
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 150000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 999999,
+      "step": {
+        "scale": 1,
+        "fps": 15
+      }
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 15,
+      "bitrate": 950000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 400000,
+      "step": {
+        "scale": 0.5,
+        "fps": 5
+      }
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 768,
+      "maxHeight": 1472,
+      "fps": 5,
+      "bitrate": 400000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 400000,
+      "step": {
+        "scale": 0.01,
+        "fps": 5
+      }
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 64,
+      "maxHeight": 64,
+      "fps": 5,
+      "bitrate": 400000
+    }
+  },
+  {
+    "input": {
+      "asked": {
+        "codec": "h264",
+        "maxWidth": 1440,
+        "maxHeight": 2880,
+        "fps": 60,
+        "bitrate": 8000000
+      },
+      "rate": 16000000,
+      "step": {
+        "scale": 1,
+        "fps": 60
+      }
+    },
+    "output": {
+      "codec": "h264",
+      "maxWidth": 1440,
+      "maxHeight": 2880,
+      "fps": 60,
+      "bitrate": 8000000
+    }
+  }
+]

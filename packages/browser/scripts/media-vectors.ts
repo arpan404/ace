@@ -9,7 +9,9 @@ import { PictureScale } from "../src/video-scale.ts";
 import { planVideo } from "../src/video-policy.ts";
 import { QuantizerControl } from "../src/quantizer-control.ts";
 import { writeVectors } from "./media-vector-harness.ts";
-import { fanoutEdges, linkRateEdges } from "./media-pacing-vectors.ts";
+import { fanoutEdges, fanoutLink, linkHints, linkRateEdges } from "./media-pacing-vectors.ts";
+import { linkCaps, planSteps, planTies, quantizerCap, scaleSteps } from "./media-step-vectors.ts";
+import { linkFloor } from "../src/link-rate.ts";
 export function mediaVectors() {
   const gate = new VideoChunkGate();
   const offers = [
@@ -30,7 +32,7 @@ export function mediaVectors() {
     [4999, 16000000],
     [5000, 16000000],
   ];
-  const rate = new LinkRate({ min: 500000, max: 16000000, initial: 1000000 });
+  const rate = new LinkRate({ min: linkFloor, max: 16000000, initial: 1000000 });
   const rateSteps = Array.from({ length: 60 }, (_, i) => ({
     at: i * 250,
     rtt: i < 20 ? 20 : 300,
@@ -47,6 +49,7 @@ export function mediaVectors() {
     keyframe: (encode) => events.push({ keyframe: encode }),
     playing: (id, playing) => events.push({ id, playing }),
     dropped: (id) => events.push({ dropped: id }),
+    now: () => 0,
   });
   fanout.add("v", {
     send: (chunk) => {
@@ -62,7 +65,7 @@ export function mediaVectors() {
   }));
   for (const chunk of fanoutSteps) {
     fanout.publish("e", chunk);
-    if (chunk.sequence === 5) fanout.acknowledge("v", 4);
+    if (chunk.sequence === 5) fanout.acknowledgeThrough("v", 4);
   }
   const source = { width: 1920, height: 1080, scale: 2, codecs: ["avc1.42001f", "vp9"] };
   const viewers = Array.from({ length: 7 }, (_, i) => ({
@@ -122,10 +125,11 @@ export function mediaVectors() {
       input: { key, accept },
       output: gate.offer("c", "e", key, () => accept),
     })),
-    scale: scales.map(([now, link]) => ({
-      input: { now, link, pixels: 1920 * 1080, fps: 60 },
-      output: scale.update(link ?? 0, 1920 * 1080, 60, now ?? 0),
-    })),
+    scale: scales.map(([now, link]) => {
+      const input = { now: now ?? 0, link: link ?? 0, pixels: 1920 * 1080, fps: 60, probing: true };
+      return { input, output: scale.update(input) };
+    }),
+    "scale-steps": scaleSteps(),
     "link-rate": rateSteps.map((input, i) => {
       rate.sent(i, input.bytes, input.at);
       rate.acknowledged(i, input.at + input.rtt);
@@ -137,10 +141,16 @@ export function mediaVectors() {
       q.observe(input.bytes, input.key);
       return { input, output: { next, settled: input.key ? q.settled() : undefined } };
     }),
+    "quantizer-cap": quantizerCap(),
     fanout: { steps: fanoutSteps, ack: { after: 5, sequence: 4 }, events },
     "fanout-edges": fanoutEdges(),
+    "fanout-link": fanoutLink(),
     "link-rate-edges": linkRateEdges(),
+    "link-hint": linkHints(),
+    "link-capped": linkCaps(),
     plan: { input: { source, viewers }, output: planVideo(source, viewers) },
+    "plan-steps": planSteps(),
+    "plan-ties": planTies(),
   };
 }
 if (import.meta.main) writeVectors(mediaVectors());
