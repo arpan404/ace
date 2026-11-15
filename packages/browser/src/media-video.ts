@@ -78,28 +78,30 @@ const holdMs = 1_000;
 let captures = 0;
 
 /**
- * The daemon's own encodes' ids start here, above ace-media's (from 0, D1), so the two plans can
- * run side by side in one capture.
+ * Encode ids in one capture come from two disjoint ranges, so the two plans can run side by side
+ * and neither ever takes an id of the other's: ace-media's are [1, 2^20) (D1), the daemon's own
+ * are [2^20, 2^31).
  */
 const daemonIds = 2 ** 20;
+const mediaIds = { first: 1, end: daemonIds };
 /** The key prefix of an encode ace-media planned, which keeps ace-media's own id. */
 const mediaKey = "media/";
 
 /** Dropped encodes' keys kept for their late units: far more than are ever in flight. */
 const keptKeys = 4096;
-/** The last id the daemon's encodes may take: frames carry encode ids as u32. */
-const lastId = 0xffff_ffff;
+/** The last id the daemon's encodes may take. */
+const lastId = 2 ** 31 - 1;
 
 /**
  * The daemon's next encode id: ids only grow, so one is never given to another encode while
- * units of the first may still be queued anywhere. Past the end of the u32 space (some 4 × 10^9
+ * units of the first may still be queued anywhere. Past the end of its range (some 2 × 10^9
  * encodes later) they wrap back to `daemonIds`, skipping the ids running now.
  */
 export function nextEncodeId(
   next: number,
   running: ReadonlySet<number>,
 ): { id: number; next: number } {
-  let id = next;
+  let id = next >= daemonIds && next <= lastId ? next : daemonIds;
   for (let tried = 0; running.has(id) && tried <= running.size; tried++)
     id = id >= lastId ? daemonIds : id + 1;
   return { id, next: id >= lastId ? daemonIds : id + 1 };
@@ -313,7 +315,11 @@ async function streamed(
     pathEnded: (path, interrupted) => merge.ended(path, interrupted),
     // ace-media's plan for the views it delivers: the capture runs it, under ace-media's ids.
     want: (encodes) => {
-      const planned: VideoEncode[] = encodes.map((encode) => {
+      // An id outside ace-media's range is never pinned: it could be a daemon encode's.
+      const inRange = encodes.filter(
+        (encode) => encode.id >= mediaIds.first && encode.id < mediaIds.end,
+      );
+      const planned: VideoEncode[] = inRange.map((encode) => {
         const key = `${mediaKey}${encode.id}/${encode.codec}/${encode.width}x${encode.height}`;
         encodeIds.pin(key, encode.id);
         return {

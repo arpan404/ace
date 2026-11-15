@@ -328,16 +328,16 @@ it("ace-media's plan becomes the capture's, under ace-media's own ids", async ()
   });
   const producer = added[0]?.producer;
   producer?.want?.([
-    { id: 0, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
   ]);
   const wanted = wants[0]?.[0];
   expect(wanted).toMatchObject({ codec: "avc1.42E033", width: 320, height: 200, fps: 15 });
   if (!wanted) return;
-  // When the capture runs it beside the daemon's own, it is stamped with ace-media's id 0.
+  // When the capture runs it beside the daemon's own, it is stamped with ace-media's id 1.
   handle.encodes([spec("avc1/640"), wanted]);
   const ids = captures[0]?.encodes[0]?.map((s) => s.id);
-  expect(ids?.[1]).toBe(0);
-  expect(ids?.[0]).not.toBe(0);
+  expect(ids?.[1]).toBe(1);
+  expect(ids?.[0]).not.toBe(1);
 });
 
 it("an encode id is never given to another encode while the capture lives", async () => {
@@ -358,12 +358,34 @@ it("an encode id is never given to another encode while the capture lives", asyn
   expect(byId.size).toBe(10_000);
 });
 
-it("at the end of the id space, ids wrap back past the ones still running", () => {
-  const top = 0xffff_ffff;
+it("the daemon's ids stay in [2^20, 2^31) and wrap back past the ones still running", () => {
+  const top = 2 ** 31 - 1;
   expect(nextEncodeId(top, new Set())).toEqual({ id: top, next: 2 ** 20 });
   // Past the end: back to the base, skipping ids running now.
   expect(nextEncodeId(2 ** 20, new Set([2 ** 20, 2 ** 20 + 1]))).toEqual({
     id: 2 ** 20 + 2,
     next: 2 ** 20 + 3,
   });
+  // A next id outside the range starts it over.
+  expect(nextEncodeId(2 ** 31, new Set()).id).toBe(2 ** 20);
+});
+
+it("an id ace-media gives outside its range [1, 2^20) never takes over a daemon encode's", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host } = fakeHost("tab", true);
+  const wants: VideoEncode[][] = [];
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+    ...events().sink,
+    want: (encodes) => void wants.push(encodes),
+  });
+  handle.encodes([spec("avc1/640")]);
+  const producer = added[0]?.producer;
+  const encode = { codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 };
+  producer?.want?.([
+    { id: 2 ** 20, ...encode },
+    { id: 0, ...encode },
+    { id: 2 ** 20 - 1, ...encode },
+  ]);
+  // Only the id in ace-media's range is planned.
+  expect(wants[0]?.map((w) => w.key)).toEqual([`media/${2 ** 20 - 1}/avc1.42E033/320x200`]);
 });

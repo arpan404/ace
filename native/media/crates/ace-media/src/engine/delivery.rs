@@ -872,17 +872,15 @@ impl Delivery {
         }
         let mut wanted = Vec::with_capacity(plan.encodes.len());
         for encode in &plan.encodes {
-            // A new encode takes the next id: ids only grow (a source's first is 0), so none is
+            // A new encode takes the next id: ids only grow (a source's first is 1), so none is
             // reused while a dropped encode's units may still be on the way. They wrap only at
-            // the end of the u32 space, past ids in use.
+            // the end of ace-media's range, past ids in use.
             let id = match facts.ids.get(&encode.key) {
                 Some(id) => *id,
                 None => {
-                    let mut id = facts.next_id;
-                    while facts.ids.values().any(|v| *v == id) {
-                        id = id.wrapping_add(1);
-                    }
-                    facts.next_id = id.wrapping_add(1);
+                    let (id, next) =
+                        next_media_id(facts.next_id, |id| facts.ids.values().any(|v| *v == id));
+                    facts.next_id = next;
                     facts.ids.insert(encode.key.clone(), id);
                     id
                 }
@@ -1038,6 +1036,35 @@ fn changed(old: &[EncodeSpec], new: &[EncodeSpec]) -> bool {
                 || a.fps != b.fps
                 || (f64::from(a.bitrate) - f64::from(b.bitrate)).abs() > 0.2 * f64::from(a.bitrate)
         })
+}
+
+/// ace-media's encode ids: [1, 2^20). 0 is what a producer that ignores the plan stamps, and the
+/// daemon's own encodes in a shared capture take [2^20, 2^31), so the two never meet.
+const MEDIA_IDS: std::ops::Range<u32> = 1..1 << 20;
+
+/// The next encode id from `next`, skipping ids in use, and the one after it; at the end of the
+/// range both wrap back to its start.
+pub(crate) fn next_media_id(next: u32, in_use: impl Fn(u32) -> bool) -> (u32, u32) {
+    let after = |id: u32| {
+        if id + 1 < MEDIA_IDS.end {
+            id + 1
+        } else {
+            MEDIA_IDS.start
+        }
+    };
+    let mut id = if MEDIA_IDS.contains(&next) {
+        next
+    } else {
+        MEDIA_IDS.start
+    };
+    // Bounded: a source never has a range's worth of encodes in use.
+    for _ in MEDIA_IDS {
+        if !in_use(id) {
+            break;
+        }
+        id = after(id);
+    }
+    (id, after(id))
 }
 
 /// The encode a view takes: its planned one while the producer sends it, else the produced encode

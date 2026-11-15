@@ -2,7 +2,7 @@
 //! Delivery through the engine: what a view's connection gets, what the producer is asked
 //! for, and what pausing and the main session's round trip change.
 use super::*;
-use crate::engine::delivery::{MediaOut, VIDEO_SHARE, VIDEO_SHARE_CUT};
+use crate::engine::delivery::{MediaOut, VIDEO_SHARE, VIDEO_SHARE_CUT, next_media_id};
 use media_core::envelope::Assembler;
 use media_core::headers::decode_picture;
 use media_wire::control::EncodeSpec;
@@ -602,4 +602,28 @@ fn a_new_encode_never_takes_an_id_whose_units_may_still_be_on_the_way() {
     };
     // Units of the old encode may still be queued at the producer: its successor gets another.
     assert_ne!(after[0].id, before[0].id);
+}
+
+#[test]
+fn ace_medias_encode_ids_stay_in_1_to_2_pow_20_never_the_daemons() {
+    let end = 1 << 20;
+    // Every id a plan gives, from a source's first: 0 stays unplanned (a producer that ignores
+    // the plan stamps it), and 2^20 up are the daemon's.
+    let mut engine = engine();
+    open_tab(&mut engine, "s1", 1, 3);
+    hello(&mut engine, 1, 3);
+    ticket(&mut engine, CONNECTION, owner("phone", pairing(1)), 1, 9);
+    assert!(engine.claim_ticket(&[9; 32], NOW).is_some());
+    let mut effects = open_view(&mut engine, "v1", 2);
+    effects.extend(ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW));
+    let ids: Vec<u32> = wants(&effects).iter().flatten().map(|e| e.id).collect();
+    assert!(!ids.is_empty());
+    assert!(ids.iter().all(|id| (1..end).contains(id)), "{ids:?}");
+    // The last id in range, then back to the first, past the ones in use.
+    assert_eq!(next_media_id(end - 1, |_| false), (end - 1, 1));
+    assert_eq!(next_media_id(1, |id| id < 4), (4, 5));
+    // A next id outside the range starts it over.
+    assert_eq!(next_media_id(0, |_| false), (1, 2));
+    assert_eq!(next_media_id(end, |_| false), (1, 2));
+    assert_eq!(next_media_id(u32::MAX, |id| id == 1), (2, 3));
 }
