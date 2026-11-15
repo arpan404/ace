@@ -84,10 +84,10 @@ function paintGlow() {
   const paint = glow.getContext("2d");
   if (!paint) return;
   const halo = paint.createRadialGradient(32, 32, 0, 32, 32, 32);
-  halo.addColorStop(0, "rgba(255, 246, 200, 1)");
-  halo.addColorStop(0.08, "rgba(255, 236, 160, 0.95)");
-  halo.addColorStop(0.16, "rgba(255, 226, 140, 0.5)");
-  halo.addColorStop(0.45, "rgba(214, 220, 110, 0.18)");
+  halo.addColorStop(0, "rgba(255, 248, 210, 1)");
+  halo.addColorStop(0.1, "rgba(255, 240, 170, 1)");
+  halo.addColorStop(0.22, "rgba(255, 226, 140, 0.6)");
+  halo.addColorStop(0.5, "rgba(214, 220, 110, 0.22)");
   halo.addColorStop(1, "rgba(214, 220, 110, 0)");
   paint.fillStyle = halo;
   paint.fillRect(0, 0, 64, 64);
@@ -95,7 +95,7 @@ function paintGlow() {
 
 function firefly(x, y, s, bright) {
   if (!glow) return;
-  const r = 14 * s;
+  const r = 16 * s;
   ctx.globalAlpha = Math.min(1, bright);
   ctx.drawImage(glow, x - r, y - r, r * 2, r * 2);
 }
