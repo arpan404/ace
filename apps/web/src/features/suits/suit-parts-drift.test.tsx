@@ -328,7 +328,38 @@ test("the side panel's tabs name their tab, body, toolbar, rows, diffs and cards
   expect(tabs.map((tab) => tab.getAttribute("data-variant"))).toEqual(["changes"]);
 });
 
+
+/** Drawn on the Code review pages, walked by features/forge-pages/forge-suit-parts.test.tsx. */
+const codeReviewPages = [
+  "page",
+  "page-header",
+  "page-title",
+  "page-toolbar",
+  "page-body",
+  "page-section",
+  "list",
+  "list-row",
+  "list-group",
+  "card",
+  "filter-bar",
+  "search-field",
+  "avatar",
+  "label-chip",
+  "pr-header",
+  "pr-row",
+  "issue-row",
+  "review-comment",
+  "review-thread",
+  "check-row",
+  "commit-row",
+  "diff-file",
+  "timeline-item",
+  "branch-chip",
+  "merge-box",
+] as const;
+
 const coverage = [
+  codeReviewPages,
   workingThread,
   settledThread,
   approvalScreen,

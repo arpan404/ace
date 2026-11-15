@@ -12,6 +12,7 @@
     "apps/web/src/features/thread/audit-lifecycle.test.tsx": "TODO cleanup (18.4s in the 2026-10 timing run)",
     "apps/web/src/features/thread/transcript-live-state.test.tsx": "TODO cleanup (18.2s in the 2026-10 timing run)",
     "apps/web/src/features/search/search.test.tsx": "TODO cleanup (17.9s in the 2026-10 timing run)",
+    "apps/web/src/features/forge-pages/forge-suit-parts.test.tsx": "Renders all eight Code review pages for the Suit parts contract (about 18s under load on 2026-11-14)",
     "apps/web/src/features/forge/browser.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",
     "apps/web/src/features/projects/edit-project.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",
     "apps/web/src/features/home/new-thread/preparations.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",

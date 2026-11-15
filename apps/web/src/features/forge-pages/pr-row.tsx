@@ -60,6 +60,8 @@ export function PrRow(props: {
       forge={row.ref.repository.forge}
       selected={props.selected}
       last={props.last}
+      part="pr-row"
+      variant={row.state}
       onNewThread={() =>
         void navigate({ to: "/new", search: { project: props.project, pullRequest: row.url } })
       }

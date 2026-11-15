@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { WorkHeading } from "@/components/work-heading.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { readFailureText, useRepoPrOptions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -53,8 +54,13 @@ export function NewPullRequestPage(props: {
   const [details, setDetails] = useState<PrDetailsDraft>(noDetails);
   return (
     <Screen title="New pull request" crumb={choice.name(project)}>
-      <article aria-label="New pull request" className="h-full overflow-y-auto">
-        <div className={`${readable} pt-6 pb-16`}>
+      <article
+        {...part("page", undefined, "new")}
+        data-page="pull"
+        aria-label="New pull request"
+        className="h-full overflow-y-auto"
+      >
+        <div {...part("page-body")} className={`${readable} pt-6 pb-16`}>
           {context.data ? (
             <NewPrForm
               key={`${context.data.base.repository.name}:${props.head ?? ""}`}

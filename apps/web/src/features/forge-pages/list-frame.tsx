@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useRememberList } from "./last-list.ts";
 import { useListScroll } from "./list-scroll.ts";
 
@@ -41,11 +42,17 @@ export function ListFrame(props: {
   return (
     <div
       ref={ref}
+      {...part("page")}
+      data-page={props.kind}
       className={cn("@container/page flex h-full flex-col overflow-y-auto", forgeGutter)}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >
-      <div className={cn(pageColumn, "flex-1 px-(--forge-gutter) pt-4 pb-8")}>
+      <div
+        {...part("page-body")}
+        className={cn(pageColumn, "flex-1 px-(--forge-gutter) pt-4 pb-8")}
+      >
         <div
+          {...part("page-toolbar")}
           role="toolbar"
           aria-label={barLabels[props.kind]}
           className="@container/bar flex min-w-0 flex-wrap items-center gap-2"
@@ -56,6 +63,7 @@ export function ListFrame(props: {
         <div className="flex min-w-0 items-start gap-6 pt-4">
           {props.side && (
             <aside
+              {...part("page-section", undefined, "filters")}
               aria-label="Notification filters"
               className="sticky top-4 hidden w-52 shrink-0 @min-[52rem]/page:block"
             >
@@ -63,8 +71,11 @@ export function ListFrame(props: {
             </aside>
           )}
           <div className="min-w-0 flex-1">
-            <section className="rounded-lg border border-border">
-              <div className="sticky top-0 z-[2] flex min-h-12 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg border-b border-border bg-muted px-2 py-1.5">
+            <section {...part("card")} className="rounded-lg border border-border">
+              <div
+                {...part("filter-bar")}
+                className="sticky top-0 z-[2] flex min-h-12 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg border-b border-border bg-muted px-2 py-1.5"
+              >
                 {props.header}
               </div>
               {props.children}
@@ -74,7 +85,10 @@ export function ListFrame(props: {
         </div>
       </div>
       {props.footer && (
-        <div className="sticky bottom-0 z-[2] border-t border-border bg-background">
+        <div
+          {...part("page-section", undefined, "footer")}
+          className="sticky bottom-0 z-[2] border-t border-border bg-background"
+        >
           <div className={cn(pageColumn, "px-(--forge-gutter)")}>{props.footer}</div>
         </div>
       )}

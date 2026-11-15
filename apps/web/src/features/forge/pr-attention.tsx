@@ -4,6 +4,7 @@ import { XCircleIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { PrFixingWord } from "./pr-fixing-word.tsx";
@@ -66,7 +67,10 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-2.5 px-3 py-2.5">
+    <li
+      {...part("list-row", item.kind === "check" ? "failed" : "waiting", item.kind)}
+      className="flex items-start gap-2.5 px-3 py-2.5"
+    >
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -235,6 +239,7 @@ export function PrAttention(props: {
   return (
     <ListFrame only={props.only}>
       <ul
+        {...part("list", undefined, "attention")}
         aria-label={
           props.only === "checks" ? "Failing checks" : props.only ? "To address" : undefined
         }

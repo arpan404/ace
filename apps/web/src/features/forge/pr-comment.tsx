@@ -4,6 +4,7 @@ import type { ForgeComment } from "@ace/protocol";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrClampedText } from "./pr-clamped.tsx";
 import { PrCommentMenu, type CommentMenuActions } from "./pr-comment-menu.tsx";
 import { canHide, hiddenReasonOf, hiddenWord } from "@ace/ui-core";
@@ -245,7 +246,11 @@ export function PrComment(props: {
   const controls = useCommentControls(comment, props.quoteTarget);
   const avatar = props.avatar ?? true;
   return (
-    <div className="group/comment min-w-0" data-comment-id={`${comment.kind}:${comment.id}`}>
+    <div
+      {...part("review-comment", undefined, comment.kind)}
+      className="group/comment min-w-0"
+      data-comment-id={`${comment.kind}:${comment.id}`}
+    >
       <div className="flex min-h-6 min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
         {avatar && <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />}
         <span className="truncate font-medium text-foreground">{comment.author}</span>

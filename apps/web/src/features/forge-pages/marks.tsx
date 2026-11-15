@@ -27,6 +27,7 @@ import {
 } from "@ace/ui-core";
 import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** A row's leading mark, 16px, in its tone, with its word for assistive tech. */
 function StateIcon(props: { icon: Icon; tone: string; word: string }) {
@@ -134,6 +135,7 @@ export function LabelPills(props: {
         return (
           <span
             key={name}
+            {...part("label-chip")}
             style={
               color
                 ? {

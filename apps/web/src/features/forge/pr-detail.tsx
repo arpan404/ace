@@ -54,6 +54,7 @@ import { ForgeContentScope } from "./rich/scope.ts";
 import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { PrTabs, type PrTab } from "./pr-tabs.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 export type { PrTab } from "./pr-tabs.tsx";
 
@@ -250,6 +251,7 @@ function PrDetailLoaded(props: {
       <div
         role="presentation"
         data-pr-scroller={props.page ? "" : undefined}
+        {...(props.page ? part("page-body") : {})}
         className={props.page ? "flex min-h-0 flex-1 flex-col overflow-y-auto" : "contents"}
         onKeyDown={onKeyDown}
       >
@@ -269,7 +271,7 @@ function PrDetailLoaded(props: {
                 onRefresh={refresh}
                 onReread={context.reread}
                 header={
-                  <div>
+                  <div {...(props.page ? part("page-header") : {})}>
                     <div className={readable}>
                       {props.page ? (
                         <PrPageHeader
@@ -575,6 +577,11 @@ export function PrDetail(props: {
     : undefined;
   return (
     <article
+      // On a page, the page: a pull request's, or its Code tab's review.
+      {...(props.page ? part("page", undefined, detail?.status.state) : {})}
+      data-page={
+        props.page ? (prWorkspaceTab(props.tab) === "code" ? "review" : "pull") : undefined
+      }
       aria-label={`Pull request #${props.number}`}
       className={cn(
         "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",
