@@ -162,6 +162,19 @@ test("an answer streams while its turn runs and stops when the turn ends", async
 });
 
 const idle = () => {};
+/** Whether any answer the phone shows says Writing. */
+const writing = () =>
+  rows("thread.block").some((row) => row.kind === "message" && row.writing === "Writing");
+/**
+ * Whether, since frame `from`, a streaming answer was redrawn without Writing. The phone may
+ * reconnect on its own at once, so the quiet row can already be replaced when the test looks.
+ */
+const wentQuiet = (from: number) =>
+  native.frames.slice(from).some((frame) => {
+    const row =
+      frame.type === "thread.block" ? (frame.row as Record<string, unknown> | null) : null;
+    return row?.kind === "message" && row.streaming === true && row.writing === undefined;
+  });
 
 /** A thread whose answer is still arriving, open on a fresh phone. */
 async function streamingAnswer(id: string) {
@@ -178,22 +191,52 @@ async function streamingAnswer(id: string) {
 
 test("a streaming answer stops saying Writing while the phone is disconnected and says it again once back", async () => {
   const { fake, client } = await streamingAnswer("away");
+  const from = native.frames.length;
   fake.disconnectAll();
   // Behind the daemon, the phone can't tell the answer is still arriving.
-  await until(() => answerBlock() && !answerBlock()?.writing, "Writing gone while away");
+  await until(() => wentQuiet(from), "Writing gone while away");
   client.reconnectNow();
   await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
 });
 
 test("an answer whose turn finished while the phone was away no longer says Writing once back", async () => {
   const { fake, client } = await streamingAnswer("ended");
+  const from = native.frames.length;
   fake.disconnectAll();
-  await until(() => answerBlock() && !answerBlock()?.writing, "Writing gone while away");
+  await until(() => wentQuiet(from), "Writing gone while away");
   fake.apply("ended", [facts.endTurn("root")]);
   client.reconnectNow();
   await until(() => answerBlock()?.streaming === false, "the answer settled after reconnect");
   expect(answerBlock()?.writing).toBeUndefined();
 });
+
+test("a reconnect redraws only the answer still arriving, never the settled ones", async () => {
+  const fake = start("settled-away");
+  fake.apply("settled-away", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "first", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "settled-away");
+  await until(() => answerBlock()?.writing === "Writing", "the first answer writing");
+  const settled = latest("thread.block");
+  if (typeof settled?.id !== "string") throw new Error("no first answer block");
+  // The first answer finishes; the turn goes on into a second.
+  fake.apply("settled-away", [
+    facts.finish("root", "first"),
+    facts.message("root", "second", "assistant", "Still", false),
+  ]);
+  await until(writing, "the second answer writing");
+  const from = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(from), "Writing gone while away");
+  client.reconnectNow();
+  await until(writing, "Writing back once current");
+  const redrawn = native.frames
+    .slice(from)
+    .filter((frame) => frame.type === "thread.block" && frame.id === settled.id);
+  expect(redrawn).toEqual([]);
+}, 20_000);
 
 test("an answer restored from the last launch says Writing only once the daemon confirms it", async () => {
   const kept = new Map<string, unknown>();
