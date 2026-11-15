@@ -48,13 +48,15 @@ calls are recorded in the ledger under the bot's conversation.
 ## Spending caps
 
 Each bot may have a daily cap and a monthly cap, either or both, beside the service's daily cap
-(`SPADE_DAILY_CAP_USD`). A day runs from midnight to midnight and a month from the first, both in
+(`SPADE_DAILY_CAP_USD`, unset by default since ADR 0158: the person's caps per bot are the money
+boundary, and a silent $5 for every bot together stopped one frontier-model bot within hours). A day runs from midnight to midnight and a month from the first, both in
 the person's time zone (`PUT /v1/oversight {time_zone}`; the machine's until set).
 
 A bot is **at its cap** when its spend this day (or month) is at least that cap. Then:
 
 - No model call starts for it: its open turn ends before its next step (`reply_finished` with no
-  text), and research and reviews stop.
+  text), and research and reviews stop. A task it was working on waits for the reset
+  (`task_parked`) and carries on then, or as soon as the cap is raised ([autonomy.md](autonomy.md)).
 - `cap_reached` is stored in its conversation once per day or month the cap is first hit; the
   chat shows it as one bubble of the bot's.
 - The person's messages answer `402 {"error": "Research is at its daily cap of $1.00 until

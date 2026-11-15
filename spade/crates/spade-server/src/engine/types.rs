@@ -61,12 +61,16 @@ impl Default for Limits {
     }
 }
 
+/// The service cap when `SPADE_DAILY_CAP_USD` is unset: no cap.
+pub const NO_SERVICE_CAP: u64 = u64::MAX;
+
 pub struct Setup {
     pub store: Store,
     pub models: Models,
     pub tools: Toolbox,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
+    /// The service's daily cap for every bot together; [`NO_SERVICE_CAP`] when none is set.
     pub daily_cap_micros: u64,
     /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
@@ -273,4 +277,6 @@ pub struct Activity {
     pub task: Option<spade_core::task::State>,
     /// The open reply is a step Spade started itself for the task.
     pub continued: bool,
+    /// Why the bot's task waits for a cap's reset (ADR 0158); the bot reads as waiting meanwhile.
+    pub parked: Option<String>,
 }

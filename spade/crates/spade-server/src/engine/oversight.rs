@@ -212,7 +212,8 @@ impl Engine {
             .map_or_else(|| "UTC".to_owned(), str::to_owned);
         Ok(json!({
             "time_zone": zone,
-            "daily_cap_micros": self.daily_cap_micros,
+            "daily_cap_micros": (self.daily_cap_micros != super::NO_SERVICE_CAP)
+                .then_some(self.daily_cap_micros),
             "today_micros": today,
             "month_micros": month,
             "review_default": global.review_default,

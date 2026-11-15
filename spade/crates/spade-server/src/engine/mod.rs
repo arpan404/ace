@@ -26,6 +26,7 @@ mod media;
 mod memory;
 mod outbox;
 mod oversight;
+mod park;
 mod plugin_hooks;
 mod questions;
 mod retry;
@@ -60,7 +61,7 @@ pub use roster::{LastMessage, State};
 pub(crate) use search::Native;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
-    CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
+    CompactError, Frame, Limits, NO_SERVICE_CAP, SendError, Setup, Snapshot, Subscription,
 };
 
 use std::collections::HashMap;
@@ -371,11 +372,17 @@ impl Engine {
         // copies the history the turn holds.
         let events = self.read_split(id, false)?;
         let transcript = Transcript::fold(events.iter());
+        let parked = spade_core::park::parked(events.iter()).map(|p| p.why);
+        let state = match State::of(&transcript) {
+            // Not done: its task waits for a cap's reset (ADR 0158).
+            State::Idle if parked.is_some() => State::Waiting,
+            state => state,
+        };
         let activity = Activity {
             answering: transcript.open_reply().is_some(),
             jobs: transcript.jobs.len(),
             waiting_on_you: transcript.waiting_on_you(),
-            state: State::of(&transcript),
+            state,
             last_message: roster::last_message_at(events.len(), |at| events.at(at)),
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
@@ -384,6 +391,7 @@ impl Engine {
             task: spade_core::task::state_in(events.iter()),
             continued: transcript.open_reply().is_some()
                 && autonomy::continued(events.len(), |at| events.at(at).0),
+            parked,
         };
         self.activity
             .lock()
@@ -435,7 +443,13 @@ impl Engine {
     pub(super) fn status_for(&self, id: &str, activity: &Activity) -> Option<String> {
         match activity.state {
             State::Idle => None,
-            State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
+            State::Waiting => Some(
+                activity
+                    .parked
+                    .clone()
+                    .filter(|_| !activity.waiting_on_you)
+                    .unwrap_or_else(|| roster::WAITING_FOR_YOU.to_owned()),
+            ),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)

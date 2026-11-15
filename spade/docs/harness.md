@@ -26,6 +26,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `job_finished`                   | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`       | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
+| `task_parked`                    | `reason`, `until_ms?`, `why`                                             | The bot's working task waits for a cap's reset; planned again at `until_ms` or when the cap is raised ([autonomy.md](autonomy.md))                                                 |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -71,9 +72,11 @@ turn's total.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).
-  The person's controls are Stop and their spending caps: past the daily cap the turn ends with
-  `reply_failed` ("today's spending cap is used up"), and a bot at its own daily or monthly cap starts no model call: the turn closes and the bot
-  says so once ([oversight.md](oversight.md)). With the model review on, a write the gate would run
+  The person's controls are Stop and their spending caps: past the service's daily cap (unset by
+  default) the turn ends with `reply_failed` ("today's spending cap is used up"), and a bot at its
+  own daily or monthly cap starts no model call: the turn closes and the bot says so once
+  ([oversight.md](oversight.md)). Either way a task that was working waits for the cap's reset
+  (`task_parked`) and carries on then ([autonomy.md](autonomy.md)). With the model review on, a write the gate would run
   is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).

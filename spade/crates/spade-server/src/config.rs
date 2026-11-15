@@ -13,8 +13,9 @@ pub struct Config {
     pub listen: SocketAddr,
     /// `SPADE_DATA_DIR`: the database, token, lock, `server.json`, `models.json`, `search.json`.
     pub data_dir: PathBuf,
-    /// `SPADE_DAILY_CAP_USD`: a day's spending cap in dollars.
-    pub daily_cap_usd: f64,
+    /// `SPADE_DAILY_CAP_USD`: a day's spending cap in dollars for every bot together. Unset by
+    /// default: the person's own caps per bot are the money boundary (ADR 0158).
+    pub daily_cap_usd: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,13 +55,16 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "data".to_owned()),
         );
-        let cap = lookup("SPADE_DAILY_CAP_USD").unwrap_or_else(|| "5".to_owned());
-        let daily_cap_usd = cap
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .ok_or(ConfigError::InvalidCap(cap))?;
+        let daily_cap_usd = match lookup("SPADE_DAILY_CAP_USD").filter(|v| !v.trim().is_empty()) {
+            None => None,
+            Some(cap) => Some(
+                cap.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                    .ok_or(ConfigError::InvalidCap(cap))?,
+            ),
+        };
         Ok(Self {
             listen,
             data_dir,
@@ -101,15 +105,15 @@ mod tests {
     }
 
     #[test]
-    fn data_lives_in_data_and_the_cap_is_five_dollars_unless_set() {
+    fn data_lives_in_data_and_there_is_no_service_cap_unless_set() {
         let config = Config::from_env(env(&[])).map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(config, Ok((PathBuf::from("data"), 5.0)));
+        assert_eq!(config, Ok((PathBuf::from("data"), None)));
         let set = Config::from_env(env(&[
             ("SPADE_DATA_DIR", "/var/spade"),
             ("SPADE_DAILY_CAP_USD", "0.5"),
         ]))
         .map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(set, Ok((PathBuf::from("/var/spade"), 0.5)));
+        assert_eq!(set, Ok((PathBuf::from("/var/spade"), Some(0.5))));
     }
 
     #[test]

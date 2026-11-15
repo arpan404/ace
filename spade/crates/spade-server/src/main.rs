@@ -360,7 +360,10 @@ async fn run() -> Result<(), Failure> {
         tools,
         clock: Arc::new(SystemClock),
         ids: Arc::new(SystemIds),
-        daily_cap_micros: spade_core::spending::usd_to_micros(config.daily_cap_usd),
+        daily_cap_micros: config.daily_cap_usd.map_or(
+            spade_server::engine::NO_SERVICE_CAP,
+            spade_core::spending::usd_to_micros,
+        ),
         utc_offset_seconds: local_offset_seconds(),
         limits: Limits::default(),
         skills,
