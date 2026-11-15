@@ -5,6 +5,7 @@ import {
   DotsThreeIcon,
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
+import { RegionScene } from "@/features/suits/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
@@ -16,6 +17,8 @@ import { usePhone } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { createPortal } from "react-dom";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
@@ -170,37 +173,56 @@ export function AppHeader(
   const titleMenu = props.menu && !phone && !folded;
   // A phone's ⋯ also lists the panel's tools (a thread's Changes); the toggle stays visible.
   const tools = phone && props.trailing;
-  const titleHidden = !!props.namedByPanel && frame.sidebarShown && !frame.sheet && !phone;
+  // A Suit's header: `minimal` keeps the title and the controls only; `hidden` shows the title
+  // in the sidebar's top row while the sidebar is beside the column (the h1 stays here for
+  // screen readers and route focus), and falls back to `minimal` while it isn't.
+  const suitHeader = useSuitLayout()?.header ?? "bar";
+  const titleSlot =
+    suitHeader === "hidden" && frame.sidebarShown && !frame.sheet ? frame.titleSlot : null;
+  const lean = suitHeader !== "bar";
+  const titleHidden =
+    titleSlot !== null || (!!props.namedByPanel && frame.sidebarShown && !frame.sheet && !phone);
+  const crumb = lean ? undefined : props.crumb;
+  const mark = lean ? undefined : props.mark;
+  const subtitle = lean ? undefined : props.subtitle;
+  const breadcrumb = lean ? undefined : props.breadcrumb;
   // Nothing in view where the column starts (no title, or the title is the panel's): no marker
   // there either.
   const untitled = props.title === "" || props.title == null;
   const bare =
-    (titleHidden || untitled) &&
-    !props.crumb &&
-    !props.mark &&
-    !props.subtitle &&
-    !props.breadcrumb &&
-    !props.progress;
+    (titleHidden || untitled) && !crumb && !mark && !subtitle && !breadcrumb && !props.progress;
   return (
     <header
       ref={header}
       data-slot="app-header"
       data-part="header"
-      className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
+      data-variant={lean ? suitHeader : undefined}
+      className="@container/header relative isolate z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
       {/* Where the sidebar meets the column, while both are on screen. */}
       {frame.sidebarShown && !frame.sheet && !bare && (
         <span aria-hidden data-boundary="sidebar" className={boundaryMarker} />
       )}
+      <RegionScene region="header" />
       <HeaderNav />
-      <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
-        {props.mark && !phone && (
-          <span className="flex shrink-0 items-center text-muted-foreground">{props.mark}</span>
+      {titleSlot &&
+        props.title !== "" &&
+        props.title != null &&
+        createPortal(
+          // A copy for the eye; the h1 below is the one assistive tech and focus use.
+          <span aria-hidden inert className="block truncate">
+            {props.title}
+          </span>,
+          titleSlot,
         )}
-        {props.crumb && !phone && (
+      <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
+        {mark && !phone && (
+          <span className="flex shrink-0 items-center text-muted-foreground">{mark}</span>
+        )}
+        {crumb && !phone && (
           // The title keeps the room: the crumb truncates first and leaves a narrow header.
           <div className="flex min-w-0 shrink-[3] items-center gap-2 text-ui text-muted-foreground @max-[30rem]/header:hidden">
-            <span className="flex min-w-0 items-center gap-1.5 truncate">{props.crumb}</span>
+            <span className="flex min-w-0 items-center gap-1.5 truncate">{crumb}</span>
             {!titleHidden && (
               <span aria-hidden className="text-subtle-foreground">
                 /
@@ -209,9 +231,7 @@ export function AppHeader(
           </div>
         )}
         <div className="min-w-0">
-          {props.breadcrumb && (
-            <div className="truncate text-xs text-muted-foreground">{props.breadcrumb}</div>
-          )}
+          {breadcrumb && <div className="truncate text-xs text-muted-foreground">{breadcrumb}</div>}
           {/* A screen still finding its title (a thread loading) has no heading yet, not an empty one. */}
           {props.title !== "" && props.title != null && (
             <h1
@@ -228,10 +248,10 @@ export function AppHeader(
         </div>
         {phone && props.status}
         {props.progress}
-        {props.subtitle && (
+        {subtitle && (
           // The title keeps the room: a long subtitle (a worktree's branch) truncates first.
           <span className="hidden min-w-0 shrink-[3] truncate text-xs font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
-            {props.subtitle}
+            {subtitle}
           </span>
         )}
       </div>

@@ -1,3 +1,5 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
+import { RegionScene } from "@/features/suits/index.ts";
 import { useRouterState } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { NavButtons } from "./app-header.tsx";
@@ -5,6 +7,7 @@ import { AppRail } from "./app-rail.tsx";
 import { panelCanvasClass } from "./canvas.ts";
 import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 import { useSpadeFollow } from "./use-spade-follow.ts";
 import { activeView } from "./views.ts";
 
@@ -27,7 +30,19 @@ export function AppSidebar(props: {
   /** Spade's place in the rail. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
 }) {
-  const { setBody, bodyClaimed, sheet } = useViewFrame();
+  const { setBody, bodyClaimed, sheet, setTitleSlot } = useViewFrame();
+  // A Suit may hide the rail (its places stay in the palette and their shortcuts) or merge it
+  // into the panel as a row, and may hide the header bar, whose title then shows up here.
+  const suitLayout = useSuitLayout();
+  const railShape = suitLayout?.rail ?? "shown";
+  const rail = (
+    <AppRail
+      forge={props.forge}
+      usage={props.usage}
+      spade={props.spade}
+      merged={railShape === "merged"}
+    />
+  );
   // Spade's eyes follow the pointer while it is over the rail or the panel beside it.
   const followRef = useRef<HTMLDivElement>(null);
   useSpadeFollow(followRef);
@@ -35,21 +50,32 @@ export function AppSidebar(props: {
     select: (state) => activeView(state.location.pathname) === "forge",
   });
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         data-slot="sidebar-top"
         className="flex h-(--header-h) shrink-0 items-center gap-0.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
       >
         {/* The sheet has its own way to close at this row's end; the header keeps navigation. */}
         {!sheet && <NavButtons />}
+        {suitLayout?.header === "hidden" && (
+          <div
+            ref={setTitleSlot}
+            data-slot="sidebar-title"
+            className="ml-1.5 min-w-0 flex-1 truncate text-md font-medium"
+          />
+        )}
       </div>
       <div ref={followRef} data-slot="sidebar-body" className="flex min-h-0 flex-1">
-        <AppRail forge={props.forge} usage={props.usage} spade={props.spade} />
+        {railShape === "shown" && rail}
         <div
           data-slot="sidebar-panel"
           data-part="sidebar"
-          className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
+          // `isolate`: the Suit's sidebar scene sits over the panel's colour, under its content.
+          className={`relative isolate flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
         >
+          <RegionScene region="sidebar" />
+          {railShape === "merged" && rail}
+          <SuitOrnament slot="sidebar-header" className="max-h-24" />
           {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
           <div ref={setBody} className="contents" />
           {/* The panel's foot: an empty band a Suit may decorate (docs/design/suit-parts.md). */}
@@ -58,6 +84,7 @@ export function AppSidebar(props: {
             data-part="sidebar-footer"
             className="pointer-events-none absolute inset-x-0 bottom-0"
           />
+          <SuitOrnament slot="sidebar-footer" className="mt-auto max-h-24" />
         </div>
       </div>
     </div>

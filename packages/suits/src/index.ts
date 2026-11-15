@@ -7,3 +7,5 @@ export * from "./palette.ts";
 export { fontProblems, parseManifest, readabilityProblems } from "./checks.ts";
 export * from "./limits.ts";
 export * from "./reveal.ts";
+export { ornamentByteLimit, sanitiseOrnament } from "./ornaments.ts";
+export { isSceneFile, regionOrnaments, regionScenes, scenePageFor } from "./regions.ts";

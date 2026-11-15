@@ -1,4 +1,5 @@
 import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
@@ -91,6 +92,8 @@ export function HomeSidebar() {
     (ids) => !ids.length,
   );
   const directory = useProjectDirectory();
+  // Inbox zero's line, in a Suit's words if it has some.
+  const emptyLine = useSuitLabel("empty-sidebar", emptyInboxLine);
   const keys = useResolvedKeymap();
   const narrowed = project
     ? `in ${directory.name(project)}`
@@ -142,7 +145,7 @@ export function HomeSidebar() {
                   ? undefined
                   : none && !narrowed
                     ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
-                    : emptyInboxLine
+                    : emptyLine
               }
               action={
                 project ? (

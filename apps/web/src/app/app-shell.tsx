@@ -1,3 +1,4 @@
+import { SuitCornerOrnaments } from "@/theme/suits/suit-ornament.tsx";
 import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { ThreadPreviewProvider } from "@/lib/thread-preview.tsx";
@@ -40,7 +41,9 @@ import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
-import { AppliedSuitBackdrop, SuitLiveChecks } from "@/features/suits/index.ts";
+import { AppliedSuitBackdrop, SuitLiveChecks, SuitScenesProvider } from "@/features/suits/index.ts";
+import { layoutAttributes } from "@/theme/suits/suit-layout.ts";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -60,6 +63,8 @@ export function AppShell() {
   const [sceneShowing, setSceneShowing] = useState(false);
   useSeenWhileOpen();
   const connection = useConnectionState();
+  // A Suit's layout as attributes the shell's parts read (styles/suit-layout.css).
+  const layout = layoutAttributes(useSuitLayout());
   // The startup screen stays over the shell until its route has resolved and every view has
   // its first data, then cross-fades to it: boot never shows a skeleton.
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
@@ -70,81 +75,85 @@ export function AppShell() {
         <ProjectsHost>
           <SignInHost>
             <AddAccountHost>
-              <div
-                ref={shell}
-                data-part="app"
-                data-connection={connection}
-                data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
-                data-suit-scene={sceneShowing ? "" : undefined}
-                className={cn(
-                  // Focus belongs to the inner panes; the shell must never become a scrollport.
-                  // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
-                  // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
-                  // Under `data-live-held`, motion.css dims the live indicators.
-                  // `isolate`: a Suit's scene sits just over the frame colour, under everything else.
-                  "relative isolate flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
-                )}
-              >
-                {/* A Suit's scene, behind the sidebar and the transcript. */}
-                <AppliedSuitBackdrop onShowing={setSceneShowing} />
-                {/* Answers an agent's live check of the Suit on screen. */}
-                <SuitLiveChecks />
-                <a
-                  href="#main"
-                  // The desktop's macOS traffic lights cover the window's top-left corner.
-                  className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+              <SuitScenesProvider>
+                <div
+                  ref={shell}
+                  data-part="app"
+                  data-connection={connection}
+                  data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
+                  data-suit-scene={sceneShowing ? "" : undefined}
+                  {...layout}
+                  className={cn(
+                    // Focus belongs to the inner panes; the shell must never become a scrollport.
+                    // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
+                    // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
+                    // Under `data-live-held`, motion.css dims the live indicators.
+                    // `isolate`: a Suit's scene sits just over the frame colour, under everything else.
+                    "relative isolate flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
+                  )}
                 >
-                  Skip to content
-                </a>
-                <SidebarFrame
-                  sidebar={
-                    <LocalBoundary label="the sidebar">
-                      <ShellSidebar />
-                    </LocalBoundary>
-                  }
-                >
-                  <ThreadLeaveProvider>
-                    <ThreadPreviewProvider value={ThreadHoverPreview}>
-                      <PullRequestViewProvider value={PullRequestTab.Component}>
-                        <Outlet />
-                      </PullRequestViewProvider>
-                    </ThreadPreviewProvider>
-                  </ThreadLeaveProvider>
-                </SidebarFrame>
-                <LocalBoundary label="the command palette" fallback={null}>
-                  <CommandPalette />
-                </LocalBoundary>
-                <LocalBoundary label="search" fallback={null}>
-                  <SearchHost />
-                </LocalBoundary>
-                <LocalBoundary label="the project picker" fallback={null}>
-                  <MoveToProjectHost />
-                </LocalBoundary>
-                <LocalBoundary label="the machine chooser" fallback={null}>
-                  <TransferHost />
-                </LocalBoundary>
-                <LocalBoundary label="the delete confirmation" fallback={null}>
-                  <DeleteConfirmationHost />
-                </LocalBoundary>
-                <LocalBoundary label="the shortcuts sheet" fallback={null}>
-                  <ShortcutHost />
-                </LocalBoundary>
-                <LocalBoundary label="keyboard shortcuts" fallback={null}>
-                  <ShellHotkeys />
-                  <ThreadStepKeys />
-                </LocalBoundary>
-                <LocalBoundary label="notifications" fallback={null}>
-                  <Notifier />
-                </LocalBoundary>
-                <LocalBoundary label="picture in picture" fallback={null}>
-                  <Suspense fallback={null}>
-                    <FloatingBrowsers />
-                  </Suspense>
-                </LocalBoundary>
-                <LocalBoundary label="open work" fallback={null}>
-                  <OpenWorkWarmup />
-                </LocalBoundary>
-              </div>
+                  {/* A Suit's scene, behind the sidebar and the transcript. */}
+                  <AppliedSuitBackdrop onShowing={setSceneShowing} />
+                  {/* Answers an agent's live check of the Suit on screen. */}
+                  <SuitLiveChecks />
+                  <SuitCornerOrnaments />
+                  <a
+                    href="#main"
+                    // The desktop's macOS traffic lights cover the window's top-left corner.
+                    className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[130] focus:rounded-md focus:bg-popover focus:px-3 focus:py-2 [:root[data-platform=darwin]:not([data-fullscreen])_&]:focus:left-[84px]"
+                  >
+                    Skip to content
+                  </a>
+                  <SidebarFrame
+                    sidebar={
+                      <LocalBoundary label="the sidebar">
+                        <ShellSidebar />
+                      </LocalBoundary>
+                    }
+                  >
+                    <ThreadLeaveProvider>
+                      <ThreadPreviewProvider value={ThreadHoverPreview}>
+                        <PullRequestViewProvider value={PullRequestTab.Component}>
+                          <Outlet />
+                        </PullRequestViewProvider>
+                      </ThreadPreviewProvider>
+                    </ThreadLeaveProvider>
+                  </SidebarFrame>
+                  <LocalBoundary label="the command palette" fallback={null}>
+                    <CommandPalette />
+                  </LocalBoundary>
+                  <LocalBoundary label="search" fallback={null}>
+                    <SearchHost />
+                  </LocalBoundary>
+                  <LocalBoundary label="the project picker" fallback={null}>
+                    <MoveToProjectHost />
+                  </LocalBoundary>
+                  <LocalBoundary label="the machine chooser" fallback={null}>
+                    <TransferHost />
+                  </LocalBoundary>
+                  <LocalBoundary label="the delete confirmation" fallback={null}>
+                    <DeleteConfirmationHost />
+                  </LocalBoundary>
+                  <LocalBoundary label="the shortcuts sheet" fallback={null}>
+                    <ShortcutHost />
+                  </LocalBoundary>
+                  <LocalBoundary label="keyboard shortcuts" fallback={null}>
+                    <ShellHotkeys />
+                    <ThreadStepKeys />
+                  </LocalBoundary>
+                  <LocalBoundary label="notifications" fallback={null}>
+                    <Notifier />
+                  </LocalBoundary>
+                  <LocalBoundary label="picture in picture" fallback={null}>
+                    <Suspense fallback={null}>
+                      <FloatingBrowsers />
+                    </Suspense>
+                  </LocalBoundary>
+                  <LocalBoundary label="open work" fallback={null}>
+                    <OpenWorkWarmup />
+                  </LocalBoundary>
+                </div>
+              </SuitScenesProvider>
             </AddAccountHost>
           </SignInHost>
         </ProjectsHost>

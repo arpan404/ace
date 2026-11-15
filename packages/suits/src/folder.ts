@@ -5,6 +5,7 @@ import { suitLimits } from "./limits.ts";
 import { regionCss } from "./css/regions.ts";
 import { sanitiseSuitCss } from "./css/sanitise.ts";
 import { suitSchemes } from "./palette.ts";
+import { isSceneFile, regionOrnaments, regionScenes } from "./regions.ts";
 
 export { problem };
 
@@ -32,18 +33,21 @@ export interface SuitPlan {
 const checkFor = (path: string) =>
   path === "suit.json"
     ? "schema"
-    : path === "scene.js"
+    : isSceneFile(path)
       ? "scene"
       : path === "suit.css"
         ? "css"
         : "asset";
 
-/** Files with a cap of their own; everything else counts toward the assets' total. */
-const ownCaps = new Map<string, number>([
-  ["suit.json", suitLimits.manifestBytes],
-  ["scene.js", suitLimits.sceneBytes],
-  ["suit.css", suitLimits.cssBytes],
-]);
+/** Files with a cap of their own (every root scene script too); the rest count toward assets. */
+const capFor = (path: string): number | undefined =>
+  path === "suit.json"
+    ? suitLimits.manifestBytes
+    : path === "suit.css"
+      ? suitLimits.cssBytes
+      : isSceneFile(path)
+        ? suitLimits.sceneBytes
+        : undefined;
 const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** What a reader may read of `entries`, and the problems the walk itself found. */
@@ -82,7 +86,7 @@ export function plan(entries: readonly SuitEntry[]): SuitPlan {
       result.skipped.push({ path, size: entry.size });
       continue;
     }
-    const cap = ownCaps.get(path);
+    const cap = capFor(path);
     if (cap !== undefined) {
       if (entry.size > cap) {
         result.problems.push(
@@ -196,6 +200,12 @@ export function inspectSuit(
     problems.push(
       ...regionCss({ id, manifest, assets: assetPaths(present), url: (path) => path }).problems,
     );
+    problems.push(...regionScenes(manifest, present).problems);
+    // Only whether each reference lands matters here; the reader serves the real URLs.
+    problems.push(
+      ...regionOrnaments(manifest, files, (path) => (present.has(path) ? path : undefined))
+        .problems,
+    );
     // Readability only counts once the manifest itself holds together.
     if (problems.every((entry) => entry.check !== "schema"))
       problems.push(...readabilityProblems(manifest));
@@ -211,7 +221,10 @@ export function inspectSuit(
         url: (path) => path,
       }).problems,
     );
-  const hasScene = scene !== undefined || sceneSkipped;
+  const regionScene =
+    manifest !== undefined &&
+    Object.keys(regionScenes(manifest, new Set(files.keys())).scenes).length > 0;
+  const hasScene = scene !== undefined || sceneSkipped || regionScene;
   return {
     manifest: manifest ? { ...manifest, scene: hasScene } : undefined,
     cssSource,

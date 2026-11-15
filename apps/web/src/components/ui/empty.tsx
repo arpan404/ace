@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { type IconGlyph } from "@/components/icon.tsx";
@@ -42,6 +43,7 @@ function EmptyState(props: {
         props.className,
       )}
     >
+      <SuitOrnament slot="empty-state" className="mb-3 max-h-32" />
       <Title className="text-ui font-medium text-foreground">{props.title}</Title>
       {props.description && (
         <p className="max-w-[44ch] text-ui leading-normal text-muted-foreground">

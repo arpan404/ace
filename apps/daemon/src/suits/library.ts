@@ -3,11 +3,12 @@ import { join } from "node:path";
 import {
   SuitId,
   type SuitDetail,
+  type SuitManifest,
   type SuitRequest,
   type SuitResponse,
   type SuitSummary,
 } from "@ace/protocol/suits";
-import { suitLimits } from "@ace/suits";
+import { isSceneFile, regionOrnaments, regionScenes, scenePageFor, suitLimits } from "@ace/suits";
 import { suitCss } from "@ace/suits/folder";
 import { isMissing, readSuit, readSuitFile, type ReadSuit } from "./reader.ts";
 import { encodeSuitPath, SuitUrls } from "./urls.ts";
@@ -44,8 +45,8 @@ export class SuitLibrary {
   readonly urls: SuitUrls;
   readonly #options: SuitLibraryOptions;
   readonly #cache = new Map<string, ReadSuit>();
-  /** Sanitised suit.css per read version, so repeated reads don't parse it again. */
-  readonly #css = new WeakMap<ReadSuit, string | null>();
+  /** Sanitised suit.css and ornaments per read version, so repeated reads don't parse again. */
+  readonly #served = new WeakMap<ReadSuit, Pick<SuitDetail, "css" | "ornaments">>();
   readonly #listeners = new Set<(suits: SuitSummary[]) => void>();
   #stopWatch: (() => void) | undefined;
   #cancelSettle: (() => void) | undefined;
@@ -137,18 +138,46 @@ export class SuitLibrary {
     const assets: SuitDetail["assets"] = {};
     for (const path of read.plan.read)
       if (path.startsWith("assets/")) assets[path] = base + encodeSuitPath(path);
-    const sceneUrl = read.plan.read.includes("scene.js") ? `${base}scene.html` : null;
-    const sceneUrls: SuitDetail["sceneUrls"] = sceneUrl ? { app: sceneUrl } : {};
-    let css = this.#css.get(read);
-    if (css === undefined) {
-      css = suitCss(id, read.inspected, read.plan.read, (path) => base + encodeSuitPath(path));
-      this.#css.set(read, css);
+    const files = new Set(read.plan.read);
+    const sceneUrls: SuitDetail["sceneUrls"] = {};
+    for (const [region, file] of Object.entries(regionScenes(manifest, files).scenes))
+      sceneUrls[region as keyof SuitDetail["sceneUrls"]] =
+        base + encodeSuitPath(scenePageFor(file));
+    const sceneUrl = sceneUrls.app ?? null;
+    let served = this.#served.get(read);
+    if (served === undefined) {
+      const url = (path: string) => base + encodeSuitPath(path);
+      served = {
+        css: suitCss(id, read.inspected, read.plan.read, url),
+        ornaments: manifest.ornaments?.length
+          ? regionOrnaments(
+              manifest,
+              await this.#ornamentFiles(id, summary.contentHash, manifest),
+              (path) => assets[path],
+            ).ornaments
+          : {},
+      };
+      this.#served.set(read, served);
     }
-    // Ornaments and region scenes are served once their sanitiser lands (ADR 0150).
     return {
       op: "read",
-      suit: { summary, manifest, sceneUrl, sceneUrls, assets, css, ornaments: {} },
+      suit: { summary, manifest, sceneUrl, sceneUrls, assets, ...served },
     };
+  }
+
+  /** The ornament files suit.json names, read from the folder as the checks saw them. */
+  async #ornamentFiles(
+    id: string,
+    hash: string,
+    manifest: SuitManifest,
+  ): Promise<Map<string, Uint8Array>> {
+    const files = new Map<string, Uint8Array>();
+    for (const { asset } of manifest.ornaments ?? []) {
+      if (files.has(asset)) continue;
+      const file = await this.file(id, hash, asset);
+      if (file) files.set(asset, file.bytes);
+    }
+    return files;
   }
 
   /** Every check again on the folder as it is on disk now, past any cache. */
@@ -185,12 +214,20 @@ export class SuitLibrary {
     }
   }
 
+  /** A scene file of one version of a Suit, when it has any (the runtime is served beside it). */
+  async anyScene(id: string, hash: string): Promise<SuitFile | undefined> {
+    const read = await this.#read(id, true);
+    if (!read || read.inspected.summary.contentHash !== hash) return undefined;
+    const path = read.plan.read.find(isSceneFile);
+    return path ? this.file(id, hash, path) : undefined;
+  }
+
   /**
-   * A file of one version of a Suit, for the asset URLs: only scene.js and files under assets/
+   * A file of one version of a Suit, for the asset URLs: only scene files and files under assets/
    * that the checks let through, and only while the Suit still has `hash`.
    */
   async file(id: string, hash: string, path: string): Promise<SuitFile | undefined> {
-    if (path !== "scene.js" && !path.startsWith("assets/")) return undefined;
+    if (!isSceneFile(path) && !path.startsWith("assets/")) return undefined;
     const read = await this.#read(id, true);
     if (!read || read.inspected.summary.contentHash !== hash || !read.plan.read.includes(path))
       return undefined;

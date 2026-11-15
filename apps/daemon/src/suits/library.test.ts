@@ -225,3 +225,56 @@ test("suit.css is served sanitised, its refusals block the Suit, and an edit re-
     `[data-suit="neon"] [data-part=sidebar]{color:red}`,
   );
 });
+
+test("each region's scene gets its own sandbox page, and scene.js alone stays the app's", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon", { scenes: { sidebar: "rain.js", composer: "glow.js" } }),
+    "scene.js": "app()",
+    "rain.js": "rain()",
+    "glow.js": "glow()",
+  });
+  const { sceneUrl, sceneUrls } = detail(await library.read("neon"));
+  expect(Object.keys(sceneUrls).toSorted()).toEqual(["app", "composer", "sidebar"]);
+  expect(sceneUrls.app).toBe(sceneUrl);
+  const page = await fetch(origin + sceneUrls.sidebar);
+  expect(page.headers.get("content-security-policy")).toBe(sceneCsp);
+  const scripts = [...(await page.text()).matchAll(/<script src="([^"]+)"><\/script>/g)].map(
+    (match) => match[1],
+  );
+  expect(scripts).toEqual([sceneRuntimeFile, "rain.js"]);
+  expect(await (await fetch(new URL("rain.js", origin + sceneUrls.sidebar))).text()).toBe("rain()");
+  // A page for a script the Suit doesn't have serves nothing.
+  expect((await fetch(new URL("header.html", origin + sceneUrls.sidebar))).status).toBe(404);
+});
+
+test("a region scene alone runs with the runtime beside it; a missing one is a problem", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon", { scenes: { header: "strip.js", sidebar: "gone.js" } }),
+    "strip.js": "strip()",
+  });
+  const checked = await library.validate("neon");
+  expect(checked.op === "validate" && checked.summary.problems).toEqual([
+    expect.objectContaining({ check: "scene", field: "scenes.sidebar" }),
+  ]);
+  const read = detail(await library.read("neon"));
+  expect(read.sceneUrl).toBeNull();
+  expect(Object.keys(read.sceneUrls)).toEqual(["header"]);
+  expect((await fetch(new URL(sceneRuntimeFile, origin + read.sceneUrls.header))).status).toBe(200);
+});
+
+test("a read serves each slot's ornament sanitised, with asset references as served URLs", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon", {
+      ornaments: [{ slot: "sidebar-footer", asset: "assets/plate.svg" }],
+    }),
+    "assets/plate.svg": `<svg><image href="stamp.png"/><script>steal()</script></svg>`,
+    "assets/stamp.png": "png",
+  });
+  const read = detail(await library.read("neon"));
+  expect(read.ornaments["sidebar-footer"]).toBe(
+    `<svg><image href="${read.assets["assets/stamp.png"]}"></image></svg>`,
+  );
+  expect(read.summary.problems).toEqual([
+    expect.objectContaining({ check: "ornament", field: "assets/plate.svg", line: 1 }),
+  ]);
+});

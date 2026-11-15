@@ -70,3 +70,39 @@ test("a scene that fails is off for that version of the Suit, whose colours stay
     expect(frame()?.getAttribute("src")).toBe(starfield("grant-b", "hash-2").sceneUrl),
   );
 });
+
+const region = (name: string) =>
+  document.querySelector<HTMLIFrameElement>(`iframe[data-suit-scene-frame="${name}"]`);
+
+test("each region's scene runs inside its own region, and one stopping leaves the others", async () => {
+  const base = "http://127.0.0.1:4242/v1/suits/rainy/hash-1/grant-a/";
+  const rainy: SuitDetail = {
+    ...fakeSuit({ id: "rainy", dark: { canvas: "#0a0f1e" } }, { scene: true }),
+    sceneUrls: { sidebar: `${base}rain.html`, header: `${base}strip.html` },
+  };
+  const storage = memoryKeyValue();
+  storage.setItem("ace.appearance", JSON.stringify({ suit: "rainy" }));
+  await harness({ storage, suits: fakeSuitLibrary([rainy]).transport }).open(
+    "/settings/appearance",
+  );
+  await waitFor(() => expect(region("sidebar")).not.toBeNull());
+  await waitFor(() => expect(region("header")).not.toBeNull());
+  const sidebar = region("sidebar");
+  expect(sidebar?.getAttribute("src")).toBe(`${base}rain.html`);
+  expect(sidebar?.getAttribute("sandbox")).toBe("allow-scripts");
+  expect(sidebar?.closest('[data-focus-region="sidebar"]')).not.toBeNull();
+  expect(region("header")?.closest("header")).not.toBeNull();
+  // No app scene was named, so nothing runs behind the whole window.
+  expect(document.querySelector('iframe[data-scene-fill="window"]')).toBeNull();
+
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "error", message: "boom" },
+        source: sidebar?.contentWindow ?? null,
+      }),
+    );
+  });
+  await waitFor(() => expect(region("sidebar")).toBeNull());
+  expect(region("header")).not.toBeNull();
+});

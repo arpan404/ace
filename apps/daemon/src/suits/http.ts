@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
+import { isSceneFile } from "@ace/suits";
 import type { SuitLibrary } from "./library.ts";
 import { suitsPathPrefix } from "./urls.ts";
 
@@ -27,15 +28,23 @@ const runtimeBytes = Buffer.from(sceneRuntimeScript);
 export const sceneRuntimeFile = `scene-runtime-${createHash("sha256").update(runtimeBytes).digest("hex").slice(0, 16)}.js`;
 
 /**
- * The scene's page: the runtime first (it makes the one canvas and speaks to ace), then the
- * Suit's scene.js, which calls `ace.scene({...})`. Both load same-origin, as `script-src 'self'`
- * asks.
+ * A scene's page: the runtime first (it makes the one canvas and speaks to ace), then the
+ * Suit's scene file (`scene.js`, or a region's own), which calls `ace.scene({...})`. Both load
+ * same-origin, as `script-src 'self'` asks. `script` is a checked root file name (`isSceneFile`).
  */
-export const scenePage = `<!doctype html>
+export const scenePageFor = (script: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
 <style>html,body{margin:0;height:100%;overflow:hidden;background:transparent}</style>
-</head><body><script src="${sceneRuntimeFile}"></script><script src="scene.js"></script></body></html>
+</head><body><script src="${sceneRuntimeFile}"></script><script src="${script}"></script></body></html>
 `;
+export const scenePage = scenePageFor("scene.js");
+
+/** The scene file a page path names (`city.html` → `city.js`), if it names one. */
+const pageScript = (file: string) => {
+  if (!file.endsWith(".html")) return undefined;
+  const script = `${file.slice(0, -".html".length)}.js`;
+  return isSceneFile(script) ? script : undefined;
+};
 
 const jsType = "text/javascript; charset=utf-8";
 const types: Record<string, string> = {
@@ -94,20 +103,20 @@ export function suitsHttp(
       response.end();
       return;
     }
-    const scene = target.file === "scene.html";
+    const script = pageScript(target.file);
+    const scene = script !== undefined;
     const runtime = target.file === sceneRuntimeFile;
-    // The page and the runtime exist only for a Suit whose current version has a scene.
-    const file = await suits.file(
-      target.id,
-      target.hash,
-      scene || runtime ? "scene.js" : target.file,
-    );
+    // A page and the runtime exist only for a Suit whose current version has that scene file;
+    // the runtime rides on any scene file the Suit has.
+    const file = runtime
+      ? await suits.anyScene(target.id, target.hash)
+      : await suits.file(target.id, target.hash, script ?? target.file);
     if (!file) {
       response.statusCode = 404;
       response.end();
       return;
     }
-    const body = scene ? Buffer.from(scenePage) : runtime ? runtimeBytes : file.bytes;
+    const body = scene ? Buffer.from(scenePageFor(file.path)) : runtime ? runtimeBytes : file.bytes;
     response.setHeader("Content-Security-Policy", scene ? sceneCsp : fileCsp);
     response.setHeader(
       "Content-Type",

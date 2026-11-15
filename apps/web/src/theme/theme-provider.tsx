@@ -26,6 +26,7 @@ import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { SuitDetail } from "@ace/protocol/suits";
 import { suitDensity, suitPalette, suitSchemes, suitSheets } from "./suits/suit-css.ts";
 import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
+import { suitLayoutStylesheet } from "./suits/suit-layout.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "@ace/themes";
@@ -133,8 +134,15 @@ export function ThemeProvider(props: { environment: Environment; children: React
   );
 
   // The Suit's rules, after the themes' so they win where both match; its suit.css in
-  // `@layer suit` under ace's guard. A new version of the Suit swaps this text, never a reload.
-  const suitSheet = useMemo(() => (suit ? suitSheets(suit) : ""), [suit]);
+  // `@layer suit` under ace's guard, then its reading-column width. A new version of the Suit
+  // swaps this text, never a reload.
+  const suitSheet = useMemo(
+    () =>
+      suit
+        ? [suitSheets(suit), suitLayoutStylesheet(suit.manifest)].filter(Boolean).join("\n")
+        : "",
+    [suit],
+  );
 
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
@@ -320,6 +328,14 @@ function setThemeColour(document: Document, colour: string) {
     document.head.append(meta);
   }
   if (meta.content !== colour) meta.content = colour;
+}
+
+/**
+ * The Suit on screen, or null; null too outside a `ThemeProvider`, so a part a Suit can dress
+ * (an empty state, the composer) still renders on its own.
+ */
+export function useSuitOnScreen(): SuitDetail | null {
+  return useContext(ThemeContext)?.suit ?? null;
 }
 
 export function useTheme(): ThemeValue {

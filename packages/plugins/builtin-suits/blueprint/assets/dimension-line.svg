@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="28" viewBox="0 0 640 28" preserveAspectRatio="none" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="28" viewBox="0 0 640 28" preserveAspectRatio="none">
   <g fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="1">
     <path d="M2 4 V24 M638 4 V24"/>
     <path d="M2 14 H290 M350 14 H638"/>
