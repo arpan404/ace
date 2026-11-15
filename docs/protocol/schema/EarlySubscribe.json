@@ -12,7 +12,7 @@
       "type": "boolean"
     },
     "scope": {
-      "$ref": "https://ace.local/protocol/v1/SubscriptionScope.json"
+      "$ref": "https://ace.local/protocol/v1/EarlyScope.json"
     },
     "subscriptionId": {
       "maxLength": 128,
@@ -44,6 +44,5 @@
     "subscriptionId",
     "scope"
   ],
-  "type": "object",
-  "x-ace-constraint": "A threads scope needs its window."
+  "type": "object"
 }

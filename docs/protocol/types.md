@@ -13089,16 +13089,53 @@ Example:
 }
 ```
 
+## EarlyScope
+
+[JSON Schema](schema/EarlyScope.json), input validation.
+
+### thread
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"thread"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "thread",
+  "threadId": "example"
+}
+```
+
+### threads
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"threads"` |  |
+| window | yes | object | {"properties":{"limit":{"type":"integer","minimum":1,"maximum":20},"project":{"type":"string","minLength":1},"archived":{"type":"boolean"}},"required":["limit"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "kind": "threads",
+  "window": {
+    "archived": true,
+    "limit": 10
+  }
+}
+```
+
 ## EarlySubscribe
 
 [JSON Schema](schema/EarlySubscribe.json), input validation.
 
-Semantic rule: A threads scope needs its window.
-
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
-| scope | yes | [SubscriptionScope.json](schema/SubscriptionScope.json) |  |
+| scope | yes | [EarlyScope.json](schema/EarlyScope.json) |  |
 | paced | no | boolean |  |
 | afterSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | tail | no | object | {"properties":{"items":{"type":"integer","minimum":1,"maximum":200},"bytes":{"type":"integer","minimum":1024,"maximum":1048576}},"required":["items","bytes"],"additionalProperties":false} |
@@ -13107,12 +13144,16 @@ Example:
 
 ```json
 {
-  "afterSeq": 1,
+  "afterSeq": 3,
   "scope": {
     "kind": "thread",
     "threadId": "example"
   },
-  "subscriptionId": "example"
+  "subscriptionId": "example",
+  "tail": {
+    "bytes": 1028,
+    "items": 9
+  }
 }
 ```
 
@@ -14850,7 +14891,7 @@ Example:
 
 [JSON Schema](schema/HelloEarly.json), input validation.
 
-Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids; a threads scope needs its window.
+Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |

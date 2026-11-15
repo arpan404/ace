@@ -105,3 +105,50 @@ it("the confirmation carries the device-acting fields, and nothing else", () => 
   for (const extra of [{ token: "device token" }, { ticket }, { command: {} }])
     expect(HelloConfirm.safeParse({ type: "hello.confirm", ...extra }).success).toBe(false);
 });
+
+/** Every object in `value`, by path, with the value at it. */
+function objects(value: unknown, path: (string | number)[] = []): (string | number)[][] {
+  if (typeof value !== "object" || value === null) return [];
+  const nested = Object.entries(value).flatMap(([key, child]) =>
+    objects(child, [...path, Array.isArray(value) ? Number(key) : key]),
+  );
+  return Array.isArray(value) ? nested : [path, ...nested];
+}
+
+function withKey(value: unknown, path: (string | number)[], key: string): unknown {
+  const copy: unknown = structuredClone(value);
+  let target = copy as Record<string | number, unknown>;
+  for (const step of path) target = target[step] as Record<string | number, unknown>;
+  target[key] = "x";
+  return copy;
+}
+
+// Every object the early payload may hold, each field present.
+const full = {
+  ...valid,
+  subscribes: [
+    {
+      subscriptionId: "t1",
+      scope: { kind: "thread", threadId: "thread-1" },
+      afterSeq: 4,
+      paced: true,
+      tail: { items: 20, bytes: 4096 },
+    },
+    {
+      subscriptionId: "w1",
+      scope: { kind: "threads", window: { limit: 20, project: "p", archived: false } },
+    },
+  ],
+};
+
+it("the fully populated first message is taken", () => {
+  expect(HelloEarly.safeParse(full).success).toBe(true);
+});
+
+it.each(objects(full).map((path) => [path.join(".") || "(top)", path] as const))(
+  "an unknown key in the first message at %s is refused",
+  (_name, path) => {
+    for (const key of ["token", "machineCode", "unknown"])
+      expect(HelloEarly.safeParse(withKey(full, path, key)).success).toBe(false);
+  },
+);

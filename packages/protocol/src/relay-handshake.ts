@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { DeviceId, InstallId, type ThreadId } from "./ids.ts";
+import { DeviceId, InstallId, ThreadId } from "./ids.ts";
 import { MachineCode } from "./machine-access.ts";
-import { PairingLinkProof, SubscriptionScope } from "./wire-core.ts";
+import { PairingLinkProof } from "./wire-core.ts";
 
 /*
  * The one-round-trip relay handshake (ADR 0155, step 2). A client the daemon announced it to
@@ -23,32 +23,40 @@ export const EARLY_SIDEBAR_WINDOWS = 2;
 const Names8 = z.array(z.string().max(32)).max(8).optional();
 const Names16 = z.array(z.string().max(32)).max(16).optional();
 
+/**
+ * What an early subscribe may read, strict at every depth: a thread, or a sidebar window with
+ * its limit, project and archived filter. A window's `resume` and any other field go in a
+ * subscribe sent after the confirmation.
+ */
+export const EarlyScope = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("thread"), threadId: ThreadId }),
+  z.strictObject({
+    kind: z.literal("threads"),
+    window: z.strictObject({
+      limit: z.number().int().min(1).max(20),
+      project: z.string().min(1).optional(),
+      archived: z.boolean().optional(),
+    }),
+  }),
+]);
+
 /** A read subscribe, as the main socket takes it, with nothing more. */
-export const EarlySubscribe = z
-  .strictObject({
-    subscriptionId: z.string().min(1).max(128),
-    scope: SubscriptionScope,
-    paced: z.boolean().optional(),
-    afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-    tail: z
-      .strictObject({
-        items: z.number().int().min(1).max(200),
-        bytes: z
-          .number()
-          .int()
-          .min(1024)
-          .max(1024 * 1024),
-      })
-      .optional(),
-  })
-  // A sidebar subscribe without a window reads every thread: it waits for the confirmation.
-  .refine(
-    (subscribe) => subscribe.scope.kind === "thread" || subscribe.scope.window !== undefined,
-    {
-      message: "A sidebar subscribe needs its window",
-    },
-  )
-  .meta({ "x-ace-constraint": "A threads scope needs its window." });
+export const EarlySubscribe = z.strictObject({
+  subscriptionId: z.string().min(1).max(128),
+  scope: EarlyScope,
+  paced: z.boolean().optional(),
+  afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  tail: z
+    .strictObject({
+      items: z.number().int().min(1).max(200),
+      bytes: z
+        .number()
+        .int()
+        .min(1024)
+        .max(1024 * 1024),
+    })
+    .optional(),
+});
 export type EarlySubscribe = z.infer<typeof EarlySubscribe>;
 
 export const HelloEarly = z
@@ -91,7 +99,7 @@ export const HelloEarly = z
   )
   .meta({
     "x-ace-constraint":
-      "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids; a threads scope needs its window.",
+      "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids.",
   });
 export type HelloEarly = z.infer<typeof HelloEarly>;
 
