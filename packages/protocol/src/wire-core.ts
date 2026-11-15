@@ -310,6 +310,9 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * never holds raw), in the order they were sent. `short-deltas` lets an events message
        * name its thread once (`threadId`) and carry each streamed delta as
        * `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`, without its event id.
+       * `paced-replay`: this client acknowledges every events message marked `ack` with
+       * `events.received`, so on a remote socket the daemon makes a resume's replay one piece at
+       * a time as the link carries it, and what is produced meanwhile is not held up behind it.
        * Unknown names are ignored; without `lines` every frame holds exactly one message.
        */
       framing: z.array(z.string().max(32)).max(8).optional(),
@@ -360,6 +363,12 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       .optional(),
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
+  /** A paced replay's piece (`events` with `ack`) was handed on, through `throughSeq`. */
+  z.object({
+    type: z.literal("events.received"),
+    subscriptionId: z.string().min(1),
+    throughSeq: seq,
+  }),
   z.object({ type: z.literal("command"), command: Command }),
   z.object({
     type: z.literal("output.read"),
@@ -505,6 +514,11 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       afterSeq: seq,
       throughSeq: seq,
       events: z.array(DeliveryEvent),
+      /**
+       * A piece of a paced replay (hello `framing: paced-replay`): the client answers with
+       * `events.received` once it has handed the message on, and the next piece is made then.
+       */
+      ack: z.literal(true).optional(),
     })
     .refine(
       (message) => {
@@ -587,6 +601,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "hello",
   "subscribe",
   "unsubscribe",
+  "events.received",
   "command",
   "output.read",
   "items.page",

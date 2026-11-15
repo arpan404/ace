@@ -6,6 +6,7 @@ import type { SocketMessage } from "./services/socket.ts";
 import { pageSubscription, storePlacement, subscribe } from "./subscription.ts";
 import type { WireEncoder } from "./wire-encoder.ts";
 import { outputReadBytes } from "./reply-bounds.ts";
+import type { ReplayPacer } from "./replay-pacer.ts";
 
 /** What the core reads need from one authenticated socket. */
 export interface CoreReader {
@@ -23,6 +24,8 @@ export interface CoreReader {
   delay(run: () => void, milliseconds: number): () => void;
   encoder: WireEncoder;
   lanes: CommandLanes;
+  /** Paces resumes to the link, for a remote client that acknowledges them. */
+  replayGate?: ReplayPacer;
 }
 
 /**
@@ -62,6 +65,9 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
       send({ type: "command.status", requestId: message.requestId, commands });
       break;
     }
+    case "events.received":
+      reader.replayGate?.received(message.subscriptionId, message.throughSeq);
+      break;
     case "unsubscribe":
       subscriptions.get(message.subscriptionId)?.();
       subscriptions.delete(message.subscriptionId);
@@ -105,6 +111,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
           options.sidebarPlacement ?? storePlacement(options.store, options.now ?? Date.now),
           message.tail,
           device,
+          reader.replayGate,
         );
         subscriptions.set(message.subscriptionId, stop);
       } catch {

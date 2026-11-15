@@ -59,6 +59,8 @@ interface EventBatch {
   afterSeq: number;
   throughSeq: number;
   events: DeliveryEvent[];
+  /** Holds a paced replay's piece: the client acknowledges it (`events.received`). */
+  ack: boolean;
 }
 interface SerializedFrame {
   type: "serialized";
@@ -205,6 +207,8 @@ export class Outbox {
         appendCoalesced(last.events, message.events);
         last.throughSeq = message.throughSeq;
         last.chargedBytes += charge;
+        // Acknowledging through the later seq covers the piece too.
+        last.ack ||= message.ack === true;
       } else
         this.pending.set(++this.tail, {
           type: "events",
@@ -213,6 +217,7 @@ export class Outbox {
           afterSeq: message.afterSeq,
           throughSeq: message.throughSeq,
           events: coalesceEvents(message.events),
+          ack: message.ack === true,
         });
       this.bytes += charge;
       this.tick();
@@ -291,6 +296,7 @@ export class Outbox {
                   afterSeq: frame.afterSeq,
                   throughSeq: frame.throughSeq,
                   events: frame.events,
+                  ...(frame.ack ? { ack: true as const } : {}),
                 },
                 this.shape,
               );

@@ -3622,15 +3622,17 @@ Semantic rule: throughSeq >= afterSeq; events are ordered with (firstSeq ?? seq)
 | afterSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | throughSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | events | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DeliveryEvent.json"}} |
+| ack | no | `true` |  |
 
 Example:
 
 ```json
 {
-  "afterSeq": 5,
+  "ack": true,
+  "afterSeq": 0,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 9,
   "type": "events"
 }
 ```

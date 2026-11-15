@@ -54,6 +54,7 @@ import {
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
+import { ReplayPacer } from "./replay-pacer.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import { remoteRuntime } from "./remote-runtime.ts";
 import { RelaySocket, type RelayedMain } from "./relay-socket.ts";
@@ -324,6 +325,8 @@ export async function startServer(options: ServerOptions): Promise<{
     );
     // What this client's hello said it can put back stays out of its snapshots and pages.
     let trimmer = new WireTrimmer(undefined);
+    // A remote client that acknowledges paced replays gets its resumes paced (`replay-pacer.ts`).
+    let replayGate: ReplayPacer | undefined;
     const send = (message: ServerMessage | PluginServerMessage) => {
       for (const frame of trimmer.outgoing(busyRefusal(message))) outbox.send(frame);
     };
@@ -541,6 +544,8 @@ export async function startServer(options: ServerOptions): Promise<{
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
           outbox.packFrames(peer.remote);
+        if (message.channel === undefined && peer.remote && message.framing?.includes("paced-replay"))
+          replayGate = new ReplayPacer(runtime.now, runtime.delay);
         outbox.shapeEvents({
           rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
           shortDeltas: message.framing?.includes(shortDeltasFraming) === true,
@@ -664,6 +669,7 @@ export async function startServer(options: ServerOptions): Promise<{
         delay: runtime.delay,
         encoder,
         lanes,
+        ...(replayGate ? { replayGate } : {}),
       });
     };
     input.listen(

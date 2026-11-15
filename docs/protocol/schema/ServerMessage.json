@@ -1476,6 +1476,10 @@
     },
     {
       "properties": {
+        "ack": {
+          "const": true,
+          "type": "boolean"
+        },
         "afterSeq": {
           "maximum": 9007199254740991,
           "minimum": 0,
