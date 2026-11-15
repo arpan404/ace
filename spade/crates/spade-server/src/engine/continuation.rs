@@ -205,8 +205,14 @@ impl Engine {
                 None
             };
             due.is_some_and(|events| {
-                // What the goal's check found missing, and where the plan resumes (ADR 0159).
-                let nudge = format!("{}{}", task::nudge(step), verify::nudge_tail(&events));
+                // What the goal's check found missing, and where the plan resumes (ADR 0159);
+                // then what the bot spent and each role's model (ADR 0162), for information.
+                let nudge = format!(
+                    "{}{}{}",
+                    task::nudge(step),
+                    verify::nudge_tail(&events),
+                    self.budget_note(id)
+                );
                 let note = Event::Known(Known::TaskContinued { step, nudge });
                 let opened = Event::reply_started(self.ids.next("r"), self.reply_model(id));
                 match self.append_events(id, &[note, opened]) {

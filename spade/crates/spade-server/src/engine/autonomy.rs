@@ -202,7 +202,7 @@ pub(super) async fn review(
     };
     let prompt = autonomy::prompt(&case).session(id);
     let admission = tokio::select! {
-        admission = engine.admit_waiting(id, &model, &prompt, super::ledger::Hint::default()) => admission,
+        admission = engine.admit_waiting(id, &model, &prompt, super::ledger::Hint::default()) => admission.map(|a| a.for_role(spade_core::routing::Role::Review)),
         _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
     };
     let (outcome, cost) = match admission {

@@ -243,6 +243,11 @@ impl Store {
             "DELETE FROM settings WHERE key = ?1",
             params![crate::oversight::agent_key(id)],
         )?;
+        // Its model roles (ADR 0162).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![crate::spend::roles_key(id)],
+        )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
             params![conversation],

@@ -34,6 +34,7 @@ mod retry;
 mod review;
 pub mod roster;
 mod routines;
+mod routing;
 mod search;
 mod services;
 mod trim;
@@ -64,6 +65,7 @@ pub use oversight::{
 pub use questions::{QuestionError, QuestionReply};
 pub use retry::Retry;
 pub use roster::{LastMessage, State};
+pub use routing::{RolesChange, entry_role};
 pub(crate) use search::Native;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
@@ -840,20 +842,28 @@ impl Engine {
         Ok(stored)
     }
 
-    /// Records what a model call cost, failed or not.
-    pub(super) fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
-        let cost = spending::cost_micros(self.models.price(model), usage);
-        self.record_cost(id, model, cost);
-        cost
-    }
-
-    /// Records `cost` micros spent on `model` in conversation `id`.
-    pub(super) fn record_cost(&self, id: &str, model: &str, cost: u64) {
+    /// Records `cost` micros spent on `model` in conversation `id` for `role` (ADR 0162); with
+    /// none, a helper's calls are `helper` and the rest `main`.
+    pub(super) fn record_cost_as(
+        &self,
+        id: &str,
+        model: &str,
+        role: Option<spade_core::routing::Role>,
+        cost: u64,
+    ) {
+        use spade_core::routing::Role;
         // A helper's spend is its bot's (ADR 0152), so the bot's caps count it.
         let owner = self.helper_of(id).map(|h| h.parent);
+        let role = role.unwrap_or(if owner.is_some() {
+            Role::Helper
+        } else {
+            Role::Main
+        });
         let id = owner.as_deref().unwrap_or(id);
         if cost > 0
-            && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())
+            && let Err(error) =
+                self.store
+                    .record_spend_as(id, model, role.name(), cost, self.now_ms())
         {
             tracing::error!(%error, "could not record a model call's cost");
         }

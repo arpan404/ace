@@ -17,6 +17,7 @@ use serde_json::Value;
 use spade_core::context;
 use spade_core::event::{FromAgent, HelperAsk, Known};
 use spade_core::helper::{self, Profile, Stage};
+use spade_core::routing;
 use spade_core::tools::Registry;
 use spade_core::{Event, Transcript};
 use spade_store::{StoreError, StoredHelper};
@@ -44,6 +45,12 @@ struct Arguments {
     task: String,
     #[serde(default)]
     profile: Option<String>,
+    /// A role name or `endpoint/model` the person configured (ADR 0162).
+    #[serde(default)]
+    model: Option<String>,
+    /// Rerun once on the bot's own model if it fails; `None` follows the bot's setting.
+    #[serde(default)]
+    escalate: Option<bool>,
 }
 
 /// Helpers' state the engine keeps in memory.
@@ -140,26 +147,95 @@ impl Engine {
         let Some((bot, job)) = key.split_once('.') else {
             return ToolOutput::error("Spade could not tell which bot asked.");
         };
-        let helper = match self.store.helper_for_job(bot, job) {
-            Ok(Some(helper)) => helper,
-            Ok(None) => match self.start_helper(bot, job, arguments) {
-                Ok(helper) => helper,
-                Err(refused) => return refused,
-            },
-            Err(error) => return ToolOutput::error(format!("Spade could not start it: {error}")),
+        let arguments: Arguments = match crate::tools::parse(arguments) {
+            Ok(arguments) => arguments,
+            Err(refused) => return refused,
+        };
+        let helper = match self.helper_or_start(bot, job, &arguments, None) {
+            Ok(helper) => helper,
+            Err(refused) => return refused,
         };
         self.fill_slots(&helper.parent);
-        self.helper_result(&helper).await
+        let output = self.helper_result(&helper).await;
+        // Escalation (ADR 0162): failed work on another model reruns once on the bot's own.
+        let own = self.reply_model(bot);
+        let on = arguments.escalate.unwrap_or_else(|| self.escalates(bot));
+        let outcome = self.helper_outcome(&helper);
+        let Some(own) = routing::escalate_to(on, 0, outcome, &helper.model, &own) else {
+            return output;
+        };
+        let retry = match self.helper_or_start(
+            bot,
+            &routing::retry_job(job),
+            &arguments,
+            Some(own.to_owned()),
+        ) {
+            Ok(retry) => retry,
+            Err(_) => return output,
+        };
+        self.fill_slots(&retry.parent);
+        let mut second = self.helper_result(&retry).await;
+        second.content = format!(
+            "(The helper failed on {}, so it ran again on {}.)\n\n{}",
+            helper.model, retry.model, second.content
+        );
+        second
     }
 
-    /// Stores the helper's conversation, queued: its task and no reply yet.
+    /// The helper stored for `job`, else a new one.
+    fn helper_or_start(
+        self: &Arc<Self>,
+        bot: &str,
+        job: &str,
+        arguments: &Arguments,
+        model: Option<String>,
+    ) -> Result<StoredHelper, ToolOutput> {
+        match self.store.helper_for_job(bot, job) {
+            Ok(Some(helper)) => Ok(helper),
+            Ok(None) => self.start_helper(bot, job, arguments, model),
+            Err(error) => Err(ToolOutput::error(format!(
+                "Spade could not start it: {error}"
+            ))),
+        }
+    }
+
+    /// How a helper that ended went, for escalation: failed when its reply failed or it finished
+    /// without an answer; stopped when anyone stopped it or its job.
+    fn helper_outcome(&self, helper: &StoredHelper) -> routing::Outcome {
+        let parent = self.load(&helper.parent).unwrap_or_default();
+        if spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job)) {
+            return routing::Outcome::Stopped;
+        }
+        let events = self.load(&helper.conversation).unwrap_or_default();
+        let end = events.iter().find_map(|event| match event {
+            Event::Known(
+                known @ (Known::ReplyFinished { .. }
+                | Known::ReplyStopped { .. }
+                | Known::ReplyFailed { .. }
+                | Known::ReplyInterrupted { .. }),
+            ) => Some(known),
+            _ => None,
+        });
+        match end {
+            Some(Known::ReplyFailed { .. }) => routing::Outcome::Failed,
+            Some(Known::ReplyFinished { text, .. }) if text.trim().is_empty() => {
+                routing::Outcome::Failed
+            }
+            Some(Known::ReplyFinished { .. }) => routing::Outcome::Done,
+            _ => routing::Outcome::Stopped,
+        }
+    }
+
+    /// Stores the helper's conversation for `job` (the bot's job, or its rerun), queued: its
+    /// task and no reply yet. `model` is a rerun's; otherwise the call's, the profile's or the
+    /// `helper` role's.
     fn start_helper(
         self: &Arc<Self>,
         bot: &str,
         job: &str,
-        arguments: Value,
+        arguments: &Arguments,
+        model: Option<String>,
     ) -> Result<StoredHelper, ToolOutput> {
-        let arguments: Arguments = crate::tools::parse(arguments)?;
         let task = arguments.task.trim();
         if task.is_empty() {
             return Err(ToolOutput::error("Give the helper a task."));
@@ -169,8 +245,7 @@ impl Engine {
                 "The task is longer than {TASK_CHARS} characters; give the helper less."
             )));
         }
-        let model = self.reply_model(bot);
-        if spade_core::brain::CliModel::is(&model) {
+        if spade_core::brain::CliModel::is(&self.reply_model(bot)) {
             return Err(ToolOutput::error(
                 "Bots that think through a subscription have no helpers; that CLI splits work \
                  its own way.",
@@ -194,12 +269,23 @@ impl Engine {
                 names.join("; ")
             )));
         };
-        // A model the profile names, if the person still has it; else the bot's.
-        let model = profile
+        // The call's model (a role or one the person configured), else the profile's if the
+        // person still has it, else the `helper` role's (ADR 0162).
+        let wanted = arguments
             .model
-            .clone()
-            .filter(|m| self.models.resolve(m).is_some())
-            .unwrap_or(model);
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty());
+        let model = match (model, wanted) {
+            (Some(model), _) => model,
+            (None, Some(wanted)) => self.pick_model(bot, wanted).map_err(ToolOutput::error)?,
+            (None, None) => profile
+                .model
+                .clone()
+                .filter(|m| self.models.resolve(m).is_some())
+                .unwrap_or_else(|| self.role_model(bot, routing::Role::Helper)),
+        };
+        let base = routing::base_job(job);
         // A task written while the bot had untrusted content in view may carry planted words:
         // it reaches the helper as the bot's message, which taints the helper's turn.
         let events = self.load(bot).unwrap_or_default();
@@ -219,7 +305,7 @@ impl Engine {
         let reply = events
             .iter()
             .find_map(|event| match event {
-                Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => {
+                Event::Known(Known::JobStarted { job: j, reply, .. }) if j == base => {
                     Some(reply.clone())
                 }
                 _ => None,
@@ -246,7 +332,7 @@ impl Engine {
             // Stop stores its marker under this lock, then stops the helpers it finds: a helper
             // is either made before the marker, and found, or sees it here and is never made.
             match self.load(bot) {
-                Ok(events) if spade_core::turn::job_stopped(&events, job) => {
+                Ok(events) if spade_core::turn::job_stopped(&events, base) => {
                     return Err(ToolOutput::error(context::JOB_STOPPED));
                 }
                 Ok(_) => {}
@@ -303,11 +389,17 @@ impl Engine {
         }
     }
 
-    /// What the helper the bot's job `job` runs has spent; `None` when the job is no helper.
+    /// What the helper the bot's job `job` runs has spent, its rerun included; `None` when the
+    /// job is no helper.
     pub(super) fn helper_cost(&self, bot: &str, job: &str) -> Option<u64> {
         let helper = self.store.helper_for_job(bot, job).ok()??;
-        let events = self.load(&helper.conversation).ok()?;
-        Some(helper::spent(&events))
+        let mut spent = helper::spent(&self.load(&helper.conversation).ok()?);
+        if let Ok(Some(retry)) = self.store.helper_for_job(bot, &routing::retry_job(job))
+            && let Ok(events) = self.load(&retry.conversation)
+        {
+            spent += helper::spent(&events);
+        }
+        Some(spent)
     }
 
     /// Starts the bot's queued helpers while slots are free, and a worker for each running
@@ -375,7 +467,8 @@ impl Engine {
             return;
         };
         for helper in helpers {
-            if Some(helper.reply.as_str()) != reply && !named.contains(&helper.job) {
+            let job = routing::base_job(&helper.job).to_owned();
+            if Some(helper.reply.as_str()) != reply && !named.contains(&job) {
                 continue;
             }
             let id = helper.conversation.as_str();
@@ -438,7 +531,8 @@ impl Engine {
             scope: scope.clone(),
             reviewer_reason: reviewer_reason.clone(),
             helper: Some(HelperAsk {
-                job: helper.job.clone(),
+                // The bot's job, whose end clears the wait, even for a rerun.
+                job: routing::base_job(&helper.job).to_owned(),
                 conversation: helper.conversation.clone(),
                 call_id: call_id.clone(),
             }),
@@ -519,7 +613,7 @@ impl Engine {
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.
             let parent = self.load(&helper.parent)?;
-            if spade_core::turn::job_stopped(&parent, &helper.job) {
+            if spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job)) {
                 self.stop_helper_after_restart(&helper)?;
             }
             let events = self.load(&helper.conversation)?;
@@ -569,7 +663,8 @@ impl Engine {
 
 impl Engine {
     /// The helpers conversation `id` started, oldest first, as the API shows them:
-    /// `{job, conversation, profile, task, state, cost_micros}`, `state` one of `queued`,
+    /// `{job, conversation, profile, model, attempt, task, state, cost_micros}` (`attempt` 2 for
+    /// a rerun on the bot's model, ADR 0162), `state` one of `queued`,
     /// `working`, `waiting` (on the person) or `ended`. `None` for an unknown conversation.
     pub fn helpers_view(&self, id: &str) -> Result<Option<Vec<Value>>, StoreError> {
         if self.store.conversation(id)?.is_none() {
@@ -593,6 +688,8 @@ impl Engine {
                 "job": helper.job,
                 "conversation": helper.conversation,
                 "profile": helper.profile,
+                "model": helper.model,
+                "attempt": routing::attempt(&helper.job) + 1,
                 "task": task,
                 "state": state,
                 "cost_micros": helper::spent(&events),

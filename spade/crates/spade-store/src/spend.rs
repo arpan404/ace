@@ -11,6 +11,14 @@ use crate::{Result, Store};
 /// not be told apart: they count as `main`.
 pub(crate) const SCHEMA: &str = "ALTER TABLE spend ADD COLUMN role TEXT NOT NULL DEFAULT 'main';";
 
+/// The service-wide model roles' settings key.
+pub const MODEL_ROLES: &str = "model_roles";
+
+/// One bot's model roles' settings key.
+pub fn roles_key(agent: &str) -> String {
+    format!("{MODEL_ROLES}:{agent}")
+}
+
 impl Store {
     /// Records what a call for `role` cost.
     pub fn record_spend_as(
