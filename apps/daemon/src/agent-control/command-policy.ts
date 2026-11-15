@@ -74,8 +74,6 @@ export function delegationCommandPolicy(deps: {
       const accepted = accept();
       if (accepted.ok) {
         if (deps.journal.stopped(p.threadId)) deps.journal.resumeRoot(p.threadId, deps.now());
-        // Results held while the thread was settled reach it with this input.
-        else if (explicit) deps.journal.rearm(p.threadId, deps.now());
         if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
         deps.conversationAccepted?.(p.threadId);
         deps.changed();
@@ -95,10 +93,7 @@ export function delegationCommandPolicy(deps: {
     if (!edge) return fail("cancelled");
     const accepted = accept();
     if (!accepted.ok) return accepted;
-    if (explicit) {
-      deps.journal.resumeMember(p.threadId, deps.now());
-      deps.journal.rearm(p.threadId, deps.now());
-    }
+    if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
     if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
     // Only the parent agent's own message makes the new work its turn's; the person's is theirs.
     if (edge.phase === "settled")
