@@ -40,12 +40,14 @@ const studio = {
 const dot = async (name: string) =>
   (await botRow(name)).querySelector("[data-face-dot]")?.getAttribute("data-face-dot");
 
+/** The conversation rows' names; the top's Apps link has none. */
 const names = async () =>
   (await roster())
     .queryAllByRole("link")
-    .map((row) => row.querySelector("[data-view-row-title]")?.textContent);
+    .map((row) => row.querySelector("[data-view-row-title]")?.textContent)
+    .filter((name) => name !== undefined);
 
-test("Spade heads the list, then what needs the person, what works and what failed, with dots only for asks and failures", async () => {
+test("Spade is the first row, then what needs the person, what works, what failed and the rest, with dots only for asks and failures", async () => {
   await spadeApp("/spade", crew, { machines: [studio] });
   await waitFor(async () =>
     expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden", "Research"]),
@@ -59,7 +61,7 @@ test("Spade heads the list, then what needs the person, what works and what fail
   expect((await botRow("Research")).textContent).toBe("ResearchFound 14 papers");
 });
 
-test("Search opens in place, finds conversations by their words, and says when nothing matches", async () => {
+test("Search, the first top button, opens in place, finds conversations by their words, and says when nothing matches", async () => {
   await spadeApp("/spade", crew);
   await waitFor(async () => expect(await names()).toHaveLength(4));
   await userEvent.click(screen.getByRole("button", { name: "Search conversations" }));
@@ -108,7 +110,7 @@ test("opening a bot that finished unseen marks its conversation seen, and a seen
   expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1);
 });
 
-test("+ offers New bot, New group and Import bot, and an imported bot opens", async () => {
+test("+, the third top button, offers New bot, New group and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
   await openNew("New bot");
   await screen.findByRole("dialog", { name: "New bot" });
@@ -116,9 +118,9 @@ test("+ offers New bot, New group and Import bot, and an imported bot opens", as
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
   await openNew("New group");
-  await screen.findByRole("dialog", { name: "New group" });
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // New group opens in place, as a route, not a dialog.
+  await screen.findByRole("form", { name: "New group" });
+  expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("Import bot…");
   const file = new File(
