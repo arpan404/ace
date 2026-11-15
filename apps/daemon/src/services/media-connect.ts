@@ -41,6 +41,16 @@ export function createMediaConnectSession(context: SocketContext): SocketService
       started = true;
     },
     handle(message) {
+      // The main session's round trip, for video's share of its link (ADR 0149): the client's
+      // ping carries what it measured once the ping has `rttMs`. The ping is left to its owner.
+      if (message.type === "ping") {
+        const rttMs: unknown = "rttMs" in message ? message.rttMs : undefined;
+        if (typeof rttMs === "number" && Number.isFinite(rttMs))
+          context.options
+            .mediaDelivery?.()
+            ?.sample(context.sessionId, rttMs, context.socket.bufferedAmount);
+        return false;
+      }
       if (message.type !== "media.connect") return false;
       const request = MediaConnectRequest.parse(message);
       const reply = (

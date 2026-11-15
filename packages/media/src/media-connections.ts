@@ -251,7 +251,8 @@ export class MediaConnections {
 
   /** ace-media exited: every media connection ended with it; clients ask again. */
   exited(): void {
-    for (const connection of [...this.#held.keys()]) this.#drop(connection);
+    // Deleting from a Map while iterating it is safe: dropped entries aren't visited again.
+    for (const connection of this.#held.keys()) this.#drop(connection);
   }
 
   #drop(connection: string): void {

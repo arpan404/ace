@@ -113,6 +113,7 @@ export class MediaRuntime {
       send: (message) => this.supervisor.send(message),
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+      now: () => options.clock.now(),
     });
     this.#stopLinks = pumpSessionLinks(this.links, options.clock, (message) =>
       this.supervisor.send(message),

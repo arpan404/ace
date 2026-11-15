@@ -134,10 +134,19 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
     });
   };
   let client: MediaTestClient | undefined;
+  let poster: { ms: number; bytes: number } | undefined;
+  let subscribedAt = 0;
   const bridge = connectBrowser(service, {
     connectionId: id,
     authorize: () => true,
-    send: () => true,
+    send: (message) => {
+      if (message.type === "browser.result" && message.media?.poster)
+        poster = {
+          ms: clock() - subscribedAt,
+          bytes: Buffer.from(message.media.poster.jpeg, "base64").length,
+        };
+      return true;
+    },
     local: link === undefined,
     media: { session: id, delivery: () => runtime.delivery() },
     sendStream: (pieces) => {
@@ -180,6 +189,7 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
         ),
     });
     client = opened;
+    subscribedAt = clock();
     await bridge.handle({ ...subscribe, media: { connection: grant.connection } });
   } else await bridge.handle(subscribe);
   await sleep(3_000);
@@ -191,7 +201,7 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
   const sent = daemonVideoBytes - before;
   client?.close();
   bridge.close();
-  return { shown, start, sent };
+  return { shown, start, sent, poster };
 }
 
 function quantile(values: readonly number[], q: number): number | null {
@@ -241,6 +251,15 @@ try {
       daemonVideoBytes: linked.sent + direct.sent,
       glassToGlassLoopbackP95Ms: { legacy: legacyP95, aceMedia: directP95 },
       hopMs,
+      // The subscribe reply's poster on this machine, and when it would arrive on 3g-400: one
+      // round trip (400 ms) and its bytes at 400 kbit/s.
+      poster: direct.poster
+        ? {
+            localMs: Math.round(direct.poster.ms),
+            bytes: direct.poster.bytes,
+            on3g400Ms: Math.round(direct.poster.ms + 400 + (direct.poster.bytes * 8) / 400),
+          }
+        : null,
       loadAverage: Number(load.toFixed(2)),
       cores: availableParallelism(),
       enforced,

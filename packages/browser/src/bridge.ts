@@ -154,10 +154,10 @@ export function connectBrowser(
     const kinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
     if (!media || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
     const viewport = message.viewport;
-    const viewer = `${media.session}/${threadId}/${subscriber}`.slice(0, 64);
+    const id = `${media.session}/${threadId}/${subscriber}`.slice(0, 64);
     const link = viewLink(viewport?.link);
     const bound = delivery.bind({
-      viewer,
+      viewer: id,
       session: media.session,
       connection,
       target: { kind: "browser", threadId },
@@ -169,7 +169,7 @@ export function connectBrowser(
       shows: (producer) => producer.threadId === threadId,
     });
     if (!bound) throw new Error("media-connection: that media connection isn't this session's");
-    return viewer;
+    return id;
   };
   let pending = 0;
   let closed = false;
