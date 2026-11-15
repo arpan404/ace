@@ -222,4 +222,6 @@ it.each(transitions.map((transition) => [transition.name, transition] as const))
       on.close();
     }
   },
+  // About two dozen fresh daemons each, a quarter of a second apiece.
+  20_000,
 );

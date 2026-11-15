@@ -100,10 +100,16 @@ export class ChildLiveness {
   stop(id: ThreadId): boolean {
     const row = this.deps.ledger.row(id);
     if (!row || row.settled === 1) return false;
-    if (!this.deps.ledger.startStop(id, this.deps.now())) return true;
-    // Requests it had open there are no longer the person's to answer, nor is lost contact.
+    // The stop and the closing of a question about lost contact commit together; the poll's
+    // reconciliation closes any question a failure here still left open.
+    const started = this.deps.store.atomic(() => {
+      if (!this.deps.ledger.startStop(id, this.deps.now())) return false;
+      this.deps.heard(row);
+      return true;
+    });
+    if (!started) return true;
+    // Requests it had open there are no longer the person's to answer.
     this.deps.mirror.release(`child:${id}`);
-    this.deps.heard(row);
     this.deps.emit([id]);
     this.tick();
     return true;

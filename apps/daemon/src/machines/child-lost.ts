@@ -11,6 +11,7 @@ import { childAgentKey } from "../engine/remote-child-status.ts";
 import type { Engine } from "../engine/index.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
+import { questionFacts, questionFate } from "./child-question.ts";
 import { abandonedView, lostLine, silentAbandonedView } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
 
@@ -118,16 +119,25 @@ export class LostChildren {
   keep(row: ChildRow): void {
     const name = this.deps.label(row.machine);
     if (row.lost_at === null) {
-      // A question about lost contact gives way to the one about its pairing.
-      this.close(row, { state: "expired" });
       // Requests it had open there can't be answered from here any more.
       this.deps.mirror.release(`child:${row.id}`);
-      // The person's approval about it opens first, on its row, so the row counts it once.
-      this.ask(row, name);
-      this.deps.store.atomic(() => {
-        this.deps.ledger.markLost(row.id, this.deps.now());
-        this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you");
-      });
+      try {
+        // One transaction: a question about lost contact gives way to the one about its
+        // pairing, which opens first, on its row, so the row counts it once. A failed write
+        // leaves it as it was (`lost_at` unset), and the next poll does it all again.
+        this.deps.store.atomic(() => {
+          this.close(row, { state: "expired" });
+          this.open(row, lostRequest(row, name));
+          this.deps.ledger.markLost(row.id, this.deps.now());
+          this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you");
+        });
+      } catch (error) {
+        this.deps.log("Lost child not shown to the person yet", {
+          id: row.id,
+          error: String(error),
+        });
+        return;
+      }
       this.deps.emit([row.id]);
       return;
     }
@@ -196,6 +206,32 @@ export class LostChildren {
       });
     }
   }
+  /**
+   * Closes every open question its child's state no longer explains (`questionFate`): back in
+   * contact, being stopped, settled, stopped tracking. Run on every poll from the stored rows, so
+   * a change whose closing of the question failed is finished later, whatever the path.
+   */
+  reconcile(): void {
+    for (const row of this.deps.ledger.asked()) {
+      if (questionFate(questionFacts(row)) === "keep") continue;
+      try {
+        this.deps.store.atomic(() => {
+          this.close(row, { state: "expired" });
+          this.deps.ledger.clearAsk(row.id);
+        });
+        this.deps.emit([row.id]);
+      } catch (error) {
+        this.deps.log("Machine child question not closed yet", {
+          id: row.id,
+          error: String(error),
+        });
+      }
+    }
+  }
+  /** Whether a question is open that its child's state no longer explains. */
+  stale(): boolean {
+    return this.deps.ledger.asked().some((row) => questionFate(questionFacts(row)) === "close");
+  }
   /** Its machine answered again, or a stop began: the question about lost contact closes. */
   heard(row: ChildRow): void {
     if (row.lost_at !== null || !row.lost_ask) return;
@@ -215,6 +251,16 @@ export class LostChildren {
       this.deps.store.atomic(() => {
         this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
         this.deps.ledger.endWatch(row.id);
+      });
+      this.deps.emit([row.id]);
+      return { commandId: command.id, ok: true, threadId: row.parent_thread };
+    }
+    // Its child is no longer one to ask about (it settled, or is back in contact): the question
+    // closes, and there is nothing else to do.
+    if (questionFate(questionFacts(row)) === "close") {
+      this.deps.store.atomic(() => {
+        this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
+        this.deps.ledger.clearAsk(row.id);
       });
       this.deps.emit([row.id]);
       return { commandId: command.id, ok: true, threadId: row.parent_thread };

@@ -41,7 +41,7 @@ it("a working child whose machine goes silent past the lease keeps its parent fr
   });
 
   // A wait and agents_status read it as needing the person, never as failed or done.
-  const watched = ledger.watched(id as ThreadId)?.view;
+  const watched = ledger.watched(id)?.view;
   expect(watched).toMatchObject({ state: "needs_you", contact: "lost" });
   expect(watched?.step).toContain("MacBook Pro Rijan hasn't answered for 10 min");
   expect(watched?.needs?.[0]?.interactionId).toBe(ask?.id);
