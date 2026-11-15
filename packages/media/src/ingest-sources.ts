@@ -116,6 +116,12 @@ export type IngestSourcesOptions = {
   ) => void;
 };
 
+/**
+ * What a producer that encodes only H.264 tells ace-media (`IngestSource.codecs`): the screen
+ * helpers and the devices. ace-media plans a view that prefers HEVC onto it, as H.264.
+ */
+export const h264Only: readonly string[] = ["avc1.42E033"];
+
 /** Reconnects after the producer's connection ended, before the source stays on the daemon. */
 export const maxIngestReopens = 3;
 /** Longest a handle waits for its end marker after its producer was pointed away. */

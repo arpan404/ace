@@ -15,6 +15,7 @@ function device() {
   const during: (() => void)[] = [];
   const keyframes: string[] = [];
   let producer: IngestProducer | undefined;
+  const codecs: string[][] = [];
   const paths = new DeviceVideoPaths({
     media: {
       attach: (added) => {
@@ -22,7 +23,7 @@ function device() {
         return {
           streaming: () => false,
           reconnect: () => {},
-          codecs: () => {},
+          codecs: (told) => void codecs.push([...told]),
           encodes: () => {},
           key: () => {},
           picture: () => false,
@@ -81,7 +82,7 @@ function device() {
       },
     });
   const marks = () => emitted.map((unit) => unit.payload[5]);
-  return { paths, answers, during, keyframes, producer: ready, daemon, egress, marks };
+  return { paths, answers, during, keyframes, producer: ready, daemon, egress, marks, codecs };
 }
 
 const address = (path: string) => ({
@@ -90,6 +91,10 @@ const address = (path: string) => ({
   token: new Uint8Array(32),
   epoch: 0,
   path,
+});
+
+it("a device tells ace-media it encodes H.264 only, so no view is planned in HEVC", () => {
+  expect(device().codecs).toEqual([["avc1.42E033"]]);
 });
 
 it("a move into ace-media hands on the daemon path's units up to its boundary before ace-media's", async () => {
