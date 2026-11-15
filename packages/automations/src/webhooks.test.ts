@@ -46,11 +46,50 @@ describe("webhook automations", () => {
     const answer = webhooks().receive(hookId, signed(secret));
     expect(answer.status).toBe(202);
     const input = await h.nextExecution(0);
-    expect(input.prompt).toBe("Check the prod deploy of abc123");
+    expect(input.prompt.startsWith("Check the prod deploy of abc123\n\n")).toBe(true);
     const runs = h.service.inbox().runs;
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ trigger: "webhook", eventKey: "webhook:evt_1" });
     expect(answer.body).toEqual({ runId: runs[0]?.id });
+  });
+
+  it("a webhook run says which of its prompt's text came from outside", async () => {
+    const { h, webhooks } = setup();
+    const { hookId, secret } = webhooks().rotate("deploy");
+    webhooks().receive(hookId, signed(secret));
+    const { prompt } = await h.nextExecution(0);
+    const note = prompt.slice("Check the prod deploy of abc123".length);
+    expect(note).toContain("{{body.env}}");
+    expect(note).toContain("{{body.commit}}");
+    expect(note).toMatch(/not .*instructions/);
+  });
+
+  it("a webhook automation with no access of its own runs read-only; a chosen one is kept", async () => {
+    const { h, webhooks } = setup();
+    const { hookId, secret } = webhooks().rotate("deploy");
+    webhooks().receive(hookId, signed(secret));
+    expect((await h.nextExecution(0)).access).toBe("read-only");
+    await h.finish(0);
+    h.service.put(
+      definition({
+        id: "deploy",
+        trigger: { kind: "webhook" },
+        prompt: "Check {{body.env}}",
+        access: "auto-review",
+      }),
+    );
+    webhooks().receive(hookId, signed(secret, { id: "evt_2" }));
+    expect((await h.nextExecution(1)).access).toBe("auto-review");
+  });
+
+  it("a run by hand of a webhook automation is read-only too, and has no outside note", async () => {
+    const { h } = setup();
+    h.service.trigger("deploy", {
+      key: "manual:1",
+      variables: { "body.env": "x", "body.commit": "y" },
+    });
+    const input = await h.nextExecution(0);
+    expect(input).toMatchObject({ access: "read-only", prompt: "Check the x deploy of y" });
   });
 
   it("a retried delivery returns its run instead of starting another, also after a restart", async () => {

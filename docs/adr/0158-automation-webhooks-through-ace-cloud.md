@@ -110,6 +110,14 @@ restart.
    Checks run in this order, so a caller without the secret learns only whether the hook exists.
    The reply never waits for the agent.
 
+9. **Text from a request is marked as outside text, and a webhook automation runs read-only
+   unless the person chose otherwise.** Anyone with the secret can put text into the prompt, so
+   a webhook run's prompt ends with a note naming the `{{body.…}}` and `{{webhook.id}}` places
+   and saying that text came from outside ace and is data, not instructions. A webhook
+   automation with no access of its own starts its thread read-only instead of at the machine's
+   default; an access the person picks is kept. An agent's webhook automation runs in its
+   thread, at that thread's access: the person sees that when they make its secret.
+
 ## Consequences
 
 - Senders that speak Standard Webhooks work without custom code. GitHub's own webhooks sign
