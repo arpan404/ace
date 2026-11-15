@@ -11,6 +11,7 @@ import { ThreadId, AgentId } from "@ace/protocol";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
 import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
+import type { DevicePeer } from "./bridge.ts";
 import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 
 /*
@@ -158,7 +159,11 @@ async function fixture(
 }
 
 /** A devices client connected to the service through the bridge, as the app connects. */
-function connect(service: DevicesService, owner = "browser-1") {
+function connect(
+  service: DevicesService,
+  owner = "browser-1",
+  extra: Pick<DevicePeer, "delivery"> = {},
+) {
   const sent: DeviceServerMessage[] = [];
   let channel: ReturnType<typeof reserveDevices> | undefined;
   const transport: DeviceTransport = {
@@ -166,6 +171,7 @@ function connect(service: DevicesService, owner = "browser-1") {
       // As the daemon does with a loaded service: the channel subscribes before the welcome and
       // speaks only once the welcome has gone out.
       const opened = reserveDevices(service, owner, {
+        ...extra,
         authorize: () => true,
         canReadThread: () => true,
         agentExists: () => true,
@@ -704,4 +710,44 @@ it("a resubscribe on the same media connection that fails keeps delivering on th
   await request("leave", { op: "unsubscribe", deviceId });
   expect(d.live.size).toBe(0);
   expect(d.views.size).toBe(0);
+});
+
+it("a media resubscribe that fails leaves the legacy view its stream and its pictures", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  const d = fakeDelivery();
+  const failing = { on: false };
+  const { client } = connect(f.service, "browser-1", {
+    delivery: {
+      owner: () => phoneOwner,
+      port: () => ({
+        ...d.port,
+        poster: () =>
+          failing.on ? Promise.reject(new Error("poster gone")) : Promise.resolve(undefined),
+      }),
+    },
+  });
+  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "list" });
+  let shown = 0;
+  client.watchPictures(deviceId, async (picture) => {
+    shown++;
+    client.ack(picture);
+  });
+  await client.request({ op: "start", deviceId, fps: 10 });
+  // Watched on the main socket: the daemon delivers it.
+  await client.request({ op: "subscribe", deviceId });
+  await waitFor(() => expect(shown).toBeGreaterThan(0));
+  failing.on = true;
+  await expect(
+    client.request({ op: "subscribe", deviceId, media: { connection: "mc_aaaaaaaaaaaa" } }),
+  ).rejects.toThrow();
+  failing.on = false;
+  expect(d.views.size).toBe(0);
+  // The old view keeps its stream request: the device still makes H.264, so the next picture
+  // reaches it. (A withdrawn request would leave the device on JPEG, which live views drop.)
+  const before = shown;
+  await client.request({ op: "stream.keyframe", deviceId });
+  await vi.waitFor(() => expect(shown).toBeGreaterThan(before), { timeout: 2_000 });
 });
