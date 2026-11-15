@@ -70,7 +70,23 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
           : sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
       (value) => this.#restore(value),
     );
+    // Until the list's first subscribe, the list kept for this filter (the one a launch
+    // restores) is read first: subscribing without it would ask for the whole list instead of
+    // resuming from its revision. The binding gives up on a slow read. Later filter switches
+    // paint from this session's memory and subscribe at once.
+    if (this.#subscribed) return;
+    const binding = this.#binding;
+    this.#reading = binding;
+    void binding.loaded.then(() => {
+      if (this.#reading !== binding) return;
+      this.#reading = undefined;
+      if (this.#refs && !this.#wire && this.#ready()) this.#subscribe();
+    });
   }
+  /** The binding whose kept list the first subscribe waits for, while its first read is out. */
+  #reading: SnapshotBinding | undefined;
+  /** The list has subscribed at least once. */
+  #subscribed = false;
   #retire(): void {
     const written = this.#binding?.close();
     this.#binding = undefined;
@@ -174,11 +190,15 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#home = undefined;
       this.#confirm(["home"], false);
       this.#adopt("home");
-      if (this.#refs && this.#ready()) this.#subscribe();
+      // Before the list's first subscribe (a launch restoring its filter), the new filter's
+      // kept list is read first: its binding, made below, subscribes once the read is in.
+      if (this.#refs && this.#ready() && (this.#subscribed || !this.#persistence))
+        this.#subscribe();
     } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
     if (this.#provisional.size && !this.#pending.size) this.#pending.add("provisional");
     this.#merge();
     this.#notifications.emitAll();
+    // Made after this change is announced, so the binding takes the filter's record.
     this.#persist();
   }
   /** Remember a half the filter is leaving, unless it was only derived from another's list. */
@@ -227,19 +247,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
     this.#persist();
-    // The list kept from before is read first: subscribing without it would ask for the whole
-    // list instead of resuming from its revision. The binding gives up on a slow read in time.
-    const first = this.#binding;
-    if (first) {
-      this.#reading = true;
-      void first.loaded.then(() => {
-        this.#reading = false;
-        if (this.#refs && !this.#wire && this.#ready()) this.#subscribe();
-      });
-    }
   }
-  /** The kept list is still being read: the first subscribe waits for it. */
-  #reading = false;
   get ids(): readonly string[] {
     return this.#order;
   }
@@ -310,6 +318,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return source === "remembered" ? this.#rememberedResume : resumeOf(this.#home);
   }
   #subscribe(): void {
+    this.#subscribed = true;
+    this.#reading = undefined;
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
     this.#await([this.#wire]);
