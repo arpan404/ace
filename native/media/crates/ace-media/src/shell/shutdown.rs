@@ -17,6 +17,10 @@ pub(super) async fn shutdown_within(
     let deadline = Instant::now() + budget;
     let _ = tokio::time::timeout_at(deadline, relays.settled()).await;
     let left = deadline.saturating_duration_since(Instant::now());
+    // Nothing left: no lane waits even one timer tick (about 16 ms on Windows) past the budget.
+    if left.is_zero() {
+        return;
+    }
     let priority = async {
         if let Some(priority) = priority {
             priority.close(left).await;
