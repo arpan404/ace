@@ -270,3 +270,37 @@ fn a_view_takes_the_nearest_encode_a_producer_sends_when_it_doesnt_follow_the_pl
     large.flags = 0;
     assert_eq!(binaries(&ingest(&mut engine, 1, large, at(1_100))).len(), 1);
 }
+
+#[test]
+fn a_piece_carries_the_units_capture_time_on_the_wall_clock() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let stamped = |unit: &mut MediaFrame, at: f64| {
+        let mut extension = vec![0, 1, 0, 24];
+        extension.extend_from_slice(&7u64.to_be_bytes());
+        extension.extend_from_slice(&at.to_be_bytes());
+        extension.extend_from_slice(&1.0f64.to_be_bytes());
+        unit.extension = extension;
+    };
+    let timestamp = |effects: &[Effect]| {
+        let mut assembler = Assembler::new();
+        binaries(effects).iter().find_map(|p| {
+            let envelope = assembler.push(p).ok().flatten()?;
+            media_core::headers::decode_video(envelope.meta, envelope.payload)
+                .ok()
+                .map(|v| v.timestamp)
+        })
+    };
+    let mut key = h264(true, 0, 1, Vec::new());
+    stamped(&mut key, 1_700_000_000_123.5);
+    assert_eq!(
+        timestamp(&ingest(&mut engine, 1, key, NOW)),
+        Some(1_700_000_000_123.5)
+    );
+    // Without a stamp: the wall clock less the unit's age.
+    let mut delta = h264(false, 1, 1, Vec::new());
+    delta.age_us = 20_000;
+    assert_eq!(
+        timestamp(&ingest(&mut engine, 1, delta, NOW)),
+        Some(NOW.wall_ms as f64 - 20.0)
+    );
+}
