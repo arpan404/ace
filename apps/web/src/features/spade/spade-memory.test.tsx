@@ -61,24 +61,6 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
   expect(texts(spade, null)).toEqual(["Lives in Leeds"]);
 });
 
-test("Settings › Spade › About you lists and adds the notes every bot sees", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
-    withTravel(api);
-    api.notes.add({ text: "Lives in Leeds" });
-    api.notes.add({ text: "Prefers window seats", agent: "travel" });
-  });
-  const list = within(await screen.findByRole("list", { name: "About you" }));
-  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-    "Lives in LeedsDelete",
-  ]);
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Add something about you" }),
-    "Vegetarian{Enter}",
-  );
-  await waitFor(() => expect(texts(spade, null)).toEqual(["Lives in Leeds", "Vegetarian"]));
-  expect(spade.sent("POST", "/v1/notes")).toEqual([{ text: "Vegetarian" }]);
-});
-
 /** Travel's chat with one finished reply whose memory_save remembered `note`. */
 const rememberedChat = (api: FakeSpadeApi) => {
   const travel = withTravel(api);

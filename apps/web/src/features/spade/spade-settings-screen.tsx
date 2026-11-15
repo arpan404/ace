@@ -1,16 +1,53 @@
+import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { SettingsBody } from "@/features/settings/index.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
 
-const SpadeSettings = lazy(() =>
-  import("./spade-settings.tsx").then((module) => ({ default: module.SpadeSettings })),
-);
+/** Settings › Spade's four pages. */
+export type SpadeSettingsPage = "general" | "models" | "search" | "apps";
 
-/** Settings › Spade: framed like every Settings page, its body loaded on first use. */
-export function SpadeSettingsScreen() {
+const pages = {
+  general: {
+    title: "Spade",
+    body: lazy(() =>
+      import("./spade-settings.tsx").then((module) => ({ default: module.SpadeSettings })),
+    ),
+  },
+  models: {
+    title: "Models",
+    body: lazy(() =>
+      import("./spade-settings-models.tsx").then((module) => ({
+        default: module.SpadeModelsSettings,
+      })),
+    ),
+  },
+  search: {
+    title: "Web search",
+    body: lazy(() =>
+      import("./spade-search-settings.tsx").then((module) => ({ default: module.SearchSettings })),
+    ),
+  },
+  apps: {
+    title: "Apps",
+    body: lazy(() =>
+      import("./spade-settings-apps.tsx").then((module) => ({ default: module.SpadeAppsSettings })),
+    ),
+  },
+} as const;
+
+/**
+ * One of Settings › Spade's pages, framed like every Settings page, its body loaded on first use.
+ * Hidden on this machine (ADR 0139): no Spade settings.
+ */
+export function SpadeSettingsScreen(props: { page: SpadeSettingsPage }) {
+  const shown = useSpadeShown();
+  if (shown === false) return <Navigate to="/settings" replace />;
+  if (shown === undefined) return null;
+  const { title, body: Body } = pages[props.page];
   return (
-    <SettingsBody page="Spade">
+    <SettingsBody page={title}>
       <Suspense fallback={null}>
-        <SpadeSettings />
+        <Body />
       </Suspense>
     </SettingsBody>
   );

@@ -69,35 +69,44 @@ test("a search with nothing set up leaves only the bot's own words, with no setu
   expect(chat.queryByRole("link", { name: /web search/i })).toBeNull();
 });
 
-test("Settings › Spade › Web search keeps a Brave key in the keychain and a SearXNG address", async () => {
-  const { spade } = await spadeApp("/settings/spade", garden);
-  const section = within(await screen.findByRole("region", { name: "Web search" }));
-  const key = section.getByLabelText<HTMLInputElement>("Brave Search key");
-  // Typed into once Spade has said what is set up.
-  await waitFor(() => expect(key.disabled).toBe(false));
+// Saving changes what Spade searches with, which draws the choice again: found each time.
+const choose = async (engine: string) =>
+  userEvent.click(
+    within(await screen.findByRole("group", { name: "Search with" })).getByRole("button", {
+      name: engine,
+    }),
+  );
+
+test("Web search takes one choice and only the field it needs: Brave's key, SearXNG's address, or off", async () => {
+  const { spade } = await spadeApp("/settings/spade/search", garden);
+  expect(await screen.findByText(/^Bots can't search the web\./)).toBeTruthy();
+
+  await choose("Brave");
+  const key = screen.getByLabelText<HTMLInputElement>("Key");
   await userEvent.type(key, "BSA-123");
-  await userEvent.click(section.getAllByRole("button", { name: "Save" })[0]!);
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/search/brave-key")).toEqual([{ key: "BSA-123" }]),
   );
-  await section.findByText(/^Set\. Brave's search service/);
-  expect(key.value).toBe("");
+  expect(await screen.findByText("Saved in the keychain")).toBeTruthy();
 
-  const address = section.getByLabelText<HTMLInputElement>("SearXNG");
-  await userEvent.type(address, "ftp://nope");
-  await userEvent.click(section.getAllByRole("button", { name: "Save" })[1]!);
-  expect((await section.findByRole("alert")).textContent).toContain("http:// or https://");
+  await choose("SearXNG");
+  const address = screen.getByLabelText<HTMLInputElement>("Address");
+  await userEvent.type(address, "ftp://nope{Enter}");
+  // The refusal says the fix under the field; nothing else explains it before.
+  expect((await screen.findByRole("alert")).textContent).toContain("http:// or https://");
   await userEvent.clear(address);
-  await userEvent.type(address, "http://localhost:8888");
-  await userEvent.click(section.getAllByRole("button", { name: "Save" })[1]!);
-  await waitFor(() => expect(address.value).toBe("http://localhost:8888/"));
-  expect(spade.search.searxngUrl).toBe("http://localhost:8888/");
+  await userEvent.type(address, "http://localhost:8888{Enter}");
+  await waitFor(() => expect(spade.search.searxngUrl).toBe("http://localhost:8888/"));
 
-  await userEvent.click(section.getAllByRole("button", { name: "Remove" })[1]!);
+  await choose("Off");
+  await userEvent.click(screen.getByRole("button", { name: "Turn off" }));
   await waitFor(() => expect(spade.search.searxngUrl).toBeNull());
+  await waitFor(() => expect(spade.sent("DELETE", "/v1/search/brave-key")).toHaveLength(1));
+  expect(await screen.findByText(/^Bots can't search the web\./)).toBeTruthy();
 });
 
-test("while the setting loads, Run Spade shows neither on nor off, and every group holds its place", async () => {
+test("while the setting loads, Run Spade shows neither on nor off, and spending holds its place", async () => {
   await spadeApp("/settings/spade", garden, {
     daemon: (daemon) => daemon.holdRequests("settings.subscribe"),
   });
@@ -105,6 +114,5 @@ test("while the setting loads, Run Spade shows neither on nor off, and every gro
   if (!(row instanceof HTMLElement)) throw new Error("no Run Spade row");
   // Its place is held by a placeholder, never an off switch that may be on.
   expect(within(row).queryByRole("switch")).toBeNull();
-  for (const group of ["Endpoints", "Web search", "Connectors"])
-    expect(screen.getByRole("region", { name: group })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Spending, every bot together" })).toBeTruthy();
 });

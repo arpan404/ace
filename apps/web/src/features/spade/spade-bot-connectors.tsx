@@ -51,7 +51,10 @@ export function ConnectorChoice(props: {
     return (
       <div className="flex items-center gap-2 text-ui text-muted-foreground">
         No apps connected.
-        <Link to="/settings/spade" className={buttonVariants({ size: "sm", variant: "ghost" })}>
+        <Link
+          to="/settings/spade/apps"
+          className={buttonVariants({ size: "sm", variant: "ghost" })}
+        >
           Connect an app
         </Link>
       </div>

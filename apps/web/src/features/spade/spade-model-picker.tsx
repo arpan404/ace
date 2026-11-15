@@ -1,26 +1,39 @@
 import {
-  cliSourceKey,
-  spadeModelFacts,
+  mergeSpadeModels,
   spadeSubscriptionSources,
-  splitCliModel,
-  splitSpadeModel,
   type SpadeEndpoint,
 } from "@ace/ui-core/spade-chat";
-import { CaretDownIcon } from "@phosphor-icons/react";
-import { useState } from "react";
+import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { useQueries } from "@tanstack/react-query";
+import { useState, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input.tsx";
-import { menuItem } from "@/components/ui/menu-styles.ts";
+import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Select, selectTrigger } from "@/components/ui/select.tsx";
+import { selectTrigger } from "@/components/ui/select.tsx";
+import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { cn } from "@/lib/cn.ts";
-import { useEndpointModels, useSpadeModels, useSpadeSubscriptions } from "./use-spade-models.ts";
+import { readLiveModels } from "./spade-api.ts";
+import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import {
+  spadeModelGroups,
+  spadeModelLabel,
+  type SpadeModelOption,
+  type SpadeModelSources,
+} from "./spade-model-options.ts";
+import {
+  modelsKey,
+  useEndpointModels,
+  useSpadeModels,
+  useSpadeSubscriptions,
+} from "./use-spade-models.ts";
 
 /**
- * A bot's model (ADR 0126, 0133): one of the person's endpoints or, under "Your subscriptions",
- * one account of a provider CLI ace runs for them; then a model from that source. An endpoint's
- * models are what it lists now merged with the saved ones, searchable, or any id typed in; a
- * subscription's are what ace lists. `value` is `endpoint/model` or
- * `cli:<provider>@<account>/<model>`.
+ * A model (ADR 0126, 0133), picked in one control: a button reading "Claude Sonnet 5.5 ·
+ * OpenRouter" that opens every model of the person's endpoints and subscriptions, grouped by
+ * where each comes from, searchable, and any id typed in for an endpoint. An endpoint's models
+ * are what it lists now merged with the saved ones. `value` is `endpoint/model`,
+ * `cli:<provider>@<account>/<model>`, or "" for the empty choice `none` names ("Each bot's
+ * own"), which `onChange` reports as "".
  */
 export function SpadeModelPicker(props: {
   value: string;
@@ -28,92 +41,197 @@ export function SpadeModelPicker(props: {
   id?: string | undefined;
   /** What the picker is for, when a page has more than one ("Review model"); else "Model". */
   label?: string | undefined;
+  /** The words of the empty choice, when the setting has one. */
+  none?: string | undefined;
+  className?: string | undefined;
 }) {
+  const [open, setOpen] = useState(false);
+  const sources = useModelSources(open);
+  const shown = spadeModelLabel(sources, props.value, props.none);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        id={props.id}
+        aria-label={props.label ?? "Model"}
+        className={cn(
+          selectTrigger,
+          "w-72 max-w-full min-w-0 @max-[440px]:w-full",
+          props.className,
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate text-left">
+          {shown.name}
+          {shown.source && <span className="text-muted-foreground">{` · ${shown.source}`}</span>}
+        </span>
+        <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-(--anchor-width) min-w-96 p-1" aria-label="Models">
+        <ModelList
+          sources={sources}
+          value={props.value}
+          none={props.none}
+          onPick={(value) => {
+            props.onChange(value);
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Every endpoint with its models and every subscription. Endpoints are listed live only while
+ * the list is open (`live`), and never while an endpoint's key isn't known.
+ */
+function useModelSources(live: boolean): SpadeModelSources {
+  const machine = useSpadeMachine().key;
+  const client = useSpadeClient();
   const models = useSpadeModels(true);
   const subscriptions = useSpadeSubscriptions(true);
   const endpoints = models.data?.endpoints ?? [];
-  const sources = spadeSubscriptionSources(subscriptions.data?.providers ?? []);
-  const chosenCli = splitCliModel(props.value);
-  const cliKey = cliSourceKey(props.value, sources);
-  const chosen = splitSpadeModel(props.value);
-  const endpoint = chosenCli
-    ? undefined
-    : (endpoints.find((candidate) => candidate.id === chosen.endpoint) ?? endpoints[0]);
-  const source = chosenCli ? sources.find((each) => each.key === cliKey) : undefined;
-  if (models.isPending)
-    return <p className="text-ui text-muted-foreground">Reading your endpoints…</p>;
-  if (models.isError)
-    return (
-      <p className="text-ui text-muted-foreground">
-        Couldn't read your endpoints. {models.error.message}
-      </p>
-    );
-  if (!endpoint && !source && !chosenCli && sources.length === 0)
-    return (
-      <p className="text-ui text-muted-foreground">Add an endpoint in Settings › Spade first.</p>
-    );
-  const current = endpoint?.id ?? cliKey ?? (chosenCli ? props.value : "");
-  const options = [
-    ...endpoints.map((each) => ({ value: each.id, label: each.name })),
-    ...sources.map((each) => ({
-      value: each.key,
-      label: each.label,
-      group: "Your subscriptions",
+  const lists = useQueries({
+    queries: endpoints.map((endpoint) => ({
+      // The same entry `useEndpointModels` reads, so a list read in one place serves both.
+      queryKey: [...modelsKey, machine, "live", endpoint.id],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        readLiveModels(client, endpoint.id, { signal }),
+      enabled: live && (!endpoint.needsKey || endpoint.keySet === true),
+      staleTime: 60_000,
+      retry: false,
     })),
-    // A subscription the bot is on that ace doesn't list now (signed out, uninstalled).
-    ...(chosenCli && !cliKey
-      ? [{ value: current, label: chosenCli.provider, group: "Your subscriptions" }]
-      : []),
-  ];
-  const pickSource = (next: string) => {
-    const subscription = sources.find((each) => each.key === next);
-    if (subscription) props.onChange(`${subscription.key}/${subscription.models[0]?.id ?? ""}`);
-    else props.onChange(`${next}/`);
+  });
+  return {
+    endpoints: endpoints.map((endpoint, at) => ({
+      endpoint,
+      models: mergeSpadeModels(endpoint.models, lists[at]?.data),
+    })),
+    subscriptions: spadeSubscriptionSources(subscriptions.data?.providers ?? []),
   };
+}
+
+/** The open list: a search field over the groups, the arrow keys moving through them. */
+function ModelList(props: {
+  sources: SpadeModelSources;
+  value: string;
+  none: string | undefined;
+  onPick(value: string): void;
+}) {
+  const [query, setQuery] = useState("");
+  const groups = spadeModelGroups(props.sources, query, props.none);
+  const flat = groups.flatMap((group) => group.options);
+  const list = useListHighlight({ count: flat.length });
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    const action = list.key(event, () => true);
+    if (action.kind === "pick") {
+      event.preventDefault();
+      const option = flat[action.at];
+      if (option) props.onPick(option.value);
+    } else if (action.kind === "pass" && event.key === "Enter") {
+      event.preventDefault();
+      const first = flat[0];
+      if (first) props.onPick(first.value);
+    }
+  };
+  const nothing = props.sources.endpoints.length === 0 && props.sources.subscriptions.length === 0;
+  // Where each group's first option sits in the flat list the keys move through.
+  const starts = groups.map((_, index) =>
+    groups.slice(0, index).reduce((sum, group) => sum + group.options.length, 0),
+  );
   return (
-    <div className="flex min-w-0 gap-2">
-      <Select
-        label={props.label ? `${props.label.replace(/ model$/, "")} endpoint` : "Endpoint"}
-        value={current}
-        options={options}
-        onValueChange={pickSource}
-        className="w-44 shrink-0"
+    <>
+      <Input
+        role="combobox"
+        aria-label="Search models"
+        aria-expanded
+        aria-controls={list.listId}
+        aria-activedescendant={list.current === undefined ? undefined : list.optionId(list.current)}
+        placeholder="Search or type a model id"
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- the list opens to its search.
+        autoFocus
+        spellCheck={false}
+        autoComplete="off"
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          list.reset();
+        }}
+        onKeyDown={onKeyDown}
+        className="mb-1"
       />
-      {endpoint ? (
-        <SpadeModelChoice
-          key={endpoint.id}
-          id={props.id}
-          label={props.label}
-          endpoint={endpoint}
-          model={endpoint.id === chosen.endpoint ? chosen.model : ""}
-          onChange={(model) => props.onChange(`${endpoint.id}/${model}`)}
-        />
-      ) : source ? (
-        <Select
-          id={props.id}
-          label={props.label ?? "Model"}
-          value={chosenCli?.model ?? ""}
-          options={[
-            ...source.models.map((model) => ({ value: model.id, label: model.name })),
-            ...(chosenCli && !source.models.some((model) => model.id === chosenCli.model)
-              ? [{ value: chosenCli.model, label: chosenCli.model }]
-              : []),
-          ]}
-          onValueChange={(model) => props.onChange(`${source.key}/${model}`)}
-          className="min-w-0 flex-1"
-        />
-      ) : (
-        <p className="min-w-0 flex-1 self-center truncate text-ui text-muted-foreground">
-          {subscriptions.data?.error
-            ? "ace isn't reachable, so your subscriptions can't be listed."
-            : "ace doesn't list this subscription now."}
-        </p>
-      )}
+      <div
+        id={list.listId}
+        role="listbox"
+        aria-label="Models"
+        onPointerLeave={list.leave}
+        className="no-scrollbar max-h-72 overflow-y-auto"
+      >
+        {groups.map((group, groupAt) => (
+          <div key={group.label ?? ""} role="group" aria-label={group.label ?? props.none}>
+            {group.label && <div className={cn(menuLabel, "pt-2")}>{group.label}</div>}
+            {group.options.map((option, optionAt) => {
+              const index = (starts[groupAt] ?? 0) + optionAt;
+              return (
+                <ModelOption
+                  key={option.value || "none"}
+                  id={list.optionId(index)}
+                  option={option}
+                  chosen={option.value === props.value && !option.typed}
+                  active={list.current === index}
+                  onPoint={() => list.point(index)}
+                  onPick={() => props.onPick(option.value)}
+                />
+              );
+            })}
+          </div>
+        ))}
+        {nothing && (
+          <p className="px-2 py-1.5 text-ui text-muted-foreground">
+            Add an endpoint in Models first.
+          </p>
+        )}
+        {!nothing && flat.length === 0 && (
+          <p className="px-2 py-1.5 text-ui text-muted-foreground">No model matches.</p>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ModelOption(props: {
+  id: string;
+  option: SpadeModelOption;
+  chosen: boolean;
+  active: boolean;
+  onPoint(): void;
+  onPick(): void;
+}) {
+  const { option } = props;
+  return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
+    <div
+      id={props.id}
+      role="option"
+      aria-selected={props.chosen}
+      tabIndex={-1}
+      onPointerMove={props.active ? undefined : props.onPoint}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={props.onPick}
+      className={cn(menuItem, props.active && "bg-accent")}
+    >
+      <span className="max-w-[70%] shrink-0 truncate">{option.name}</span>
+      <span className="min-w-0 flex-1 truncate text-right text-xs text-subtle-foreground">
+        {option.facts}
+      </span>
+      <CheckIcon aria-hidden size={14} className={cn(!props.chosen && "invisible")} />
     </div>
   );
 }
 
-/** A model from one endpoint: its live list merged with saved ones, searchable, or a typed id. */
+/**
+ * A model from one endpoint, for first-run setup where the endpoint is already chosen: its live
+ * list merged with saved ones, searchable, or a typed id.
+ */
 export function SpadeModelChoice(props: {
   endpoint: SpadeEndpoint;
   model: string;
@@ -122,86 +240,38 @@ export function SpadeModelChoice(props: {
   onChange(model: string): void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const { models, live } = useEndpointModels(props.endpoint);
-  const typed = query.trim();
-  const shown = typed
-    ? models.filter((model) =>
-        `${model.name} ${model.id}`.toLowerCase().includes(typed.toLowerCase()),
-      )
-    : models;
-  const current = models.find((model) => model.id === props.model);
-  const pick = (model: string) => {
-    props.onChange(model);
-    setOpen(false);
-    setQuery("");
+  const sources: SpadeModelSources = {
+    endpoints: [{ endpoint: props.endpoint, models }],
+    subscriptions: [],
   };
-  const needsKey = props.endpoint.needsKey && props.endpoint.keySet === false;
-  const checkingKey = props.endpoint.needsKey && props.endpoint.keySet === undefined;
+  const value = props.model ? `${props.endpoint.id}/${props.model}` : "";
+  const current = models.find((model) => model.id === props.model);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         id={props.id}
         aria-label={props.label ?? "Model"}
-        className={cn(selectTrigger, "min-w-0 flex-1")}
+        className={cn(selectTrigger, "w-72 max-w-full min-w-0 @max-[440px]:w-full")}
       >
-        <span className="truncate">{current?.name ?? (props.model || "Choose a model")}</span>
+        <span className="min-w-0 flex-1 truncate text-left">
+          {current?.name ?? (props.model || "Choose a model")}
+        </span>
         <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       </PopoverTrigger>
-      <PopoverContent className="w-(--anchor-width) min-w-72 p-1" aria-label="Models">
-        <Input
-          aria-label="Search models"
-          placeholder="Search or type a model id"
-          autoFocus
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            const first = shown[0];
-            if (typed && !shown.some((model) => model.id === typed)) pick(typed);
-            else if (first) pick(first.id);
+      <PopoverContent align="end" className="w-(--anchor-width) min-w-96 p-1" aria-label="Models">
+        <ModelList
+          sources={sources}
+          value={value}
+          none={undefined}
+          onPick={(picked) => {
+            props.onChange(picked.slice(props.endpoint.id.length + 1));
+            setOpen(false);
           }}
-          className="mb-1"
         />
-        <div role="listbox" aria-label="Models" className="no-scrollbar max-h-64 overflow-y-auto">
-          {shown.map((model) => (
-            <button
-              key={model.id}
-              type="button"
-              role="option"
-              aria-selected={model.id === props.model}
-              onClick={() => pick(model.id)}
-              className={cn(menuItem, "w-full", model.id === props.model && "bg-active")}
-            >
-              <span className="min-w-0 flex-1 truncate text-left">{model.name}</span>
-              <span className="shrink-0 text-xs text-subtle-foreground">
-                {spadeModelFacts(model)}
-              </span>
-            </button>
-          ))}
-          {typed && !models.some((model) => model.id === typed) && (
-            <button
-              type="button"
-              role="option"
-              aria-selected={false}
-              onClick={() => pick(typed)}
-              className={cn(menuItem, "w-full")}
-            >
-              <span className="min-w-0 flex-1 truncate text-left">{`Use “${typed}” as the model id`}</span>
-            </button>
-          )}
-        </div>
-        {/* How the endpoint's own list went, in one line, only when it didn't simply arrive. */}
-        {(needsKey || live.isPending || live.isError) && (
+        {live.isError && (
           <p className="px-2 pt-1 pb-0.5 text-xs text-subtle-foreground">
-            {needsKey
-              ? "Add this endpoint's key to see what it lists."
-              : checkingKey
-                ? "Checking this endpoint's key…"
-                : live.isError
-                  ? `Couldn't list its models. ${live.error.message}`
-                  : "Listing its models…"}
+            {`Couldn't list its models. ${live.error.message}`}
           </p>
         )}
       </PopoverContent>

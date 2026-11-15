@@ -75,6 +75,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `new_bot_model`: the model new bots start on; null, the first usable one. */
+  newBotModel: string | null = null;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
   /** Stored images by hash with their media type; any other hash answers 404. */
@@ -460,7 +462,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
-    if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
+    if (root === "connectors")
+      return this.connectors.route(request.method, id, sub, body, this.roster());
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.keysPending
@@ -470,6 +473,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
         fast_model: this.fastModel,
+        new_bot_model: this.newBotModel,
         transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
@@ -481,6 +485,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("new_bot_model" in body)
+        this.newBotModel = typeof body.new_bot_model === "string" ? body.new_bot_model : null;
       if ("transcription_model" in body) {
         const model =
           typeof body.transcription_model === "string" ? body.transcription_model : null;
@@ -518,24 +524,35 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 
+  /** The agents `GET /v1/agents` lists, in its order: Spade first (while on), then by activity. */
+  private listed(): FakeSpadeAgent[] {
+    return this.agents
+      .filter((agent) => agent.kind !== "main" || this.mainEnabled)
+      .toSorted(
+        (a, b) =>
+          Number(b.kind === "main") - Number(a.kind === "main") ||
+          b.last_activity - a.last_activity,
+      );
+  }
+
+  private roster() {
+    return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
+  }
+
   private agentRoute(method: string, id: string | undefined, body: Json): FakeSpadeAnswer {
     if (!id && method === "GET")
       return reply({
-        agents: this.agents
-          .filter((agent) => agent.kind !== "main" || this.mainEnabled)
-          .toSorted(
-            (a, b) =>
-              Number(b.kind === "main") - Number(a.kind === "main") ||
-              b.last_activity - a.last_activity,
-          )
-          .map((agent) => Object.assign({}, agent, { computer: this.computer.of(agent.id) })),
+        agents: this.listed().map((agent) =>
+          Object.assign({}, agent, { computer: this.computer.of(agent.id) }),
+        ),
       });
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
       const agent = this.addAgent({
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
-        model: String(body.model ?? ""),
+        // As Spade: a new bot with no model named starts on the model for new bots.
+        model: String(body.model ?? this.newBotModel ?? ""),
         // A new bot starts on Auto-review unless the person picked another level.
         access: accessOf(body.access) ?? "auto_review",
         ...(avatar?.kind === "image"

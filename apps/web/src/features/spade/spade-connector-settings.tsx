@@ -2,7 +2,12 @@ import { spadeCloudLine, spadeConnectorLine, type SpadeConnector } from "@ace/ui
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
-import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingAddRow,
+  SettingCard,
+  SettingRow,
+  settingsGroup,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -13,51 +18,56 @@ import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { LoadingRows } from "./spade-settings-loading.tsx";
+import { CouldNotRead } from "./spade-settings-rows.tsx";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
 /**
- * Settings › Spade › Connectors (ADR 0131): the apps Spade is connected to, each with its state
- * and what it needs (reconnect when its sign-in ended), and Connect an app.
+ * Settings › Spade › Apps, its first group (ADR 0131): the apps Spade is connected to, each with
+ * its state, what it needs (reconnect when its sign-in ended) and the bots that use it, named
+ * from `names`, then Connect an app.
  */
-export function ConnectorSettings(props: { ready: boolean }) {
+export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
-  if (connectors.isPending)
-    return (
-      <SettingSection label="Connectors">
-        <LoadingRows label="Connectors" rows={1} />
-      </SettingSection>
-    );
-  if (connectors.isError)
-    return (
-      <SettingSection label="Connectors">
-        <SettingRow title="Couldn't read Spade's connectors" description={connectors.error.message}>
-          <Button size="sm" onClick={() => void connectors.refetch()}>
-            Try again
-          </Button>
-        </SettingRow>
-      </SettingSection>
-    );
-  const { catalogue } = connectors.data;
   return (
-    <>
-      <SettingSection label="Connectors">
-        {connectors.data.connectors.map((connector) => (
-          <ConnectorRow key={connector.id} connector={connector} />
-        ))}
-        <SettingAddRow onClick={() => setAdding(true)}>Connect an app</SettingAddRow>
-      </SettingSection>
-      {adding && (
+    <section aria-label="Connected apps" className={settingsGroup}>
+      <SettingCard>
+        {connectors.isPending ? (
+          <LoadingRows label="Apps" rows={2} />
+        ) : connectors.isError ? (
+          <CouldNotRead
+            what="Spade's apps"
+            error={connectors.error}
+            retry={() => void connectors.refetch()}
+          />
+        ) : (
+          <>
+            {connectors.data.connectors.map((connector) => (
+              <ConnectorRow key={connector.id} connector={connector} names={props.names} />
+            ))}
+            <SettingAddRow onClick={() => setAdding(true)}>Connect an app</SettingAddRow>
+          </>
+        )}
+      </SettingCard>
+      {adding && connectors.data && (
         <AddConnectorDialog
-          catalogue={catalogue.filter(
+          catalogue={connectors.data.catalogue.filter(
             (entry) => !connectors.data.connectors.some((each) => each.id === entry.id),
           )}
           onClose={() => setAdding(false)}
         />
       )}
-    </>
+    </section>
   );
+}
+
+/** The bots in `ids` by name, in Spade's order; ids not in the roster are left out. */
+export function botNames(ids: readonly string[], names: ReadonlyMap<string, string>) {
+  return ids.flatMap((id) => {
+    const name = names.get(id);
+    return name ? [name] : [];
+  });
 }
 
 /**
@@ -65,7 +75,7 @@ export function ConnectorSettings(props: { ready: boolean }) {
  * device sign-in shows its code in the sentence, with Copy code and Open while Spade waits, and
  * Try again once it expired or was declined.
  */
-function ConnectorRow(props: { connector: SpadeConnector }) {
+function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<string, string> }) {
   const { connector } = props;
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -78,6 +88,8 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   const refresh = () => cache.invalidateQueries({ queryKey: connectorsKey });
   const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
   const { device } = connector;
+  // The bots that use it, after its state: the state line stays one phrase of its own.
+  const users = botNames(connector.bots, props.names);
   const copy = useCopy(() => toast.error({ title: "Couldn't copy the code" }));
   const again = async () => {
     setBusy(true);
@@ -108,13 +120,20 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   return (
     <SettingRow
       title={connector.name}
-      description={[
-        spadeConnectorLine(connector),
-        spadeCloudLine(connector),
-        connector.local && "On your own network",
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      description={
+        <>
+          <span>
+            {[
+              spadeConnectorLine(connector),
+              spadeCloudLine(connector),
+              connector.local && "On your own network",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          {users.length > 0 && ` · ${users.join(", ")}`}
+        </>
+      }
       htmlFor={token === undefined ? undefined : field}
       density="compact"
     >
@@ -188,7 +207,6 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
         <Button
           size="sm"
           variant="ghost"
-          tone="danger"
           aria-label={`Disconnect ${connector.name}`}
           disabled={busy}
           onClick={() => void remove()}

@@ -196,8 +196,8 @@ test("a report's chip on the bot's bubble opens the report in its files", async 
 
 test("Settings › Spade tells Spade the person's zone and keeps the totals and the cap, not each bot's", async () => {
   const { spade } = await spadeApp("/settings/spade", seed);
-  const group = within(await screen.findByRole("region", { name: "Spending and review" }));
-  expect(await group.findByText("Daily cap $5.00")).toBeTruthy();
+  const group = within(await screen.findByRole("region", { name: "Spending, every bot together" }));
+  expect(await group.findByText("$5.00")).toBeTruthy();
   // Scout's own spend is on its page.
   expect(group.queryByText("Scout")).toBeNull();
   await waitFor(() =>
@@ -275,7 +275,7 @@ test("a new time zone reaches Spade when the window comes back, and spend is rea
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({ time_zone: first }),
   );
-  await screen.findByRole("region", { name: "Spending and review" });
+  await screen.findByRole("region", { name: "Spending, every bot together" });
   const zone = first === "Asia/Tokyo" ? "Europe/Lisbon" : "Asia/Tokyo";
   const real = Intl.DateTimeFormat.prototype.resolvedOptions;
   vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (

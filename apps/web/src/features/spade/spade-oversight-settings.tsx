@@ -2,117 +2,134 @@ import { spadeMoney, type SpadeOversight } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { SpadeModelPicker } from "./spade-model-picker.tsx";
-import { oversightKey, readOversight, setOversight } from "./spade-oversight-api.ts";
+import { Switch } from "@/components/ui/switch.tsx";
+import {
+  oversightKey,
+  readOversight,
+  setOversight,
+  type SpadeOversightChange,
+} from "./spade-oversight-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { useTellZone } from "./use-spade-zone.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
-
-const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
+import { CouldNotRead, fault, ModelSettingRow, Refusal } from "./spade-settings-rows.tsx";
 
 /**
- * Settings › Spade › Spending and review (ADR 0135): the model that reviews the steps of bots on
- * Auto-review, then the service's daily cap (read only) and what every bot spent together. Each
- * bot's own spend, caps and access are on its page.
+ * Spending and the model review (ADR 0135) as Settings › Spade › General holds them: read once,
+ * the person's zone told to Spade, and a change stored in place of what was read.
  */
-export function OversightSettings(props: { ready: boolean }) {
+export function useOversightSettings(ready: boolean) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
-  const toast = useToast();
-  useTellZone(useMemo(() => (props.ready ? [client] : []), [client, props.ready]));
+  useTellZone(useMemo(() => (ready ? [client] : []), [client, ready]));
   const oversight = useQuery({
     queryKey: [...oversightKey, machine],
     queryFn: ({ signal }) => readOversight(client, signal),
-    enabled: props.ready,
+    enabled: ready,
   });
-  const change = (what: string, next: Parameters<typeof setOversight>[1]) =>
-    void setOversight(client, next).then(
-      (saved) => cache.setQueryData([...oversightKey, machine], saved),
-      (error: unknown) =>
-        toast.error({ title: `Couldn't change ${what}`, description: fault(error) }),
-    );
+  const change = async (next: SpadeOversightChange) => {
+    const saved = await setOversight(client, next);
+    cache.setQueryData([...oversightKey, machine], saved);
+  };
+  return { oversight, change };
+}
+
+type OversightSettings = ReturnType<typeof useOversightSettings>;
+
+/**
+ * The review's two rows: the model that checks steps (none picked: the fast model), and
+ * whether every bot's steps are reviewed unless its own page says otherwise.
+ */
+export function ReviewRows(props: { settings: OversightSettings }) {
+  const { oversight, change } = props.settings;
+  if (!oversight.data) return null;
+  return (
+    <>
+      <ModelSettingRow
+        title="Review model"
+        description="Checks steps for bots on Auto-review"
+        value={oversight.data.reviewModel}
+        none="Same as fast model"
+        save={(model) => change({ review_model: model })}
+      />
+      <ReviewDefaultRow
+        oversight={oversight.data}
+        onChange={(on) => change({ review_default: on })}
+      />
+    </>
+  );
+}
+
+/** Whether a bot's writes go to the review model by default; each bot can differ on its page. */
+function ReviewDefaultRow(props: {
+  oversight: SpadeOversight;
+  onChange(on: boolean): Promise<unknown>;
+}) {
+  const id = useId();
+  const [refusal, setRefusal] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  return (
+    <SettingRow
+      title="Review every bot's writes"
+      description={refusal && <Refusal>{refusal}</Refusal>}
+      htmlFor={id}
+      density="compact"
+      inline
+    >
+      <Switch
+        id={id}
+        checked={props.oversight.reviewDefault}
+        disabled={saving}
+        onCheckedChange={(checked) => {
+          setSaving(true);
+          setRefusal(undefined);
+          void props
+            .onChange(checked)
+            .catch((error: unknown) => setRefusal(fault(error)))
+            .finally(() => setSaving(false));
+        }}
+      />
+    </SettingRow>
+  );
+}
+
+/** What every bot spent together this month and today, and the service's daily cap. */
+export function SpendingSection(props: { settings: OversightSettings }) {
+  const { oversight } = props.settings;
+  const label = "Spending, every bot together";
   if (oversight.isPending)
     return (
-      <SettingSection label="Spending and review" anchor="spending">
-        <LoadingRows label="Spending and review" rows={3} />
+      <SettingSection label={label} anchor="spending">
+        <LoadingRows label={label} rows={2} />
       </SettingSection>
     );
   if (oversight.isError)
     return (
-      <SettingSection label="Spending and review" anchor="spending">
-        <SettingRow title="Couldn't read Spade's spending" description={oversight.error.message}>
-          <Button size="sm" onClick={() => void oversight.refetch()}>
-            Try again
-          </Button>
-        </SettingRow>
+      <SettingSection label={label} anchor="spending">
+        <CouldNotRead
+          what="Spade's spending"
+          error={oversight.error}
+          retry={() => void oversight.refetch()}
+        />
       </SettingSection>
     );
   const data = oversight.data;
   return (
-    <SettingSection label="Spending and review" anchor="spending">
-      <ReviewModelRow
-        oversight={data}
-        onChange={(model) => change("the review model", { review_model: model })}
-      />
+    <SettingSection label={label} anchor="spending">
       <SettingRow
-        title="Spent"
-        description={`${spadeMoney(data.todayMicros)} today · ${spadeMoney(data.monthMicros)} this month, every bot together`}
+        title="This month"
+        description={`${spadeMoney(data.todayMicros)} today`}
         density="compact"
+        inline
       >
+        <span className="text-ui text-foreground tabular-nums">{spadeMoney(data.monthMicros)}</span>
+      </SettingRow>
+      <SettingRow title="Daily cap" density="compact" inline>
         <span className="text-ui text-muted-foreground tabular-nums">
-          {data.dailyCapMicros === undefined
-            ? "No daily cap"
-            : `Daily cap ${spadeMoney(data.dailyCapMicros)}`}
+          {data.dailyCapMicros === undefined ? "None" : spadeMoney(data.dailyCapMicros)}
         </span>
       </SettingRow>
     </SettingSection>
-  );
-}
-
-/** The review model: one of the person's models, or the fast model when none is picked. */
-function ReviewModelRow(props: {
-  oversight: SpadeOversight;
-  onChange(model: string | null): void;
-}) {
-  const id = useId();
-  const saved = props.oversight.reviewModel ?? "";
-  // The picker's endpoint may change before a model is chosen; only a whole choice is saved.
-  const [draft, setDraft] = useState(saved);
-  const [seen, setSeen] = useState(saved);
-  if (seen !== saved) {
-    setSeen(saved);
-    setDraft(saved);
-  }
-  return (
-    <SettingRow
-      title="Review model"
-      description={
-        props.oversight.reviewModel
-          ? "Reviews the steps of bots on Auto-review."
-          : "Reviews the steps of bots on Auto-review. None picked: the fast model."
-      }
-      htmlFor={id}
-      density="compact"
-    >
-      <div className="flex min-w-0 items-center gap-1">
-        <SpadeModelPicker
-          id={id}
-          label="Review model"
-          value={draft}
-          onChange={(next) => {
-            setDraft(next);
-            if (/^[^/]+\/.+/.test(next)) props.onChange(next);
-          }}
-        />
-        {props.oversight.reviewModel && (
-          <Button size="sm" variant="ghost" onClick={() => props.onChange(null)}>
-            Use the fast model
-          </Button>
-        )}
-      </div>
-    </SettingRow>
   );
 }
