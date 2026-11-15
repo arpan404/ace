@@ -365,7 +365,10 @@ impl Engine {
 
     /// Pins a group to the top of the person's list, or unpins it.
     pub fn pin_group(&self, id: &str, pinned: bool) -> Result<Option<GroupView>, StoreError> {
-        if !self.store.set_group_pinned(id, pinned, self.clock.now_ms())? {
+        if !self
+            .store
+            .set_group_pinned(id, pinned, self.clock.now_ms())?
+        {
             return Ok(None);
         }
         self.group_view(id)

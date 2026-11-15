@@ -424,16 +424,19 @@ mod tests {
         }
         {
             // As a database from before the column: the column goes and the version steps back,
-            // past the skill store and the helpers table that came after it.
+            // past the skill store, the helpers table, seen cursors and pins that came after it.
             let connection = rusqlite::Connection::open(&path)?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection
-                .execute_batch("DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;")?;
+                .execute_batch(
+                "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+                 DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;",
+            )?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 4,
+                crate::schema::current_version() as i64 - 5,
             )?;
         }
         let store = Store::open(&path)?;
