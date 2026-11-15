@@ -143,6 +143,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::skills::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0152: helpers' hidden conversations.
+        sql: crate::helpers::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

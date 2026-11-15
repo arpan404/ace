@@ -1,5 +1,6 @@
 import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
+import { spadeHelperApprovalSentence } from "./helper-words.ts";
 
 /** The conversation's Working line: what runs, in words, and since when. */
 export interface SpadeWorking {
@@ -35,7 +36,10 @@ export function spadeView(state: SpadeConversationState): SpadeView {
   const reply = open?.kind === "reply" ? open : undefined;
   const approvals = state.approvals.map((approval) => ({
     ...approval,
-    sentence: spadeApprovalSentence(approval.name),
+    // A helper's call says so: the person answers for the helper, here.
+    sentence: approval.helper
+      ? spadeHelperApprovalSentence(spadeToolWords(approval.name).base, "Spade")
+      : spadeApprovalSentence(approval.name),
   }));
   const pending: SpadeEntry[] = state.pending.map((message) => ({
     kind: "user",

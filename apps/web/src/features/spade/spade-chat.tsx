@@ -8,6 +8,7 @@ import {
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
+  type SpadeHelperStep,
   type SpadeProposal,
   type SpadeRememberedNote,
   type SpadeView,
@@ -23,6 +24,7 @@ import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { useFaceState } from "./use-face-state.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
+import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
@@ -71,6 +73,8 @@ export function SpadeChat(props: {
   endpointName?(id: string): string | undefined;
   /** Try again on a failed reply: sends the person's last message again. */
   onRetry?(text: string): Promise<boolean>;
+  /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
+  onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
 }) {
   const { view, bot } = props;
   // Requests wait in the strip above the composer, not among the bubbles.
@@ -119,6 +123,7 @@ export function SpadeChat(props: {
             onRemembered={props.onRemembered}
             onOpenFile={props.onOpenFile}
             onRetry={props.onRetry}
+            onHelperSteps={props.onHelperSteps}
           />
         );
       })}
@@ -186,6 +191,7 @@ const Bubble = memo(function Bubble(props: {
   onRemembered(note: SpadeRememberedNote): void;
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
 }) {
   const { item, bot } = props;
   switch (item.kind) {
@@ -349,6 +355,16 @@ const Bubble = memo(function Bubble(props: {
           )}
         </div>
       );
+    case "helper": {
+      const read = props.onHelperSteps;
+      return (
+        <SpadeHelperLine
+          text={item.text}
+          open={item.open}
+          readSteps={read ? () => read(item.job) : undefined}
+        />
+      );
+    }
     case "remembered":
       return (
         <div className="pl-9.5">

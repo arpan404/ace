@@ -28,7 +28,9 @@ export function SpadeRequestStrip(props: {
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
 }) {
   const { approval } = props;
-  const words = spadeRequestWords(approval.name, approval.arguments, props.bot.name);
+  // A helper's call names the helper: the person answers for it here (ADR 0152).
+  const who = approval.helper ? `A helper of ${props.bot.name}` : props.bot.name;
+  const words = spadeRequestWords(approval.name, approval.arguments, who);
   const command = shellCommand(approval.name, approval.arguments);
   // A command shows itself; anything else, the call's arguments.
   const details = command ?? callDetails(approval.arguments);

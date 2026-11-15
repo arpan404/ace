@@ -19,7 +19,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `tool_started` / `tool_finished` | `reply`, `call_id`, `name`, (`content`, `is_error`)                      | A tool ran                                                                                                                                                                          |
 | `context_compacted`              | `summary`, `keep_from`, `tokens_before`                                  | The model now sees `summary`, then events from index `keep_from`                                                                                                                    |
 | `job_started`                    | `reply`, `job`, `name`                                                   | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                  |
-| `job_finished`                   | `job`, `name`, `content`, `is_error`                                     | The job ended; the model reads it as a `<job_result>`                                                                                                                               |
+| `job_finished`                   | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`       | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
 
@@ -84,7 +84,9 @@ Spade's own tools are always offered in full, in name order: `web_search` (SearX
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
 `todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `research` (a background job that reads many sources and writes a cited report,
-[oversight.md](oversight.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and `skill_search`,
+[oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
+short-lived helper with a fresh context, in a hidden conversation of its own,
+[helpers.md](helpers.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and `skill_search`,
 `skill_load`, `skill_propose` and `skill_feedback`, over Spade's own skill store, which mirrors
 ace's library while ace is there and works without it (workspace.md, "Spade's skill store").
 Output from `web_search`,

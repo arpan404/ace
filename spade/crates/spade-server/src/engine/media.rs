@@ -41,6 +41,10 @@ impl Engine {
         if self.store.group_for_conversation(id)?.is_some() {
             return Err(SendError::Group);
         }
+        // A helper hears only its task (ADR 0152).
+        if self.helper_of(id).is_some() {
+            return Err(SendError::Helper);
+        }
         // A bot at its own cap starts nothing (ADR 0135).
         if let Some(why) = self.cap_refusal(id) {
             return Err(SendError::BotCapped(why));

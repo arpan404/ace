@@ -203,6 +203,7 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             "bot_message",
             "bots_list",
             "group_ask",
+            "helper",
             "history_read",
             "history_search",
             "memory_forget",

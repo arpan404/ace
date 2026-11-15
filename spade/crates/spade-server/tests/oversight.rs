@@ -723,6 +723,8 @@ async fn a_job_started_below_the_cursor_shows_how_it_ended_above_it() -> Result 
                 is_error: false,
                 uncertain: false,
                 files: Vec::new(),
+                untrusted: false,
+                cost_micros: None,
             }),
         ],
         1,

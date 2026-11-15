@@ -75,7 +75,11 @@ impl Engine {
     /// `call_tool` for the rest), or the matches for `query`. `None` for an unknown agent.
     pub fn brain_tools(&self, agent: &str, query: Option<&str>) -> Option<Vec<ToolSpec>> {
         let conversation = self.store.agent(agent).ok()??.conversation;
-        let registry = self.tools.registry_for(&conversation);
+        // Its CLI splits work its own way: no helpers (ADR 0152).
+        let registry = self
+            .tools
+            .registry_for(&conversation)
+            .retain(|def| def.spec.name != spade_core::helper::TOOL);
         Some(match query.map(str::trim).filter(|q| !q.is_empty()) {
             Some(query) => registry
                 .search(query, 10)

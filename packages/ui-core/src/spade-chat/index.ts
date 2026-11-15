@@ -5,6 +5,8 @@ export * from "./fold.ts";
 export * from "./view.ts";
 export * from "./bubbles.ts";
 export * from "./words.ts";
+export * from "./helper-words.ts";
+export * from "./helpers.ts";
 export * from "./agents.ts";
 export * from "./notes.ts";
 export * from "./endpoints.ts";

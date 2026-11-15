@@ -346,6 +346,8 @@ async fn a_research_result_makes_the_rest_of_the_turn_untrusted() -> Result {
         is_error: false,
         uncertain: false,
         files: vec!["research/r.md".into()],
+        untrusted: false,
+        cost_micros: None,
     }));
     events.push(Event::reply_started("r2", "fake/m"));
     // The job's result opened the next reply: every write in it asks.

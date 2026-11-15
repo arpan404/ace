@@ -145,6 +145,7 @@ export function Conversation(props: {
               })
             }
             endpointName={endpointName}
+            onHelperSteps={conversation.helperSteps}
             onRetry={(text) =>
               conversation
                 .send({ text, images: [] })

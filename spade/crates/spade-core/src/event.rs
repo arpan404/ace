@@ -110,6 +110,10 @@ pub enum Known {
         /// reviewer's reason, or the rule that always asks. Absent when the rule gate asked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reviewer_reason: Option<String>,
+        /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
+        /// conversation, the person answers it there, and the answer reaches the helper.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        helper: Option<HelperAsk>,
     },
     ApprovalAnswered {
         reply: String,
@@ -182,6 +186,14 @@ pub enum Known {
         /// Workspace files the job kept for the person to open (a research report, ADR 0135).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
+        /// The result carries untrusted content (a helper that read a web page, ADR 0152): the
+        /// turn that reads it is untrusted, as if the bot had read that content itself.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
+        /// What the job spent on model calls (a helper's steps, ADR 0152), for the turn's cost
+        /// shown to the person. Absent for jobs that make none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_micros: Option<u64>,
     },
     /// The bot reached one of its spending caps (ADR 0135). Stored once per day or month.
     CapReached {
@@ -436,6 +448,17 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+}
+
+/// The helper behind an approval asked in its bot's conversation (ADR 0152).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperAsk {
+    /// The bot's background job the helper runs as (the id of the `helper` call).
+    pub job: String,
+    /// The helper's own hidden conversation.
+    pub conversation: String,
+    /// The call's id in the helper's conversation.
+    pub call_id: String,
 }
 
 /// The group a message came through (ADR 0132), and whether the group's earlier messages that

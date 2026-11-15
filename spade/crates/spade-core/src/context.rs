@@ -845,9 +845,14 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_routine: Some(from),
             ..
         }) if from.event.is_some() || from.untrusted => true,
-        Event::Known(Known::ToolFinished {
-            untrusted: true, ..
-        }) => true,
+        Event::Known(
+            Known::ToolFinished {
+                untrusted: true, ..
+            }
+            | Known::JobFinished {
+                untrusted: true, ..
+            },
+        ) => true,
         // A plugin hook's text may relay anything (ADR 0151).
         Event::Known(Known::HookRan { hook, outcomes, .. }) => {
             crate::hooks::untrusted(hook, outcomes)
@@ -899,6 +904,9 @@ fn describe_event(events: &[Event], event: &Event) -> String {
         }
         Event::Known(Known::JobFinished { name, .. }) if name == "bot_message" => {
             "another bot's answer".to_owned()
+        }
+        Event::Known(Known::JobFinished { name, .. }) if name == crate::helper::TOOL => {
+            "a helper's result".to_owned()
         }
         Event::Known(Known::JobFinished { name, .. }) => format!("the result of {name}"),
         Event::Known(Known::ComputerHandedBack { .. }) => {

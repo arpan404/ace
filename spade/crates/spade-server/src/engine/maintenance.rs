@@ -177,6 +177,10 @@ impl Engine {
                 tracing::error!(%error, "could not resume a conversation");
             }
         }
+        // Helpers paused or cut off carry on, and queued ones start as slots allow (ADR 0152).
+        for bot in self.bots_with_helpers() {
+            self.fill_slots(&bot);
+        }
     }
 
     /// Waits until no turn worker runs, `limit` passes, or `current` turns false.

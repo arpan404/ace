@@ -97,6 +97,11 @@ const known = z.discriminatedUnion("type", [
     arguments: z.unknown().optional(),
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
+    /** A helper's call (ADR 0152), asked here in its bot's conversation. */
+    helper: z
+      .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
+      .nullish()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal("approval_answered"),
@@ -139,6 +144,8 @@ const known = z.discriminatedUnion("type", [
     type: z.literal("job_finished"),
     job: z.string(),
     name: z.string(),
+    /** The result the model reads; a helper's line shows its first words (ADR 0152). */
+    content: z.string().optional().catch(undefined),
     is_error: z.boolean().optional(),
     files,
   }),

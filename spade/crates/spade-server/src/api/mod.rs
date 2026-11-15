@@ -109,6 +109,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/routines/{id}/run", post(routines::run))
         .route("/conversations/{id}/events", get(events))
+        .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))
@@ -233,7 +234,7 @@ fn stored(event: &StoredEvent) -> Value {
 pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
+        SendError::Disabled | SendError::Group | SendError::Helper => StatusCode::CONFLICT,
         SendError::Empty
         | SendError::TooLong
         | SendError::TooManyImages
@@ -288,6 +289,16 @@ async fn events(
             let shown = q.limit.map_or(events.len(), |limit| limit.max(1));
             Json(events.iter().take(shown).map(stored).collect::<Vec<_>>()).into_response()
         }
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+/// The helpers a conversation's bot started (ADR 0152), for the lines that expand to their
+/// steps: each helper's own conversation is read with `/events` and `/live` like any other.
+async fn helpers(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.helpers_view(&id) {
+        Ok(Some(helpers)) => Json(json!({ "helpers": helpers })).into_response(),
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }

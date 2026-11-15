@@ -15,6 +15,7 @@ mod control;
 mod endpoints;
 mod group_run;
 mod groups;
+mod helpers;
 mod inbox;
 mod index;
 mod jobs;
@@ -40,6 +41,7 @@ pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
+pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
@@ -70,7 +72,9 @@ use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
 use crate::images::ImageStore;
-use crate::tools::{BotMessage, BotsList, EngineHandle, MemoryTool, SkillLibrary, Toolbox};
+use crate::tools::{
+    BotMessage, BotsList, EngineHandle, HelperTool, MemoryTool, SkillLibrary, Toolbox,
+};
 
 /// Live state for one conversation.
 struct Live {
@@ -160,6 +164,8 @@ pub struct Engine {
     continuations: Mutex<HashMap<String, String>>,
     /// Each conversation's access level once folded (ADR 0144, `autonomy`).
     levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
+    /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
+    helpers: helpers::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -187,7 +193,8 @@ impl Engine {
         let mut tools = setup
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
-            .with_tool(Arc::new(BotMessage(handle.clone())));
+            .with_tool(Arc::new(BotMessage(handle.clone())))
+            .with_tool(Arc::new(HelperTool(handle.clone())));
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
@@ -232,6 +239,7 @@ impl Engine {
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
             levels: Mutex::default(),
+            helpers: helpers::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
         });
@@ -255,6 +263,8 @@ impl Engine {
             }
             jobs::report_lost(&engine, &conversation.id)?;
         }
+        // Helpers carry on from their events (ADR 0152); only those Stop was pressed on close.
+        engine.settle_helpers_after_restart()?;
         Ok(engine)
     }
 
@@ -341,7 +351,7 @@ impl Engine {
         let activity = Activity {
             answering: transcript.open_reply().is_some(),
             jobs: transcript.jobs.len(),
-            waiting_on_you: !transcript.awaiting.is_empty() || transcript.asking(),
+            waiting_on_you: transcript.waiting_on_you(),
             state: State::of(&transcript),
             last_message: roster::last_message(&stored),
             waiting_for: memory::waiting_for(&transcript),
@@ -481,7 +491,14 @@ impl Engine {
             // A job's result after the person pressed Stop is kept, but opens no reply. Checked
             // under the same lock Stop records under, so the two cannot interleave.
             let quiet = match event {
-                Event::Known(Known::JobFinished { job, .. }) => job_stopped(&events, job),
+                Event::Known(Known::JobFinished { job, .. }) => {
+                    // Each job's result is delivered once: a helper's job that ran again after
+                    // a restart, or one Stop already recorded, adds nothing.
+                    if delivered(&events, job) {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    job_stopped(&events, job)
+                }
                 _ => false,
             };
             // While the person has the bot's computer, messages wait for the hand-back.
@@ -705,6 +722,9 @@ impl Engine {
 
     /// Records `cost` micros spent on `model` in conversation `id`.
     pub(super) fn record_cost(&self, id: &str, model: &str, cost: u64) {
+        // A helper's spend is its bot's (ADR 0152), so the bot's caps count it.
+        let owner = self.helper_of(id).map(|h| h.parent);
+        let id = owner.as_deref().unwrap_or(id);
         if cost > 0
             && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())
         {
@@ -792,4 +812,11 @@ impl Engine {
             tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
         *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
+}
+
+/// Whether `job`'s result is stored already.
+fn delivered(events: &[Event], job: &str) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::JobFinished { job: j, .. }) if j == job))
 }
