@@ -93,3 +93,29 @@ test("a summarized plan shows in full once loaded and can then be approved", asy
   await userEvent.click(approve);
   await waitFor(() => expect(state()).toBe("resolved"));
 });
+
+test("a yes refused as not read reads the request again once, then goes", async () => {
+  const { app, card, state } = await openCard("large-approval");
+  // Each page the card reads passes the daemon's fault check: count them.
+  let pages = 0;
+  const fault = app.daemon.fault.bind(app.daemon);
+  app.daemon.fault = (type) => {
+    if (type === "interaction.read") pages++;
+    return fault(type);
+  };
+  const allow = () => within(card).getByRole("button", { name: /Allow/ });
+  await waitFor(() => expect(allow()).toHaveProperty("disabled", false));
+  // The request changed since it was read, as the daemon says when it refuses.
+  app.daemon.refuseCommands("request_not_read", "interaction.resolve");
+  await userEvent.click(allow());
+  expect(await within(card).findByText(/The request changed/)).toBeTruthy();
+  app.daemon.restoreRequests();
+  await waitFor(() => expect(pages).toBeGreaterThan(0));
+  await waitFor(() => expect(allow()).toHaveProperty("disabled", false));
+  const once = pages;
+  // Read again once, not over and over.
+  await new Promise((settle) => setTimeout(settle, 500));
+  expect(pages).toBe(once);
+  await userEvent.click(allow());
+  await waitFor(() => expect(state()).toBe("resolved"));
+});

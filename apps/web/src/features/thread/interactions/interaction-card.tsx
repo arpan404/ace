@@ -1,6 +1,6 @@
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   useAgent,
   useInteraction,
@@ -100,12 +100,16 @@ export function InteractionCard(props: {
     readWhole: whole?.status === "loaded" ? whole.version : undefined,
   });
   const { failed } = sender;
-  // Refused as not read: the request changed since it was read here, so read it again.
+  // Refused as not read: the request changed since it was read here, so read it again, once for
+  // each refusal (the refused answer stays on the sender while the new read goes).
   const reread = whole?.status === "loaded" ? whole.retry : undefined;
-  const refusedUnread = sender.refused === "request_not_read";
-  useEffect(() => {
-    if (refusedUnread) reread?.();
-  }, [refusedUnread, reread]);
+  const unreadRefusal =
+    sender.refused?.code === "request_not_read" ? sender.refused.commandId : undefined;
+  const [rereadFor, setRereadFor] = useState<string>();
+  if (unreadRefusal !== undefined && unreadRefusal !== rereadFor && reread) {
+    setRereadFor(unreadRefusal);
+    reread();
+  }
   const answer: Answer = (resolution) => {
     // Disabled while not fresh; an answer given just as the copy went stale doesn't go either.
     if (!live.isFresh()) return;

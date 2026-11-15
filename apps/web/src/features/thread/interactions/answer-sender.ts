@@ -123,7 +123,8 @@ export function useAnswerSender(target: AnswerTarget) {
       : error
         ? "Couldn't send the answer. Check the connection and try again."
         : undefined;
-  /** The daemon's code for a refused answer, when it refused one. */
-  const refused = state === "failed" ? intent?.error : undefined;
+  /** The refused answer's command and the daemon's code, when it refused one. */
+  const refused =
+    state === "failed" && intent ? { commandId: intent.command.id, code: intent.error } : undefined;
   return { answer, failed, refused, held: !live.fresh };
 }
