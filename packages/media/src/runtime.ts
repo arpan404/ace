@@ -1,4 +1,6 @@
+import { MediaAccelerationStore } from "./acceleration.ts";
 import { EgressRouter } from "./egress.ts";
+import { pictureCodecs, pictureEncoders } from "./picture-codecs.ts";
 import { RouteWatch } from "./route-watch.ts";
 import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
 import { IngestSources } from "./ingest-sources.ts";
@@ -25,6 +27,11 @@ export type MediaRuntimeOptions = Omit<
   capabilities?: RouteCapabilities;
   onMessage?: (message: FromMedia, payload: Uint8Array) => void;
   onExit?: (exit: MediaExit) => void;
+  /** The platform ace-media runs on (`process.platform`): which encoders it builds for pictures.
+   * Absent, no hardware encoder is offered. */
+  platform?: string;
+  /** The store to keep what ace-media runs on in; one of its own unless given. */
+  acceleration?: MediaAccelerationStore;
 };
 
 export class MediaRuntime {
@@ -32,8 +39,14 @@ export class MediaRuntime {
   readonly routes: RouteWatch;
   readonly egress: EgressRouter;
   readonly sources: IngestSources;
+  /** What ace-media runs on: its probe's list and each source's steps. */
+  readonly acceleration: MediaAccelerationStore;
+
+  readonly #encoders: readonly string[];
 
   constructor(options: MediaRuntimeOptions) {
+    this.#encoders = options.platform === undefined ? [] : pictureEncoders(options.platform);
+    this.acceleration = options.acceleration ?? new MediaAccelerationStore();
     const capabilities = options.capabilities ?? builtRouteCapabilities;
     this.supervisor = new MediaSupervisor({
       ...options,
@@ -42,6 +55,7 @@ export class MediaRuntime {
         this.sources.replay();
       },
       onMessage: (message, payload) => {
+        this.acceleration.message(message);
         this.sources.message(message);
         options.onMessage?.(message, payload);
       },
@@ -49,6 +63,7 @@ export class MediaRuntime {
       onExit: (exit) => {
         // Producers go back to the daemon first, with nothing left to drain.
         this.sources.exited();
+        this.acceleration.exited();
         this.routes.update();
         options.onExit?.(exit);
       },
@@ -73,24 +88,13 @@ export class MediaRuntime {
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+      acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
   }
 
-  /**
-   * The codecs ace-media encodes JPEG sources in here, best first: each family a working
-   * hardware encoder covers, and H.264 from the last-resort encoder; H.264 first, since every
-   * viewer decodes it. Empty before the probe's result.
-   */
+  /** The codecs ace-media encodes JPEG sources in here, best first (`picture-codecs.ts`). */
   pictureCodecs(): string[] {
-    const codecs: string[] = [];
-    for (const entry of this.supervisor.capabilities() ?? []) {
-      if (entry.step !== "encode" || entry.state !== "ok" || !entry.codec) continue;
-      const family = entry.codec.slice(0, 4);
-      const usable = entry.backend === "chrome" ? family === "avc1" : entry.hardware;
-      if (!usable || (family !== "avc1" && family !== "hvc1")) continue;
-      if (!codecs.some((codec) => codec.startsWith(family))) codecs.push(entry.codec);
-    }
-    return codecs.toSorted((a, b) => Number(b.startsWith("avc1")) - Number(a.startsWith("avc1")));
+    return pictureCodecs(this.supervisor.capabilities() ?? [], this.#encoders);
   }
 
   /** A media setting changed: routes move, and sources follow. */

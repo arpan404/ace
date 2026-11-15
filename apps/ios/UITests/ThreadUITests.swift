@@ -43,7 +43,7 @@ import XCTest
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
         clearOfComposer(tests, in: app)
         tests.tap()
-        XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
+        XCTAssertTrue(words("Writing the PID-reuse regression.", in: app).waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
         app.openModelPicker()
@@ -86,7 +86,7 @@ import XCTest
         for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
         sleep(2)
         screenshot("thread-end-subagents-open")
-        let last = app.staticTexts["Wiring the filters while the agents work"]
+        let last = words("Wiring the filters while the agents work", in: app)
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         let input = app.textViews["composer.input"]
         let pill = app.descendants(matching: .any)["composer.live"]
@@ -108,13 +108,33 @@ import XCTest
         let app = launch()
         reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
-        XCTAssertTrue(app.buttons["question.answer"].waitForExistence(timeout: 25))
-        // The question sits on the strip with the composer still under it, as on the web; the
-        // transcript says who asks it.
+        // The question waits on a strip with the composer still under it, as on the web. While
+        // it's asking, the strip is its one place: the transcript doesn't repeat it.
+        let strip = app.descendants(matching: .any)["request.question"]
+        let answer = strip.buttons["strip.answer"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 25))
         XCTAssertTrue(app.textViews["composer.input"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["transcript.question"].waitForExistence(timeout: 10))
+        XCTAssertTrue(strip.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "archived 0.x entries")).firstMatch.exists,
+            "the strip carries the question")
+        // Only once the transcript has loaded can the question's absence from it mean anything.
+        let transcript = app.scrollViews["transcript"]
+        let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        wait(for: [ready], timeout: 25)
+        XCTAssertTrue(app.descendants(matching: .any)["message.user.ios-question.item.3"].waitForExistence(timeout: 10),
+            "the transcript shows the message that asked")
+        XCTAssertFalse(app.descendants(matching: .any)["transcript.question"].exists,
+            "the transcript doesn't repeat a question that is still asking")
+        // Answer opens the question's options in a sheet; picking one lets it be answered.
+        answer.tap()
+        let send = app.buttons["question.answer"]
+        XCTAssertTrue(send.waitForExistence(timeout: 10))
+        XCTAssertFalse(send.isEnabled, "nothing is picked yet")
         app.buttons["question.archive.skip"].tap()
+        XCTAssertTrue(send.isEnabled)
         screenshot("thread-question")
+        app.buttons["request.close"].tap()
+        XCTAssertTrue(send.waitForNonExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         reveal("thread.ios-approval", in: app)
         app.buttons["thread.ios-approval"].tap()
@@ -229,18 +249,17 @@ import XCTest
     /// A long press on an answer offers Copy, Select text and Share; Select text opens the words
     /// where any part of them can be selected.
     func testLongPressOnAnAnswerOffersCopySelectAndShare() {
-        let app = launch()
-        reveal("thread.ios-code", in: app)
-        app.buttons["thread.ios-code"].tap()
-        let prose = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Here is the class'")).firstMatch
-        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        // The fixture lists more threads than a few scrolls reach, so this one opens at launch.
+        let app = open("ios-code")
+        let prose = words("Here is the class as it stands:", in: app)
+        XCTAssertTrue(prose.waitForExistence(timeout: 30))
         prose.press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Share"].exists)
         app.buttons["Select text"].tap()
-        let words = app.textViews["select.text"]
-        XCTAssertTrue(words.waitForExistence(timeout: 5))
-        XCTAssertTrue((words.value as? String)?.contains("export class RetryBudget") == true)
+        let selectable = app.textViews["select.text"]
+        XCTAssertTrue(selectable.waitForExistence(timeout: 5))
+        XCTAssertTrue((selectable.value as? String)?.contains("export class RetryBudget") == true)
         app.buttons["select.done"].tap()
     }
     /// Ended in the background, as the system ends apps for memory, the app comes back on the
@@ -316,6 +335,10 @@ import XCTest
         _ = row.waitForExistence(timeout: 25)
         for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
+    }
+    /// Agent prose as drawn: markit puts each block in a text view whose value is its words.
+    private func words(_ text: String, in app: XCUIApplication) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()

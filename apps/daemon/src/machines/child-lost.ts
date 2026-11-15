@@ -47,6 +47,25 @@ function lostRequest(row: ChildRow, name: string): InteractionRequest {
 }
 
 /**
+ * What the parent's approval asks about a settled child whose machine is no longer paired: its
+ * result stands, but whether work started on it again there can't be seen any more.
+ */
+function lostSettledRequest(row: ChildRow, name: string): InteractionRequest {
+  return {
+    kind: "approval",
+    title: `${name} is no longer paired, so ace can't see whether ${row.role} started again there.`,
+    description: `Pair ${name} again to keep watching ${row.role}, or stop watching it; it keeps the result it ended with.`,
+    options: [
+      {
+        id: STOP_TRACKING,
+        label: `Stop watching; any new work on ${name} won't be seen here`,
+        kind: "cancel",
+      },
+    ],
+  };
+}
+
+/**
  * Children whose pairing is gone (ADR 0099). Nothing here can read, message or stop them, yet
  * their work there may still be running, so they never settle on their own: each stays lost,
  * its parent unresolved and asking the person, until the pairing returns (tracking resumes) or
@@ -78,6 +97,25 @@ export class LostChildren {
     }
     this.ask(row, name);
   }
+  /**
+   * A settled child's pairing is gone before a check after its 24 h mark: the re-check can't
+   * watch it, so its parent asks the person. It stays settled with its result; called on every
+   * poll, so an approval that closed opens again.
+   */
+  keepSettled(row: ChildRow): void {
+    const name = this.deps.label(row.machine);
+    if (row.lost_at === null) this.deps.ledger.markLost(row.id, this.deps.now());
+    this.ask(row, name, lostSettledRequest(row, name));
+    this.deps.emit([row.id]);
+  }
+  /** A settled lost child's pairing is back: the approval closes and the re-check reads it. */
+  foundSettled(row: ChildRow): void {
+    this.deps.store.atomic(() => {
+      this.close(row, { state: "expired" });
+      this.deps.ledger.clearLost(row.id);
+    });
+    this.deps.emit([row.id]);
+  }
   /** Its pairing is back: the approval closes and the poll reads it again. */
   found(row: ChildRow): void {
     const name = this.deps.label(row.machine);
@@ -96,6 +134,15 @@ export class LostChildren {
     const { resolution } = command.payload;
     if (resolution.kind !== "approval" || resolution.optionId !== STOP_TRACKING)
       return { commandId: command.id, ok: false, error: "invalid_resolution" };
+    // A settled child the person stops watching keeps its result; nothing new is owed.
+    if (row.settled === 1 && row.lost_at !== null && row.settled_at !== null) {
+      this.deps.store.atomic(() => {
+        this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
+        this.deps.ledger.endWatch(row.id);
+      });
+      this.deps.emit([row.id]);
+      return { commandId: command.id, ok: true, threadId: row.parent_thread };
+    }
     if (row.settled !== 0 || row.lost_at === null)
       return { commandId: command.id, ok: false, error: "already_resolved" };
     const name = this.deps.label(row.machine);
@@ -116,7 +163,7 @@ export class LostChildren {
     return { commandId: command.id, ok: true, threadId: row.parent_thread };
   }
   /** Opens the parent's approval about the child, unless one is open already. */
-  private ask(row: ChildRow, name: string): void {
+  private ask(row: ChildRow, name: string, request = lostRequest(row, name)): void {
     const { store } = this.deps;
     if (
       row.lost_ask &&
@@ -132,7 +179,7 @@ export class LostChildren {
         const ask = engine.openHostApproval(
           row.parent_thread,
           key,
-          lostRequest(row, name),
+          request,
           // Names the child, so its row can offer the same answer.
           [{ type: "ace.machine.lost", data: { machine: row.machine, threadId: row.id } }],
           childAgentKey(row.id),

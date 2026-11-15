@@ -202,6 +202,7 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
         send: context.send,
         // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
         pictureEncoder: () => context.options.browser?.videoEncoder(),
+        acceleration: context.options.mediaAcceleration,
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>

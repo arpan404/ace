@@ -35,7 +35,8 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { orderedSocket } from "./ordered-socket.ts";
-import { WireTrimmer } from "@ace/projection/wire-trim";
+import { WireTrimmer, wireTrims } from "@ace/projection/wire-trim";
+import { shortDeltasFraming } from "@ace/projection/short-deltas";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
@@ -539,7 +540,11 @@ export async function startServer(options: ServerOptions): Promise<{
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
-          outbox.packFrames();
+          outbox.packFrames(peer.remote);
+        outbox.shapeEvents({
+          rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
+          shortDeltas: message.framing?.includes(shortDeltasFraming) === true,
+        });
         peer.access =
           relayed || accountAdmitted
             ? "paired"
