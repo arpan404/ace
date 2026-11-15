@@ -108,6 +108,16 @@ export class ScreenStreamClient {
       for (const stop of stops) stop();
     };
   }
+  /**
+   * The view of `sessionId` couldn't decode `codec` (HEVC, say): that one stream subscribes again
+   * without it, while every other source keeps the codecs it plays. False when nothing is left
+   * to fall back to (H.264 itself failed).
+   */
+  fallBack(sessionId: string, codec: string): boolean {
+    if (!this.media.fallBack(sessionId, codec)) return false;
+    if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    return true;
+  }
   /** The still the session's subscribe brought back, to show until its first live picture. */
   poster(sessionId: string): MediaPoster | undefined {
     return this.media.poster(sessionId);

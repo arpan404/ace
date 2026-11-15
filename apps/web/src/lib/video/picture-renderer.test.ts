@@ -342,3 +342,34 @@ test("a decoder that keeps answering is never interrupted by the deadline", asyn
   view.timers.fire();
   expect(view.acks.filter((ack) => ack.keyframe)).toEqual([]);
 });
+
+/** A platform whose decoder refuses HEVC outright and plays H.264. */
+const playsH264Only: VideoDecoderFactory = (handlers) => {
+  let codec = "";
+  return {
+    configure: (config) => void (codec = config.codec),
+    decode: (chunk) => {
+      if (codec.startsWith("hvc1")) handlers.error(true);
+      else handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} });
+    },
+    close: () => {},
+  };
+};
+
+test("a view that can't play HEVC names it, then plays the same stream once it falls back to H.264", async () => {
+  const shown: number[] = [];
+  const failed: string[] = [];
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: playsH264Only,
+    show: (_image, at) => shown.push(at.sequence),
+    ack: () => {},
+    fallback: (at) => failed.push(at?.codec ?? "none"),
+    pressure: () => {},
+  });
+  await renderer.render(picture(40, { key: true, codec: "hvc1.1.6.L153.B0" }));
+  expect(failed).toEqual(["hvc1.1.6.L153.B0"]);
+  // The subscribe again brings H.264 on the same capture, its sequence started over.
+  await renderer.render(picture(1, { key: true, codec: "avc1.42E033" }));
+  await renderer.render(picture(2, { codec: "avc1.42E033" }));
+  expect(shown).toEqual([1, 2]);
+});

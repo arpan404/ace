@@ -21,6 +21,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { channelEndpoint, throughAccount, type ChannelEndpoint } from "@/boot/main-machine.ts";
 import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -83,6 +84,8 @@ export interface ScreenSession {
   retainStream: ScreenStreamClient["retainStream"];
   /** The still a session's subscribe brought back, shown until its first live picture. */
   poster: ScreenStreamClient["poster"];
+  /** A session's view couldn't decode `codec`: that session alone asks again without it. */
+  fallBack: ScreenStreamClient["fallBack"];
   close(): void;
 }
 
@@ -228,6 +231,7 @@ function openSession(
     ack: (picture, keyframe) => client.ack(picture, keyframe),
     retainStream: (sessionId) => client.retainStream(sessionId),
     poster: (sessionId) => client.poster(sessionId),
+    fallBack: (sessionId, codec) => client.fallBack(sessionId, codec),
     close() {
       stop();
       client.useMedia(undefined);
@@ -251,7 +255,9 @@ const shared = new WeakMap<ChannelEndpoint, Shared>();
 function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    const media = endpoint.kind === "fake" ? undefined : mediaFor(client).route;
+    const web = endpoint.kind === "fake" ? undefined : mediaFor(client);
+    web?.relayWith(mediaRelayFor(endpoint));
+    const media = web?.route;
     entry = {
       session: openSession(endpoint, lastKnown.get(endpoint), media),
       media,

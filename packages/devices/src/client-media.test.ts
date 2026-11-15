@@ -162,6 +162,24 @@ describe("device pictures by the media connection", () => {
     expect(subscribes().map((s) => s.media)).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
   });
 
+  it("a viewer that can't decode HEVC moves only its own device to H.264", async () => {
+    const { client, subscribes } = setup("mc_aaaaaaaaaa");
+    client.retainStream(deviceId);
+    client.retainStream("android:Other_Phone");
+    await flush();
+    expect(client.fallBack(deviceId, "hvc1.1.6.L153.B0")).toBe(true);
+    await flush();
+    const after = subscribes().slice(2);
+    expect(after).toEqual([
+      {
+        op: "subscribe",
+        deviceId,
+        media: { connection: "mc_aaaaaaaaaa" },
+        codecs: ["avc1.42E033"],
+      },
+    ]);
+  });
+
   it("keeps the poster its media subscribe brings back", () => {
     const { client, sent, receive } = setup("mc_aaaaaaaaaa", "answers later");
     receive({

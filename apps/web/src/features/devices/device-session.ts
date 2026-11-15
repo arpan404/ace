@@ -14,6 +14,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { useOptionalClient } from "@ace/client-react";
 import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
 import type { ChannelEndpoint } from "@/boot/main-machine.ts";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
@@ -245,7 +246,9 @@ export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   const daemon = useOptionalClient();
   useEffect(() => {
     if (!endpoint) return;
-    const media = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon).route;
+    const web = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon);
+    web?.relayWith(mediaRelayFor(endpoint));
+    const media = web?.route;
     const entry = acquire(endpoint, media);
     const follow = () => setSession(entry.session);
     entry.listeners.add(follow);

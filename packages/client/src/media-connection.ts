@@ -21,6 +21,12 @@ import { StreamMessages } from "./stream-messages.ts";
  * daemon has no media connection to give (`media.delivery: legacy`, ace-media unhealthy, an
  * older daemon), the binding stays absent and everything keeps travelling on the main socket.
  * Whenever the binding changes, views resubscribe (`watch`).
+ *
+ * When only the relay reaches this client, `media.connect` gives no `url`: the connection is a
+ * relay stream with the `media` purpose instead (`relay`, D2), whose hello carries the ticket and
+ * whose welcome is the daemon's; what crosses it afterwards is the same. A stream refused before
+ * its welcome (a spent or foreign ticket, a daemon or relay without media) leaves delivery on the
+ * main socket.
  */
 
 export interface MediaSocketEvents {
@@ -36,6 +42,17 @@ export interface MediaSocket {
 
 export type OpenMediaSocket = (url: string, events: MediaSocketEvents) => MediaSocket;
 
+export interface MediaRelayEvents {
+  /** The daemon admitted the hello: the stream is the media connection from here on. */
+  welcome(): void;
+  message(data: string | Uint8Array): void;
+  /** The stream ended; before `welcome`, that is a refusal. */
+  close(code: number): void;
+}
+
+/** Opens a relay stream with the `media` purpose whose hello presents `ticket`. */
+export type OpenMediaRelay = (ticket: string, events: MediaRelayEvents) => MediaSocket;
+
 export type MediaState =
   | { state: "off" }
   | { state: "connecting" }
@@ -47,6 +64,11 @@ export interface MediaConnectionOptions {
   /** `media.connect` on the main session; the reply is parsed here, so any value may come back. */
   connect(): Promise<unknown>;
   socket: OpenMediaSocket;
+  /**
+   * The relay stream opener, when this client reaches the daemon through a relay; asked at each
+   * `media.connect` that gives no `url`. Absent, or answering undefined: such a grant goes legacy.
+   */
+  relay?(): OpenMediaRelay | undefined;
   /** Runs `run` after `ms`; the result cancels it. */
   schedule(run: () => void, ms: number): () => void;
   /** A monotonic clock in ms, for the round trip the pings report. */
@@ -174,8 +196,7 @@ export class MediaConnection {
     if (!parsed.success) return this.#legacy("unsupported");
     const result = parsed.data.result;
     if (!result.ok) return this.#legacy(result.code);
-    // Only the relay reaches this client: relay media streams aren't wired for it yet.
-    if (!result.url) return this.#legacy("relay");
+    if (!result.url) return this.#openRelay(epoch, result.connection, result.ticket);
     const granted = result.connection;
     let hello: Uint8Array<ArrayBuffer>;
     try {
@@ -196,47 +217,74 @@ export class MediaConnection {
         },
         message: (data) => {
           if (!current()) return;
-          if (typeof data !== "string") {
-            if (!welcomed) return this.#drop("protocol");
-            try {
-              this.#pieces.receive(data);
-            } catch {
-              this.#drop("protocol");
-            }
-            return;
-          }
-          let json: unknown;
-          try {
-            json = JSON.parse(data);
-          } catch {
-            return;
-          }
-          // Unknown server messages are skipped, never fatal.
-          const message = MediaStreamServerMessage.safeParse(json);
-          if (!message.success) return;
-          if (message.data.type === "pong") {
-            if (this.#pingAt !== undefined)
-              this.#rttMs = Math.max(0, Math.round(this.#options.now() - this.#pingAt));
-            this.#pingAt = undefined;
-            return;
-          }
-          if (welcomed || message.data.connection !== granted) return this.#drop("protocol");
+          if (welcomed) return this.#receive(data);
+          const welcome = typeof data === "string" ? serverMessage(data) : undefined;
+          if (welcome?.type === "pong") return;
+          if (welcome?.type !== "media.welcome" || welcome.connection !== granted)
+            return this.#drop("protocol");
           welcomed = true;
-          this.#attempt = 0;
-          this.#set({ state: "open", connection: granted });
-          this.#ping(epoch);
+          this.#opened(epoch, granted);
         },
-        close: (code) => {
-          if (!current()) return;
-          this.#socket = undefined;
-          this.#pieces.reset();
-          if (code === mediaCloseCodes.revoked) this.#legacy("revoked");
-          else this.#retry("closed");
-        },
+        close: (code) => this.#closed(epoch, code),
       });
     } catch {
       this.#retry("unreachable");
     }
+  }
+  /** Only the relay reaches this client: a relay stream with the `media` purpose. */
+  #openRelay(epoch: number, granted: MediaConnectionId, ticket: string): void {
+    const open = this.#options.relay?.();
+    if (!open) return this.#legacy("relay");
+    const current = () => epoch === this.#epoch;
+    let welcomed = false;
+    try {
+      this.#socket = open(ticket, {
+        welcome: () => {
+          if (!current() || welcomed) return;
+          welcomed = true;
+          this.#opened(epoch, granted);
+        },
+        message: (data) => {
+          if (current() && welcomed) this.#receive(data);
+        },
+        close: (code) => {
+          if (!current()) return;
+          // Refused before its welcome: the ticket won't open a stream; delivery stays legacy.
+          if (welcomed) return this.#closed(epoch, code);
+          this.#socket = undefined;
+          this.#legacy("relay-refused");
+        },
+      });
+    } catch {
+      this.#legacy("relay-refused");
+    }
+  }
+  #opened(epoch: number, connection: MediaConnectionId): void {
+    this.#attempt = 0;
+    this.#set({ state: "open", connection });
+    this.#ping(epoch);
+  }
+  /** What the open connection carries: pieces, and pongs. Unknown text is skipped. */
+  #receive(data: string | Uint8Array): void {
+    if (typeof data !== "string") {
+      try {
+        this.#pieces.receive(data);
+      } catch {
+        this.#drop("protocol");
+      }
+      return;
+    }
+    if (serverMessage(data)?.type !== "pong") return;
+    if (this.#pingAt !== undefined)
+      this.#rttMs = Math.max(0, Math.round(this.#options.now() - this.#pingAt));
+    this.#pingAt = undefined;
+  }
+  #closed(epoch: number, code: number): void {
+    if (epoch !== this.#epoch) return;
+    this.#socket = undefined;
+    this.#pieces.reset();
+    if (code === mediaCloseCodes.revoked) this.#legacy("revoked");
+    else this.#retry("closed");
   }
   #ping(epoch: number): void {
     this.#after(mediaPingMs, () => {
@@ -287,5 +335,15 @@ export class MediaConnection {
     if (next.state !== "connecting") this.#settle();
     if (this.binding()?.connection === before) return;
     for (const listener of this.#watchers) listener();
+  }
+}
+
+/** A media connection's text message, or undefined when it isn't one this build knows. */
+function serverMessage(text: string): MediaStreamServerMessage | undefined {
+  try {
+    const parsed = MediaStreamServerMessage.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
   }
 }
