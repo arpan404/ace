@@ -1,9 +1,8 @@
-import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import {
   ArrowSquareInIcon,
-  GearSixIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  PuzzlePieceIcon,
   UserPlusIcon,
   UsersThreeIcon,
   XIcon,
@@ -11,95 +10,53 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { ProfileAvatar } from "@/components/profile-avatar.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useAccountPicture, useAceAccount } from "@/features/ace-account/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { useProfileName } from "@/lib/profile.ts";
 import { botFileMax } from "./spade-bot-start.tsx";
-import { DottedFace, type FaceDot } from "./spade-list-parts.tsx";
 import { importAgent } from "./spade-teams-api.ts";
-import { useFaceState } from "./use-face-state.ts";
-import type { RosterBot, SpadeHost } from "./use-spade-roster.ts";
+import type { SpadeHost } from "./use-spade-roster.ts";
 
-/* Spade's list head (the main bot, Search and +) and its foot (the person and Spade settings). */
+/* Spade's list top: Search, Spade's apps, plugins and skills, and +; then Spade's search field. */
 
 /** A round 32px button, as Spade's list draws them: on the hover wash, `--active` on hover. */
 const roundButton =
   "size-(--spade-round-button) rounded-full bg-hover hover:bg-active aria-expanded:bg-active";
 
-/** The head's dot: amber while Spade needs the person, red when it failed, grey while it is off. */
-function headDot(main: RosterBot | undefined, ready: boolean): FaceDot | undefined {
-  if (!ready || !main || main.away || main.unavailable) return "off";
-  if (main.state === "waiting") return "needs-you";
-  if (main.state === "idle" && main.problem) return "failed";
-  return undefined;
-}
-
-/**
- * The main bot in place of a title row: its 44px face, its name, then Search and +. It opens
- * Spade's conversation; while Spade isn't running here its face carries the grey dot (its
- * conversation says how to turn it on).
- */
-export function SpadeListHead(props: {
-  main: RosterBot | undefined;
-  ready: boolean;
-  current: boolean;
+/** The list's top: Search, Spade's own apps, plugins and skills, and +. */
+export function SpadeListTop(props: {
   searching: boolean;
   onSearch(): void;
   hosts: readonly SpadeHost[];
   onNewBot(): void;
   onNewGroup(): void;
 }) {
-  const { main } = props;
-  const live = main && !main.away && !main.unavailable ? botFaceStateOf(main) : null;
-  const pose = useFaceState(props.ready ? live : null, props.current);
   return (
-    <div
-      className={cn(
-        "mx-2 mt-1 mb-1 flex shrink-0 items-center gap-2 rounded-lg py-3.5 pr-2 transition-colors duration-(--motion-fast)",
-        "has-[a:hover]:bg-hover has-[a:hover]:[--row-wash:var(--hover)]",
-        props.current && "bg-active [--row-wash:var(--active)] has-[a:hover]:bg-active",
-      )}
-    >
+    <div className="mx-2 mt-1 mb-1 flex shrink-0 items-center justify-end gap-2 py-3.5 pr-2">
+      <IconButton
+        icon={MagnifyingGlassIcon}
+        label="Search conversations"
+        tip="Search"
+        size="panel"
+        aria-expanded={props.searching}
+        onClick={props.onSearch}
+        className={roundButton}
+      />
       <Link
-        to={main ? "/spade/$agentId" : "/spade"}
-        params={main ? { agentId: main.id } : {}}
-        search={main && !main.machine.primary ? { on: main.machine.key } : {}}
-        aria-current={props.current ? "page" : undefined}
-        className="flex min-w-0 flex-1 items-center gap-3 self-stretch rounded-lg pl-2.5 focus-ring-inset"
-      >
-        <DottedFace
-          avatar={main?.avatar ?? { kind: "spade" }}
-          size={44}
-          state={pose}
-          dot={headDot(main, props.ready)}
-          large
-        />
-        <span
-          data-view-row-title=""
-          className="min-w-0 truncate text-lg/6 font-semibold tracking-title text-foreground"
-        >
-          {main?.name || "Spade"}
-        </span>
-      </Link>
-      <span className="flex shrink-0 items-center gap-2">
-        <IconButton
-          icon={MagnifyingGlassIcon}
-          label="Search conversations"
-          tip="Search"
-          size="panel"
-          aria-expanded={props.searching}
-          onClick={props.onSearch}
-          className={roundButton}
-        />
-        {props.hosts.length > 0 && (
-          <AddMenu hosts={props.hosts} onNewBot={props.onNewBot} onNewGroup={props.onNewGroup} />
+        to="/settings/spade/apps"
+        aria-label="Apps, plugins and skills"
+        title="Apps, plugins and skills"
+        className={cn(
+          "grid shrink-0 place-items-center text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground",
+          roundButton,
         )}
-      </span>
+      >
+        <Icon icon={PuzzlePieceIcon} size={18} />
+      </Link>
+      {props.hosts.length > 0 && (
+        <AddMenu hosts={props.hosts} onNewBot={props.onNewBot} onNewGroup={props.onNewGroup} />
+      )}
     </div>
   );
 }
@@ -223,43 +180,5 @@ function AddMenu(props: { hosts: readonly SpadeHost[]; onNewBot(): void; onNewGr
         }}
       />
     </>
-  );
-}
-
-/**
- * The foot: the person (their picture or initials, and name) opens what the bots know about
- * them; the gear beside it opens Settings › Spade.
- */
-export function SpadeListFoot() {
-  const [profileName] = useProfileName();
-  const { session } = useAceAccount();
-  const picture = useAccountPicture();
-  const name = session?.account.name || profileName;
-  const shown = name.trim() || "You";
-  return (
-    <div className="flex h-15 shrink-0 items-center gap-2 pr-3 pl-2.5 shadow-[0_-1px_0_var(--border-soft)]">
-      <Tip label="What your bots know about you">
-        <Link
-          to="/settings/spade"
-          hash="about-you"
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
-        >
-          <ProfileAvatar name={name} picture={picture} className="size-8 text-ui" iconSize={16} />
-          <span className="min-w-0 truncate text-md font-medium text-foreground">{shown}</span>
-        </Link>
-      </Tip>
-      <Tip label="Spade settings">
-        <Link
-          to="/settings/spade"
-          aria-label="Spade settings"
-          className={cn(
-            "grid shrink-0 place-items-center text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground",
-            roundButton,
-          )}
-        >
-          <Icon icon={GearSixIcon} size={18} />
-        </Link>
-      </Tip>
-    </div>
   );
 }
