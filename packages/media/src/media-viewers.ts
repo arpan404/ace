@@ -267,46 +267,6 @@ export function viewSwap(
   };
 }
 
-/**
- * The latest pending swap of each target, for a bridge whose subscribes wait while they are set
- * up (devices): there a later subscribe can supersede one still being set up, after both were
- * granted views. Only the latest may commit or regrant: a superseded one's abort closes its own
- * view and nothing else, so it never displaces its successor's.
- */
-export class PendingSwaps {
-  readonly #latest = new Map<string, object>();
-
-  begin(
-    port: MediaDeliveryPort | undefined,
-    target: string,
-    old: HeldView | undefined,
-    granted: HeldView | undefined,
-  ): { commit(): boolean; abort(): void } {
-    const token = {};
-    this.#latest.set(target, token);
-    const swap = viewSwap(port, old, granted);
-    const own = () => this.#latest.get(target) === token;
-    const settle = () => {
-      if (own()) this.#latest.delete(target);
-    };
-    return {
-      /** False, changing nothing, once a later subscribe superseded this one. */
-      commit: () => {
-        if (!own()) return false;
-        settle();
-        swap.commit();
-        return true;
-      },
-      abort: () => {
-        if (own()) {
-          settle();
-          swap.abort();
-        } else if (granted) port?.unbind(granted.viewer);
-      },
-    };
-  }
-}
-
 const whole = (n: number) => Math.max(1, Math.min(0xffffffff, Math.round(n)));
 
 /** A client's viewport in ace-media's terms. */
