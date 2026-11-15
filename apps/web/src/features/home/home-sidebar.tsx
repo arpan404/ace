@@ -45,8 +45,8 @@ const StartedTitlePublisher = deferredComponent(() =>
  * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
  * with no headings; the filter narrows every tab to a project or a device. 1, 2 and 3 switch
  * tabs from anywhere in the panel. The title row's magnifier opens a search in place that narrows
- * every tab to the threads whose title, project, branch or pull request match. Snoozed and Settled show 50 threads at a time, with Show
- * more and Show less at their end. Chats are the Chats panel's. Search (⌘K) opens the palette,
+ * every tab to the threads whose title, project, branch or pull request match. Snoozed and Settled show 50 threads at a time, the
+ * next 50 as the list's end scrolls into view. Chats are the Chats panel's. Search (⌘K) opens the palette,
  * which also finds older settled threads.
  */
 export function HomeSidebar() {
@@ -77,7 +77,7 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const { rows, paging } = usePanelRows({
+  const { rows, paging, onNearEnd } = usePanelRows({
     list,
     tab,
     project,
@@ -173,7 +173,13 @@ export function HomeSidebar() {
         ) : (
           <PanelPagingContext value={paging}>
             <FoundHits value={older.hits}>
-              <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} triage />
+              <ThreadList
+                rows={rows}
+                needsYou={list.needsYou}
+                pinned={list.pinned}
+                onNearEnd={onNearEnd}
+                triage
+              />
             </FoundHits>
           </PanelPagingContext>
         )}
