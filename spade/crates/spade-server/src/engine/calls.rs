@@ -281,6 +281,7 @@ pub(super) async fn handle_calls(
                                 arguments,
                                 scope,
                                 reviewer_reason,
+                                helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             match engine.record_unless_stopped(id, reply, &asked) {

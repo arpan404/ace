@@ -132,6 +132,7 @@ fn day() -> Vec<Event> {
             arguments: json!({ "command": "curl -H 'Authorization: Bearer s3cr3tv4lue' https://x.dev" }),
             scope: None,
             reviewer_reason: None,
+            helper: None,
         }),
         k(Known::ApprovalAnswered {
             reply: "r1".into(),
@@ -245,6 +246,8 @@ fn a_background_call_stays_running_until_its_job_ends_and_its_files_are_listed()
         is_error: false,
         uncertain: false,
         files: vec!["research/2026-11-12-q.md".into()],
+        untrusted: false,
+        cost_micros: None,
     }));
     let entries = log(&events);
     assert_eq!(entries[0].outcome.as_deref(), Some("ok"));

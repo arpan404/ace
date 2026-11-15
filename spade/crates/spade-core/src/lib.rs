@@ -11,6 +11,7 @@ pub mod event;
 pub mod face;
 pub mod gate;
 pub mod group;
+pub mod helper;
 pub mod maintenance;
 pub mod memory;
 pub mod oversight;

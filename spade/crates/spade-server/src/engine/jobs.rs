@@ -115,6 +115,8 @@ pub(super) fn start(
                 is_error: output.is_error,
                 uncertain: output.uncertain,
                 files: output.files.to_vec(),
+                untrusted: false,
+                cost_micros: None,
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
@@ -215,6 +217,8 @@ pub(super) fn stop_named(
                     is_error: true,
                     uncertain: true,
                     files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
                 })
             })
             .collect();
@@ -271,6 +275,8 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
             is_error: true,
             uncertain: true,
             files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
         });
         engine.deliver(id, &finished)?;
     }

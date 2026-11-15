@@ -5,6 +5,7 @@
 
 mod agents;
 mod endpoints;
+mod helpers;
 mod notes;
 mod oversight;
 mod routines;
@@ -13,6 +14,7 @@ mod teams;
 
 pub use agents::{Agent, NewAgent};
 pub use endpoints::{StoredEndpoint, StoredModel};
+pub use helpers::StoredHelper;
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
@@ -112,6 +114,7 @@ impl Store {
             "notes",
             "routines",
             "routine_runs",
+            "helpers",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -139,11 +142,13 @@ impl Store {
         Ok(())
     }
 
-    /// Every conversation, most recently updated first.
+    /// Every conversation, most recently updated first. Helpers' hidden conversations
+    /// (ADR 0152) are left out: [`Store::helpers`] lists them.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, title, created_ms, updated_ms FROM conversations
+             WHERE id NOT IN (SELECT conversation_id FROM helpers)
              ORDER BY updated_ms DESC, id DESC",
         )?;
         let rows = statement.query_map([], |row| {
@@ -245,7 +250,7 @@ impl Store {
 }
 
 /// Appends `events` to `conversation` inside `tx`, numbered after the rest.
-fn append_in(
+pub(crate) fn append_in(
     tx: &rusqlite::Transaction<'_>,
     conversation: &str,
     events: &[Event],

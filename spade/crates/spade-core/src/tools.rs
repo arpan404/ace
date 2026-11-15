@@ -76,6 +76,13 @@ impl Registry {
         self.tools.get(name)
     }
 
+    /// The same registry with only the tools `keep` accepts (a helper's narrower set, ADR 0152).
+    #[must_use]
+    pub fn retain(mut self, keep: impl Fn(&ToolDef) -> bool) -> Self {
+        self.tools.retain(|_, tool| keep(tool));
+        self
+    }
+
     /// What the model is sent: core tools sorted by name, then `tool_search` and `call_tool` when
     /// any tool is deferred. Same input, same bytes.
     pub fn offered(&self) -> Vec<ToolSpec> {

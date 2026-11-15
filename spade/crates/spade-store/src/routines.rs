@@ -423,13 +423,15 @@ mod tests {
             }
         }
         {
-            // As a database from before the column: the column goes and the version steps back.
+            // As a database from before the column: the column goes and the version steps back
+            // (past the helpers table that came after it, ADR 0152).
             let connection = rusqlite::Connection::open(&path)?;
+            connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 1,
+                crate::schema::current_version() as i64 - 2,
             )?;
         }
         let store = Store::open(&path)?;

@@ -124,8 +124,14 @@ impl Store {
         self.agent_where("a.id = ?1", id)
     }
 
+    /// The agent whose conversation is `conversation`. A helper's conversation (ADR 0152)
+    /// belongs to its bot: its tools, caps, connectors and settings are the bot's.
     pub fn agent_for_conversation(&self, conversation: &str) -> Result<Option<Agent>> {
-        self.agent_where("a.conversation_id = ?1", conversation)
+        self.agent_where(
+            "a.conversation_id = COALESCE(
+                 (SELECT parent_id FROM helpers WHERE conversation_id = ?1), ?1)",
+            conversation,
+        )
     }
 
     fn agent_where(&self, condition: &str, value: &str) -> Result<Option<Agent>> {
@@ -215,6 +221,8 @@ impl Store {
             return Ok(false);
         };
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
+        // Its helpers' hidden conversations go with it (ADR 0152).
+        crate::helpers::delete_of(&tx, &conversation)?;
         // Its caps and review switch (ADR 0135); its spend stays in the ledger.
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",

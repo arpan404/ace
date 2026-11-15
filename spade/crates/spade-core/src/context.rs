@@ -797,9 +797,14 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_routine: Some(from),
             ..
         }) if from.event.is_some() || from.untrusted => true,
-        Event::Known(Known::ToolFinished {
-            untrusted: true, ..
-        }) => true,
+        Event::Known(
+            Known::ToolFinished {
+                untrusted: true, ..
+            }
+            | Known::JobFinished {
+                untrusted: true, ..
+            },
+        ) => true,
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -846,6 +851,9 @@ fn describe_event(events: &[Event], event: &Event) -> String {
         }
         Event::Known(Known::JobFinished { name, .. }) if name == "bot_message" => {
             "another bot's answer".to_owned()
+        }
+        Event::Known(Known::JobFinished { name, .. }) if name == crate::helper::TOOL => {
+            "a helper's result".to_owned()
         }
         Event::Known(Known::JobFinished { name, .. }) => format!("the result of {name}"),
         Event::Known(Known::ComputerHandedBack { .. }) => {

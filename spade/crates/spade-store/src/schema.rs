@@ -138,6 +138,11 @@ const MIGRATIONS: &[Migration] = &[
               UPDATE routines SET untrusted = 1 WHERE created_by IS NOT 'person';",
         backfill: None,
     },
+    Migration {
+        // ADR 0152: helpers' hidden conversations.
+        sql: crate::helpers::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
