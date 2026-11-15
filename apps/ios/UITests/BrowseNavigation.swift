@@ -91,9 +91,10 @@ extension XCUIApplication {
         back.tap()
     }
     /// The list's compose button: the round header button, or on iOS 27 the tab bar's prominent
-    /// one, which carries no identifier, so it's found by its label.
+    /// one. That one has no identifier of ours; it reports its symbol, `square.and.pencil`, which
+    /// the empty states' text-only "New chat" and "New thread" buttons don't.
     var newThreadButton: XCUIElement {
-        buttons.matching(NSPredicate(format: "identifier == 'inbox.compose' OR (identifier != 'inbox.empty.compose' AND label IN {'New thread', 'New chat'})")).firstMatch
+        buttons.matching(NSPredicate(format: "identifier == 'inbox.compose' OR (identifier == 'square.and.pencil' AND label IN {'New thread', 'New chat'})")).firstMatch
     }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {
