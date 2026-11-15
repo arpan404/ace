@@ -162,6 +162,9 @@ export function ProviderSetupRow({
               tone={props.view.tone}
               text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
             />
+          ) : props.view?.summary ? (
+            // Ready says so too ("Signed in as ada@example.com"), so no row reads as unknown.
+            <StatusLine tone={props.view.tone} text={props.view.summary} />
           ) : null}
           {props.columns && <span aria-hidden className="hidden flex-1 @[34rem]:block" />}
           {busy ? (
