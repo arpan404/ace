@@ -131,6 +131,8 @@ struct SourceFacts {
     /// Encodes whose keyframes outgrew the coupled cap: the share of the plan's bit rate they
     /// are asked for until their keyframes fit again.
     cut: HashMap<u32, f64>,
+    /// The id the next new encode takes.
+    next_id: u32,
 }
 
 struct Seen {
@@ -704,30 +706,36 @@ impl Delivery {
     /// for, so its next keyframes are smaller; each one within it lets the rate back up. The
     /// oversized one still goes (an empty window takes any unit). True when the cut changed.
     fn keyframe_sized(&mut self, source: &str, frame: &MediaFrame) -> bool {
-        let rate = self
+        // The views taking this unit's encode, with the plan's id for it (the producer's id
+        // differs while it runs its own encodes).
+        let taking: Vec<(f64, u32)> = self
             .views
             .values()
             .filter(|v| v.source == source && v.taking == Some(frame.encode))
-            .map(|v| carried(v) * self.share(&v.session))
-            .fold(f64::INFINITY, f64::min);
-        if !rate.is_finite() {
+            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?)))
+            .collect();
+        let Some(rate) = taking.iter().map(|(rate, _)| *rate).reduce(f64::min) else {
             return false;
-        }
+        };
         let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
         let size = frame.payload.len() as f64;
         let facts = self.sources.entry(source.to_owned()).or_default();
-        let before = facts.cut.get(&frame.encode).copied().unwrap_or(1.0);
-        let after = if size > cap * KEYFRAME_SLACK {
-            (before * cap / size).clamp(KEYFRAME_CUT_FLOOR, 1.0)
-        } else {
-            (before * KEYFRAME_SLACK).min(1.0)
-        };
-        if after >= 1.0 {
-            facts.cut.remove(&frame.encode);
-        } else {
-            facts.cut.insert(frame.encode, after);
+        let mut changed = false;
+        for planned in taking.iter().map(|(_, id)| *id) {
+            let before = facts.cut.get(&planned).copied().unwrap_or(1.0);
+            let after = if size > cap * KEYFRAME_SLACK {
+                (before * cap / size).clamp(KEYFRAME_CUT_FLOOR, 1.0)
+            } else {
+                (before * KEYFRAME_SLACK).min(1.0)
+            };
+            if after >= 1.0 {
+                facts.cut.remove(&planned);
+            } else {
+                facts.cut.insert(planned, after);
+            }
+            changed |= (after - before).abs() > f64::EPSILON;
         }
-        (after - before).abs() > f64::EPSILON
+        changed
     }
 
     fn events(&mut self, key: &str, events: Vec<Event>, now_ms: u64, out: &mut Vec<Effect>) {
@@ -846,21 +854,37 @@ impl Delivery {
         drop(viewers);
         drop(live);
         let facts = self.sources.entry(source.to_owned()).or_default();
+        // Encodes the plan drops: their ids are never given out again while units of theirs may
+        // be queued anywhere.
+        let dropped: Vec<u32> = facts
+            .ids
+            .iter()
+            .filter(|(key, _)| !plan.encodes.iter().any(|e| e.key == **key))
+            .map(|(_, id)| *id)
+            .collect();
         facts
             .ids
             .retain(|key, _| plan.encodes.iter().any(|e| e.key == *key));
+        // The cut belongs to the plan's encode; what the producer sends (`seen`) is its own
+        // record, refreshed by every unit and aged out on its own.
+        for id in dropped {
+            facts.cut.remove(&id);
+        }
         let mut wanted = Vec::with_capacity(plan.encodes.len());
         for encode in &plan.encodes {
-            // A new encode takes the lowest id no kept encode holds, so a source with one
-            // encode stays on 0 as it is resized.
+            // A new encode takes the next id: ids only grow (a source's first is 0), so none is
+            // reused while a dropped encode's units may still be on the way. They wrap only at
+            // the end of the u32 space, past ids in use.
             let id = match facts.ids.get(&encode.key) {
                 Some(id) => *id,
                 None => {
-                    let free = (0..)
-                        .find(|n| !facts.ids.values().any(|v| v == n))
-                        .unwrap_or(0);
-                    facts.ids.insert(encode.key.clone(), free);
-                    free
+                    let mut id = facts.next_id;
+                    while facts.ids.values().any(|v| *v == id) {
+                        id = id.wrapping_add(1);
+                    }
+                    facts.next_id = id.wrapping_add(1);
+                    facts.ids.insert(encode.key.clone(), id);
+                    id
                 }
             };
             // The planner keeps 500 kbit/s; video's share follows the link below that, down to

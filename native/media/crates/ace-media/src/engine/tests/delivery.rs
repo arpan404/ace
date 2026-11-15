@@ -186,7 +186,7 @@ fn the_plan_is_the_viewers_size_and_its_bit_rate_halves_while_the_session_round_
         panic!("the first unit's size plans the view");
     };
     assert_eq!(plan.len(), 1);
-    assert_eq!((plan[0].id, plan[0].width, plan[0].height), (0, 1170, 2532));
+    assert_eq!((plan[0].width, plan[0].height), (1170, 2532));
     let calm = plan[0].bitrate;
     for (n, rtt) in [(0, 300), (1, 310), (2, 305)] {
         let quiet = send(
@@ -541,4 +541,27 @@ fn a_late_ack_from_a_replaced_view_releases_nothing_of_its_successor() {
         binaries(&after).is_empty(),
         "a stale ack opened the new view's window"
     );
+}
+
+#[test]
+fn a_new_encode_never_takes_an_id_whose_units_may_still_be_on_the_way() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The pane changes size: a new encode replaces the old one at once.
+    let resized = send(
+        &mut engine,
+        json!({ "type": "viewer.configure", "viewer": "v1",
+                "viewport": { "width": 200, "height": 300, "dpr": 1, "scale": 1 },
+                "audio": false }),
+        &[],
+        at(1_100),
+    );
+    let Some(after) = wants(&resized).pop() else {
+        panic!("no new plan");
+    };
+    // Units of the old encode may still be queued at the producer: its successor gets another.
+    assert_ne!(after[0].id, before[0].id);
 }

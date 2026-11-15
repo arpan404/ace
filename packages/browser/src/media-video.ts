@@ -85,22 +85,37 @@ const daemonIds = 2 ** 20;
 /** The key prefix of an encode ace-media planned, which keeps ace-media's own id. */
 const mediaKey = "media/";
 
+/** Dropped encodes' keys kept for their late units: far more than are ever in flight. */
+const keptKeys = 4096;
+/** The last id the daemon's encodes may take: frames carry encode ids as u32. */
+const lastId = 0xffff_ffff;
+
+/**
+ * The daemon's next encode id: ids only grow, so one is never given to another encode while
+ * units of the first may still be queued anywhere. Past the end of the u32 space (some 4 × 10^9
+ * encodes later) they wrap back to `daemonIds`, skipping the ids running now.
+ */
+export function nextEncodeId(
+  next: number,
+  running: ReadonlySet<number>,
+): { id: number; next: number } {
+  let id = next;
+  for (let tried = 0; running.has(id) && tried <= running.size; tried++)
+    id = id >= lastId ? daemonIds : id + 1;
+  return { id, next: id >= lastId ? daemonIds : id + 1 };
+}
+
 /**
  * An encode's id in ace-media's frames, per capture: ace-media's own for the encodes it planned
- * (pinned), and for the daemon's from `daemonIds`. A daemon encode keeps its id while the plan
- * has it; a new one takes the lowest id free from `daemonIds`, so ids stay within `daemonIds`
- * plus the encodes running at once and never approach the u32 limit however often plans change.
+ * (pinned), and for the daemon's an id from `nextEncodeId`. A daemon encode keeps its id while
+ * the plan has it; an encode the plan drops keeps its key for late units, never handed on.
  */
 class EncodeIds {
   readonly #ids = new Map<string, number>();
   readonly #keys = new Map<number, string>();
-  /** The daemon's keys with their ids, as of the latest plan. */
+  /** The daemon's keys running now, with their ids. */
   readonly #daemon = new Map<string, number>();
-  /**
-   * Ids the latest plan gave back: they sit out one plan, so a dropped encode's late units are
-   * never taken for its successor's.
-   */
-  #released = new Set<number>();
+  #next = daemonIds;
   /** An encode ace-media planned: its key keeps ace-media's id. */
   pin(key: string, id: number): void {
     this.#ids.set(key, id);
@@ -111,37 +126,28 @@ class EncodeIds {
     if (pinned !== undefined) return pinned;
     let id = this.#daemon.get(key);
     if (id === undefined) {
-      const taken = new Set([...this.#daemon.values(), ...this.#released]);
-      id = daemonIds;
-      while (taken.has(id)) id++;
+      const given = nextEncodeId(this.#next, new Set(this.#daemon.values()));
+      id = given.id;
+      this.#next = given.next;
       this.#daemon.set(key, id);
       this.#keys.set(id, key);
+      // Keys of dropped encodes stay for their late units, the oldest going past a bound.
+      const running = new Set(this.#daemon.values());
+      for (const old of this.#keys.keys()) {
+        if (this.#keys.size <= keptKeys) break;
+        if (old >= daemonIds && !running.has(old)) this.#keys.delete(old);
+      }
     }
     return id;
   }
   key(id: number): string | undefined {
     return this.#keys.get(id);
   }
-  /**
-   * Specs with their ids, for producers that stamp frames with them. The daemon's encodes this
-   * plan drops give their ids back.
-   */
+  /** Specs with their ids, for producers that stamp frames with them. */
   stamp(specs: readonly VideoEncode[]): (VideoEncode & { id: number })[] {
     const keep = new Set(specs.map((spec) => spec.key));
-    const released = new Set<number>();
-    for (const [key, id] of this.#daemon)
-      if (!keep.has(key)) {
-        this.#daemon.delete(key);
-        released.add(id);
-      }
-    // What this plan gave back rests now; what the plan before gave back is free again. Late
-    // units of a dropped encode still map to it until then.
-    const rested = this.#released;
-    this.#released = released;
-    const ids = specs.map((spec) => ({ ...spec, id: this.id(spec.key) }));
-    const running = new Set(this.#daemon.values());
-    for (const id of rested) if (!running.has(id)) this.#keys.delete(id);
-    return ids;
+    for (const key of this.#daemon.keys()) if (!keep.has(key)) this.#daemon.delete(key);
+    return specs.map((spec) => ({ ...spec, id: this.id(spec.key) }));
   }
 }
 
