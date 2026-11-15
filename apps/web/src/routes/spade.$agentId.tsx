@@ -18,8 +18,14 @@ export const Route = createFileRoute("/spade/$agentId")({
      * `activity`: what it did (ADR 0135).
      */
     view: z.enum(["bot", "routines", "activity"]).optional().catch(undefined),
-    /** The bot's computer expanded on this surface (with `files` and `file` on Files). */
-    computer: z.enum(["browser", "screen", "terminal", "files"]).optional().catch(undefined),
+    /**
+     * The right panel open on this section: a surface of the bot's computer (with `files` and
+     * `file` on Files), its activity or its helpers.
+     */
+    computer: z
+      .enum(["browser", "screen", "terminal", "files", "activity", "helpers"])
+      .optional()
+      .catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();

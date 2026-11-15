@@ -47,7 +47,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                       ? `[shared ${part.images.length + part.documents.length}]`
                       : part.kind === "search-setup"
                         ? "[search setup]"
-                        : part.text,
+                        : part.kind === "request"
+                          ? `[asked ${part.answer ?? "open"}]`
+                          : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -192,7 +194,7 @@ describe("what stays open", () => {
     expect(c.view().busy).toBe(true);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "c1", allowed: false });
     expect(c.view().approvals).toEqual([]);
-    expect(said(c.view().entries)).toEqual(["spade: [send_email declined]"]);
+    expect(said(c.view().entries)).toEqual(["spade: [send_email declined] | [asked denied]"]);
   });
 
   test("a background job keeps the conversation working after its reply finished", () => {
@@ -418,7 +420,7 @@ test("a call made through call_tool reads as the tool it reached", () => {
     content: "The person declined this action.",
     is_error: true,
   });
-  expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined]"]);
+  expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined] | [asked denied]"]);
 });
 
 const delegated = (c: ReturnType<typeof conversation>, calls: { id: string; args: unknown }[]) => {
@@ -557,7 +559,7 @@ describe("the conversation as a chat", () => {
     expect(
       spadeBubbles(c.view()).map((bubble) =>
         bubble.kind === "ask"
-          ? `ask: ${bubble.sentence}`
+          ? `ask: ${bubble.name}`
           : bubble.kind === "other"
             ? `${bubble.agent.name}: ${bubble.text}`
             : bubble.kind === "routine"
@@ -578,13 +580,37 @@ describe("the conversation as a chat", () => {
     ]);
   });
 
-  test("an approval arrives as the bot's bubble and leaves once answered", () => {
+  test("an approval is the bot's bubble after the words that asked, and stays once answered", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "Drafted it.",
+      calls: [{ id: "k9", name: "send_email" }],
+    });
     c.stored({ type: "approval_requested", reply: "r1", call_id: "k9", name: "send_email" });
-    expect(spadeBubbles(c.view()).at(-1)).toMatchObject({ kind: "ask", callId: "k9" });
+    const asked = () =>
+      spadeBubbles(c.view()).map((bubble) =>
+        bubble.kind === "ask" ? `ask ${bubble.state}` : bubble.kind === "bot" ? bubble.text : "",
+      );
+    expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
-    expect(spadeBubbles(c.view()).some((bubble) => bubble.kind === "ask")).toBe(false);
+    c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
+    c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
+    expect(asked()).toEqual(["Drafted it.", "ask allowed", "Sent."]);
+  });
+
+  test("a request its reply ended before the person answered stays, closed", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "approval_requested", reply: "r1", call_id: "k1", name: "shell" });
+    c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
+    c.stored({ type: "reply_stopped", reply: "r1", text: "" });
+    expect(spadeBubbles(c.view()).find((bubble) => bubble.kind === "ask")).toMatchObject({
+      state: "closed",
+    });
+    expect(c.view().approvals).toEqual([]);
   });
 
   test("the bot's own words on what it does show while it works and go when the reply ends", () => {

@@ -1,5 +1,5 @@
 import { botFaceStateOf } from "@ace/ui-core/bot-face";
-import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
+import type { PanelSection } from "./computer/panel-place.ts";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
@@ -18,8 +18,8 @@ export type BotView = "bot" | "routines" | "activity";
 
 /** Where a bot's screen goes. */
 export interface BotPlace {
-  /** The computer expanded on this surface. */
-  computer?: SpadeSurfaceKind;
+  /** The right panel open on this section. */
+  computer?: PanelSection;
   /** With the computer on Files: the folder shown and a file open in it. */
   files?: string;
   file?: string;
@@ -51,14 +51,13 @@ export function useOpenBot(bot: RosterBot) {
 /**
  * The screen's frame for one bot. Its top bar: the bot's face (moving while it works), its name
  * and machine, and a caret; they open the bot's own page. ⋯ holds what acts on the bot: Edit,
- * Duplicate, Export and Delete. `children` may open the Memory dialog itself (a "Remembered"
- * line).
+ * Duplicate, Export and Delete. `children` may open the Memory dialog itself.
  */
 export function BotScreen(props: {
   bot: RosterBot;
   /** The bot's own page shows: its name stays put rather than leading to itself. */
   page?: boolean;
-  /** Right-hand actions in the top bar (Chat, beside an expanded computer). */
+  /** Right-hand actions in the top bar (Computer, which opens the right panel). */
   actions?: ReactNode;
   children: ReactNode | ((openMemory: (open: MemoryOpen) => void) => ReactNode);
 }) {

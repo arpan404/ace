@@ -12,7 +12,7 @@ import type { BotComputerState } from "./use-bot-computer.ts";
  * input), with Take over, which pauses the bot, as the secondary action. In exclusive mode: "You
  * have it. Spade is paused." or "Stopping Spade…", with Hand back. Words never cut mid-word: in a
  * narrow container (`@container` on the parent) they shorten to the face with "Working" or
- * "Waiting for you", "Stopping…" or "You".
+ * "Waiting for you" (or "Not in use"), "Stopping…" or "You".
  */
 export function DriverStatus(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -25,8 +25,8 @@ export function DriverStatus(props: {
   const { state, bot } = props;
   const person = state.paused || state.stopping;
   // The whole sentence is always read; it shows only where there is room for it.
-  const long = props.brief ? "sr-only" : "sr-only whitespace-nowrap @2xl:not-sr-only";
-  const short = props.brief ? "whitespace-nowrap" : "whitespace-nowrap @2xl:hidden";
+  const long = props.brief ? "sr-only" : "sr-only whitespace-nowrap @md:not-sr-only";
+  const short = props.brief ? "whitespace-nowrap" : "whitespace-nowrap @md:hidden";
   return (
     <div role="status" className={cn("flex min-w-0 items-center gap-2", props.fill && "flex-1")}>
       <p
@@ -60,11 +60,13 @@ export function DriverStatus(props: {
               state={state.status === "working" ? "working" : "idle"}
             />
             <span className={long}>{coworkLine(state.status, bot.name)}</span>
-            {state.status !== "idle" && (
-              <span aria-hidden className={short}>
-                {state.status === "waiting" ? "Waiting for you" : "Working"}
-              </span>
-            )}
+            <span aria-hidden className={short}>
+              {state.status === "waiting"
+                ? "Waiting for you"
+                : state.status === "working"
+                  ? "Working"
+                  : "Not in use"}
+            </span>
           </>
         )}
       </p>

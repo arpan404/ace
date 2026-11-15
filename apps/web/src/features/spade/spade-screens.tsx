@@ -1,4 +1,4 @@
-import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
+import type { PanelSection } from "./computer/panel-place.ts";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
@@ -53,13 +53,13 @@ function SpadeHome() {
 
 /**
  * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation; with
- * `computer` its computer expanded on that surface (`files` and `file` for the file manager);
+ * `computer` the right panel open on that section (`files` and `file` for the file manager);
  * with `view` its own page, or its routines or activity alone.
  */
 export function SpadeAgentScreen(props: {
   agentId: string;
   machine: string | undefined;
-  computer?: SpadeSurfaceKind | undefined;
+  computer?: PanelSection | undefined;
   files?: string | undefined;
   /** With `files`, a file in it opened. */
   file?: string | undefined;

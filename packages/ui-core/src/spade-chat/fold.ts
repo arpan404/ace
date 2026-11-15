@@ -56,6 +56,8 @@ export type SpadeReplyPart =
   | { kind: "search-setup"; key: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
   | { kind: "files"; key: string; paths: readonly string[] }
+  /** A call that asked the person, where it asked, with how they answered (`SpadeRequest`). */
+  | ({ kind: "request"; key: string } & SpadeRequest)
   /** Images and documents a tool showed the person (`image_generate`, `share_file`; ADR 0134). */
   | {
       kind: "shared";
@@ -135,7 +137,27 @@ export type SpadeEntry =
       result: string;
     }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
-  | { kind: "handback"; key: string; text: string; data: readonly string[] };
+  | { kind: "handback"; key: string; text: string; data: readonly string[] }
+  /**
+   * A request asked outside the open reply (a helper's, or one asked after its reply ended):
+   * where it arrived, read below the bot's words so far.
+   */
+  | ({ kind: "request"; key: string } & SpadeRequest);
+
+/**
+ * A call that asked the person, kept where it asked so its bubble stays in place once answered.
+ * `answer` is undefined until they answered; a request whose reply ended unanswered stays so.
+ */
+export interface SpadeRequest {
+  callId: string;
+  name: string;
+  arguments: unknown;
+  reason: string | undefined;
+  helper?: { job: string; task: string };
+  answer: "allowed" | "denied" | undefined;
+  /** Allowed always. */
+  always: boolean;
+}
 
 /** How a background job ended: on its own, with an error, or because the person pressed Stop. */
 export type SpadeJobOutcome = "done" | "failed" | "stopped";
@@ -367,12 +389,41 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
+      // Asked again (a replay): the request already stands where it was first asked.
+      const asked = state.approvals.at(-1);
+      if (asked && !updateRequest(state, event.call_id, (request) => request)) {
+        const request: { kind: "request"; key: string } & SpadeRequest = {
+          kind: "request",
+          key: `request:${event.call_id}`,
+          callId: asked.callId,
+          name: asked.name,
+          arguments: asked.arguments,
+          reason: asked.reason,
+          ...(asked.helper ? { helper: asked.helper } : {}),
+          answer: undefined,
+          always: false,
+        };
+        // In the reply that asked, after its words so far; a helper's where it arrived.
+        if (
+          event.helper ||
+          !updateOpen(state, event.reply, (entry) => ({
+            ...entry,
+            parts: [...entry.parts, request],
+          }))
+        )
+          steer(state, request);
+      }
       // A helper's call is the helper's, not one of the reply's.
       if (!event.helper) setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
     }
     case "approval_answered":
       state.approvals = state.approvals.filter((approval) => approval.callId !== event.call_id);
+      updateRequest(state, event.call_id, (request) => ({
+        ...request,
+        answer: event.allowed ? "allowed" : "denied",
+        always: event.allowed && event.always === true,
+      }));
       state.reviews.delete(event.call_id);
       if (!event.allowed) setCall(state, event.reply, event.call_id, undefined, "declined");
       return true;
@@ -459,6 +510,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "call_reviewed": {
       if (event.verdict !== "escalate") return false;
       state.reviews.set(event.call_id, event.reason);
+      updateRequest(state, event.call_id, (request) => ({ ...request, reason: event.reason }));
       const at = state.approvals.findIndex((approval) => approval.callId === event.call_id);
       const asked = state.approvals[at];
       if (!asked) return false;
@@ -587,6 +639,31 @@ function remembered(
       ...entry,
       parts: [...entry.parts, { kind: "remembered", key, note }],
     }));
+}
+
+/**
+ * Change the request for `callId` where it stands, the newest first: a reply's part or an entry
+ * of its own. Answers come soon after the ask, so the walk back is short. False when none is.
+ */
+function updateRequest(
+  state: SpadeConversationState,
+  callId: string,
+  change: (request: SpadeRequest) => SpadeRequest,
+): boolean {
+  for (let index = state.entries.length - 1; index >= 0; index--) {
+    const entry = state.entries[index];
+    if (entry?.kind === "request" && entry.callId === callId) {
+      state.entries[index] = { ...entry, ...change(entry) };
+      return true;
+    }
+    if (entry?.kind !== "reply") continue;
+    const at = entry.parts.findIndex((part) => part.kind === "request" && part.callId === callId);
+    const part = entry.parts[at];
+    if (part?.kind !== "request") continue;
+    state.entries[index] = { ...entry, parts: entry.parts.with(at, { ...part, ...change(part) }) };
+    return true;
+  }
+  return false;
 }
 
 /** Replace the open reply's entry when it is `reply`; `change` returns undefined for no change. */

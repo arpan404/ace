@@ -53,6 +53,26 @@ const tools: Record<string, ToolWords> = {
   },
   workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
   workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
+  // Its notes (ADR 0128).
+  memory_save: { base: "save a note", doing: "Saving a note", done: "Saved a note" },
+  memory_update: { base: "update a note", doing: "Updating a note", done: "Updated a note" },
+  memory_forget: { base: "forget a note", doing: "Forgetting a note", done: "Forgot a note" },
+  memory_search: {
+    base: "search its notes",
+    doing: "Searching its notes",
+    done: "Searched its notes",
+  },
+  bot_message: {
+    base: "message another bot",
+    doing: "Messaging another bot",
+    done: "Messaged another bot",
+  },
+  routine_save: { base: "save a routine", doing: "Saving a routine", done: "Saved a routine" },
+  routine_delete: {
+    base: "delete a routine",
+    doing: "Deleting a routine",
+    done: "Deleted a routine",
+  },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
   // ADR 0152.
@@ -81,6 +101,16 @@ const tools: Record<string, ToolWords> = {
     doing: "Sending a message to a thread",
     done: "Sent a message to a thread",
   },
+  screen_state: {
+    base: "look at a screen",
+    doing: "Looking at a screen",
+    done: "Looked at a screen",
+  },
+  screen_act: { base: "use an app on the screen", doing: "Using an app", done: "Used an app" },
+  screen_apps: { base: "list open apps", doing: "Listing open apps", done: "Listed open apps" },
+  browser_open: { base: "open a web page", doing: "Opening a web page", done: "Opened a web page" },
+  browser_act: { base: "use a web page", doing: "Using a web page", done: "Used a web page" },
+  notify: { base: "send you a notification", doing: "Notifying you", done: "Notified you" },
   ace_task_control: {
     base: "control a task",
     doing: "Controlling a task",
@@ -95,7 +125,8 @@ function plainName(name: string): string {
 }
 
 export function spadeToolWords(name: string): ToolWords {
-  const known = tools[name];
+  // ace's tools arrive under its server's name (`ace__screen_act`).
+  const known = tools[name] ?? tools[name.split("__").at(-1) ?? name];
   if (known) return known;
   const plain = plainName(name);
   return { base: `use ${plain}`, doing: `Using ${plain}`, done: `Used ${plain}` };

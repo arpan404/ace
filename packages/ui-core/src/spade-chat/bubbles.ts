@@ -1,4 +1,4 @@
-import type { SpadeEntry, SpadeReplyEntry } from "./fold.ts";
+import type { SpadeApproval, SpadeEntry, SpadeReplyEntry, SpadeRequest } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
@@ -9,8 +9,9 @@ import { spadeHelperLine } from "./helper-words.ts";
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
  * bot works. Tool calls, background jobs and compaction stay with the bot; an approval arrives
- * as a bubble of the bot's that the person answers, a question as the bot's bubble (ADR 0128),
- * and a note the bot saved as one quiet line between its bubbles.
+ * as a bubble of the bot's that the person answers, in place after the step that asked, and
+ * stays once answered; a question as the bot's bubble (ADR 0128), and a note the bot saved as
+ * one quiet line between its bubbles.
  */
 export type SpadeBubble =
   | { kind: "task-paused"; key: string; text: string }
@@ -76,17 +77,25 @@ export type SpadeBubble =
       /** Still working (or waiting on the person). */
       open: boolean;
     }
-  /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
+  /**
+   * A call that asks the person, as the bot's bubble where it asked: open while it waits on
+   * them, then how they answered, or `closed` when its reply ended first. `name`: the tool, for
+   * the request's words (`spadeRequestCard`).
+   */
   | {
       kind: "ask";
       key: string;
       callId: string;
       name: string;
-      sentence: string;
-      /** What the call would do, as the bot sent it: shown on request before the answer. */
+      /** What the call would do, as the bot sent it. */
       arguments: unknown;
-      /** Why the model review asked the person: "Asked you because: …". */
+      /** Why the model review asked the person: "It could spend money, so you decide." */
       reason: string | undefined;
+      /** A helper's call (ADR 0152): its task. */
+      helper: { job: string; task: string } | undefined;
+      state: "open" | "allowed" | "denied" | "closed";
+      /** Allowed always. */
+      always: boolean;
     };
 
 /** Why a reply failed, as its bubble says it. */
@@ -120,7 +129,17 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   // `silent_replies` in spade-core); one that also answers anything else always shows.
   let inputs = false;
   let onlyBeats = true;
+  const open = new Map(view.approvals.map((approval) => [approval.callId, approval]));
+  const shown = new Set<string>();
+  const ask = (request: SpadeRequest, key: string) => {
+    shown.add(request.callId);
+    bubbles.push(askBubble(request, key, open.get(request.callId)));
+  };
   for (const entry of view.entries) {
+    if (entry.kind === "request") {
+      ask(entry, entry.key);
+      continue;
+    }
     if (entry.kind === "job") {
       inputs = true;
       onlyBeats = false;
@@ -227,24 +246,37 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       inputs = false;
       onlyBeats = true;
     }
-    if (!quiet) replyBubbles(entry, bubbles, held);
+    if (!quiet) replyBubbles(entry, bubbles, held, ask);
     else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
   }
   if (held.key !== undefined && held.paths.length)
     bubbles.push({ kind: "files", key: `files:${held.key}`, paths: held.paths });
   offerRetry(bubbles, view.entries);
+  // Anything still waiting that no stored step placed: at the end, where it is asked now.
   for (const approval of view.approvals)
-    bubbles.push({
-      kind: "ask",
-      key: `ask:${approval.callId}`,
-      callId: approval.callId,
-      name: approval.name,
-      arguments: approval.arguments,
-      sentence: approval.sentence,
-      reason: approval.reason,
-    });
+    if (!shown.has(approval.callId))
+      bubbles.push(askBubble({ ...approval, answer: undefined, always: false }, "", approval));
   return bubbles;
+}
+
+/** A request's bubble: open while Spade still waits on it, with the newest reason it has. */
+function askBubble(
+  request: SpadeRequest,
+  key: string,
+  waiting: SpadeApproval | undefined,
+): Extract<SpadeBubble, { kind: "ask" }> {
+  return {
+    kind: "ask",
+    key: key || `ask:${request.callId}`,
+    callId: request.callId,
+    name: request.name,
+    arguments: request.arguments,
+    reason: waiting?.reason ?? request.reason,
+    helper: waiting?.helper ?? request.helper,
+    state: waiting ? "open" : (request.answer ?? "closed"),
+    always: request.always,
+  };
 }
 
 /**
@@ -252,7 +284,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
  * the images and documents its tools showed meanwhile after its words. The first run keeps the
  * reply's key, so a bubble keeps its place as the reply grows.
  */
-function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held) {
+function replyBubbles(
+  entry: SpadeReplyEntry,
+  bubbles: SpadeBubble[],
+  held: Held,
+  ask: (request: SpadeRequest, key: string) => void,
+) {
   let words: string[] = [];
   let images: SpadeImageRef[] = [];
   let documents: SpadeDocumentRef[] = [];
@@ -291,6 +328,9 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held
     } else if (part.kind === "files") {
       flush();
       hold(held, part.key, part.paths);
+    } else if (part.kind === "request") {
+      flush();
+      ask(part, `${entry.key}:${part.key}`);
     }
   }
   if (entry.live) words.push(entry.live);

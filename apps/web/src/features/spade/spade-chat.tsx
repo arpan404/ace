@@ -10,7 +10,6 @@ import {
   type SpadeChatItem,
   type SpadeHelperStep,
   type SpadeProposal,
-  type SpadeRememberedNote,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { formatElapsed } from "@ace/ui-core/time";
@@ -25,15 +24,19 @@ import { SpadeFace } from "./spade-face.tsx";
 import { useFaceState } from "./use-face-state.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
+  id: string;
   name: string;
   avatar: SpadeAvatar;
   /** Other bots by id, for the faces of messages they send here. */
   others: ReadonlyMap<string, SpadeAvatar>;
+  /** Every bot's name by id, for a request to message one. */
+  names: ReadonlyMap<string, string>;
 }
 
 const bubble =
@@ -45,15 +48,15 @@ const faceRoom = "w-7 shrink-0";
  * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right on the active
  * fill, the bot's on the left with its face beside the last bubble of each run, messages other
  * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
- * jobs or compaction. An approval waits in the strip above the composer (`SpadeRequestStrip`), a
- * question arrives as the bot's bubble, a note it saved as one quiet "Remembered" line that opens the note for
- * editing (ADR 0128), a search with nothing set up as one quiet line that opens Settings › Spade ›
- * Web search, and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
- * after the reply that made it. While the bot works, one line under its last bubble: its face
+ * jobs, compaction or the notes it saves (they are in its Memory dialog, ADR 0128). A request
+ * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
+ * given (`SpadeRequestBubble`); a question arrives as the bot's bubble, a search with nothing set
+ * up as one quiet line that opens Settings › Spade › Web search, and a skill the bot offers as a
+ * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch when its computer's tile is
  * hidden. A bot carrying on with its task by itself keeps that line between replies ("Flights is
  * working on it · its step"), and a task waiting on the person reads "Flights needs you" (the
- * request is in the strip). Stop is the composer's; a done task shows nothing more.
+ * request is its bubble above). Stop is the composer's; a done task shows nothing more.
  */
 export function SpadeChat(props: {
   bot: ChatBot;
@@ -64,7 +67,8 @@ export function SpadeChat(props: {
   paused?: boolean | undefined;
   /** Its task's line (`spadeTaskLine`): carrying on by itself, waiting, or waiting on the person. */
   task?: SpadeTaskLine | undefined;
-  onRemembered(note: SpadeRememberedNote): void;
+  /** Answer a request: allow once, allow always, or deny. */
+  onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
@@ -77,9 +81,9 @@ export function SpadeChat(props: {
   onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
 }) {
   const { view, bot } = props;
-  // Requests wait in the strip above the composer, not among the bubbles.
+  // The notes it saves stay in its Memory dialog, never in the chat.
   const bubbles = withProposals(spadeBubbles(view), view.entries, props.proposals ?? []).filter(
-    (item) => item.kind !== "ask",
+    (item) => item.kind !== "remembered",
   );
   // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
   // while the bot works itself.
@@ -120,7 +124,7 @@ export function SpadeChat(props: {
             first={!(previous && sameSender(previous, item))}
             endpointName={props.endpointName}
             onProposal={props.onProposal}
-            onRemembered={props.onRemembered}
+            onAnswer={props.onAnswer}
             onOpenFile={props.onOpenFile}
             onRetry={props.onRetry}
             onHelperSteps={props.onHelperSteps}
@@ -188,7 +192,7 @@ const Bubble = memo(function Bubble(props: {
   first: boolean;
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
-  onRemembered(note: SpadeRememberedNote): void;
+  onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
@@ -365,18 +369,6 @@ const Bubble = memo(function Bubble(props: {
         />
       );
     }
-    case "remembered":
-      return (
-        <div className="pl-9.5">
-          <button
-            type="button"
-            onClick={() => props.onRemembered(item.note)}
-            className="max-w-[80%] rounded-sm text-left text-xs text-muted-foreground wrap-anywhere transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
-          >
-            {`Remembered: ${item.note.text}`}
-          </button>
-        </div>
-      );
     case "search-setup":
       // Web search had nothing to search with: one quiet line and the way to set it up.
       return (
@@ -391,8 +383,21 @@ const Bubble = memo(function Bubble(props: {
           </Link>
         </div>
       );
-    case "ask":
+    case "remembered":
       return null;
+    case "ask":
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <SpadeRequestBubble
+            item={item}
+            botId={bot.id}
+            botName={bot.name}
+            nameOf={(id) => bot.names.get(id)}
+            className={botBubble}
+            onAnswer={props.onAnswer}
+          />
+        </BotRow>
+      );
     case "skill": {
       const answer = props.onProposal;
       return (
@@ -524,25 +529,6 @@ function WorkingLine(props: {
       )}
     </div>
   );
-}
-
-/** Most of a call's arguments a bubble shows; the rest is cut with an ellipsis. */
-const maxDetailChars = 20_000;
-
-/**
- * What an approval would do, as text: its arguments as the bot sent them, indented JSON (text
- * stays text: React escapes it). Undefined when the call carries none.
- */
-export function callDetails(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  let text: string;
-  try {
-    text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
-  } catch {
-    return undefined;
-  }
-  if (!text || text === "{}") return undefined;
-  return text.length > maxDetailChars ? `${text.slice(0, maxDetailChars)}…` : text;
 }
 
 /**
