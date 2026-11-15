@@ -108,12 +108,17 @@ import XCTest
         let app = launch()
         reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
-        // The question waits on a strip with the composer still under it, as on the web; the
-        // transcript says who asks it.
-        let answer = app.descendants(matching: .any)["request.question"].buttons["strip.answer"]
+        // The question waits on a strip with the composer still under it, as on the web. While
+        // it's asking, the strip is its one place: the transcript doesn't repeat it.
+        let strip = app.descendants(matching: .any)["request.question"]
+        let answer = strip.buttons["strip.answer"]
         XCTAssertTrue(answer.waitForExistence(timeout: 25))
         XCTAssertTrue(app.textViews["composer.input"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["transcript.question"].waitForExistence(timeout: 10))
+        XCTAssertTrue(strip.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "archived 0.x entries")).firstMatch.exists,
+            "the strip carries the question")
+        XCTAssertFalse(app.descendants(matching: .any)["transcript.question"].exists,
+            "the transcript doesn't repeat a question that is still asking")
         // Answer opens the question's options in a sheet; picking one lets it be answered.
         answer.tap()
         let send = app.buttons["question.answer"]
