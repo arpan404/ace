@@ -47,7 +47,7 @@ import type {
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
-import type { Multipath } from "./multipath.ts";
+import type { LinkEstimate, Multipath } from "./multipath.ts";
 import type { MachinePathKind } from "@ace/protocol";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
@@ -339,20 +339,26 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#intents.reask(commands);
       };
     });
+    // Read subscribes go out with the hello; commands, the outbox and read markers wait for the
+    // welcome and the host binding (`#replay`).
     this.#subscriptions = new Subscriptions(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
+    this.connection.onHello(() => {
+      this.#subscriptions.early();
+      for (const sidebar of this.#collections) sidebar.reconnect();
+    });
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
       storage: options.storage,
@@ -515,6 +521,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   activePath(): Selection<MachinePathKind | undefined> {
     return this.notifications.select(["path"], () => this.#paths?.active?.kind);
   }
+  /** The active path's measured round trip (`ClientApi.linkEstimate`). */
+  linkEstimate(): LinkEstimate | undefined {
+    return this.#paths?.linkEstimate();
+  }
   /**
    * The app is in front again: check the socket now and skip a waiting backoff
    * (`Connection.wake`), and look for a better path, as the network may have changed meanwhile.
@@ -663,7 +673,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       limits,
       (message) => this.connection.send(message),
       this.options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
     this.#collections.add(sidebar);

@@ -38,6 +38,8 @@ const host = new ClientHost({
                 routes: () => routes,
                 scheduler: timers,
                 now: () => Date.now(),
+                // Durations run on a clock that never jumps (ADR 0150).
+                monotonic: () => performance.now(),
                 clock: () => performance.now(),
                 // Pings slow down while no tab of this window shows anything.
                 visible: () => host.visible(),

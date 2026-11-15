@@ -124,6 +124,14 @@ export interface ClientOptions {
    * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
    */
   grant?(): Promise<string>;
+  /**
+   * The daemon or the relay refused `grant`, a device grant this connection presented, in a
+   * hello or a refresh. Always that exact grant: an ordinary drop or timeout never calls it. An
+   * app that keeps grants drops it if it is still the kept one, and returns true when it had
+   * been kept for reuse: the connection then tries once more with a fresh grant instead of
+   * stopping. False or absent: the refusal is final, as before.
+   */
+  grantRefused?(grant: string): boolean;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints
@@ -136,6 +144,15 @@ export interface ClientOptions {
   id(): string;
   /** Wall-clock milliseconds for connection timestamps and durable history expiry. */
   now?(): number;
+  /**
+   * Milliseconds on a clock that never goes backwards (`performance.now()` in a browser, a
+   * native host's uptime clock), for liveness deadlines: the heartbeat and wake probes (ADR
+   * 0150). It must be monotonic; a wall clock is not (it jumps when the device's time is set).
+   * The heartbeat still never lets time it reads go backwards. A clock that pauses while the
+   * device sleeps is fine: each wake measures its own deadline from then. None:
+   * `performance.now()`.
+   */
+  monotonic?(): number;
   /** Where connection drops and recoveries are reported. None: they go unreported. */
   report?(event: DiagnosticEvent): void;
   limits?: Partial<Limits>;
@@ -161,8 +178,16 @@ export interface Limits {
   text: number;
   listeners: number;
   requestMs: number;
-  /** Cold startup may outlive an ordinary read; never extend this deadline on progress. */
+  /**
+   * The longest a connect may wait: for a daemon that said `starting`, whose cold start may
+   * outlive an ordinary read. Never extended on progress.
+   */
   handshakeMs: number;
+  /**
+   * Each other stage of a connect (the socket opening; the hello waiting for its welcome) gets
+   * this long, or four times what it took last time on a slower link, at most `handshakeMs`.
+   */
+  handshakeStageMs: number;
   heartbeatMs: number;
   retryBaseMs: number;
   retryCapMs: number;
@@ -193,6 +218,7 @@ export const defaultLimits: Limits = {
   listeners: 4096,
   requestMs: 15000,
   handshakeMs: 120_000,
+  handshakeStageMs: 30_000,
   heartbeatMs: 15000,
   retryBaseMs: 250,
   retryCapMs: 30000,
