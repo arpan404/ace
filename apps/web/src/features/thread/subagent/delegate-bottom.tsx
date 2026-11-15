@@ -61,7 +61,7 @@ function Delegated(props: {
     [rootId],
   );
   const branch = useAgentFacts(thread.id, read, branchEqual);
-  const { fresh } = useThreadLiveState(thread.id);
+  const { fresh, live } = useThreadLiveState(thread.id);
   // Continue holds for the ended stretch it was pressed in; a later end shows the bar again.
   const [continued, setContinued] = useState<number>();
   // The daemon's status covers the whole tree and queued input; the branch adds how it ended.
@@ -80,6 +80,7 @@ function Delegated(props: {
         model={selection.model ? modelLabel(selection.model) : providerNames[selection.provider]}
         effort={effort && effortLabel(effort)}
         phase={phase}
+        live={live}
         startedAt={root?.createdAt ?? thread.createdAt}
         endedAt={end}
         parent={{ threadId: props.parentThreadId }}

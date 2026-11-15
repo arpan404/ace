@@ -272,6 +272,7 @@ function ThreadScreen(props: {
                 {drop.overlay}
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
+                    threadId={id}
                     text={meta.queuedLaunch.text}
                     parentThreadId={parentThreadId}
                     slotLimit={meta.queuedLaunch.slotLimit}

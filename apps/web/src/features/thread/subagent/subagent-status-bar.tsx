@@ -1,6 +1,6 @@
 import { useAgent, useThreadMeta } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
-import { agentName, subagentOutcome, type SubagentPhase } from "@ace/ui-core";
+import { agentName, type SubagentPhase } from "@ace/ui-core";
 import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -13,6 +13,8 @@ import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { cn } from "@/lib/cn.ts";
 import { composerSurface, stripControl } from "../composer/composer-styles.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import type { Live } from "@/lib/live-connection.ts";
+import { subagentBarWords } from "./live-words.ts";
 
 /** The parent a subagent leads back to: a thread, or the subagent that started it. */
 export interface ParentLink {
@@ -38,8 +40,8 @@ const outcomeGlyphs: Partial<Record<SubagentPhase, GlyphState>> = {
  *
  * It fits its own column, not the window (`@container/subagent-bar`): as the column narrows,
  * labelled actions keep only their icons, then the model and effort leave the provider mark
- * alone, so how it went keeps its words. `stale` stands in for how it went while the copy isn't
- * confirmed: no ticking time, no "Completed".
+ * alone, so how it went keeps its words. While the copy isn't confirmed (`live`) its stale words
+ * stand in for how it went: no ticking time, no "Completed".
  */
 export function SubagentStatusBar(props: {
   provider: ProviderKind;
@@ -47,14 +49,15 @@ export function SubagentStatusBar(props: {
   model: string;
   effort?: string | undefined;
   phase: SubagentPhase;
-  /** "Reconnecting…", "Syncing…": said instead of the phase, which may be stale. */
-  stale?: string | undefined;
+  /** Whether the copy is current; if not, its words ("Syncing…") stand in for the phase. */
+  live: Live;
   startedAt: number;
   endedAt?: number | undefined;
   parent?: ParentLink | undefined;
   actions?: ReactNode;
 }) {
-  const glyph = props.stale === undefined ? outcomeGlyphs[props.phase] : undefined;
+  const words = subagentBarWords(props.live, props.phase, props.startedAt, props.endedAt);
+  const glyph = words.kind === "outcome" ? outcomeGlyphs[props.phase] : undefined;
   return (
     <div className="@container/subagent-bar min-w-0">
       <div
@@ -86,17 +89,15 @@ export function SubagentStatusBar(props: {
           )}
         </span>
         <span aria-hidden className={controlDivider} />
-        {props.stale !== undefined ? (
-          <span className="min-w-0 shrink truncate text-muted-foreground">{props.stale}</span>
-        ) : props.phase === "running" ? (
+        {words.kind === "stale" ? (
+          <span className="min-w-0 shrink truncate text-muted-foreground">{words.word}</span>
+        ) : words.kind === "running" ? (
           // The live line's own look: its time ticks through a ref, never a render.
           <WorkingIndicator from={props.startedAt} className="shrink-0 text-muted-foreground" />
         ) : (
           <span className="flex min-w-0 shrink items-center gap-1.5 text-muted-foreground tabular-nums">
             {glyph && <StatusGlyph state={glyph} size={12} />}
-            <span className="truncate">
-              {subagentOutcome(props.phase, props.startedAt, props.endedAt, props.startedAt)}
-            </span>
+            <span className="truncate">{words.text}</span>
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1">

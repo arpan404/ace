@@ -178,7 +178,7 @@ function useBranch(threadId: string, agentId: string) {
 
 function SubagentLive(props: { threadId: string; agent: Agent }) {
   const { phase } = useBranch(props.threadId, props.agent.id);
-  const { staleLabel } = useThreadLiveState(props.threadId);
+  const { live } = useThreadLiveState(props.threadId);
   const { work } = useTreeWork(props.threadId);
   const tree = useAgentTree(props.threadId);
   const node = tree && findAgentNode(tree, props.agent.id);
@@ -189,7 +189,7 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
       agent={props.agent}
       phase={phase}
       subagents={running}
-      stale={staleLabel}
+      live={live}
     />
   );
 }
@@ -205,7 +205,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
   const { threadId, agent } = props;
   const meta = useThreadMeta(threadId);
   const { branch, phase } = useBranch(threadId, agent.id);
-  const { staleLabel } = useThreadLiveState(threadId);
+  const { live } = useThreadLiveState(threadId);
   const requests = useBranchRequests(threadId, agent.id);
   const tree = useAgentTree(threadId);
   const node = tree && findAgentNode(tree, agent.id);
@@ -223,7 +223,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
         acpAgentId={agent.native.acpAgentId}
         model={agent.model ? modelLabel(agent.model) : providerNames[agent.native.provider]}
         phase={phase}
-        stale={staleLabel}
+        live={live}
         startedAt={agent.createdAt}
         endedAt={subagentEnded(phase) ? branch?.end : undefined}
         parent={
@@ -234,7 +234,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
             : undefined
         }
         actions={
-          staleLabel !== undefined
+          !live.current
             ? undefined
             : !subagentEnded(phase)
               ? stoppable && (
