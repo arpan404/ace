@@ -42,12 +42,11 @@ import { ToolStep } from "./work-log-steps.tsx";
 import { BackgroundStep, useBackgroundCalls } from "./background-step.tsx";
 import { RailMark, StepRail, StepsLive } from "./step-rail.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
-import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
 import { useRunEnded, useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
-import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
+import { StaticRow, TranscriptRow, rowDetailIndent } from "./transcript-row.tsx";
 import { thoughtTitle } from "./live-words.ts";
 import { currentLive } from "@/lib/live-connection.ts";
 
@@ -56,7 +55,7 @@ import { currentLive } from "@/lib/live-connection.ts";
  * muted icon ("Edited 2 files, ran 1 command and thought once"), opening in place to their
  * steps; what the agent said between them is prose. A step still in flight is its own row after
  * the steps that finished ("Running `bun run lint`", with its time) and folds into them once it
- * ends (`groupSteps`); a thought with no words yet titles the last group "Thinking". Each step
+ * ends (`groupSteps`); a thought with no words yet is a "Thinking" row of its own after them. Each step
  * is read once per change of that step, so streaming costs what changed, not the turn's length.
  */
 
@@ -101,18 +100,16 @@ export function GroupedSteps(props: {
   const log = useStepItemsSelect(props.threadId, shown, read, sameWorkLogReading) ?? nothing;
   const groups = useGroups(log.facts);
   const opened = useOpenSteps();
-  // A thought in flight with no words yet is the live log's state, not a step: it titles the
-  // last group (or stands as "Thinking" before the first step), so the rows never regroup for it.
+  // A thought in flight with no words yet is the live log's state, not a step: it stands as its
+  // own "Thinking" row after the groups, so the rows never regroup for it.
   // Only a current copy has a step in flight or a thought under way to show.
   const current = useThreadLiveState(props.threadId).fresh;
   const thinking = props.live && current ? log.thinking : undefined;
-  const rows = groups.map((group, index) => (
+  const rows = groups.map((group) => (
     <GroupView
       key={group.key}
       threadId={props.threadId}
       group={group}
-      live={!!props.live && current && index === groups.length - 1}
-      thinking={index === groups.length - 1 ? thinking : undefined}
       contexts={ace.contexts}
       surfaces={props.surfaces}
       carried={log.surfaces}
@@ -126,11 +123,12 @@ export function GroupedSteps(props: {
         {props.rail ? (
           <StepRail id={props.id} label="Steps">
             {rows}
+            {thinking && <ThinkingRow />}
           </StepRail>
         ) : (
           <ul id={props.id} aria-label="Steps" className="flex flex-col">
             {rows}
-            {thinking && !groups.length && <ThinkingRow />}
+            {thinking && <ThinkingRow />}
           </ul>
         )}
       </OpenStepsContext>
@@ -254,14 +252,11 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
 const GroupView = memo(function GroupView(props: {
   threadId: string;
   group: StepGroup;
-  live: boolean;
   contexts: Readonly<Record<string, AceToolContext>>;
   surfaces: ReadonlyMap<string, ToolSurface> | undefined;
   carried: ReadonlyMap<string, ToolSurface>;
   retried: ReadonlySet<string>;
   calls: ReadonlyMap<string, string>;
-  /** The thought in flight after this group's last step, with no words yet. */
-  thinking?: string | undefined;
 }) {
   const { group } = props;
   const [open, setOpen] = useGroupOpen(group.key, group.ids);
@@ -282,49 +277,26 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
-  // Steps in flight stand as rows of their own, so only a thought after the group titles it.
-  const thinking = props.live ? props.thinking : undefined;
   return (
     <li className="relative">
       <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />
-      {thinking ? (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={panel}
-          data-step-group=""
-          {...part("tool-group-header", "working", group.icon)}
-          title={group.summary}
-          onClick={() => setOpen(!open)}
-          className={cn(pressableRowClass, "text-muted-foreground")}
-        >
-          <LiveGroupTitle
-            threadId={props.threadId}
-            itemId={thinking}
-            ace={props.contexts[thinking]}
-            surface={props.surfaces?.get(thinking) ?? props.carried.get(thinking)}
-            count={group.ids.length}
-          />
-        </button>
-      ) : (
-        <TranscriptRow
-          expanded={open}
-          stepGroup
-          suit={part("tool-group-header", open ? "open" : "closed", group.icon)}
-          controls={panel}
-          onToggle={() => setOpen(!open)}
-          lead={<Icon icon={groupIcons[group.icon]} size={16} />}
-          leadKind={group.icon}
-          title={
-            <>
-              {group.sentence}
-              {group.failed > 0 && (
-                <span className="text-status-failed"> · {group.failed} failed</span>
-              )}
-            </>
-          }
-        />
-      )}
+      <TranscriptRow
+        expanded={open}
+        stepGroup
+        suit={part("tool-group-header", open ? "open" : "closed", group.icon)}
+        controls={panel}
+        onToggle={() => setOpen(!open)}
+        lead={<Icon icon={groupIcons[group.icon]} size={16} />}
+        leadKind={group.icon}
+        title={
+          <>
+            {group.sentence}
+            {group.failed > 0 && (
+              <span className="text-status-failed"> · {group.failed} failed</span>
+            )}
+          </>
+        }
+      />
       {open && (
         <StepRail id={panel} label={group.summary}>
           {group.ids.map(step)}

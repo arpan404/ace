@@ -164,7 +164,7 @@ const reasoning = (item: string, complete: boolean) => ({
 const shell = (item: string, command: string) =>
   facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
 
-test("a thought with no words between calls never regroups the log: it titles the running group", async () => {
+test("a thought in flight stands apart from the commands that already ran", async () => {
   const fake = fixture();
   fake.createThread({ id: "think", workspaceId: "ace", title: "Think", provider: "codex" });
   fake.apply("think", [
@@ -176,9 +176,9 @@ test("a thought with no words between calls never regroups the log: it titles th
     reasoning("first", false),
   ]);
   open(connect(fake), "think");
-  // One call and a thought in flight: still the call's own row, not a group of two.
-  const lone = await until(() => (log()?.length === 1 ? log() : undefined), "the lone step");
-  expect(lone[0]?.kind).toBe("step");
+  // One call and a thought in flight: the call's own row, then the thought, not a group of two.
+  const lone = await until(() => (log()?.length === 2 ? log() : undefined), "the lone step");
+  expect(lone.map((row) => row.kind)).toEqual(["step", "thought"]);
   const first = lone[0]?.id;
 
   fake.apply("think", [
@@ -187,14 +187,14 @@ test("a thought with no words between calls never regroups the log: it titles th
     facts.toolDone("root", "build"),
     reasoning("second", false),
   ]);
-  const titled = await until(
-    () => log()?.find((row) => row.kind === "group" && row.running === true),
-    "the group titled by the thought",
+  const apart1 = await until(
+    () => (log()?.length === 2 && log()?.[0]?.kind === "group" ? log() : undefined),
+    "the group with the thought after it",
   );
-  // The step's row became a group once, under the same id; the thought titles it, uncounted.
-  expect(titled).toMatchObject({ id: first, count: "2 steps" });
-  expect(titled.items).toHaveLength(2);
-  expect(titled.items).not.toContain(titled.active);
+  // The step's row became a group once, under the same id, finished; the thought stands after it.
+  expect(apart1[0]).toMatchObject({ id: first, count: "2 steps", running: false });
+  expect(apart1[0]?.items).toHaveLength(2);
+  expect(apart1[1]).toMatchObject({ kind: "thought", done: false });
 
   fake.apply("think", [reasoning("second", true), shell("test", "bun run test")]);
   // The next call, in flight, stands after the group as a row of its own.
