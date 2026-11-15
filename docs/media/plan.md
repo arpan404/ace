@@ -1926,13 +1926,25 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     three bridges share one swap, `viewSwap` in `media-viewers`. `DeviceSubscriptions` stages
     a new slot beside the current one, and log subscriptions still replace theirs at once.
 - **Review fixes (round 5, at `fb3389132a`).**
-  - **A superseded device setup never takes its successor's view.** Device subscribes wait
-    while they are set up, so a later one can supersede one that was already granted a view.
-    `PendingSwaps` keeps the latest pending swap of each device. Only that one commits or
-    regrants; a superseded setup's abort closes its own view and nothing else.
+  - **A superseded device setup never takes its successor's view.** (Round 6 replaced the
+    round-5 `PendingSwaps` with a queue; see below.)
   - **A failed resubscribe leaves the old view its stream request.** `DeviceStreamOwners`
     counts an owner's overlapping views of a device, and the owner's stream request goes only
     when the last of them ends.
+- **Review fixes (round 6, at `f0b27a8330`).**
+  - **Device subscribes run one at a time.** A connection's subscribes and unsubscribes of a
+    device go through `DeviceQueue`, one at a time, so a setup and its rollback only ever meet
+    the committed subscription, and there is never more than one pending setup.
+    - The latest wins: a new operation tells the running setup it is superseded, and that
+      setup rolls back before the next one starts. A subscribe still waiting its turn is
+      dropped without running.
+    - Unsubscribes always run.
+    - `PendingSwaps` is gone; browser and screen never needed it, since they commit before
+      their one await.
+  - **A view the frame hub drops releases its stream request.** `LatestFrameHub` tells a
+    subscriber it dropped (its sink threw, or the hub was cleared) through `ended`.
+    `DevicesService.view` passes the same idempotent release its close uses, so the owner's
+    count reaches zero and the capture goes back to unwatched.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
