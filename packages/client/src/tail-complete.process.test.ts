@@ -344,3 +344,79 @@ test("a client closed while a thread holds only its tail keeps no copy an older 
   await endsAsFullSnapshot(h, second.client);
   expect(textOf(lease.store.item("long"))).toBe(long);
 });
+
+/**
+ * A client whose sends and receipts are logged in one order, so a test can tell what went out
+ * ahead of the welcome.
+ */
+function logged(h: Harness) {
+  const faults = new Faults(h.daemon.url);
+  const log: { dir: "send" | "recv"; message: Record<string, unknown> }[] = [];
+  const record = (dir: "send" | "recv", text: string) => {
+    const message: unknown = JSON.parse(text);
+    if (typeof message === "object" && message !== null)
+      log.push({ dir, message: message as Record<string, unknown> });
+  };
+  faults.incoming = (_message, text, deliver) => {
+    record("recv", text);
+    deliver(text);
+  };
+  const transport = () => {
+    const inner = faults.create();
+    return {
+      ...inner,
+      send: (text: string) => {
+        record("send", text);
+        inner.send(text);
+      },
+    };
+  };
+  const made = h.make({ openTail: screenTail, transport });
+  /** Thread subscribes, each with whether it left before that socket's welcome came. */
+  const subscribes = () => {
+    const found: { message: Record<string, unknown>; early: boolean }[] = [];
+    let welcomed = false;
+    for (const entry of log) {
+      if (entry.dir === "send" && entry.message.type === "hello") welcomed = false;
+      if (entry.dir === "recv" && entry.message.type === "welcome") welcomed = true;
+      if (
+        entry.dir === "send" &&
+        entry.message.type === "subscribe" &&
+        JSON.stringify(entry.message.scope).includes('"thread"')
+      )
+        found.push({ message: entry.message, early: !welcomed });
+    }
+    return found;
+  };
+  return { ...made, faults, subscribes };
+}
+
+test("a first open sent with the hello gets a tail and completes; a reconnect's early resubscribe asks for none", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const long = oversized(h);
+  const made = logged(h);
+  // Held before the client starts: its subscribe goes in the hello's flight.
+  const lease = made.client.thread(h.thread.id);
+  await made.client.start();
+  await endsAsFullSnapshot(h, made.client);
+  expect(textOf(lease.store.item("long"))).toBe(long);
+  const [first, completing] = made.subscribes();
+  expect(first?.early).toBe(true);
+  expect(first?.message.tail).toEqual(screenTail);
+  expect(first?.message).not.toHaveProperty("afterSeq");
+  expect(completing?.message).not.toHaveProperty("tail");
+  expect(completing?.message).not.toHaveProperty("afterSeq");
+
+  // The socket drops; the next one resubscribes with its hello, resuming, never with a tail.
+  const before = made.subscribes().length;
+  made.faults.disconnect();
+  append(h, [created(reply("while-away", "written while the socket was down"))]);
+  made.scheduler.advance(1_000);
+  await endsAsFullSnapshot(h, made.client);
+  const again = made.subscribes().slice(before);
+  expect(again.length).toBeGreaterThan(0);
+  expect(again[0]?.early).toBe(true);
+  for (const sent of again) expect(sent.message).not.toHaveProperty("tail");
+  expect(again[0]?.message.afterSeq).toEqual(expect.any(Number));
+});
