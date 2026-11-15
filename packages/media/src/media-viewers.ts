@@ -41,13 +41,21 @@ export type MediaViewersOptions = {
   send: (message: ToMedia) => boolean;
   id: () => string;
   schedule: (callback: () => void, ms: number) => () => void;
+  /** A monotonic clock in ms, for the poster's budget. */
+  now: () => number;
 };
 
-/** How long a subscribe reply waits for its poster. */
-export const posterDeadlineMs = 800;
+/**
+ * How long a subscribe reply waits for its poster. A first viewer's subscribe opens the capture,
+ * so the budget covers the source starting and its first picture (ADR 0149: about 1 s on 3G).
+ */
+export const posterDeadlineMs = 1_000;
+const posterRetryMs = 50;
 
 type Held = { intent: ViewIntent; path: string | undefined };
-type Waiting = { done: (poster: MediaPosterBytes | undefined) => void; cancel: () => void };
+type Waiting = { done: (answer: MediaPosterBytes | "wait" | "gone") => void; cancel: () => void };
+/** Still failures that mean the source has no picture yet: worth asking again. */
+const notYet = new Set(["no-source", "no-picture"]);
 
 export class MediaViewers {
   readonly #options: MediaViewersOptions;
@@ -120,27 +128,42 @@ export class MediaViewers {
     }
   }
 
-  /** The viewer's poster, or undefined when its source has no picture yet or it took too long. */
-  poster(viewer: string): Promise<MediaPosterBytes | undefined> {
-    const held = this.#held.get(viewer);
-    if (!held?.path) return Promise.resolve(undefined);
+  /**
+   * The viewer's poster: once the view is granted and its source has a picture, within
+   * `posterDeadlineMs`; undefined when that takes longer.
+   */
+  async poster(viewer: string): Promise<MediaPosterBytes | undefined> {
+    const until = this.#options.now() + posterDeadlineMs;
+    for (;;) {
+      const left = until - this.#options.now();
+      if (left <= 0 || !this.#held.has(viewer)) return undefined;
+      const held = this.#held.get(viewer);
+      const answer = held?.path ? await this.#ask(held, Math.round(left)) : "wait";
+      if (typeof answer === "object") return answer;
+      if (answer === "gone") return undefined;
+      await new Promise<void>((resolve) => this.#options.schedule(resolve, posterRetryMs));
+    }
+  }
+
+  /** One `still.poster`: the poster, "wait" when the source has no picture yet, else "gone". */
+  #ask(held: Held, deadlineMs: number): Promise<MediaPosterBytes | "wait" | "gone"> {
     const request = this.#options.id();
     const { viewport } = held.intent;
     const dpr = Math.min(Math.max(viewport.dpr, 1), 3);
     const sent = this.#options.send({
       type: "still.poster",
       request,
-      source: held.path,
+      source: held.path ?? "",
       width: Math.max(2, Math.round(viewport.width * dpr)),
       height: Math.max(2, Math.round(viewport.height * dpr)),
-      deadlineMs: posterDeadlineMs,
+      deadlineMs,
     });
-    if (!sent) return Promise.resolve(undefined);
+    if (!sent) return Promise.resolve("gone");
     return new Promise((resolve) => {
       const cancel = this.#options.schedule(() => {
         this.#posters.delete(request);
-        resolve(undefined);
-      }, posterDeadlineMs + 200);
+        resolve("gone");
+      }, deadlineMs + 200);
       this.#posters.set(request, { done: resolve, cancel });
     });
   }
@@ -155,7 +178,9 @@ export class MediaViewers {
       waiting.done(
         message.type === "still.done"
           ? { width: message.width, height: message.height, jpeg: payload.slice() }
-          : undefined,
+          : notYet.has(message.reason)
+            ? "wait"
+            : "gone",
       );
     } else if (message.type === "connection.closed") {
       for (const [viewer, held] of this.#held)
@@ -168,7 +193,7 @@ export class MediaViewers {
     this.#held.clear();
     for (const waiting of this.#posters.values()) {
       waiting.cancel();
-      waiting.done(undefined);
+      waiting.done("gone");
     }
     this.#posters.clear();
   }

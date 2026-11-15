@@ -185,6 +185,7 @@ test("a view follows its producer to each new id in ace-media and goes with its 
     },
     id: () => "poster-1",
     schedule: () => () => {},
+    now: () => 0,
   });
   const grant = granted(await h.connections.connect(phone("a")));
   const tab = producer("t1");
