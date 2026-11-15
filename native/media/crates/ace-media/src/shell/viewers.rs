@@ -243,3 +243,77 @@ async fn connection(
     }
     let _ = events.send(MediaEvent::Closed(id)).await;
 }
+
+/// How long a hello whose ticket ace-media doesn't know yet waits for it. The client got the
+/// ticket from the daemon, which wrote `media.ticket` on stdin first, but the two travel on
+/// different connections: the hello can come first.
+pub const TICKET_WAIT: Duration = Duration::from_secs(1);
+
+struct Waiting {
+    ticket: Ticket,
+    outbox: Outbox,
+    admit: oneshot::Sender<Option<String>>,
+    until: std::time::Instant,
+}
+
+/// Hellos waiting for their ticket. A ticket that never comes refuses its hello when the wait
+/// ends, so a wrong one is answered no sooner than a late one.
+#[derive(Default)]
+pub struct Hellos(Vec<Waiting>);
+
+impl Hellos {
+    /// Presents a hello now, or keeps it until its ticket arrives.
+    pub fn present(
+        &mut self,
+        ticket: Ticket,
+        outbox: Outbox,
+        admit: oneshot::Sender<Option<String>>,
+        claim: &mut dyn FnMut(&[u8]) -> Option<String>,
+        outboxes: &mut Outboxes,
+    ) {
+        let waiting = Waiting {
+            ticket,
+            outbox,
+            admit,
+            until: std::time::Instant::now() + TICKET_WAIT,
+        };
+        if let Some(waiting) = Self::try_claim(waiting, claim, outboxes) {
+            self.0.push(waiting);
+        }
+    }
+
+    /// After anything the engine took (a `media.ticket` among it): tries the waiting hellos
+    /// again, and refuses those whose wait is over.
+    pub fn retry(
+        &mut self,
+        claim: &mut dyn FnMut(&[u8]) -> Option<String>,
+        outboxes: &mut Outboxes,
+    ) {
+        if self.0.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        for waiting in std::mem::take(&mut self.0) {
+            match Self::try_claim(waiting, claim, outboxes) {
+                Some(waiting) if waiting.until <= now => {
+                    let _ = waiting.admit.send(None);
+                }
+                Some(waiting) => self.0.push(waiting),
+                None => {}
+            }
+        }
+    }
+
+    fn try_claim(
+        waiting: Waiting,
+        claim: &mut dyn FnMut(&[u8]) -> Option<String>,
+        outboxes: &mut Outboxes,
+    ) -> Option<Waiting> {
+        let Some(connection) = claim(&waiting.ticket[..]) else {
+            return Some(waiting);
+        };
+        outboxes.insert(connection.clone(), waiting.outbox);
+        let _ = waiting.admit.send(Some(connection));
+        None
+    }
+}

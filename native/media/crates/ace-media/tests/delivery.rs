@@ -57,10 +57,14 @@ fn view(media: &mut Media, viewer: &str, connection: &str, owner: &Value, issued
 
 /// Opens a media connection and presents `bytes` as its ticket. The welcome, or the close code.
 fn connect(media: &Media, bytes: u8) -> Result<Client, u16> {
-    let Ok(stream) = TcpStream::connect(("127.0.0.1", media.listen_port as u16)) else {
+    connect_to(media.listen_port, bytes)
+}
+
+fn connect_to(port: u32, bytes: u8) -> Result<Client, u16> {
+    let Ok(stream) = TcpStream::connect(("127.0.0.1", port as u16)) else {
         panic!("the direct listener refused the connection");
     };
-    let url = format!("ws://127.0.0.1:{}/media", media.listen_port);
+    let url = format!("ws://127.0.0.1:{port}/media");
     let Ok((mut client, _)) = tungstenite::client(url.as_str(), stream) else {
         panic!("the handshake failed");
     };
@@ -396,4 +400,26 @@ fn grants_issued_before_a_revocation_never_take_effect() {
     assert!(matches!(refused, FromMedia::GrantRefused { reason, .. }
         if reason == media_wire::control::Refusal::Revoked));
     assert_eq!(connect(&media, 8).err(), Some(close::REFUSED));
+}
+
+#[test]
+fn a_hello_that_comes_before_its_ticket_waits_for_it() {
+    let mut media = Media::spawn("early");
+    let (control, _, _) = media.start();
+    let _lanes = lanes(&control);
+    let port = media.listen_port;
+    let early = std::thread::spawn(move || connect_to(port, 7).is_ok());
+    std::thread::sleep(Duration::from_millis(300));
+    ticket(
+        &mut media,
+        "mc_early",
+        &owner("phone", pairing(1)),
+        1,
+        30_000,
+        7,
+    );
+    assert!(
+        early.join().unwrap_or(false),
+        "the hello was refused before its ticket came"
+    );
 }
