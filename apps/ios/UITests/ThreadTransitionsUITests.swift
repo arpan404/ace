@@ -157,11 +157,22 @@ import XCTest
     private func message(_ prefix: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
     }
-    /// A message's long-press menu: Copy, Select text, Share and what can be done from it.
+    /// A message's long-press menu: Copy, Select text, Share and what can be done from it. Returns
+    /// once the menu has stopped moving: its rows exist while it is still animating in, and a tap on
+    /// a row that is still moving presses it without choosing it (the menu stays open).
     private func openMenu(of message: XCUIElement, in app: XCUIApplication) {
         app.bringToMiddle(message)
         message.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 10))
+        let copy = app.buttons["Copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 10))
+        var last = copy.frame
+        for _ in 0..<30 {
+            Thread.sleep(forTimeInterval: 0.1)
+            let now = copy.frame
+            if now == last && copy.isHittable { return }
+            last = now
+        }
+        XCTFail("The message's menu kept moving")
     }
     private func open(_ id: String, in app: XCUIApplication) {
         app.terminate()
