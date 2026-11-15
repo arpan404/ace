@@ -15,6 +15,7 @@ import {
   SharedStreams,
   type MediaRoute,
   type SourcePicture,
+  type Stamped,
 } from "@ace/browser/live-view";
 import type { MediaPoster } from "@ace/protocol";
 import {
@@ -392,9 +393,25 @@ export class DeviceClient {
   }
   /** A live picture that came by `path`, stamped with its delivery's generation, else dropped. */
   private publishPicture(sourceId: string, frame: PictureChunk, path: string): void {
-    const generation = this.media.accept(sourceId, path);
-    if (generation !== undefined) this.pictures.publish({ ...frame, sourceId, generation });
+    const stamped = this.media.arrive(sourceId, path, frame);
+    if (stamped)
+      this.pictures.publish({ ...stamped.frame, sourceId, generation: stamped.generation });
   }
+  /**
+   * What a subscribe's reply released: the pictures that came its settled way while it was on its
+   * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
+   */
+  private release(
+    sourceId: string,
+    released: { pictures: readonly Stamped[]; needsKeyframe: boolean },
+  ): void {
+    for (const { frame, generation } of released.pictures)
+      this.pictures.publish({ ...frame, sourceId, generation });
+    const first = released.pictures[0];
+    if (released.needsKeyframe && first)
+      this.ack({ ...first.frame, sourceId, generation: first.generation }, true);
+  }
+
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
    * subscription: the first view subscribes, the last to release unsubscribes.
@@ -502,7 +519,10 @@ export class DeviceClient {
             return;
           }
           if (pending.operation.op === "subscribe" && pending.generation !== undefined) {
-            this.media.subscribed(pending.operation.deviceId, pending.generation, message.media);
+            this.release(
+              pending.operation.deviceId,
+              this.media.subscribed(pending.operation.deviceId, pending.generation, message.media),
+            );
             if (this.media.poster(pending.operation.deviceId)) this.notify();
           }
           if (pending.operation.op === "list") {

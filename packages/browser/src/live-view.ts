@@ -11,4 +11,11 @@ export {
   MediaSubscriptions,
   type AckWay,
   type MediaRoute,
+  type Stamped,
 } from "./media-route.ts";
+export {
+  candidateLimits,
+  DeliveryCandidates,
+  type CandidateShape,
+  type Released,
+} from "./delivery-candidates.ts";

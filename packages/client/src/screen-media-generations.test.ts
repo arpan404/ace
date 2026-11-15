@@ -17,20 +17,23 @@ const state = ScreenState.parse({
   permissions: { screenRecording: true, accessibility: true },
 });
 
-const frame = (sequence: number): StreamMessage => ({
+const frame = (
+  sequence: number,
+  options: { key?: boolean; timestamp?: number; size?: number } = {},
+): StreamMessage => ({
   kind: "screen.frame",
   sourceId: "app",
   frame: {
     sequence,
-    timestamp: sequence,
+    timestamp: options.timestamp ?? sequence,
     width: 4,
     height: 2,
     scale: 1,
     rotation: 0,
     codec: "hvc1.1.6.L153.B0",
-    key: true,
+    key: options.key ?? true,
     streamId: "capture-1",
-    bytes: Uint8Array.of(0, 0, 0, 1, 0x40),
+    bytes: new Uint8Array(options.size ?? 5),
   },
 });
 
@@ -111,7 +114,8 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
     deliver(message: StreamMessage) {
       for (const listener of streams) listener(message);
     },
-    reply(subscribe: Subscribe, answer: "binds" | "refuses") {
+    /** `channel`: the daemon serves the stream on the channel itself (no `media` in the reply). */
+    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel") {
       server(
         answer === "refuses"
           ? {
@@ -124,7 +128,7 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
               type: "screen.result",
               requestId: subscribe.requestId,
               ok: true,
-              ...(subscribe.media ? { media: subscribe.media } : {}),
+              ...(subscribe.media && answer === "binds" ? { media: subscribe.media } : {}),
             },
       );
     },
@@ -214,5 +218,68 @@ describe("screen pictures across a media rebind", () => {
     view.onChannel(frame(5));
     await flush();
     expect(view.drawn).toEqual([]);
+  });
+
+  it("a keyframe the channel replays before the reply shows once the reply settles there", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    // The daemon serves this session itself: it replays the last picture, then answers.
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn).toEqual([]);
+    view.reply(view.subscribes[0]!, "channel");
+    await flush();
+    // A static screen: nothing else comes, and the replayed picture shows and is acked.
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    view.client.ack(view.drawn[0]!);
+    expect(view.channelAcks).toEqual([
+      { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 1 },
+    ]);
+    expect(view.mediaAcks).toEqual([]);
+  });
+
+  it("pictures the media connection sends before its reply show once it confirms them", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.deliver(frame(1));
+    view.deliver(frame(2, { key: false }));
+    await flush();
+    view.reply(view.subscribes[0]!, "binds");
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
+  });
+
+  it("past two seconds of waiting pictures it keeps the keyframe and asks for a fresh one", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.onChannel(frame(1, { timestamp: 1_000 }));
+    view.onChannel(frame(2, { key: false, timestamp: 2_000 }));
+    view.onChannel(frame(3, { key: false, timestamp: 3_500 }));
+    await flush();
+    view.reply(view.subscribes[0]!, "channel");
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    expect(view.channelAcks).toContainEqual(
+      expect.objectContaining({ type: "screen.ack", sequence: 1, keyframe: true }),
+    );
+  });
+
+  it("an unstamped ack goes on the channel only while the stream is delivered there", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "binds");
+    await flush();
+    view.deliver(frame(1));
+    await flush();
+    const { generation: _, ...unstamped } = view.drawn[0]!;
+    view.client.ack(unstamped);
+    expect(view.mediaAcks).toEqual([]);
+    expect(view.channelAcks).toEqual([]);
+    // Back on the channel (the media connection lost): an unstamped ack is the channel's.
+    view.move(undefined);
+    view.reply(view.subscribes[1]!, "channel");
+    await flush();
+    view.client.ack(unstamped);
+    expect(view.channelAcks).toHaveLength(1);
   });
 });

@@ -34,7 +34,7 @@ import { LivePicture } from "./live-picture.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "@ace/ui-core";
 import { PageStates } from "./page-states.ts";
-import { ThreadVideos } from "./thread-videos.ts";
+import { ThreadVideos, type BrowserVideoChunk } from "./thread-videos.ts";
 import { ThreadAudio } from "./thread-audio.ts";
 import {
   webAudioOutput,
@@ -50,7 +50,7 @@ import {
 } from "@/lib/video/codecs.ts";
 import type { MediaConnection } from "@ace/client/media";
 import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
-import { isMediaRefusal } from "@ace/browser/live-view";
+import { DeliveryCandidates, isMediaRefusal } from "@ace/browser/live-view";
 
 /** The socket path: the client's own connection to the daemon (legacy delivery). */
 const socketPath = "socket";
@@ -263,6 +263,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   /** The media connection each thread's video was confirmed on, so its acks follow it. */
   const deliveries = new Map<string, Delivery>();
   let deliveryTokens = 0;
+  /** Video that came while a subscribe naming a connection waits for its reply, either way. */
+  const candidates = new Map<string, DeliveryCandidates<BrowserVideoChunk>>();
   /** The way a thread's video comes now: its subscribe's answer, else what it asked for. */
   const expectedPath = (threadId: string) => {
     const delivery = deliveries.get(threadId);
@@ -362,6 +364,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     videos.delete(threadId);
     sounds.delete(threadId);
     deliveries.delete(threadId);
+    candidates.delete(threadId);
     refusedOn.delete(threadId);
   };
   /**
@@ -409,6 +412,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     // This subscribe supersedes any still in flight: their replies change nothing from here on.
     const token = ++deliveryTokens;
     deliveries.set(threadId, { token, asked: binding?.connection, via: undefined });
+    candidates.delete(threadId);
     const reply = await request({
       type: "browser.subscribe",
       threadId: ThreadId.parse(threadId),
@@ -430,6 +434,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     // Only a reply naming the connection moves the video there (ace-media may not serve it).
     const onMedia = binding !== undefined && reply.media?.connection === binding.connection;
     delivery.via = onMedia ? binding.connection : socketPath;
+    // Video that came the settled way while the reply was on its way (the daemon replays a page's
+    // last picture before answering) shows now; the rest is dropped.
+    const held = candidates.get(threadId)?.settle(delivery.via);
+    candidates.delete(threadId);
+    const decode = captures.get(threadId)?.nativeShown !== true;
+    for (const chunk of held?.pictures ?? []) videos.receive(threadId, chunk, decode);
+    const first = held?.pictures[0];
+    if (held?.needsKeyframe && first) ack(threadId, first.sequence, true);
     if (onMedia && reply.media?.poster) void showPoster(threadId, reply.media.poster);
     return reply.result;
   };
@@ -648,6 +660,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     stops.push(client.onMessage(receive));
     /** Stream messages that came by `path`: only the way the thread's subscribe expects. */
     const onStream = (path: string) => (message: StreamMessage) => {
+      const delivery =
+        message.kind === "browser.video" ? deliveries.get(message.threadId) : undefined;
+      if (message.kind === "browser.video" && delivery?.via === undefined && delivery?.asked) {
+        // Unsettled: held until the reply says which way the video comes.
+        if (path !== delivery.asked && path !== socketPath) return;
+        let held = candidates.get(message.threadId);
+        if (!held) candidates.set(message.threadId, (held = new DeliveryCandidates()));
+        held.hold(path, message.chunk);
+        return;
+      }
       if (
         (message.kind === "browser.video" || message.kind === "browser.audio") &&
         expectedPath(message.threadId) !== path
