@@ -16,7 +16,7 @@ import { useAutomationActions } from "@/features/automation-data/index.ts";
  * component's state, so closing it or leaving the screen loses it for good.
  */
 
-const code = "rounded-xs bg-secondary px-1 font-mono text-[0.9em] text-foreground";
+const code = "rounded-xs bg-secondary px-1 font-mono text-foreground";
 
 export function WebhookPanel(props: {
   automationId: string;
