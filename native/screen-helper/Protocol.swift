@@ -50,6 +50,9 @@ struct StreamSettings: Decodable {
     let maxHeight: Int
     let fps: Int
     let bitrate: Int
+    func coded(_ codec: String) -> StreamSettings {
+        StreamSettings(codec: codec, maxWidth: maxWidth, maxHeight: maxHeight, fps: fps, bitrate: bitrate)
+    }
 }
 /// ace-media's ingest socket and the source's single-use token (base64 of 32 bytes).
 struct StreamIngest: Decodable { let socket: String; let token: String }
@@ -171,7 +174,7 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
 func capabilities() -> [String: Any] {
     ["version": 2, "platform": "macos", "background": true, "permissionEvents": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true, "windowContent": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
-     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": ["jpeg", "h264"],
+     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": EncodeTrial.hevc ? ["jpeg", "h264", "hevc"] : ["jpeg", "h264"],
      "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"],
      "encoders": EncodeTrial.report]
 }
