@@ -6,15 +6,23 @@ import QuartzCore
     @Environment(\.scenePhase) private var scenePhase
     @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
+    /// `--spike-unpaired`: the machines of a fresh install, none paired.
+    @State private var unpaired: MachinesModel?
     @State private var production = ProductionApp.make()
     /// The person's ace account, for the header's avatar and Settings › Profile alike.
     @State private var account = AceAccountModel()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
-    @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
-        let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
-        // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
-        LegacyTakeBacks.drain(databases: directory, into: drafts)
-        return drafts
+    @State private var drafts = AceApp.makeDrafts()
+    /// The app's drafts. A `--spike-unpaired` launch keeps its own in scratch storage and runs no
+    /// migration, so the app's real databases and defaults stay as they were.
+    private static func makeDrafts() -> ThreadDrafts? {
+        if SpikeConfiguration.unpaired { return ThreadDrafts(url: UnpairedScratch.root.appendingPathComponent("thread-drafts.json")) }
+        return (try? ProductionApp.storageDirectory()).map { directory in
+            let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+            // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
+            LegacyTakeBacks.drain(databases: directory, into: drafts)
+            return drafts
+        }
     }
     init() {
         // The system bar's titles on the approved scale, for every stack in the app.
@@ -56,12 +64,14 @@ import QuartzCore
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
-            if started || SpikeConfiguration.lateMachines { InboxView(inbox: spikeInbox) }
+            if let unpaired { InboxView(inbox: unpaired.inbox, machines: unpaired) }
+            else if started || SpikeConfiguration.lateMachines { InboxView(inbox: spikeInbox) }
             else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
+            if SpikeConfiguration.unpaired { await startUnpaired(); return }
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
             if SpikeConfiguration.lateMachines { try? await Task.sleep(for: .seconds(4)) }
@@ -94,6 +104,19 @@ import QuartzCore
             }
             started = true
         }
+    }
+    /// A fresh install: an empty machine list in its own scratch storage and defaults
+    /// (`UnpairedScratch`), so nothing a fixture launch paired leaks in and nothing here reaches
+    /// the fixtures.
+    private func startUnpaired() async {
+        guard unpaired == nil else { return }
+        let root = UnpairedScratch.root
+        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: ProductionApp.machineDirectory(in: root)),
+                                     storage: root.appendingPathComponent("machines", isDirectory: true),
+                                     defaults: UnpairedScratch.defaults,
+                                     makeClient: { ClientModel(now: { Date().timeIntervalSince1970 * 1000 }) })
+        unpaired = machines
+        await machines.load()
     }
 }
 

@@ -65,19 +65,6 @@ struct UsageMetricView: Decodable, Sendable {
         let title: String
         let parts: [Part]
     }
-    struct Line: Decodable, Sendable, Hashable, Identifiable {
-        var id: String { key }
-        let key: String
-        let name: String
-        let provider: String?
-        let hue: UsageHue?
-        let ink: Bool
-        let figure: String
-        let share: String
-        let other: String
-        let fraction: Double
-    }
-    struct Unpriced: Decodable, Sendable { let label: String; let lines: [Line] }
     let total: String
     let growth: UsageGrowth
     let basis: String
@@ -87,9 +74,8 @@ struct UsageMetricView: Decodable, Sendable {
     let chart: Chart
     let totals: [Stat]
     let types: Types
-    let byModel: [Line]
-    let byDay: [Line]
-    let unpriced: Unpriced?
+    /// Any tokens in the range; false draws the empty state instead of zeroes.
+    let hasUsage: Bool
 }
 
 /// `usage.useReset`: what redeeming a banked reset did, in the web's words.
@@ -115,6 +101,13 @@ struct UsageLimitsReply: Decodable, Sendable {
         let stale: Bool
         let old: Bool
         let pace: Pace?
+        /// What the row says at its right (`limitWhen`): "Out around Sun 9:00 PM" in red when
+        /// this pace runs out before the reset. Nil from an older bridge.
+        var when: When? = nil
+        /// What is left at the reset at this pace, 0 to 100: the bar's marker. Nil when it runs
+        /// out first or can't say.
+        var leftAtReset: Double? = nil
+        struct When: Codable, Sendable, Hashable { let text: String; let spoken: String; let runsOut: Bool }
     }
     struct Account: Codable, Sendable, Hashable {
         let key: String
@@ -161,4 +154,33 @@ enum UsageColour {
     private static func rgb(_ hex: String) -> UInt32? {
         UInt32(hex.hasPrefix("#") ? String(hex.dropFirst()) : hex, radix: 16)
     }
+}
+
+/// One level of the Usage ledger (`usage.combineLedger`): spend grouped by one dimension within
+/// the rows opened above it, each row worded for both metrics.
+struct UsageLedgerReply: Decodable, Sendable, Equatable {
+    struct Cell: Decodable, Sendable, Equatable { let figure: String; let change: String }
+    struct Metrics: Decodable, Sendable, Equatable { let cost: Double; let tokens: Double }
+    struct Trend: Decodable, Sendable, Equatable { let cost: [Double]; let tokens: [Double] }
+    struct Row: Decodable, Sendable, Equatable, Identifiable {
+        let key: String
+        let name: String
+        /// The provider whose mark the row wears; nil when it has none.
+        let provider: String?
+        let cost: Cell
+        let tokens: Cell
+        /// Its share of this level, 0 to 1.
+        let share: Metrics
+        let trend: Trend
+        var id: String { key }
+    }
+    struct Group: Decodable, Sendable, Equatable, Hashable { let value: String; let label: String }
+    let group: String
+    /// What a row opens to; nil when a row is as deep as the ledger goes.
+    let next: Group?
+    let groups: [Group]
+    let rows: [Row]
+    /// Rows shown before "Show all".
+    let top: Int
+    let coverage: UsageCoverage
 }

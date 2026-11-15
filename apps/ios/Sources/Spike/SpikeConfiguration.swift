@@ -27,6 +27,9 @@ enum SpikeConfiguration {
     }
     /// `--spike-read-ahead`: read likely threads ahead, as on Wi-Fi outside Low Power Mode.
     static var readAhead: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-read-ahead") }
+    /// `--spike-unpaired`: a fresh install with no computer paired, connecting to no fixture, so
+    /// home and Code review offer pairing.
+    static var unpaired: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-unpaired") }
     /// `--spike-view-only`: the phone may only view the fixture machine, as a view-only pairing.
     static var viewOnly: Bool { ProcessInfo.processInfo.arguments.contains("--spike-view-only") }
     /// The thread `--spike-open ID` asks to open at launch.
@@ -51,7 +54,7 @@ enum SpikeConfiguration {
     /// port to fixtures started with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1`, each its
     /// own host; otherwise the single `target()`.
     static func targets() -> [(name: String, target: ConnectionTarget)] {
-        guard enabled else { return [] }
+        guard enabled, !unpaired else { return [] }
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "--spike-machines"), arguments.indices.contains(index + 1) else {
             return target().map { [("arpan-mbp", $0)] } ?? []
@@ -71,5 +74,25 @@ enum SpikeConfiguration {
             defaults.removeObject(forKey: "ace.inbox.openThread")
         }
         return url
+    }
+}
+
+/// `--spike-unpaired`'s own storage and defaults, emptied once per launch before anything reads
+/// them: its machines, drafts and notification settings never touch the app's real ones.
+/// Settings changed inside this mode (views' own `@AppStorage`) still use the app's standard defaults.
+enum UnpairedScratch {
+    static let suite = "app.ace.spike.unpaired"
+    static let root: URL = {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ace-spike-unpaired", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        return root
+    }()
+    /// The suite, emptied with `root` before its first read.
+    static var defaults: UserDefaults {
+        _ = root
+        guard let defaults = UserDefaults(suiteName: suite) else { preconditionFailure("UserDefaults refused the suite \(suite)") }
+        return defaults
     }
 }

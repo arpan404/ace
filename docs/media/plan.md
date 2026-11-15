@@ -1662,10 +1662,36 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   while 300 units are still queued on the old connection, which loses and repeats none); and `helper-identity.native.process.test.ts` (the built app's designated
   requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
   `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
-- **Not built yet.** The device producers: ace-media's readers for serve-sim, scrcpy and the
-  emulator frame file (`source.open` for those origins still ends `reader-unavailable`), the
-  Simulator transcode wired from `media-vt::VtTranscoder`, `--encode-frames` to ingest, and
-  `packages/devices` opening those sources. Until then devices stay on the daemon's path
-  whatever `media.encode` says. Epochs for screens are the source's opening one until F1's
-  wiring issues them, and no acceleration or bench numbers are reported yet (A1, and the
-  Mac rows of "Acceleration acceptance").
+- **Devices (E3b).** Each device's video goes through `DeviceVideoPaths`
+  (`packages/devices/src/media-paths.ts`): the shared `PathMerge`, and egress units turned back
+  into the units the capture publishes as before. A path that ends interrupted asks its
+  producer for the keyframe its successor needs.
+  - **Android emulators on a Mac.** `--encode-frames` takes `{"op":"ingest","socket","token"}` on
+    stdin (no socket: back to stdout) and uses the helper's `IngestRoute`; each switch is
+    answered on stderr with its boundary. `emulator-frames` sources are fed over ingest; the
+    origin's path and size name the frame file the helper encodes. A switch's keyframe may
+    re-encode the last picture, the one picture that can show twice.
+  - **Android devices (scrcpy).** The daemon keeps both scrcpy sockets, opened in the same order
+    and at startup as before, and while routed forwards each unit unchanged through
+    `IngestWriter` (`packages/media/src/ingest-writer.ts`). A move to ace-media keeps units on
+    the daemon's path until the device's next keyframe, the first unit forwarded; a move back
+    writes what is queued and an end frame, so ace-media's marker is clean (a connection that
+    only closes is a cut path).
+  - **Simulators.** ace-media reads serve-sim's `/stream.avcc` itself (`serve_sim.rs`, the
+    reader in `shell/readers.rs`), over loopback only, and stamps the source's epoch as it
+    reads. serve-sim sends one stream to every subscription, so a switch cuts the old path,
+    recorded as an interrupted end, and starts the new one at a fresh keyframe; nothing older
+    repeats. `IngestSources` closes these sources in ace-media at once when they move back.
+  - **The Simulator transcode.** A viewer too small for serve-sim's stream gets `source.encodes`
+    while ace-media reads it: its reader decodes at the viewer's size and encodes again in
+    VideoToolbox (`media_vt::VtTranscoder`, `shell/sim_transcode.rs`), reporting decode, scale
+    and encode with their copies. The screen helper's `--transcode` stays for the daemon's own
+    path until phase 2's deletion.
+- **Not built or measured yet.** A run on a real Android device (scrcpy is tested against the
+  fake device only); the Simulator 59 fps bench (no window with the shared Mac's load under
+  24); epochs beyond each source's opening one until F1's wiring issues them.
+- **Clean handoffs.** A writer the helper's `IngestRoute` retires (the Mac screen and
+  `--encode-frames`) writes its queue, then the end-of-source frame, then closes, so ace-media's
+  marker for that path is clean and a planned switch hands over without a forced keyframe.
+  Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
+  without one.

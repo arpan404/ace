@@ -66,7 +66,13 @@ enum ThreadPushedTool: String, Identifiable, Sendable {
 
 extension ThreadDestination {
     /// The page this opens as on a phone; nil for what opens over the thread.
-    var page: ThreadPageKind? { self == .changes ? .changes : nil }
+    var page: ThreadPageKind? {
+        switch self {
+        case .chat: .chat
+        case .changes: .changes
+        default: nil
+        }
+    }
 
     /// The screen a phone pushes for this; nil for what isn't one.
     var pushed: ThreadPushedTool? {
