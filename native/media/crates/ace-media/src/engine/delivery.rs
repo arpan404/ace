@@ -18,7 +18,7 @@ use media_core::fanout::{Event, Piece, Viewer as Fanout, Window};
 use media_core::link_rate::{Limits, LinkRate};
 use media_core::plan::{Source as PlanSource, VideoViewer, Viewport as PlanViewport, plan_video};
 use media_wire::control::{
-    EncodeSpec, FromMedia, Id, KeyReason, Nonnegative, Sequence, ViewerTarget, Viewport,
+    EncodeSpec, FromMedia, Id, KeyReason, Nonnegative, Sequence, Status, ViewerTarget, Viewport,
 };
 use media_wire::frame::MediaFrame;
 use media_wire::media_link::{ClientMessage, ServerMessage, close};
@@ -133,6 +133,8 @@ struct SourceFacts {
     cut: HashMap<u32, f64>,
     /// The id the next new encode takes.
     next_id: u32,
+    /// Out of ids: the daemon was asked to open the source again.
+    renewing: bool,
 }
 
 struct Seen {
@@ -166,6 +168,8 @@ pub struct Delivery {
     /// showed before continues after it, so a late ack from the retired view (acks name no view
     /// on the wire) names sequences the new one never sent, and releases nothing of it.
     sequences: HashMap<(String, String), u64>,
+    /// ace-media's encode ids, when not `MEDIA_IDS` (tests run a small range out).
+    media_ids: Option<std::ops::Range<u32>>,
 }
 
 /// A target's key for `Delivery::sequences`.
@@ -196,6 +200,11 @@ impl Delivery {
         let last = self.sequences.entry(at).or_default();
         *last = (*last).max(view.sequence);
         Some(view)
+    }
+
+    /// The range ace-media's encode ids come from (tests make it small to run it out).
+    pub(crate) fn with_media_ids(&mut self, ids: std::ops::Range<u32>) {
+        self.media_ids = Some(ids);
     }
 
     pub fn bytes_out(&self) -> u64 {
@@ -853,6 +862,7 @@ impl Delivery {
         );
         drop(viewers);
         drop(live);
+        let range = self.media_ids.clone().unwrap_or(MEDIA_IDS);
         let facts = self.sources.entry(source.to_owned()).or_default();
         // Encodes the plan drops: their ids are never given out again while units of theirs may
         // be queued anywhere.
@@ -873,13 +883,32 @@ impl Delivery {
         let mut wanted = Vec::with_capacity(plan.encodes.len());
         for encode in &plan.encodes {
             // A new encode takes the next id: ids only grow (a source's first is 1), so none is
-            // reused while a dropped encode's units may still be on the way. They wrap only at
-            // the end of ace-media's range, past ids in use.
+            // reused while a dropped encode's units may still be on the way. Out of ids, the
+            // source asks the daemon, once, to open it again (`ended`, no reason): the new open
+            // has a new handle and starts over, and the old one's end marker proves it drained.
+            // Until then the encode runs without a plan of ace-media's.
             let id = match facts.ids.get(&encode.key) {
                 Some(id) => *id,
                 None => {
-                    let (id, next) =
-                        next_media_id(facts.next_id, |id| facts.ids.values().any(|v| *v == id));
+                    let given = next_media_id(&range, facts.next_id, |id| {
+                        facts.ids.values().any(|v| *v == id)
+                    });
+                    let Some((id, next)) = given else {
+                        if !facts.renewing {
+                            facts.renewing = true;
+                            normal(
+                                out,
+                                FromMedia::SourceStatus {
+                                    source: id(source),
+                                    status: Status::Ended,
+                                    reason: None,
+                                    attempts: None,
+                                    acceleration: None,
+                                },
+                            );
+                        }
+                        continue;
+                    };
                     facts.next_id = next;
                     facts.ids.insert(encode.key.clone(), id);
                     id
@@ -1042,29 +1071,19 @@ fn changed(old: &[EncodeSpec], new: &[EncodeSpec]) -> bool {
 /// daemon's own encodes in a shared capture take [2^20, 2^31), so the two never meet.
 const MEDIA_IDS: std::ops::Range<u32> = 1..1 << 20;
 
-/// The next encode id from `next`, skipping ids in use, and the one after it; at the end of the
-/// range both wrap back to its start.
-pub(crate) fn next_media_id(next: u32, in_use: impl Fn(u32) -> bool) -> (u32, u32) {
-    let after = |id: u32| {
-        if id + 1 < MEDIA_IDS.end {
-            id + 1
-        } else {
-            MEDIA_IDS.start
-        }
-    };
-    let mut id = if MEDIA_IDS.contains(&next) {
-        next
-    } else {
-        MEDIA_IDS.start
-    };
-    // Bounded: a source never has a range's worth of encodes in use.
-    for _ in MEDIA_IDS {
-        if !in_use(id) {
-            break;
-        }
-        id = after(id);
+/// The next encode id from `next`, skipping ids in use, and the one after it; none once the
+/// range is used up. Ids never wrap in place: a source out of them is opened again, under a new
+/// handle, and starts the range over there.
+pub(crate) fn next_media_id(
+    range: &std::ops::Range<u32>,
+    next: u32,
+    in_use: impl Fn(u32) -> bool,
+) -> Option<(u32, u32)> {
+    let mut id = next.max(range.start);
+    while id < range.end && in_use(id) {
+        id += 1;
     }
-    (id, after(id))
+    (id < range.end).then(|| (id, id + 1))
 }
 
 /// The encode a view takes: its planned one while the producer sends it, else the produced encode
