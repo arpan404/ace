@@ -245,7 +245,7 @@ export function InboxPage(props: {
     </>
   );
   return (
-    <Screen title="Inbox" namedByPanel>
+    <Screen title="Inbox" namedByPanel page="inbox">
       <ListFrame
         kind="inbox"
         address={listAddress}

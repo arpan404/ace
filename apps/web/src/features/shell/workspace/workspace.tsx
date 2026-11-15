@@ -23,6 +23,8 @@ import { cn } from "@/lib/cn.ts";
 import { HeaderNav } from "../app-header.tsx";
 import { useViewFrame } from "../sidebar-frame.tsx";
 import { canvasClass } from "../canvas.ts";
+import { pageAttributes } from "../page-on-screen.tsx";
+import type { SuitPage } from "@ace/protocol/suit-parts";
 import { bottomBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -153,6 +155,9 @@ export function Workspace(props: {
   notice: ReactNode;
   children: ReactNode;
   contextPanel?: ReactNode;
+  /** The canvas's `page` part and `data-page` (docs/design/suit-parts.md). */
+  page?: SuitPage | undefined;
+  pageVariant?: string | undefined;
 }) {
   const { scope, definition } = props;
   const store = useWorkspaceStore();
@@ -293,7 +298,10 @@ export function Workspace(props: {
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               {props.header(topBar ? undefined : controls("header"))}
-              <div className={`${canvasClass} flex-col`}>
+              <div
+                {...pageAttributes(props.page, props.pageVariant)}
+                className={`${canvasClass} flex-col`}
+              >
                 <div className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col">
                   {props.notice}
                   {props.contextPanel ? (

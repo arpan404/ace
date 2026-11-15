@@ -251,7 +251,7 @@ export function IssuesPage(props: {
     </>
   );
   return (
-    <Screen title="Issues" namedByPanel>
+    <Screen title="Issues" namedByPanel page="issues">
       <ListFrame
         kind="issues"
         address={listAddress}

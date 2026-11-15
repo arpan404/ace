@@ -19,6 +19,7 @@ export function CentredDivider(props: {
       aria-label={props.label}
       title={props.title}
       data-divider=""
+      data-part="turn-divider"
       className="flex items-center gap-3 py-1"
     >
       <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />

@@ -18,6 +18,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { surfaceIcons } from "./computer/computer-view.tsx";
 import { AccessChoice } from "./spade-access-choice.tsx";
 import { editAgent } from "./spade-api.ts";
@@ -66,18 +67,23 @@ export function BotPage(props: { bot: RosterBot }) {
     >
       <div className="h-full overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-5 py-8 sm:px-10">
-          <header className="flex flex-col gap-4">
+          <header {...part("page-header")} className="flex flex-col gap-4">
             <div className="flex items-center gap-4">
               <SpadeFace avatar={bot.avatar} size={64} state={botFaceStateOf(bot)} />
               <div className="flex min-w-0 flex-col">
-                <h2 className="truncate text-xl font-semibold text-foreground">{bot.name}</h2>
+                <h2
+                  {...part("page-title")}
+                  className="truncate text-xl font-semibold text-foreground"
+                >
+                  {bot.name}
+                </h2>
                 <p className="truncate text-ui text-muted-foreground">
                   {[bot.machine.name, model].filter(Boolean).join(" · ")}
                 </p>
               </div>
             </div>
             {bot.task && <p className="text-md text-foreground">{bot.task}</p>}
-            <div className="-ml-2.5 flex items-center gap-1">
+            <div {...part("page-toolbar")} className="-ml-2.5 flex items-center gap-1">
               <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
                 Edit
               </Button>
@@ -112,7 +118,7 @@ export function BotPage(props: { bot: RosterBot }) {
               )}
             </div>
           </header>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
+          <div {...part("page-body")} className="grid grid-cols-1 gap-8 md:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-8">
               <ComputerSection bot={bot} />
               <RoutinesSection bot={bot} />
@@ -312,6 +318,7 @@ function FilesSection(props: { bot: RosterBot }) {
             <button
               key={entry.path}
               type="button"
+              {...part("list-row", undefined, entry.kind)}
               onClick={() =>
                 entry.kind === "folder"
                   ? openBot({ computer: "files", files: entry.path })

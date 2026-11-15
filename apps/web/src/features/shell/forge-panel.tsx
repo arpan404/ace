@@ -65,6 +65,7 @@ export function ForgePanel() {
               activeOptions={{ exact: true, includeSearch: false }}
               aria-current={current === place.to ? "page" : undefined}
               {...panelRow()}
+              data-state={current === place.to ? "active" : undefined}
             >
               <PanelRowBody icon={place.icon} title={place.label} />
             </Link>

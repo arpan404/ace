@@ -1,4 +1,5 @@
 import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@ace/icons";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
@@ -91,6 +92,8 @@ export function HomeSidebar() {
     (ids) => !ids.length,
   );
   const directory = useProjectDirectory();
+  // Inbox zero's line, in a Suit's words if it has some.
+  const emptyLine = useSuitLabel("empty-sidebar", emptyInboxLine);
   const keys = useResolvedKeymap();
   const narrowed = project
     ? `in ${directory.name(project)}`
@@ -100,7 +103,7 @@ export function HomeSidebar() {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <PanelTitleSearch title="Projects" label="Search threads" query={query} onQuery={setQuery} />
-      <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
+      <div data-part="project-header" className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
       </div>
@@ -142,7 +145,7 @@ export function HomeSidebar() {
                   ? undefined
                   : none && !narrowed
                     ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
-                    : emptyInboxLine
+                    : emptyLine
               }
               action={
                 project ? (

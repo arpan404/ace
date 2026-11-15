@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { Textarea } from "@/components/ui/input.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { reviewerWords, type ReviewerRow } from "@ace/ui-core";
@@ -112,7 +113,10 @@ function Row(props: {
   const person = row.kind === "user" ? [row.name] : [];
   const team = row.kind === "team" ? [row.name] : [];
   return (
-    <li className="border-t border-border py-2 first:border-t-0">
+    <li
+      {...part("list-row", undefined, row.kind)}
+      className="border-t border-border py-2 first:border-t-0"
+    >
       <div className="flex min-h-7 items-center gap-2">
         <Face row={row} className="size-5 min-w-5" />
         <span className="min-w-0 flex-1">

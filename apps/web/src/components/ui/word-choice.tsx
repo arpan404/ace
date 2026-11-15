@@ -1,6 +1,7 @@
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * One-of-n choice as words in a page toolbar ("Open 7 · Merged · Closed"): no track, no shadow.
@@ -22,12 +23,14 @@ export function WordChoice<T extends string>(props: {
         const picked = props.options.find((option) => option.value === next[0]);
         if (picked) props.onValueChange(picked.value);
       }}
+      {...part("tabs", undefined, "words")}
       className={cn("flex items-center", props.className)}
     >
       {props.options.map((option) => (
         <Toggle
           key={option.value}
           value={option.value}
+          {...part("tab", option.value === props.value && "selected")}
           aria-label={
             option.count === undefined
               ? undefined

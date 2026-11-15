@@ -23,6 +23,7 @@ import { startCommands } from "./commands.ts";
 import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
+import { startSuits } from "./suits.ts";
 import { startBrowser } from "./browser.ts";
 import { startBrowsing } from "./browsing.ts";
 import { startUserBrowser } from "./user-browser.ts";
@@ -53,6 +54,7 @@ const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   devices: startDevices,
   relay: startRelayKeys,
   plugins: startPlugins,
+  suits: startSuits,
   activityReads: startActivityReads,
   sidebarPlacement: startSidebarPlacement,
   icons: startIcons,

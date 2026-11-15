@@ -8,6 +8,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * How many a view holds, honestly: its total once known; "2 of 12" when a total is known but
@@ -38,12 +39,18 @@ export function StateToggles<T extends string>(props: {
   onValue(value: T): void;
 }) {
   return (
-    <div role="group" aria-label={props.label} className="flex min-w-0 flex-wrap items-center">
+    <div
+      {...part("tabs")}
+      role="group"
+      aria-label={props.label}
+      className="flex min-w-0 flex-wrap items-center"
+    >
       {props.views.map((view) => {
         const on = view.id === props.value;
         return (
           <button
             key={view.id}
+            {...part("tab", on && "selected", view.id)}
             type="button"
             aria-pressed={on}
             onClick={() => props.onValue(view.id)}
@@ -56,6 +63,7 @@ export function StateToggles<T extends string>(props: {
             {view.label}
             {view.count !== undefined && (
               <span
+                {...part("badge")}
                 className={cn(
                   "rounded-full bg-fill px-1.5 text-xs leading-[18px] font-medium tabular-nums",
                   on ? "text-foreground" : "text-muted-foreground",
@@ -85,6 +93,7 @@ export function PresetMenu<T extends string>(props: {
   return (
     <Menu>
       <MenuTrigger
+        {...part("select")}
         aria-label={`${props.label}: ${current?.label ?? "Custom"}`}
         className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-ui font-medium text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-hover"
       >

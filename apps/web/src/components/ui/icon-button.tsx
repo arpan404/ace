@@ -43,6 +43,8 @@ function IconButton({
   const button = (
     <ButtonPrimitive
       data-slot="icon-button"
+      data-part="icon-button"
+      data-state={props.disabled ? "disabled" : pressed ? "active" : undefined}
       aria-label={label}
       focusableWhenDisabled={reason !== undefined}
       {...(pressed === undefined ? {} : { "aria-pressed": pressed })}

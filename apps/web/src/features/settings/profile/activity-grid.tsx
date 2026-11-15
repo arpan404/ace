@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { useElementWidth } from "@/lib/use-element-width.ts";
 import { monthLabelGap, monthLabelWidth, visibleMonthLabels } from "./month-labels.ts";
 import type { ActivityCell, ProfileStats } from "@ace/ui-core";
+import { part } from "@/lib/suit-part.ts";
 
 const longDay = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -45,6 +46,7 @@ export function ActivityGrid(props: { stats: ProfileStats }) {
     <div className="relative" onMouseLeave={() => setHover(undefined)}>
       <div
         role="img"
+        {...part("chart", undefined, "activity")}
         aria-label={`${formatTokens(props.stats.total)} tokens over the last year, on ${props.stats.activeDays} days`}
         className="grid grid-flow-col grid-rows-7 gap-[3px]"
         style={{ gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))` }}

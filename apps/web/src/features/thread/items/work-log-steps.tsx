@@ -196,13 +196,29 @@ export function StepRow(
       aria-controls={toggles ? props.panel : undefined}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
+      data-part="tool-row"
+      data-variant={step.icon}
+      data-state={
+        !step.settled
+          ? "working"
+          : step.failed
+            ? "failed"
+            : toggles
+              ? props.open
+                ? "open"
+                : "closed"
+              : "done"
+      }
       onClick={props.onOpen ?? (toggles ? props.onToggle : undefined)}
       className={cn(
         props.onOpen || toggles ? pressableRowClass : rowClass,
         "text-muted-foreground",
       )}
     >
-      <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
+      <span
+        data-part="tool-icon"
+        className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground"
+      >
         <StepGlyph
           threadId={props.threadId}
           item={props.item}

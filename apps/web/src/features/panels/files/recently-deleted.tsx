@@ -73,9 +73,14 @@ export function TrashDialog(props: {
           ) : (
             !entries.length && <p className="text-muted-foreground">No recently deleted files.</p>
           )}
-          <ul aria-label="Deleted files">
+          <ul aria-label="Deleted files" data-part="list" data-variant="deleted">
             {entries.map((entry) => (
-              <li key={entry.id} className="flex h-9 min-w-0 items-center gap-2 text-ui">
+              <li
+                key={entry.id}
+                data-part="list-row"
+                data-variant="deleted"
+                className="flex h-9 min-w-0 items-center gap-2 text-ui"
+              >
                 <span title={entry.path} className="min-w-0 flex-1 truncate">
                   {entry.path}
                 </span>

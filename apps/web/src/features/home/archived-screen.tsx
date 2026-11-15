@@ -27,6 +27,7 @@ import {
 import { Page, Screen } from "@/features/shell/index.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { ThreadPagination } from "./thread-pagination.tsx";
 import { useArchivedList } from "./use-home-threads.ts";
 
@@ -46,7 +47,7 @@ export function ArchivedScreen() {
   const actions = useThreadActions();
   const scope = project === null ? undefined : projectName(project);
   return (
-    <Screen title="Archived" subtitle={scope}>
+    <Screen page="history" title="Archived" subtitle={scope}>
       <Page>
         <div>
           {!loaded ? (
@@ -61,7 +62,7 @@ export function ArchivedScreen() {
               )}
             </div>
           ) : (
-            <ul aria-label="Archived threads" className="flex flex-col border-t">
+            <ul {...part("list")} aria-label="Archived threads" className="flex flex-col border-t">
               {ids.map((id) => (
                 <ArchivedRow key={id} threadId={id} onDelete={setDeleting} />
               ))}
@@ -109,7 +110,10 @@ function ArchivedRow(props: { threadId: string; onDelete(entry: ThreadListEntry)
   if (!entry) return null;
   const archived = entry.archivedAt === undefined ? undefined : formatAgo(entry.archivedAt, now);
   return (
-    <li className="group/archived flex min-w-0 items-center gap-3 py-2 hover:bg-accent">
+    <li
+      {...part("list-row")}
+      className="group/archived flex min-w-0 items-center gap-3 py-2 hover:bg-accent"
+    >
       <div className="min-w-0 flex-1">
         <Link
           to="/t/$threadId"

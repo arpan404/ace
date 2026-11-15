@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { AgentsMenu } from "./agents-menu.tsx";
 import { useInstallDialog } from "./install-plugin.tsx";
 import { RemovePluginDialog } from "./remove-plugin.tsx";
@@ -60,6 +61,7 @@ export function PluginSkillPage(props: {
   const setEnabled = (enabled: boolean) => change(pluginSwitched(policy, enabled));
   return (
     <Screen
+      page="skill"
       title="Skills"
       namedByPanel
       menu={
@@ -85,10 +87,15 @@ export function PluginSkillPage(props: {
         onOpenChange={setRemoving}
       />
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
-          <div className="flex items-start gap-4">
+        <div
+          {...part("page-body")}
+          className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
+        >
+          <div {...part("page-header")} className="flex items-start gap-4">
             <div className="min-w-0 flex-1">
-              <h2 className="text-2xl font-semibold tracking-title">{skillTitle(skill)}</h2>
+              <h2 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+                {skillTitle(skill)}
+              </h2>
             </div>
             {(isPlugin || ownSkill) && (
               <LabelledSwitch
@@ -199,7 +206,12 @@ function Contents(props: { components: readonly Skill[] }) {
         const members = props.components.filter((skill) => skill.kind === group.kind);
         if (!members.length) return null;
         return (
-          <ul key={group.kind} aria-label={group.label} className="flex flex-col gap-px">
+          <ul
+            key={group.kind}
+            aria-label={group.label}
+            {...part("list-group", undefined, group.kind)}
+            className="flex flex-col gap-px"
+          >
             {members.map((skill) => (
               <li key={skill.id}>
                 <Link to="/skills/$skillId" params={{ skillId: skill.id }} {...panelRow()}>

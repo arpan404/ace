@@ -2,6 +2,7 @@ import { useId, useRef, type ComponentProps, type ReactNode } from "react";
 import { settingsGroup, useHashFlash } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 
 /*
  * Quiet list rows for overview pages (Settings › Fleet): a small tile, a title over one status
@@ -12,7 +13,10 @@ import { cn } from "@/lib/cn.ts";
 /** A group's rows on one rounded surface, hairlines between them. */
 export function HairlineList(props: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex flex-col rounded-lg bg-surface-1 p-1", props.className)}>
+    <div
+      {...part("list")}
+      className={cn("flex flex-col rounded-lg bg-surface-1 p-1", props.className)}
+    >
       {props.children}
     </div>
   );
@@ -22,6 +26,7 @@ export function HairlineList(props: { children: ReactNode; className?: string })
 export function RowTile(props: { children: ReactNode; size?: "row" | "page" }) {
   return (
     <span
+      {...part("avatar", undefined, props.size === "page" ? "tile-large" : "tile")}
       className={cn(
         "grid shrink-0 place-items-center bg-surface-2 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]",
         props.size === "page" ? "size-11 rounded-xl text-foreground" : "size-7 rounded-lg",
@@ -115,6 +120,8 @@ export function HairlineRow(props: {
   /** Its control is wide (a choice): on a narrow column it drops under the words. */
   wide?: boolean;
   "data-row"?: string | undefined;
+  /** The row's `data-state` for Suits (`waiting` when it asks something, `disabled` when ended). */
+  state?: SuitPartState | undefined;
 }) {
   const own = useRef<HTMLDivElement>(null);
   const flashing = useHashFlash(props.id, own);
@@ -133,6 +140,7 @@ export function HairlineRow(props: {
       ref={own}
       id={props.id}
       data-row={props["data-row"]}
+      {...part("list-row", props.state, props["data-row"])}
       data-flash={flashing || undefined}
       className={cn(
         // Inset 4px in its group's surface, so the wash's corners nest in the surface's.
@@ -199,7 +207,12 @@ export function RowGroup(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} aria-labelledby={id} className={settingsGroup}>
+    <section
+      id={props.anchor}
+      aria-labelledby={id}
+      {...part("settings-section")}
+      className={settingsGroup}
+    >
       <div className="mb-1.5 flex min-h-7 items-center gap-2">
         <h3 id={id} className="text-base font-semibold text-foreground">
           {props.label}

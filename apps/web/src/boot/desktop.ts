@@ -184,6 +184,30 @@ export function desktopImageClipboard(scope: object = globalThis):
   };
 }
 
+/**
+ * The desktop's capture of its own window as a JPEG (base64), for a Suit's live check;
+ * undefined in a browser, which can't capture a page without asking the person, or in a
+ * desktop build that predates it. The answer crossed the bridge, so it is checked here.
+ */
+export function desktopWindowCapture(
+  scope: object = globalThis,
+):
+  | ((request: {
+      maxWidth: number;
+      quality: number;
+    }) => Promise<{ data: string; width: number; height: number } | undefined>)
+  | undefined {
+  const capture = call(record(record(Reflect.get(scope, "ace"))?.window), "capture");
+  if (!capture) return undefined;
+  return async (request) => {
+    const answer = record(await capture(request));
+    const { data, width, height } = answer ?? {};
+    if (typeof data !== "string" || typeof width !== "number" || typeof height !== "number")
+      return undefined;
+    return { data, width, height };
+  };
+}
+
 /** A bridge method, bound to its object, if the bridge has it. */
 function call(target: Record<string, unknown> | undefined, name: string) {
   const method = target?.[name];

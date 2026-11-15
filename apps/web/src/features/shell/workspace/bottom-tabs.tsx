@@ -61,6 +61,7 @@ export function BottomTabs(props: {
       ref={strip}
       role="tablist"
       aria-label={props.label}
+      data-part="tabs"
       className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {group.tabs.map((tab, index) => {
@@ -70,6 +71,9 @@ export function BottomTabs(props: {
         return (
           <div
             key={tab.key}
+            data-part="panel-tab"
+            data-state={active ? "selected" : undefined}
+            data-variant={tab.kind}
             className="group/tab relative flex h-7 max-w-[200px] min-w-0 shrink-0 items-center"
           >
             <button
@@ -78,6 +82,8 @@ export function BottomTabs(props: {
               id={tabDomId(tab.key, "tab")}
               aria-controls={tabDomId(tab.key, "panel")}
               aria-selected={active}
+              data-part="tab"
+              data-state={active ? "selected" : undefined}
               tabIndex={active ? 0 : -1}
               onClick={() => actions.activate(tab.key)}
               onAuxClick={(event) => {

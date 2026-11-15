@@ -5,7 +5,7 @@ import { test, expect } from "vitest";
 import { prepareBuiltinSkills } from "./index.ts";
 
 test.each(["claude", "codex"] as const)(
-  "%s discovers the shipped visualize skill in an isolated native plugin",
+  "%s discovers the shipped skills and their reference files in an isolated native plugin",
   async (provider) => {
     const root = await mkdtemp(join(tmpdir(), "ace-builtins-"));
     try {
@@ -16,6 +16,12 @@ test.each(["claude", "codex"] as const)(
       );
       expect(skill).toContain("invalid_html");
       expect(skill).toContain("mcp__ace__html_render");
+      // A skill's reference files travel with it, where its SKILL.md points.
+      const reference = await readFile(
+        join(root, "generated/plugins/ace-builtins/skills/make-a-suit/references/suit-json.md"),
+        "utf8",
+      );
+      expect(reference).toContain("layout.toolRows");
       if (provider === "claude")
         expect(session.directories).toEqual([join(root, "generated/plugins/ace-builtins")]);
       else {

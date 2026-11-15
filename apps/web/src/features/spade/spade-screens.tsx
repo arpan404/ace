@@ -18,7 +18,7 @@ import { ConversationSkeleton, Problem, useSpadeLine } from "./spade-screen-part
  * once the roster says where Spade is.
  */
 export function SpadeHomeScreen() {
-  return <ViewListPage title="Spade" fallback={<SpadeHome />} />;
+  return <ViewListPage title="Spade" page="spade" fallback={<SpadeHome />} />;
 }
 
 function SpadeHome() {
@@ -35,7 +35,7 @@ function SpadeHome() {
       />
     );
   return (
-    <Screen title="Spade" namedByPanel>
+    <Screen page="spade" title="Spade" namedByPanel>
       <div className={`${readingColumn} pt-6`}>
         {line.ready ? (
           roster.error ? (
@@ -77,7 +77,7 @@ export function SpadeAgentScreen(props: {
   );
   if (!bot || !machine)
     return (
-      <Screen title="Spade" namedByPanel>
+      <Screen page="spade" title="Spade" namedByPanel>
         <div className={`${readingColumn} pt-6`}>
           {!line.ready ? (
             <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />

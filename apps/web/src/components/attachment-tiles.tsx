@@ -95,6 +95,8 @@ function Tile(props: TileProps & { url: ImageState }) {
     <button
       type="button"
       aria-label={props.more ? `Show ${props.more} more images` : undefined}
+      data-part="attachment"
+      data-variant="image"
       onClick={(event) => props.onOpen(event.currentTarget)}
       style={style}
       className={cn("focus-ring relative block overflow-hidden bg-secondary", corner)}

@@ -1,6 +1,7 @@
 import { useRef, type KeyboardEvent } from "react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { paletteScopes, type PaletteScope } from "./arrange.ts";
 
 /** The scope after `scope`, `by` steps along, wrapping round. */
@@ -64,6 +65,7 @@ export function ScopeTabs(props: {
       className="flex shrink-0 items-center gap-0.5 px-2 pt-2"
       role="tablist"
       aria-label="Search in"
+      {...part("tabs", undefined, "search-scope")}
       onKeyDown={onKeyDown}
     >
       {paletteScopes.map(({ id, label }) => {
@@ -74,6 +76,7 @@ export function ScopeTabs(props: {
             type="button"
             role="tab"
             aria-selected={open}
+            {...part("tab", open && "selected")}
             // Out of the Tab order, so the palette opens with the caret in its field; ⇧Tab in
             // the field brings focus here.
             tabIndex={-1}

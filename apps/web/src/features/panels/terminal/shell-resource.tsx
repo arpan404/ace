@@ -37,6 +37,7 @@ import type { TerminalSurface } from "./surface.ts";
 import { shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
+import { useTerminalLook } from "./terminal-look.ts";
 import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { stopTask } from "@/lib/live-actions.ts";
@@ -116,6 +117,7 @@ function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
     return screen.rows();
   }, [shown]);
   const [mark, setMark] = useState<ScreenMark>();
+  const look = useTerminalLook();
   const surface = useRef<TerminalSurface | null>(null);
   useScreenSurface(
     (next) => {
@@ -155,7 +157,12 @@ function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
               {task.status === "running" ? "No output yet." : "It printed nothing."}
             </p>
           ) : (
-            <ScreenRows rows={rows} label={`${shellLabel(task.title)} output`} mark={mark} />
+            <ScreenRows
+              rows={rows}
+              label={`${shellLabel(task.title)} output`}
+              mark={mark}
+              look={look}
+            />
           )}
           {ui.find && (
             <FindBar

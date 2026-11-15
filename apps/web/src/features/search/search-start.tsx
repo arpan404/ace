@@ -17,6 +17,7 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 
@@ -43,7 +44,7 @@ const row =
 
 function Group(props: { id: string; label: string; children: ReactNode }) {
   return (
-    <section aria-labelledby={props.id} className="pb-1">
+    <section {...part("list-group")} aria-labelledby={props.id} className="pb-1">
       <h2 id={props.id} className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-muted-foreground">
         {props.label}
       </h2>
@@ -78,11 +79,11 @@ export function SearchStart(props: {
     void run();
   };
   return (
-    <div className="flex flex-col gap-1">
+    <div {...part("list", undefined, "start")} className="flex flex-col gap-1">
       {threads.length > 0 && (
         <Group id="search-start-threads" label="Recent threads">
           {threads.map((thread) => (
-            <li key={thread.id}>
+            <li {...part("list-row")} key={thread.id}>
               <button
                 type="button"
                 className={row}
@@ -103,7 +104,11 @@ export function SearchStart(props: {
       {props.recent.length > 0 && (
         <Group id="search-start-recent" label="Recent searches">
           {props.recent.map((query) => (
-            <li key={query} className="group flex items-center gap-1 rounded-md hover:bg-accent">
+            <li
+              {...part("list-row")}
+              key={query}
+              className="group flex items-center gap-1 rounded-md hover:bg-accent"
+            >
               <button
                 type="button"
                 onClick={() => props.onPick(query)}
@@ -125,7 +130,7 @@ export function SearchStart(props: {
       )}
       <Group id="search-start-commands" label="Commands">
         {commands.map((command) => (
-          <li key={command.to}>
+          <li {...part("list-row")} key={command.to}>
             <button
               type="button"
               className={row}

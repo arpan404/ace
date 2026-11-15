@@ -18,6 +18,7 @@ export function AutomationsEmptyScreen() {
     return (
       <ViewListPage
         title="Automations"
+        page="automations"
         fallback={
           <Navigate
             to="/automations/$automationId"
@@ -29,7 +30,7 @@ export function AutomationsEmptyScreen() {
     );
   if (list.isError && !list.data)
     return (
-      <Screen title="Automations" namedByPanel>
+      <Screen page="automations" title="Automations" namedByPanel>
         <EmptyState
           icon={TimerIcon}
           title="Automations unavailable"
@@ -45,12 +46,12 @@ export function AutomationsEmptyScreen() {
   // Until the list arrives there's nothing to say: the sidebar shows its skeleton.
   if (!list.data)
     return (
-      <Screen title="Automations" namedByPanel>
+      <Screen page="automations" title="Automations" namedByPanel>
         {null}
       </Screen>
     );
   return (
-    <Screen title="Automations" namedByPanel>
+    <Screen page="automations" title="Automations" namedByPanel>
       <EmptyState
         icon={TimerIcon}
         heading

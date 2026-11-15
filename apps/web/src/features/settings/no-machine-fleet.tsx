@@ -18,6 +18,7 @@ import {
   useAccountMachines,
 } from "@/features/ace-account/index.ts";
 import { DaemonForm, PairingForm } from "@/features/connect/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const none: readonly { id: string }[] = [];
 
@@ -146,7 +147,11 @@ function AccountMachines() {
   if (!session)
     return (
       <p className="py-3 text-xs text-muted-foreground">
-        <Link to="/settings/profile" className="text-foreground underline underline-offset-3">
+        <Link
+          to="/settings/profile"
+          {...part("link")}
+          className="text-foreground underline underline-offset-3"
+        >
           Sign in
         </Link>{" "}
         to open the machines on your ace account.

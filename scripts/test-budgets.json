@@ -12,6 +12,7 @@
     "apps/web/src/features/thread/audit-lifecycle.test.tsx": "TODO cleanup (18.4s in the 2026-10 timing run)",
     "apps/web/src/features/thread/transcript-live-state.test.tsx": "TODO cleanup (18.2s in the 2026-10 timing run)",
     "apps/web/src/features/search/search.test.tsx": "TODO cleanup (17.9s in the 2026-10 timing run)",
+    "apps/web/src/features/forge-pages/forge-suit-parts.test.tsx": "One app per Code review page (8), each needing its own fake repository; 5.5s with the first open's PR chunk load (1.5s) on 2026-11-14 at load 300. Shares the chunk preload; merging pages into one harness would couple their seeded repositories",
     "apps/web/src/features/forge/browser.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",
     "apps/web/src/features/projects/edit-project.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",
     "apps/web/src/features/home/new-thread/preparations.test.tsx": "TODO cleanup (16.9s in the 2026-10 timing run)",
@@ -122,6 +123,8 @@
     "apps/web/src/features/skills/skill-control.test.tsx": "TODO cleanup (5.1s in the 2026-10 timing run)",
     "apps/web/src/features/panels/preview/preview.test.tsx": "TODO cleanup (5.1s in the 2026-10 timing run)",
     "packages/settings/src/containment.test.ts": "TODO cleanup (5.1s in the 2026-10 timing run)",
+    "apps/web/src/features/suits/suit-parts-drift.test.tsx": "The contract's coverage test must see every screen's list in one file; 13.5s at load 300 on 2026-11-14, 3.9s of it the first full-app render, which a split would repeat per file. Each screen needs its own scenario, so one harness can't serve them",
+    "apps/web/src/features/suits/suit-pages-drift.test.tsx": "Walks all 60 routed addresses in one harness (about 250ms each, 15.8s at load 300 on 2026-11-14); one harness is already the cheapest walk and splitting would repeat the boot per file",
     "apps/daemon/src/machines/child-schedule.test.ts": "Property simulations of the remote-child scheduler on machines of up to 1,000 children, turn by turn over minutes (about 35s under heavy load on 2026-11-14); the pure module's whole cost, no I/O"
   },
   "process": {

@@ -45,6 +45,8 @@ export function IssueRow(props: {
       url={row.url}
       forge={row.ref.repository.forge}
       last={props.last}
+      part="issue-row"
+      variant={row.state}
       menu={openThread && <MenuItem onClick={openThread}>Open thread</MenuItem>}
       onNewThread={() =>
         void navigate({ to: "/new", search: { project: props.project, issue: row.url } })

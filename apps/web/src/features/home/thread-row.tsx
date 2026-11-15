@@ -26,6 +26,7 @@ import { TaskLines, taskRowHeight } from "./task-lines.tsx";
 import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 import { SnoozeRequestContext } from "./snooze-request.ts";
+import { part } from "@/lib/suit-part.ts";
 
 // The panel's one row line (`panelRowLine`), apart by space, not rules: the list sits inset from
 // the sidebar's edges, and hover and the open thread fill a soft rounded box.
@@ -89,6 +90,8 @@ export function ThreadRow(props: {
   compactActions?: boolean | undefined;
   /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
+  /** The row's Suit part (docs/design/suit-parts.md): a chat's is `chat-row`. */
+  part?: "thread-row" | "chat-row" | undefined;
   /**
    * What a one-line row ends with: its status mark (a chat's), or its work (`work`: the pull
    * request and lines changed, a snoozed or settled row's), unless it needs the person.
@@ -134,6 +137,13 @@ export function ThreadRow(props: {
     entry.live?.account ??
     entry.execution?.instanceId;
   const actions = rowActive.active && !renaming;
+  const rowState = current
+    ? "active"
+    : selected
+      ? "selected"
+      : card.announceUnread
+        ? "unread"
+        : undefined;
   const task = props.lead === "task";
   const title = renaming ? (
     <RenameField
@@ -174,6 +184,7 @@ export function ThreadRow(props: {
         </span>
       )}
       <span
+        data-part="thread-title"
         className={cn(
           "min-w-0 flex-1 truncate",
           // Attention is brightness alone: what needs the person and the open thread in full ink.
@@ -188,7 +199,10 @@ export function ThreadRow(props: {
         {title}
       </span>
       {!actions && !renaming && (
-        <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
+        <span
+          data-part="thread-meta"
+          className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden"
+        >
           {/* A snoozed or settled row ends with its work (PR, lines changed) unless it needs the person. */}
           {props.end === "work" &&
           attention.level !== "needs-you" &&
@@ -227,12 +241,18 @@ export function ThreadRow(props: {
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
-              <div className={cn(row, task && taskRowHeight)}>{body}</div>
+              <div
+                {...part(props.part ?? "thread-row", rowState)}
+                className={cn(row, task && taskRowHeight)}
+              >
+                {body}
+              </div>
             ) : (
               <Link
                 {...threadOn(machine?.id, entry.id)}
                 aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${spoken.join(", ")}`}
                 data-row-focus=""
+                {...part(props.part ?? "thread-row", rowState)}
                 draggable={false}
                 className={cn(
                   row,

@@ -80,6 +80,8 @@ function ToastCard({ toast }: { toast: ToastObject }) {
       // Base UI hides a high-priority toast from assistive tech until it has focus (its live
       // region reads it out); an error's Retry and Dismiss must still be reachable.
       aria-hidden={false}
+      data-part="toast"
+      data-variant={toast.type ?? "plain"}
       className={cn(
         overlaySurface,
         "group/toast pointer-events-auto absolute inset-x-0 top-0 z-[calc(10-var(--toast-index))] rounded-lg text-popover-foreground",
@@ -139,6 +141,8 @@ function ToastCard({ toast }: { toast: ToastObject }) {
           </button>
         )}
         <Toast.Action
+          data-part="button"
+          data-variant="primary"
           // A toast's one action is its primary one, at the bottom right.
           className={cn(
             buttonVariants({ variant: "primary", size: "xs" }),

@@ -19,7 +19,7 @@ export function FileRow(props: {
   const name = props.path.split("/").at(-1) ?? props.path;
   const folder = props.path.slice(0, props.path.length - name.length);
   return (
-    <li>
+    <li data-part="list-row" data-variant="file">
       <button
         type="button"
         title={props.path}
