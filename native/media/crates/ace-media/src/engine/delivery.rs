@@ -532,6 +532,8 @@ impl Delivery {
         let at = now_ms as f64;
         view.rate.acknowledged(sequence, at);
         view.fanout.limit_bytes(budget_bytes(view, share));
+        // Chunks sent from now are due by the link's round trip (media-core's deadlines).
+        view.fanout.set_round_trip(view.rate.rtt());
         let mut events = Vec::new();
         let mut sent = 0;
         {
@@ -541,8 +543,10 @@ impl Delivery {
                 connection,
                 ..
             } = view;
-            fanout.acknowledge(
+            // A view's sequences only increase, across encodes: an ack covers everything before.
+            fanout.acknowledge_through(
                 sequence,
+                at,
                 |piece| match send(out, connection, held, piece) {
                     Some(bytes) => {
                         sent += bytes;
@@ -699,6 +703,7 @@ impl Delivery {
                         key: built.key,
                         bytes: built.bytes,
                     },
+                    now_ms as f64,
                     |piece| match send(out, connection, held, piece) {
                         Some(bytes) => {
                             sent += bytes;
@@ -772,6 +777,11 @@ impl Delivery {
                 }
                 Event::Dropped => {
                     view.rate.dropped(at);
+                    view.dropped += 1;
+                }
+                // Chunks unacked past their deadline: a loss, which cuts the rate.
+                Event::Lost => {
+                    view.rate.lost(at);
                     view.dropped += 1;
                 }
                 Event::Keyframe => keyframe = true,
@@ -859,6 +869,7 @@ impl Delivery {
                     codecs: list,
                     link: link * share(&v.session),
                     scale: v.viewport.scale.get().clamp(0.05, 1.0),
+                    fps: 60.0,
                 }
             })
             .collect();
@@ -1015,6 +1026,11 @@ impl Delivery {
 
     /// Every 100 ms: `viewer.stats` once a second, and plans that follow the links' rates.
     pub fn tick(&mut self, now_ms: u64, out: &mut Vec<Effect>) {
+        // Chunks past their deadline are let go even when nothing else happens to a view.
+        let keys: Vec<String> = self.views.keys().cloned().collect();
+        for key in keys {
+            self.expire(&key, now_ms, out);
+        }
         if now_ms.saturating_sub(self.last_stats) < STATS_MS {
             return;
         }
@@ -1040,6 +1056,41 @@ impl Delivery {
         sources.dedup();
         for source in sources {
             self.replan(&source, now_ms, out);
+        }
+    }
+}
+
+impl Delivery {
+    /// Lets one view's fanout let go of chunks past their deadline, sending what that frees.
+    fn expire(&mut self, key: &str, now_ms: u64, out: &mut Vec<Effect>) {
+        let Some(view) = self.views.get_mut(key) else {
+            return;
+        };
+        let mut events = Vec::new();
+        let mut sent = 0;
+        {
+            let View {
+                fanout,
+                held,
+                connection,
+                ..
+            } = view;
+            fanout.flush(
+                now_ms as f64,
+                |piece| match send(out, connection, held, piece) {
+                    Some(bytes) => {
+                        sent += bytes;
+                        true
+                    }
+                    None => false,
+                },
+                |e| events.push(e),
+            );
+            held.retain(|(sequence, _)| fanout.queued(*sequence));
+        }
+        self.bytes_out += sent;
+        if !events.is_empty() {
+            self.events(key, events, now_ms, out);
         }
     }
 }
