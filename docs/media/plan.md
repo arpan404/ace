@@ -1769,7 +1769,17 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
 - **Bench.** `packages/browser/bench/media-link.ts` in `check:perf`, enforced below a load
   average of 24. A 5 s run at load about 1,000 (debug build): median 58 fps, p10 55, daemon video
   bytes 0, local hop +11 ms at p95. The numbers are owed on a quiet machine with a release build.
+- **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
+  into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
+  them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
+  the view's request applies at once, and a tick applies the capped request again only when
+  its step (fps, width, height) changed or its bit rate moved more than 15 % from the one last
+  applied (`reapply`; a move from 0 always counts, as TypeScript's division does).
 - **Owed.**
+  - Link follow's shared vectors, generated from the TypeScript `LinkFollow` (scripted links,
+    the applies it makes) and replayed in Rust through `link_capped` and `PictureScale`; and
+    wiring `LinkFollow` into ace-media's device and screen views. Both need M2b (#2037) on
+    `main`, which holds the TypeScript `LinkFollow` and the Rust step scale.
   - The TLS listener from `listen` (LAN and Tailscale clients); `media.connect` gives only a
     loopback URL today.
   - `live-video.ts` as a thin driver: applying `source.want` to producers (`aceVideo.encodes`,
