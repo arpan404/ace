@@ -132,7 +132,11 @@ export function FileToolbar(props: {
   const offline = props.online ? undefined : "ace is offline";
   const saving = actions.saving?.path === path ? actions.saving : undefined;
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5">
+    <div
+      data-part="panel-toolbar"
+      data-variant="files"
+      className="flex h-10 shrink-0 items-center gap-1 border-b pr-2 pl-2.5"
+    >
       <Breadcrumb project={props.project} path={path} onFolder={props.onFolder} />
       {path && (
         <div className="flex shrink-0 items-center gap-0.5">

@@ -167,6 +167,49 @@ On these pages:
 | `menu-item`    | A model in the model picker (`option`), its Legacy models row (`submenu`).                                                             | `checked`, `disabled`, `open`, `closed`                         | `option`, `submenu`                                                                                                                                             |
 | `tabs` / `tab` | The model picker's rail of sources.                                                                                                    | `selected`, `disabled` (tab)                                    | `model-sources` (tabs)                                                                                                                                          |
 
+## Side panel
+
+The side panel (and the bottom panel) is the `right-panel` region: it reads
+`--suit-right-panel-background`, `-border`, `-shadow` and `-backdrop-filter`, lets
+`reveal["right-panel"]` of the app scene through (solid by default), and runs `scenes["right-panel"]`
+behind its tabs. Every tab carries its kind as `data-variant` on `panel-tab` and `panel-body`:
+`changes`, `files`, `terminal`, `browser`, `preview`, `port`, `logs`, `work`, `devices`,
+`new-tab`, `pull-request`, and any tool a later version adds.
+
+| Part            | What and where                                                                                                                            | States                                                           | Variants                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `panel-tab`     | One tab in the panel's strip, around its `tab` button and close.                                                                          | `selected`                                                       | the tab's kind                                                                                 |
+| `panel-body`    | A tab's content area, under the strip.                                                                                                    | `active` (shown)                                                 | the tab's kind                                                                                 |
+| `panel-toolbar` | A tab's own toolbar: Changes', Files', the browser's and its device bar, Logs', and the strip's actions for the shown tab.                |                                                                  | `changes`, `files`, `browser`, `device`, `logs`, `<kind>-actions`                              |
+| `terminal-tab`  | A terminal's tab around its screen: the offline line, the `terminal`, Find and the exit line.                                             | `done` (the shell exited)                                        |                                                                                                |
+| `list`          | A list in a tab: the agent tree, the launcher's tools and suggestions, logs, dev servers, downloads, the console, deleted files.          |                                                                  | `agents`, `tools`, `suggested`, `logs`, `dev-servers`, `downloads`, `console`, `deleted`       |
+| `list-row`      | One row: a file tree's file or folder, an agent, a changed file, a log line, a dev server, a download, a console message, a deleted file. | `selected` (file trees), `working`, `done`, `failed` (downloads) | `file`, `folder`, `agent`, `info`, `warn`, `error`, `dev-server`, `download`, `log`, `deleted` |
+| `card`          | A tool or a suggested site in the launcher.                                                                                               |                                                                  | the tool's kind; `site`, `port`                                                                |
+| `diff-file`     | One file's diff in Changes, with its sticky header.                                                                                       | `open`, `closed`                                                 | the file's status: `modified`, `added`, `deleted`, `renamed`                                   |
+| `diff-line`     | One line of a diff drawn as text (the GPU renderer draws on a canvas, like the terminal).                                                 |                                                                  | `add`, `del`, `context`; `empty` for a split side with no line                                 |
+
+`file-tree` (`changes`, `files`) and `browser-panel` are listed under "Pages and panels".
+
+## Terminal
+
+The terminal draws on a canvas, so `suit.css` styles its frame (`terminal`, `terminal-tab`) but
+not its text. `suit.json`'s `terminal` sets the rest:
+
+- `light` / `dark`: `background`, `foreground`, `cursor`, `cursorAccent`, `selection` (8-digit
+  hex for alpha) and `ansi` (the 16 names, `black` … `brightWhite`). Unset ones are derived from
+  the Suit's palette. ANSI colours are lifted until they read at 3:1 on the background and the
+  foreground at 4.5:1, as for a built-in theme. A foreground under 4.5:1 on its background is a
+  `contrast` problem at `terminal.<scheme>.foreground` (or `.background`).
+- `fontFamily`: a bundled font's `family` from `fonts` (its file is loaded before the grid is
+  measured) or a system stack. `fontSize` (9–24), `lineHeight` (1–2, times the size),
+  `letterSpacing` (px), `cursorStyle` (`block`, `bar`, `underline`), `cursorBlink`.
+- `reveal` (0–1): how much of the panel's background or scene shows behind the text, held under
+  what keeps the text readable.
+
+A new Suit restyles open terminals in place; their sessions and scrollback stay.
+
 ## Changes
 
 - Version 1, 2026-11-14: `nav-item` added.
+- Version 1, 2026-11-14: side panel parts (`panel-tab`, `panel-body`, `panel-toolbar`,
+  `terminal-tab`) and their rows, lists, cards, diff files and diff lines are drawn.

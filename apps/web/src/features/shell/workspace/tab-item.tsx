@@ -82,6 +82,9 @@ export function TabItem(props: {
       <ContextMenuTrigger
         render={
           <div
+            data-part="panel-tab"
+            data-state={props.active ? "selected" : undefined}
+            data-variant={tab.kind}
             data-tab-key={tab.key}
             data-close-room={closable}
             draggable
