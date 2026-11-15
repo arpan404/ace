@@ -309,7 +309,11 @@ async fn nothing_the_person_types_reaches_the_note_the_store_or_the_model() -> R
             .any(|s| s.body.to_string().contains(secret));
         assert!(!seen, "{secret} reached the model");
     }
-    let record = std::fs::read_dir(machine.root.path().join("computer"))?.count();
+    // Only the take-over record goes; `used/` (the surfaces a bot has had) stays by design.
+    let record = std::fs::read_dir(machine.root.path().join("computer"))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name() != "used")
+        .count();
     assert_eq!(
         record, 0,
         "the take-over record is gone after the hand-back"

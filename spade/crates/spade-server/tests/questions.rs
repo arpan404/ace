@@ -279,7 +279,8 @@ async fn answer_later_carries_the_turn_on_and_the_late_answer_opens_one_reply_ac
     assert_eq!(result.map(|e| e["content"].clone()), Some(json!(DEFERRED)));
     assert_eq!(count(&events, "reply_finished"), 1, "the turn carried on");
     assert_eq!(agent(&spade, &bot).await?["state"], "idle");
-    assert_eq!(for_later(&spade, &bot, &chat).await?, (json!(1), json!(1)));
+    // The card asks three questions, and the count is of questions left, not cards.
+    assert_eq!(for_later(&spade, &bot, &chat).await?, (json!(3), json!(3)));
     let (status, _) = answer(&spade, &chat, "q1", json!({ "defer": true })).await?;
     assert_eq!(status, 409, "already left for later");
 
@@ -291,7 +292,7 @@ async fn answer_later_carries_the_turn_on_and_the_late_answer_opens_one_reply_ac
         .await?;
     assert_eq!(
         for_later(&spade, &bot, &chat).await?,
-        (json!(1), json!(1)),
+        (json!(3), json!(3)),
         "the count is taken from the stored events"
     );
     let (status, _) = answer(
