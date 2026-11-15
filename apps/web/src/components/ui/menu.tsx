@@ -244,11 +244,13 @@ function MenuCheckboxItem({ className, children, ...props }: MenuPrimitive.Check
 }
 
 function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
-  return <MenuPrimitive.Separator
+  return (
+    <MenuPrimitive.Separator
       data-part="divider"
       className={cn(menuSeparator, className)}
       {...props}
-    />;
+    />
+  );
 }
 
 function MenuLabel({ className, ...props }: MenuPrimitive.GroupLabel.Props) {

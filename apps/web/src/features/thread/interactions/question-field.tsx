@@ -83,6 +83,8 @@ export function QuestionField(props: {
         type={question.secret ? "password" : "text"}
         autoComplete="off"
         aria-label={`Something else: your answer to ${question.text}`}
+        data-part="input"
+        data-variant="inline"
         value={props.text}
         disabled={props.disabled}
         placeholder="Something else…"

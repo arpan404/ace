@@ -556,7 +556,7 @@ test("a group leads with its providers' marks, not a status glyph, and a child's
   expect(
     [...lead.querySelectorAll("[data-provider]")].map((mark) => mark.getAttribute("data-provider")),
   ).toEqual(["codex"]);
-  expect(header.querySelector('[data-slot="status-glyph"]')).toBeNull();
+  expect(header.querySelector("[data-slot=status-glyph]")).toBeNull();
   expect(within(pair).getByRole("status").textContent).toBe("2 working");
   await userEvent.click(header);
   const second = within(pair).getByRole("link", { name: "Open Review second, Running" });

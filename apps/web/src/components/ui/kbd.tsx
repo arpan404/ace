@@ -53,7 +53,8 @@ function Kbd({
   if (parts.length > 1)
     return (
       <kbd
-        data-slot="kbd" data-part="kbd"
+        data-slot="kbd"
+        data-part="kbd"
         className={cn(
           "inline-flex items-center gap-1 font-sans text-2xs text-muted-foreground pointer-coarse:hidden",
           "in-data-[slot=tooltip-content]:text-current",

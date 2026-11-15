@@ -38,7 +38,8 @@ export function Screen(
       id="main"
       data-part="main"
       tabIndex={-1}
-      className="relative min-h-0 flex-1 outline-none">
+      className="relative min-h-0 flex-1 outline-none"
+    >
       {props.children}
     </main>
   );

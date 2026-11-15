@@ -52,7 +52,7 @@ export function SettingsBody(props: {
     // The sidebar already says Settings and the page names itself below: the header keeps only
     // its controls, with the view's name for assistive tech.
     <Screen title="Settings" namedByPanel actions={props.actions}>
-      <div className="h-full overflow-auto">
+      <div data-part="scrollbar" className="h-full overflow-auto">
         {/* Inside the scroller, so a wide view measures the room it gives, scrollbar left out. */}
         <div className={cn(props.wide && "@container")}>
           <div

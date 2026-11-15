@@ -44,7 +44,7 @@ test("the Inbox spans projects, and the arrows walk its rows both ways", async (
   // A row leads with its project's mark and name and its status, then its title.
   expect(rowText(first)).toMatch(/^ace.*Last task/);
   expect(first.querySelector('[data-icon="working"]')).toBeTruthy();
-  expect(first.querySelector("[data-live], .fx-live-dot, [data-slot="status-glyph"]")).toBeNull();
+  expect(first.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]")).toBeNull();
   expect(first.querySelector("[data-project-mark]")?.textContent).toBe("AC");
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
@@ -88,7 +88,7 @@ test("failed and working tasks say so in their names and icons, with no status w
     within(failed).getByRole("img", { name: "Failed" }).querySelector('[data-icon="failed"]'),
   ).toBeTruthy();
   expect(within(failed).queryByText("Failed", { exact: true })).toBeNull();
-  expect(failed.querySelector("[data-live], .fx-live-dot, [data-slot="status-glyph"]")).toBeNull();
+  expect(failed.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]")).toBeNull();
   const working = nav.getByRole("link", { name: /^Last task/ });
   expect(working.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(working.getAttribute("aria-label")).toContain("Working");
