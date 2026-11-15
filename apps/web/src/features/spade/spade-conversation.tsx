@@ -1,17 +1,17 @@
 import {
   spadeForLaterWords,
-  spadeBubbles,
   spadeLiveSurfaces,
   spadeStateLine,
   spadeStepsQuery,
   spadeStepsWithActivity,
   spadeTaskLine,
-  type SpadeChatItem,
   type SpadeStep,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -27,8 +27,15 @@ import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
-import { ComputerPanel, type FilesAt } from "./computer/computer-view.tsx";
-import { panelWidth, readPanel, writePanel, type PanelSection } from "./computer/panel-place.ts";
+import type { FilesAt } from "./computer/profile-computer.tsx";
+import {
+  panelWidth,
+  readPanel,
+  writePanel,
+  type ComputerView,
+  type ProfileTab,
+} from "./computer/panel-place.ts";
+import { ProfileStripActions, SpadeProfile } from "./spade-profile.tsx";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
 import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -42,10 +49,10 @@ import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { spadeWorks } from "./spade-works.ts";
 
-/** A window too narrow for the panel beside a readable chat: the panel covers the chat. */
-const coverQuery = "(max-width: 59.99rem)";
-/** The chat column keeps this much beside the panel. */
-const chatMin = 400;
+/** Below 680px the profile takes the window (docs/design/spade.md §1). */
+const coverQuery = "(max-width: 679.98px)";
+/** The chat column keeps this much beside the profile. */
+const chatMin = 360;
 
 /** The oldest card left for later: scrolled to and focused, its inputs ready. */
 const showCard = (callId: string | undefined) => {
@@ -57,17 +64,18 @@ const showCard = (callId: string | undefined) => {
 const storage = () => (typeof localStorage === "undefined" ? undefined : localStorage);
 
 /**
- * A bot's conversation under its pill, which names the bot and opens its profile, with its right panel (the computer's Browser, Screen, Terminal and Files,
- * its Activity and its Helpers) beside it when open: opened by Computer in the top bar ("Computer
- * · in use" while the bot uses it), by Watch on the working line and by a file chip, resizable
- * from its edge. Open or closed, its section and its width are remembered per bot. In a narrow
- * window the panel covers the chat at full height, with Chat to go back. `computer` (the
- * route's) is the section the panel shows; `files` where its file manager is.
+ * A bot's conversation under its pill, with its profile (Details, Library, Computer) beside it
+ * when open: opened by the pill, by the profile toggle in the top bar, by Watch on the working
+ * line (on Computer, at what it uses) and by a file chip (on its Files), resizable from its edge.
+ * Open or closed, its tab, Computer's view and its width are remembered per bot. Below 680px it
+ * takes the window, with ‹ Chat to go back. `profile` (the route's) is the tab it shows,
+ * `computer` what Computer shows and `files` where its file manager is.
  */
 export function Conversation(props: {
   bot: RosterBot;
   roster: readonly RosterBot[];
-  computer: PanelSection | undefined;
+  profile: ProfileTab | undefined;
+  computer: ComputerView | undefined;
   files: FilesAt;
 }) {
   const { bot } = props;
@@ -92,7 +100,7 @@ export function Conversation(props: {
   const covering = useMediaQuery(coverQuery, false);
   const memoryKey = `${bot.machine.key}/${bot.id}`;
   const [width, setWidth] = useState(() => readPanel(storage(), memoryKey).width);
-  const section = props.computer;
+  const tab = props.profile;
   const go = (to: BotPlace, replace = false) =>
     void navigate({
       to: "/spade/$agentId",
@@ -100,29 +108,47 @@ export function Conversation(props: {
       search: botSearch(bot, to),
       replace,
     });
-  const openPanel = (to: PanelSection, place: Omit<BotPlace, "computer"> = {}) =>
-    go({ computer: to, ...place });
+  /** Computer, on what it shows (and where its files are). */
+  const openComputer = (shows: ComputerView, files?: FilesAt) =>
+    go({
+      profile: "computer",
+      computer: shows,
+      ...(files ? { files: files.folder, ...(files.file ? { file: files.file } : {}) } : {}),
+    });
   const closePanel = () => {
     writePanel(storage(), memoryKey, { ...readPanel(storage(), memoryKey), open: false });
     go({});
   };
-  // The panel as the person left it for this bot: opened again on arrival, without a new
+  // The profile as the person left it for this bot: opened again on arrival, without a new
   // history entry; whatever the route says after that is remembered.
   const arrived = useRef(false);
   useEffect(() => {
     const remembered = readPanel(storage(), memoryKey);
     if (!arrived.current) {
       arrived.current = true;
-      if (section === undefined && remembered.open) {
-        go({ computer: remembered.section }, true);
+      if (tab === undefined && remembered.open) {
+        go(
+          {
+            profile: remembered.tab,
+            ...(remembered.tab === "computer" && remembered.view
+              ? { computer: remembered.view }
+              : {}),
+          },
+          true,
+        );
         return;
       }
     }
-    if (section !== undefined)
-      writePanel(storage(), memoryKey, { ...remembered, open: true, section });
-    // `go` is a new function each render; the route's section is what this follows.
+    if (tab !== undefined)
+      writePanel(storage(), memoryKey, {
+        ...remembered,
+        open: true,
+        tab,
+        view: props.computer ?? remembered.view,
+      });
+    // `go` is a new function each render; the route's tab and view are what this follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, memoryKey]);
+  }, [tab, props.computer, memoryKey]);
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
@@ -155,19 +181,12 @@ export function Conversation(props: {
   );
   const live = spadeLiveSurfaces(computer.computer);
   const using = live[0];
-  const helpers = useMemo(
-    () =>
-      spadeBubbles(view).filter(
-        (item): item is Extract<SpadeChatItem, { kind: "helper" }> => item.kind === "helper",
-      ),
-    [view],
-  );
-  const panelShown = section !== undefined;
+  const panelShown = tab !== undefined;
 
   const chat = (
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{bot.name}</h1>
-      <ConversationPill bot={bot} onOpen={openProfile} />
+      <ConversationPill bot={bot} onOpen={() => openProfile()} />
       <Scroller
         top="pill"
         seen={
@@ -189,8 +208,12 @@ export function Conversation(props: {
           <SpadeChat
             bot={chatBot}
             view={view}
-            // While it uses its computer and the panel is closed, Watch opens it there.
-            onWatch={using && !panelShown ? () => openPanel(using.kind) : undefined}
+            // While it uses its computer and Computer isn't showing, Watch opens it there.
+            onWatch={
+              using && !(panelShown && tab === "computer")
+                ? () => openComputer(using.kind)
+                : undefined
+            }
             paused={computer.paused}
             task={task}
             onAnswer={(callId, answer) =>
@@ -216,7 +239,7 @@ export function Conversation(props: {
               )
             }
             onOpenFile={(path) =>
-              openPanel("files", { files: path.split("/").slice(0, -1).join("/"), file: path })
+              openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path })
             }
             endpointName={endpointName}
             onHelperSteps={conversation.helperSteps}
@@ -252,19 +275,18 @@ export function Conversation(props: {
     </div>
   );
 
-  const panel = section && (
-    <ComputerPanel
+  const panel = tab && (
+    <SpadeProfile
       bot={bot}
-      state={computer}
-      section={section}
-      onSection={(to) => openPanel(to, to === "files" ? { files: props.files.folder } : {})}
-      files={props.files}
-      onFiles={(to) =>
-        openPanel("files", { files: to.folder, ...(to.file ? { file: to.file } : {}) })
-      }
-      side={conversation.side}
-      helpers={helpers}
-      onHelperSteps={conversation.helperSteps}
+      tab={tab}
+      onTab={(next) => go({ profile: next })}
+      computer={{
+        view: props.computer,
+        files: props.files,
+        onView: openComputer,
+        state: computer,
+        side: conversation.side,
+      }}
       covering={covering}
       onClose={closePanel}
     />
@@ -273,7 +295,7 @@ export function Conversation(props: {
   return (
     <ConversationScreen
       actions={
-        // Covered by the panel, the chat comes back by the panel's own Chat.
+        // Covered by the profile, the chat comes back by the profile's own ‹ Chat.
         !(panelShown && covering) && (
           <>
             {view.questionsForLater > 0 && (
@@ -281,25 +303,18 @@ export function Conversation(props: {
                 {spadeForLaterWords(view.questionsForLater)}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-pressed={panelShown}
-              aria-label={using ? "Computer, in use" : "Computer"}
-              onClick={() =>
-                panelShown
-                  ? closePanel()
-                  : openPanel(using?.kind ?? readPanel(storage(), memoryKey).section)
-              }
-            >
-              {using ? (
-                <>
-                  Computer<span className="text-muted-foreground">{" · in use"}</span>
-                </>
-              ) : (
-                "Computer"
-              )}
-            </Button>
+            {panelShown ? (
+              // The top bar's part above the profile holds its strip: Share and close.
+              <ProfileStripActions bot={bot} onClose={closePanel} />
+            ) : (
+              <IconButton
+                icon={SidebarSimpleIcon}
+                label={`Open ${bot.name}'s profile`}
+                tip="Profile"
+                className="-scale-x-100"
+                onClick={() => openProfile()}
+              />
+            )}
           </>
         )
       }
@@ -312,10 +327,9 @@ export function Conversation(props: {
           {chat}
         </div>
         {panel && (
-          <aside
-            aria-label="Panel"
-            // Beside the chat the chat keeps a readable column; in a narrow window the panel
-            // covers it at full height.
+          <div
+            // Beside the chat the chat keeps a readable column; in a narrow window the profile
+            // takes the window.
             style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
             className={cn(
               "bg-panel",
@@ -324,7 +338,7 @@ export function Conversation(props: {
           >
             {!covering && (
               <ResizeHandle
-                label="Panel width"
+                label="Profile width"
                 edge="left"
                 size={width}
                 min={panelWidth.min}
@@ -346,7 +360,7 @@ export function Conversation(props: {
               />
             )}
             {panel}
-          </aside>
+          </div>
         )}
       </div>
     </ConversationScreen>

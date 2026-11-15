@@ -1,12 +1,7 @@
 import { spadeNoteMax, type SpadeNote } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
-import {
-  SettingList,
-  SettingListItem,
-  SettingNote,
-  SettingRow,
-} from "@/components/setting-row.tsx";
+import { useEffect, useState } from "react";
+import { SettingAddRow, SettingList, SettingListItem } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -21,6 +16,7 @@ import {
   type SpadeNotesScope,
 } from "./spade-notes-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { ProfileEmpty, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 
 /** Every notes read; one scope's under `[...notesKey, machine key, scope]`. */
 export const notesKey = ["spade", "notes"] as const;
@@ -35,12 +31,19 @@ type Saved =
   | { kind: "changed"; note: SpadeNote | undefined };
 
 /**
- * What a bot remembers, or what every bot knows about the person (ADR 0128), as a list edited
- * in place: a note's text opens it for editing, Delete removes it, the last row adds one.
- * Notes compaction suggested from untrusted content wait above, under Suggested, to be kept or
- * dismissed. Put it in a card.
+ * What a bot remembers, or what every bot knows about the person (ADR 0128), as a section of its
+ * profile's Library, edited in place: a note's text opens it (↵ saves, Esc puts it back), Delete
+ * removes it, Add a note adds one. Notes suggested from untrusted content wait first, with
+ * Dismiss and Keep.
  */
-export function SpadeNotes(props: { scope: SpadeNotesScope; label: string; placeholder: string }) {
+export function SpadeNotes(props: {
+  scope: SpadeNotesScope;
+  /** The section's heading: Notes, or About you. */
+  heading: string;
+  /** The list's name for assistive tech ("Travel's memory"). */
+  label: string;
+  placeholder: string;
+}) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
@@ -88,26 +91,24 @@ export function SpadeNotes(props: { scope: SpadeNotesScope; label: string; place
         toast.error({ title: "Couldn't change the note", description: fault(error) });
         return { kind: "failed" };
       }
-      toast.error({ title: "Changed since you opened it" });
       await cache.invalidateQueries({ queryKey: key });
       const current = cache.getQueryData<SpadeNote[]>(key)?.find((note) => note.id === id);
       return { kind: "changed", note: current };
     }
   };
-  if (notes.isPending) return <ListSkeleton label="notes" shape="row" rows={2} />;
+  const section = (children: React.ReactNode) => (
+    <ProfileSection label={props.heading}>{children}</ProfileSection>
+  );
+  if (notes.isPending) return section(<ListSkeleton label="notes" shape="row" rows={2} />);
   // A failed read says so inline; with notes already read, the list and any open editor (and
   // its draft) stay.
   const failed = notes.isError && (
-    <SettingRow title="Couldn't read the notes" description={notes.error.message}>
-      <Button size="sm" variant="ghost" onClick={() => void notes.refetch()}>
-        Try again
-      </Button>
-    </SettingRow>
+    <ProfileProblem text="Couldn't read the notes" onRetry={() => void notes.refetch()} />
   );
-  if (notes.data === undefined) return failed;
+  if (notes.data === undefined) return section(failed);
   const suggested = notes.data.filter((note) => note.suggested);
   const kept = notes.data.filter((note) => !note.suggested);
-  return (
+  return section(
     <>
       {failed}
       {suggested.length > 0 && (
@@ -140,11 +141,12 @@ export function SpadeNotes(props: { scope: SpadeNotesScope; label: string; place
           )}
         </SettingList>
       )}
+      {kept.length === 0 && suggested.length === 0 && <ProfileEmpty>No notes yet.</ProfileEmpty>}
       <AddNote
         placeholder={props.placeholder}
         onAdd={(text) => change("Couldn't add the note", () => addNote(client, props.scope, text))}
       />
-    </>
+    </>,
   );
 }
 
@@ -154,44 +156,41 @@ function Suggested(props: {
   onKeep(id: string): void;
   onDismiss(id: string): void;
 }) {
-  const id = useId();
   return (
-    <>
-      <SettingNote id={id}>Suggested</SettingNote>
-      <SettingList aria-labelledby={id}>
-        {props.notes.map((note) => (
-          <SettingListItem key={note.id}>
-            <span className="min-w-0 flex-1 text-ui wrap-anywhere text-foreground">
-              {note.text}
-            </span>
-            <Button
-              size="xs"
-              variant="ghost"
-              aria-label={`Keep: ${note.text}`}
-              onClick={() => props.onKeep(note.id)}
-            >
-              Keep
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              aria-label={`Dismiss: ${note.text}`}
-              className="-mr-2.5"
-              onClick={() => props.onDismiss(note.id)}
-            >
-              Dismiss
-            </Button>
-          </SettingListItem>
-        ))}
-      </SettingList>
-    </>
+    <SettingList aria-label="Suggested">
+      {props.notes.map((note) => (
+        <SettingListItem key={note.id} className="gap-1.5">
+          <span className="min-w-0 flex-1 text-ui wrap-anywhere text-muted-foreground">
+            {note.text}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Dismiss: ${note.text}`}
+            className={rowPill}
+            onClick={() => props.onDismiss(note.id)}
+          >
+            Dismiss
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-label={`Keep: ${note.text}`}
+            className={rowPill}
+            onClick={() => props.onKeep(note.id)}
+          >
+            Keep
+          </Button>
+        </SettingListItem>
+      ))}
+    </SettingList>
   );
 }
 
 function NoteRow(props: { note: SpadeNote; onEdit(): void; onDelete(): void }) {
   const { note } = props;
   return (
-    <SettingListItem>
+    <SettingListItem className="group/note">
       <button
         type="button"
         aria-label={`Edit: ${note.text}`}
@@ -201,10 +200,10 @@ function NoteRow(props: { note: SpadeNote; onEdit(): void; onDelete(): void }) {
         {note.text}
       </button>
       <Button
-        size="xs"
+        size="sm"
         variant="ghost"
         aria-label={`Delete: ${note.text}`}
-        className="-mr-2.5"
+        className={`${rowPill} -mr-3 opacity-0 group-hover/note:opacity-100 group-focus-within/note:opacity-100 pointer-coarse:opacity-100`}
         onClick={props.onDelete}
       >
         Delete
@@ -226,12 +225,13 @@ function NoteEditor(props: {
   const { note } = props;
   const [base, setBase] = useState(note);
   const [text, setText] = useState(note.text);
+  const [changed, setChanged] = useState(false);
   if (note.updatedAt !== base.updatedAt && text === base.text) {
     setBase(note);
     setText(note.text);
   }
   return (
-    <SettingListItem>
+    <SettingListItem className="flex-col items-stretch gap-1">
       <NoteField
         value={text}
         onChange={setText}
@@ -242,15 +242,23 @@ function NoteEditor(props: {
           if (value === base.text) return true;
           const saved = await props.onSave(value, base.updatedAt);
           if (saved.kind === "changed" && saved.note) setBase(saved.note);
+          setChanged(saved.kind === "changed");
           return saved.kind === "saved";
         }}
       />
+      {changed && (
+        <p role="alert" className="text-xs text-(--status-needs-you-text)">
+          Changed since you opened it
+        </p>
+      )}
     </SettingListItem>
   );
 }
 
 function AddNote(props: { placeholder: string; onAdd(text: string): Promise<boolean> }) {
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  if (!open) return <SettingAddRow onClick={() => setOpen(true)}>Add a note</SettingAddRow>;
   return (
     <div data-setting-slot="" className="flex min-h-(--setting-row-height) items-center gap-2">
       <NoteField
@@ -259,10 +267,15 @@ function AddNote(props: { placeholder: string; onAdd(text: string): Promise<bool
         label={props.placeholder}
         placeholder={props.placeholder}
         action="Add"
+        onDone={() => {
+          setText("");
+          setOpen(false);
+        }}
         onSubmit={async (value) => {
           const added = await props.onAdd(value);
+          // Added: the field stays open, empty, for the next one.
           if (added) setText("");
-          return added;
+          return false;
         }}
       />
     </div>
@@ -311,11 +324,11 @@ function NoteField(props: {
         }}
         className="flex-1"
       />
-      <Button type="submit" size="sm" variant="ghost" disabled={!ready}>
+      <Button type="submit" size="sm" variant="ghost" className={rowPill} disabled={!ready}>
         {saving ? (props.action === "Save" ? "Saving…" : "Adding…") : props.action}
       </Button>
       {props.onDone && (
-        <Button size="sm" variant="ghost" className="-mr-2.5" onClick={props.onDone}>
+        <Button size="sm" variant="ghost" className={`${rowPill} -mr-3`} onClick={props.onDone}>
           Cancel
         </Button>
       )}

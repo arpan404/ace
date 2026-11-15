@@ -1,46 +1,66 @@
 import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
 
 /*
- * The right panel beside a bot's conversation: its sections and what this browser remembers of
- * it per bot (open or closed, its section, its width), kept in localStorage.
+ * A bot's profile, the side panel beside its conversation: its tabs, the computer's views, and
+ * what this browser remembers of it per bot (open or closed, its tab, the computer's view, its
+ * width), kept in localStorage.
  */
 
-/** The panel's sections: the computer's surfaces, then what the bot did and its helpers. */
-export type PanelSection = SpadeSurfaceKind | "activity" | "helpers";
+/** The profile's tabs: what the bot is, what it keeps, what it drives. */
+export type ProfileTab = "details" | "library" | "computer";
 
-export const panelSections: readonly PanelSection[] = [
+export const profileTabs: readonly ProfileTab[] = ["details", "library", "computer"];
+
+export const profileTabNames: Record<ProfileTab, string> = {
+  details: "Details",
+  library: "Library",
+  computer: "Computer",
+};
+
+/** What Computer shows: one of the surfaces it used, or what it did. */
+export type ComputerView = SpadeSurfaceKind | "activity";
+
+export const computerViews: readonly ComputerView[] = [
   "browser",
   "screen",
   "terminal",
   "files",
   "activity",
-  "helpers",
 ];
 
-export const panelSectionNames: Record<PanelSection, string> = {
+export const computerViewNames: Record<ComputerView, string> = {
   browser: "Browser",
   screen: "Screen",
   terminal: "Terminal",
   files: "Files",
   activity: "Activity",
-  helpers: "Helpers",
 };
 
-export const panelWidth = { initial: 520, min: 320, max: 900 };
+/** `--spade-profile-width` to start; the person drags it between these. */
+export const panelWidth = { initial: 360, min: 320, max: 900 };
 
 export interface PanelMemory {
   open: boolean;
-  section: PanelSection;
+  tab: ProfileTab;
+  /** Computer's view, once the person picked one. */
+  view: ComputerView | undefined;
   width: number;
 }
 
-const keyOf = (bot: string) => `ace.spade.panel.${bot}`;
-const isSection = (value: unknown): value is PanelSection =>
-  typeof value === "string" && (panelSections as readonly string[]).includes(value);
+const keyOf = (bot: string) => `ace.spade.profile.${bot}`;
+const isTab = (value: unknown): value is ProfileTab =>
+  typeof value === "string" && (profileTabs as readonly string[]).includes(value);
+const isView = (value: unknown): value is ComputerView =>
+  typeof value === "string" && (computerViews as readonly string[]).includes(value);
 
-/** What was remembered for `bot` (`machine/id`), or the panel closed on Files at its width. */
+/** What was remembered for `bot` (`machine/id`), or the profile closed on Details. */
 export function readPanel(storage: Storage | undefined, bot: string): PanelMemory {
-  const fallback: PanelMemory = { open: false, section: "files", width: panelWidth.initial };
+  const fallback: PanelMemory = {
+    open: false,
+    tab: "details",
+    view: undefined,
+    width: panelWidth.initial,
+  };
   let raw: unknown;
   try {
     raw = JSON.parse(storage?.getItem(keyOf(bot)) ?? "null");
@@ -55,7 +75,8 @@ export function readPanel(storage: Storage | undefined, bot: string): PanelMemor
       : fallback.width;
   return {
     open: fields.open === true,
-    section: isSection(fields.section) ? fields.section : fallback.section,
+    tab: isTab(fields.tab) ? fields.tab : fallback.tab,
+    view: isView(fields.view) ? fields.view : undefined,
     width: Math.min(panelWidth.max, Math.max(panelWidth.min, width)),
   };
 }
@@ -64,6 +85,6 @@ export function writePanel(storage: Storage | undefined, bot: string, memory: Pa
   try {
     storage?.setItem(keyOf(bot), JSON.stringify(memory));
   } catch {
-    // Storage full or off: the panel just isn't remembered.
+    // Storage full or off: the profile just isn't remembered.
   }
 }

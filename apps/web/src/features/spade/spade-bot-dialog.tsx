@@ -1,7 +1,6 @@
 import {
   faceForId,
   shuffleFace,
-  storedBotFace,
   suggestBotNames,
   type BotFace as BotFaceModel,
 } from "@ace/ui-core/bot-face";
@@ -27,17 +26,13 @@ import {
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { AccessChoice } from "./spade-access-choice.tsx";
-import { createAgent, editAgent, readModels, type SpadeAgentDraft } from "./spade-api.ts";
-import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx";
-import { PluginChoice, usePluginChoice } from "./spade-bot-plugins.tsx";
-import { pluginsKey } from "./spade-plugin-api.ts";
+import { createAgent, readModels } from "./spade-api.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
-import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
+import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
-import { OversightFields, useOversightChoice } from "./spade-bot-oversight.tsx";
 import { browserTimeZone, ImportBot, TemplateChoice } from "./spade-bot-start.tsx";
-import { agentsKey, useWornPairs, type RosterBot, type SpadeHost } from "./use-spade-roster.ts";
-import { connectorsKey } from "./spade-connector-api.ts";
+import { sentAvatar } from "./spade-profile-actions.ts";
+import { agentsKey, useWornPairs, type SpadeHost } from "./use-spade-roster.ts";
 
 function Field(props: { label: string; htmlFor?: string; children: ReactNode }) {
   return (
@@ -49,13 +44,6 @@ function Field(props: { label: string; htmlFor?: string; children: ReactNode }) 
     </div>
   );
 }
-
-/** The avatar a draft sends: its picture, or its face as stored. */
-const sent = (draft: AvatarDraft): SpadeAgentDraft["avatar"] | undefined => {
-  if (draft.kind === "image") return draft;
-  if (draft.kind === "face") return storedBotFace(draft.face, draft.raw);
-  return undefined;
-};
 
 /**
  * A name field with names that suit the face under it, one click to take one. Suggestions
@@ -177,7 +165,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
                 .toUpperCase(),
               color: legacyColours[avatar.face.pair],
             }
-          : sent(avatar);
+          : sentAvatar(avatar);
       const agent = await createAgent(client, {
         name: name.trim(),
         task: task.trim(),
@@ -324,129 +312,6 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
           </Button>
           <Button variant="primary" disabled={!ready || saving} onClick={() => void create()}>
             {saving ? "Creating…" : "Create bot"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/**
- * Edit a bot, on its own machine: name, task, face, model, the connected apps it may use, its
- * access and its spending caps (ADR 0135), each sent as one change of what moved, in New
- * bot's two panes (its face on the left). Spade keeps its name and face.
- */
-export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
-  const { bot } = props;
-  const ids = { name: useId(), task: useId(), model: useId() };
-  const client = useSpadeClient();
-  const cache = useQueryClient();
-  const main = bot.kind === "main";
-  const [name, setName] = useState(bot.name);
-  const [task, setTask] = useState(bot.task);
-  const [avatar, setAvatar] = useState<AvatarDraft>({ kind: "current", avatar: bot.avatar });
-  const worn = useWornPairs(bot.id);
-  const unchangedFace =
-    avatar.kind === "face" &&
-    bot.avatar.kind === "character" &&
-    JSON.stringify(avatar.face) === JSON.stringify(bot.avatar.face);
-  const [model, setModel] = useState(bot.model);
-  const [access, setAccess] = useState<SpadeAccess>(bot.access ?? "ask");
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  const apps = useConnectorChoice(bot.id);
-  const plugins = usePluginChoice(bot.id);
-  const oversight = useOversightChoice(bot);
-  const face = unchangedFace || main ? undefined : sent(avatar);
-  const change: Partial<SpadeAgentDraft> = {
-    ...(!main && name.trim() !== bot.name ? { name: name.trim() } : {}),
-    ...(task.trim() !== bot.task.trim() ? { task: task.trim() } : {}),
-    ...(model !== bot.model && /\/./.test(model) ? { model } : {}),
-    ...(face ? { avatar: face } : {}),
-    ...(access !== (bot.access ?? "ask") ? { access } : {}),
-  };
-  const changed =
-    (Object.keys(change).length > 0 || apps.changed || plugins.changed || oversight.changed) &&
-    !oversight.invalid &&
-    (main || name.trim() !== "");
-  const save = async () => {
-    setSaving(true);
-    setProblem(undefined);
-    try {
-      if (Object.keys(change).length > 0) await editAgent(client, bot.id, change);
-      await apps.save(client);
-      await plugins.save(client);
-      await oversight.save(client);
-      await cache.invalidateQueries({ queryKey: agentsKey });
-      await cache.invalidateQueries({ queryKey: connectorsKey });
-      await cache.invalidateQueries({ queryKey: pluginsKey });
-      props.onClose();
-    } catch (error) {
-      setProblem(fault(error));
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent size={main ? "lg" : "xl"}>
-        <DialogHeader>
-          <DialogTitle>{main ? "Edit Spade" : `Edit ${bot.name}`}</DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-          <div
-            className={
-              main ? "flex flex-col gap-4" : "grid gap-6 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]"
-            }
-          >
-            {!main && (
-              <Field label="Face">
-                <AvatarChoice
-                  value={avatar}
-                  fallback={draftFace(avatar) ?? faceForId(bot.id)}
-                  takenPairs={worn}
-                  onChange={setAvatar}
-                />
-              </Field>
-            )}
-            <div className="flex min-w-0 flex-col gap-4">
-              {!main && (
-                <NameField id={ids.name} value={name} face={draftFace(avatar)} onChange={setName} />
-              )}
-              <Field label="Task" htmlFor={ids.task}>
-                <Textarea
-                  id={ids.task}
-                  value={task}
-                  maxLength={spadeAgentTaskMax}
-                  placeholder="What this bot is for, in your words"
-                  onChange={(event) => setTask(event.target.value)}
-                />
-              </Field>
-              <Field label="Model" htmlFor={ids.model}>
-                <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
-              </Field>
-              <Field label="Apps">
-                <ConnectorChoice choice={apps} main={main} />
-              </Field>
-              <Field label="Plugins">
-                <PluginChoice choice={plugins} />
-              </Field>
-              <AccessChoice name={bot.name} value={access} onChange={setAccess} />
-              <OversightFields choice={oversight} />
-            </div>
-          </div>
-          {problem && (
-            <p role="alert" className="text-ui text-destructive">
-              {problem}
-            </p>
-          )}
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={!changed || saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
