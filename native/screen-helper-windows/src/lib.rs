@@ -7,6 +7,7 @@ pub mod errors;
 pub mod input;
 pub mod inspection;
 pub mod mailbox;
+pub mod media;
 pub mod references;
 pub mod semantic;
 pub mod session;

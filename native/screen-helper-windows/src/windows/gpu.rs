@@ -26,6 +26,52 @@ pub struct Gpu {
     scaler: Option<Scaler>,
     direct: Option<Direct>,
     rgb: Vec<u8>,
+    ring: Ring,
+}
+/// A few same-sized BGRA textures used in turn. The encoder is done with a texture when
+/// `encode` returns (the video processor has read it, in the immediate context's order), so
+/// three slots never overwrite a picture still in use.
+#[derive(Default)]
+struct Ring {
+    size: (u32, u32),
+    slots: Vec<ID3D11Texture2D>,
+    next: usize,
+}
+impl Ring {
+    const SLOTS: usize = 3;
+    fn next(&mut self, device: &ID3D11Device, width: u32, height: u32) -> Result<ID3D11Texture2D> {
+        if self.size != (width, height) {
+            *self = Self {
+                size: (width, height),
+                ..Self::default()
+            };
+        }
+        let index = if self.slots.len() < Self::SLOTS {
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: width,
+                Height: height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+                ..Default::default()
+            };
+            let mut texture = None;
+            unsafe { device.CreateTexture2D(&desc, None, Some(&mut texture)) }
+                .map_err(|e| Error::from(e).context("ring-create-texture"))?;
+            self.slots.push(require(texture)?);
+            self.slots.len() - 1
+        } else {
+            self.next
+        };
+        self.next = (index + 1) % Self::SLOTS;
+        Ok(self.slots[index].clone())
+    }
 }
 struct Direct {
     input_size: (u32, u32),
@@ -41,6 +87,38 @@ struct Scaler {
     output_view: ID3D11VideoProcessorOutputView,
 }
 impl Gpu {
+    /// On media-mf's shared device (video support, multithread protected), so capture
+    /// textures go straight to its video processor and encoder.
+    pub fn shared(device: &media_mf::MfDevice) -> Result<Self> {
+        let raw = device.raw_device();
+        let device = unsafe { ID3D11Device::from_raw_borrowed(&raw) }
+            .cloned()
+            .ok_or_else(|| Error::new(Code::Internal, "Shared D3D11 device missing"))?;
+        let context = unsafe { device.GetImmediateContext() }
+            .map_err(|e| Error::from(e).context("gpu-immediate-context"))?;
+        Self::from_device(device, context)
+    }
+    fn from_device(device: ID3D11Device, context: ID3D11DeviceContext) -> Result<Self> {
+        unsafe {
+            let dxgi: IDXGIDevice = device
+                .cast()
+                .map_err(|e| Error::from(e).context("gpu-device-cast-dxgi"))?;
+            let winrt_device = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
+                .map_err(|e| Error::from(e).context("gpu-create-winrt-device"))?;
+            let winrt: IDirect3DDevice = winrt_device
+                .cast()
+                .map_err(|e| Error::from(e).context("gpu-winrt-cast-device"))?;
+            Ok(Self {
+                device,
+                context,
+                winrt,
+                scaler: None,
+                direct: None,
+                rgb: vec![],
+                ring: Ring::default(),
+            })
+        }
+    }
     pub fn new() -> Result<Self> {
         unsafe {
             let mut device = None;
@@ -57,26 +135,20 @@ impl Gpu {
                 Some(&mut context),
             )
             .map_err(|e| Error::from(e).context("gpu-create-device"))?;
-            let device = require(device)?;
-            let context = require(context)?;
-            let dxgi: IDXGIDevice = device
-                .cast()
-                .map_err(|e| Error::from(e).context("gpu-device-cast-dxgi"))?;
-            let winrt_device = CreateDirect3D11DeviceFromDXGIDevice(&dxgi)
-                .map_err(|e| Error::from(e).context("gpu-create-winrt-device"))?;
-            let winrt: IDirect3DDevice = winrt_device
-                .cast()
-                .map_err(|e| Error::from(e).context("gpu-winrt-cast-device"))?;
-            Ok(Self {
-                device,
-                context,
-                winrt,
-                scaler: None,
-                direct: None,
-                rgb: vec![],
-            })
+            Self::from_device(require(device)?, require(context)?)
         }
     }
+    /// Copies a capture frame into a ring texture on the GPU (no CPU copy) and returns it: the
+    /// frame goes back to capture at once, and the copy is the picture encoded and, on
+    /// request, read back as a still.
+    pub fn keep(&mut self, texture: &ID3D11Texture2D) -> Result<ID3D11Texture2D> {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        unsafe { texture.GetDesc(&mut desc) };
+        let kept = self.ring.next(&self.device, desc.Width, desc.Height)?;
+        unsafe { self.context.CopyResource(&kept, texture) };
+        Ok(kept)
+    }
+
     pub fn read(
         &mut self,
         texture: &ID3D11Texture2D,

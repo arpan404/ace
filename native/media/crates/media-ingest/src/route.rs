@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Where a producer's video goes: the daemon's path (`Legacy`) or ace-media's ingest. A unit is
 //! routed and written in one call, so a switch has an exact boundary: the sequence of the last
-//! unit the previous path took.
+//! video unit the previous path took; stills never count.
 //!
 //! Every connection has a generation of its own, carried by every event and action about it,
 //! so a report about a replaced connection never touches its successor (an address or a
@@ -192,12 +192,11 @@ impl Route {
         self.apply(generation, actions, out);
     }
 
-    /// A still went on the daemon's path as sequence `sequence` (stills never move).
-    pub fn legacy_still(&mut self, sequence: u64) {
-        if self.current.is_none() {
-            self.last_legacy = Some(sequence);
-        }
-    }
+    /// A still went on the daemon's path as sequence `sequence`. Stills always take that path
+    /// and the daemon orders them on their own, so a switch's boundary is the last *video*
+    /// unit only: a still never moves it (a boundary the daemon's video merge never sees
+    /// would hold the switch until its timeout and end the path interrupted).
+    pub fn legacy_still(&mut self, _sequence: u64) {}
 
     pub fn written(&mut self, generation: u64, id: u64, out: &mut Vec<RouteAction>) {
         self.event(generation, out, |w, a| w.written(id, a));

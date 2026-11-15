@@ -240,3 +240,36 @@ fn close_destroys_every_connection() {
     );
     assert!(!route.ingesting());
 }
+
+#[test]
+fn a_still_after_the_last_video_unit_never_moves_the_boundary() {
+    // The daemon merges stills on their own, and its path ends when the boundary's video unit
+    // arrives: a still's sequence there would hold the switch until its timeout.
+    let mut route = Route::new(Config::default());
+    let mut out = Vec::new();
+    route.publish(&unit(0, true), 0, 0, &mut out);
+    route.publish(&unit(1, false), 0, 0, &mut out);
+    route.legacy_still(2);
+    let (_, switch) = connect(&mut route, 1, 0, &mut out);
+    assert_eq!(switch, Switch::Switched { boundary: Some(1) });
+    // Back again: a still while on ace-media leaves the boundary at its last video unit too.
+    route.publish(&unit(3, true), 0, 0, &mut out);
+    route.legacy_still(4);
+    assert_eq!(
+        route.begin(None, 0, &mut out),
+        Switch::Switched { boundary: Some(3) }
+    );
+    assert_eq!(route.retiring(), 1);
+}
+
+#[test]
+fn with_only_stills_on_the_daemon_path_the_boundary_is_none() {
+    let mut route = Route::new(Config::default());
+    let mut out = Vec::new();
+    route.legacy_still(0);
+    route.legacy_still(1);
+    assert_eq!(
+        connect(&mut route, 1, 0, &mut out).1,
+        Switch::Switched { boundary: None }
+    );
+}

@@ -69,6 +69,15 @@ pub fn read_line(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>> {
         }
     }
 }
+/// One event line on stdout, between replies. stdout's lock keeps lines whole.
+pub fn event(value: &Value) {
+    let Ok(mut bytes) = serde_json::to_vec(value) else {
+        return;
+    };
+    bytes.push(b'\n');
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(&bytes).and_then(|_| out.flush());
+}
 pub fn reply(writer: &mut impl Write, request: &Request, result: Result<Value>) -> Result<()> {
     let value = match result {
         Ok(data) => {
@@ -105,6 +114,12 @@ pub struct Header {
     pub height: u32,
     pub scale: f64,
     pub codec: String,
+    /// H.264 only: whether this unit starts a decodable sequence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyframe: Option<bool>,
+    /// H.264 keyframes: the WebCodecs codec string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_codec: Option<String>,
     pub bytes: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dirty_rects: Option<Vec<Bounds>>,
@@ -125,7 +140,12 @@ pub fn packet(header: &Header, payload: &[u8]) -> Result<Vec<u8>> {
             .capture_generation
             .is_some_and(|g| g == 0 || g > 9_007_199_254_740_991)
         || header.seq > 9_007_199_254_740_991
-        || header.codec != "jpeg"
+        || !(header.codec == "jpeg" || (header.codec == "h264" && header.version == 2))
+        || (header.codec == "h264") != header.keyframe.is_some()
+        || header
+            .video_codec
+            .as_ref()
+            .is_some_and(|c| c.len() > 64 || !c.is_ascii())
         || ![1, 2].contains(&header.version)
     {
         return Err(Error::new(Code::Bounds, "Invalid frame"));

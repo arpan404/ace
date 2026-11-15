@@ -2,7 +2,13 @@ use crate::{
     codec::{jpeg, packet, Header},
     coordinates::Bounds,
     errors::{Code, Error, Result},
+    media::config::{StreamCodec, StreamSettings},
     tiles::Tiles,
+};
+use media_ingest::VideoUnit;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
 };
 /// Caller supplies event time. A denied pacing slot never updates hashes, so a final change survives.
 pub struct Stream {
@@ -14,6 +20,13 @@ pub struct Stream {
     version: u8,
     generation: u64,
     metadata: Option<(u32, u32, f64)>,
+    /// Live video while a viewer watches as video (`stream.configure` with H.264).
+    video: Option<StreamSettings>,
+    video_next_ms: f64,
+    keyframe: bool,
+    image: bool,
+    /// The privacy epoch, read when a picture arrives from capture.
+    epoch: Arc<AtomicU32>,
 }
 impl Stream {
     pub fn new(session: String, version: u8, fps: u32) -> Self {
@@ -26,11 +39,100 @@ impl Stream {
             version,
             generation: 1,
             metadata: None,
+            video: None,
+            video_next_ms: 0.0,
+            keyframe: false,
+            image: false,
+            epoch: Arc::new(AtomicU32::new(0)),
         }
+    }
+    /// `stream.configure`: video at the settings' rate, or JPEG stills at it (30 fps at most).
+    pub fn configure(&mut self, settings: StreamSettings, epoch: Option<u32>) {
+        if let Some(epoch) = epoch {
+            self.epoch.store(epoch, Ordering::SeqCst);
+        }
+        match settings.codec {
+            StreamCodec::H264 => {
+                if self.video.is_none() {
+                    self.keyframe = true;
+                    self.video_next_ms = 0.0;
+                }
+                self.video = Some(settings);
+            }
+            StreamCodec::Jpeg => {
+                self.video = None;
+                self.fps = settings.fps.clamp(1, 30);
+                self.refresh();
+            }
+        }
+    }
+    pub fn video(&self) -> Option<StreamSettings> {
+        self.video
+    }
+    /// The epoch shared with the capture callback, which stamps each arriving picture.
+    pub fn epoch_handle(&self) -> Arc<AtomicU32> {
+        self.epoch.clone()
+    }
+    pub fn request_keyframe(&mut self) {
+        self.keyframe = true;
+    }
+    pub fn take_keyframe(&mut self) -> bool {
+        std::mem::take(&mut self.keyframe)
+    }
+    /// One JPEG still of the next picture, while video streams (`stream.image`).
+    pub fn request_image(&mut self) {
+        self.image = true;
+        self.refresh();
+    }
+    pub fn take_image(&mut self) -> bool {
+        std::mem::take(&mut self.image)
+    }
+    /// Whether a picture captured at `now_ms` is due for encoding, at the video rate.
+    pub fn video_due(&mut self, now_ms: f64) -> bool {
+        let Some(settings) = self.video else {
+            return false;
+        };
+        if now_ms < self.video_next_ms {
+            return false;
+        }
+        self.video_next_ms = now_ms + 1000.0 / settings.fps as f64;
+        true
+    }
+    /// The sequence the next frame will take.
+    pub fn sequence(&self) -> u64 {
+        self.seq
+    }
+    /// The next frame sequence, shared by video units and stills so each path's order holds.
+    pub fn next_sequence(&mut self) -> u64 {
+        let seq = self.seq;
+        self.seq += 1;
+        seq
+    }
+    /// A video unit as a frame packet on the daemon's pipe.
+    pub fn video_packet(&self, unit: &VideoUnit) -> Result<Vec<u8>> {
+        let header = Header {
+            version: 2,
+            session_id: self.session.clone(),
+            seq: unit.sequence,
+            capture_generation: Some(self.generation),
+            ts: unit.timestamp_ms,
+            width: unit.width,
+            height: unit.height,
+            scale: unit.scale,
+            codec: "h264".into(),
+            keyframe: Some(unit.key),
+            video_codec: if unit.key { unit.codec.clone() } else { None },
+            bytes: unit.payload.len(),
+            dirty_rects: None,
+        };
+        packet(&header, &unit.payload)
     }
     pub fn generation(&mut self, generation: u64) {
         self.generation = generation;
         self.refresh();
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session
     }
     pub fn capture_generation(&self) -> u64 {
         self.generation
@@ -41,7 +143,15 @@ impl Stream {
         self.metadata = None;
     }
     pub fn due_in(&self, now_ms: f64) -> f64 {
-        (self.next_ms - now_ms).max(0.0)
+        if self.image {
+            return 0.0;
+        }
+        let next = if self.video.is_some() {
+            self.video_next_ms
+        } else {
+            self.next_ms
+        };
+        (next - now_ms).max(0.0)
     }
     pub fn frame(
         &mut self,
@@ -95,6 +205,8 @@ impl Stream {
             height,
             scale,
             codec: "jpeg".into(),
+            keyframe: None,
+            video_codec: None,
             bytes: payload.len(),
             dirty_rects: Some(dirty),
         };
@@ -129,5 +241,95 @@ mod captured {
     fn stamps_never_run_ahead_or_backwards() {
         assert_eq!(captured_at(1_000.0, 100, 200, 0.0), 1_000.0);
         assert_eq!(captured_at(1_000.0, 50_000_000, 0, 990.0), 990.0);
+    }
+}
+
+#[cfg(test)]
+mod video {
+    use super::*;
+
+    fn settings(codec: StreamCodec, fps: u32) -> StreamSettings {
+        StreamSettings {
+            codec,
+            max_width: 1920,
+            max_height: 1080,
+            fps,
+            bitrate: 4_000_000,
+        }
+    }
+
+    fn unit(sequence: u64, key: bool) -> VideoUnit {
+        VideoUnit {
+            sequence,
+            timestamp_ms: 10.0,
+            scale: 1.25,
+            width: 640,
+            height: 360,
+            key,
+            codec: Some("avc1.42C01E".into()),
+            epoch: 2,
+            captured_us: 0,
+            payload: vec![0, 0, 0, 1, 0x65],
+        }
+    }
+
+    fn header(packet: &[u8]) -> serde_json::Value {
+        let size = u32::from_be_bytes(packet[..4].try_into().unwrap()) as usize;
+        serde_json::from_slice(&packet[4..4 + size]).unwrap()
+    }
+
+    #[test]
+    fn turning_video_on_asks_for_a_keyframe_and_paces_at_the_video_rate() {
+        let mut stream = Stream::new("s".into(), 2, 10);
+        stream.configure(settings(StreamCodec::H264, 60), Some(4));
+        assert!(stream.take_keyframe());
+        assert!(!stream.take_keyframe());
+        assert_eq!(stream.epoch_handle().load(Ordering::SeqCst), 4);
+        assert!(stream.video_due(0.0));
+        assert!(!stream.video_due(10.0));
+        assert_eq!(stream.due_in(10.0), 1000.0 / 60.0 - 10.0);
+        assert!(stream.video_due(17.0));
+        // Reconfiguring while video is on keeps the stream going without a forced keyframe.
+        stream.configure(settings(StreamCodec::H264, 30), None);
+        assert!(!stream.take_keyframe());
+        assert_eq!(stream.epoch_handle().load(Ordering::SeqCst), 4);
+        stream.configure(settings(StreamCodec::Jpeg, 60), None);
+        assert_eq!(stream.video(), None);
+        assert!(!stream.video_due(1000.0));
+    }
+
+    #[test]
+    fn video_units_and_stills_share_one_sequence() {
+        let mut stream = Stream::new("s".into(), 2, 10);
+        assert!(stream.frame(&[0; 12], 2, 2, 1.0, 0.0).unwrap().is_some());
+        assert_eq!(stream.next_sequence(), 1);
+        stream.request_image();
+        assert_eq!(stream.due_in(5.0), 0.0);
+        assert!(stream.take_image());
+        let still = stream.frame(&[0; 12], 2, 2, 1.0, 200.0).unwrap().unwrap();
+        assert_eq!(header(&still)["seq"], 2);
+    }
+
+    #[test]
+    fn a_video_unit_on_the_daemon_pipe_is_an_h264_frame_with_its_keyframe_and_codec() {
+        let mut stream = Stream::new("s".into(), 2, 10);
+        stream.generation(3);
+        let key = header(&stream.video_packet(&unit(5, true)).unwrap());
+        assert_eq!(key["codec"], "h264");
+        assert_eq!(
+            (key["keyframe"].as_bool(), key["videoCodec"].as_str()),
+            (Some(true), Some("avc1.42C01E"))
+        );
+        assert_eq!(
+            (
+                key["seq"].as_u64(),
+                key["captureGeneration"].as_u64(),
+                key["scale"].as_f64()
+            ),
+            (Some(5), Some(3), Some(1.25))
+        );
+        let delta = header(&stream.video_packet(&unit(6, false)).unwrap());
+        assert_eq!(delta["keyframe"], false);
+        assert!(delta.get("videoCodec").is_none());
     }
 }
