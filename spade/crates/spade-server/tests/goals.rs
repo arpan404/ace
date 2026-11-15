@@ -33,8 +33,7 @@ async fn bot(spade: &Spade) -> Result<(String, String)> {
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m",
-                    "access": "full_access" }),
+            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m" }),
         )
         .await?;
     assert_eq!(status, 201, "{body}");

@@ -97,7 +97,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600, then Details · Library · Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, access, routines, apps,
+- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps,
   spending, then Duplicate and Delete. Everything edits in place: ⌘↵ saves a task, Esc puts it
   back. The face opens a popover to change it.
 - **Routines** are a section of Details: schedule, webhook (its address and secret only here, with
@@ -111,7 +111,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 5. New bot and groups
 
 - **New bot** is a conversation, not a form: under the name, one quiet line that opens the
-  profile (model, access and machine live there). Import lives once, in +; a failed import is said
+  profile (model and machine live there; every bot is on the auto-review, so there is no access
+  choice). Import lives once, in +; a failed import is said
   where the bot would have appeared.
 - **Groups:** member runs with face and name, a profile with Members and Library, New group in
   place, and @ to address a member.

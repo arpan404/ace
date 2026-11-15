@@ -41,7 +41,6 @@ test("New bot is a conversation: a name that suits its face, and the first messa
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Model" }).textContent).toMatch(/sonnet/i),
   );
-  expect(screen.getByRole("button", { name: "Access: Auto-review" })).toBeTruthy();
 
   await userEvent.clear(name);
   await userEvent.type(name, "Trips");
@@ -51,7 +50,6 @@ test("New bot is a conversation: a name that suits its face, and the first messa
       {
         name: "Trips",
         task: "Plan a weekend in Oslo",
-        access: "auto_review",
         avatar: expect.objectContaining({ kind: "character", v: 1 }),
         first_message: { text: "Plan a weekend in Oslo" },
       },
@@ -87,27 +85,6 @@ test("the bot runs on the machine and model chosen on its line", async () => {
   );
   expect(spade.sent("POST", "/v1/agents")).toEqual([]);
   await screen.findByRole("feed", { name: "Conversation with Travel" });
-});
-
-test("Full access on a new bot's line is given only once the person confirms it", async () => {
-  const { spade } = await spadeApp("/spade", withSpade);
-  await newBot("Travel");
-  await userEvent.click(await screen.findByRole("button", { name: "Access: Auto-review" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
-  const ask = within(await screen.findByRole("dialog", { name: "Give Travel full access?" }));
-  await userEvent.click(ask.getByRole("button", { name: "Cancel" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(screen.getByRole("button", { name: "Access: Auto-review" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Access: Auto-review" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Give full access" }));
-  await screen.findByRole("button", { name: "Access: Full access" });
-  await send("Travel", "Book Lisbon");
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents")).toEqual([
-      expect.objectContaining({ name: "Travel", access: "full_access" }),
-    ]),
-  );
 });
 
 test("a template names the bot after it, unless a bot has that name, and brings its own task", async () => {

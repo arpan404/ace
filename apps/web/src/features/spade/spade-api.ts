@@ -7,7 +7,6 @@ import {
   parseSpadeSearchSettings,
   parseSpadeSubscriptions,
   parseSpadeTranscription,
-  type SpadeAccess,
   type SpadeAgent,
   type SpadeEndpoint,
   type SpadeFormat,
@@ -46,8 +45,6 @@ export interface SpadeAgentDraft {
   model: string;
   /** Absent: Spade picks a face. */
   avatar?: SpadeAvatarChoice;
-  /** How much it may do without asking; applies from its next step. */
-  access?: SpadeAccess;
 }
 
 /**
@@ -89,7 +86,7 @@ export async function createAgent(
   return agent;
 }
 
-/** Name and avatar change at once; task and model apply from the agent's next turn, access from its next step. */
+/** Name and avatar change at once; task and model apply from the agent's next turn. */
 export async function editAgent(
   target: SpadeTarget,
   id: string,

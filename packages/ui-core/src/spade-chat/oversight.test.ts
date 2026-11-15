@@ -227,13 +227,13 @@ describe("activity", () => {
     ).toMatchObject({ sentence: pause, detail: undefined });
   });
 
-  test("access changes name the selected level in the activity log", () => {
+  test("an access change says Auto-review, and a level an older Spade logged reads plainly", () => {
     expect(words({ kind: "access", name: "auto_review" })).toBe("Access changed to Auto-review");
     expect(
       spadeActivityWords(
         parsedEntry({ kind: "access", name: "full_access", summary: "access level" }),
       ),
-    ).toMatchObject({ sentence: "Access changed to Full access", detail: undefined });
+    ).toMatchObject({ sentence: "Access changed", detail: undefined });
   });
 
   test("the query sends only the parts that are set", () => {

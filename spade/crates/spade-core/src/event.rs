@@ -253,8 +253,8 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
     },
-    /// The person set the bot's access level (ADR 0144). The latest one holds from the bot's
-    /// next tool call; a bot with none is on `ask`.
+    /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
+    /// events naming `ask` or `full_access` read as `auto_review`.
     AccessChanged {
         level: crate::autonomy::Access,
     },

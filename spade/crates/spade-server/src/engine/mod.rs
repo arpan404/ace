@@ -184,8 +184,6 @@ pub struct Engine {
     allowed_scopes: Mutex<HashMap<String, String>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
-    /// Each conversation's access level once folded (ADR 0144, `autonomy`).
-    levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
     helpers: helpers::Shared,
     /// Bots' wakes, armed (ADR 0160, `wakes`).
@@ -288,7 +286,6 @@ impl Engine {
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
-            levels: Mutex::default(),
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
@@ -302,9 +299,9 @@ impl Engine {
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
-        // Bots from before access levels keep asking (ADR 0144); then Spade exists from the first
-        // answer, whatever setup does later.
-        engine.pin_levels()?;
+        // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
+        // from the first answer, whatever setup does later.
+        engine.retire_levels()?;
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -427,7 +424,6 @@ impl Engine {
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
             problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
-            access: autonomy::access_of(events.iter(), self.limits.new_bot_access),
             task: spade_core::task::state_in(events.iter()),
             task_progress: spade_core::goal::view::progress_in(
                 events.iter(),

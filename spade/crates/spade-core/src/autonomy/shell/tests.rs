@@ -491,13 +491,12 @@ fn a_credential_read_in_a_makefile_is_refused_whatever_else_fails_to_read() {
         assess("make -f creds.mk", &folder).finding,
         Some(Finding::Credentials)
     );
-    // Refused on full access too.
+    // Refused even when the rule gate would run it.
     let classed = super::super::classify_shell(
         &serde_json::json!({ "command": "make -f creds.mk" }),
         &folder,
     );
     let route = super::super::route(super::super::Call {
-        access: super::super::Access::FullAccess,
         rule: crate::gate::Decision::Run,
         risk: crate::tools::Risk::Write,
         class: classed.class,

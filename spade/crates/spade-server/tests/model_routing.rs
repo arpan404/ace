@@ -361,8 +361,7 @@ async fn a_step_spade_starts_on_its_own_tells_the_bot_what_it_spent_and_each_rol
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m",
-                    "access": "full_access" }),
+            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m" }),
         )
         .await?;
     assert_eq!(status, 201, "{body}");
@@ -431,8 +430,7 @@ async fn the_check_of_done_runs_on_the_verify_role_and_its_model_is_on_the_verdi
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m",
-                    "access": "full_access" }),
+            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m" }),
         )
         .await?;
     assert_eq!(status, 201, "{body}");

@@ -3,12 +3,7 @@ import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../b
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
-import {
-  parseSpadeAccess,
-  parseSpadeTaskProgress,
-  type SpadeAccess,
-  type SpadeTaskProgress,
-} from "./autonomy.ts";
+import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
@@ -75,8 +70,6 @@ export interface SpadeAgent {
   review: boolean | undefined;
   /** Its computer and who drives it; undefined from a Spade before computers. */
   computer: SpadeComputer | undefined;
-  /** How much it may do without asking; undefined from a Spade before access levels (it asks). */
-  access: SpadeAccess | undefined;
   /** Where it is on its task, and whether it carries on by itself. */
   progress: SpadeTaskProgress | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
@@ -183,7 +176,6 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     spending: parseSpadeSpending(record.spending),
     review: parseSpadeReview(record.review),
     computer: parseSpadeComputer(record.computer),
-    access: parseSpadeAccess(record.access),
     progress: parseSpadeTaskProgress(record),
     raw: record,
   };

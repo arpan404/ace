@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use spade_core::autonomy::Access;
 use spade_server::clock::Ids;
 use spade_server::services::Services;
 use spade_server::tools::{EngineHandle, Tool, service_tools};
@@ -27,10 +26,28 @@ fn title() -> Script {
     Script::reply("").plain(r#"{"title":"Dev server"}"#)
 }
 
-fn options(workspaces: &Workspaces, access: Access) -> Options {
+/// Who reviews the bot's held calls (ADR 0163).
+#[derive(Clone, Copy)]
+enum Reviewer {
+    /// The fake model, answering in script order: each `service_start` step is followed by an
+    /// [`approve`] script.
+    Fake,
+    /// One that can't be reached, so the person is asked.
+    Unreachable,
+}
+
+/// The reviewer's approval of the step before it.
+fn approve() -> Script {
+    Script::reply("").plain(r#"{"verdict":"approve","reason":"Starts its own service."}"#)
+}
+
+fn options(workspaces: &Workspaces, reviewer: Reviewer) -> Options {
     Options {
         workspaces: Some(workspaces.clone()),
-        new_bot_access: access,
+        reviewer: match reviewer {
+            Reviewer::Fake => None,
+            Reviewer::Unreachable => Some(support::UNREACHABLE_REVIEWER.to_owned()),
+        },
         ..Options::default()
     }
 }
@@ -39,9 +56,9 @@ fn options(workspaces: &Workspaces, access: Access) -> Options {
 async fn start(
     scripts: Vec<Script>,
     workspaces: &Workspaces,
-    access: Access,
+    reviewer: Reviewer,
 ) -> Result<(Spade, Arc<Services>)> {
-    start_on(scripts, options(workspaces, access)).await
+    start_on(scripts, options(workspaces, reviewer)).await
 }
 
 /// [`start`] with `options`.
@@ -126,6 +143,7 @@ async fn a_service_outlives_its_call_wakes_the_bot_on_its_line_and_stops_with_it
                 "service_start",
                 json!({ "name": "web", "command": command }),
             ),
+            approve(),
             Script::reply("").call(
                 "s2",
                 "wait_for",
@@ -138,7 +156,7 @@ async fn a_service_outlives_its_call_wakes_the_bot_on_its_line_and_stops_with_it
             Script::reply("The server is up."),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     let bot = told(&spade, &workspaces, "Start the dev server").await?;
@@ -209,6 +227,7 @@ async fn a_service_that_exits_wakes_the_bot_waiting_on_its_exit_with_its_code() 
                 "service_start",
                 json!({ "name": "build", "command": "sleep 1; exit 3" }),
             ),
+            approve(),
             Script::reply("").call(
                 "s2",
                 "wait_for",
@@ -220,7 +239,7 @@ async fn a_service_that_exits_wakes_the_bot_waiting_on_its_exit_with_its_code() 
             Script::reply("The build failed."),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     let bot = told(&spade, &workspaces, "Build it").await?;
@@ -251,11 +270,13 @@ async fn only_a_service_marked_keep_starts_again_after_a_restart() -> Result {
                     "service_start",
                     json!({ "name": "temp", "command": "exec sleep 60" }),
                 ),
+            approve(),
+            approve(),
             Script::reply("Started both."),
             title(),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     let bot = told(&spade, &workspaces, "Start both").await?;
@@ -267,7 +288,7 @@ async fn only_a_service_marked_keep_starts_again_after_a_restart() -> Result {
         .restart_with(
             service_tools(&again),
             Vec::new(),
-            options(&workspaces, Access::FullAccess),
+            options(&workspaces, Reviewer::Fake),
         )
         .await?;
     bots.set(&spade.engine);
@@ -299,7 +320,7 @@ async fn only_a_service_marked_keep_starts_again_after_a_restart() -> Result {
 }
 
 #[tokio::test]
-async fn starting_a_service_asks_like_a_shell_command() -> Result {
+async fn starting_a_service_is_held_like_a_shell_command_and_asks_when_unreviewed() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
     let (spade, _services) = start(
@@ -313,7 +334,7 @@ async fn starting_a_service_asks_like_a_shell_command() -> Result {
             title(),
         ],
         &workspaces,
-        Access::Ask,
+        Reviewer::Unreachable,
     )
     .await?;
     let agent = spade.new_agent("Runner", "").await?;
@@ -351,7 +372,7 @@ async fn a_file_wait_fires_when_the_file_changes() -> Result {
             Script::reply("The export is in."),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     let bot = told(&spade, &workspaces, "Wait for the export").await?;
@@ -397,7 +418,7 @@ async fn a_url_wait_polls_only_loopback_and_fires_when_it_answers() -> Result {
             Script::reply("It answers."),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     let bot = told(&spade, &workspaces, "Tell me when it is up").await?;
@@ -445,6 +466,7 @@ async fn waits_on_a_service_named_by_its_id_fire_on_its_line_and_its_exit() -> R
                 "service_start",
                 json!({ "name": "web", "command": "sleep 1; echo ready; sleep 1; exit 4" }),
             ),
+            approve(),
             Script::reply("").call(
                 "s2",
                 "wait_for",
@@ -465,7 +487,7 @@ async fn waits_on_a_service_named_by_its_id_fire_on_its_line_and_its_exit() -> R
         ],
         Options {
             ids: Some(Arc::new(KnownServiceId(AtomicU64::new(0)))),
-            ..options(&workspaces, Access::FullAccess)
+            ..options(&workspaces, Reviewer::Fake)
         },
     )
     .await?;
@@ -500,11 +522,12 @@ async fn a_service_asked_for_as_the_person_presses_stop_never_runs_on() -> Resul
                 "service_start",
                 json!({ "name": "web", "command": "echo $$ > pid.txt; exec sleep 60" }),
             ),
+            approve(),
             Script::reply("Started."),
             title(),
         ],
         &workspaces,
-        Access::FullAccess,
+        Reviewer::Fake,
     )
     .await?;
     // The service is held after it was asked for, until the stop is in.

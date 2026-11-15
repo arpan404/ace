@@ -11,6 +11,11 @@ and [ADR 0002](0002-local-cli-providers.md) (no credentials).
 Amended by [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md): no fixed step, cost or time
 limit ends a bot's work.
 
+Amended by [ADR 0163](0163-spade-auto-review-only.md): `ask` and `full_access` are gone; every bot
+is on the auto-review, which approves or refuses (no `escalate`), reviews the kinds below that
+used to always ask with that rule as context, and asks the person only when the bot retries a
+refused step or the review can't run. Stored levels read and move forward as `auto_review`.
+
 ## Context
 
 Every write a Spade bot makes asks the person first (ADR 0130: every shell command, unless that

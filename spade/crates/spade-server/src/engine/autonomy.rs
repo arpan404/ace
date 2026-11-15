@@ -1,36 +1,22 @@
-//! Access levels and the auto-review (ADR 0144, spade/docs/autonomy.md): changing a bot's level,
-//! and the reviewer that approves, refuses or escalates a call on the person's behalf. What each
-//! level does is `spade_core::autonomy`; this is the I/O around it.
+//! The auto-review (ADR 0144, amended by ADR 0163; spade/docs/autonomy.md): the reviewer that
+//! approves or refuses a call on the person's behalf, and the move of levels Spade no longer has
+//! to it. What the rules decide is `spade_core::autonomy`; this is the I/O around it.
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use spade_core::Event;
-use spade_core::autonomy::{self, Access, Case, Judgment, Outcome};
+use spade_core::autonomy::{self, Access, Case, Judgment, Outcome, refusals};
 use spade_core::context;
 use spade_core::event::{Call, Known, Verdict};
 use spade_core::review;
 use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
-use super::{AgentError, AgentView, Engine};
+use super::Engine;
 
 /// What the status line says while the reviewer reads a call.
 const REVIEWING: &str = "Checking a step";
-
-/// The level folded from stored events; `unset` when none is stored.
-pub(super) fn access_of<'a>(
-    events: impl DoubleEndedIterator<Item = &'a Event>,
-    unset: Access,
-) -> Access {
-    events
-        .rev()
-        .find_map(|e| match e {
-            Event::Known(Known::AccessChanged { level }) => Some(*level),
-            _ => None,
-        })
-        .unwrap_or(unset)
-}
 
 /// Whether the latest reply was one Spade started for the bot's task.
 /// `at` gives the event at an index of `len`.
@@ -43,69 +29,33 @@ pub(super) fn continued<'a>(len: usize, at: impl Fn(usize) -> &'a Event) -> bool
     start > 0 && matches!(at(start - 1), Event::Known(Known::TaskContinued { .. }))
 }
 
-/// The setting that says every conversation from before access levels had `ask` stored.
+/// The setting the first build with levels (ADR 0144) stored once it pinned every bot to `ask`.
 const LEVELS_PINNED: &str = "access_levels_pinned";
+/// The setting stored once the levels Spade no longer has were moved forward (ADR 0163).
+const LEVELS_RETIRED: &str = "access_levels_retired";
 
 impl Engine {
-    /// Sets an agent's access level. Stored as an event in its conversation, so a restart
-    /// rebuilds the same level and the activity log shows the change; it holds from the bot's
-    /// next tool call, never one already being decided.
-    pub fn set_access(&self, agent: &str, level: Access) -> Result<AgentView, AgentError> {
-        let found = self.store.agent(agent)?.ok_or(AgentError::NotFound)?;
-        {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let events = self.load(&found.conversation)?;
-            if self.access(&events) != level || !autonomy::has_level(&events) {
-                self.append(
-                    &found.conversation,
-                    &Event::Known(Known::AccessChanged { level }),
-                )?;
-            }
-            self.levels
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(found.conversation.clone(), level);
-        }
-        self.agent_view(agent)?.ok_or(AgentError::NotFound)
-    }
-
-    /// The level of the conversation whose events these are.
-    pub(super) fn access(&self, events: &[Event]) -> Access {
-        autonomy::access(events, self.limits.new_bot_access)
-    }
-
-    /// The conversation's level now, read for each call: kept in memory once folded and changed
-    /// as the person changes it, so a change made while a step's calls are decided holds from
-    /// the next one.
-    pub(super) fn level(&self, id: &str, events: &[Event]) -> Access {
-        let own = {
-            let mut levels = self.levels.lock().unwrap_or_else(|p| p.into_inner());
-            *levels
-                .entry(id.to_owned())
-                .or_insert_with(|| self.access(events))
-        };
-        // A worker never acts with more than its parent does now (ADR 0161).
-        self.narrow_level(id, own)
-    }
-
-    /// Once, the first time a build with access levels opens a database: every conversation it
-    /// already has is pinned to `ask`, so no existing bot changes behaviour. Bots made from then
-    /// on have nothing stored and are on the new-bot level.
-    pub(super) fn pin_levels(&self) -> Result<(), spade_store::StoreError> {
-        if self.store.setting(LEVELS_PINNED)?.is_some() {
+    /// Once: every conversation whose latest stored level is one Spade no longer has (`ask`,
+    /// `full_access`) gets an `access_changed` to `auto_review`, so its history says what it is on
+    /// from here and the activity log shows the change. Those words read as the auto-review
+    /// anyway; this moves the stored data forward.
+    pub(super) fn retire_levels(&self) -> Result<(), spade_store::StoreError> {
+        if self.store.setting(LEVELS_RETIRED)?.is_some() {
             return Ok(());
         }
-        for conversation in self.store.conversations()? {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let events = self.load(&conversation.id)?;
-            if !autonomy::has_level(&events) {
+        for (conversation, level) in self.store.latest_field("access_changed", "level")? {
+            if level.as_deref().is_some_and(Access::retired) {
+                let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
                 self.append(
-                    &conversation.id,
-                    &Event::Known(Known::AccessChanged { level: Access::Ask }),
+                    &conversation,
+                    &Event::Known(Known::AccessChanged {
+                        level: Access::AutoReview,
+                    }),
                 )?;
             }
         }
-        self.store.set_setting(LEVELS_PINNED, Some("1"))
+        self.store.set_setting(LEVELS_PINNED, None)?;
+        self.store.set_setting(LEVELS_RETIRED, Some("1"))
     }
 }
 
@@ -117,8 +67,8 @@ pub(super) enum Reviewed {
     Stopped,
 }
 
-/// Stores a verdict the rules reached without a model (a call that always asks, or one that
-/// reaches credentials), so the activity log shows it and a restart reaches it again.
+/// Stores a verdict the rules reached without a model (a call the reviewer can't read whole, or
+/// one that reaches credentials), so the activity log shows it and a restart reaches it again.
 pub(super) fn record_rule(
     engine: &Engine,
     id: &str,
@@ -147,9 +97,10 @@ pub(super) struct Under<'a> {
     pub name: &'a str,
     pub arguments: &'a Value,
     pub def: &'a ToolDef,
-    pub shell: bool,
     /// Files the call runs, shown to the reviewer; an approval is bound to them.
     pub shown: &'a [spade_core::autonomy::shell::Shown],
+    /// Why the rules singled the call out, told to the reviewer.
+    pub concern: Option<&'a str>,
 }
 
 /// The hash a call's shown files are bound by; `None` when it runs none.
@@ -168,8 +119,10 @@ pub(super) fn binding(shown: &[spade_core::autonomy::shell::Shown]) -> Option<St
 }
 
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
-/// call is used again, so a restart never reviews (or pays for) a call twice. Anything but a clear
-/// answer (a failure, a timeout, an answer that doesn't parse, the bot at its cap) escalates.
+/// call is used again, so a restart never reviews (or pays for) a call twice. A refusal goes back
+/// to the bot unless it retries a refused step (`refusals`); anything but a clear answer (a
+/// failure, a timeout, an answer that doesn't parse, the bot at its cap) goes to the person: an
+/// unreviewed call never runs.
 pub(super) async fn review(
     engine: &Arc<Engine>,
     id: &str,
@@ -193,6 +146,7 @@ pub(super) async fn review(
     // Everything untrusted the prompt still shows, from any turn since compaction: the same view
     // the memory gate answers to, so a page read before the person's latest message still counts.
     let untrusted = context::untrusted_in_view(events, registry);
+    let refused = refusals::Run::of(events);
     let case = Case {
         bot,
         task,
@@ -203,6 +157,8 @@ pub(super) async fn review(
         description: &under.def.spec.description,
         arguments: under.arguments,
         shown: under.shown,
+        concern: under.concern,
+        refused: refused.shown(),
     };
     let prompt = autonomy::prompt(&case).session(id);
     let admission = tokio::select! {
@@ -240,9 +196,8 @@ pub(super) async fn review(
             match asked {
                 Ok(Ok(generated)) => {
                     let cost = admitted.settle(&generated.usage);
-                    let tainted = !untrusted.is_empty();
                     (
-                        autonomy::judged(&generated.value, under.shell, tainted),
+                        autonomy::judged(&generated.value, &refused, under.call),
                         cost,
                     )
                 }

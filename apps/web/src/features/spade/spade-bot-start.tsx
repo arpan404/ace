@@ -9,8 +9,6 @@ import {
 import {
   spadeAgentNameMax,
   spadeAgentTaskMax,
-  spadeNewBotAccess,
-  type SpadeAccess,
   type SpadeAgent,
   type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
@@ -210,7 +208,7 @@ function avatarOf(draft: AvatarDraft, name: string, characters: boolean): SpadeN
  * `/spade/new` (docs/design/spade.md §5): New bot is a conversation, not a form. At its head the
  * bot as it will be: its face, which opens the face popover; its name, edited where it shows (a
  * name that suits the face until the person types one); and one quiet line, its model (the
- * model for new bots unless changed), access and machine, each changed in place. Below, the
+ * model for new bots unless changed) and machine, each changed in place. Below, the
  * templates to start from. The first message is its task: Send makes the bot and its first
  * message in one call, and opens its conversation. Import is in the list's + only.
  */
@@ -287,7 +285,6 @@ function NewBotConversation(props: {
     suggestBotNames(face ?? fallback, "").find((each) => !props.names.includes(each)) ?? "New bot";
   const name = typed ?? suggested;
   const [model, setModel] = useState("");
-  const [access, setAccess] = useState<SpadeAccess>(spadeNewBotAccess);
   const [template, setTemplate] = useState<SpadeTemplate>();
   const models = useSpadeModels(props.blocked === undefined);
   const send = async (message: SpadeMessage) => {
@@ -305,7 +302,6 @@ function NewBotConversation(props: {
         // The first message is its task; a template brings its own.
         task: template ? "" : message.text.slice(0, spadeAgentTaskMax),
         ...(model ? { model } : {}),
-        access,
         ...(template ? { template: template.id } : {}),
         ...(zone === undefined ? {} : { time_zone: zone }),
         ...(avatarSent ? { avatar: avatarSent } : {}),
@@ -355,8 +351,6 @@ function NewBotConversation(props: {
               model={model}
               newBotModel={models.data?.newBotModel}
               onModel={setModel}
-              access={access}
-              onAccess={setAccess}
               onMachine={(next) => {
                 // Another machine has its own models and templates.
                 setModel("");

@@ -137,8 +137,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "none",
       accessory: "none",
     },
-    // Full access, carrying on with its task by itself.
-    access: "full_access",
+    // Carrying on with its task by itself.
+    access: "auto_review",
     task_state: { status: "working", note: "Writing the Fixes section" },
     continuing: true,
     last_activity: minutes(44),
@@ -301,7 +301,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Flights",
     task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
     model: "openrouter/openai/gpt-6.1-mini",
-    access: "ask",
+    access: "auto_review",
     task_state: { status: "done" },
     spending: {
       today_micros: 180_000,

@@ -636,23 +636,6 @@ fn quoted_name(name: &str) -> String {
         .collect()
 }
 
-const fn rank(access: Access) -> u8 {
-    match access {
-        Access::Ask => 0,
-        Access::AutoReview => 1,
-        Access::FullAccess => 2,
-    }
-}
-
-/// The lower of two levels: a worker never acts with more than its parent.
-pub fn narrow(own: Access, parent: Access) -> Access {
-    if rank(own) <= rank(parent) {
-        own
-    } else {
-        parent
-    }
-}
-
 /// Whether a worker granted `tools` may use `name`. Finding and calling deferred tools is
 /// always allowed; what they reach is checked by name.
 pub fn allows(tools: Option<&[String]>, name: &str) -> bool {

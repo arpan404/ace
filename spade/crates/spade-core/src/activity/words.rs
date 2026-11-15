@@ -425,9 +425,7 @@ fn capitalised(text: &str) -> String {
 
 fn access_label(level: &str) -> Option<&'static str> {
     match level {
-        "ask" => Some("Ask"),
         "auto_review" => Some("Auto-review"),
-        "full_access" => Some("Full access"),
         _ => None,
     }
 }
