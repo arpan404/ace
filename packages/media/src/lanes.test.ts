@@ -211,6 +211,39 @@ function mediaEnd(tag: number): LaneRecords {
   return new LaneRecords(keys.toDaemon, keys.toMedia);
 }
 
+/** An opened egress lane over a scripted socket, with what its consumer saw. */
+async function openedLane() {
+  const pair = socketPair();
+  const authenticated = authenticateLane(
+    pair.socket,
+    "egress",
+    secret.slice(),
+    drawn([clientNonce]),
+  );
+  const egress = vectors.cases.find((entry) => entry.tag === 2);
+  if (!egress) throw new Error("no egress vector");
+  pair.emit(Uint8Array.from([...bytes(egress.serverProof), ...serverNonce]));
+  const media = mediaEnd(2);
+  pair.emit(media.seal(Uint8Array.of(1)));
+  const lane = await authenticated;
+  const ended: (Error | undefined)[] = [];
+  lane.frames.onEnd((error) => ended.push(error));
+  return { pair, media, lane, ended };
+}
+
+/** A write's outcome, and whether it reached the socket. */
+function attempt(
+  lane: {
+    socket: { write: (chunk: Uint8Array, done: (error?: Error | null) => void) => boolean };
+  },
+  pair: ReturnType<typeof socketPair>,
+) {
+  const before = pair.written.length;
+  let outcome: Error | null | undefined;
+  lane.socket.write(Uint8Array.of(5), (error) => (outcome = error));
+  return { outcome, wrote: pair.written.length > before };
+}
+
 describe("authenticateLane", () => {
   for (const entry of vectors.cases) {
     const lane = entry.tag === 1 ? ("priority" as const) : ("egress" as const);
@@ -290,41 +323,8 @@ describe("authenticateLane", () => {
     expect(pair.destroyed()).toBe(true);
   });
 
-  /** An opened egress lane over a scripted socket, with what its consumer saw. */
-  async function opened() {
-    const pair = socketPair();
-    const authenticated = authenticateLane(
-      pair.socket,
-      "egress",
-      secret.slice(),
-      drawn([clientNonce]),
-    );
-    const egress = vectors.cases.find((entry) => entry.tag === 2);
-    if (!egress) throw new Error("no egress vector");
-    pair.emit(Uint8Array.from([...bytes(egress.serverProof), ...serverNonce]));
-    const media = mediaEnd(2);
-    pair.emit(media.seal(Uint8Array.of(1)));
-    const lane = await authenticated;
-    const ended: (Error | undefined)[] = [];
-    lane.frames.onEnd((error) => ended.push(error));
-    return { pair, media, lane, ended };
-  }
-
-  /** A write's outcome, and whether it reached the socket. */
-  function attempt(
-    lane: {
-      socket: { write: (chunk: Uint8Array, done: (error?: Error | null) => void) => boolean };
-    },
-    pair: ReturnType<typeof socketPair>,
-  ) {
-    const before = pair.written.length;
-    let outcome: Error | null | undefined;
-    lane.socket.write(Uint8Array.of(5), (error) => (outcome = error));
-    return { outcome, wrote: pair.written.length > before };
-  }
-
   it("a clean end wipes the lane's keys: it ends once, and nothing is sealed after it", async () => {
-    const { pair, lane, ended } = await opened();
+    const { pair, lane, ended } = await openedLane();
     pair.close();
     expect(ended).toEqual([undefined]);
     const after = attempt(lane, pair);
@@ -335,7 +335,7 @@ describe("authenticateLane", () => {
   });
 
   it("a ciphertext cut mid-record ends the lane with an integrity error, not a clean end", async () => {
-    const { pair, media, ended } = await opened();
+    const { pair, media, ended } = await openedLane();
     const record = media.seal(Uint8Array.of(9, 9, 9));
     pair.emit(record.subarray(0, record.length - 4));
     pair.close();
@@ -344,7 +344,7 @@ describe("authenticateLane", () => {
   });
 
   it("destroying the lane takes the same end: keys wiped, consumers told once", async () => {
-    const { pair, lane, ended } = await opened();
+    const { pair, lane, ended } = await openedLane();
     lane.socket.destroy();
     expect(pair.destroyed()).toBe(true);
     expect(ended).toHaveLength(1);
