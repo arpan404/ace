@@ -8,7 +8,7 @@ import { Icon } from "@/components/icon.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { EditBotDialog } from "./spade-bot-dialog.tsx";
-import { MemoryDialog, type MemoryOpen } from "./spade-memory-dialog.tsx";
+import { MemoryDialog } from "./spade-memory-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -51,7 +51,7 @@ export function useOpenBot(bot: RosterBot) {
 /**
  * The screen's frame for one bot. Its top bar: the bot's face (moving while it works), its name
  * and machine, and a caret; they open the bot's own page. ⋯ holds what acts on the bot: Edit,
- * Duplicate, Export and Delete. `children` may open the Memory dialog itself.
+ * Memory (its notes, which never show in the chat), Duplicate, Export and Delete.
  */
 export function BotScreen(props: {
   bot: RosterBot;
@@ -59,11 +59,11 @@ export function BotScreen(props: {
   page?: boolean;
   /** Right-hand actions in the top bar (Computer, which opens the right panel). */
   actions?: ReactNode;
-  children: ReactNode | ((openMemory: (open: MemoryOpen) => void) => ReactNode);
+  children: ReactNode;
 }) {
   const { bot } = props;
   const [editing, setEditing] = useState(false);
-  const [memory, setMemory] = useState<MemoryOpen>();
+  const [memory, setMemory] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>();
   const remove = useDeleteBot();
   const duplicate = useDuplicateBot();
@@ -105,6 +105,7 @@ export function BotScreen(props: {
         bot.away || bot.unavailable ? undefined : (
           <>
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
+            <MenuItem onClick={() => setMemory(true)}>Memory</MenuItem>
             <MenuItem
               onClick={() =>
                 void duplicate(bot).then((copy) => {
@@ -129,9 +130,9 @@ export function BotScreen(props: {
         )
       }
     >
-      {typeof props.children === "function" ? props.children(setMemory) : props.children}
+      {props.children}
       {editing && <EditBotDialog bot={bot} onClose={() => setEditing(false)} />}
-      {memory && <MemoryDialog bot={bot} open={memory} onClose={() => setMemory(undefined)} />}
+      {memory && <MemoryDialog bot={bot} onClose={() => setMemory(false)} />}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </Screen>
   );

@@ -53,15 +53,15 @@ const faceRoom = "w-7 shrink-0";
  * given (`SpadeRequestBubble`); a question arrives as the bot's bubble, a search with nothing set
  * up as one quiet line that opens Settings › Spade › Web search, and a skill the bot offers as a
  * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
- * working, its few words and how long it has been at it, with Watch when its computer's tile is
- * hidden. A bot carrying on with its task by itself keeps that line between replies ("Flights is
+ * working, its few words and how long it has been at it, with Watch while it uses its computer
+ * and the right panel is closed. A bot carrying on with its task by itself keeps that line between replies ("Flights is
  * working on it · its step"), and a task waiting on the person reads "Flights needs you" (the
  * request is its bubble above). Stop is the composer's; a done task shows nothing more.
  */
 export function SpadeChat(props: {
   bot: ChatBot;
   view: SpadeView;
-  /** The computer's tile is hidden: the working line offers to watch it again. */
+  /** It uses its computer and the panel is closed: the working line offers to watch it. */
   onWatch?: (() => void) | undefined;
   /** The person has the bot's computer: Spade pauses the bot, and the line says so. */
   paused?: boolean | undefined;
@@ -503,7 +503,7 @@ function Failure(props: {
 
 /**
  * While the bot works: its face moving, its few words, and how long it has been at it; Watch
- * brings its computer's tile back when the person hid it.
+ * opens the right panel on what it uses.
  */
 function WorkingLine(props: {
   avatar: SpadeAvatar;

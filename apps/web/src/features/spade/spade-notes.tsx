@@ -38,15 +38,9 @@ type Saved =
  * What a bot remembers, or what every bot knows about the person (ADR 0128), as a list edited
  * in place: a note's text opens it for editing, Delete removes it, the last row adds one.
  * Notes compaction suggested from untrusted content wait above, under Suggested, to be kept or
- * dismissed. `editing`: a note to open for editing at once (from a "Remembered" line). Put it
- * in a card.
+ * dismissed. Put it in a card.
  */
-export function SpadeNotes(props: {
-  scope: SpadeNotesScope;
-  label: string;
-  placeholder: string;
-  editing?: string | undefined;
-}) {
+export function SpadeNotes(props: { scope: SpadeNotesScope; label: string; placeholder: string }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
@@ -59,7 +53,7 @@ export function SpadeNotes(props: {
   const [editing, setEditing] = useState<string | undefined>();
   // A note being opened: the field shows once the notes are read again, so it never starts
   // from cached text the bot has since changed.
-  const [opening, setOpening] = useState(props.editing);
+  const [opening, setOpening] = useState<string>();
   const { refetch } = notes;
   useEffect(() => {
     if (opening === undefined) return;

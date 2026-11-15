@@ -115,8 +115,11 @@ test("a note the bot saved stays out of the chat and is in its memory", async ()
   await chat.findByText("Got it.");
   expect(chat.queryByText(/window seats/i)).toBeNull();
   expect(chat.queryByText(/memory|remembered/i)).toBeNull();
-  const memory = await openMemory();
-  expect(await memory.findByRole("button", { name: "Edit: Prefers window seats" })).toBeTruthy();
+  // Its notes are in Memory, under the bot's ⋯.
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Memory" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
+  expect(await dialog.findByRole("button", { name: "Edit: Prefers window seats" })).toBeTruthy();
 });
 
 test("an open note follows the bot's changes until typed in, then Save won't overwrite them", async () => {

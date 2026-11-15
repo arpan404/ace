@@ -4,7 +4,7 @@ import { Icon } from "@/components/icon.tsx";
 import { SurfaceLive } from "./surface-live.tsx";
 
 /**
- * A bot's browser (under its address) or screen in the expanded computer: the live view, which
+ * A bot's browser (under its address) or screen in the right panel: the live view, which
  * takes the person's input while they may act (cowork, or exclusive while they drive).
  */
 export function SurfacePicture(props: {
