@@ -144,6 +144,14 @@ export function worktreeUnmade(code: string | undefined): boolean {
 export function worktreeSpeaks(progress: Progress | undefined, code: string | undefined): boolean {
   if (!progress) return false;
   if (progress.state !== "failed" || !code) return true;
+  return worktreeRefusal(code);
+}
+
+/**
+ * Whether a refused start's code is the worktree's to say: it was cancelled, only its setup
+ * script failed, or the worktree couldn't be made. Not the message's own refusal.
+ */
+export function worktreeRefusal(code: string): boolean {
   return code === "worktree_cancelled" || code === "setup_failed" || worktreeUnmade(code);
 }
 
