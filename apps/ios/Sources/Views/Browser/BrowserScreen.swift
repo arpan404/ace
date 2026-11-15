@@ -254,6 +254,10 @@ struct BrowserScreen: View {
         if let permission = state?.permission {
             BrowserStrip(sentence: permission) { EmptyView() }
         }
+        // The video falls back to the processor: one sentence, nothing to press.
+        if let degraded = state?.degraded, !degraded.isEmpty, state?.closed == false {
+            BrowserStrip(sentence: degraded) { EmptyView() }.accessibilityIdentifier("browser.degraded")
+        }
         if let device = browser.view?.device, device.toolbar, state?.activeTabId != nil, state?.closed == false {
             BrowserDeviceBar(model: model, device: device)
         }

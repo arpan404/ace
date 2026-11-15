@@ -132,8 +132,9 @@ export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
  * - `seen_at`: when the child's machine last reported it. Backfilled from when it last changed,
  *   but startup counts its lease from the daemon's own start, so downtime here is never blamed
  *   on the child.
- * - `silent_since`: its lease lapsed, so it is lost contact and no longer holds its parent; null
- *   while it reports.
+ * - `silent_since`: its lease lapsed, so it is lost contact: when its first unanswered read went
+ *   out. It still holds its parent, which asks the person about it (ADR 0153, its question in
+ *   `lost_key`/`lost_ask`); null while it reports.
  * - `stop_started_at`, `stop_attempts`, `stop_last_at`: a Stop in progress, so a restart picks up
  *   where it was and one past its bound gives up at once.
  * - `stopped_unconfirmed`: every cancel went out and its machine never confirmed the stop; it is

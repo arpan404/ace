@@ -734,6 +734,22 @@ impl FakeDaemon {
             .and_then(|d| d.get(bot).copied())
             .unwrap_or(Driver::Bot)
     }
+
+    /// Spends one "still running" answer; false once they're used up.
+    fn take_one_running(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut n = self.still_running.load(SeqCst);
+        while n > 0 {
+            match self
+                .still_running
+                .compare_exchange_weak(n, n - 1, SeqCst, SeqCst)
+            {
+                Ok(_) => return true,
+                Err(now) => n = now,
+            }
+        }
+        false
+    }
 }
 
 impl Daemon for FakeDaemon {
@@ -755,15 +771,7 @@ impl Daemon for FakeDaemon {
                 .ok()
                 .and_then(|mut d| d.insert(bot.to_owned(), driver));
             let handed_back = driver == Driver::Bot && was == Some(Driver::Person);
-            let stopped = driver == Driver::Bot
-                || self
-                    .still_running
-                    .fetch_update(
-                        std::sync::atomic::Ordering::SeqCst,
-                        std::sync::atomic::Ordering::SeqCst,
-                        |n| n.checked_sub(1),
-                    )
-                    .is_err();
+            let stopped = driver == Driver::Bot || !self.take_one_running();
             Ok(DriveAnswer {
                 handback: handed_back.then(|| Handback {
                     driven_ms: 60_000,

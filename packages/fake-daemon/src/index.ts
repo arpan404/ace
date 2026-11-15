@@ -133,6 +133,8 @@ export { startedConversation, startedConversationIds } from "./scenarios/started
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
+/** Payloads per `item.raw` page the fake answers with. */
+export { rawPageSize } from "./long-thread-wire.ts";
 export { workCardScenario, type WorkCardState } from "./scenarios/work-card.ts";
 export type { SkillSeed } from "./skill-library.ts";
 export {
@@ -155,3 +157,4 @@ export type { FakeSpadeNote } from "./spade-notes.ts";
 export type { FakeSpadeSpending } from "./spade-oversight.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

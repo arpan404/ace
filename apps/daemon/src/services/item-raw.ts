@@ -1,10 +1,16 @@
 import type { RawPayload } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { pageReplyBytes } from "../reply-bounds.ts";
 
 /** The most raw JSON one `item.raw` reply carries; the rest comes in later pages. */
-export const itemRawReplyBytes = 1024 * 1024;
-/** The most one entry takes in a reply; a larger one has its long fields cut. */
-const entryBytes = 256 * 1024;
+export const itemRawReplyBytes = pageReplyBytes;
+/**
+ * The most one entry takes in a reply. Storage keeps an entry's data inline up to 64 KiB (a
+ * larger one becomes a blob reference), so every entry it writes fits whole, sent alone when it
+ * fills a page; one larger than this (a long type or name) has its long fields cut. A reply
+ * carries at most this much raw JSON.
+ */
+export const entryBytes = pageReplyBytes + 8 * 1024;
 /** What a cut field keeps of itself. */
 const keptBytes = 4 * 1024;
 

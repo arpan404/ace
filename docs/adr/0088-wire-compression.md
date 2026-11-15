@@ -122,3 +122,28 @@ events message is 218 B instead of 314 B; `item.updated` loses 53% of its bytes;
 slow remote link, 23 deltas share a frame instead of 7. Frames under the 1 KiB threshold would
 shrink about a third if deflated alone; lowering the relay threshold, and a shared dictionary,
 are left for later.
+
+## Replies that can hold up an urgent message (2026-11-15)
+
+The outbox sends a reply whole before anything queued behind it, and what it has written sits in
+the socket and the link until delivered, so the largest single reply a client can ask for sets
+how long an approval, a Stop's acknowledgement or a send's receipt waits behind it. On 3g-slow
+(400 kbit/s, 400 ms round trip) one 0.94 MB `item.raw` reply held them for 6.3 s and one
+`output.read` for 7.3 s (`apps/daemon/bench/head-of-line.ts`).
+
+Paged reads are now bounded by what they put on the link, about 22 KB, about one more round trip
+there (`apps/daemon/src/reply-bounds.ts`):
+
+- `item.raw` pages carry at most 64 KiB of raw JSON (about 22 KB deflated). A stored entry (data
+  inline up to 64 KiB) goes whole, alone when it fills a page, so a reply carries at most 72 KiB;
+  an entry larger than that has its long fields cut, as before. The raw view reads on by itself,
+  16 pages per batch, one read in flight, so urgent messages pass between pages; "Show more"
+  reads the next batch.
+- `output.read` returns at most 16 KiB of output per read: it goes as base64, which barely
+  deflates, so that is about 22 KiB of JSON on the link. Readers go on from `nextOffset`.
+
+A table-driven test (`reply-bounds.process.test.ts`) reads each bounded handler's largest data
+through a real socket and fails on any reply over its bound or any content lost. Item pages and
+windows, turn steps, the snapshot window (1 MiB each) and entity pages are not bounded this way
+yet: a page smaller than an item would show it reduced, so they need the same reading on and a
+whole-item read first.

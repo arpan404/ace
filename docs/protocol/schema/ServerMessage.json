@@ -851,6 +851,9 @@
       "$ref": "https://ace.local/protocol/v1/SearchErrorResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MediaConnectResult.json"
+    },
+    {
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -931,6 +934,9 @@
           ],
           "type": "object"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -954,6 +960,9 @@
         "data": {},
         "error": {
           "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+        },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
         },
         "ok": {
           "type": "boolean"
@@ -1084,6 +1093,9 @@
         "error": {
           "maxLength": 2048,
           "type": "string"
+        },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
         },
         "ok": {
           "type": "boolean"

@@ -1,28 +1,29 @@
 use crate::{
+    media::{
+        encoder::{Captured, Input},
+        pixels::{SPA_BGRA, SPA_RGBA},
+        select::{DmaBufUse, dmabuf_use},
+        stream::encode_size,
+        video::{Stamp, StreamControl, Video, VideoSink},
+    },
+    pipewire_ffi::{
+        RawPicture, ace_pw_destroy, ace_pw_dmabuf, ace_pw_holding, ace_pw_open, ace_pw_redeliver,
+        ace_pw_shared_memory_only, ace_pw_step,
+    },
     protocol::{Result, internal},
+    still_cache::StillCache,
     writer::Publisher,
 };
+use media_codec::PixelFormat;
 use std::{
     ffi::c_void,
-    os::fd::{IntoRawFd, OwnedFd},
+    os::fd::{BorrowedFd, IntoRawFd, OwnedFd},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-unsafe extern "C" {
-    fn ace_pw_open(
-        fd: i32,
-        node: u32,
-        stop_fd: i32,
-        callback: unsafe extern "C" fn(*mut c_void, *const u8, u32, u32, i32, u32),
-        user: *mut c_void,
-    ) -> *mut c_void;
-    fn ace_pw_step(c: *mut c_void, timeout: i32) -> i32;
-    fn ace_pw_destroy(c: *mut c_void);
-    fn ace_pw_crop(c: *mut c_void, x: *mut i32, y: *mut i32, w: *mut u32, h: *mut u32) -> i32;
-}
 
 /// A rectangle of a buffer in its pixels: left, top, width, height.
 pub type Region = (u32, u32, u32, u32);
@@ -63,22 +64,7 @@ impl Control {
     }
 }
 
-/// A buffer not yet published: kept until the frame rate allows or someone watches again.
-/// The desktop sends a buffer only when the screen changes, so dropping it would leave the
-/// picture without its last change for as long as the screen stays still.
-#[derive(Default)]
-struct Pending {
-    bytes: Vec<u8>,
-    width: u32,
-    height: u32,
-    stride: usize,
-    format: u32,
-    crop: Option<(i32, i32, u32, u32)>,
-    /// When the buffer arrived, in Unix milliseconds: the picture's time, not its encoding's.
-    at: f64,
-}
-
-/// The last picture published, to send again when someone starts watching a still screen.
+/// A still published, kept to send again (`StillCache`).
 struct Published {
     jpeg: Vec<u8>,
     width: u32,
@@ -103,23 +89,50 @@ pub fn wait_ms(watching: bool, waiting: bool, refresh: bool, until_due: Duration
     until_due.as_millis().min(1000) as i32
 }
 
+/// When and under which epoch the held buffer arrived: a picture is stamped at capture, not
+/// when it is encoded or sent.
+#[derive(Clone, Copy, Default)]
+struct Arrival {
+    at: f64,
+    us: u64,
+    epoch: u32,
+}
+
+/// One buffer's pixels on the CPU, borrowed from the mapping or from a readback.
+struct Pixels<'a> {
+    bytes: &'a [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    format: u32,
+    crop: Option<(i32, i32, u32, u32)>,
+}
+
 struct Frames {
     publisher: Publisher,
+    /// Stills' frame rate while nobody watches as video.
     fps: u32,
     logical_width: u32,
     next: Instant,
     previous: crate::frame_identity::FrameIdentity,
     rgb: Vec<u8>,
     failed: bool,
-    /// The open stream, to read each buffer's crop region from.
+    /// The open stream, to offer the held buffer again.
     capture: *mut c_void,
     /// The newest buffer's size in stream points (width << 32 | height), for input bounds.
     shown: Arc<AtomicU64>,
     control: Arc<Control>,
-    pending: Option<Pending>,
-    /// A published buffer's copy, reused for the next so frames don't allocate.
-    spare: Vec<u8>,
-    last: Option<Published>,
+    video: Video,
+    /// The held buffer hasn't been published yet.
+    fresh: bool,
+    /// The next delivery is the held buffer offered again, not a new one.
+    redelivering: bool,
+    arrival: Arrival,
+    /// The last still, while it still shows the region the screen shows.
+    last: StillCache<Published>,
+    /// Video ran at the last step: leaving it publishes the current picture as a still at once,
+    /// so a viewer on stills isn't left waiting for the desktop to change.
+    was_video: bool,
 }
 
 fn unix_ms() -> f64 {
@@ -133,7 +146,11 @@ impl Frames {
     /// What a `rw`×`rh` region of a `w`-wide buffer shows, in logical points. A logical width
     /// of 0 is unknown (the portal gave none): one point per pixel.
     fn logical(&self, w: u32, rw: u32, rh: u32) -> (f64, f64) {
-        let logical_width = if self.logical_width == 0 { w } else { self.logical_width };
+        let logical_width = if self.logical_width == 0 {
+            w
+        } else {
+            self.logical_width
+        };
         (
             f64::from(rw) * f64::from(logical_width) / f64::from(w),
             f64::from(rh) * f64::from(logical_width) / f64::from(w),
@@ -155,22 +172,45 @@ impl Frames {
         Some(self.control.generation.load(Ordering::Acquire)).filter(|g| *g > 0)
     }
 
-    /// Converts, encodes and publishes one buffer. `force` publishes it even when its pixels
-    /// are those already published (someone started watching again).
-    fn publish(&mut self, buffer: &Pending, force: bool) -> Result<()> {
+    /// Whether the C shell holds a buffer: it keeps the newest, so a keyframe, a still or
+    /// someone starting to watch can encode the picture again without waiting for the desktop.
+    /// PipeWire may remove it (a new format or new buffers); then nothing is held, and the
+    /// picture it was is gone with it.
+    fn holding(&self) -> bool {
+        // SAFETY: the stream is open, on this thread (null before it opens).
+        !self.capture.is_null() && unsafe { ace_pw_holding(self.capture) } != 0
+    }
+
+    fn watching(&self) -> bool {
+        self.control.watching.load(Ordering::Acquire)
+    }
+
+    fn due(&self) -> bool {
+        Instant::now() >= self.next
+    }
+
+    /// Converts, encodes and publishes one still. `force` publishes it even when its pixels
+    /// are those already published (someone started watching again, or a still was asked for).
+    fn publish(&mut self, buffer: &Pixels<'_>, at: f64, force: bool) -> Result<()> {
         let (w, h, stride, format) = (buffer.width, buffer.height, buffer.stride, buffer.format);
-        let source = &buffer.bytes;
-        if !self.previous.update(source, w, h, stride, format) && !force {
+        let source = buffer.bytes;
+        // What the picture shows is its visible region: a crop that moves over unchanged
+        // pixels is a new picture, and a change outside it is none.
+        let region = visible_region(w, h, buffer.crop);
+        if !self.previous.update(source, stride, format, region) && !force {
             return Ok(());
         }
-        let (left, top, rw, rh) = visible_region(w, h, buffer.crop);
-        let ratio = (3840f64 / f64::from(rw)).min(2160f64 / f64::from(rh)).min(1.);
+        let (left, top, rw, rh) = region;
+        let ratio = (3840f64 / f64::from(rw))
+            .min(2160f64 / f64::from(rh))
+            .min(1.);
         let ow = (f64::from(rw) * ratio).floor().max(1.) as u32;
         let oh = (f64::from(rh) * ratio).floor().max(1.) as u32;
         self.rgb.resize(ow as usize * oh as usize * 3, 0);
         for y in 0..oh {
             for x in 0..ow {
-                let from = (top + y * rh / oh) as usize * stride + (left + x * rw / ow) as usize * 4;
+                let from =
+                    (top + y * rh / oh) as usize * stride + (left + x * rw / ow) as usize * 4;
                 let to = (y * ow + x) as usize * 3;
                 // SPA_VIDEO_FORMAT_RGBx=7, BGRx=8, RGBA=11, BGRA=12.
                 let rgb = match format {
@@ -183,108 +223,327 @@ impl Frames {
         }
         let mut jpeg = Vec::new();
         jpeg_encoder::Encoder::new(&mut jpeg, 75)
-            .encode(&self.rgb, ow as u16, oh as u16, jpeg_encoder::ColorType::Rgb)
+            .encode(
+                &self.rgb,
+                ow as u16,
+                oh as u16,
+                jpeg_encoder::ColorType::Rgb,
+            )
             .map_err(internal)?;
         let (logical_shown, _) = self.logical(w, rw, rh);
         let scale = f64::from(ow) / logical_shown;
         self.publisher
-            .frame(jpeg.clone(), ow, oh, scale, buffer.at, self.generation())?;
-        self.last = Some(Published {
-            jpeg,
-            width: ow,
-            height: oh,
-            scale,
-            at: buffer.at,
-        });
-        self.next = Instant::now() + Duration::from_nanos(1_000_000_000 / u64::from(self.fps.max(1)));
+            .frame(jpeg.clone(), ow, oh, scale, at, self.generation())?;
+        self.last.store(
+            region,
+            Published {
+                jpeg,
+                width: ow,
+                height: oh,
+                scale,
+                at,
+            },
+        );
         Ok(())
     }
 
-    /// After each loop step: publishes the waiting buffer once the frame rate allows, and
-    /// the current picture at once when someone starts watching.
+    /// A still of `raw`: its mapping, or one readback of a DMA-BUF. `false` when a DMA-BUF
+    /// couldn't be read, and the stream should move to shared memory.
+    fn still(&mut self, raw: &RawPicture, force: bool) -> Result<bool> {
+        let at = self.arrival.at;
+        if raw.dmabuf == 0 {
+            // SAFETY: during the callback, for mapped memory.
+            let Some(bytes) = (unsafe { raw.bytes() }) else {
+                return Ok(true);
+            };
+            let pixels = Pixels {
+                bytes,
+                width: raw.width,
+                height: raw.height,
+                stride: raw.stride as usize,
+                format: raw.format,
+                crop: raw.crop(),
+            };
+            return self.publish(&pixels, at, force).map(|()| true);
+        }
+        let Some(captured) = captured(raw, 0) else {
+            return Ok(false);
+        };
+        let Some((picture, cropped)) = self.video.read_back(&captured) else {
+            return Ok(false);
+        };
+        let size = picture.size();
+        let format = match picture.format() {
+            PixelFormat::Bgra8 => SPA_BGRA,
+            PixelFormat::Rgba8 => SPA_RGBA,
+            _ => return Ok(false),
+        };
+        let plane = &picture.planes()[0];
+        let pixels = Pixels {
+            bytes: &plane.data,
+            width: size.width,
+            height: size.height,
+            stride: plane.stride,
+            format,
+            crop: if cropped { None } else { raw.crop() },
+        };
+        self.publish(&pixels, at, force).map(|()| true)
+    }
+
+    /// One buffer from the desktop, or the held one offered again. Returns whether the C shell
+    /// keeps holding it.
+    fn picture(&mut self, raw: &RawPicture) -> Result<bool> {
+        if !std::mem::take(&mut self.redelivering) {
+            self.fresh = true;
+            // The arrival's epoch is resolved once, against the epochs' application times on
+            // the same clock, and kept through every redelivery of this buffer.
+            let us = self.video.now_us();
+            self.arrival = Arrival {
+                at: unix_ms(),
+                us,
+                epoch: self.video.control.resolve_arrival(us),
+            };
+        }
+        self.note_shown(raw.width, raw.height, raw.crop());
+        // The window moved or resized inside its buffer: the cached still shows the old region.
+        let region = visible_region(raw.width, raw.height, raw.crop());
+        self.last.seen(region);
+        let watching = self.watching();
+        if let Some(settings) = self.video.active(watching) {
+            let key = self.video.take_key();
+            if (self.fresh && self.due()) || key {
+                self.encode(raw, &settings, key);
+                self.fresh = false;
+                self.next = Instant::now()
+                    + Duration::from_nanos(1_000_000_000 / u64::from(settings.fps.max(1)));
+            }
+            if self.video.control.take_still() && !self.still(raw, true)? {
+                self.shared_memory();
+            }
+            self.video.drain();
+            return Ok(true);
+        }
+        let refresh = self.control.refresh.swap(false, Ordering::AcqRel);
+        let still = self.video.control.take_still();
+        if watching && ((self.fresh && self.due()) || refresh || still) {
+            if !self.still(raw, refresh || still)? {
+                self.shared_memory();
+                return Ok(false);
+            }
+            self.fresh = false;
+            self.next =
+                Instant::now() + Duration::from_nanos(1_000_000_000 / u64::from(self.fps.max(1)));
+        }
+        Ok(true)
+    }
+
+    fn encode(
+        &mut self,
+        raw: &RawPicture,
+        settings: &crate::media::stream::StreamSettings,
+        key: bool,
+    ) {
+        let pts = self.video.pts(self.arrival.us);
+        let Some(captured) = captured(raw, pts) else {
+            return;
+        };
+        // A DMA-BUF whose crop the encoder can't apply never reaches it: the stream moves to
+        // shared memory, where only the region is copied out (`media::select::dmabuf_use`).
+        if raw.dmabuf != 0
+            && self.video.backend().is_none_or(|backend| {
+                dmabuf_use(backend, (raw.width, raw.height), captured.region) != DmaBufUse::Encode
+            })
+        {
+            self.shared_memory();
+            return;
+        }
+        let (_, _, rw, rh) = captured.region;
+        let size = encode_size(rw, rh, settings);
+        let (logical_shown, _) = self.logical(raw.width, rw, rh);
+        let stamp = Stamp {
+            pts_us: pts,
+            timestamp: self.arrival.at,
+            scale: f64::from(size.width) / logical_shown,
+            epoch: self.arrival.epoch,
+        };
+        if self.video.encode(&captured, settings, stamp, key).is_err() && raw.dmabuf != 0 {
+            // A DMA-BUF this device couldn't take: the desktop sends shared memory instead.
+            self.shared_memory();
+        }
+    }
+
+    fn shared_memory(&mut self) {
+        if !self.capture.is_null() {
+            // SAFETY: the stream is open, on this thread.
+            unsafe { ace_pw_shared_memory_only(self.capture) };
+        }
+    }
+
+    /// After each loop step: hands on units that came back, and offers the held buffer again
+    /// when it is due, a keyframe or still is owed, or someone starts watching.
     fn catch_up(&mut self) -> Result<()> {
-        if !self.control.watching.load(Ordering::Acquire) {
+        self.video.drain();
+        if !self.holding() {
+            // PipeWire took the held buffer back (renegotiation): its picture can't be sent.
+            self.fresh = false;
+        }
+        let watching = self.watching();
+        let video = self.video.active(watching).is_some();
+        if std::mem::replace(&mut self.was_video, video) && !video && watching {
+            self.control.refresh.store(true, Ordering::Release);
+        }
+        let owed = if self.video.active(watching).is_some() {
+            (self.fresh && self.due())
+                || self.video.control.key_due_in(self.video.now_us()) == Some(0)
+                || self.video.control.still_owed()
+        } else {
+            watching
+                && ((self.fresh && self.due())
+                    || self.control.refresh.load(Ordering::Acquire)
+                    || self.video.control.still_owed())
+        };
+        if owed && self.holding() && !self.capture.is_null() {
+            self.redelivering = true;
+            // SAFETY: the stream is open, on this thread; it calls `on_frame` synchronously.
+            unsafe { ace_pw_redeliver(self.capture) };
+            self.redelivering = false;
             return Ok(());
         }
-        if self.control.refresh.swap(false, Ordering::AcqRel) {
-            if let Some(pending) = self.pending.take() {
-                let published = self.publish(&pending, true);
-                self.spare = pending.bytes;
-                return published;
-            }
-            if let Some(last) = &self.last {
+        if !self.holding() && self.control.refresh.swap(false, Ordering::AcqRel) {
+            if let Some(last) = self.last.replay() {
                 let generation = self.generation();
-                return self
-                    .publisher
-                    .frame(last.jpeg.clone(), last.width, last.height, last.scale, last.at, generation);
-            }
-            return Ok(());
-        }
-        if Instant::now() >= self.next {
-            if let Some(pending) = self.pending.take() {
-                let published = self.publish(&pending, false);
-                self.spare = pending.bytes;
-                return published;
+                return self.publisher.frame(
+                    last.jpeg.clone(),
+                    last.width,
+                    last.height,
+                    last.scale,
+                    last.at,
+                    generation,
+                );
             }
         }
         Ok(())
     }
 
     fn wait(&self) -> i32 {
+        let watching = self.watching();
+        if self.video.active(watching).is_some() {
+            let control = &self.video.control;
+            if self.holding() && control.still_owed() {
+                return 0;
+            }
+            // An owed keyframe wakes the loop when it may be forced, never sooner.
+            if let Some(due_us) = control
+                .key_due_in(self.video.now_us())
+                .filter(|_| self.holding())
+            {
+                return (due_us / 1_000).min(1_000) as i32;
+            }
+            if self.video.waiting() {
+                return 5;
+            }
+            if !self.holding() || !self.fresh {
+                return -1;
+            }
+            return self
+                .next
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+                .min(1000) as i32;
+        }
+        let refresh =
+            self.control.refresh.load(Ordering::Acquire) || self.video.control.still_owed();
         wait_ms(
-            self.control.watching.load(Ordering::Acquire),
-            self.pending.is_some(),
-            self.control.refresh.load(Ordering::Acquire),
+            watching,
+            self.holding() && self.fresh,
+            refresh && (self.holding() || self.last.replay().is_some()),
             self.next.saturating_duration_since(Instant::now()),
         )
     }
 }
 
-unsafe extern "C" fn on_frame(
-    user: *mut c_void,
-    bytes: *const u8,
-    w: u32,
-    h: u32,
-    stride: i32,
-    format: u32,
-) {
-    // The C shell validates the mapped buffer range and calls synchronously on this thread.
+/// The callback's picture as the encoder takes it; `None` when it carries nothing readable.
+fn captured(raw: &RawPicture, pts_us: u64) -> Option<Captured<'_>> {
+    let input = if raw.dmabuf != 0 {
+        if raw.fd < 0 || raw.stride <= 0 {
+            return None;
+        }
+        // SAFETY: the fd is the buffer's, open for the callback that received `raw`.
+        let fd = unsafe { BorrowedFd::borrow_raw(raw.fd) };
+        Input::DmaBuf {
+            fd,
+            offset: raw.offset,
+            stride: raw.stride as u32,
+            modifier: raw.modifier,
+        }
+    } else {
+        // SAFETY: during the callback, for mapped memory.
+        let bytes = unsafe { raw.bytes() }?;
+        Input::Shared {
+            bytes,
+            stride: raw.stride as usize,
+        }
+    };
+    Some(Captured {
+        input,
+        format: raw.format,
+        width: raw.width,
+        height: raw.height,
+        region: visible_region(raw.width, raw.height, raw.crop()),
+        pts_us,
+    })
+}
+
+unsafe extern "C" fn on_frame(user: *mut c_void, raw: *const RawPicture) -> i32 {
+    // The C shell validates the buffer and calls synchronously on this thread.
     let frames = unsafe { &mut *user.cast::<Frames>() };
-    if frames.failed {
-        return;
+    if frames.failed || raw.is_null() {
+        return 0;
     }
-    let at = unix_ms();
-    let source = unsafe { std::slice::from_raw_parts(bytes, stride as usize * h as usize) };
-    let (mut cx, mut cy, mut cw, mut ch) = (0, 0, 0, 0);
-    // SAFETY: the stream is open; the crop belongs to the buffer being delivered.
-    let cropped = !frames.capture.is_null()
-        && unsafe { ace_pw_crop(frames.capture, &mut cx, &mut cy, &mut cw, &mut ch) } == 1;
-    // The buffer goes back to the desktop after this call: keep a copy of it.
-    let mut pending = frames.pending.take().unwrap_or_else(|| Pending {
-        bytes: std::mem::take(&mut frames.spare),
-        ..Pending::default()
-    });
-    pending.bytes.clear();
-    pending.bytes.extend_from_slice(source);
-    pending.width = w;
-    pending.height = h;
-    pending.stride = stride as usize;
-    pending.format = format;
-    pending.crop = cropped.then_some((cx, cy, cw, ch));
-    pending.at = at;
-    frames.note_shown(w, h, pending.crop);
-    let watching = frames.control.watching.load(Ordering::Acquire);
-    if !watching || Instant::now() < frames.next {
-        // Published once the frame rate allows, or when someone watches again.
-        frames.pending = Some(pending);
-        return;
+    let raw = unsafe { &*raw };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frames.picture(raw)));
+    let keep = match result {
+        Ok(Ok(keep)) => keep,
+        _ => {
+            frames.failed = true;
+            false
+        }
+    };
+    i32::from(keep)
+}
+
+/// Units into the capture's ingest route, in capture order; the sequence is shared with stills.
+pub struct RouteSink {
+    pub publisher: Publisher,
+    pub ingest: crate::media::ingest::Ingest,
+}
+
+impl VideoSink for RouteSink {
+    fn unit(&mut self, unit: media_ingest::VideoUnit) -> bool {
+        self.ingest.unit(unit);
+        true
     }
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frames.publish(&pending, false)));
-    frames.spare = pending.bytes;
-    if !matches!(result, Ok(Ok(()))) {
-        frames.failed = true;
+    fn next_sequence(&mut self) -> u64 {
+        self.publisher.next_sequence()
     }
 }
+
+/// What a capture needs beyond the stream: where stills and video go, and the controls the
+/// runtime holds.
+pub struct Outputs {
+    pub publisher: Publisher,
+    pub shown: Arc<AtomicU64>,
+    pub control: Arc<Control>,
+    pub stream: Arc<StreamControl>,
+    pub ingest: crate::media::ingest::Ingest,
+    pub clock: crate::media::ingest::Clock,
+    /// The encoder video opens, from the trials; `None` offers stills only.
+    pub encoder: Option<(
+        media_wire::capability::Backend,
+        Option<media_chrome::ChromeOptions>,
+    )>,
+}
+
 pub fn capture(
     fd: OwnedFd,
     node: u32,
@@ -292,10 +551,25 @@ pub fn capture(
     logical_width: u32,
     stop_fd: i32,
     stop: Arc<AtomicBool>,
-    publisher: Publisher,
-    shown: Arc<AtomicU64>,
-    control: Arc<Control>,
+    outputs: Outputs,
 ) -> Result<()> {
+    let Outputs {
+        publisher,
+        shown,
+        control,
+        stream,
+        ingest,
+        clock,
+        encoder,
+    } = outputs;
+    // Built here: the encoder lives on this thread (a GL context is current only on it).
+    let sink = RouteSink {
+        publisher: publisher.clone(),
+        ingest,
+    };
+    let mut video = Video::new(stream, encoder, Box::new(sink), clock);
+    // An encoder that imports DMA-BUFs opens now, on this thread, so the stream offers them.
+    let dmabuf = video.open_for_dmabuf();
     let mut frames = Frames {
         publisher,
         fps,
@@ -307,34 +581,74 @@ pub fn capture(
         capture: std::ptr::null_mut(),
         shown,
         control,
-        pending: None,
-        spare: Vec::new(),
-        last: None,
+        video,
+        fresh: false,
+        redelivering: false,
+        arrival: Arrival::default(),
+        last: StillCache::default(),
+        was_video: false,
     };
     let c = unsafe {
         ace_pw_open(
             fd.into_raw_fd(),
             node,
             stop_fd,
+            i32::from(dmabuf),
             on_frame,
             (&mut frames as *mut Frames).cast(),
         )
     };
     if c.is_null() {
+        frames.video.close();
         return Err(internal(
             "Cannot initialize PipeWire; install libpipewire-0.3 and check portal stream",
         ));
     }
     // Frames arrive only from `ace_pw_step` below, on this thread, after this is set.
     frames.capture = c;
+    let mut reported_dmabuf = false;
+    // Debug builds only: renegotiate buffers this often (ms), for tests of buffers removed while
+    // one is held. Release builds never read it.
+    let reallocate = cfg!(debug_assertions)
+        .then(|| {
+            std::env::var("ACE_SCREEN_TEST_REALLOCATE_MS")
+                .ok()?
+                .parse::<u64>()
+                .ok()
+        })
+        .flatten()
+        .map(Duration::from_millis);
+    let mut reallocated = (Instant::now(), 0);
     let result = (|| {
         while !stop.load(Ordering::Acquire) {
-            // Wakes for a buffer, the runtime's wake byte (watch, stop), or a waiting buffer
-            // coming due.
+            // Wakes for a buffer, the runtime's wake byte (watch, configure, stop), or the held
+            // buffer coming due.
             if unsafe { ace_pw_step(c, frames.wait()) } < 0 || frames.failed {
                 return Err(internal("PipeWire capture failed"));
             }
-            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frames.catch_up()));
+            // SAFETY: the stream is open, on this thread.
+            let on_dmabuf = unsafe { ace_pw_dmabuf(c) } != 0;
+            if on_dmabuf != reported_dmabuf {
+                reported_dmabuf = on_dmabuf;
+                eprintln!(
+                    "capture: {}",
+                    if on_dmabuf {
+                        "DMA-BUF"
+                    } else {
+                        "shared memory"
+                    }
+                );
+            }
+            if let Some(every) = reallocate
+                && frames.last.replay().is_some()
+                && reallocated.0.elapsed() >= every
+            {
+                reallocated = (Instant::now(), 1 - reallocated.1);
+                // SAFETY: the stream is open, on this thread.
+                unsafe { crate::pipewire_ffi::ace_pw_reallocate(c, reallocated.1) };
+            }
+            let caught =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frames.catch_up()));
             if !matches!(caught, Ok(Ok(()))) {
                 return Err(internal("PipeWire capture failed"));
             }
@@ -344,8 +658,12 @@ pub fn capture(
     unsafe {
         ace_pw_destroy(c);
     }
+    frames.video.close();
     result
 }
+
+/// The stream control the runtime keeps for `stream.configure`.
+pub type Stream = Arc<StreamControl>;
 
 #[cfg(test)]
 mod tests {
@@ -367,19 +685,34 @@ mod tests {
     #[test]
     fn a_window_inside_a_monitor_sized_buffer_is_shown_alone() {
         // GNOME 50: Calculator's 410×666 buffer (window and shadow) in a 1280×800 one.
-        assert_eq!(visible_region(1280, 800, Some((0, 0, 410, 666))), (0, 0, 410, 666));
-        assert_eq!(visible_region(1280, 800, Some((25, 25, 360, 616))), (25, 25, 360, 616));
+        assert_eq!(
+            visible_region(1280, 800, Some((0, 0, 410, 666))),
+            (0, 0, 410, 666)
+        );
+        assert_eq!(
+            visible_region(1280, 800, Some((25, 25, 360, 616))),
+            (25, 25, 360, 616)
+        );
     }
 
     #[test]
     fn a_buffer_without_a_usable_crop_is_shown_whole() {
         assert_eq!(visible_region(1280, 800, None), (0, 0, 1280, 800));
-        assert_eq!(visible_region(1280, 800, Some((10, 10, 0, 40))), (0, 0, 1280, 800));
-        assert_eq!(visible_region(1280, 800, Some((1280, 0, 50, 50))), (0, 0, 1280, 800));
+        assert_eq!(
+            visible_region(1280, 800, Some((10, 10, 0, 40))),
+            (0, 0, 1280, 800)
+        );
+        assert_eq!(
+            visible_region(1280, 800, Some((1280, 0, 50, 50))),
+            (0, 0, 1280, 800)
+        );
     }
 
     #[test]
     fn a_crop_reaching_past_the_buffer_is_clamped_to_it() {
-        assert_eq!(visible_region(800, 600, Some((-5, 500, 900, 300))), (0, 500, 800, 100));
+        assert_eq!(
+            visible_region(800, 600, Some((-5, 500, 900, 300))),
+            (0, 500, 800, 100)
+        );
     }
 }

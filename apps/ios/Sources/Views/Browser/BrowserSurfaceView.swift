@@ -31,6 +31,10 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     }()
     /// The newest picture decoded since the last refresh, if any.
     var nextPicture: () -> BrowserPicture? = { nil }
+    /// The still the subscribe brought back, shown until the first live picture (ADR 0149).
+    var nextPoster: () -> CGImage? = { nil }
+    private let posterLayer = CALayer()
+    private var posterGate = PosterGate()
     /// While the person can use the page, a swipe here goes to the page, never to ace's back swipe.
     var interactive = true { didSet { claim.isEnabled = interactive } }
     private lazy var claim = SurfaceTouchClaim.install(on: self)
@@ -73,6 +77,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         isMultipleTouchEnabled = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
+        posterLayer.contentsGravity = .resizeAspect
+        posterLayer.isHidden = true
+        layer.addSublayer(posterLayer)
         for (shape, width) in [(inkHalo, AceDesign.Size.inkStroke * 2), (inkLayer, AceDesign.Size.inkStroke)] {
             shape.fillColor = nil
             shape.lineWidth = width
@@ -105,6 +112,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         videoLayer.frame = pageSize == .zero ? bounds : geometry.box
+        posterLayer.frame = bounds
         inkGroup.frame = bounds
         inkLayer.frame = bounds
         inkHalo.frame = bounds
@@ -135,7 +143,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
 
     /// One screen refresh: draws the newest picture, if one arrived since the last.
     fileprivate func drawNewest() {
+        if let poster = nextPoster(), posterGate.offer(poster) { showPoster(poster) }
         guard let picture = nextPicture(), let sample = samples.sample(picture.image) else { return }
+        if posterGate.pictureDrawn() { showPoster(nil) }
         let renderer = videoLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
@@ -149,6 +159,15 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    /// The poster in place of the page, or gone once the first live picture is drawn.
+    private func showPoster(_ image: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        posterLayer.contents = image
+        posterLayer.isHidden = image == nil
+        CATransaction.commit()
+        accessibilityValue = image == nil ? nil : "Still picture"
+    }
     private func moved() {
         setNeedsLayout()
         place(field: field)
@@ -320,6 +339,7 @@ struct BrowserSurface: UIViewRepresentable {
         let view = BrowserSurfaceView()
         let model = model
         view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
+        view.nextPoster = { [weak browser = model.browser] in browser?.nextPoster() }
         view.onInput = { model.browserInput($0) }
         view.onMove = { zoom, offset in model.browser.movePicture(zoom: zoom, offset: offset) }
         view.onLayout = { size, scale, picture in

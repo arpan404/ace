@@ -26,8 +26,18 @@ xcodebuild -project Ace.xcodeproj -scheme Ace -configuration Debug \
   -destination 'platform=iOS Simulator,id=YOUR_SIMULATOR_UDID' \
   -derivedDataPath .build/DerivedData -jobs 4 build
 xcrun simctl install YOUR_SIMULATOR_UDID .build/DerivedData/Build/Products/Debug-iphonesimulator/Ace.app
-xcrun simctl launch YOUR_SIMULATOR_UDID app.ace.ios --spike
+xcrun simctl launch --terminate-running-process YOUR_SIMULATOR_UDID app.ace.ios --spike
 ```
+
+Always pass `--terminate-running-process`. An iOS 27 simulator starts the app in the background
+as soon as it's installed, with no arguments, so it runs as a release would: it reads the
+phone's paired machines and never connects to the fixture. A plain `simctl launch` brings that
+process forward and drops `--spike` and every other argument. The fixture's `/health` then stays
+at `snapshots: 0`, and Threads shows "No computer paired", or a stalled skeleton if the simulator
+remembers a machine it can't reach (#2075). Measured on 2026-11-14 with the iOS 27.0 runtime
+(24A434): a plain launch after install connected 0 times out of 2, and a launch with
+`--terminate-running-process` connected every time. UI tests aren't affected, because
+`XCUIApplication.launch()` ends a running copy first.
 
 Use an **iOS 26.1** simulator runtime, not 26.2. The iOS 26.2 simulator's JavaScriptCore
 (runtime 23C52, JavaScriptCore UUID `0ED6EFCF-6A91-3C3A-845A-7B6AA4832FB6`) corrupts string

@@ -1,3 +1,4 @@
+import type { SpikeSocketData } from "./spike-media.ts";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import {
   AppDevice,
@@ -27,7 +28,7 @@ import type { ServerWebSocket } from "bun";
 const iphone = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
 export const devicesThread = "ios-devices";
 
-type Socket = ServerWebSocket<undefined>;
+type Socket = ServerWebSocket<SpikeSocketData>;
 interface Feature {
   send(message: unknown): unknown;
   close(): void;

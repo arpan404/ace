@@ -17,6 +17,9 @@
           "maxLength": 2048,
           "type": "string"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
+        },
         "ok": {
           "type": "boolean"
         },

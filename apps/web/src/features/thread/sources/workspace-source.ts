@@ -359,8 +359,9 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     async resolveSetup(thread, action) {
       const threadId = id(thread);
       await run({ type: "thread.workspace.setup", threadId, action });
-      const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
-      await run({ type: "queue.resume", threadId, expectedRevision: queue.revision });
+      // At the queue's current revision, and only while the thread's copy is current.
+      const { resumeQueue } = await import("@/lib/live-actions.ts");
+      await resumeQueue(client, threadId);
     },
   };
 }

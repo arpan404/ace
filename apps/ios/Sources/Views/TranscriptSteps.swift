@@ -301,11 +301,17 @@ struct WorkBlockView: View {
             if !Task.isCancelled { holdSteps() }
         }
         .onDisappear {
-            if let ordinal = row.ordinal, let steps { steps.model.closeSteps(ordinal: ordinal, epoch: steps.epoch) }
+            if let ordinal = row.ordinal, let steps {
+                PerfCounters.bump("steps.close")
+                steps.model.closeSteps(ordinal: ordinal, epoch: steps.epoch)
+            }
         }
     }
     private func holdSteps() {
-        if let ordinal = row.ordinal, let steps { steps.model.openSteps(ordinal: ordinal, block: blockId) }
+        if let ordinal = row.ordinal, let steps {
+            PerfCounters.bump("steps.open")
+            steps.model.openSteps(ordinal: ordinal, block: blockId)
+        }
     }
 }
 

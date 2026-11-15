@@ -57,8 +57,9 @@ export const WatchedThread = z.object({
   machine: z.string().max(64).optional(),
   /**
    * A child on another machine that this machine can't vouch for (ADR 0052): `lost` (its machine
-   * stopped reporting; read as `failed`, so it no longer holds a wait) or `unconfirmed` (stopped
-   * here, read as `cancelled`, though its machine never confirmed it). Only this machine sets it.
+   * stopped answering; read as `needs_you`, its parent asking the person, ADR 0153) or
+   * `unconfirmed` (stopped here, read as `cancelled`, though its machine never confirmed it).
+   * Only this machine sets it.
    */
   contact: RemoteContact.optional(),
 });

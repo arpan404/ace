@@ -104,6 +104,36 @@ import XCTest
 
 
 
+    // MARK: Children ace delegated to other machines (fixture thread `ios-elsewhere`)
+
+    func testAChildOnAMachineThePhoneHasOpensThereAndOneOnAnUnpairedMachineSaysWhy() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-elsewhere"]
+        app.launch()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        let group = app.buttons["subagents.rollup"]
+        XCTAssertTrue(group.waitForExistence(timeout: 15))
+        XCTAssertTrue(reveal(group, in: app))
+        group.tap()
+        // The unpaired machine's child names the machine instead of opening as a thread here.
+        let far = app.buttons["subagent.Check the Linux build"]
+        XCTAssertTrue(far.waitForExistence(timeout: 10))
+        XCTAssertTrue(reveal(far, in: app))
+        far.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "build-box")).firstMatch.exists)
+        screenshot("elsewhere-unpaired")
+        alert.buttons["OK"].firstMatch.tap()
+        // The child on a machine the phone has opens there, its own thread.
+        let near = app.buttons["subagent.Write the relay guide"]
+        XCTAssertTrue(reveal(near, in: app))
+        near.tap()
+        XCTAssertTrue(app.staticTexts["Write the relay guide."].waitForExistence(timeout: 30))
+        screenshot("elsewhere-opened")
+    }
+
     private func agentRow(_ name: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch
     }

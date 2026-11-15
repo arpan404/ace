@@ -1,6 +1,7 @@
 import type { RawPayload } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  autoPages,
   canReadMore,
   initialRawReads,
   stepRawReads,
@@ -28,10 +29,24 @@ const answer = (
 const markers = (state: RawReads) =>
   state.raw.map((entry) => ("data" in entry ? (entry.data as { marker: string }).marker : ""));
 
-/** Open, first page answered: idle with `a` shown and more to read. */
+/**
+ * Answer every read the machine sends, one payload per page with more after it, until it stops
+ * reading on: `tag` at the first page of the batch, `tag<from>` after.
+ */
+function answerAll(state: RawReads, tag = "a", revision = "r1") {
+  let current = state;
+  for (let pages = 0; current.read && current.phase !== "closed"; pages++) {
+    if (pages > 100) throw new Error("The machine never stopped reading on");
+    const from = current.read.from;
+    const marker = pages === 0 ? tag : `${tag}${from}`;
+    current = stepRawReads(current, answer(current, { raw: [marker], next: from + 1, revision }));
+  }
+  return current;
+}
+
+/** Open, a whole batch answered: idle with `autoPages` pages shown and more to read. */
 function shown(running: boolean) {
-  const reading = run(initialRawReads(running), { type: "open" });
-  return run(reading, answer(reading, { raw: ["a"], next: 1 }));
+  return answerAll(run(initialRawReads(running), { type: "open" }));
 }
 
 describe("the Raw view's reads", () => {
@@ -79,16 +94,62 @@ describe("the Raw view's reads", () => {
       expect: { phase: "idle", read: undefined },
     },
     {
-      name: "Show more reads the next page of the shown version",
+      name: "a page with more after it reads on to the next by itself",
+      state: () => run(initialRawReads(true), { type: "open" }),
+      input: {
+        type: "reply",
+        id: 1,
+        reply: { from: 0, raw: [], revision: "r1", next: 1 },
+      } as RawInput,
+      expect: { phase: "reading", read: { id: 2, from: 1, revision: "r1" }, auto: autoPages - 2 },
+    },
+    {
+      name: "the last page needs no read after it",
+      state: () => run(initialRawReads(true), { type: "open" }),
+      input: { type: "reply", id: 1, reply: { from: 0, raw: [], revision: "r1" } } as RawInput,
+      expect: { phase: "idle", read: undefined },
+    },
+    {
+      name: "Show more reads the next batch of the shown version",
       state: () => shown(true),
       input: { type: "more" } as RawInput,
-      expect: { phase: "reading", read: { from: 1, revision: "r1" } },
+      expect: {
+        phase: "reading",
+        read: { from: autoPages, revision: "r1" },
+        auto: autoPages - 1,
+      },
     },
     {
       name: "Show more while a read is out does nothing",
       state: () => run(shown(true), { type: "more" }),
       input: { type: "more" } as RawInput,
-      expect: { phase: "reading", reads: 2 },
+      expect: { phase: "reading", reads: autoPages + 1 },
+    },
+    {
+      name: "a batch cut short by closing reads on when the view opens again",
+      state: () => {
+        const first = run(initialRawReads(true), { type: "open" });
+        const second = run(first, answer(first, { raw: ["a"], next: 1 }), { type: "close" });
+        return run(second, answer(second, { raw: ["b"], next: 2 }));
+      },
+      input: { type: "open" } as RawInput,
+      expect: { phase: "reading", read: { from: 2 }, reads: 3 },
+    },
+    {
+      name: "a change while reading on makes the page stale; a new batch starts from the start",
+      state: () => {
+        const first = run(initialRawReads(false), { type: "open" });
+        return run(first, answer(first, { raw: ["a"], next: 1 }), {
+          type: "changed",
+          running: false,
+        });
+      },
+      input: {
+        type: "reply",
+        id: 2,
+        reply: { from: 1, raw: [], revision: "r1", next: 2 },
+      } as RawInput,
+      expect: { phase: "reading", read: { id: 3, from: 0 }, auto: autoPages - 1 },
     },
     {
       name: "a change while closed reads again on opening",
@@ -106,7 +167,7 @@ describe("the Raw view's reads", () => {
       name: "a read that was out when the view closed is still waited for on reopening",
       state: () => run(shown(true), { type: "more" }, { type: "close" }),
       input: { type: "open" } as RawInput,
-      expect: { phase: "reading", read: { from: 1 }, reads: 2 },
+      expect: { phase: "reading", read: { from: autoPages }, reads: autoPages + 1 },
     },
     {
       name: "reopening with nothing changed keeps what was read",
@@ -138,27 +199,26 @@ describe("the Raw view's reads", () => {
     expect(stepRawReads(stale, answer(stale, { raw: ["a"] }))).toMatchObject({ phase: "waiting" });
   });
 
-  it("a refresh replaces the pages shown when it lands, and Show more reads on from it", () => {
-    const two = run(shown(false), { type: "more" });
-    const both = stepRawReads(two, answer(two, { raw: ["b"], next: 2 }));
-    expect(markers(both)).toEqual(["a", "b"]);
+  it("a refresh replaces the pages shown when it lands, and reads on from it", () => {
+    const both = answerAll(run(shown(false), { type: "more" }), "b");
+    expect(markers(both)).toHaveLength(2 * autoPages);
     const refreshing = stepRawReads(both, { type: "changed", running: false });
     // The pages read stay on screen while the refresh is out.
-    expect(markers(refreshing)).toEqual(["a", "b"]);
+    expect(markers(refreshing)).toHaveLength(2 * autoPages);
     expect(canReadMore(refreshing)).toBe(false);
     const fresh = stepRawReads(
       refreshing,
       answer(refreshing, { raw: ["A"], next: 1, revision: "r2" }),
     );
     expect(markers(fresh)).toEqual(["A"]);
-    expect(stepRawReads(fresh, { type: "more" }).read).toMatchObject({ from: 1, revision: "r2" });
+    expect(fresh.read).toMatchObject({ from: 1, revision: "r2" });
   });
 
   it("a page of a version that changed reads again from the start", () => {
     const more = run(shown(false), { type: "more" });
     const restart = stepRawReads(more, answer(more, { raw: [], changed: true, revision: "r2" }));
     expect(restart).toMatchObject({ phase: "reading", read: { from: 0, revision: undefined } });
-    expect(markers(restart)).toEqual(["a"]);
+    expect(markers(restart)).toHaveLength(autoPages);
   });
 
   it("a reply to any read but the one in flight changes nothing", () => {
@@ -191,10 +251,16 @@ describe("the Raw view's reads", () => {
   it("a failed read is retried as it was, and only when nothing is out", () => {
     const more = run(shown(false), { type: "more" });
     const failed = stepRawReads(more, { type: "error", id: more.read?.id ?? 0 });
-    expect(failed).toMatchObject({ phase: "idle", failed: { from: 1 } });
-    expect(stepRawReads(failed, { type: "retry" }).read).toMatchObject({ from: 1, revision: "r1" });
+    expect(failed).toMatchObject({ phase: "idle", failed: { from: autoPages } });
+    expect(stepRawReads(failed, { type: "retry" }).read).toMatchObject({
+      from: autoPages,
+      revision: "r1",
+    });
   });
 });
+
+/** Pages each version has in the property's server: more than one batch. */
+const pagesPerVersion = autoPages + 24;
 
 /** A small seeded generator, so a failing sequence can be replayed. */
 function seeded(seed: number) {
@@ -210,14 +276,14 @@ describe("the Raw view's reads, over random sequences", () => {
   it("whenever it is open with nothing out or scheduled, it shows the step's current version", () => {
     for (let seed = 1; seed <= 300; seed++) {
       const random = seeded(seed);
-      // The server: the step's version, and two pages per version.
+      // The server: the step's version, with more pages than one batch reads.
       let version = 1;
       let running = true;
       let state = initialRawReads(running);
       /** What the read in flight was answered from: the version when it was sent. */
       let answeredFrom: { id: number; version: number } | undefined;
       const log: string[] = [];
-      for (let step = 0; step < 60; step++) {
+      for (let step = 0; step < 150; step++) {
         // The hook sends each read the machine names, once.
         if (state.read && answeredFrom?.id !== state.read.id)
           answeredFrom = { id: state.read.id, version };
@@ -247,7 +313,7 @@ describe("the Raw view's reads, over random sequences", () => {
                     from,
                     raw: [payload(`v${at}p${from}`)],
                     revision: `r${at}`,
-                    ...(from === 0 ? { next: 1 } : {}),
+                    ...(from < pagesPerVersion - 1 ? { next: from + 1 } : {}),
                   },
                 };
         } else if (choice < 0.75 && state.read) input = { type: "error", id: state.read.id };
@@ -260,7 +326,12 @@ describe("the Raw view's reads, over random sequences", () => {
         state = stepRawReads(state, input);
         const settled =
           state.phase === "idle" && state.read === undefined && state.started && !state.failed;
-        if (settled) expect(state.revision, `seed ${seed}: ${log.join(" ")}`).toBe(`r${version}`);
+        if (settled) {
+          expect(state.revision, `seed ${seed}: ${log.join(" ")}`).toBe(`r${version}`);
+          // Settled with pages left means the batch is done: reading on never stalls.
+          if (state.next !== undefined)
+            expect(state.auto, `seed ${seed}: ${log.join(" ")}`).toBe(0);
+        }
       }
     }
   });

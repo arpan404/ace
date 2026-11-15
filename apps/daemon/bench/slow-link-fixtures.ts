@@ -124,6 +124,19 @@ export function threadShapes(source: SeedTurn[]): ThreadShape[] {
   const smallTurn = source.find((turn) => turn.length >= 4 && turn.length <= 8) ?? source[0];
   if (!smallTurn) throw new Error("No recorded turns");
   const typical = cycled(source, 120, 3);
+  const large = bulkyTurns(source, 1_500, 7);
+  return [
+    { name: "small", turns: [smallTurn], items: smallTurn.length },
+    { name: "typical", turns: typical, items: count(typical) },
+    { name: "large", turns: large, items: count(large) },
+  ];
+}
+
+/**
+ * Turns cycled from the recordings until `items` is reached, each tool output made about
+ * 24 KiB from the recorded outputs and assistant text repeated: the large thread's shape.
+ */
+export function bulkyTurns(source: SeedTurn[], items: number, from: number): SeedTurn[] {
   const prose = source
     .flat()
     .flatMap((item) =>
@@ -136,14 +149,12 @@ export function threadShapes(source: SeedTurn[]): ThreadShape[] {
     const unit = `${output}\n${prose}\n`;
     return unit.repeat(Math.ceil((24 * 1024) / Math.max(1, unit.length))).slice(0, 24 * 1024);
   };
-  const large = cycled(source, 1_500, 7).map((turn) =>
+  return cycled(source, items, from).map((turn) =>
     turn.map((item) =>
       item.output === undefined ? item : { ...item, output: bulky(item.output) },
     ),
   );
-  return [
-    { name: "small", turns: [smallTurn], items: smallTurn.length },
-    { name: "typical", turns: typical, items: count(typical) },
-    { name: "large", turns: large, items: count(large) },
-  ];
 }
+
+/** Items in `turns`. */
+export const itemCount = count;

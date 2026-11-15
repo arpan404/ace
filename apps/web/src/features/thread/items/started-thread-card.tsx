@@ -4,7 +4,7 @@ import { GitForkIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useProjectName } from "@/lib/projects.ts";
-import { useThreadLiveState } from "../lib/live-state.ts";
+import { useLive, useLiveList } from "@/lib/live-connection.ts";
 import { AgentRowContents, agentRowStyles } from "./agent-row.tsx";
 import { SubagentElapsed } from "./subagent-row.tsx";
 import { StaticRow } from "./transcript-row.tsx";
@@ -26,7 +26,8 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const started = useMemo(() => startedThreadOf(item), [item]);
   const thread = useSidebarThread(started?.threadId ?? "");
   const projectName = useProjectName();
-  const live = useThreadLiveState(props.threadId);
+  // Its status is the started thread's list row: the list gate, and no state at all while stale.
+  const live = useLive(useLiveList());
   const machine = useMachineSearch();
   if (!started) return null;
   if (started.forked) return <ForkedToRow threadId={started.threadId} title={started.title} />;
@@ -36,6 +37,7 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const model = thread?.execution?.model ?? started.model;
   const state = thread ? delegatedState(thread.status) : "working";
   const terminal = subagentTerminal(state);
+  const fresh = live.current;
   return (
     <section aria-label={`${label}: ${title}`}>
       <ThreadPreview threadId={started.threadId}>
@@ -51,14 +53,15 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
             name={title}
             meta={thread ? `${label} · ${projectName(thread.workspaceId)}` : label}
             state={state}
-            stale={!live.fresh && !terminal}
+            live={live}
             elapsed={
-              thread && (
+              thread &&
+              fresh && (
                 <SubagentElapsed
                   startedAt={thread.createdAt}
                   endedAt={thread.updatedAt}
                   running={!terminal}
-                  fresh={live.fresh}
+                  fresh={fresh}
                 />
               )
             }
