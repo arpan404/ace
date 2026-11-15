@@ -929,16 +929,22 @@ export class DevicesService {
       stop?.();
       remove();
     };
-    stop = attach(
-      session,
-      () => {
-        viewer.guard();
-        if (actor.kind === "agent" && session.bindingEpoch !== epoch)
-          throw new Error("Device binding changed");
-        this.authorize(session, actor);
-      },
-      release,
-    );
+    try {
+      stop = attach(
+        session,
+        () => {
+          viewer.guard();
+          if (actor.kind === "agent" && session.bindingEpoch !== epoch)
+            throw new Error("Device binding changed");
+          this.authorize(session, actor);
+        },
+        release,
+      );
+    } catch (error) {
+      // Refused by the hub (its subscriber limit): the view never was, and holds nothing.
+      release();
+      throw error;
+    }
     if (released) stop();
     return release;
   }
