@@ -51,6 +51,7 @@ it.runIf(process.platform === "darwin" && !!binary)(
       recordings: "legacy",
       stills: "legacy",
     };
+    const resumed: string[] = [];
     const runtime = new MediaRuntime({
       version: execFileSync(binary ?? "", ["--version"])
         .toString()
@@ -66,6 +67,10 @@ it.runIf(process.platform === "darwin" && !!binary)(
       id: randomUUID,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
       log: () => {},
+      onMessage: (message) => {
+        if (message.type === "source.keyframe" && message.reason === "resume")
+          resumed.push(message.source);
+      },
       capabilities: {
         ingest: ["emulator-frames"],
         recordings: false,
@@ -176,7 +181,10 @@ it.runIf(process.platform === "darwin" && !!binary)(
     expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, index) => first + index));
     // Each planned move off ace-media wrote its queue and an end frame: a clean end, no cut.
     expect(ended.length).toBeGreaterThanOrEqual(2);
-    expect(ended.every((end) => !end.interrupted)).toBe(true);
+    expect(ended.filter((end) => end.interrupted)).toEqual([]);
+    // Each newly opened ingest must begin with its switch keyframe, even if a delta was
+    // still encoding when the route command arrived. Otherwise its gate loses that unit.
+    expect(resumed).toEqual([]);
 
     const pid = runtime.supervisor.snapshot().pid ?? 0;
     expect(pid).toBeGreaterThan(0);

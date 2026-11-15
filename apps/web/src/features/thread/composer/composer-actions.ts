@@ -10,7 +10,11 @@ import { useLayout } from "@/lib/layout.tsx";
 export function useComposerActions(
   threadId: string,
   stop: (() => void) | undefined,
-  open: { chooseModel(): void; tuneEffort(): void },
+  open: {
+    chooseModel(): void;
+    tuneEffort(): void;
+    approve(interactionId: string, optionId: string): void;
+  },
 ): void {
   const { setComposerActions } = useLayout();
   const latest = useRef({ stop, open });
@@ -24,6 +28,7 @@ export function useComposerActions(
       stop: canStop ? () => latest.current.stop?.() : undefined,
       chooseModel: () => latest.current.open.chooseModel(),
       tuneEffort: () => latest.current.open.tuneEffort(),
+      approve: (interactionId, optionId) => latest.current.open.approve(interactionId, optionId),
     });
     return () => setComposerActions(undefined);
   }, [threadId, canStop, setComposerActions]);

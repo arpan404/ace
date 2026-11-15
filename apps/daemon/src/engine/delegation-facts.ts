@@ -51,10 +51,11 @@ export class DelegationFacts {
       contact?: RemoteContact | undefined;
     },
     /**
-     * `start` opens the parent's hold on it, `end` ends it with its outcome, and `lost` ends it
-     * as lost track (`unknown`), which never holds the parent; a report reopens it with `start`.
+     * `start` opens the parent's hold on it (or keeps one already running) and `end` ends it
+     * with its outcome. Lost contact never ends it: not knowing whether a child ended is not
+     * knowing it did (ADR 0153).
      */
-    hold: "start" | "end" | "lost" | undefined,
+    hold: "start" | "end" | undefined,
   ): void {
     const state = this.repo.requireState(child.parentId);
     const agent = state.indexes.agentKeysById[child.parentAgentId];
@@ -79,10 +80,10 @@ export class DelegationFacts {
       ...(child.hostId ? { hostId: child.hostId } : {}),
       ...(child.contact ? { contact: child.contact } : {}),
     };
-    // Lost contact is not running, waiting or done; its agent rests, and its words say why.
+    // Lost contact is not knowing: it needs the person, whose question about it is on its agent.
     const external: ThreadStatus =
-      child.contact === "lost"
-        ? { state: "done" }
+      child.contact === "lost" && !settled
+        ? remoteChildStatus("needs_you", child.status, asksHere)
         : settled
           ? remoteChildStatus(outcomeState(child.outcome), child.status, false)
           : remoteChildStatus(child.state, child.status, asksHere);
@@ -141,26 +142,24 @@ export class DelegationFacts {
                 stoppable: true,
               },
             ]
-          : hold === "lost" && held?.status === "running"
-            ? [{ type: "background.ended" as const, task, status: "unknown" as const }]
-            : hold === "end"
-              ? [
-                  {
-                    type: "background.ended" as const,
-                    task,
-                    status:
-                      child.outcome?.outcome === "completed"
-                        ? ("completed" as const)
-                        : child.outcome?.outcome === "cancelled"
-                          ? ("stopped" as const)
-                          : ("failed" as const),
-                  },
-                ]
-              : []),
+          : hold === "end"
+            ? [
+                {
+                  type: "background.ended" as const,
+                  task,
+                  status:
+                    child.outcome?.outcome === "completed"
+                      ? ("completed" as const)
+                      : child.outcome?.outcome === "cancelled"
+                        ? ("stopped" as const)
+                        : ("failed" as const),
+                },
+              ]
+            : []),
       ],
       now,
     );
-    if (hold === "end" || hold === "lost") this.wake(child.parentId);
+    if (hold === "end") this.wake(child.parentId);
   }
   /** One stable parent item follows each independently owned child thread. */
   delegationStarted(record: DelegationRecord, child: Thread) {

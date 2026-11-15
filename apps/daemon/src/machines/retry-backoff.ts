@@ -47,6 +47,10 @@ export class RetryBackoff {
   retain(keys: ReadonlySet<string>): void {
     for (const key of this.episodes.keys()) if (!keys.has(key)) this.episodes.delete(key);
   }
+  /** When the key may be tried again, or undefined with no failure to wait out. */
+  dueAt(key: string): number | undefined {
+    return this.episodes.get(key)?.dueAt;
+  }
   /** Whether the key is in a failure episode. */
   failing(key: string): boolean {
     return this.episodes.has(key);

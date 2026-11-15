@@ -5,8 +5,13 @@ import { Icon } from "@/components/icon.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
 import { RowParts } from "./transcript-row.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 
-/** A running group's row parts: its step in flight as the title, and how many steps it holds. */
+/**
+ * A running group's row parts: its step in flight as the title, and how many steps it holds.
+ * While the thread's copy isn't current it says only that ("Syncing…"): no step in flight, no
+ * waiting on approval, no shimmer.
+ */
 export function LiveGroupTitle(props: {
   threadId: string;
   itemId: string;
@@ -15,6 +20,9 @@ export function LiveGroupTitle(props: {
   count: number;
 }) {
   const data = useStepDisplay(props.threadId, props.itemId, props.ace);
+  const { staleLabel } = useThreadLiveState(props.threadId);
+  if (staleLabel !== undefined)
+    return <RowParts lead={<Icon icon={HammerIcon} size={16} />} title={staleLabel} />;
   if (!data)
     return (
       <RowParts

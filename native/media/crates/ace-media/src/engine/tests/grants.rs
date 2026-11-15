@@ -10,9 +10,11 @@ fn viewer(engine: &mut Engine, connection: &str, who: Value, issued: u64) -> Vec
     send(
         engine,
         json!({ "type": "viewer.open", "viewer": "v", "connection": connection, "owner": who,
-                "issued": issued, "source": "s1", "codecs": ["avc1.640028"],
+                "issued": issued, "source": "s1", "target": { "kind": "browser", "threadId": "t1" },
+                "codecs": ["avc1.640028"],
                 "viewport": { "width": 800, "height": 600, "dpr": 2, "scale": 1 },
-                "local": true, "audio": false }),
+                "local": true, "audio": false,
+                "target": { "kind": "browser", "threadId": "t1" } }),
         &[],
         NOW,
     )
@@ -238,9 +240,16 @@ fn a_ticket_opens_its_connection_once_and_only_before_it_expires() {
     ticket(&mut engine, "c1", owner("d1", pairing(1)), 1, 1);
     let claimed = engine.claim_ticket(&[1; 32], NOW);
     assert_eq!(claimed.as_ref().map(|c| c.get()), Some("c1"));
+    // The daemon hears the connection opened; the client hears its welcome.
     assert!(matches!(
         engine.effects().collect::<Vec<_>>().as_slice(),
-        [Effect::Normal(FromMedia::ConnectionOpen { .. })]
+        [
+            Effect::Normal(FromMedia::ConnectionOpen { .. }),
+            Effect::Media {
+                out: crate::engine::delivery::MediaOut::Text(_),
+                ..
+            }
+        ]
     ));
     assert!(engine.claim_ticket(&[1; 32], NOW).is_none(), "reused");
     assert!(engine.claim_ticket(&[2; 32], NOW).is_none(), "never issued");
@@ -292,36 +301,86 @@ fn key_block() -> Vec<u8> {
     }
 }
 
-fn keys(engine: &mut Engine, stream: &str, who: Value, issued: u64, payload: &[u8]) -> Vec<Effect> {
+/// A relay stream this process dialed, its socket up: only those take keys.
+pub(super) fn dialed(engine: &mut Engine, stream: &str) {
     send(
         engine,
-        json!({ "type": "relay.keys", "stream": stream, "connection": "rc", "owner": who, "issued": issued }),
+        json!({ "type": "relay.dial", "stream": stream, "url": "ws://127.0.0.1:1/join?ticket=t" }),
+        &[],
+        NOW,
+    );
+    let Ok(id) = Id::new(stream.to_owned()) else {
+        panic!("bad stream id")
+    };
+    assert!(engine.relay_dialed(&id));
+    engine.effects().for_each(drop);
+}
+
+fn keys(
+    engine: &mut Engine,
+    stream: &str,
+    connection: &str,
+    who: Value,
+    issued: u64,
+    payload: &[u8],
+) -> Vec<Effect> {
+    dialed(engine, stream);
+    send(
+        engine,
+        json!({ "type": "relay.keys", "stream": stream, "connection": connection, "owner": who, "issued": issued }),
         payload,
         NOW,
     )
 }
 
 #[test]
-fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
+fn relay_keys_install_only_on_their_unused_ticket_for_a_live_owner_and_close_with_their_stream() {
     let mut engine = engine();
-    let installed = keys(&mut engine, "st1", owner("d1", pairing(1)), 3, &key_block());
+    let d1 = || owner("d1", pairing(1));
+    // Keys for a connection no ticket opened are refused.
+    let unticketed = keys(&mut engine, "st0", "rc", d1(), 1, &key_block());
+    assert_eq!(
+        refusals(&unticketed),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+    ticket(&mut engine, "rc", d1(), 2, 1);
+    let installed = keys(&mut engine, "st1", "rc", d1(), 3, &key_block());
     assert!(matches!(
         installed.as_slice(),
         [Effect::Normal(FromMedia::ConnectionOpen { .. })]
     ));
-    let other = keys(&mut engine, "st2", owner("d2", pairing(1)), 4, &key_block());
+    // The ticket was consumed: it opens nothing more, by relay or directly.
+    assert!(engine.claim_ticket(&[1; 32], NOW).is_none());
+    let again = keys(&mut engine, "st5", "rc", d1(), 4, &key_block());
+    assert_eq!(
+        refusals(&again),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+    let other = keys(
+        &mut engine,
+        "st2",
+        "rc",
+        owner("d2", pairing(1)),
+        4,
+        &key_block(),
+    );
     assert_eq!(refusals(&other), [("relay.keys".into(), Refusal::Owner)]);
+    ticket(&mut engine, "rc3", d1(), 4, 3);
     let mut bad = key_block();
     bad[0] ^= 1;
-    let corrupt = keys(&mut engine, "st3", owner("d1", pairing(1)), 4, &bad);
+    let corrupt = keys(&mut engine, "st3", "rc3", d1(), 4, &bad);
+    // Corrupt keys fail the stream, and its socket is shut.
     assert!(matches!(
         corrupt.as_slice(),
-        [Effect::Normal(FromMedia::RelayFailed { .. })]
+        [
+            Effect::Normal(FromMedia::RelayFailed { .. }),
+            Effect::Relay(relay::RelayEffect::Close { .. })
+        ]
     ));
 
     revoke(&mut engine, "r", 5, "d1", None);
     assert_eq!(engine.counts().connections, 0);
-    let late = keys(&mut engine, "st4", owner("d1", pairing(1)), 5, &key_block());
+    let late = keys(&mut engine, "st4", "rc4", d1(), 5, &key_block());
     assert_eq!(refusals(&late), [("relay.keys".into(), Refusal::Revoked)]);
 
     let closed = send(
@@ -330,9 +389,13 @@ fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
         &[],
         NOW,
     );
+    // The answer follows the socket's shutdown.
     assert!(matches!(
         closed.as_slice(),
-        [Effect::Priority(FromMedia::Closed { .. })]
+        [
+            Effect::Relay(relay::RelayEffect::Close { .. }),
+            Effect::Priority(FromMedia::Closed { .. })
+        ]
     ));
 }
 
@@ -354,4 +417,25 @@ fn closing_a_connection_ends_its_viewers_and_is_answered_after_it() {
         Some(Effect::Priority(FromMedia::Closed { .. }))
     ));
     assert_eq!(engine.counts().viewers, 0);
+}
+
+#[test]
+fn an_all_zero_ticket_is_never_stored_and_never_opens_a_connection() {
+    let mut engine = engine();
+    // A grant whose ticket is zeros (a wiped buffer, say) opens nothing.
+    let effects = ticket(&mut engine, "c0", owner("d1", pairing(1)), 1, 0);
+    assert_eq!(closed_connections(&effects), ["c0"]);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    // Presenting zeros never matches a real ticket either.
+    ticket(&mut engine, "c1", owner("d1", pairing(1)), 2, 5);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    assert!(engine.claim_ticket(&[5; 32], NOW).is_some());
+    // Zero but for its last byte is a ticket like any other: every byte counts.
+    let mut last = [0u8; 32];
+    last[31] = 1;
+    ticket(&mut engine, "c2", owner("d1", pairing(1)), 3, 1);
+    assert!(
+        engine.claim_ticket(&last, NOW).is_none(),
+        "not the ticket granted"
+    );
 }

@@ -2,7 +2,7 @@ import { host } from "./polyfills.ts";
 import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
 import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
-import { ClientCore } from "@ace/client";
+import { ClientCore, screenTail } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
@@ -248,6 +248,8 @@ async function start(json: string): Promise<void> {
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),
     limits: { items: config.itemLimit, text: 8192 },
+    // A thread paints from one screenful; the rest of its window pages in behind it.
+    openTail: screenTail,
     transport: () => nativeTransport(trust, early),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
@@ -369,7 +371,15 @@ async function start(json: string): Promise<void> {
     },
   });
   void reads.restore();
-  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
+  compose = new ComposeActions(
+    client,
+    pump,
+    preview,
+    () => host.now(),
+    nativeChunks,
+    reads,
+    dismissed,
+  );
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,

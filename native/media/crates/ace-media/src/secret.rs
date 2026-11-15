@@ -4,7 +4,7 @@
 //! they are compared in constant time, wiped when dropped, and kept on locked pages where the
 //! OS permits (best effort).
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const SECRET_LEN: usize = 32;
 /// Live tickets and tokens at once. A full vault refuses the grant rather than spill a secret
@@ -14,6 +14,21 @@ pub const VAULT_SLOTS: usize = 2048;
 /// One allocation of whole pages, so locking and unlocking it never touches another value.
 #[repr(align(65536))]
 struct Page([[u8; SECRET_LEN]; VAULT_SLOTS]);
+
+/// The slab, made on the heap. `Box::new` would build the 64 KiB-aligned value on the stack
+/// first, which faults on Windows x64.
+#[allow(unsafe_code)]
+fn zeroed_page() -> Box<Page> {
+    // All-zero bytes are a valid `Page`: it is only bytes.
+    let layout = std::alloc::Layout::new::<Page>();
+    // SAFETY: the layout has a non-zero size; a null result is handled.
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<Page>();
+    if ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: a fresh allocation of `Page`'s layout, zeroed, owned by nothing else.
+    unsafe { Box::from_raw(ptr) }
+}
 
 /// Every ticket and token of the process, in one locked slab.
 pub struct Vault {
@@ -34,7 +49,7 @@ impl Default for Vault {
 
 impl Vault {
     pub fn new() -> Self {
-        let page = Box::new(Page([[0; SECRET_LEN]; VAULT_SLOTS]));
+        let page = zeroed_page();
         let locked = media_noise::lock_memory(page.0.as_flattened());
         Self {
             page,
@@ -103,15 +118,44 @@ pub struct LaneSecret {
 struct LanePage([u8; SECRET_LEN]);
 
 impl LaneSecret {
-    /// Takes the secret from `init`'s payload. None unless it is exactly 32 bytes.
+    /// Takes the secret from `init`'s payload. None unless it is exactly 32 bytes and not all
+    /// zero (a secret nobody chose proves nothing).
     pub fn from_payload(payload: &[u8]) -> Option<Self> {
-        if payload.len() != SECRET_LEN {
+        if payload.len() != SECRET_LEN || payload.iter().all(|byte| *byte == 0) {
             return None;
         }
         let mut bytes = Box::new(LanePage([0; SECRET_LEN]));
         let locked = media_noise::lock_memory(&bytes.0);
         bytes.0.copy_from_slice(payload);
         Some(Self { bytes, locked })
+    }
+
+    /// HMAC-SHA256 of `message` keyed by the secret: the lane hello's proofs. ring's key
+    /// schedule lives only for this call.
+    pub fn mac(&self, message: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.bytes.0);
+        let tag = ring::hmac::sign(&key, message);
+        let mut out = zeroize::Zeroizing::new([0u8; 32]);
+        out.copy_from_slice(tag.as_ref());
+        out
+    }
+
+    /// HKDF-SHA256 (RFC 5869) from the secret, `salt` and the concatenation of `info`: a
+    /// lane's directional key.
+    pub fn derive_key(&self, salt: &[u8], info: &[&[u8]]) -> Zeroizing<[u8; 32]> {
+        struct Length;
+        impl ring::hkdf::KeyType for Length {
+            fn len(&self) -> usize {
+                32
+            }
+        }
+        let mut out = Zeroizing::new([0u8; 32]);
+        let prk = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, salt).extract(&self.bytes.0);
+        // A 32-byte output is far within HKDF's limit, so expand and fill cannot fail.
+        if let Ok(okm) = prk.expand(info, Length) {
+            let _ = okm.fill(&mut out[..]);
+        }
+        out
     }
 
     /// Constant-time comparison with a presented secret of any length.
@@ -172,6 +216,8 @@ mod tests {
     #[test]
     fn the_lane_secret_needs_exactly_32_bytes_and_compares_whole() {
         assert!(LaneSecret::from_payload(&[0; 31]).is_none());
+        // An all-zero secret proves nothing: refused like a wrong length.
+        assert!(LaneSecret::from_payload(&[0; 32]).is_none());
         let Some(secret) = LaneSecret::from_payload(&[9; 32]) else {
             panic!("refused a 32-byte lane secret");
         };

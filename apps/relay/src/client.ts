@@ -5,6 +5,7 @@ import { initiateHandshake, STREAM_PROLOGUE } from "./handshake.ts";
 import { HostId } from "./config.ts";
 import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { PAIRED_MARKER } from "./wire.ts";
+import type { RelayPurpose } from "./purpose.ts";
 import { systemClock } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 export async function connectClientViaRelay(options: {
@@ -15,12 +16,17 @@ export async function connectClientViaRelay(options: {
   clock?: Clock;
   /** An account `device` grant, required by ace's hosted relay (ADR 0111). */
   grant?: string;
+  /** `media`: a stream the daemon hands to ace-media; its hello names `channel: "media"`. */
+  purpose?: RelayPurpose;
 }): Promise<ClientChannel> {
   if (HostId.parse(options.hostId) !== HostId.parse(options.pinnedFingerprint))
     throw new Error("Host id must match pinned fingerprint");
   const clock = options.clock ?? systemClock();
   const { socket, reader } = await dial(
-    relayAddress(options.relayUrl, "/client", { hostId: options.hostId }),
+    relayAddress(options.relayUrl, "/client", {
+      hostId: options.hostId,
+      ...(options.purpose ? { purpose: options.purpose } : {}),
+    }),
     options.signal,
     clock,
     10000,

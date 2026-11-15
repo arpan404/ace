@@ -16,12 +16,20 @@ struct TranscriptFeedRow: Identifiable {
         }
     }
 }
-struct TranscriptFeedRowView: View {
+/// One row of the feed. Equatable, so a feed re-evaluated for any reason re-renders only rows
+/// whose block, room, thread or links changed (`.equatable()` in `ConversationFeed`); what a row
+/// shows from its block's own data reaches it through observation.
+struct TranscriptFeedRowView: View, Equatable {
+    static func == (lhs: TranscriptFeedRowView, rhs: TranscriptFeedRowView) -> Bool {
+        lhs.row.id == rhs.row.id && lhs.row.block === rhs.row.block && lhs.row.room == rhs.row.room
+            && lhs.thread === rhs.thread && lhs.links.key == rhs.links.key
+    }
     let row: TranscriptFeedRow
     let thread: ThreadModel
     let links: TranscriptLinks
     @Environment(\.aceDensityId) private var densityId
     var body: some View {
+        let _ = PerfCounters.bump("row.body")
         // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
         // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)

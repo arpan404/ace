@@ -86,8 +86,10 @@ impl<'de> Deserialize<'de> for Id {
 pub enum Admission {
     #[serde(rename = "pairing")]
     Pairing {
+        /// The paired credential's generation: an opaque string the daemon gives (a hash), only
+        /// ever compared for equality.
         #[serde(rename = "generation")]
-        generation: Sequence,
+        generation: Id,
     },
     #[serde(rename = "account")]
     Account {
@@ -182,6 +184,38 @@ pub struct Viewport {
     pub dpr: Nonnegative,
     #[serde(rename = "scale")]
     pub scale: Nonnegative,
+}
+/// Who a viewer's pictures are for, in the client's own terms: the ids ace-media writes into each
+/// stream piece's header and reads back from the client's acks (`browser.ack`, `screen.ack`,
+/// `devices.ack`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum ViewerTarget {
+    /// A thread's browser: `browserVideo` and `browserAudio` pieces, acked by `browser.ack`.
+    #[serde(rename = "browser")]
+    Browser {
+        #[serde(rename = "threadId")]
+        thread_id: Id,
+        #[serde(
+            rename = "tabId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        tab_id: Option<Id>,
+    },
+    /// A computer-use screen session: `screenFrame` pieces, acked by `screen.ack`.
+    #[serde(rename = "screen")]
+    Screen {
+        #[serde(rename = "sessionId")]
+        session_id: Id,
+    },
+    /// A simulator or emulator: `deviceFrame` pieces, acked by `devices.ack`.
+    #[serde(rename = "device")]
+    Device {
+        #[serde(rename = "deviceId")]
+        device_id: Id,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -451,6 +485,9 @@ pub enum ToMedia {
         issued: Sequence,
         #[serde(rename = "source")]
         source: Id,
+        /// The client's ids for this view (D1).
+        #[serde(rename = "target")]
+        target: ViewerTarget,
         #[serde(rename = "codecs")]
         codecs: Vec<String>,
         #[serde(rename = "viewport")]
@@ -617,6 +654,27 @@ pub enum ToMedia {
         quality: u32,
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
+    },
+    /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
+    /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
+    /// as its payload) or `still.failed` (`private` when the picture's epochs aren't all in
+    /// `clear`, or one was discarded).
+    #[serde(rename = "still.poster")]
+    StillPoster {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "width")]
+        width: u32,
+        #[serde(rename = "height")]
+        height: u32,
+        #[serde(rename = "deadlineMs")]
+        deadline_ms: u32,
+        /// The source's epochs the daemon has decided clear: a poster is made only from a
+        /// picture whose every epoch is in one of these ranges.
+        #[serde(rename = "clear")]
+        clear: Vec<EpochRange>,
     },
 }
 

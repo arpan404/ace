@@ -10,7 +10,6 @@ use media_wire::control::{FromMedia, Status};
 use media_wire::frame::Egress;
 use serde_json::json;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 use support::*;
 
@@ -64,7 +63,7 @@ fn picture(step: u32) -> Vec<u8> {
     }
 }
 
-fn read_egress(lane: &mut UnixStream) -> Egress {
+fn read_egress(lane: &mut support::SealedLane) -> Egress {
     let mut head = [0u8; 24];
     if let Err(e) = lane.read_exact(&mut head) {
         panic!("egress lane: {e}");
@@ -106,7 +105,11 @@ fn a_jpeg_source_is_encoded_on_videotoolbox_and_returned_on_egress_under_its_han
     else {
         panic!("expected ready");
     };
-    let hardware_jpeg = observed_hardware_jpeg(&capabilities);
+    let _ = capabilities;
+    // Decide from what the probe finally found: on a busy machine VideoToolbox's encode may
+    // only arrive after `ready`, and a source opened before it couldn't take it.
+    media.settle_probe();
+    let hardware_jpeg = observed_hardware_jpeg(&media.capabilities);
     let Some(_priority) = lane(&control.socket, 1, SECRET) else {
         panic!("priority lane refused");
     };

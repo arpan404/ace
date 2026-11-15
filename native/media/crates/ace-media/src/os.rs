@@ -48,6 +48,19 @@ pub fn private_dir(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Windows: the runtime directory is created if missing and must be a real directory. Its
+/// sockets are named pipes with their own current-user ACL, so its mode is not what keeps
+/// them private.
+#[cfg(not(unix))]
+pub fn private_dir(path: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(path).map_err(|e| format!("runtime dir: {e}"))?;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| format!("runtime dir: {e}"))?;
+    if !meta.file_type().is_dir() {
+        return Err("runtime dir is not a directory".into());
+    }
+    Ok(())
+}
+
 /// While held, new files and sockets are created owner-read-write only, so a socket is never
 /// reachable by anyone else between `bind` and a later `chmod`.
 #[cfg(unix)]
@@ -144,6 +157,106 @@ pub fn rss_bytes() -> u64 {
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         0
+    }
+}
+
+/// A second handle on a relay socket (a duplicate of its descriptor or `SOCKET`): the socket's
+/// final close is this handle's, after every task using the socket has ended, so nothing else can
+/// change how it closes in between.
+pub struct SocketHandle {
+    #[cfg(unix)]
+    fd: std::os::fd::OwnedFd,
+    #[cfg(windows)]
+    socket: std::os::windows::io::OwnedSocket,
+}
+
+impl SocketHandle {
+    /// None when the duplicate can't be made: the dial fails rather than run without it.
+    pub fn of(stream: &tokio::net::TcpStream) -> Option<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsFd;
+            stream
+                .as_fd()
+                .try_clone_to_owned()
+                .ok()
+                .map(|fd| Self { fd })
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsSocket;
+            stream
+                .as_socket()
+                .try_clone_to_owned()
+                .ok()
+                .map(|socket| Self { socket })
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = stream;
+            None
+        }
+    }
+
+    /// The final close resets the connection (`SO_LINGER` on, zero seconds): nothing the kernel
+    /// still holds for the peer is sent. False when the option couldn't be set.
+    pub fn reset_on_close(&self) -> bool {
+        self.set_linger(true)
+    }
+
+    /// The final close is an ordinary one (`SO_LINGER` off): what the kernel holds is delivered.
+    /// Set on this handle itself, since on Windows each duplicate keeps its own linger.
+    pub fn linger_off(&self) -> bool {
+        self.set_linger(false)
+    }
+
+    fn set_linger(&self, reset: bool) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let linger = libc::linger {
+                l_onoff: libc::c_int::from(reset),
+                l_linger: 0,
+            };
+            // SAFETY: a valid descriptor and a linger struct of the size given.
+            let set = unsafe {
+                libc::setsockopt(
+                    self.fd.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_LINGER,
+                    (&raw const linger).cast(),
+                    std::mem::size_of::<libc::linger>() as libc::socklen_t,
+                )
+            };
+            set == 0
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            use windows_sys::Win32::Networking::WinSock::{
+                LINGER, SO_LINGER, SOCKET, SOL_SOCKET, setsockopt,
+            };
+            let linger = LINGER {
+                l_onoff: u16::from(reset),
+                l_linger: 0,
+            };
+            // SAFETY: a valid SOCKET and a LINGER struct of the size given.
+            let set = unsafe {
+                setsockopt(
+                    self.socket.as_raw_socket() as SOCKET,
+                    SOL_SOCKET,
+                    SO_LINGER,
+                    (&raw const linger).cast(),
+                    std::mem::size_of::<LINGER>() as i32,
+                )
+            };
+            set == 0
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = reset;
+            false
+        }
     }
 }
 

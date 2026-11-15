@@ -1749,6 +1749,9 @@
       "$ref": "https://ace.local/protocol/v1/SearchStatusRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MediaConnectRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ScreenClientMessage.json"
     },
     {
@@ -2114,6 +2117,9 @@
       "properties": {
         "binaryFrames": {
           "type": "boolean"
+        },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
         },
         "requestId": {
           "maxLength": 256,
@@ -2483,7 +2489,8 @@
             "devices",
             "browser",
             "screen",
-            "provider_auth"
+            "provider_auth",
+            "media"
           ],
           "type": "string"
         },
@@ -2527,6 +2534,9 @@
         },
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "mediaTicket": {
+          "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
         },
         "nextTicket": {
           "const": true,
@@ -2579,6 +2589,25 @@
         "subscriptionId": {
           "minLength": 1,
           "type": "string"
+        },
+        "tail": {
+          "properties": {
+            "bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "items": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "bytes"
+          ],
+          "type": "object"
         },
         "type": {
           "const": "subscribe",

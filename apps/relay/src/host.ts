@@ -15,6 +15,7 @@ import {
   STREAM_PROLOGUE,
 } from "./handshake.ts";
 import { ControlMessage, HTTP_FEATURE, HostOptionsSchema } from "./config.ts";
+import { MEDIA_FEATURE } from "./purpose.ts";
 import { serveHttpExchange } from "./http-host.ts";
 import type { HostHttpOptions } from "./http-host.ts";
 import { ClientSlots } from "./admission.ts";
@@ -70,6 +71,14 @@ export async function connectHostToRelay(options: {
    * the host registers with the `http` feature, so the relay sends it `http` tickets.
    */
   http?: HostHttpOptions;
+  /**
+   * Takes media streams (ADR 0147 §5.2): the host registers with the `media` feature, and each
+   * `purpose=media` ticket goes to `offer` with the `/join` address to dial, instead of being
+   * joined here. `offer` returns false to turn it down (the client hears "Host busy"), and may
+   * call `reject` later, while the ticket is unjoined, to turn it down then (a failed dial), so
+   * the client falls back at once instead of waiting out the ticket.
+   */
+  media?: { offer(ticket: string, joinUrl: string, reject: () => void): boolean };
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -216,7 +225,14 @@ export async function connectHostToRelay(options: {
             hostId: id,
             ...(account?.name ? { name: account.name } : {}),
             ...(account?.platform ? { platform: account.platform } : {}),
-            ...(options.http ? { features: HTTP_FEATURE } : {}),
+            ...(options.http || options.media
+              ? {
+                  features: [
+                    ...(options.http ? [HTTP_FEATURE] : []),
+                    ...(options.media ? [MEDIA_FEATURE] : []),
+                  ].join(","),
+                }
+              : {}),
           }),
           controller.signal,
           clock,
@@ -286,6 +302,25 @@ export async function connectHostToRelay(options: {
               continue;
             }
             if (message.type !== "client") throw new Error("Invalid client ticket");
+            if (message.purpose === "media") {
+              const joinUrl = relayAddress(options.relayUrl, "/join", {
+                ticket: message.ticket,
+                hostId: id,
+              });
+              const ticket = message.ticket;
+              const control = socket;
+              const reject = () => {
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
+                  transport.send.encrypt(
+                    new TextEncoder().encode(JSON.stringify({ type: "reject", ticket })),
+                  ),
+                ).catch(() => {});
+              };
+              if (!options.media?.offer(ticket, joinUrl, reject)) reject();
+              continue;
+            }
             const reservation = slots.reserve(message.ticket);
             if (!reservation.accepted) {
               await sendFrame(

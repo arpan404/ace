@@ -106,6 +106,10 @@ impl Ledger {
         self.remember(id, true)
     }
 
+    pub fn stream_closed(&self, id: &str) -> bool {
+        self.streams.contains(id)
+    }
+
     pub fn close_stream(&mut self, id: &str) -> Result<(), Full> {
         self.remember(id, false)
     }
@@ -130,7 +134,7 @@ mod tests {
 
     fn owner(device: &str) -> Owner {
         let value = serde_json::json!({ "session": "s", "device": device,
-            "admission": { "kind": "pairing", "generation": 1 } });
+            "admission": { "kind": "pairing", "generation": "00000000000000000000000000000001" } });
         match serde_json::from_value(value) {
             Ok(owner) => owner,
             Err(error) => panic!("owner: {error}"),

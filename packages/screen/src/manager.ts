@@ -41,7 +41,7 @@ import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./pol
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
-import { ScreenMediaSource } from "./media-source.ts";
+import { helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { type Session, type ControllerBinding } from "./session.ts";
 import { type RecordingArtifact } from "./recording.ts";
@@ -490,14 +490,14 @@ export class ScreenManager {
     await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
   }
-  /** A Mac session streams into ace-media while the route says so (ADR 0147, phase 2). */
+  /** A Mac, Windows or Linux session streams into ace-media while the route says so (ADR 0147, phase 2). */
   private attachMedia(session: Session): void {
     const media = this.options.media;
     const capabilities = session.helper.capabilities;
-    if (!media || session.media || capabilities?.platform !== "macos") return;
-    if (!capabilities.codecs.includes("h264")) return;
+    if (!media || session.media || !capabilities || !helperEncodesVideo(capabilities)) return;
     session.media = new ScreenMediaSource({
       sessionId: session.state.sessionId,
+      platform: capabilities.platform,
       helper: session.helper,
       media,
       accept: (frame) => this.acceptOrdered(session, frame),
@@ -829,8 +829,11 @@ export class ScreenManager {
     };
     for (;;) {
       authorize();
-      const outcome = await turn?.wait();
-      authorize();
+      // Only an agent with a cowork turn waits here. Anything else is queued on the session's
+      // action tail before this call returns, so a viewer leaving right after its input (the
+      // last viewer releasing capture) stops the session only once that input has drained.
+      const outcome = turn ? await turn.wait() : undefined;
+      if (turn) authorize();
       if (outcome?.busy) throw new PublicToolError("person_busy");
       const result = await executeSessionAction(
         {

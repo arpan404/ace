@@ -16,7 +16,9 @@ pub mod poster;
 #[cfg(target_os = "macos")]
 pub mod vt;
 
-use crate::engine::stills::{Made, StillInput, StillJob, StillMaker, StillOutcome, StillUnit};
+use crate::engine::stills::{
+    Made, Make, StillInput, StillJob, StillMaker, StillOutcome, StillUnit,
+};
 use media_codec::{BitstreamFormat, Codec, EncodedUnit, Size};
 use media_wire::control::{Backend, Capability, SourceStep, Step, TrialState};
 use std::sync::Arc;
@@ -224,9 +226,25 @@ pub fn make(
         stream,
         input,
         target,
-        quality,
+        make,
         deadline_us,
     } = job;
+    let quality = match make {
+        Make::Still { quality } => quality,
+        Make::Poster => {
+            let result = poster::poster(backend, stream, input, target).and_then(|made| {
+                if now_us() >= deadline_us {
+                    return Err("deadline".to_owned());
+                }
+                Ok(made)
+            });
+            return StillOutcome {
+                request,
+                token,
+                result,
+            };
+        }
+    };
     let result = backend
         .prepare(stream, input, target)
         .and_then(|mut steps| {

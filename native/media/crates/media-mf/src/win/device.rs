@@ -93,6 +93,13 @@ impl MfDevice {
         })))
     }
 
+    /// The `ID3D11Device` this handle shares, as a borrowed COM pointer: for a caller built
+    /// on another version of the `windows` crate that captures into this device (the Windows
+    /// screen helper's Windows.Graphics.Capture pool). The pointer lives as long as `self`.
+    pub fn raw_device(&self) -> *mut std::ffi::c_void {
+        self.0.device.as_raw()
+    }
+
     pub fn adapter(&self) -> &Adapter {
         &self.0.adapter
     }

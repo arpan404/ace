@@ -359,3 +359,24 @@ describe("IngestSources", () => {
     expect(w.state.needs).toBe(0);
   });
 });
+
+it("ace-media's plan reaches the producer streaming to it, and no other", () => {
+  const w = world();
+  const wants: unknown[] = [];
+  const l = producer();
+  w.sources.add({ ...l.p, want: (encodes) => void wants.push(encodes) });
+  const encodes = [
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ];
+  // Not streaming to ace-media yet: the plan waits for it.
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([]);
+  // Pointed there: the plan ace-media made meanwhile follows the address, unasked again.
+  w.status("s1", "starting");
+  expect(wants).toEqual([encodes]);
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([encodes, encodes]);
+  // A plan for another source's id is not this producer's.
+  w.sources.message({ type: "source.want", source: "other", encodes });
+  expect(wants).toHaveLength(2);
+});

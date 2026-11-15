@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The last-resort Chrome encoder's trial (E4): tried after `ready`, and only when no hardware
-//! encoder's trial worked (`media_chrome::last_resort_needed`). The start trials are
-//! `probe::trials`.
+//! encoder this build can construct worked (`encode::select::last_resort_needed`). The start
+//! trials are `probe::trials`.
 use media_wire::capability::Capability;
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ pub fn chrome_options(
 ) -> Option<media_chrome::ChromeOptions> {
     let search = media_chrome::ChromeSearch::from_env(Some(data_dir.to_path_buf()));
     let executable = media_chrome::find_chrome(&search)?;
-    (media_chrome::last_resort_needed(probed))
+    crate::encode::select::last_resort_needed(probed, crate::encode::platform::BUILT_ENCODERS)
         .then(|| media_chrome::ChromeOptions::new(executable, profile_root.to_path_buf()))
 }
 
@@ -22,12 +22,13 @@ pub fn chrome_options(
 pub fn chrome_trial(
     options: media_chrome::ChromeOptions,
     deadline: Duration,
+    cancel: &crate::probe::Cancel,
     done: impl FnOnce(Capability) + Send + 'static,
 ) {
+    let cancel = cancel.flag();
     let _ = std::thread::Builder::new()
         .name("probe-chrome".into())
         .spawn(move || {
-            let cancel = std::sync::Arc::default();
             done(media_chrome::probe(options, deadline, cancel));
         });
 }

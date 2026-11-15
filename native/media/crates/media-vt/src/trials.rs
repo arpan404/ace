@@ -38,8 +38,10 @@ const CANDIDATES: [Size; 4] = [
 ];
 
 /// Runs every trial in order, publishing each result. Before each operation
-/// it checks the gate (cancellation and deadline) and stops once it closes;
-/// the trial already inside a VideoToolbox call finishes and is published.
+/// it checks the gate (cancellation, and `LATE_LIMIT` past the callers'
+/// deadline) and stops once it closes; the trial already inside a
+/// VideoToolbox call finishes and is published. Steps past the deadline still
+/// run: their results reach the callers late.
 pub(crate) fn run_trials(input: TrialInput, gate: &Gate, publish: &dyn Fn(Capability)) {
     if !gate.open() {
         return;

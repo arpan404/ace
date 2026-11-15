@@ -53,22 +53,22 @@ export type RouteCapabilities = {
 };
 
 /**
- * Today's build: browser producers stream into ace-media (E4); recordings, stills and delivery
- * still act as legacy.
+ * Today's build: browser producers stream into ace-media (E4), and ace-media serves viewers on
+ * clients' media connections (D1); recordings and stills still act as legacy.
  */
 export const builtRouteCapabilities: RouteCapabilities = {
   ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
   recordings: false,
   stills: false,
-  delivery: false,
+  delivery: true,
 };
 
 /**
  * This build's capabilities on `platform`. On a Mac the screen helper streams into ace-media's
  * ingest too (E3): screens, and Android emulators whose picture it encodes (`--encode-frames`);
  * and ace-media reads a Simulator's serve-sim stream itself. The daemon forwards an Android
- * device's scrcpy units everywhere.
- * Screens elsewhere wait for their helpers' encoders (E1, E2).
+ * device's scrcpy units everywhere. On Windows the screen helper encodes with Media Foundation
+ * and streams into ace-media's ingest pipe (E1); Linux screens stream in from their helper (E2).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
   // The daemon forwards an Android device's scrcpy units itself, on every platform.
@@ -76,7 +76,11 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
   return {
     ...builtRouteCapabilities,
     ingest:
-      platform === "darwin" ? [...ingest, "screen", "emulator-frames", "simulator"] : [...ingest],
+      platform === "darwin"
+        ? [...ingest, "screen", "emulator-frames", "simulator"]
+        : platform === "win32" || platform === "linux"
+          ? [...ingest, "screen"]
+          : [...ingest],
   };
 }
 

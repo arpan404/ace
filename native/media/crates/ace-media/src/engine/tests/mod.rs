@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared helpers for the engine's behaviour tests.
+mod delivery;
 mod egress;
 mod grants;
 mod pictures;
+mod relay_streams;
 mod sources;
 mod stills;
 
@@ -41,8 +43,9 @@ pub(super) fn owner(device: &str, admission: Value) -> Value {
     json!({ "session": "s1", "device": device, "admission": admission })
 }
 
+/// A pairing admission: generations are opaque strings (credential hashes) the daemon gives.
 pub(super) fn pairing(generation: u64) -> Value {
-    json!({ "kind": "pairing", "generation": generation })
+    json!({ "kind": "pairing", "generation": format!("{generation:032x}") })
 }
 
 pub(super) fn account(name: &str) -> Value {

@@ -375,8 +375,14 @@ export class OpenCodeSession implements ProviderSession {
     await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
     this.ctx = { ...this.ctx, model: selection.model, options: selection.options };
   }
-  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
-    return this.prompts.send(input, delivery, commandId);
+  send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    _origin?: "ace",
+    fence?: import("@ace/engine-api").SteerFence,
+  ): Promise<void> {
+    return this.prompts.send(input, delivery, commandId, fence);
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     await this.barrier();
