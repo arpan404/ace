@@ -166,7 +166,13 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet", "atelier-noir", "field-journal", "quest-journal"]);
+  expect(seeded).toEqual([
+    "alpine-lodge",
+    "arcade-cabinet",
+    "atelier-noir",
+    "field-journal",
+    "quest-journal",
+  ]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -197,6 +203,12 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   expect(Object.keys(field.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
   expect(field.css).toContain('[data-suit="field-journal"]');
   expect(Object.keys(field.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
+  // Alpine Lodge serves its window scene, its aurora, its trail board sign and its cabin.
+  const lodge = detail(await library.read("alpine-lodge"));
+  expect(lodge.sceneUrl).toMatch(/scene\.html$/);
+  expect(Object.keys(lodge.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(lodge.css).toContain('[data-suit="alpine-lodge"]');
+  expect(Object.keys(lodge.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {

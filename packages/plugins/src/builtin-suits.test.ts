@@ -18,6 +18,7 @@ async function home(): Promise<string> {
 it("a first run fills the library with the shipped Suits, each one a valid Suit in its own folder", async () => {
   const library = join(await home(), ".ace", "suits");
   expect(await seedBuiltinSuits(library)).toEqual([
+    "alpine-lodge",
     "arcade-cabinet",
     "atelier-noir",
     "field-journal",
@@ -44,6 +45,11 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
   expect(await readFile(join(atelier, "celebration.js"), "utf8")).toContain("ace.scene(");
   expect(await readdir(join(atelier, "assets", "fonts"))).toEqual(
     expect.arrayContaining(["BodoniModa-OFL.txt", "Newsreader-OFL.txt", "InstrumentSans-OFL.txt"]),
+  );
+  const lodge = join(library, "alpine-lodge");
+  expect(await readFile(join(lodge, "aurora.js"), "utf8")).toContain("ace.scene(");
+  expect(await readdir(join(lodge, "assets", "fonts"))).toEqual(
+    expect.arrayContaining(["Fraunces-OFL.txt", "Nunito-OFL.txt"]),
   );
   const field = join(library, "field-journal");
   expect(await readFile(join(field, "celebration.js"), "utf8")).toContain("ace.scene(");

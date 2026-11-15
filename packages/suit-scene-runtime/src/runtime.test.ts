@@ -292,6 +292,8 @@ const offscreenDocument = {
 };
 
 test.each([
+  "alpine-lodge",
+  "alpine-lodge/aurora",
   "arcade-cabinet",
   "atelier-noir",
   "atelier-noir/celebration",
@@ -338,6 +340,7 @@ test.each([
 );
 
 test.each([
+  ["alpine-lodge/aurora", "done"],
   ["arcade-cabinet/stage-clear", "pr-merged"],
   ["atelier-noir/celebration", "pr-merged"],
   ["field-journal/celebration", "done"],
