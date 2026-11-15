@@ -80,7 +80,7 @@ test("no connection is made while ace-media isn't serving viewers", async () => 
   });
 });
 
-test("a subscribe binds only a connection of its own session", async () => {
+test("a subscribe binds a connection of its own session or of its device's own channel, and nothing else", async () => {
   const { connections, sent } = harness();
   const mine = granted(await connections.connect(phone("a")));
   const theirs = granted(await connections.connect(laptop));
@@ -93,20 +93,36 @@ test("a subscribe binds only a connection of its own session", async () => {
     local: true,
     audio: false,
   };
-  // Session A's ticket named in a subscribe on session B of the same device.
-  expect(connections.view("b", mine.connection, view)).toBe(false);
-  // Another device's connection.
-  expect(connections.view("a", theirs.connection, view)).toBe(false);
+  // Another device's channel naming this device's connection.
+  expect(connections.view({ ...laptop, session: "laptop-channel" }, mine.connection, view)).toBe(
+    false,
+  );
+  // This device's session naming another device's connection.
+  expect(connections.view(phone("a"), theirs.connection, view)).toBe(false);
+  // The same device under another pairing (an older or newer credential), and under its account.
+  expect(connections.view(phone("old-channel", 2), mine.connection, view)).toBe(false);
+  const asAccount: MediaOwner = {
+    session: "account-channel",
+    device: "phone",
+    admission: { kind: "account", account: "acct" },
+  };
+  expect(connections.view(asAccount, mine.connection, view)).toBe(false);
   expect(sent.filter((s) => s.message.type === "viewer.open")).toHaveLength(0);
-  expect(connections.view("a", mine.connection, view)).toBe(true);
-  const open = sent.find((s) => s.message.type === "viewer.open")?.message;
-  expect(open).toMatchObject({ connection: mine.connection, owner: phone("a") });
+  // Its own session, and a channel of the same device admitted the same way (iOS subscribes to
+  // screens and devices on channels of their own).
+  expect(connections.view(phone("a"), mine.connection, view)).toBe(true);
+  expect(connections.view(phone("screen-channel"), mine.connection, view)).toBe(true);
+  const opens = sent.filter((s) => s.message.type === "viewer.open").map((s) => s.message);
+  // Both are granted under the connection's owner, which ace-media checks again.
+  expect(opens).toHaveLength(2);
+  for (const open of opens)
+    expect(open).toMatchObject({ connection: mine.connection, owner: phone("a") });
 });
 
 test("every grant and revocation carries the next number of one issue sequence", async () => {
   const { connections, sent, revoked } = harness();
   const grant = granted(await connections.connect(phone("a")));
-  connections.view("a", grant.connection, {
+  connections.view(phone("a"), grant.connection, {
     viewer: "v",
     source: "p",
     target: { kind: "screen", sessionId: "s" },
@@ -131,7 +147,7 @@ test("a closed session closes its connections on the priority lane, and only its
   expect(revoked).toEqual([
     { type: "connection.close", id: "id-1", connection: a.connection, reason: "session-closed" },
   ]);
-  expect(connections.owned("a", a.connection)).toBeUndefined();
+  expect(connections.owned(phone("a"), a.connection)).toBeUndefined();
   expect([...connections.sessions()]).toEqual(["b"]);
 });
 
@@ -139,7 +155,7 @@ test("after a revocation nothing more is minted for its owner, and a pairing's s
   const { connections, advance } = harness();
   const held = granted(await connections.connect(phone("a")));
   void connections.revoke("phone", { kind: "pairing", generation: 1 });
-  expect(connections.owned("a", held.connection)).toBeUndefined();
+  expect(connections.owned(phone("a"), held.connection)).toBeUndefined();
   expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
   advance(60_000);
   expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
@@ -191,7 +207,7 @@ test("a view follows its producer to each new id in ace-media and goes with its 
   const tab = producer("t1");
   const intent: ViewIntent = {
     viewer: "v1",
-    session: "a",
+    requester: phone("a"),
     connection: grant.connection,
     target: { kind: "browser", threadId: "t1" },
     codecs: ["avc1.42E033"],
@@ -200,7 +216,7 @@ test("a view follows its producer to each new id in ace-media and goes with its 
     audio: false,
     shows: (p) => p.threadId === "t1",
   };
-  expect(viewers.bind({ ...intent, session: "b" })).toBe(false);
+  expect(viewers.bind({ ...intent, requester: laptop })).toBe(false);
   expect(viewers.bind(intent)).toBe(true);
   expect(viewers.granted("v1")).toBe(false); // nothing streams into ace-media yet
   viewers.live(producer("t2"), "other");

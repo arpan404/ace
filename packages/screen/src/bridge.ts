@@ -19,6 +19,7 @@ import {
   viewViewport,
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
+import type { MediaOwner } from "@ace/media/media-connections";
 import { framePicture } from "./frame-picture.ts";
 import type { Frame } from "./frames.ts";
 import type { VideoHost } from "@ace/browser";
@@ -40,10 +41,11 @@ export type ScreenPeer = {
    */
   pictureEncoder?(): VideoHost | undefined;
   /**
-   * Delivery by ace-media (D1) for subscribes that name a media connection, with this main
-   * session's id. Without it, or while ace-media doesn't serve screens, they are served here.
+   * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
+   * connection is: its session, device and admission (a main session, or a channel of its own).
+   * Without it, or while ace-media doesn't serve screens, they are served here.
    */
-  delivery?: { session: string; port: () => MediaDeliveryPort | undefined };
+  delivery?: { owner: () => MediaOwner | undefined; port: () => MediaDeliveryPort | undefined };
 };
 /**
  * Attach only after the host transport authenticates a human device. A subscribed session's
@@ -106,12 +108,13 @@ export function screenConnection(
   ): string | undefined => {
     const delivery = peer.delivery;
     const port = delivery?.port();
-    if (!delivery || !port || !port.serves("screen")) return undefined;
-    const viewer = `${delivery.session}/screen/${sessionId}`.slice(0, 64);
+    const requester = delivery?.owner();
+    if (!requester || !port || !port.serves("screen")) return undefined;
+    const viewer = `${requester.session}/screen/${sessionId}`.slice(0, 64);
     const link = viewLink(operation.link);
     const bound = port.bind({
       viewer,
-      session: delivery.session,
+      requester,
       connection,
       target: { kind: "screen", sessionId },
       codecs: operation.codecs ?? ["avc1.42E033"],
