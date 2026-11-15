@@ -72,6 +72,13 @@ export class AutomationWebhooks {
     this.store.webhooks.forget(automationId);
   }
 
+  /** Which automation a hook id belongs to, if any. */
+  ownerOf(hookId: string): string | undefined {
+    return hookIdPattern.test(hookId)
+      ? this.store.webhooks.byHook(hookId)?.automationId
+      : undefined;
+  }
+
   /** The automation's hook id while it has a secret. */
   hookOf(automationId: string): string | undefined {
     return this.store.webhooks.hookOf(automationId);

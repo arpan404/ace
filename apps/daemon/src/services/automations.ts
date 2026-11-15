@@ -117,18 +117,23 @@ function withWebhooks(
       ...(response.threadAutomations ?? []).map((entry) => entry.automation),
     ].map((automation) => [automation.id, automation.trigger.kind]),
   );
-  const state = (id: string) =>
-    kinds.get(id) === "webhook" ? { webhook: webhooks.state(id) } : {};
+  const state = (id: string, source: "person" | "thread") =>
+    kinds.get(id) === "webhook" ? { webhook: webhooks.state(id, source) } : {};
   return {
     ...response,
     ...(response.schedules
-      ? { schedules: response.schedules.map((entry) => ({ ...entry, ...state(entry.id) })) }
+      ? {
+          schedules: response.schedules.map((entry) => ({
+            ...entry,
+            ...state(entry.id, "person"),
+          })),
+        }
       : {}),
     ...(response.threadAutomations
       ? {
           threadAutomations: response.threadAutomations.map((entry) => ({
             ...entry,
-            ...state(entry.automation.id),
+            ...state(entry.automation.id, "thread"),
           })),
         }
       : {}),

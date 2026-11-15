@@ -233,7 +233,8 @@ export type AutomationResponse = z.infer<typeof AutomationResponse>;
  * The person's webhook secret controls (ADR 0158). Outside `AutomationRequest` on purpose: agents'
  * `automation.manage` carries only those, so no agent tool can create, read or rotate a secret.
  * `rotate` makes a secret (and the hook id, the first time) and returns it once; `revoke` deletes
- * both, so the URL stops answering.
+ * both, so the URL stops answering. `source: "thread"` addresses an automation an agent made
+ * from a thread; agents can make a webhook automation, but only the person makes its secret.
  */
 export const AutomationWebhookRequest = z.object({
   type: z.literal("automation.webhook"),

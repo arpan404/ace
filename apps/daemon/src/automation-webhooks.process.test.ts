@@ -213,3 +213,69 @@ test("a wrong secret, a rotated secret, a revoked webhook and a paused automatio
 function hookIdOf(response: AutomationWebhookResponse): string {
   return response.webhook?.path?.slice("/hooks/".length) ?? "";
 }
+
+test("an agent's webhook automation runs once the person makes its secret, from the agents' store", async () => {
+  const f = await daemonFixture();
+  const app = await connectAutomations(f, "webhook-person");
+  try {
+    await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+    await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    const saved = await f.call({
+      op: "automation.manage",
+      request: {
+        type: "automation.put",
+        requestId: "agent-put",
+        automation: {
+          id: "agent-hook",
+          title: "Agent hook",
+          prompt: "Look at {{body.env}}",
+          trigger: { kind: "webhook" },
+          enabled: true,
+          missedRun: "skip",
+          concurrency: 1,
+        },
+      },
+    });
+    expect(saved.ok).toBe(true);
+    const ask = async (source: "person" | "thread", requestId: string) => {
+      app.client.send({
+        type: "automation.webhook",
+        requestId,
+        id: "agent-hook",
+        action: "rotate",
+        source,
+      });
+      for (;;) {
+        const response = await app.client.next();
+        if (response.type === "automation.webhookResult" && response.requestId === requestId)
+          return response as AutomationWebhookResponse;
+      }
+    };
+    // It isn't the person's own automation, so only the thread store answers for it.
+    expect(await ask("person", "wrong-store")).toMatchObject({ ok: false });
+    const made = await ask("thread", "rotate");
+    expect(made).toMatchObject({ ok: true, webhook: { active: true } });
+    const listed = await app.ask({ type: "automation.list", requestId: "l", includeThreads: true });
+    expect(listed.threadAutomations?.[0]?.webhook).toMatchObject({
+      active: true,
+      path: made.webhook?.path,
+    });
+
+    const answer = await deliver(
+      f.daemon,
+      () => f.h.clock.now(),
+      hookIdOf(made),
+      made.secret ?? "",
+    );
+    expect(answer.status).toBe(202);
+    const runs = await f.call({
+      op: "automation.manage",
+      request: { type: "automation.inbox", requestId: "runs", limit: 10 },
+    });
+    expect(JSON.stringify(runs.data)).toContain('"trigger":"webhook"');
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});
