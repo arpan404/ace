@@ -161,6 +161,65 @@ test("an answer streams while its turn runs and stops when the turn ends", async
   expect(settled.writing).toBeUndefined();
 });
 
+const idle = () => {};
+
+/** A thread whose answer is still arriving, open on a fresh phone. */
+async function streamingAnswer(id: string) {
+  const fake = start(id);
+  fake.apply(id, [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, id);
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  return { fake, client };
+}
+
+test("a streaming answer stops saying Writing while the phone is disconnected and says it again once back", async () => {
+  const { fake, client } = await streamingAnswer("away");
+  fake.disconnectAll();
+  // Behind the daemon, the phone can't tell the answer is still arriving.
+  await until(() => answerBlock() && !answerBlock()?.writing, "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+});
+
+test("an answer whose turn finished while the phone was away no longer says Writing once back", async () => {
+  const { fake, client } = await streamingAnswer("ended");
+  fake.disconnectAll();
+  await until(() => answerBlock() && !answerBlock()?.writing, "Writing gone while away");
+  fake.apply("ended", [facts.endTurn("root")]);
+  client.reconnectNow();
+  await until(() => answerBlock()?.streaming === false, "the answer settled after reconnect");
+  expect(answerBlock()?.writing).toBeUndefined();
+});
+
+test("an answer restored from the last launch says Writing only once the daemon confirms it", async () => {
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  const fake = start("kept");
+  fake.apply("kept", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake, { readSnapshots: storage }), "kept");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  let release = idle;
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "kept");
+  const restored = await until(answerBlock, "the restored answer");
+  expect(restored.streaming).toBe(true);
+  expect(restored.writing).toBeUndefined();
+  release();
+  await until(() => answerBlock()?.writing === "Writing", "Writing once confirmed");
+}, 20_000);
+
 test("a settled turn's opened log times its thought by the step after it", async () => {
   const fake = start("settled");
   fake.apply("settled", [facts.message("root", "ask", "user", "Go"), thought("t1")], 20_000);

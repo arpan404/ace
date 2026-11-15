@@ -540,6 +540,10 @@ export function followBlocks(
         if (structural.has(key) || watch.has(key)) regroup = true;
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
+        // Catching up or caught up: a streaming answer's Writing goes or comes back.
+        if (key === "sync")
+          for (const block of following)
+            if (blocks.get(block)?.kind === "message") touched.add(block);
         if (key.startsWith("item:")) {
           const id = key.slice(5);
           for (const block of counted.get(id) ?? []) touched.add(block);

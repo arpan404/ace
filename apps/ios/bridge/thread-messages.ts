@@ -291,13 +291,16 @@ export function eventFollows(store: ThreadSource, kind: string, itemId: string):
 
 /**
  * A one-item block's message fields: an answer's streaming, with the word a screen reader hears
- * on its row while it arrives, or an event's row.
+ * on its row while it arrives, or an event's row. The word says the answer is arriving now, so
+ * only a copy the daemon has confirmed and is current with says it: catching up after a
+ * reconnect, or painted from the last launch, the turn may have ended meanwhile.
  */
 export function messageBlock(store: ThreadSource, kind: string, itemId: string | undefined) {
   if (itemId === undefined) return {};
   if (kind === "message") {
     const streaming = streamingOf(store, store.item(itemId));
-    return streaming ? { streaming, writing: answerWritingLabel } : { streaming };
+    const current = !store.syncing && store.unconfirmed !== true;
+    return streaming && current ? { streaming, writing: answerWritingLabel } : { streaming };
   }
   return { event: eventRow(store, kind, itemId) };
 }
