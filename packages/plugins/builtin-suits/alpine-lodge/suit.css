@@ -1,0 +1,1679 @@
+/*
+ * Alpine Lodge: ace as a mountain lodge on a winter evening (and a bright winter morning). Every
+ * selector names a published part (docs/design/suit-parts.md).
+ *
+ * Materials. Wood is drawn in CSS: a base colour under a few repeating gradients of fine grain
+ * lines at prime periods, so it never visibly repeats and the live check can read every stop.
+ * Felt is a fine crosshatch; brass is a short metallic gradient; leather is a deep brown with a
+ * stitched (dashed) edge. A frame of wood around a surface uses two backgrounds: the surface on
+ * the padding box and the wood on the border box, under a transparent border.
+ *
+ * Places. The sidebar is the lodge's Trail board, its threads carved trail markers; the open
+ * trail has its lantern lit. Agents answer in notes pinned to felt, the person writes on a
+ * postcard, the work log is a hiking log of waypoints, and the composer is the guest book. The
+ * pull requests are the trail conditions board, one pull request a trail map; Settings is the
+ * gear room and the side panel a cabinet of drawers. The window shows the valley at dusk.
+ */
+
+@font-face {
+  font-family: "Lodge Display";
+  src: url("assets/fonts/Fraunces-Soft.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Lodge Text";
+  src: url("assets/fonts/Nunito-Italic.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: italic;
+  font-display: fallback;
+}
+
+/* ------------------------------------------------------------------ materials */
+
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part, so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-display: "Lodge Display", Georgia, "Iowan Old Style", serif;
+  --suit-soft: "SOFT" 100, "WONK" 0;
+  /* Walnut by evening. */
+  --suit-wood: #2a1c11;
+  --suit-wood-2: #35251a;
+  --suit-wood-3: #45301f;
+  --suit-wood-edge: #0f0905;
+  --suit-carve: rgb(0 0 0 / 0.55);
+  --suit-carve-lift: rgb(255 226 186 / 0.07);
+  --suit-grain-dark: rgb(0 0 0 / 0.2);
+  --suit-grain-light: rgb(255 222 176 / 0.045);
+  --suit-brass: linear-gradient(180deg, #f2dca4 0%, #cfa25a 36%, #9b7230 64%, #d8b26c 100%);
+  --suit-brass-ink: #2a1a08;
+  /* Brass that carries words: the same metal, its darkest band kept light under the ink. */
+  --suit-brass-plate: linear-gradient(180deg, #f3dfaa 0%, #d8b26e 45%, #bf9655 62%, #ddb878 100%);
+  --suit-brass-rim: #6e4f1e;
+  --suit-leather: #4a2f1d;
+  --suit-stitch: rgb(236 214 178 / 0.35);
+  --suit-paper: #2f241b;
+  --suit-felt:
+    repeating-linear-gradient(45deg, rgb(255 236 210 / 0.022) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.07) 0 1px, transparent 1px 3px);
+  --suit-glow: color-mix(in oklab, var(--color-tint) 26%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 12%, transparent);
+  --suit-shadow: 0 10px 30px rgb(0 0 0 / 0.38), 0 2px 6px rgb(0 0 0 / 0.3);
+  /* Grain: vertical for boards and beams, horizontal for planks and signs. */
+  --suit-grain-v:
+    repeating-linear-gradient(
+      90deg,
+      var(--suit-grain-dark) 0 1px,
+      transparent 1px 7px,
+      var(--suit-grain-light) 7px 8px,
+      transparent 8px 19px
+    ),
+    repeating-linear-gradient(91deg, var(--suit-grain-dark) 0 1px, transparent 1px 31px),
+    repeating-linear-gradient(89.4deg, var(--suit-grain-light) 0 2px, transparent 2px 53px);
+  --suit-grain-h:
+    repeating-linear-gradient(
+      180deg,
+      var(--suit-grain-dark) 0 1px,
+      transparent 1px 5px,
+      var(--suit-grain-light) 5px 6px,
+      transparent 6px 13px
+    ),
+    repeating-linear-gradient(179.3deg, var(--suit-grain-dark) 0 1px, transparent 1px 23px),
+    repeating-linear-gradient(180.6deg, var(--suit-grain-light) 0 2px, transparent 2px 41px);
+  font-family: var(--font-sans);
+}
+/* Birch and pine on a bright winter morning. */
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"],
+[data-part="app"][data-scheme="light"],
+[data-part="menu"][data-scheme="light"],
+[data-part="popover"][data-scheme="light"],
+[data-part="dialog"][data-scheme="light"] {
+  --suit-wood: #e0c9a4;
+  --suit-wood-2: #efe0c7;
+  --suit-wood-3: #f7ecdc;
+  /* Trail markers by day are birch: near white, a whisper of grain. */
+  --suit-birch: #fdfbf7;
+  --suit-birch-hover: #fefcf9;
+  --suit-birch-grain: rgb(120 80 40 / 0.016);
+  --suit-wood-edge: #b59870;
+  --suit-carve: rgb(255 255 255 / 0.6);
+  --suit-carve-lift: rgb(90 60 30 / 0.12);
+  --suit-grain-dark: rgb(120 80 40 / 0.06);
+  --suit-grain-light: rgb(255 255 255 / 0.16);
+  --suit-brass: linear-gradient(180deg, #f6e4b6 0%, #d8ae66 36%, #a97c35 64%, #dfbd7c 100%);
+  --suit-brass-rim: #8a6528;
+  --suit-leather: #e8d5b9;
+  --suit-stitch: rgb(120 80 40 / 0.45);
+  --suit-paper: #fffaf1;
+  --suit-felt:
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.5) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgb(110 80 50 / 0.035) 0 1px, transparent 1px 3px);
+  --suit-glow: color-mix(in oklab, var(--color-tint) 18%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 8%, transparent);
+  --suit-shadow: 0 10px 28px rgb(80 50 20 / 0.16), 0 2px 6px rgb(80 50 20 / 0.12);
+}
+
+/* ------------------------------------------------------------------ regions */
+
+[data-part="app"] {
+  --suit-rail-background:
+    var(--suit-grain-v), linear-gradient(90deg, var(--suit-wood-edge), var(--suit-wood) 70%);
+  --suit-sidebar-background:
+    var(--suit-grain-v),
+    radial-gradient(120% 40% at 50% 0%, var(--suit-carve-lift), transparent 70%), var(--suit-wood);
+  --suit-header-background: var(--suit-grain-h), var(--suit-wood-2);
+  --suit-right-panel-background: var(--suit-grain-v), var(--suit-wood);
+  /*
+   * The window: the transcript is a pane in a warm wooden frame. The valley shows through the
+   * glass, held back by a wash of the room's own colour so words on it read, and frost gathers
+   * at the pane's edges.
+   */
+  --suit-pane: color-mix(in oklab, var(--color-background) 50%, transparent);
+  /*
+   * The frame is a ridged moulding: a border of its own, so the glass's background is the pane
+   * alone and words over it read against the valley, never against the wood.
+   */
+  --suit-transcript-border: 8px ridge var(--suit-wood-3);
+  --suit-transcript-background: var(--suit-pane);
+  --suit-transcript-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(0 0 0 / 0.45),
+    inset 0 0 48px 2px rgb(214 224 250 / 0.07), 0 0 0 1px var(--suit-wood-edge);
+}
+[data-scheme="light"] [data-part="app"],
+[data-part="app"][data-scheme="light"] {
+  --suit-pane: color-mix(in oklab, var(--color-background) 62%, transparent);
+  --suit-transcript-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(90 60 30 / 0.25),
+    inset 0 0 48px 4px rgb(255 255 255 / 0.7), 0 0 0 1px var(--suit-wood-edge);
+}
+/* A thread's page lets the pane alone stand between the room and the valley. */
+[data-part="page"][data-page="thread"] {
+  --suit-page-background: transparent;
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"],
+[data-part="settings-section"],
+[data-part="empty-state"],
+[data-part="turn-divider"],
+[data-part="stat"] {
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+}
+[data-part="page-title"] {
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+[data-part="link"] {
+  color: var(--color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 32%, transparent);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"] {
+  scrollbar-color: color-mix(in oklab, var(--suit-wood-3) 70%, var(--color-border-strong))
+    transparent;
+}
+
+/* ------------------------------------------------------------------ rail: the beam */
+
+[data-part="rail"] {
+  box-shadow:
+    inset -1px 0 0 var(--suit-wood-edge),
+    inset -2px 0 0 var(--suit-carve-lift);
+}
+[data-part="rail-item"] {
+  position: relative;
+  border-radius: 10px;
+  fill: currentColor;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+[data-part="rail-item"]:hover {
+  background: color-mix(in oklab, var(--suit-wood-3) 80%, transparent);
+}
+/* The open place hangs a brass ring and catches the lantern light. */
+[data-part="rail-item"][data-state="active"] {
+  color: var(--color-link);
+  background:
+    radial-gradient(circle at 50% 50%, var(--suit-glow), transparent 72%),
+    color-mix(in oklab, var(--suit-wood-3) 70%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--color-tint) 70%, transparent),
+    0 0 14px -4px var(--suit-glow);
+}
+
+/* ------------------------------------------------------------------ sidebar: the Trail board */
+
+[data-part="sidebar"] {
+  box-shadow:
+    inset -1px 0 0 var(--suit-wood-edge),
+    inset -3px 0 0 var(--suit-carve-lift),
+    inset 1px 0 0 var(--suit-carve-lift);
+}
+[data-part="sidebar-header"] {
+  position: relative;
+}
+[data-part="project-header"] {
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+
+[data-part="thread-list"] {
+  padding-inline: 2px;
+}
+/*
+ * Each thread is a carved trail marker: a plank whose right end points down the trail, with a
+ * difficulty mark burnt into its left end (the mark's shape only; the status icon keeps ace's
+ * colour at the other end).
+ */
+[data-part="thread-row"] {
+  --suit-mark-ink: color-mix(in oklab, var(--color-subtle-foreground) 80%, transparent);
+  --suit-plank: var(--suit-wood-2);
+  position: relative;
+  border-radius: 7px 0 0 7px;
+  padding-left: 28px;
+  padding-right: 16px;
+  background:
+    var(--suit-grain-h), linear-gradient(180deg, var(--suit-carve-lift), transparent 40%),
+    var(--suit-plank);
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 1px 0 var(--suit-carve-lift);
+  clip-path: polygon(
+    0 2px,
+    calc(100% - 11px) 2px,
+    100% 50%,
+    calc(100% - 11px) calc(100% - 2px),
+    0 calc(100% - 2px)
+  );
+  transition:
+    filter 140ms ease,
+    background-color 140ms ease;
+}
+[data-part="thread-title"] {
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+[data-part="thread-row"]:hover {
+  --suit-plank: var(--suit-wood-3);
+}
+/*
+ * The difficulty mark, by what the trail's status says: a ring for an easy trail at rest, a
+ * square while it is being worked, a diamond while it waits on the person and two diamonds where
+ * it failed. Shape only; the status icon at the row's end keeps ace's colour.
+ */
+[data-part="thread-row"]:not([data-state="active"])::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--suit-mark-ink);
+  pointer-events: none;
+}
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"][data-state="working"]
+  )::before {
+  border-radius: 1px;
+  border: none;
+  background: var(--suit-mark-ink);
+}
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"]:is([data-state="waiting"], [data-state="failed"])
+  )::before {
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 1px;
+  border: none;
+  rotate: 45deg;
+  background: var(--suit-mark-ink);
+}
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"][data-state="failed"]
+  )::before {
+  left: 6px;
+  width: 6px;
+  height: 6px;
+  margin-top: 0;
+  box-shadow: 7px -7px 0 0 var(--suit-mark-ink);
+}
+/* A trail picked to act on wears a brass ring. */
+[data-part="thread-row"][data-state="selected"] {
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--color-tint) 70%, transparent),
+    inset 0 1px 0 var(--suit-carve-lift);
+}
+
+/* The open trail: a brighter plank, and its lantern lit at the marker's end. */
+[data-part="thread-row"][data-state="active"] {
+  --suit-plank: var(--suit-wood-3);
+  padding-left: 30px;
+  background:
+    radial-gradient(
+      60px 120% at 12px 50%,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 75%
+    ),
+    var(--suit-grain-h), linear-gradient(180deg, var(--suit-carve-lift), transparent 40%),
+    var(--suit-plank);
+}
+[data-part="thread-row"][data-state="active"]::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  margin-top: -8.5px;
+  background: var(--color-link);
+  mask: url("assets/icons/lantern.svg") no-repeat center / contain;
+  filter: drop-shadow(0 0 5px var(--color-tint));
+  pointer-events: none;
+}
+/*
+ * By day the markers are birch, near white, so ace's status marks at their ends read at full
+ * strength; the open one keeps its lantern and a brass edge instead of a glow.
+ */
+[data-scheme="light"] [data-part="thread-row"],
+[data-scheme="light"] [data-part="thread-row"][data-state="active"] {
+  background:
+    repeating-linear-gradient(180deg, var(--suit-birch-grain) 0 1px, transparent 1px 6px),
+    var(--suit-birch);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--suit-wood-edge) 45%, transparent);
+}
+[data-scheme="light"] [data-part="thread-row"]:hover {
+  background:
+    repeating-linear-gradient(180deg, var(--suit-birch-grain) 0 1px, transparent 1px 6px),
+    var(--suit-birch-hover);
+}
+[data-scheme="light"] [data-part="thread-row"][data-state="active"] {
+  box-shadow:
+    inset 3px 0 0 var(--color-tint),
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 45%, transparent);
+}
+[data-part="thread-row"][data-state="active"] [data-part="thread-title"] {
+  font-weight: 700;
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 750;
+}
+[data-part="thread-meta"] {
+  font-size: 11.5px;
+}
+
+/* Inbox, Snoozed, Settled: three small signs on one rail. */
+[data-part="sidebar-tabs"] {
+  border-radius: 9px;
+  border: 1px solid var(--suit-wood-edge);
+  background: var(--suit-grain-h), var(--suit-wood);
+  box-shadow: inset 0 1px 0 var(--suit-carve-lift);
+}
+[data-part="sidebar-tabs"] [data-part="tab"] {
+  border-radius: 7px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  color: var(--suit-brass-ink);
+  text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
+  background: var(--suit-brass-plate);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+/* The foot of the board: snow on the ground, the lodge's height carved in. */
+[data-part="sidebar-footer"] {
+  position: relative;
+  min-height: 22px;
+  background:
+    radial-gradient(14px 6px at 20% 100%, rgb(240 244 252 / 0.14), transparent),
+    radial-gradient(22px 7px at 62% 100%, rgb(240 244 252 / 0.12), transparent);
+}
+[data-part="sidebar-footer"]::before {
+  content: "ELEV. 2,140 M  ·  LODGE";
+  position: absolute;
+  left: 14px;
+  bottom: 6px;
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  white-space: pre;
+  color: var(--color-subtle-foreground);
+  text-shadow: 0 1px 0 var(--suit-carve);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ header: the lodge sign */
+
+[data-part="header"] {
+  position: relative;
+  box-shadow:
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 -2px 0 var(--suit-carve-lift),
+    0 3px 8px -4px rgb(0 0 0 / 0.4);
+}
+/*
+ * The title is carved into a name board. ace focuses the title when a page opens; the focus
+ * ring follows the board's rounded edge, so it reads as the board catching the light.
+ */
+[data-part="header-title"] {
+  font-weight: 650;
+  font-size: 15px;
+  letter-spacing: 0.005em;
+  padding: 1px 10px 2px;
+  border-radius: 7px;
+  text-shadow: 0 1px 0 var(--suit-carve);
+  background: color-mix(in oklab, var(--suit-wood-3) 70%, transparent);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.25),
+    inset 0 -1px 0 var(--suit-carve-lift);
+}
+[data-part="header-title"]:focus-visible {
+  outline-offset: 2px;
+  border-radius: 7px;
+}
+/* Before the title, a small brass plate names the room. */
+[data-part="header-title"]::before {
+  content: "CABIN";
+  display: inline-block;
+  margin-right: 9px;
+  padding: 2px 7px 2px;
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  vertical-align: 2px;
+  color: var(--suit-brass-ink);
+  text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
+  background: var(--suit-brass-plate);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--suit-brass-rim);
+}
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before {
+  content: "LIFT BOARD";
+}
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "TRAIL MAP";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "GEAR ROOM";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "NEW TRAIL";
+}
+[data-page="usage"] [data-part="header-title"]::before {
+  content: "WOODPILE";
+}
+[data-page="history"] [data-part="header-title"]::before {
+  content: "LOGBOOK";
+}
+[data-page="skills"] [data-part="header-title"]::before,
+[data-page="skill"] [data-part="header-title"]::before {
+  content: "FIELD GUIDE";
+}
+[data-page="automations"] [data-part="header-title"]::before,
+[data-page="automation"] [data-part="header-title"]::before {
+  content: "ROUNDS";
+}
+[data-part="header"] [data-part="icon-button"],
+[data-part="header"] [data-part="button"] {
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------------------ transcript */
+
+/*
+ * Agents answer in notes pinned to a felt board: a felt card with a brass tack, its writer named
+ * small across the top.
+ */
+[data-part="message-agent"] {
+  position: relative;
+  padding: 26px 22px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--suit-felt), var(--color-surface-1);
+  box-shadow:
+    var(--suit-shadow),
+    inset 0 1px 0 var(--suit-carve-lift);
+}
+[data-part="message-agent"]::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 246 220 / 0.9) 0 1.2px, transparent 2.2px),
+    var(--suit-brass);
+  box-shadow:
+    0 0 0 1px var(--suit-brass-rim),
+    1px 2px 3px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+[data-part="message-agent"]::after {
+  content: "a note by the fire";
+  position: absolute;
+  top: 7px;
+  left: 22px;
+  font-family: "Lodge Text", var(--font-sans);
+  font-style: italic;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="message-agent"]::first-letter {
+  font-family: var(--suit-display);
+}
+
+/*
+ * The person writes on a postcard: warm card stock, a stamp in the corner with a postmark
+ * running across it, and a tack holding it to the board.
+ */
+[data-part="message-user"] {
+  position: relative;
+  padding: 16px 64px 14px 18px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-border-strong) 70%, transparent);
+  background:
+    url("assets/icons/stamp.svg") right 12px top 10px / 30px 35px no-repeat,
+    repeating-linear-gradient(
+        180deg,
+        transparent 0 7px,
+        color-mix(in oklab, var(--color-faint-foreground) 55%, transparent) 7px 8px
+      )
+      right 38px top 22px / 26px 23px no-repeat,
+    var(--suit-paper);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="message-user"]::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 246 220 / 0.9) 0 1.2px, transparent 2.2px),
+    var(--suit-brass);
+  box-shadow:
+    0 0 0 1px var(--suit-brass-rim),
+    1px 2px 3px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+[data-part="message-meta"] {
+  font-size: 11.5px;
+}
+[data-part="turn-divider"] {
+  font-style: italic;
+  font-size: 13px;
+}
+[data-part="inline-code"] {
+  border-radius: 5px;
+  background: var(--color-code);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding-inline: 4px;
+}
+[data-part="code-block"] {
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-code);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.25);
+}
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-code);
+  font-family: var(--font-mono);
+}
+[data-part="attachment"] {
+  border-radius: 6px;
+  box-shadow: var(--suit-shadow);
+}
+
+/* ------------------------------------------------------------------ work log: the hiking log */
+
+/*
+ * A group of steps is one leg of the hike, headed by a painted trail blaze. Each step is a
+ * waypoint: a wooden disc with its tool's sign (a map for reading, a compass for searching, an
+ * axe for edits, a campfire for commands…), joined to the next by the dashed trail.
+ */
+[data-part="tool-group-header"] {
+  position: relative;
+  padding-left: 20px;
+  font-weight: 700;
+}
+[data-part="tool-group-header"]::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 7px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 1.5px;
+  background: var(--color-tint);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--suit-wood-3) 80%, transparent);
+  pointer-events: none;
+}
+[data-part="tool-row"] {
+  position: relative;
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+      180deg,
+      var(--color-subtle-foreground) 0 4px,
+      transparent 4px 8px
+    )
+    19px 0 / 2px 100% no-repeat;
+  transition: background-color 140ms ease;
+}
+[data-part="tool-row"]:hover {
+  background-color: color-mix(in oklab, var(--suit-wood-3) 45%, transparent);
+}
+[data-part="tool-row"][data-state="open"] {
+  background-color: var(--suit-wash);
+}
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/pack.svg");
+  position: relative;
+  width: 26px;
+  height: 26px;
+  margin-left: -1px;
+  color: transparent;
+  border-radius: 50%;
+  background: var(--suit-grain-h), var(--suit-wood-3);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 1px 0 var(--suit-carve-lift),
+    0 0 0 2px var(--color-background);
+}
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"]::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  background: var(--color-link);
+  mask: var(--suit-sign) no-repeat center / 17px 17px;
+}
+[data-part="tool-row"][data-variant="read"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/map.svg");
+}
+[data-part="tool-row"][data-variant="search"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/compass.svg");
+}
+[data-part="tool-row"][data-variant="list"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/signpost.svg");
+}
+[data-part="tool-row"][data-variant="shell"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/campfire.svg");
+}
+[data-part="tool-row"][data-variant="edit"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/axe.svg");
+}
+[data-part="tool-row"][data-variant="web"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/binoculars.svg");
+}
+[data-part="tool-row"][data-variant="think"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/lantern.svg");
+}
+[data-part="tool-row"][data-variant="note"] [data-part="tool-icon"] {
+  --suit-sign: url("assets/icons/logbook.svg");
+}
+[data-part="tool-row"][data-state="failed"] {
+  box-shadow: inset 2px 0 0 var(--color-border-strong);
+}
+
+/* The Working line keeps ace's words and colour; the lodge frames it as a trail marker. */
+[data-part="working-line"] {
+  font-family: var(--suit-display);
+  font-weight: 600;
+  padding-inline: 10px 8px;
+  border-left: 3px solid var(--status-working);
+  border-radius: 2px 6px 6px 2px;
+}
+[data-part="working-line"][data-state="waiting"] {
+  border-left-color: var(--status-needs-you);
+}
+/* Approvals and questions: ace's strip and card, framed as a notice nailed to the door. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 12px;
+  border-style: double;
+  border-width: 3px;
+  padding-inline: 14px;
+}
+
+/* ------------------------------------------------------------------ composer: the guest book */
+
+/*
+ * The guest book lies open on the desk: a page framed in wood, one ruled line to sign on, and a
+ * brass button to send it.
+ */
+[data-part="composer"] {
+  position: relative;
+  border: 6px solid transparent;
+  border-radius: 16px;
+  background:
+    linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-wood-edge),
+    var(--suit-shadow);
+  transition: box-shadow 160ms ease;
+}
+[data-part="composer"]:focus-within {
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 60%, var(--suit-wood-edge)),
+    0 0 0 4px var(--suit-wash),
+    var(--suit-shadow);
+}
+[data-part="composer-input"] {
+  caret-color: var(--color-tint);
+  background: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-border-strong) 80%, transparent),
+      color-mix(in oklab, var(--color-border-strong) 30%, transparent)
+    )
+    left bottom / 100% 1px no-repeat;
+}
+[data-part="composer-input"]::placeholder {
+  color: var(--color-subtle-foreground);
+  font-family: "Lodge Text", var(--font-sans);
+  font-style: italic;
+}
+/* Send is a brass button with the summit arrow pressed into it. */
+[data-part="composer-send"] {
+  position: relative;
+  border-radius: 999px;
+}
+[data-part="composer-send"][data-variant="send"],
+[data-part="composer-send"][data-variant="steer"],
+[data-part="composer-send"][data-variant="queue"] {
+  color: transparent;
+  background:
+    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.55), transparent 45%), var(--suit-brass);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    inset 0 -2px 3px rgb(0 0 0 / 0.25),
+    0 1px 3px rgb(0 0 0 / 0.35);
+}
+[data-part="composer-send"][data-variant="send"]::after,
+[data-part="composer-send"][data-variant="steer"]::after,
+[data-part="composer-send"][data-variant="queue"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-brass-ink);
+  mask: url("assets/icons/send.svg") no-repeat center / 15px 15px;
+  pointer-events: none;
+}
+[data-part="composer-send"][data-variant="send"]:hover {
+  filter: brightness(1.07);
+}
+[data-part="composer-send"][data-state="disabled"] {
+  filter: saturate(0.25) brightness(0.8);
+  opacity: 0.75;
+}
+/* A leather tag for the model. */
+[data-part="model-picker"] {
+  border-radius: 7px;
+  outline: 1px dashed var(--suit-stitch);
+  outline-offset: -3px;
+  background: var(--suit-leather);
+}
+[data-part="model-picker"]:hover {
+  background: color-mix(in oklab, var(--suit-leather) 85%, white);
+}
+/* The strip above: notes clipped to the book; queued messages hang as luggage tags. */
+[data-part="composer-strip"] {
+  border-radius: 12px 12px 0 0;
+}
+[data-part="queue-item"] {
+  position: relative;
+  padding-left: 22px;
+  border-radius: 4px 9px 9px 4px;
+  background:
+    radial-gradient(
+      circle at 10px 50%,
+      var(--color-background) 0 3px,
+      var(--suit-wood-edge) 3.5px 4.5px,
+      transparent 5px
+    ),
+    var(--suit-grain-h), var(--suit-wood-2);
+  box-shadow: inset 0 0 0 1px var(--suit-wood-edge);
+}
+[data-part="queue-item"][data-state="selected"] {
+  box-shadow: inset 0 0 0 1.5px var(--color-tint);
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  border-radius: 9px;
+  font-weight: 700;
+  transition:
+    background-color 120ms ease,
+    filter 120ms ease;
+}
+/* A secondary button is a small plank. */
+[data-part="button"]:not([data-variant]),
+[data-part="button"][data-variant="secondary"] {
+  color: var(--color-foreground);
+  background: var(--suit-grain-h), var(--suit-wood-2);
+  border: 1px solid var(--suit-wood-edge);
+  box-shadow: inset 0 1px 0 var(--suit-carve-lift);
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+[data-part="button"]:not([data-variant]):hover,
+[data-part="button"][data-variant="secondary"]:hover {
+  background: var(--suit-grain-h), var(--suit-wood-3);
+}
+/* The primary button is polished brass. */
+[data-part="button"][data-variant="primary"] {
+  color: var(--color-tint-foreground);
+  background: linear-gradient(180deg, rgb(255 244 214 / 0.16), transparent 55%), var(--color-tint);
+  border: 1px solid color-mix(in oklab, var(--color-tint) 70%, black);
+  box-shadow: inset 0 1px 0 rgb(255 240 200 / 0.25);
+}
+[data-scheme="light"] [data-part="button"][data-variant="primary"] {
+  background: linear-gradient(180deg, rgb(255 244 214 / 0.06), transparent 55%), var(--color-tint);
+}
+[data-part="button"][data-variant="primary"]:hover {
+  background: var(--color-tint-hover);
+}
+[data-part="button"][data-variant="ghost"] {
+  background: transparent;
+  border-color: transparent;
+}
+[data-part="button"][data-variant="ghost"]:hover {
+  background: color-mix(in oklab, var(--suit-wood-3) 60%, transparent);
+}
+[data-part="button"][data-variant="danger"] {
+  border-radius: 9px;
+}
+[data-part="button"][data-state="disabled"] {
+  filter: saturate(0.3);
+  opacity: 0.7;
+}
+[data-part="icon-button"] {
+  border-radius: 8px;
+}
+/* A disabled glyph is drawn whole in the faint ink, not faded, so it still reads on wood. */
+[data-part="icon-button"][data-state="disabled"] {
+  opacity: 1;
+  color: var(--color-faint-foreground);
+}
+[data-scheme="light"] [data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+}
+[data-part="icon-button"]:hover,
+[data-part="icon-button"][data-state="active"] {
+  background: color-mix(in oklab, var(--suit-wood-3) 70%, transparent);
+}
+/* Fields are pressed into the wood. */
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 9px;
+  border-color: var(--color-border-strong);
+  background-color: var(--color-code);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.22);
+  caret-color: var(--color-tint);
+}
+[data-part="input"]:focus-within,
+[data-part="select"]:focus-within,
+[data-part="search-field"]:focus-within {
+  border-color: var(--color-tint);
+}
+[data-part="checkbox"] {
+  border-radius: 4px;
+}
+/* A switch is a leather strap with a brass stud. */
+[data-part="switch"] {
+  background: var(--suit-leather);
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.4),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+  outline: 1px dashed var(--suit-stitch);
+  outline-offset: -3px;
+}
+[data-part="switch"][data-state="checked"] {
+  background: color-mix(in oklab, var(--color-tint) 75%, var(--suit-leather));
+}
+[data-part="switch-thumb"] {
+  background:
+    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.7), transparent 50%), var(--suit-brass);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.45);
+}
+/* A slider is a rope with a brass toggle on it. */
+[data-part="slider"] {
+  border-radius: 999px;
+}
+[data-part="slider-thumb"] {
+  background:
+    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.7), transparent 50%), var(--suit-brass);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 3px rgb(0 0 0 / 0.45);
+}
+/* A segmented control is a row of slats; the chosen one wears a brass plate. */
+[data-part="segmented"] {
+  border-radius: 10px;
+  border: 1px solid var(--suit-wood-edge);
+  background: var(--suit-grain-h), var(--suit-wood);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+}
+[data-part="segment"] {
+  font-weight: 700;
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+/* The chosen slat carries its own brass plate, so its ink always sits on brass. */
+[data-part="segment"][data-state="selected"] {
+  color: var(--suit-brass-ink);
+  text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
+  border-radius: 8px;
+  background: var(--suit-brass-plate);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.35);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 8px;
+  background: var(--suit-brass-plate);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.35);
+}
+[data-part="tab"] {
+  border-radius: 8px;
+  font-weight: 700;
+}
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+[data-part="badge"] {
+  border-radius: 6px;
+  font-weight: 700;
+}
+/*
+ * A state pill draws its words in the canvas colour; the lodge's canvas is warm cream, so by
+ * day the words on a filled pill are pure white to keep their contrast on ace's fills.
+ */
+[data-scheme="light"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
+  color: #ffffff;
+}
+[data-part="kbd"] {
+  border-radius: 5px;
+  border: 1px solid var(--suit-wood-edge);
+  border-bottom-width: 2px;
+  background: var(--suit-wood-3);
+}
+[data-part="label-chip"] {
+  border-radius: 999px;
+}
+[data-part="branch-chip"] {
+  border-radius: 6px;
+  font-family: var(--font-mono);
+}
+[data-part="divider"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-border-strong) 0 4px,
+    transparent 4px 8px
+  );
+  border-color: transparent;
+}
+[data-part="avatar"] {
+  box-shadow: 0 0 0 1.5px var(--suit-brass-rim);
+}
+
+/* ------------------------------------------------------------------ menus, dialogs: lined boxes */
+
+/*
+ * Floating layers are wooden boxes lined with felt: a thin wood rim on the border box, the felt
+ * on the padding box.
+ */
+[data-part="menu"],
+[data-part="popover"],
+[data-part="command-palette"],
+[data-part="dialog"] {
+  border: 4px solid transparent;
+  border-radius: 14px;
+  background:
+    var(--suit-felt) padding-box,
+    linear-gradient(var(--color-surface-2), var(--color-surface-2)) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-wood-edge),
+    0 18px 50px rgb(0 0 0 / 0.45);
+}
+[data-part="dialog"] {
+  border-width: 7px;
+  border-radius: 18px;
+}
+/* Four brass tacks hold a dialog's frame. */
+[data-part="dialog"]::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 0 0 / 8px 8px no-repeat,
+    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 100% 0 / 8px 8px
+      no-repeat,
+    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 0 100% / 8px 8px
+      no-repeat,
+    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 100% 100% / 8px 8px
+      no-repeat;
+  pointer-events: none;
+}
+[data-part="dialog"] [data-part="page-title"] {
+  font-size: 1.15em;
+}
+[data-part="tooltip"] {
+  border-radius: 7px;
+  background: var(--suit-leather);
+  color: var(--color-foreground);
+  outline: 1px dashed var(--suit-stitch);
+  outline-offset: -3px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.35);
+}
+[data-part="toast"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-wood-edge);
+  background: var(--suit-felt), var(--color-surface-2);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="menu-item"] {
+  border-radius: 7px;
+}
+/* The item under the pointer catches the lantern light. */
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus,
+[data-part="menu-item"]:focus-visible {
+  background:
+    linear-gradient(90deg, var(--suit-glow), transparent 85%),
+    color-mix(in oklab, var(--suit-wood-3) 60%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="menu-item"][data-state="checked"] {
+  color: var(--color-link);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="card"] {
+  border-radius: 12px;
+}
+[data-part="card"][data-state="checked"] {
+  box-shadow:
+    0 0 0 2px var(--color-tint),
+    0 0 18px -6px var(--suit-glow);
+}
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 8px;
+}
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  background: linear-gradient(90deg, var(--suit-glow), transparent 70%), var(--color-active);
+}
+[data-part="stat"] {
+  font-weight: 600;
+}
+[data-part="page-header"] {
+  position: relative;
+}
+
+/* ------------------------------------------------------------------ settings: the gear room */
+
+[data-page="settings"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "THE GEAR ROOM";
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--color-link);
+}
+/* The rooms' list hangs on a peg rail: each page a peg, the open one with the lantern lit. */
+[data-part="nav-item"] {
+  position: relative;
+  border-radius: 8px;
+}
+[data-part="settings-nav"] [data-part="nav-item"] {
+  padding-left: 26px;
+}
+[data-part="settings-nav"] [data-part="nav-item"]::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--suit-wood-3);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    0 1px 0 var(--suit-carve-lift);
+  pointer-events: none;
+}
+[data-part="nav-item"][data-state="active"] {
+  background:
+    radial-gradient(70px 130% at 12px 50%, var(--suit-glow), transparent 75%), var(--suit-grain-h),
+    var(--suit-wood-3);
+  box-shadow: inset 0 -1px 0 var(--suit-wood-edge);
+}
+[data-part="settings-nav"] [data-part="nav-item"][data-state="active"]::before {
+  background: var(--suit-brass);
+  box-shadow:
+    0 0 0 1px var(--suit-brass-rim),
+    0 0 8px var(--suit-glow);
+}
+[data-part="page-body"] {
+  counter-reset: locker;
+}
+/*
+ * Each group of settings is a locker in the gear room: a wood frame lined with felt and a brass
+ * number plate on its top edge.
+ */
+[data-part="card"][data-variant="settings-group"] {
+  counter-increment: locker;
+  position: relative;
+  border: 5px solid transparent;
+  border-radius: 14px;
+  background:
+    var(--suit-felt) padding-box,
+    linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-wood-edge),
+    0 4px 12px -6px rgb(0 0 0 / 0.4);
+}
+[data-part="card"][data-variant="settings-group"]::after {
+  content: "No. " counter(locker, decimal-leading-zero);
+  position: absolute;
+  top: -12px;
+  right: 18px;
+  padding: 1px 8px 2px;
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  color: var(--suit-brass-ink);
+  background: var(--suit-brass-plate);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+[data-part="settings-section"] {
+  font-weight: 650;
+}
+[data-part="settings-section"] [data-part="card"],
+[data-part="settings-section"] [data-part="settings-row"] {
+  font-family: var(--font-sans);
+  font-variation-settings: normal;
+}
+/* Rows inside a locker are parted by a stitched seam. */
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px dashed var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ trail conditions board */
+
+[data-page="pulls"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="issues"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="inbox"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "TRAIL CONDITIONS";
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--color-link);
+}
+/*
+ * The list's box is the conditions board by the lift: a wood board with a painted header band,
+ * each trail on its own plank with its condition on a plaque at the left.
+ */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"] {
+  position: relative;
+  padding-top: 34px;
+  border: 6px solid transparent;
+  border-radius: 14px;
+  background:
+    var(--suit-grain-v) padding-box,
+    linear-gradient(var(--suit-wood), var(--suit-wood)) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-wood-edge),
+    var(--suit-shadow);
+}
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before {
+  content: "TRAIL CONDITIONS  ·  OPEN  ·  GROOMED  ·  CLOSED";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  white-space: pre;
+  overflow: hidden;
+  color: var(--suit-brass-ink);
+  text-shadow: 0 1px 0 rgb(255 240 200 / 0.35);
+  background: var(--suit-brass-plate);
+  box-shadow: inset 0 -1px 0 var(--suit-brass-rim);
+  border-radius: 8px 8px 0 0;
+  pointer-events: none;
+}
+[data-page="issues"] [data-part="card"]::before {
+  content: "TRAIL REPORTS  ·  OPEN  ·  CLEARED";
+}
+[data-page="pulls"] [data-part="filter-bar"],
+[data-page="issues"] [data-part="filter-bar"],
+[data-page="inbox"] [data-part="filter-bar"] {
+  background: var(--suit-grain-h), var(--suit-wood-2);
+  border-bottom: 1px solid var(--suit-wood-edge);
+  box-shadow: inset 0 1px 0 var(--suit-carve-lift);
+}
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  --suit-plaque: var(--color-tint);
+  position: relative;
+  margin: 5px 8px;
+  padding-left: 104px;
+  border-radius: 9px;
+  background: var(--suit-grain-h), var(--suit-wood-2);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 1px 0 var(--suit-carve-lift);
+  transition: background-color 140ms ease;
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--suit-grain-h), var(--suit-wood-3);
+}
+[data-part="pr-row"][data-state="selected"] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-tint),
+    0 0 12px -4px var(--suit-glow);
+}
+/* The plaque: the trail's condition, with its mark (a ring for open, corduroy for groomed). */
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "OPEN";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 82px;
+  height: 24px;
+  margin-top: -12px;
+  box-sizing: border-box;
+  padding-left: 24px;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--color-foreground);
+  background:
+    radial-gradient(circle, transparent 0 3px, var(--suit-plaque) 3.5px 5.5px, transparent 6px) 6px
+      50% / 14px 14px no-repeat,
+    var(--color-code);
+  border-radius: 5px;
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 1px 2px rgb(0 0 0 / 0.3);
+  pointer-events: none;
+}
+[data-part="pr-row"][data-variant="draft"]::before {
+  content: "GROOMING";
+  --suit-plaque: var(--color-faint-foreground);
+}
+[data-part="pr-row"][data-variant="merged"]::before {
+  content: "GROOMED";
+  background:
+    repeating-linear-gradient(90deg, var(--color-muted-foreground) 0 1.5px, transparent 1.5px 3.5px)
+      7px 50% / 12px 10px no-repeat,
+    var(--color-code);
+}
+[data-part="pr-row"][data-variant="closed"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  content: "CLOSED";
+  background:
+    linear-gradient(45deg, transparent 45%, var(--color-muted-foreground) 45% 58%, transparent 58%)
+      7px 50% / 11px 11px no-repeat,
+    linear-gradient(-45deg, transparent 45%, var(--color-muted-foreground) 45% 58%, transparent 58%)
+      7px 50% / 11px 11px no-repeat,
+    var(--color-code);
+}
+[data-part="issue-row"][data-variant="closed"]::before {
+  content: "CLEARED";
+}
+[data-part="pr-row"][data-variant="merged"],
+[data-part="pr-row"][data-variant="closed"],
+[data-part="issue-row"][data-variant="closed"] {
+  background: var(--suit-grain-h), color-mix(in oklab, var(--suit-wood-2) 60%, var(--suit-wood));
+}
+
+/* ------------------------------------------------------------------ a pull request: the trail map */
+
+[data-page="pull"] [data-part="page-header"],
+[data-page="issue"] [data-part="page-header"] {
+  padding-bottom: 14px;
+}
+/* The map's lower edge: a dashed trail from a trailhead to a summit flag. */
+[data-page="pull"] [data-part="page-header"]::after,
+[data-page="issue"] [data-part="page-header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  background:
+    radial-gradient(circle, var(--color-tint) 0 3.5px, transparent 4px) 0 100% / 9px 9px no-repeat,
+    linear-gradient(to top right, var(--color-tint) 50%, transparent 50%) right 2px top 0 / 11px 4px
+      no-repeat,
+    linear-gradient(to bottom right, var(--color-tint) 50%, transparent 50%) right 2px top 4px /
+      11px 4px no-repeat,
+    linear-gradient(var(--color-link), var(--color-link)) right 13px top 0 / 2px 18px no-repeat,
+    repeating-linear-gradient(90deg, var(--color-border-strong) 0 6px, transparent 6px 11px) 12px
+      calc(100% - 3.5px) / calc(100% - 30px) 2px no-repeat;
+  pointer-events: none;
+}
+[data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "TRAIL MAP  ·  OPEN";
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  white-space: pre;
+  color: var(--color-link);
+}
+[data-page="pull"][data-variant="draft"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "TRAIL MAP  ·  BEING GROOMED";
+}
+[data-page="pull"][data-variant="merged"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "TRAIL MAP  ·  GROOMED";
+}
+[data-page="pull"][data-variant="closed"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "TRAIL MAP  ·  CLOSED";
+}
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "TRAIL REPORT";
+}
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 23px;
+  line-height: 1.25;
+}
+/*
+ * The description is the map card itself: paper with contour lines gathering round a summit in
+ * its top corner.
+ */
+[data-part="card"][data-variant="description"] {
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background:
+    repeating-radial-gradient(
+        ellipse at 100% 0%,
+        transparent 0 13px,
+        color-mix(in oklab, var(--color-faint-foreground) 35%, transparent) 13px 14px
+      )
+      right top / 190px 120px no-repeat,
+    var(--suit-paper);
+  box-shadow: var(--suit-shadow);
+  font-size: 14px;
+  line-height: 1.65;
+}
+/* The files a pull request changes: the route card beside the map. */
+[data-part="card"][data-variant="changes"] {
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--suit-paper);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="review-comment"] {
+  font-size: 14px;
+  line-height: 1.65;
+  border-radius: 10px;
+}
+/* The side facts are the map's legend: each entry marked like a waypoint. */
+[data-page="pull"] [data-part="page-section"],
+[data-page="issue"] [data-part="page-section"] {
+  position: relative;
+}
+/* The legend's mark hangs in the margin, so the entry's own layout is untouched. */
+[data-page="pull"] [data-part="page-section"]::before,
+[data-page="issue"] [data-part="page-section"]::before {
+  content: "";
+  position: absolute;
+  left: -15px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  rotate: 45deg;
+  background: var(--color-tint);
+  box-shadow: 0 0 0 1.5px var(--color-background);
+  pointer-events: none;
+}
+/* The merge box is the summit register: sign it and the trail is groomed. */
+[data-part="merge-box"] {
+  position: relative;
+  padding-top: 30px;
+  border: 5px solid transparent;
+  border-radius: 14px;
+  background:
+    var(--suit-felt) padding-box,
+    linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-wood-edge);
+}
+[data-part="merge-box"]::before {
+  content: "SUMMIT REGISTER";
+  position: absolute;
+  top: 9px;
+  left: 18px;
+  font-family: var(--suit-display);
+  font-variation-settings: var(--suit-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--color-link);
+  pointer-events: none;
+}
+[data-part="merge-box"][data-state="done"]::before {
+  content: "SUMMIT REACHED";
+}
+[data-part="merge-box"][data-state="closed"]::before {
+  content: "TRAIL CLOSED";
+}
+/* The timeline walks the trail: each stop a waypoint on a dashed path. */
+[data-part="timeline-item"] {
+  border-radius: 10px;
+}
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+[data-part="check-row"][data-state="selected"] {
+  background: linear-gradient(90deg, var(--suit-glow), transparent 70%), var(--color-active);
+}
+[data-part="commit-row"] {
+  font-family: var(--font-mono);
+}
+
+/* ------------------------------------------------------------------ side panel: the cabinet */
+
+/*
+ * The side panel is a wooden cabinet: its tabs are drawer fronts with brass pulls, the shown
+ * one drawn out a little, and the drawer is lined with felt.
+ */
+[data-part="right-panel"] {
+  box-shadow:
+    inset 1px 0 0 var(--suit-wood-edge),
+    inset 3px 0 0 var(--suit-carve-lift);
+}
+[data-part="panel-header"] {
+  background: var(--suit-grain-h), var(--suit-wood-2);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 1px 0 var(--suit-carve-lift),
+    0 2px 6px -3px rgb(0 0 0 / 0.5);
+}
+[data-part="panel-tab"] {
+  position: relative;
+  border-radius: 7px 7px 4px 4px;
+  font-weight: 700;
+  padding-bottom: 3px;
+  background: var(--suit-grain-h), var(--suit-wood);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 1px 0 var(--suit-carve-lift);
+  text-shadow: 0 1px 0 var(--suit-carve);
+}
+/* The drawer's brass pull under its label. */
+[data-part="panel-tab"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 16px;
+  height: 3px;
+  margin-left: -8px;
+  border-radius: 2px;
+  background: var(--suit-brass);
+  box-shadow: 0 0 0 0.5px var(--suit-brass-rim);
+  pointer-events: none;
+}
+[data-part="panel-tab"]:hover {
+  background: var(--suit-grain-h), var(--suit-wood-3);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  background:
+    linear-gradient(180deg, var(--suit-glow), transparent 70%), var(--suit-grain-h),
+    var(--suit-wood-3);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 55%, var(--suit-wood-edge)),
+    0 3px 5px -2px rgb(0 0 0 / 0.5);
+}
+/* The open drawer: felt lining inside a wooden moulding, shadowed under the cabinet's top. */
+[data-part="panel-body"][data-state="active"] {
+  background:
+    var(--suit-felt), color-mix(in oklab, var(--color-sidebar) 70%, var(--color-surface-1));
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 4px var(--suit-wood-2),
+    inset 0 0 0 5px var(--suit-wood-edge),
+    inset 0 9px 10px -6px rgb(0 0 0 / 0.55);
+}
+[data-part="panel-body"][data-variant="terminal"][data-state="active"] {
+  background: var(--color-sidebar);
+}
+[data-part="panel-toolbar"] {
+  font-size: 12px;
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="file-tree"] {
+  font-size: 12.5px;
+}
+/* Each changed file is an index card in the drawer. */
+[data-part="diff-file"] {
+  margin: 6px 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-code);
+  box-shadow: 0 2px 6px -2px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+}
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+/* The terminal sits behind a fire screen: a wood frame with a brass rim. */
+[data-part="terminal-tab"] {
+  margin: 6px;
+  padding: 4px;
+  border: 5px solid transparent;
+  border-radius: 12px;
+  background:
+    linear-gradient(#120d09, #120d09) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  box-shadow:
+    0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 1px var(--suit-brass-rim);
+}
+[data-scheme="light"] [data-part="terminal-tab"] {
+  background:
+    linear-gradient(#fbf7f0, #fbf7f0) padding-box,
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+}
+
+/* ------------------------------------------------------------------ empty states */
+
+[data-part="empty-state"] {
+  font-size: 15px;
+  font-weight: 500;
+  font-style: normal;
+  color: var(--color-muted-foreground);
+}
