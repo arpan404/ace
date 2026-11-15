@@ -254,6 +254,10 @@ async function throughAceMedia(run: {
           lifecycle: manager.state(id).lifecycle,
         }),
     );
+    // How long the handover took: a clean one is a frame interval, a held one 1 s or more.
+    console.log(
+      `flip to ${encode}: first frame on the new path after ${Math.round((onPath()[0]?.at ?? 0) - flipped)} ms`,
+    );
   }
   await pause(500);
   // From the last helper-socket frame before the first switch on: before it the socket's own
