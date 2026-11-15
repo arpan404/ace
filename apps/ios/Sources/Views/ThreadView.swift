@@ -68,6 +68,8 @@ struct ThreadView: View {
     @State private var mention: ComposerMention?
     /// A pasted file's words going back into the message as text.
     @State private var restore: ComposerRestore?
+    /// Long pastes on their way to the next message.
+    @State private var pastes = PasteQueue()
     /// The composer's `@`, `/` and + lists.
     @State private var suggester = ComposerSuggester()
     /// "Attach files" picked from `/`: the + menu's three sources are offered.
@@ -439,6 +441,24 @@ struct ThreadView: View {
         }
     }
 
+    /// A long paste goes as a text file, as the web's does: staged off the main actor in paste
+    /// order, attached only to this thread, and Send waits for it (`PasteQueue`).
+    private func pasteLong(_ words: String) {
+        attachProblem = nil
+        let model = model
+        pastes.paste(words, scope: thread.id, open: { model.thread?.id }, attach: { model.attach($0) }, refused: { attachProblem = $0 })
+    }
+    /// A pasted file's words back into the field, read off the main actor.
+    private func pasteAsText(_ localId: String) {
+        Task {
+            guard let words = await ComposerIntake.pastedText(localId, in: AttachmentStaging()) else {
+                attachProblem = "Couldn't read the paste back."; return
+            }
+            model.detach(localId)
+            restore = ComposerRestore(text: words)
+        }
+    }
+
     @ViewBuilder private var composer: some View {
         let request = thread.approvals.first
         if archived {
@@ -467,16 +487,8 @@ struct ThreadView: View {
                              }
                          },
                          // A long paste goes as a text file, as the web's does; the chip can put it back.
-                         pasteLong: screen.attachmentsLocked != nil ? nil : { words in
-                             Task {
-                                 // Staged off the main actor; one past the file limit is refused in words, never put in the field.
-                                 switch await ComposerIntake.stage(paste: words, into: AttachmentStaging()) {
-                                 case .file(let file): attachProblem = nil; model.attach(file)
-                                 case .refused(let why): attachProblem = why
-                                 case .words: restore = ComposerRestore(text: words)
-                                 }
-                             }
-                         },
+                         pasteLong: screen.attachmentsLocked != nil ? nil : { pasteLong($0) },
+                         adding: pastes.intake.adding(in: thread.id).count,
                          restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
@@ -490,15 +502,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem) { localId in
-                    Task {
-                        guard let words = await ComposerIntake.pastedText(localId, in: AttachmentStaging()) else {
-                            attachProblem = "Couldn't read the paste back."; return
-                        }
-                        model.detach(localId)
-                        restore = ComposerRestore(text: words)
-                    }
-                }
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastes.intake.adding(in: thread.id), asText: { pasteAsText($0) })
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)

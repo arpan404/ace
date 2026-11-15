@@ -59,6 +59,32 @@ import UIKit
         screenshot("long-paste-as-text")
     }
 
+    func testAPasteSentAtOnceGoesWithItsMessage() throws {
+        // A thread whose turns are done, so the message lands in the transcript rather than a queue.
+        let app = launch(into: "ios-log-long")
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.typeText("Look at this log")
+        UIPasteboard.general.string = (1...60).map { "log line \($0)" }.joined(separator: "\n")
+        _ = pasteIntoComposer(app)
+        // Send at once, while the paste may still be on its way: it waits for the paste, never goes without it.
+        let send = app.buttons["composer.send"]
+        send.tap()
+        if (input.value as? String ?? "").contains("Look at this log") {
+            // Send was held while the paste was added: once it's on, it goes.
+            XCTAssertTrue(app.descendants(matching: .any)["composer.attachment"].waitForExistence(timeout: 15))
+            send.tap()
+        }
+        let sentFile = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'attachment.file.'")).firstMatch
+        XCTAssertTrue(sentFile.waitForExistence(timeout: 20), "the message went without its paste")
+        XCTAssertTrue(app.staticTexts["Look at this log"].waitForExistence(timeout: 5))
+        // Nothing is left behind for the next message.
+        XCTAssertFalse(app.descendants(matching: .any)["composer.attachment"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["composer.adding"].exists)
+        screenshot("paste-sent")
+    }
+
     func testAShortPasteGoesInAsWords() throws {
         let app = launch(into: "ios-limited")
         UIPasteboard.general.string = "npm run build"

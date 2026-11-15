@@ -9,6 +9,8 @@ struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
     let problem: String?
+    /// Long pastes still being staged, in paste order: a placeholder each until its file is on.
+    var adding: [PasteIntake.Adding] = []
     /// A pasted file's words, handed back to the message as text; nil offers nothing.
     var asText: ((String) -> Void)? = nil
     private var notice: String? { screen.tune?.notice.isEmpty == false ? screen.tune?.notice : nil }
@@ -18,9 +20,30 @@ struct ComposerAccessories: View {
         return note
     }
     private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty || !screen.quotes.isEmpty }
+    /// Whether anything rides above the capsule at all.
+    private var shows: Bool {
+        let files = !screen.attachments.isEmpty || !adding.isEmpty
+        let lines = screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil
+        return files || hasChips || lines
+    }
     var body: some View {
-        if !screen.attachments.isEmpty || hasChips || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
+        if shows {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                if !adding.isEmpty {
+                    HStack(spacing: AceDesign.Space.related) {
+                        ForEach(adding) { _ in
+                            HStack(spacing: AceDesign.Space.tight) {
+                                ProgressView().controlSize(.mini)
+                                Text("Adding paste…").foregroundStyle(AceTheme.Colours.mutedForeground)
+                            }
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
+                            .background(AceTheme.Colours.fill, in: AceShape.capsule)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("composer.adding")
+                        }
+                    }
+                }
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments, remove: { model.detach($0) }, asText: asText)
                 }
