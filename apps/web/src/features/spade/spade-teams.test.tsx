@@ -190,10 +190,13 @@ test("a group whose machine's Spade stops answering stays listed as unavailable,
   const daemon = app.machines.get("studio");
   if (!daemon) throw new Error("no studio");
   daemon.spade.status = { state: "off" };
-  await waitFor(async () =>
-    expect((await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent).toContain(
-      "Off on Studio Mac",
-    ),
+  // Studio's bots are idle, so its Spade is read every 10 s and a failed read retries once more.
+  await waitFor(
+    async () =>
+      expect(
+        (await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent,
+      ).toContain("Off on Studio Mac"),
+    { timeout: 20_000 },
   );
   await userEvent.click(await (await roster()).findByRole("link", { name: /^Drafts/ }));
   await screen.findByText("Spade isn't running on Studio Mac. Drafts is back when it is.");

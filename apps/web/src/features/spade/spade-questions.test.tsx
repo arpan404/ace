@@ -133,8 +133,13 @@ test("a lone yes-or-no question is answered by Yes or No", async () => {
   expect(asked.queryByRole("button", { name: "Send" })).toBeNull();
   await userEvent.click(asked.getByRole("button", { name: "Yes" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: [true] }]));
-  const settled = await cardWith("Travel asks: Book the 9:40?", "Yes");
-  expect(settled.getByRole("article", { name: "You" }).textContent).toBe("Yes");
+  // The "Yes" button also reads Yes, so wait for the person's answer bubble itself.
+  await waitFor(async () =>
+    expect(
+      (await card("Travel asks: Book the 9:40?")).getByRole("article", { name: "You" }).textContent,
+    ).toBe("Yes"),
+  );
+  const settled = await card("Travel asks: Book the 9:40?");
   expect(settled.queryByRole("button", { name: "Yes" })).toBeNull();
 });
 

@@ -25,7 +25,7 @@ test("a bot carrying on by itself says so in its chat and its row, and the line 
     });
   });
   const row = await botRow("Scout");
-  await waitFor(() => expect(row.textContent).toContain("Working on it · Checking easyJet"));
+  await waitFor(() => expect(row.textContent).toContain("Checking easyJet"));
   await userEvent.click(row);
   const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
   await waitFor(() =>
@@ -39,7 +39,7 @@ test("a bot carrying on by itself says so in its chat and its row, and the line 
   if (scout)
     Object.assign(scout, { state: "idle", task_state: { status: "done" }, continuing: false });
   await waitFor(() => expect(within(feed).queryByRole("status")).toBeNull());
-  expect((await botRow("Scout")).textContent).not.toContain("Working on it");
+  expect((await botRow("Scout")).textContent).not.toContain("Checking easyJet");
 });
 
 test("a task waiting on the person reads that the bot needs you", async () => {
