@@ -107,6 +107,7 @@ struct ConversationFeed: View {
     nonisolated private static let contentSpace = "transcript.content"
 
     private func feed(_ proxy: ScrollViewProxy) -> some View {
+        PerfCounters.bump("feed.body")
         let scroller = ScrollView {
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if let problem = reading.problem {
@@ -139,13 +140,13 @@ struct ConversationFeed: View {
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .disabled(historyStale)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
+                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear") }
                             // The row's frame in the content, not on screen: a scroll leaves it
                             // alone, so this runs when rows change height, never per scroll frame.
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { frame in
                                 rowLaidOut(row.id, frame: frame, proxy: proxy)
                             }
-                            .onDisappear { keep(.gone(row.id), proxy: proxy) }
+                            .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
                     }
                     Color.clear.frame(height: extent.after).accessibilityHidden(true)
                 } else { ConversationSkeleton().padding(AceDesign.Space.margin) }
@@ -265,6 +266,7 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            if new.height != old.height { PerfCounters.bump("content.height") }
             let opened = intent.opened
             if intent.opened, new.height != old.height {
                 // What opened grows under the row the person tapped, which stays put; the feed
@@ -320,6 +322,8 @@ struct ConversationFeed: View {
             applyLayoutRevision()
         }
         .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
+        .onChange(of: extent.before) { _, _ in PerfCounters.bump("extent.spacers") }
+        .onChange(of: extent.after) { _, _ in PerfCounters.bump("extent.spacers") }
         .onChange(of: reading.thread?.epoch) { _, _ in
             extent.update(change: TranscriptExtent.WindowChange(
                 ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
@@ -618,6 +622,7 @@ struct ConversationFeed: View {
         keep(.laidOut(id, frame), proxy: proxy)
         let change = anchor.keeper.lastLayout
         if change == .unchanged { return }
+        PerfCounters.bump("row.layout.\(change)")
         if change != .moved {
             anchor.measured(id, height: frame.height, returning: change == .appeared)
             extent.measure(id, height: Double(frame.height))
