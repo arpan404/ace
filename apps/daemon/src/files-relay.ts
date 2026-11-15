@@ -133,6 +133,7 @@ export async function startFilesRelay(
           session: entry.session,
           confirmed: entry.confirmed,
           readable: Promise.withResolvers<boolean>(),
+          continuations: [],
         },
       });
       await channel.closed;

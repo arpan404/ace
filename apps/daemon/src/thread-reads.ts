@@ -45,8 +45,6 @@ interface ThreadReadSource {
 export class ThreadReads {
   private readonly source: ThreadReadSource;
   private readonly caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
-  /** Holds of an unconfirmed relay session (ADR 0155): kept, but not yet a viewer. */
-  private readonly quiet = new Map<ThreadId, number>();
   constructor(source: ThreadReadSource) {
     this.source = source;
   }
@@ -350,25 +348,10 @@ export class ThreadReads {
   }
   /** Threads a reader holds open right now, such as a client's thread subscription. */
   heldThreads(): ThreadId[] {
-    return [...this.caches].flatMap(([id, held]) =>
-      held.refs > (this.quiet.get(id) ?? 0) ? [id] : [],
-    );
+    return [...this.caches.keys()];
   }
   releaseThread(id: ThreadId): void {
     const cached = this.caches.get(id);
     if (cached && --cached.refs === 0) this.caches.delete(id);
-  }
-  /**
-   * One of this thread's holds is an unconfirmed session's: it doesn't make the thread viewed,
-   * so nothing (a workspace refresh, a git read, a forge call) runs for it until `voice`.
-   */
-  hush(id: ThreadId): void {
-    if (this.caches.has(id)) this.quiet.set(id, (this.quiet.get(id) ?? 0) + 1);
-  }
-  /** A hushed hold confirmed or was let go. */
-  voice(id: ThreadId): void {
-    const quiet = this.quiet.get(id) ?? 0;
-    if (quiet <= 1) this.quiet.delete(id);
-    else this.quiet.set(id, quiet - 1);
   }
 }

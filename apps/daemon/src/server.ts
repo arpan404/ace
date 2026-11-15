@@ -64,7 +64,7 @@ import { computerName } from "./computer-name.ts";
 import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
 import { RELAY_NK_HANDSHAKE } from "@ace/protocol";
-import { planEarlySubscribes, quietReads } from "./relay-nk/early-reads.ts";
+import { answerEarly } from "./relay-nk/early-reads.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -342,11 +342,9 @@ export async function startServer(options: ServerOptions): Promise<{
     // whichever path its hello came by.
     let accountAdmitted = relayed?.stillAdmitted;
     let accountId = relayed?.account;
-    // An NK stream not yet confirmed (ADR 0155): its subscribes hold threads quietly, and what a
-    // hello runs on the device waits for the confirmation.
+    // An NK stream not yet confirmed (ADR 0155): what a hello runs on the device waits for the
+    // confirmation, and only bounded early answers are read before it (`answerEarly`).
     const early = relayed?.early;
-    const quiet = early ? quietReads(options.store) : undefined;
-    let earlyReads = quiet?.store;
     // An account device's main socket stays open only while it holds an unexpired grant.
     let grant: AccountGrantSocket | undefined;
     const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
@@ -520,9 +518,6 @@ export async function startServer(options: ServerOptions): Promise<{
         pending.readable.resolve(false);
         return;
       }
-      quiet?.confirm();
-      earlyReads = undefined;
-      holdGrant(relayed?.grantExpiresAt, actor.id);
       enroll(actor.id);
       receiveBroadcasts(channel);
       if (!(await authenticateServices(channel)) || !open()) {
@@ -611,7 +606,9 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
-        if (relayed && !early) holdGrant(relayed.grantExpiresAt, actor.id);
+        // An NK account session holds its grant as an XX one does: the welcome's `grantTtlMs`
+        // starts the client's keeper, and the hold is a timer released with the socket.
+        if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
@@ -673,7 +670,18 @@ export async function startServer(options: ServerOptions): Promise<{
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
         });
         if (!early) for (const service of sessions) service.welcomed?.();
-        else void afterConfirm(early, actor, message.channel, epoch);
+        else {
+          const reader = actor.id;
+          early.continuations = answerEarly(early.subscribes, {
+            session: early.session,
+            store: options.store,
+            canRead: (thread) =>
+              authorize("read") && options.canReadThread?.(reader, thread) !== false,
+            encoder,
+            send,
+          }).map((subscribe) => JSON.stringify(subscribe));
+          void afterConfirm(early, actor, message.channel, epoch);
+        }
         return;
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
@@ -715,7 +723,6 @@ export async function startServer(options: ServerOptions): Promise<{
       }
       readCore(message, {
         options,
-        ...(earlyReads ? { store: earlyReads } : {}),
         device: actor,
         subscriptions,
         authorize,
@@ -750,19 +757,7 @@ export async function startServer(options: ServerOptions): Promise<{
     relaySockets.add(socket);
     socket.once("close", () => relaySockets.delete(socket));
     connected(socket, false, undefined, entry);
-    const early = entry.early;
-    if (!early) {
-      socket.start(entry.hello);
-      return;
-    }
-    // Subscribes that fit the unconfirmed session's budgets run now; the rest after it confirms.
-    const plan = planEarlySubscribes(early.subscribes, early.session, options.store);
-    socket.start(entry.hello, {
-      now: plan.now.map((message) => JSON.stringify(message)),
-      after: plan.later.map((message) => JSON.stringify(message)),
-      readAfter: early.readable.promise,
-      session: early.session,
-    });
+    socket.start(entry.hello, entry.early);
   };
   const stopTimer = runtime.every(
     () => {

@@ -5,6 +5,7 @@ import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { CREDIT_FLAG, NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
 import type { ServerMessage } from "@ace/protocol";
 import { fixture } from "./socket-test-support.ts";
+import { message } from "./payload-test-support.ts";
 
 // A returning client opening its relay stream with Noise NK (ADR 0155, step 2), against the
 // real self-hosted relay and the daemon's own relay host: one round trip to the welcome, nothing
@@ -29,12 +30,19 @@ function stream(peer: Awaited<ReturnType<typeof openPeer>>, keys: SessionKeys) {
       await peer.send(keys.send.encrypt(plain));
     },
     /** The next JSON message, skipping credit fragments. */
+    /** Ciphertext bytes received so far. */
+    received: 0,
     async receive(): Promise<ServerMessage> {
+      const parts: Uint8Array[] = [];
       for (;;) {
-        const plain = keys.receive.decrypt(await peer.next());
+        const frame = await peer.next();
+        this.received += frame.length;
+        const plain = keys.receive.decrypt(frame);
         if (plain[0] === CREDIT_FLAG) continue;
-        if (plain[0] !== 1) throw new Error(`Unexpected fragment ${plain[0]}`);
-        return JSON.parse(decoder.decode(plain.subarray(1))) as ServerMessage;
+        if (plain[0] !== 0 && plain[0] !== 1) throw new Error(`Unexpected fragment ${plain[0]}`);
+        parts.push(plain.subarray(1));
+        if (plain[0] === 1)
+          return JSON.parse(decoder.decode(Buffer.concat(parts))) as ServerMessage;
       }
     },
     async until<T extends ServerMessage["type"]>(type: T) {
@@ -135,9 +143,10 @@ it("a returning device is welcomed one round trip after its NK first message, an
   const welcome = await opened.channel.until("welcome");
   expect(welcome).toMatchObject({ hostId: "host", relayHandshakes: ["nk1"] });
   expect(welcome.ticket).toBeUndefined();
-  // The early subscribe's snapshot, and the next ticket once confirmed.
-  expect(await opened.channel.until("snapshot")).toMatchObject({ subscriptionId: "thread" });
+  // Confirmed: the next ticket, then the early subscribe's snapshot (a snapshot waits for the
+  // confirmation).
   const confirmed = await opened.channel.until("hello.confirmed");
+  expect(await opened.channel.until("snapshot")).toMatchObject({ subscriptionId: "thread" });
   expect(confirmed.ticket?.ticket).toMatch(/^[0-9a-f]{64}$/);
   // A confirmed session reads what the client sends: a ping, then a page.
   await opened.channel.send({ type: "ping" });
@@ -194,11 +203,14 @@ it("a session that never confirms is closed after 5 s, having written nothing fo
     null,
   );
   if (!opened) throw new Error("NK refused");
-  expect(await opened.channel.until("snapshot")).toMatchObject({ subscriptionId: "thread" });
-  // Held for the snapshot, but not a viewer: no workspace refresh follows from it.
-  expect(h.f.store.viewedThreads()).not.toContain(h.f.thread.id);
+  // Only the welcome comes: the snapshot waits for a confirmation that never comes.
+  const seen: string[] = [];
   const started = Date.now();
-  await opened.peer.closed;
+  await (async () => {
+    for (;;) seen.push((await opened.channel.receive()).type);
+  })().catch(() => {});
+  expect(seen).toContain("welcome");
+  expect(seen).not.toContain("snapshot");
   expect(Date.now() - started).toBeLessThan(6_000);
   const after = h.f.store.devices.list().find((device) => device.id === h.paired.device.id);
   expect(after?.lastSeenAt).toBe(before?.lastSeenAt);
@@ -251,3 +263,46 @@ it("a flood of invalid first messages is refused alike while a confirmed session
   await confirmed?.channel.send({ type: "ping" });
   expect(await confirmed?.channel.until("pong")).toEqual({ type: "pong" });
 }, 20_000);
+
+it("a subscription worth several MiB and a busy live stream produce nothing past 256 KiB before confirmation, and the same as XX after", async () => {
+  const h = await relayedDaemon();
+  const ticket = (await h.xx()).welcome.ticket?.ticket ?? "";
+  const cursor = h.f.store.headSeq();
+  const append = (id: string, text: string) =>
+    h.f.store.appendEvents(h.f.thread.id, [{ type: "item.created", item: message(id, text) }]);
+  for (let n = 0; n < 30; n++) append(`big-${n}`, "x".repeat(100 * 1024));
+  const request = {
+    subscriptionId: "thread",
+    scope: { kind: "thread", threadId: h.f.thread.id },
+    afterSeq: cursor,
+    tail: { items: 1, bytes: 1024 },
+  };
+  const opened = await h.nk(h.earlyHello(ticket, { subscribes: [request] }), null);
+  if (!opened) throw new Error("NK refused");
+  // A busy thread while the client hasn't confirmed: nothing of it is sent or kept for it.
+  let live = 0;
+  const writer = setInterval(() => append(`live-${live++}`, "y".repeat(2048)), 10);
+  const before: string[] = [];
+  let stop = false;
+  // One reader at a time: this one ends at the first message after `stop`.
+  const reading = (async () => {
+    while (!stop) before.push((await opened.channel.receive()).type);
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  clearInterval(writer);
+  expect(live).toBeGreaterThan(20);
+  expect(before).toEqual(["welcome"]);
+  const sentBefore = opened.channel.received;
+  expect(sentBefore).toBeLessThan(256 * 1024);
+  expect(h.f.store.viewedThreads()).toEqual([]);
+  // Confirmed now: the subscription is answered as XX answers the same request.
+  stop = true;
+  await opened.channel.send({ type: "hello.confirm" });
+  await reading;
+  expect(before.at(-1)).toBe("hello.confirmed");
+  const after = await opened.channel.until("snapshot");
+  const xx = await h.xx();
+  await xx.channel.send({ type: "subscribe", ...request });
+  const reference = await xx.channel.until("snapshot");
+  expect(after).toEqual(reference);
+}, 30_000);

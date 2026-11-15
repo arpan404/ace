@@ -40,15 +40,12 @@ export interface EarlyRelayMain {
   confirmed: Promise<HelloConfirm | undefined>;
   /** Resolved by the main-socket handler: true once the confirmed session may be read. */
   readable: PromiseWithResolvers<boolean>;
+  /**
+   * Set by the main-socket handler: the subscribes to run at confirmation, before anything the
+   * client sent after it (`answerEarly`).
+   */
+  continuations: string[];
 }
-
-/** Output an unconfirmed socket couldn't send yet, in order. */
-type Held = {
-  data: string | Buffer | Uint8Array;
-  binary: boolean;
-  compress: boolean;
-  done?: (error?: Error) => void;
-};
 
 const OPEN = 1;
 const CLOSING = 2;
@@ -79,10 +76,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
   #paused = false;
   #resumed: (() => void) | undefined;
   readonly #delay: DeliveryRuntime["delay"];
-  /** Before confirmation: the session whose output budget applies, and what waits past it. */
+  /** Before confirmation: the session whose output budget applies. */
   #session: NkSession | undefined;
-  #held: Held[] = [];
-  #heldBytes = 0;
   constructor(
     channel: HostChannel,
     options: { deflate: boolean; delay: DeliveryRuntime["delay"] },
@@ -97,7 +92,7 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     return this.#state;
   }
   get bufferedAmount(): number {
-    return this.#channel.bufferedBytes + this.#heldBytes;
+    return this.#channel.bufferedBytes;
   }
   get isPaused(): boolean {
     return this.#paused;
@@ -106,26 +101,21 @@ export class RelaySocket extends EventEmitter implements MainSocket {
    * Deliver `first` (the hello the relay host already read) and then every message the channel
    * receives, in order, until it closes. Reading stops while paused, as a ws socket's does.
    */
-  start(
-    first: string,
-    early?: { now: string[]; after: string[]; readAfter: Promise<boolean>; session: NkSession },
-  ): void {
+  start(first: string, early?: EarlyRelayMain): void {
+    this.#session = early?.session;
     this.emit("message", Buffer.from(first), false);
-    if (early) {
-      this.#session = early.session;
-      for (const message of early.now) this.emit("message", Buffer.from(message), false);
-    }
     void (async () => {
       try {
         // An unconfirmed NK stream's next message is its confirmation, which isn't ours to read:
         // nothing the client sends is taken until it has confirmed.
-        if (early && !(await early.readAfter)) {
+        if (early && !(await early.readable.promise)) {
           this.terminate();
           return;
         }
-        this.#release();
+        this.#session = undefined;
         // Subscribes that waited for the confirmation come first, then the client's own.
-        for (const message of early?.after ?? []) this.emit("message", Buffer.from(message), false);
+        for (const message of early?.continuations ?? [])
+          this.emit("message", Buffer.from(message), false);
         while (this.#state === OPEN) {
           if (this.#paused) await new Promise<void>((resolve) => (this.#resumed = resolve));
           if (this.#state !== OPEN) return;
@@ -139,13 +129,6 @@ export class RelaySocket extends EventEmitter implements MainSocket {
         this.terminate();
       }
     })();
-  }
-  /** Confirmed: the output budget lifts and whatever waited goes, in order. */
-  #release(): void {
-    this.#session = undefined;
-    const held = this.#held.splice(0);
-    this.#heldBytes = 0;
-    for (const { data, binary, compress, done } of held) this.#write(data, binary, compress, done);
   }
   send(
     data: string | Buffer | Uint8Array,
@@ -161,16 +144,14 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     // As ws does: bytes are binary unless the caller says they are text.
     const binary = typeof data !== "string" && flags.binary !== false;
     const compress = flags.compress !== false;
-    // Before confirmation at most 256 KiB goes out or waits in the channel; the rest is held
-    // here, in order, until the client confirms (ADR 0155).
-    const session = this.#session;
-    if (session) {
-      const size = typeof data === "string" ? Buffer.byteLength(data) : data.length;
-      if (this.#held.length || !session.output(size)) {
-        this.#held.push({ data, binary, compress, ...(done ? { done } : {}) });
-        this.#heldBytes += size;
-        return;
-      }
+    // Before confirmation at most 256 KiB goes out (ADR 0155). What produces output then
+    // checks the budget first (`answerEarly`); anything past it ends the session, so nothing
+    // waits anywhere for a client that hasn't confirmed.
+    const size = typeof data === "string" ? Buffer.byteLength(data) : data.length;
+    if (this.#session && !this.#session.output(size)) {
+      done?.(new Error("Unconfirmed output budget spent"));
+      this.terminate();
+      return;
     }
     this.#write(data, binary, compress, done);
   }
@@ -233,9 +214,6 @@ export class RelaySocket extends EventEmitter implements MainSocket {
   #finish(code: number, reason: string): void {
     if (this.#state === CLOSED) return;
     this.#state = CLOSED;
-    const held = this.#held.splice(0);
-    this.#heldBytes = 0;
-    for (const { done } of held) done?.(new Error("Relay channel closed"));
     this.resume();
     // A ws socket reports its close later too; handlers never see it inside their own call.
     queueMicrotask(() => this.emit("close", code, Buffer.from(reason)));

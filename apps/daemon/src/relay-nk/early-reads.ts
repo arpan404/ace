@@ -1,109 +1,93 @@
-import type { ClientMessage, EarlySubscribe, ThreadId } from "@ace/protocol";
+import type { ClientMessage, EarlySubscribe, ServerMessage, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
-import type { SubscriptionStore } from "../subscription.ts";
+import type { WireEncoder } from "../wire-encoder.ts";
 import type { NkSession } from "./admission.ts";
 
 /*
  * The read subscribes an NK first message carries (ADR 0155, "Read subscribes before
- * confirmation"). Each is checked against the unconfirmed session's budgets before anything is
- * acquired; one that would go over waits for the confirmation. The ones that run hold their
- * threads quietly: a quiet hold doesn't make a thread viewed, so no workspace refresh, git read,
- * event or forge call follows from it until the client confirms.
+ * confirmation"). Before the client confirms, only one kind is answered: a thread subscribe
+ * resuming from a cursor, whose missed events are read under a limit the store enforces before
+ * decoding anything (`BoundedEvents`), and only when the whole answer fits the session's
+ * remaining read, event and output budgets. Its answer is the one an XX session's replay would
+ * send. Everything else (a snapshot, a sidebar window, a replay too large) is held as its
+ * message, costing nothing, and subscribed at confirmation; so is the rest of an answered one:
+ * it continues from where its early answer ended. No snapshot, projection or listener is
+ * acquired and no live event is kept before confirmation.
  */
 
-/** What a thread subscribe may cost before confirmation: its snapshot tail, and the rest whole. */
-const SNAPSHOT_BYTES = 1024 * 1024;
-const THREAD_OVERHEAD = 256 * 1024;
-const WINDOW_BYTES = 256 * 1024;
+/** XX sends a replay this small as is, without weighing a snapshot against it. */
+export const EARLY_REPLAY_BYTES = 16 * 1024;
 
-export type EarlyPlan = { now: ClientMessage[]; later: ClientMessage[] };
-
-function message(subscribe: EarlySubscribe): ClientMessage {
-  return { type: "subscribe", ...subscribe };
-}
+export type EarlyReads = {
+  session: NkSession;
+  store: Pick<Store, "headSeq" | "hasLiveThread" | "replaySafe" | "bounded">;
+  canRead(threadId: ThreadId): boolean;
+  encoder: Pick<WireEncoder, "eventBytes">;
+  /** Sends a message on the unconfirmed socket. */
+  send(message: ServerMessage): void;
+};
 
 /**
- * Splits a first message's subscribes into those that fit the session's budgets now and those
- * that wait. Costs are bounded from above before any read: a thread's snapshot by its tail
- * (1 MiB unless the client asked for less) plus what it holds whole, a replay by its event
- * count from the index, a sidebar window by its 20-row page.
+ * Answers what may be answered before confirmation and returns, in order, the subscribes to
+ * run once the client confirms (held ones as they came, answered ones from where they ended).
  */
-export function planEarlySubscribes(
-  subscribes: EarlySubscribe[],
-  session: NkSession,
-  store: Pick<Store, "headSeq" | "countThreadEvents">,
-): EarlyPlan {
-  const plan: EarlyPlan = { now: [], later: [] };
+export function answerEarly(subscribes: EarlySubscribe[], reads: EarlyReads): ClientMessage[] {
+  return subscribes.map((subscribe) => {
+    const answered = answer(subscribe, reads);
+    return answered === undefined
+      ? { type: "subscribe", ...subscribe }
+      : { type: "subscribe", ...subscribe, afterSeq: answered, paced: false };
+  });
+}
+
+/** The cursor an early answer left the subscription at, or undefined when held. */
+function answer(subscribe: EarlySubscribe, reads: EarlyReads): number | undefined {
+  const { session, store } = reads;
+  const { scope, afterSeq } = subscribe;
+  if (scope.kind !== "thread" || afterSeq === undefined) return undefined;
+  if (!reads.canRead(scope.threadId) || !store.hasLiveThread(scope.threadId)) return undefined;
+  try {
+    if (store.replaySafe(afterSeq) === false) return undefined;
+  } catch {
+    return undefined;
+  }
   const head = store.headSeq();
-  for (const subscribe of subscribes) {
-    const fits =
-      subscribe.scope.kind === "threads"
-        ? session.reserveBytes(WINDOW_BYTES)
-        : fitsThread(subscribe, subscribe.scope.threadId, session, store, head);
-    (fits ? plan.now : plan.later).push(message(subscribe));
-  }
-  return plan;
-}
-
-function fitsThread(
-  subscribe: EarlySubscribe,
-  threadId: ThreadId,
-  session: NkSession,
-  store: Pick<Store, "countThreadEvents">,
-  head: number,
-): boolean {
-  if (subscribe.afterSeq !== undefined) {
-    const events = store.countThreadEvents(threadId, subscribe.afterSeq, head, 2_001);
-    if (!session.reserveEvents(events)) return false;
-  }
-  return session.reserveBytes((subscribe.tail?.bytes ?? SNAPSHOT_BYTES) + THREAD_OVERHEAD);
-}
-
-/**
- * `store` for an unconfirmed session's subscribes: every thread it holds is hushed until
- * `confirm`, and a hush is lifted when its hold is let go. After `confirm` it is `store` as is.
- */
-export function quietReads(store: Store): { store: SubscriptionStore; confirm(): void } {
-  const hushed = new Map<ThreadId, number>();
-  let confirmed = false;
-  const reads: SubscriptionStore = {
-    getThread: (id) => store.getThread(id),
-    snapshotThread: (...args) => store.snapshotThread(...args),
-    subscribe: (...args) => store.subscribe(...args),
-    headSeq: () => store.headSeq(),
-    acquireThread(id) {
-      const view = store.acquireThread(id);
-      if (!confirmed) {
-        store.quietHolds.hush(id);
-        hushed.set(id, (hushed.get(id) ?? 0) + 1);
-      }
-      return view;
-    },
-    releaseThread(id) {
-      const quiet = hushed.get(id) ?? 0;
-      if (quiet > 0) {
-        store.quietHolds.voice(id);
-        if (quiet === 1) hushed.delete(id);
-        else hushed.set(id, quiet - 1);
-      }
-      store.releaseThread(id);
-    },
-    listThreads: (...args) => store.listThreads(...args),
-    sidebarPage: (...args) => store.sidebarPage(...args),
-    readEvents: (...args) => store.readEvents(...args),
-    replaySafe: (...args) => store.replaySafe(...args),
-    sidebarRowRevision: (...args) => store.sidebarRowRevision(...args),
-    sidebarToken: () => store.sidebarToken(),
-    countThreadEvents: (...args) => store.countThreadEvents(...args),
-    threadReadState: (...args) => store.threadReadState(...args),
-    onThreadRead: (...args) => store.onThreadRead(...args),
-  };
-  return {
-    store: reads,
-    confirm() {
-      confirmed = true;
-      for (const [id, count] of hushed) for (let n = 0; n < count; n++) store.quietHolds.voice(id);
-      hushed.clear();
-    },
-  };
+  if (afterSeq > head) return undefined;
+  const room = session.remaining();
+  const read = store.bounded.threadEvents(scope.threadId, afterSeq, head, {
+    rows: room.events,
+    bytes: Math.min(room.bytes, EARLY_REPLAY_BYTES),
+  });
+  if (!read) return undefined;
+  const wire = read.events.reduce((total, event) => total + reads.encoder.eventBytes(event), 0);
+  if (wire > EARLY_REPLAY_BYTES) return undefined;
+  // As an XX replay: the missed events in one frame, or progress when none was the thread's.
+  const messages: ServerMessage[] = [];
+  if (read.events.length)
+    messages.push({
+      type: "events",
+      subscriptionId: subscribe.subscriptionId,
+      afterSeq,
+      throughSeq: head,
+      events: read.events,
+    });
+  else if (head > afterSeq)
+    messages.push({
+      type: "progress",
+      subscriptionId: subscribe.subscriptionId,
+      afterSeq,
+      throughSeq: head,
+    });
+  if (subscribe.paced)
+    messages.push({ type: "subscription.ready", subscriptionId: subscribe.subscriptionId, seq: head });
+  // Its JSON is at least what goes on the wire: the answer fits the output left, or isn't sent.
+  const size = messages.reduce(
+    (total, message) => total + Buffer.byteLength(JSON.stringify(message)),
+    0,
+  );
+  if (size > room.output) return undefined;
+  if (!session.reserveBytes(read.bytes) || !session.reserveEvents(read.events.length))
+    return undefined;
+  for (const message of messages) reads.send(message);
+  return head;
 }

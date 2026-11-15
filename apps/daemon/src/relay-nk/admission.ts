@@ -72,6 +72,8 @@ export interface NkSession {
   reserveBytes(bytes: number): boolean;
   /** Reserves replayed events; false when that would go over, nothing reserved. */
   reserveEvents(count: number): boolean;
+  /** What is left of the session's read, event and output budgets; unbounded once confirmed. */
+  remaining(): { bytes: number; events: number; output: number };
   /** Counts output queued or sent; false once this would go past the session's output budget. */
   output(bytes: number): boolean;
   /** The client confirmed: its limits lift and its reservations are given back. */
@@ -179,6 +181,10 @@ export class NkAdmission {
   }
 
   /** @internal */
+  free(): number {
+    return this.#limits.totalBytes - this.#bytes;
+  }
+  /** @internal */
   take(bytes: number): boolean {
     if (this.#bytes + bytes > this.#limits.totalBytes) return false;
     this.#bytes += bytes;
@@ -205,6 +211,15 @@ class Session implements NkSession {
     this.#owner = owner;
     this.device = device;
     this.#limits = limits;
+  }
+  remaining(): { bytes: number; events: number; output: number } {
+    if (this.confirmed) return { bytes: Infinity, events: Infinity, output: Infinity };
+    if (this.closed) return { bytes: 0, events: 0, output: 0 };
+    return {
+      bytes: Math.min(this.#limits.sessionBytes - this.#bytes, this.#owner.free()),
+      events: this.#limits.sessionEvents - this.#events,
+      output: this.#limits.sessionOutput - this.#output,
+    };
   }
   reserveBytes(bytes: number): boolean {
     if (this.confirmed) return true;
