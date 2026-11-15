@@ -111,30 +111,30 @@ function withWebhooks(
   webhooks: AutomationWebhookService | undefined,
 ): AutomationResponse {
   if (!webhooks || (!response.automations && !response.threadAutomations)) return response;
-  const kinds = new Map(
-    [
-      ...(response.automations ?? []),
-      ...(response.threadAutomations ?? []).map((entry) => entry.automation),
-    ].map((automation) => [automation.id, automation.trigger.kind]),
+  // Each store has its own ids, so the person's are looked up apart from agents'.
+  const personWebhooks = new Set(
+    (response.automations ?? [])
+      .filter((automation) => automation.trigger.kind === "webhook")
+      .map((automation) => automation.id),
   );
-  const state = (id: string, source: "person" | "thread") =>
-    kinds.get(id) === "webhook" ? { webhook: webhooks.state(id, source) } : {};
   return {
     ...response,
     ...(response.schedules
       ? {
-          schedules: response.schedules.map((entry) => ({
-            ...entry,
-            ...state(entry.id, "person"),
-          })),
+          schedules: response.schedules.map((entry) =>
+            personWebhooks.has(entry.id)
+              ? { ...entry, webhook: webhooks.state(entry.id, "person") }
+              : entry,
+          ),
         }
       : {}),
     ...(response.threadAutomations
       ? {
-          threadAutomations: response.threadAutomations.map((entry) => ({
-            ...entry,
-            ...state(entry.automation.id, "thread"),
-          })),
+          threadAutomations: response.threadAutomations.map((entry) =>
+            entry.automation.trigger.kind === "webhook"
+              ? { ...entry, webhook: webhooks.state(entry.automation.id, "thread") }
+              : entry,
+          ),
         }
       : {}),
   };

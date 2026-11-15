@@ -279,3 +279,38 @@ test("an agent's webhook automation runs once the person makes its secret, from 
     await f.daemon.close();
   }
 });
+
+test("an agent's automation with the same id doesn't hide the person's webhook", async () => {
+  const { f, app, webhook, listed } = await setUp();
+  try {
+    expect((await webhook("rotate", "rotate")).ok).toBe(true);
+    const clash = await f.call({
+      op: "automation.manage",
+      request: {
+        type: "automation.put",
+        requestId: "clash",
+        automation: {
+          id: "deploy-check",
+          title: "Same id, agent's",
+          prompt: "Anything",
+          trigger: { kind: "manual" },
+          enabled: true,
+          missedRun: "skip",
+          concurrency: 1,
+        },
+      },
+    });
+    expect(clash.ok).toBe(true);
+    const list = await app.ask({
+      type: "automation.list",
+      requestId: "both",
+      includeThreads: true,
+    });
+    expect(list.schedules?.[0]?.webhook).toMatchObject({ active: true });
+    expect(list.threadAutomations?.[0]?.webhook).toBeUndefined();
+    expect((await listed()).schedules?.[0]?.webhook).toMatchObject({ active: true });
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});
