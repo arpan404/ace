@@ -79,8 +79,8 @@ function drawFace(c, grow) {
   c.lineWidth = 2 + grow * 2;
   frameRect(c, pad + 9, pad + 9, stampW - 18, stampH - 18, 5);
   c.stroke();
-  const size = Math.round(stampH * 0.4);
-  c.font = `800 ${size}px "Arial Narrow", "Helvetica Neue", Arial, sans-serif`;
+  const wordSize = Math.round(stampH * 0.4);
+  c.font = `800 ${wordSize}px "Arial Narrow", "Helvetica Neue", Arial, sans-serif`;
   c.textAlign = "center";
   c.textBaseline = "middle";
   c.lineWidth = grow * 2;

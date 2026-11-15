@@ -970,12 +970,20 @@
   box-shadow: inset 0 0 0 1px var(--suit-rule);
 }
 [data-part="input"]:focus-within,
-[data-part="select"]:focus-within,
-[data-part="search-field"]:focus-within {
+[data-part="select"]:focus-within {
   box-shadow: inset 0 0 0 1.5px var(--color-tint);
 }
+/* A search is a ruled line on the form; focused, the line is drawn in signal orange. */
 [data-part="search-field"] {
   box-shadow: inset 0 -1px 0 var(--suit-rule);
+}
+[data-part="search-field"]:focus-within {
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus-within {
+  background: transparent;
+  box-shadow: none;
 }
 
 [data-part="checkbox"] {
@@ -1333,17 +1341,13 @@
   background: var(--color-code);
   border-bottom: 1.5px solid var(--suit-ink);
 }
-[data-page="pulls"] [data-part="card"],
-[data-page="issues"] [data-part="card"] {
-  counter-reset: register;
-}
 /*
- * Each pull request is a register line: an entry number and a stamped disposition in its own
- * column (OPEN, HOLD for a draft, PASSED once merged, VOID when closed), then its title.
+ * Each pull request is a register line: a tick box (empty while open, ticked once merged,
+ * crossed when closed) and a stamped disposition in their own columns (OPEN, HOLD for a draft,
+ * PASSED, VOID), then its title. Rows are contained, so a register number can't count across.
  */
 [data-part="pr-row"],
 [data-part="issue-row"] {
-  counter-increment: register;
   position: relative;
   border-radius: 0;
   padding-left: 112px;
@@ -1352,20 +1356,22 @@
 }
 [data-part="pr-row"]::before,
 [data-part="issue-row"]::before {
-  content: counter(register, decimal-leading-zero);
+  content: "";
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-subtle-foreground);
+  background: var(--suit-box-empty) no-repeat center / 15px 15px;
   border-right: 1px solid var(--color-border);
   pointer-events: none;
+}
+[data-part="pr-row"][data-variant="merged"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  background-image: var(--suit-box-tick);
+}
+[data-part="pr-row"][data-variant="closed"]::before {
+  background-image: var(--suit-box-cross);
 }
 [data-part="pr-row"]::after,
 [data-part="issue-row"]::after {
@@ -1476,11 +1482,8 @@
  * The pull request's state is stamped on the report: a ruled box in the state's own readable
  * ink (ace's tone for it), on paper rather than a filled pill.
  */
-[data-page="pull"] [data-part="badge"]:is(
-    [data-variant="open"],
-    [data-variant="merged"],
-    [data-variant="closed"]
-  ) {
+[data-page="pull"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
   font-family: var(--suit-display);
   font-size: 13px;
   font-weight: 700;
