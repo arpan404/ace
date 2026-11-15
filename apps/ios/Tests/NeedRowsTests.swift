@@ -2,35 +2,51 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// A needs-you row as the bridge publishes it (`inbox-needs.ts`): the count is the daemon's, a
-/// read that stopped before finding every request says how many it read, and a request too large
-/// to send offers only Open.
+/// A needs-you row as the bridge publishes it (`inbox-needs.ts`): the line counts the requests
+/// on this thread it can show, says apart how many wait in the thread's delegated work, says when
+/// the phone's read stopped before finding them all, and a request too large to send offers only
+/// Open.
 @Suite @MainActor struct NeedRowsTests {
-    @Test func aRowCountsWhatTheDaemonCountsAndSaysWhenThePhoneReadFewer() throws {
+    @Test func requestsWaitingInDelegatedWorkAreSaidApartFromTheOnesThisRowShows() throws {
+        // One approval on this thread; two requests in a delegated child thread.
         let model = waiting()
-        model.receive(try json([needs(total: 231, loaded: 200, more: true, requests: [approval("ask-1")])]))
-        #expect(model.needsCount("asking") == 231)
-        #expect(model.needsLoaded("asking") == 200)
-        #expect(NeedWords.position(total: model.needsCount("asking"), loaded: model.needsLoaded("asking")) == "1 of 231, 200 read")
+        model.receive(try json([needs(total: 3, loaded: 1, more: false, elsewhere: 2, requests: [approval("ask-1")])]))
+        let tally = model.needsTally("asking")
+        #expect(tally == NeedTally(here: 1, elsewhere: 2))
+        #expect(NeedWords.position(tally) == "2 more in delegated work")
+        #expect(NeedWords.spokenPosition(tally) == "2 more requests in delegated work")
     }
 
-    @Test func aReadThatFoundThemAllSaysOnlyWhereTheShownOneStands() throws {
+    @Test func severalHereAndSomeInDelegatedWorkSayBoth() {
+        let tally = NeedTally(here: 2, elsewhere: 1)
+        #expect(NeedWords.position(tally) == "1 of 2 here, 1 more in delegated work")
+        #expect(NeedWords.spokenPosition(tally) == "1 of 2 requests here, 1 more request in delegated work")
+    }
+
+    @Test func aReadThatStoppedShortSaysHowManyItReadAndThatMoreWait() throws {
         let model = waiting()
-        model.receive(try json([needs(total: 3, loaded: 3, more: false, requests: [approval("ask-1")])]))
-        #expect(model.needsLoaded("asking") == nil)
-        #expect(NeedWords.position(total: model.needsCount("asking"), loaded: model.needsLoaded("asking")) == "1 of 3")
-        #expect(NeedWords.position(total: 1, loaded: nil) == nil)
+        model.receive(try json([needs(total: 231, loaded: 200, more: true, elsewhere: 0, requests: [approval("ask-1")])]))
+        let tally = model.needsTally("asking")
+        #expect(tally == NeedTally(here: 200, more: true))
+        #expect(NeedWords.position(tally) == "1 of 200 read, more waiting")
+        #expect(NeedWords.spokenPosition(tally) == "1 of 200 requests read on this phone, more waiting")
+    }
+
+    @Test func requestsAllOnThisThreadSayOnlyWhereTheShownOneStands() throws {
+        let model = waiting()
+        model.receive(try json([needs(total: 3, loaded: 3, more: false, elsewhere: 0, requests: [approval("ask-1")])]))
+        #expect(NeedWords.position(model.needsTally("asking")) == "1 of 3")
+        #expect(NeedWords.spokenPosition(model.needsTally("asking")) == "1 of 3 requests")
+        #expect(NeedWords.position(NeedTally(here: 1)) == nil)
     }
 
     @Test func anOlderBridgesRowWithoutReadCountsStillShows() throws {
         let model = waiting()
-        var older = needs(total: 2, loaded: 0, more: false, requests: [approval("ask-1")])
-        older.removeValue(forKey: "loaded")
-        older.removeValue(forKey: "more")
+        var older = needs(total: 2, loaded: 0, more: false, elsewhere: 0, requests: [approval("ask-1")])
+        for key in ["loaded", "more", "elsewhere"] { older.removeValue(forKey: key) }
         model.receive(try json([older]))
         #expect(model.needsYou("asking").map(\.id) == ["ask-1"])
-        #expect(model.needsCount("asking") == 2)
-        #expect(model.needsLoaded("asking") == nil)
+        #expect(model.needsTally("asking") == NeedTally(here: 2))
     }
 
     @Test func aRequestTooLargeToSendIsCountedAndOffersOnlyOpen() throws {
@@ -40,9 +56,9 @@ import Testing
             "description": "Open it on your computer to see and answer it.", "command": "", "options": [],
             "truncated": true, "unanswerable": true,
         ]
-        model.receive(try json([needs(total: 1, loaded: 1, more: false, requests: [tooLarge])]))
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [tooLarge])]))
         let request = try #require(model.needsYou("asking").first)
-        #expect(model.needsCount("asking") == 1)
+        #expect(model.needsTally("asking") == NeedTally(here: 1))
         var opened = 0
         let actions = NeedActions(request: request, model: model, threadId: "asking", open: { opened += 1 }, review: {}, decided: {})
         #expect(actions.row.map(\.id) == ["open"])
@@ -63,8 +79,9 @@ import Testing
         ]))
         return model
     }
-    private func needs(total: Int, loaded: Int, more: Bool, requests: [[String: Any]]) -> [String: Any] {
-        ["type": "inbox.needs", "id": "asking", "total": total, "loaded": loaded, "more": more, "requests": requests]
+    private func needs(total: Int, loaded: Int, more: Bool, elsewhere: Int, requests: [[String: Any]]) -> [String: Any] {
+        ["type": "inbox.needs", "id": "asking", "total": total, "loaded": loaded, "more": more, "elsewhere": elsewhere,
+         "requests": requests]
     }
     private func approval(_ id: String) -> [String: Any] {
         ["id": id, "kind": "approval", "state": "pending", "title": "Run a command", "description": "",

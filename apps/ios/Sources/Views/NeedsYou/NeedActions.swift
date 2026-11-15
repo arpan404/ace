@@ -78,12 +78,22 @@ enum NeedWords {
     static func sentence(_ request: ApprovalRow) -> String {
         request.strip?.sentence ?? request.heading ?? request.title
     }
-    /// Where the shown request stands among those waiting: "1 of 3"; "1 of 231, 200 read" when
-    /// the phone's read stopped before finding them all. Nil for one alone.
-    static func position(total: Int, loaded: Int?) -> String? {
-        guard total > 1 else { return nil }
-        guard let loaded, loaded < total else { return "1 of \(total)" }
-        return "1 of \(total), \(loaded) read"
+    /// Where the shown request stands among what waits, in one plain phrase: "1 of 3" on this
+    /// thread; "1 of 2 here, 3 more in delegated work" or "3 more in delegated work" when some
+    /// wait in its delegated threads, which this row can't show; "1 of 200 read, more waiting"
+    /// when the phone's read stopped before finding them all. Nil for one alone.
+    static func position(_ tally: NeedTally) -> String? {
+        if tally.more { return "1 of \(tally.here) read, more waiting" }
+        let delegated = tally.elsewhere > 0 ? "\(tally.elsewhere) more in delegated work" : nil
+        guard tally.here > 1 else { return delegated }
+        return delegated.map { "1 of \(tally.here) here, \($0)" } ?? "1 of \(tally.here)"
+    }
+    /// The same, as VoiceOver reads it.
+    static func spokenPosition(_ tally: NeedTally) -> String? {
+        if tally.more { return "1 of \(tally.here) requests read on this phone, more waiting" }
+        let delegated = tally.elsewhere > 0 ? "\(tally.elsewhere) more \(tally.elsewhere == 1 ? "request" : "requests") in delegated work" : nil
+        guard tally.here > 1 else { return delegated }
+        return delegated.map { "1 of \(tally.here) requests here, \($0)" } ?? "1 of \(tally.here) requests"
     }
     /// "3 need you" for the top of the list; nil while nothing does.
     static func count(_ total: Int) -> String? {
