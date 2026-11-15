@@ -128,6 +128,9 @@ struct Entry {
     /// configuration without one keeps it; any other configuration drops it.
     config: Option<(Config, Vec<u8>)>,
     current: Current,
+    /// The privacy epochs the current picture's content came from: a JPEG's own, or every unit
+    /// of the video group since its keyframe (a delta carries earlier content forward).
+    epochs: Option<(u32, u32)>,
 }
 
 enum Current {
@@ -163,6 +166,9 @@ struct Request {
     max_pixels: u64,
     make: Make,
     deadline_ms: u64,
+    /// A poster's: the epochs the daemon decided clear. None for an agent's still, which is
+    /// the daemon's grant (live views and stills aren't filtered by the barrier).
+    clear: Option<Vec<(u32, u32)>>,
 }
 
 struct Held {
@@ -170,7 +176,12 @@ struct Held {
     token: u64,
     /// The video group the job continued, if any.
     group: Option<u64>,
+    /// The epochs of the picture it is made from.
+    epochs: Option<(u32, u32)>,
 }
+
+/// Discarded ranges remembered per source.
+const MAX_DISCARDED: usize = 1024;
 
 pub struct Stills {
     maker: Box<dyn StillMaker>,
@@ -181,6 +192,9 @@ pub struct Stills {
     waiting: Vec<Request>,
     /// Requests a maker has.
     made: HashMap<String, Held>,
+    /// Epochs the daemon decided discarded, per source (`record.epochs`): no poster ever comes
+    /// from a picture that has content from one.
+    discarded: HashMap<String, Vec<(u32, u32)>>,
 }
 
 impl Stills {
@@ -192,7 +206,48 @@ impl Stills {
             next_token: 0,
             waiting: Vec::new(),
             made: HashMap::new(),
+            discarded: HashMap::new(),
         }
+    }
+
+    /// `record.epochs`'s discarded ranges for `source`: a poster in the making from one of them
+    /// fails `private` when it finishes, and none is made from them again.
+    pub fn discard(&mut self, source: &str, ranges: &[(u32, u32)]) {
+        if ranges.is_empty() {
+            return;
+        }
+        let kept = self.discarded.entry(source.to_owned()).or_default();
+        kept.extend_from_slice(ranges);
+        // Bounded: the oldest go first, and nothing older than them is ever shown again anyway,
+        // as a picture's epochs only grow.
+        if kept.len() > MAX_DISCARDED {
+            let over = kept.len() - MAX_DISCARDED;
+            kept.drain(..over);
+        }
+    }
+
+    /// Whether a poster may show content from `epochs`: every one decided clear, none discarded.
+    fn cleared(&self, source: &str, epochs: Option<(u32, u32)>, clear: &[(u32, u32)]) -> bool {
+        let Some((low, high)) = epochs else {
+            return false;
+        };
+        let discarded = self.discarded.get(source).map_or(&[][..], Vec::as_slice);
+        if discarded.iter().any(|&(a, b)| a <= high && low <= b) {
+            return false;
+        }
+        // Every epoch in [low, high] lies in some clear range.
+        let mut next = u64::from(low);
+        let mut ranges = clear.to_vec();
+        ranges.sort_unstable();
+        for (a, b) in ranges {
+            if u64::from(a) <= next && next <= u64::from(b) {
+                next = u64::from(b) + 1;
+            }
+            if next > u64::from(high) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn open(&mut self, source: &str, handle: u32) {
@@ -202,6 +257,7 @@ impl Stills {
             encode: 0,
             config: None,
             current: Current::Nothing,
+            epochs: None,
         };
         self.current.insert(source.to_owned(), entry);
     }
@@ -247,7 +303,10 @@ impl Stills {
             },
         };
         match (frame.kind, frame.codec) {
-            (KIND_PICTURE, CODEC_JPEG) => entry.current = jpeg(&frame.payload, config.size),
+            (KIND_PICTURE, CODEC_JPEG) => {
+                entry.current = jpeg(&frame.payload, config.size);
+                entry.epochs = Some((frame.epoch, frame.epoch));
+            }
             (KIND_VIDEO, 1..=4) if key => {
                 entry.encode = frame.encode;
                 if config.size.validate().is_err() {
@@ -260,6 +319,7 @@ impl Stills {
                     unit.description.clone_from(record);
                 }
                 entry.config = record.map(|record| (config, record));
+                entry.epochs = Some((frame.epoch, frame.epoch));
                 self.next_group += 1;
                 entry.current = Current::Video {
                     group: self.next_group,
@@ -290,6 +350,9 @@ impl Stills {
                 }
                 *bytes += frame.payload.len();
                 units.push(unit(frame, false, group.size));
+                entry.epochs = entry
+                    .epochs
+                    .map(|(low, high)| (low.min(frame.epoch), high.max(frame.epoch)));
                 if units.len() > MAX_UNITS || *bytes > MAX_BYTES {
                     entry.current = Current::Lost;
                 }
@@ -301,8 +364,9 @@ impl Stills {
 
     /// `source.picture`: a screencast frame the daemon passes on, as the base64 JPEG text
     /// Chrome sent. Text that doesn't decode leaves the source with no picture.
-    pub fn picture(&mut self, source: &str, text: &[u8]) {
+    pub fn picture(&mut self, source: &str, text: &[u8], epoch: u32) {
         if let Some(entry) = self.current.get_mut(source) {
+            entry.epochs = Some((epoch, epoch));
             let no_size = Size {
                 width: 0,
                 height: 0,
@@ -344,6 +408,7 @@ impl Stills {
             max_pixels: u64::from(max_pixels),
             make: Make::Still { quality },
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
+            clear: None,
         };
         self.start(request, out);
     }
@@ -356,6 +421,7 @@ impl Stills {
         source: &Id,
         viewport: Size,
         deadline_ms: u32,
+        clear: Vec<(u32, u32)>,
         now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
@@ -375,15 +441,23 @@ impl Stills {
             max_pixels: u64::MAX,
             make: Make::Poster,
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
+            clear: Some(clear),
         };
         self.start(request, out);
     }
 
     /// Hands a request to the maker, or keeps it until a keyframe arrives.
     fn start(&mut self, request: Request, out: &mut Vec<Effect>) {
+        if let (Some(clear), Some(entry)) = (&request.clear, self.current.get(&request.source))
+            && matches!(entry.current, Current::Jpeg { .. } | Current::Video { .. })
+            && !self.cleared(&request.source, entry.epochs, clear)
+        {
+            return failed(out, request.request, "private");
+        }
         let Some(entry) = self.current.get_mut(&request.source) else {
             return failed(out, request.request, "no-source");
         };
+        let epochs = entry.epochs;
         let handle = entry.handle;
         let (input, size) = match &mut entry.current {
             Current::Nothing => return failed(out, request.request, "no-picture"),
@@ -455,6 +529,7 @@ impl Stills {
                         request,
                         token,
                         group,
+                        epochs,
                     },
                 );
             }
@@ -514,6 +589,13 @@ impl Stills {
         let Some(held) = self.made.remove(outcome.request.get()) else {
             return;
         };
+        // A poster whose epochs were discarded while it was made never goes out.
+        if let Some(clear) = &held.request.clear
+            && outcome.result.is_ok()
+            && !self.cleared(&held.request.source, held.epochs, clear)
+        {
+            return failed(out, outcome.request, "private");
+        }
         match outcome.result {
             Ok(made) => {
                 out.push(Effect::NormalWith(

@@ -8,7 +8,7 @@ import {
 } from "./media-connections.ts";
 import { MediaViewers, type ViewIntent } from "./media-viewers.ts";
 import type { Revocation } from "./grants.ts";
-import { decodeToMedia, type ToMedia } from "./wire.ts";
+import { decodeToMedia, type FromMedia as FromMediaMessage, type ToMedia } from "./wire.ts";
 import { LaneWriter } from "./lanes.ts";
 
 function harness(port = 41_000) {
@@ -318,4 +318,50 @@ test("a ticket held behind backpressure reaches ace-media intact: the lane owns 
   expect(Buffer.from(decoded.payload).toString("base64url")).toBe(grant.ticket);
   // Once written, the lane wipes its copy.
   expect(payload?.every((byte) => byte === 0)).toBe(true);
+});
+
+test("a poster asks only for the epochs its producer vouches were clear, and a private answer is no poster", async () => {
+  const h = harness();
+  const live: { producer: IngestProducer; path: string }[] = [];
+  const asked: ToMedia[] = [];
+  let answer: ((message: FromMediaMessage) => void) | undefined;
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => live,
+    send: (message) => {
+      asked.push(message);
+      if (message.type === "still.poster")
+        queueMicrotask(() =>
+          answer?.({ type: "still.failed", request: message.request, reason: "private" }),
+        );
+      return true;
+    },
+    id: () => "poster-1",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  answer = (message) => viewers.received(message, new Uint8Array(0));
+  const grant = granted(await h.connections.connect(phone("a")));
+  const vouching = { ...producer("t1"), clearEpochs: () => [[0, 4]] as [number, number][] };
+  live.push({ producer: vouching, path: "path-1" });
+  const intent: ViewIntent = {
+    viewer: "v1",
+    requester: phone("a"),
+    connection: grant.connection,
+    target: { kind: "browser", threadId: "t1" },
+    codecs: ["avc1.42E033"],
+    viewport: { width: 400, height: 300, dpr: 2, scale: 1 },
+    local: true,
+    audio: false,
+    shows: (p) => p.threadId === "t1",
+  };
+  expect(viewers.bind(intent)).toBe(true);
+  expect(await viewers.poster("v1")).toBeUndefined();
+  expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [[0, 4]] });
+  // A producer that says nothing about its epochs vouches for none.
+  asked.length = 0;
+  live[0] = { producer: producer("t1"), path: "path-2" };
+  viewers.live(live[0].producer, "path-2");
+  await viewers.poster("v1");
+  expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [] });
 });

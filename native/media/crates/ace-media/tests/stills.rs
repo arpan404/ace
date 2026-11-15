@@ -232,7 +232,7 @@ fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
     );
     media.send(
         json!({ "type": "still.poster", "request": "p1", "source": "s1", "width": 390,
-                "height": 844, "deadlineMs": 2_000 }),
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
         &[],
     );
     let (size, _, jpeg) = done(&mut media);
@@ -242,7 +242,7 @@ fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
 
     media.send(
         json!({ "type": "still.poster", "request": "p2", "source": "nobody", "width": 390,
-                "height": 844, "deadlineMs": 2_000 }),
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
         &[],
     );
     match answer(&mut media) {

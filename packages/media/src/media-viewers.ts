@@ -53,7 +53,12 @@ export type MediaViewersOptions = {
 export const posterDeadlineMs = 1_000;
 const posterRetryMs = 50;
 
-type Held = { intent: ViewIntent; path: string | undefined };
+type Held = {
+  intent: ViewIntent;
+  path: string | undefined;
+  /** The producer streaming the source at `path`: it vouches for which epochs were clear. */
+  producer: IngestProducer | undefined;
+};
 type Waiting = { done: (answer: MediaPosterBytes | "wait" | "gone") => void; cancel: () => void };
 /** Still failures that mean the source has no picture yet: worth asking again. */
 const notYet = new Set(["no-source", "no-picture"]);
@@ -74,10 +79,10 @@ export class MediaViewers {
    */
   bind(intent: ViewIntent): boolean {
     if (!this.#options.connections.owned(intent.requester, intent.connection)) return false;
-    const held: Held = { intent, path: undefined };
+    const held: Held = { intent, path: undefined, producer: undefined };
     this.#held.set(intent.viewer, held);
     const live = this.#options.live().find((entry) => intent.shows(entry.producer));
-    if (live) this.#grant(held, live.path);
+    if (live) this.#grant(held, live.path, live.producer);
     return true;
   }
 
@@ -86,7 +91,8 @@ export class MediaViewers {
     return this.#held.get(viewer)?.path !== undefined;
   }
 
-  #grant(held: Held, path: string): void {
+  #grant(held: Held, path: string, producer: IngestProducer): void {
+    held.producer = producer;
     const { intent } = held;
     const granted = this.#options.connections.view(intent.requester, intent.connection, {
       viewer: intent.viewer,
@@ -125,7 +131,7 @@ export class MediaViewers {
     for (const held of this.#held.values()) {
       if (!held.intent.shows(producer)) continue;
       if (path === undefined) held.path = undefined;
-      else if (held.path !== path) this.#grant(held, path);
+      else if (held.path !== path) this.#grant(held, path, producer);
     }
   }
 
@@ -158,6 +164,8 @@ export class MediaViewers {
       width: Math.max(2, Math.round(viewport.width * dpr)),
       height: Math.max(2, Math.round(viewport.height * dpr)),
       deadlineMs,
+      // Only epochs the producer vouches were clear: none, unless it says so (fail closed).
+      clear: held.producer?.clearEpochs?.() ?? [],
     });
     if (!sent) return Promise.resolve("gone");
     return new Promise((resolve) => {

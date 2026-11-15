@@ -295,6 +295,8 @@ export const ToMedia = z.discriminatedUnion("type", [
     width: u32,
     height: u32,
     deadlineMs: u32,
+    /** The epochs decided clear: a poster comes only from a picture whose every epoch is in one. */
+    clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
 ]);
 export type ToMedia = z.infer<typeof ToMedia>;

@@ -64,6 +64,12 @@ export type IngestProducer = {
   pathEnded?: (path: string, interrupted: boolean) => void;
   /** ace-media ended the source with a reason: it stays on the daemon until its route changes. */
   refused?: (reason: string | undefined) => void;
+  /**
+   * The privacy epochs this producer stamped that the daemon knows were clear: the source was
+   * public for all of each one. A poster shows a picture only from these (D1). Absent: none, so
+   * no poster (a producer that can't vouch for its source's privacy history gets none).
+   */
+  clearEpochs?: () => [number, number][];
 };
 
 /** What the sources need of the supervisor. */
