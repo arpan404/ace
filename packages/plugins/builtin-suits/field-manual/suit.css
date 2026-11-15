@@ -429,13 +429,16 @@
   counter-increment: page;
   position: relative;
   padding-top: 24px;
-  background: linear-gradient(var(--suit-rule), var(--suit-rule)) 0 0 / 100% 1px no-repeat;
 }
+/* The running header's rule and page number, on a layer of its own over the page's top edge. */
 [data-part="message-agent"]::before {
   content: "PAGE " counter(page) "-" counter(page, decimal-leading-zero);
   position: absolute;
   left: 0;
-  top: 5px;
+  right: 0;
+  top: 0;
+  padding-top: 5px;
+  border-top: 1px solid var(--suit-rule);
   font-family: var(--suit-display);
   font-size: 11px;
   font-weight: 600;
@@ -485,6 +488,7 @@
   line-height: 20px;
   letter-spacing: 0.18em;
   white-space: pre;
+  overflow: hidden;
   color: var(--suit-paper);
   background: var(--suit-ink);
   pointer-events: none;
@@ -506,9 +510,14 @@
   pointer-events: none;
 }
 
+/*
+ * The time and copy actions print under each page and order like a page's issue line, always
+ * shown: ink that fades in on hover would read as no ink at all.
+ */
 [data-part="message-meta"] {
   font-family: var(--font-mono);
   font-size: 11px;
+  opacity: 1;
 }
 
 /* A change of hands is a NOTE set between rules. */
@@ -716,6 +725,7 @@
 [data-part="composer-strip"][data-variant="request"]::before {
   content: "CAUTION  ·  OPERATOR ACTION REQUIRED";
   white-space: pre;
+  overflow: hidden;
   position: absolute;
   left: 14px;
   top: 2px;
@@ -775,20 +785,20 @@
   position: relative;
   border-radius: 0;
   border: 1.5px solid var(--suit-ink);
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 20px no-repeat,
-    var(--color-surface-1);
+  background: var(--color-surface-1);
   box-shadow: var(--suit-print);
   padding-top: 20px;
 }
-/* The form's band. */
+/* The form's band, on a layer of its own so the form's fields read against paper alone. */
 [data-part="composer"]::before {
   content: "WORK ORDER  ·  ENTER DESCRIPTION OF WORK";
   position: absolute;
   top: 0;
-  left: 12px;
-  right: 12px;
+  left: 0;
+  right: 0;
   height: 20px;
+  padding-left: 12px;
+  background: var(--suit-ink);
   font-family: var(--suit-display);
   font-size: 11.5px;
   font-weight: 700;
@@ -801,12 +811,10 @@
 }
 [data-part="composer"]:focus-within {
   border-color: var(--color-tint);
-  background:
-    linear-gradient(var(--color-tint), var(--color-tint)) 0 0 / 100% 20px no-repeat,
-    var(--color-surface-1);
 }
 [data-part="composer"]:focus-within::before {
   color: var(--color-tint-foreground);
+  background: var(--color-tint);
 }
 [data-part="composer-input"] {
   caret-color: var(--color-tint);
@@ -1243,16 +1251,17 @@
   position: relative;
   padding-top: 18px;
   border: 1.5px solid var(--suit-ink);
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 18px no-repeat,
-    var(--color-surface-1);
+  background: var(--color-surface-1);
 }
 [data-part="card"][data-variant="settings-group"]::before {
   content: "SPEC TABLE " counter(spec, decimal-leading-zero);
   position: absolute;
   top: 0;
-  left: 12px;
+  left: 0;
+  right: 0;
   height: 18px;
+  padding-left: 12px;
+  background: var(--suit-ink);
   font-family: var(--suit-display);
   font-size: 10.5px;
   font-weight: 700;
@@ -1292,9 +1301,7 @@
   position: relative;
   padding-top: 22px;
   border: 1.5px solid var(--suit-ink);
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 22px no-repeat,
-    var(--color-surface-1);
+  background: var(--color-surface-1);
   box-shadow: var(--suit-print);
 }
 [data-page="pulls"] [data-part="card"]::before,
@@ -1302,9 +1309,11 @@
   content: "INSPECTION REGISTER  ·  CHANGE ORDERS";
   position: absolute;
   top: 0;
-  left: 12px;
-  right: 12px;
+  left: 0;
+  right: 0;
   height: 22px;
+  padding-left: 12px;
+  background: var(--suit-ink);
   font-family: var(--suit-display);
   font-size: 11.5px;
   font-weight: 700;
@@ -1463,6 +1472,28 @@
   box-sizing: border-box;
   border-top: 1px solid var(--suit-rule);
 }
+/*
+ * The pull request's state is stamped on the report: a ruled box in the state's own readable
+ * ink (ace's tone for it), on paper rather than a filled pill.
+ */
+[data-page="pull"] [data-part="badge"]:is(
+    [data-variant="open"],
+    [data-variant="merged"],
+    [data-variant="closed"]
+  ) {
+  font-family: var(--suit-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tone-text, var(--color-foreground));
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 2px var(--tone, var(--color-foreground)),
+    inset 0 0 0 3.5px var(--color-surface-1),
+    inset 0 0 0 4.5px var(--tone, var(--color-foreground));
+  rotate: -2deg;
+}
 [data-part="card"][data-variant="description"] {
   border: 1.5px solid var(--suit-ink);
   box-shadow: var(--suit-print);
@@ -1483,19 +1514,18 @@
   border: 1.5px solid var(--suit-ink);
   padding-top: 24px;
   padding-bottom: 28px;
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 22px no-repeat,
-    linear-gradient(var(--color-border-strong), var(--color-border-strong)) 16px
-      calc(100% - 14px) / 46% 1px no-repeat,
-    var(--color-surface-1);
+  background: var(--color-surface-1);
   box-shadow: var(--suit-print);
 }
 [data-part="merge-box"]::before {
   content: "INSPECTOR SIGN-OFF";
   position: absolute;
   top: 0;
-  left: 12px;
+  left: 0;
+  right: 0;
   height: 22px;
+  padding-left: 12px;
+  background: var(--suit-ink);
   font-family: var(--suit-display);
   font-size: 11.5px;
   font-weight: 700;
@@ -1509,6 +1539,9 @@
   position: absolute;
   left: 16px;
   bottom: 2px;
+  width: 46%;
+  padding-top: 1px;
+  border-top: 1px solid var(--color-border-strong);
   font-family: var(--suit-display);
   font-size: 9.5px;
   font-weight: 600;
@@ -1522,6 +1555,8 @@
 }
 [data-part="merge-box"][data-state="done"]::after {
   content: "APPROVED";
+  width: auto;
+  padding-top: 2px;
   left: auto;
   right: 18px;
   bottom: 10px;
@@ -1538,6 +1573,8 @@
 }
 [data-part="merge-box"][data-state="closed"]::after {
   content: "VOID";
+  width: auto;
+  padding-top: 2px;
   left: auto;
   right: 18px;
   bottom: 10px;
@@ -1678,30 +1715,29 @@
 /* The terminal is the workshop's console: a framed screen under its own plate. */
 [data-part="terminal-tab"] {
   position: relative;
-  margin: 6px;
-  padding: 20px 4px 4px;
-  border: 1.5px solid var(--suit-ink);
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 16px no-repeat,
-    #101213;
+  padding-top: 18px;
+  box-shadow: inset 0 0 0 1.5px var(--suit-ink);
+  background: #101213;
 }
 [data-part="terminal-tab"]::before {
   content: "CONSOLE  ·  TEST STATION 01";
   position: absolute;
   top: 0;
-  left: 10px;
+  left: 0;
+  right: 0;
   height: 16px;
+  padding-left: 10px;
+  background: var(--suit-ink);
   font-family: var(--suit-display);
   font-size: 10px;
   font-weight: 700;
   line-height: 16px;
   letter-spacing: 0.2em;
   white-space: pre;
+  overflow: hidden;
   color: var(--suit-paper);
   pointer-events: none;
 }
 [data-scheme="light"] [data-part="terminal-tab"] {
-  background:
-    linear-gradient(var(--suit-ink), var(--suit-ink)) 0 0 / 100% 16px no-repeat,
-    #f4f2ec;
+  background: #f4f2ec;
 }
