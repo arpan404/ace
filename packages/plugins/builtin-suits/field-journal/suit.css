@@ -541,10 +541,9 @@
   font-family: var(--font-mono);
 }
 
-/* The Working line keeps ace's words, size and colour; the Suit sets it as an italic margin note. */
+/* The Working line keeps ace's words, size and colour; the Suit sets it in the book face. */
 [data-part="working-line"] {
   font-family: var(--font-prose);
-  font-style: italic;
   padding-inline: 2px 8px;
   border-bottom: 1px dotted currentColor;
   border-radius: 0;

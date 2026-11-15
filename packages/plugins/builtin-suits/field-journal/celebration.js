@@ -11,6 +11,7 @@ const most = 64;
 const lifeMs = 3600;
 
 let ctx = null;
+let glow = null;
 let width = 1;
 let height = 1;
 let ratio = 1;
@@ -32,7 +33,8 @@ const delay = new Float32Array(most);
 const kind = new Uint8Array(most); // 0 petal, 1 moth (light); fireflies ignore it
 
 const petalTones = ["#d98f8a", "#e6b45c", "#b9a0d6", "#e8a2b4", "#c7d68f"];
-const mothTones = ["#8a7258", "#a08566", "#7a6a55"];
+const mothTones = ["#c2a77e", "#b39470", "#d1bc96"];
+const mothHind = "#e2d2b0";
 
 let seed = 19;
 function random() {
@@ -52,7 +54,7 @@ function launch(signal) {
     size[i] = 0.6 + random() * 0.8;
     phase[i] = random() * Math.PI * 2;
     delay[i] = random() * 900;
-    kind[i] = random() < 0.35 ? 1 : 0;
+    kind[i] = random() < 0.28 ? 1 : 0;
   }
 }
 
@@ -74,24 +76,35 @@ function presence(age) {
   return Math.max(0, Math.min(1, age / 300, left / 900));
 }
 
-function firefly(x, y, s, glow) {
-  const halo = ctx.createRadialGradient(x, y, 0, x, y, 14 * s);
-  halo.addColorStop(0, `rgba(255, 226, 140, ${0.55 * glow})`);
-  halo.addColorStop(0.35, `rgba(214, 220, 110, ${0.22 * glow})`);
+/** A firefly's glow, painted once: a soft yellow-green halo round a bright core. */
+function paintGlow() {
+  glow = document.createElement("canvas");
+  glow.width = 64;
+  glow.height = 64;
+  const paint = glow.getContext("2d");
+  if (!paint) return;
+  const halo = paint.createRadialGradient(32, 32, 0, 32, 32, 32);
+  halo.addColorStop(0, "rgba(255, 246, 200, 1)");
+  halo.addColorStop(0.08, "rgba(255, 236, 160, 0.95)");
+  halo.addColorStop(0.16, "rgba(255, 226, 140, 0.5)");
+  halo.addColorStop(0.45, "rgba(214, 220, 110, 0.18)");
   halo.addColorStop(1, "rgba(214, 220, 110, 0)");
-  ctx.fillStyle = halo;
-  ctx.fillRect(x - 14 * s, y - 14 * s, 28 * s, 28 * s);
-  ctx.fillStyle = `rgba(255, 246, 200, ${0.95 * glow})`;
-  ctx.beginPath();
-  ctx.arc(x, y, 1.6 * s, 0, Math.PI * 2);
-  ctx.fill();
+  paint.fillStyle = halo;
+  paint.fillRect(0, 0, 64, 64);
+}
+
+function firefly(x, y, s, bright) {
+  if (!glow) return;
+  const r = 14 * s;
+  ctx.globalAlpha = Math.min(1, bright);
+  ctx.drawImage(glow, x - r, y - r, r * 2, r * 2);
 }
 
 function petal(x, y, s, turn, tone, alpha) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(turn);
-  ctx.globalAlpha = alpha * 0.85;
+  ctx.globalAlpha = alpha * 0.7;
   ctx.fillStyle = tone;
   ctx.beginPath();
   ctx.moveTo(0, -6 * s);
@@ -101,32 +114,44 @@ function petal(x, y, s, turn, tone, alpha) {
   ctx.restore();
 }
 
+/**
+ * A small moth seen from above: swept triangular forewings over rounded hindwings, a darker
+ * edge on each, and a slim body. `beat` folds the wings toward the body and out again.
+ */
 function moth(x, y, s, beat, tone, alpha) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.globalAlpha = alpha * 0.9;
-  ctx.fillStyle = tone;
-  // Wings: two pairs of ovals whose width beats, as if seen from above.
-  const open = 0.35 + 0.65 * Math.abs(Math.sin(beat));
-  for (const side of [-1, 1]) {
+  ctx.rotate(Math.sin(beat * 0.25) * 0.25);
+  ctx.globalAlpha = alpha * 0.92;
+  const open = 0.3 + 0.7 * Math.abs(Math.sin(beat));
+  ctx.lineWidth = 0.6;
+  ctx.strokeStyle = "rgba(74, 58, 40, 0.55)";
+  for (let side = -1; side <= 1; side += 2) {
+    const w = side * open * s;
+    // Hindwing, under the forewing.
+    ctx.fillStyle = mothHind;
     ctx.beginPath();
-    ctx.ellipse(
-      side * 4.5 * s * open,
-      -1.5 * s,
-      4.5 * s * open,
-      3.6 * s,
-      side * 0.5,
-      0,
-      Math.PI * 2,
-    );
+    ctx.moveTo(0, 0.6 * s);
+    ctx.quadraticCurveTo(w * 4.6, 1.2 * s, w * 3.4, 4.2 * s);
+    ctx.quadraticCurveTo(w * 1.2, 4.6 * s, 0, 2.4 * s);
     ctx.fill();
+    // Forewing: from the shoulder out to a swept tip, back along the trailing edge.
+    ctx.fillStyle = tone;
     ctx.beginPath();
-    ctx.ellipse(side * 3.2 * s * open, 3 * s, 3 * s * open, 2.4 * s, side * -0.4, 0, Math.PI * 2);
+    ctx.moveTo(0, -1.6 * s);
+    ctx.quadraticCurveTo(w * 4.2, -3.4 * s, w * 7.4, -0.4 * s);
+    ctx.quadraticCurveTo(w * 5.2, 2.6 * s, 0, 1.4 * s);
+    ctx.fill();
+    ctx.stroke();
+    // A darker spot on each forewing.
+    ctx.fillStyle = "rgba(74, 58, 40, 0.45)";
+    ctx.beginPath();
+    ctx.arc(w * 3.6, -0.5 * s, 0.7 * s, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.fillStyle = "#4a3c2c";
+  ctx.fillStyle = "#5a4630";
   ctx.beginPath();
-  ctx.ellipse(0, 0.5 * s, 1.1 * s, 4.2 * s, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0.6 * s, 0.75 * s, 3.2 * s, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -150,7 +175,7 @@ function draw() {
       const blink = 0.45 + 0.55 * Math.max(0, Math.sin(phase[i] + t * 4.2));
       firefly(x, y, size[i], seen * blink);
     } else if (kind[i] === 1) {
-      moth(x, y, size[i] * 1.3, phase[i] + t * 16, mothTones[i % mothTones.length], seen);
+      moth(x, y, size[i] * 1.7, phase[i] + t * 15, mothTones[i % mothTones.length], seen);
     } else {
       petal(x, y, size[i] * 1.2, phase[i] + t * 1.6, petalTones[i % petalTones.length], seen);
     }
@@ -160,6 +185,7 @@ function draw() {
 
 ace.scene({
   init(view) {
+    paintGlow();
     fit(view);
     launch("done");
   },

@@ -1,41 +1,49 @@
 // Field Journal: dappled light falling on a notebook through leaves overhead.
 //
-// The scene is drawn a little small (one canvas pixel per `grain` CSS px) and the browser
-// stretches it, so every leaf shadow and fleck of sun comes out soft without any blur filter.
 // Paper is the base, with three things pressed into its right margin as vector shapes (never
-// images, so the live check can read the canvas): a fern frond hanging from the top corner, an
-// oak leaf lower down and a small compass rose at the bottom. Over them sit two layers of leaf shadow that
-// sway on a slow breeze, and sun flecks that breathe between them. In the dark scheme the page lies under a reading lamp: a warm pool of light from
-// the upper left, the same leaves as faint shadows at its edge.
+// images, so the live check can read the canvas; faint enough that subtle text over them under
+// the transcript's reveal still reads at 4.5:1): a fern frond hanging from the top corner, an
+// oak leaf lower down and a small compass rose at the bottom. In the dark scheme the page lies
+// under a reading lamp, a warm pool of light from the upper left. Over that, two layers of leaf
+// shadow sway on a slow breeze and flecks of sun breathe between them.
+//
+// The scene is drawn a little small (one canvas pixel per `grain` CSS px) and the browser
+// stretches it, so shadows and flecks come out soft without any blur filter. The paper, the lamp
+// and the pressed pieces are painted once into a layer on resize or a change of scheme; a leaf
+// shadow and a fleck of sun are painted once as sprites. A frame only copies those.
 //
 // Signals are a mood, never state: working stirs the breeze for a few seconds, done and a merged
 // pull request let a little more sun through, failed passes a cloud over, waiting holds still.
-// Everything is allocated in init and resize; frame only moves numbers and draws.
 
 const grain = 3; // CSS px per canvas pixel
 const leafCount = 22;
 const fleckCount = 26;
+const sprite = 64; // sprite size in px
 
 const paper = {
   light: {
     base: "#f4eddc",
-    shade: "rgba(92, 104, 62, ",
-    sun: "rgba(255, 250, 232, ",
-    fern: "rgba(125, 148, 97, 0.62)",
-    fernEdge: "rgba(93, 115, 70, 0.7)",
-    stem: "rgba(107, 83, 56, 0.8)",
-    oak: "rgba(190, 128, 62, 0.55)",
-    vein: "rgba(122, 74, 36, 0.6)",
+    shade: "rgb(92, 104, 62)",
+    sun: "rgb(255, 250, 232)",
+    leafAlpha: 0.17,
+    fleckAlpha: 0.7,
+    fern: "rgba(110, 140, 80, 0.55)",
+    fernEdge: "rgba(80, 104, 58, 0.4)",
+    stem: "rgba(96, 72, 46, 0.4)",
+    oak: "rgba(186, 118, 50, 0.55)",
+    vein: "rgba(112, 66, 30, 0.4)",
     ink: "rgba(107, 83, 56, ",
   },
   dark: {
     base: "#1e1a14",
-    shade: "rgba(8, 6, 3, ",
-    sun: "rgba(255, 196, 120, ",
-    fern: "rgba(157, 181, 124, 0.42)",
-    fernEdge: "rgba(157, 181, 124, 0.5)",
-    stem: "rgba(205, 184, 148, 0.5)",
-    oak: "rgba(201, 147, 90, 0.36)",
+    shade: "rgb(8, 6, 3)",
+    sun: "rgb(255, 196, 120)",
+    leafAlpha: 0.34,
+    fleckAlpha: 0.05,
+    fern: "rgba(157, 181, 124, 0.45)",
+    fernEdge: "rgba(157, 181, 124, 0.4)",
+    stem: "rgba(205, 184, 148, 0.4)",
+    oak: "rgba(201, 147, 90, 0.45)",
     vein: "rgba(205, 184, 148, 0.4)",
     ink: "rgba(205, 184, 148, ",
   },
@@ -57,9 +65,13 @@ const pressedPaths = {
   compassTicks:
     "M39 0L43 0M39.7 7.9L42.2 8.4M37.4 15.5L39.7 16.5M33.7 22.5L35.8 23.9M27.6 27.6L30.4 30.4M22.5 33.7L23.9 35.8M15.5 37.4L16.5 39.7M7.9 39.7L8.4 42.2M0 39L0 43M-7.9 39.7L-8.4 42.2M-15.5 37.4L-16.5 39.7M-22.5 33.7L-23.9 35.8M-27.6 27.6L-30.4 30.4M-33.7 22.5L-35.8 23.9M-37.4 15.5L-39.7 16.5M-39.7 7.9L-42.2 8.4M-39 0L-43 0M-39.7 -7.9L-42.2 -8.4M-37.4 -15.5L-39.7 -16.5M-33.7 -22.5L-35.8 -23.9M-27.6 -27.6L-30.4 -30.4M-22.5 -33.7L-23.9 -35.8M-15.5 -37.4L-16.5 -39.7M-7.9 -39.7L-8.4 -42.2M-0 -39L-0 -43M7.9 -39.7L8.4 -42.2M15.5 -37.4L16.5 -39.7M22.5 -33.7L23.9 -35.8M27.6 -27.6L30.4 -30.4M33.7 -22.5L35.8 -23.9M37.4 -15.5L39.7 -16.5M39.7 -7.9L42.2 -8.4",
 };
-let pressed = null;
 
+let doc = null;
 let ctx = null;
+let layer = null; // the paper, lamp and pressed pieces
+let leafSprite = null;
+let fleckSprite = null;
+let pressed = null;
 let width = 1;
 let height = 1;
 let cols = 1;
@@ -92,13 +104,6 @@ function random() {
   return (seed - 1) / 2147483646;
 }
 
-/** Path2D from the path data, once; a page without Path2D just goes without the pressed pieces. */
-function makePressed() {
-  if (pressed || typeof Path2D !== "function") return;
-  pressed = {};
-  for (const key of Object.keys(pressedPaths)) pressed[key] = new Path2D(pressedPaths[key]);
-}
-
 function scatter() {
   seed = 7;
   for (let i = 0; i < leafCount; i++) {
@@ -117,6 +122,114 @@ function scatter() {
   }
 }
 
+function canvas(w, h) {
+  const made = doc.createElement("canvas");
+  made.width = Math.max(1, Math.round(w));
+  made.height = Math.max(1, Math.round(h));
+  return made;
+}
+
+/** Path2D from the path data, once; a page without Path2D just goes without the pressed pieces. */
+function makePressed() {
+  if (pressed || typeof Path2D !== "function") return;
+  pressed = {};
+  for (const key of Object.keys(pressedPaths)) pressed[key] = new Path2D(pressedPaths[key]);
+}
+
+/** A leaf's shadow (a pointed oval, soft toward its edge) and a round fleck of sun. */
+function paintSprites() {
+  const ink = paper[scheme];
+  leafSprite = leafSprite ?? canvas(sprite, sprite / 2);
+  const leaf = leafSprite.getContext("2d");
+  if (leaf) {
+    const half = sprite / 2;
+    leaf.clearRect(0, 0, sprite, half);
+    const fill = leaf.createRadialGradient(half, half / 2, 0, half, half / 2, half);
+    fill.addColorStop(0, ink.shade);
+    fill.addColorStop(0.7, ink.shade);
+    fill.addColorStop(1, "rgba(0, 0, 0, 0)");
+    leaf.globalAlpha = 1;
+    leaf.fillStyle = fill;
+    leaf.beginPath();
+    leaf.moveTo(0, half / 2);
+    leaf.quadraticCurveTo(half, -half * 0.05, sprite, half / 2);
+    leaf.quadraticCurveTo(half, half * 1.05, 0, half / 2);
+    leaf.fill();
+  }
+  fleckSprite = fleckSprite ?? canvas(sprite, sprite);
+  const fleck = fleckSprite.getContext("2d");
+  if (fleck) {
+    const half = sprite / 2;
+    fleck.clearRect(0, 0, sprite, sprite);
+    const fill = fleck.createRadialGradient(half, half, 0, half, half, half);
+    fill.addColorStop(0, ink.sun);
+    fill.addColorStop(1, "rgba(0, 0, 0, 0)");
+    fleck.fillStyle = fill;
+    fleck.fillRect(0, 0, sprite, sprite);
+  }
+}
+
+/** The page itself: paper, the reading lamp in the dark, and the pressed pieces. */
+function paintLayer() {
+  const ink = paper[scheme];
+  layer = layer ?? canvas(cols, rows);
+  if (layer.width !== cols) layer.width = cols;
+  if (layer.height !== rows) layer.height = rows;
+  const page = layer.getContext("2d", { alpha: false });
+  if (!page) return;
+  page.setTransform(1, 0, 0, 1, 0, 0);
+  page.fillStyle = ink.base;
+  page.fillRect(0, 0, cols, rows);
+  if (scheme === "dark") {
+    const span = Math.max(cols, rows);
+    for (const [x, y, r, a] of [
+      [0.18, 0.08, 0.75, 0.11],
+      [0.3, 0.25, 0.35, 0.05],
+    ]) {
+      const glow = page.createRadialGradient(cols * x, rows * y, 0, cols * x, rows * y, span * r);
+      glow.addColorStop(0, `rgba(255, 196, 120, ${a})`);
+      glow.addColorStop(1, "rgba(255, 196, 120, 0)");
+      page.fillStyle = glow;
+      page.fillRect(0, 0, cols, rows);
+    }
+  }
+  if (!pressed) return;
+  const unit = 1 / grain;
+  // Fern: its 150 x 130 box, a third larger, hangs from the top right corner.
+  page.setTransform(unit * 1.35, 0, 0, unit * 1.35, (width - 196) * unit, -2 * unit);
+  page.fillStyle = ink.fern;
+  page.fill(pressed.fernLeaves);
+  page.lineWidth = 0.7;
+  page.strokeStyle = ink.fernEdge;
+  page.stroke(pressed.fernLeaves);
+  page.lineWidth = 1.6;
+  page.lineCap = "round";
+  page.strokeStyle = ink.stem;
+  page.stroke(pressed.fernStem);
+  // Oak leaf: in the right margin, its stem toward the edge, leaning in.
+  page.setTransform(unit, 0, 0, unit, (width - 34) * unit, (height * 0.6 + 40) * unit);
+  page.rotate(-0.62);
+  page.fillStyle = ink.oak;
+  page.fill(pressed.oakOutline);
+  page.lineWidth = 0.9;
+  page.strokeStyle = ink.vein;
+  page.stroke(pressed.oakVeins);
+  // Compass rose: bottom right.
+  page.setTransform(unit, 0, 0, unit, (width - 74) * unit, (height - 84) * unit);
+  page.lineWidth = 0.9;
+  page.strokeStyle = `${ink.ink}0.4)`;
+  page.beginPath();
+  page.arc(0, 0, 43, 0, Math.PI * 2);
+  page.stroke();
+  page.stroke(pressed.compassTicks);
+  page.fillStyle = `${ink.ink}0.45)`;
+  page.fill(pressed.compassFill);
+  page.lineWidth = 0.8;
+  page.strokeStyle = `${ink.ink}0.4)`;
+  page.stroke(pressed.compassLine);
+  page.setTransform(1, 0, 0, 1, 0, 0);
+}
+
 function size(view) {
   if (typeof view.reduceMotion === "boolean") still = view.reduceMotion;
   if (view.scheme === "light" || view.scheme === "dark") scheme = view.scheme;
@@ -128,6 +241,7 @@ function size(view) {
   view.canvas.height = rows;
   ctx = view.canvas.getContext("2d", { alpha: false });
   if (ctx) ctx.imageSmoothingEnabled = true;
+  paintLayer();
 }
 
 /** 0 → 1 → 0 over `span` ms after `at`, eased; 0 outside it. */
@@ -135,73 +249,6 @@ function swell(at, span) {
   const t = (now - at) / span;
   if (t < 0 || t > 1) return 0;
   return Math.sin(t * Math.PI);
-}
-
-/** A leaf's shadow: a pointed oval with a soft gradient falloff, in canvas pixels. */
-function leaf(x, y, length, angle, alpha, tone) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  const half = length / 2;
-  const fill = ctx.createRadialGradient(0, 0, 0, 0, 0, half);
-  fill.addColorStop(0, `${tone}${alpha})`);
-  fill.addColorStop(0.7, `${tone}${alpha * 0.6})`);
-  fill.addColorStop(1, `${tone}0)`);
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.moveTo(-half, 0);
-  ctx.quadraticCurveTo(0, -half * 0.55, half, 0);
-  ctx.quadraticCurveTo(0, half * 0.55, -half, 0);
-  ctx.fill();
-  ctx.restore();
-}
-
-function blob(x, y, radius, alpha, tone) {
-  const fill = ctx.createRadialGradient(x, y, 0, x, y, radius);
-  fill.addColorStop(0, `${tone}${alpha})`);
-  fill.addColorStop(1, `${tone}0)`);
-  ctx.fillStyle = fill;
-  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-}
-
-/** The fern, the oak leaf and the compass rose, pressed into the page's corners. */
-function drawPressed(ink) {
-  if (!pressed) return;
-  const unit = 1 / grain;
-  ctx.save();
-  // Fern: its 150 x 130 box, a third larger, hangs from the top right corner.
-  ctx.setTransform(unit * 1.35, 0, 0, unit * 1.35, (width - 196) * unit, -2 * unit);
-  ctx.fillStyle = ink.fern;
-  ctx.fill(pressed.fernLeaves);
-  ctx.lineWidth = 0.7;
-  ctx.strokeStyle = ink.fernEdge;
-  ctx.stroke(pressed.fernLeaves);
-  ctx.lineWidth = 1.6;
-  ctx.lineCap = "round";
-  ctx.strokeStyle = ink.stem;
-  ctx.stroke(pressed.fernStem);
-  // Oak leaf: in the right margin, its stem toward the edge, leaning in.
-  ctx.setTransform(unit, 0, 0, unit, (width - 34) * unit, (height * 0.6 + 40) * unit);
-  ctx.rotate(-0.62);
-  ctx.fillStyle = ink.oak;
-  ctx.fill(pressed.oakOutline);
-  ctx.lineWidth = 0.9;
-  ctx.strokeStyle = ink.vein;
-  ctx.stroke(pressed.oakVeins);
-  // Compass rose: bottom right.
-  ctx.setTransform(unit, 0, 0, unit, (width - 74) * unit, (height - 84) * unit);
-  ctx.lineWidth = 0.9;
-  ctx.strokeStyle = `${ink.ink}0.45)`;
-  ctx.beginPath();
-  ctx.arc(0, 0, 43, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.stroke(pressed.compassTicks);
-  ctx.fillStyle = `${ink.ink}0.55)`;
-  ctx.fill(pressed.compassFill);
-  ctx.lineWidth = 0.8;
-  ctx.strokeStyle = `${ink.ink}0.55)`;
-  ctx.stroke(pressed.compassLine);
-  ctx.restore();
 }
 
 function draw() {
@@ -213,45 +260,46 @@ function draw() {
   const calm = 1 - 0.5 * swell(hushAt, 2400);
   const span = Math.max(cols, rows);
 
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = ink.base;
-  ctx.fillRect(0, 0, cols, rows);
-
-  if (scheme === "dark") {
-    // The reading lamp: a warm pool from the upper left that breathes very slightly.
-    const flicker = 1 + 0.03 * Math.sin(t * 0.0011) * calm;
-    blob(cols * 0.18, rows * 0.08, span * 0.75 * flicker, 0.11 * sun, ink.sun);
-    blob(cols * 0.3, rows * 0.25, span * 0.35, 0.05 * sun, ink.sun);
-  }
-
-  drawPressed(ink);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  if (layer) ctx.drawImage(layer, 0, 0);
 
   // Leaf shadows, far layer first; the near layer sways more.
-  for (let i = 0; i < leafCount; i++) {
-    const depth = leafDepth[i];
-    const sway = (0.004 + depth * 0.01) * breeze * calm;
-    const phase = leafPhase[i] + t * 0.00042 * (0.6 + depth);
-    const x = (leafX[i] + Math.sin(phase) * sway) * cols;
-    const y = (leafY[i] + Math.cos(phase * 0.8) * sway * 0.6) * rows;
-    const angle = leafAngle[i] + Math.sin(phase * 0.7) * 0.08 * breeze;
-    const alpha = (scheme === "dark" ? 0.34 : 0.17) * (0.55 + depth * 0.45);
-    leaf(x, y, leafSize[i] * span * (0.8 + depth * 0.5), angle, alpha, ink.shade);
-  }
+  if (leafSprite)
+    for (let i = 0; i < leafCount; i++) {
+      const depth = leafDepth[i];
+      const sway = (0.004 + depth * 0.01) * breeze * calm;
+      const phase = leafPhase[i] + t * 0.00042 * (0.6 + depth);
+      const x = (leafX[i] + Math.sin(phase) * sway) * cols;
+      const y = (leafY[i] + Math.cos(phase * 0.8) * sway * 0.6) * rows;
+      const angle = leafAngle[i] + Math.sin(phase * 0.7) * 0.08 * breeze;
+      const length = leafSize[i] * span * (0.8 + depth * 0.5);
+      ctx.globalAlpha = ink.leafAlpha * (0.55 + depth * 0.45);
+      ctx.setTransform(Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), x, y);
+      ctx.drawImage(leafSprite, -length / 2, -length / 4, length, length / 2);
+    }
 
   // Sun flecks between the leaves, breathing in and out.
-  const fleckAlpha = scheme === "dark" ? 0.05 : 0.7;
-  for (let i = 0; i < fleckCount; i++) {
-    const breath = 0.55 + 0.45 * Math.sin(fleckPhase[i] + t * 0.0007 * breeze);
-    const x = (fleckX[i] + Math.sin(fleckPhase[i] + t * 0.0003) * 0.006 * breeze) * cols;
-    const y = fleckY[i] * rows;
-    blob(x, y, fleckSize[i] * span, fleckAlpha * breath * sun, ink.sun);
-  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (fleckSprite)
+    for (let i = 0; i < fleckCount; i++) {
+      const breath = 0.55 + 0.45 * Math.sin(fleckPhase[i] + t * 0.0007 * breeze);
+      const x = (fleckX[i] + Math.sin(fleckPhase[i] + t * 0.0003) * 0.006 * breeze) * cols;
+      const y = fleckY[i] * rows;
+      const r = fleckSize[i] * span;
+      ctx.globalAlpha = Math.min(1, Math.max(0, ink.fleckAlpha * breath * sun));
+      ctx.drawImage(fleckSprite, x - r, y - r, r * 2, r * 2);
+    }
+  ctx.globalAlpha = 1;
 }
 
 ace.scene({
   init(view) {
+    doc = document;
     scatter();
     makePressed();
+    if (view.scheme === "light" || view.scheme === "dark") scheme = view.scheme;
+    paintSprites();
     size(view);
   },
   frame(time, view) {
@@ -269,7 +317,10 @@ ace.scene({
     size(view);
   },
   scheme(next) {
-    if (next === "light" || next === "dark") scheme = next;
+    if (next !== "light" && next !== "dark") return;
+    scheme = next;
+    paintSprites();
+    paintLayer();
   },
   motion(reduceMotion) {
     still = reduceMotion;
