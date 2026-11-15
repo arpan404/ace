@@ -40,8 +40,9 @@ async function connect(
   chunks?: ChunkReader,
   memory?: (owner: ClientCore) => NewThreadMemory,
   dismissed?: DismissedSends,
+  /** The outbox this phone keeps between launches; a fresh one each launch by default. */
+  outbox: { saved: string | null } = { saved: null },
 ): Promise<ComposeActions> {
-  let saved: string | null = null;
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-compose-test"),
     expectedHostId: HostId.parse("ios-test-host"),
@@ -58,10 +59,10 @@ async function connect(
     },
     credential: async () => ({ token: "ios-test-token" }),
     storage: {
-      load: async () => saved,
+      load: async () => outbox.saved,
       save: async (value) => {
         await slowSaves;
-        saved = value;
+        outbox.saved = value;
       },
     },
     scheduler: {
@@ -765,4 +766,30 @@ test("after a failed setup script Retry runs the worktree again, and Continue st
   const made = await until(() => latest("compose.worktree", "draft-tree-0006")?.made);
   expect(typeof made).toBe("string");
   expect(worktreeCard("draft-tree-0006")).toBeNull();
+});
+
+/** Worktree cards the bridge sent Swift, and worktree requests the phone sent the daemon. */
+const cards = () => native.frames.filter((frame) => frame.type === "compose.worktree").length;
+const asks = () => sent.filter((text) => text.includes('"worktree.creation.request"')).length;
+
+test("a stopped start a fresh daemon never knew sends its card once, not on every list New thread reads", async () => {
+  const outbox = { saved: null as string | null };
+  const first = await connect(fixture(), undefined, undefined, undefined, outbox);
+  await startInWorktree(first, "draft-tree-0008");
+  await until(() => worktreeCard("draft-tree-0008")?.running);
+  first.compose({ kind: "worktree", commandId: "draft-tree-0008", action: "cancel" });
+  await until(() => latest("compose.start", "draft-tree-0008"));
+  first.close();
+  sidebar?.release();
+  await client?.close();
+  // The phone launches again against a fresh daemon that has never heard of that start.
+  const later = await connect(fixture(), undefined, undefined, undefined, outbox);
+  later.compose({ kind: "open" });
+  later.compose({ kind: "projects" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const before = { cards: cards(), asks: asks() };
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  expect(cards() - before.cards).toBeLessThanOrEqual(1);
+  expect(asks() - before.asks).toBeLessThanOrEqual(1);
+  later.close();
 });
