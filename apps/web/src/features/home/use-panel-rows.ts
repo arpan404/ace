@@ -95,15 +95,18 @@ export function usePanelRows(input: {
   // The end in view shows the next page once this one has filled. Settled short of its page
   // waits for the daemon's; while searching it pages through the matches it draws, whatever the
   // daemon's page is doing. Scrolling never asks the daemon itself: only Show more retries a
-  // failed page. The list says so for the rows it drew, so a page just added isn't taken as in
-  // view before the list has drawn it, and each page drawn re-arms the next.
-  const count = rows.length;
-  const [nearAt, setNearAt] = useState<number>();
-  const onNearEnd = useCallback((near: boolean) => setNearAt(near ? count : undefined), [count]);
+  // failed page. A new callback for each page drawn (and once Settled has filled) has the list
+  // say again whether its end is in view, judged for the rows it has just drawn: a page just
+  // added isn't taken as in view, and a list whose end stays in view keeps paging.
   const short = paged === "settled" && panel.settled.length < shown.settled;
-  const next = nearAt === count && rows.at(-1)?.kind === "more" && !short;
-  useEffect(() => {
-    if (next) grow();
-  }, [next, grow]);
+  const ready = rows.at(-1)?.kind === "more" && !short;
+  const onNearEnd = useCallback(
+    (near: boolean) => {
+      if (near && ready) grow();
+    },
+    // The row count re-arms it: each page drawn hands the list a new callback to answer.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [ready, rows.length, grow],
+  );
   return { rows, paging, onNearEnd };
 }
