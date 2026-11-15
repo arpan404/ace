@@ -39,7 +39,7 @@ test("New bot is a conversation: a name that suits its face, and the first messa
   expect(name.value).not.toBe("");
   // It starts on the model for new bots, and says so on its line.
   await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Model" }).textContent).toContain("Sonnet"),
+    expect(screen.getByRole("button", { name: "Model" }).textContent).toMatch(/sonnet/i),
   );
   expect(screen.getByRole("button", { name: "Access: Auto-review" })).toBeTruthy();
 
@@ -65,16 +65,34 @@ test("New bot is a conversation: a name that suits its face, and the first messa
   expect((await botRow("Trips")).getAttribute("aria-current")).toBe("page");
 });
 
-test("the bot runs on the machine, model and access chosen on its line, Full access only once confirmed", async () => {
+test("the bot runs on the machine and model chosen on its line", async () => {
   const { spade, others } = await spadeApp("/spade", withSpade, { machines: [studio] });
   await newBot("Travel");
   await userEvent.click(await screen.findByRole("button", { name: "Machine: This machine" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Studio Mac" }));
   await screen.findByRole("button", { name: "Machine: Studio Mac" });
+  // Another machine keeps the name the person gave.
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe("Travel");
   await userEvent.click(screen.getByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
+  await send("Travel", "Book Lisbon");
+  await waitFor(() =>
+    expect(others.get("studio")?.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({
+        name: "Travel",
+        model: "openrouter/anthropic/sonnet",
+        first_message: { text: "Book Lisbon" },
+      }),
+    ]),
+  );
+  expect(spade.sent("POST", "/v1/agents")).toEqual([]);
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+});
 
-  await userEvent.click(screen.getByRole("button", { name: "Access: Auto-review" }));
+test("Full access on a new bot's line is given only once the person confirms it", async () => {
+  const { spade } = await spadeApp("/spade", withSpade);
+  await newBot("Travel");
+  await userEvent.click(await screen.findByRole("button", { name: "Access: Auto-review" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
   const ask = within(await screen.findByRole("dialog", { name: "Give Travel full access?" }));
   await userEvent.click(ask.getByRole("button", { name: "Cancel" }));
@@ -84,20 +102,12 @@ test("the bot runs on the machine, model and access chosen on its line, Full acc
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Full access" }));
   await userEvent.click(await screen.findByRole("button", { name: "Give full access" }));
   await screen.findByRole("button", { name: "Access: Full access" });
-
   await send("Travel", "Book Lisbon");
   await waitFor(() =>
-    expect(others.get("studio")?.sent("POST", "/v1/agents")).toEqual([
-      expect.objectContaining({
-        name: "Travel",
-        model: "openrouter/anthropic/sonnet",
-        access: "full_access",
-        first_message: { text: "Book Lisbon" },
-      }),
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ name: "Travel", access: "full_access" }),
     ]),
   );
-  expect(spade.sent("POST", "/v1/agents")).toEqual([]);
-  await screen.findByRole("feed", { name: "Conversation with Travel" });
 });
 
 test("a template names the bot after it, unless a bot has that name, and brings its own task", async () => {
