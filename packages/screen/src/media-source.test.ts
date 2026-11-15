@@ -278,3 +278,49 @@ it("the helper is told which process serves ace-media's ingest, so it can refuse
     ingest: { socket: "/run/m1i.sock", pid: 4242 },
   });
 });
+
+it("legacy viewers and ace-media's views share the helper's one stream, and neither overwrites the other", async () => {
+  const s = session();
+  const configured = () =>
+    s.sent.flatMap((c) =>
+      typeof c === "object" && c !== null && "settings" in c ? [c.settings] : [],
+    );
+  await s.source.configure({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 800,
+    fps: 60,
+    bitrate: 8_000_000,
+  });
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 1920, height: 1200, fps: 15, bitrate: 600_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The stream both can take: the smaller of each.
+  expect(configured().at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 800,
+    fps: 15,
+    bitrate: 600_000,
+  });
+  // A legacy viewer resizing keeps ace-media's lower rate.
+  await s.source.configure({
+    codec: "h264",
+    maxWidth: 1024,
+    maxHeight: 640,
+    fps: 60,
+    bitrate: 8_000_000,
+  });
+  expect(configured().at(-1)).toMatchObject({ maxWidth: 1024, fps: 15, bitrate: 600_000 });
+  // ace-media's last view goes: the legacy viewer's request alone.
+  s.producer().want?.([]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(configured().at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 1024,
+    maxHeight: 640,
+    fps: 60,
+    bitrate: 8_000_000,
+  });
+});
