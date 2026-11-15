@@ -42,6 +42,9 @@ pub trait Daemon: Send + Sync {
 /// How long a reading of the daemon's plugins is used before it is read again.
 pub const FRESH_FOR: Duration = Duration::from_secs(30);
 
+/// How long hooks wait for a stale reading to be read again before going with the last one.
+const REREAD_WAIT: Duration = Duration::from_secs(2);
+
 pub struct Plugins {
     daemon: Arc<dyn Daemon>,
     access: Access,
@@ -50,7 +53,8 @@ pub struct Plugins {
     known: Mutex<Known>,
     refreshing: tokio::sync::Mutex<()>,
     servers: servers::Servers,
-    fresh_for: Duration,
+    /// How long a reading is used, in milliseconds ([`FRESH_FOR`] unless a test shortens it).
+    fresh_for: std::sync::atomic::AtomicU64,
     /// How long one hook may run, in milliseconds ([`hooks::LIMIT`] unless a test shortens it).
     hook_limit: std::sync::atomic::AtomicU64,
 }
@@ -107,7 +111,9 @@ impl Plugins {
             known: Mutex::new(Known::default()),
             refreshing: tokio::sync::Mutex::new(()),
             servers: servers::Servers::default(),
-            fresh_for: FRESH_FOR,
+            fresh_for: std::sync::atomic::AtomicU64::new(
+                u64::try_from(FRESH_FOR.as_millis()).unwrap_or(30_000),
+            ),
             hook_limit: std::sync::atomic::AtomicU64::new(
                 u64::try_from(hooks::LIMIT.as_millis()).unwrap_or(10_000),
             ),
@@ -130,6 +136,19 @@ impl Plugins {
         self
     }
 
+    /// Makes a reading of ace's plugins go stale after `fresh_for`, for tests.
+    #[must_use]
+    pub fn with_fresh_for(self: Arc<Self>, fresh_for: Duration) -> Arc<Self> {
+        let ms = u64::try_from(fresh_for.as_millis()).unwrap_or(u64::MAX);
+        self.fresh_for
+            .store(ms, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    fn fresh_for(&self) -> Duration {
+        Duration::from_millis(self.fresh_for.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
     fn hook_limit(&self) -> Duration {
         Duration::from_millis(self.hook_limit.load(std::sync::atomic::Ordering::Relaxed))
     }
@@ -140,7 +159,7 @@ impl Plugins {
         let _one = self.refreshing.lock().await;
         let fresh = lock(&self.known)
             .read_at
-            .is_some_and(|at| at.elapsed() < self.fresh_for);
+            .is_some_and(|at| at.elapsed() < self.fresh_for());
         if fresh {
             return;
         }
@@ -181,6 +200,19 @@ impl Plugins {
             self.usable_plugin(agent, plugin)
                 .is_some_and(|p| p.install.hash == hash)
         });
+    }
+
+    /// [`Plugins::refresh`], waiting at most a moment: a daemon that doesn't answer leaves the
+    /// last reading in use until it is stale again.
+    pub async fn refresh_briefly(&self) {
+        if tokio::time::timeout(REREAD_WAIT, self.refresh())
+            .await
+            .is_err()
+        {
+            let mut known = lock(&self.known);
+            known.problem = Some("ace's plugins did not answer in time".to_owned());
+            known.read_at = Some(Instant::now());
+        }
     }
 
     /// Reads the daemon's plugins again now, whatever the last reading.

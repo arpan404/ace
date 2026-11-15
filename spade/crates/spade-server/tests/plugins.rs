@@ -596,3 +596,52 @@ async fn a_refusal_stored_before_a_restart_still_stops_the_call_when_the_reply_r
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_plugin_turned_off_in_ace_stops_its_hooks_once_the_last_reading_is_stale() -> Result {
+    let guard = plugin(
+        "guard",
+        &"e".repeat(64),
+        "/nowhere",
+        json!([]),
+        json!([hook(
+            "PreToolUse",
+            "echo 'Not today.' >&2; exit 2",
+            Some("note")
+        )]),
+    );
+    let note = FakeTool::new("note", Risk::Read, "noted");
+    let ran = note.calls();
+    let ace = FakeAce::with(vec![guard]);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("c1", "note", json!({})),
+            Script::reply("Refused."),
+            Script::reply("").plain(r#"{"title":"Note"}"#),
+            Script::reply("").call("c2", "note", json!({})),
+            Script::reply("Noted."),
+        ],
+        vec![Arc::new(note) as Arc<dyn Tool>],
+        Options {
+            plugin_fresh_for: Duration::from_millis(200),
+            ..options(ace.clone())
+        },
+    )
+    .await?;
+    let (_, chat) = bot(&spade, "Notes", &["guard"]).await?;
+    spade.say(&chat, "Note it").await?;
+    wait(&spade, &chat, "reply_finished", 1).await?;
+    assert_eq!(ran.lock().map(|c| c.len()).unwrap_or(9), 0, "refused");
+    // Turned off in ace, with nothing in Spade reading the plugins again by hand.
+    ace.turn_off("guard");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    spade.say(&chat, "Note it again").await?;
+    let events = wait(&spade, &chat, "reply_finished", 2).await?;
+    assert_eq!(
+        ran.lock().map(|c| c.len()).unwrap_or(0),
+        1,
+        "{:?}",
+        types(&events)
+    );
+    Ok(())
+}

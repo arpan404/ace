@@ -14,8 +14,10 @@ use crate::workspace::shell::Job;
 pub const LIMIT: Duration = Duration::from_secs(10);
 
 impl Plugins {
-    /// Whether `agent` has any hook at `event`.
-    pub fn has_hooks(&self, agent: &str, event: &str) -> bool {
+    /// Whether `agent` has any hook at `event`. ace's plugins are read again first when the last
+    /// reading is stale, so a plugin turned off in ace stops running its hooks.
+    pub async fn has_hooks(&self, agent: &str, event: &str) -> bool {
+        self.refresh_briefly().await;
         self.for_agent(agent).iter().any(|plugin| {
             view::usable(plugin, false)
                 .hooks
@@ -34,6 +36,7 @@ impl Plugins {
         tool: Option<&str>,
         mut input: Value,
     ) -> Vec<HookOutcome> {
+        self.refresh_briefly().await;
         let mut todo = Vec::new();
         for plugin in self.for_agent(agent) {
             for hook in view::usable(&plugin, false).hooks {

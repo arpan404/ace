@@ -196,6 +196,8 @@ pub struct Options {
     pub plugins: Option<Arc<dyn spade_server::plugins::Daemon>>,
     pub plugin_hook_limit: Duration,
     pub plugin_server_idle: Duration,
+    /// How long a reading of ace's plugins is used.
+    pub plugin_fresh_for: Duration,
     /// Skill proposals, for the API (ADR 0130).
     pub learning: Option<Arc<spade_server::learning::Learning>>,
     /// Spade's skill store, for the API (ADR 0151).
@@ -312,6 +314,7 @@ impl Default for Options {
             plugins: None,
             plugin_hook_limit: Duration::from_secs(10),
             plugin_server_idle: Duration::from_secs(600),
+            plugin_fresh_for: spade_server::plugins::FRESH_FOR,
             learning: None,
             skill_store: None,
             connectors: false,
@@ -525,7 +528,8 @@ impl Spade {
                     spade_server::workspace::shell::Shell::system(),
                 )
                 .with_hook_limit(options.plugin_hook_limit)
-                .with_server_idle(options.plugin_server_idle);
+                .with_server_idle(options.plugin_server_idle)
+                .with_fresh_for(options.plugin_fresh_for);
                 tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
                     plugins.clone(),
                     Store::open(&dir.path().join("spade.sqlite"))?,

@@ -115,7 +115,7 @@ pub(super) async fn before_step(engine: &Arc<Engine>, id: &str, events: &[Event]
         return false;
     };
     let mut stored = false;
-    if plugins.has_hooks(&agent, hooks::USER_PROMPT_SUBMIT) {
+    if plugins.has_hooks(&agent, hooks::USER_PROMPT_SUBMIT).await {
         for target in hooks::messages_due(events) {
             let text = target
                 .parse::<usize>()
@@ -136,7 +136,7 @@ pub(super) async fn before_step(engine: &Arc<Engine>, id: &str, events: &[Event]
             );
         }
     }
-    if plugins.has_hooks(&agent, hooks::POST_TOOL_USE) {
+    if plugins.has_hooks(&agent, hooks::POST_TOOL_USE).await {
         for (call_id, tool) in hooks::results_due(events) {
             let input = json!({
                 "session_id": id,
@@ -191,7 +191,7 @@ pub(super) async fn before_calls(
     if searching && plugins.has_servers(&agent) {
         plugins.start_servers(&agent).await;
     }
-    if !plugins.has_hooks(&agent, hooks::PRE_TOOL_USE) {
+    if !plugins.has_hooks(&agent, hooks::PRE_TOOL_USE).await {
         return false;
     }
     let mut stored = false;
@@ -253,7 +253,7 @@ pub(super) async fn at_stop(engine: &Arc<Engine>, id: &str) -> bool {
     let Some((plugins, agent)) = plugins_of(engine, id) else {
         return false;
     };
-    if !plugins.has_hooks(&agent, hooks::STOP) {
+    if !plugins.has_hooks(&agent, hooks::STOP).await {
         return false;
     }
     let Ok(events) = engine.load(id) else {
@@ -283,7 +283,7 @@ pub(super) async fn before_compact(
         return;
     };
     let target = keep_from.to_string();
-    if !plugins.has_hooks(&agent, hooks::PRE_COMPACT)
+    if !plugins.has_hooks(&agent, hooks::PRE_COMPACT).await
         || hooks::ran(events, hooks::PRE_COMPACT, &target)
     {
         return;

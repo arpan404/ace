@@ -25,7 +25,8 @@ executions, unsupported}`. `components` are its skills, commands, agents and rul
 
 Spade never reads a plugin's folder; it only runs the accepted commands there. It reads the
 list again when the last reading is 30 seconds old (at a conversation's first turn, before
-starting servers, and on every settings page), and fetches a plugin again only when its hash
+starting servers, before running hooks, and on every settings page; hooks wait at most 2
+seconds for it, then go with the last reading), and fetches a plugin again only when its hash
 changed. With ace away the last copy is used.
 
 ## Who may use what
