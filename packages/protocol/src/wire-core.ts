@@ -357,6 +357,11 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     streamId: z.string().min(1),
     offset: seq,
+    /**
+     * The most bytes this read may return. The daemon may return fewer (newer daemons return at
+     * most 16 KiB, so one reply never holds up an urgent message on a slow link); a reader goes
+     * on from `nextOffset` until `eof`.
+     */
     limit: seq.positive().max(256 * 1024),
   }),
   z.object({

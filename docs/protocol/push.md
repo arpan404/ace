@@ -3573,15 +3573,117 @@ Example:
 
 ```json
 {
-  "seq": 3,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "keep": [],
-    "kind": "threads",
-    "reads": {},
-    "seq": 3,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "itemSeqs": {},
+    "items": {},
+    "kind": "thread",
+    "partial": {
+      "previews": []
+    },
+    "queue": {
+      "exited": true,
+      "lastFailure": {
+        "code": "example",
+        "title": "example"
+      },
+      "paused": false,
+      "reason": "snooze",
+      "resumeAt": 0,
+      "revision": 7
+    },
+    "runs": {},
+    "seq": 9,
+    "thread": {
+      "activityAt": 8,
+      "archivedAt": 4,
+      "backend": "acp",
+      "capabilitiesRef": "example",
+      "createdAt": 5,
+      "effectiveCapabilities": {
+        "accessModes": [],
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "partial",
+        "fork": true,
+        "goals": false,
+        "imageInput": false,
+        "interruptCascades": true,
+        "launchOptions": [],
+        "planMode": true,
+        "resume": false,
+        "rewindFiles": true,
+        "sessionOptions": false,
+        "steer": false,
+        "subagentTranscripts": true,
+        "tokenUsage": true
+      },
+      "execution": {
+        "provider": "opencode"
+      },
+      "hasSentMessage": false,
+      "id": "example",
+      "lineage": {
+        "lossy": false,
+        "mode": "native",
+        "parentAgentId": "example",
+        "parentThreadId": "example",
+        "point": {
+          "itemId": "example",
+          "type": "item"
+        }
+      },
+      "listOrder": 0,
+      "movedFrom": {
+        "links": {
+          "linkedPr": {
+            "draft": true,
+            "number": 3,
+            "state": "merged"
+          },
+          "repository": {
+            "forge": "origin",
+            "host": "J",
+            "name": "WmHr3czs8t",
+            "owner": "J"
+          }
+        },
+        "workspaceId": "example"
+      },
+      "permission": {
+        "custom": "example",
+        "effective": null,
+        "override": "ask",
+        "pending": true
+      },
+      "pinOrder": 0,
+      "pinned": true,
+      "prSettled": 5,
+      "provider": "claude",
+      "queuedLaunch": {
+        "queuePosition": 7,
+        "slotLimit": 10,
+        "slotsInUse": 9,
+        "text": "example"
+      },
+      "rootAgentId": "example",
+      "settledReason": "inactivity",
+      "startedBy": "example",
+      "status": {
+        "state": "new"
+      },
+      "title": "example",
+      "updatedAt": 5,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
