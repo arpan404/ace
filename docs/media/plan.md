@@ -1695,8 +1695,8 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   helper itself), H.264 only (the screen frame header names `avc1` alone). B3 and B5 have not
   passed on real hardware yet, so VA-API is routed to only with `ACE_SCREEN_VAAPI=1` and NVENC
   only with B5's `ACE_MEDIA_NV=1`; without them every Linux machine takes the last resort, and
-  says so. Removing the VA-API gate is a one-line change in `select.rs`/`trials.rs` once the
-  hardware runs below pass.
+  says so. Removing the VA-API gate (`trials.rs`) is a one-line change once the hardware runs below
+  pass.
 - **The hello** (`trials.rs`). At helper start, on a thread of its own: VA-API's trial (gated),
   NVENC's (gated), and the Chrome trial only when neither worked (`last_resort_needed`). The
   hello waits for them at most 5 s from start. `encoders` lists every trial that ran, the chosen
@@ -1739,12 +1739,21 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   daemon's path it asks for JPEG, so `media.encode: legacy` keeps today's path exactly (the
   daemon's encoder Chrome turns the pictures into video). The helper is launched with
   `--data-dir`, where ace's own Chrome for Testing lives.
-- **Tested here** (Apple-silicon Mac; Linux in a Debian 13 container and a Debian 13 Lima VM,
-  no GPU): the helper's unit tests and the ingest shell against real sockets (route flips with
-  no unit lost or repeated and clean end frames, ace-media's connection dropping → the
-  daemon's socket at once, a refused connection); `tests/computer/run-video.sh` and
-  `media-ingest.linux.process.test.ts` in headless GNOME through the real portal and PipeWire on
-  shared memory with the last-resort encoder. See the PR for which of these ran green.
+- **Tested here** (the shared M-series Mac; Linux aarch64, no GPU: a Debian 13 container for
+  builds and unit tests, and a Debian 13 Lima VM, which has the logind GNOME Shell needs):
+  - the helper's unit tests, and the ingest shell against real sockets: route flips with no
+    unit lost or repeated and an end frame on every replaced path, ace-media's connection
+    dropping → the daemon's socket at once, a socket that can't be opened;
+  - `tests/computer/run-video.sh` in headless GNOME 48 through the real RemoteDesktop/ScreenCast
+    portal and PipeWire (shared memory), the last-resort encoder on Debian's Chromium: the hello
+    reports `chrome`, not hardware, not zero copy; video starts at a keyframe with SPS/PPS;
+    ffmpeg decodes every unit; keyframes and stills on request; JPEG again at once on the way
+    back (one of four runs failed its first checks while the VM was building; the other three
+    passed);
+  - `media-ingest.linux.process.test.ts` there, with the release ace-media: units through
+    ingest and egress to the legacy viewer with today's header and the source's epoch, four
+    route flips (each codec in order, none repeated, every planned end clean), `kill -9` →
+    the helper socket within 2 s, then the restarted ace-media.
 - **Owed on real hardware** (none can run without the GPU):
   1. Intel (iHD) and AMD (radeonsi), GNOME (Ubuntu 25.04, Fedora 43, Debian 13) and Omarchy
      (Hyprland): build the helper (`native/screen-helper-linux/build.sh`) and ace-media

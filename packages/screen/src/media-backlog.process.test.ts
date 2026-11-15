@@ -66,7 +66,6 @@ function socketFrame(sequence: number, keyframe: boolean): Frame {
     {
       version: 2,
       sessionId: "backlog",
-      platform: "macos",
       seq: sequence,
       ts: sequence,
       width: 640,
@@ -132,6 +131,7 @@ it.runIf(!!binary)(
     let flipBoundary = 0;
     source = new ScreenMediaSource({
       sessionId: "backlog",
+      platform: "macos",
       media: {
         add: (producer) =>
           runtime.sources.add({
