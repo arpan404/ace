@@ -43,6 +43,7 @@ import {
   DeviceId,
   EventId,
   HostId,
+  InteractionId,
   ThreadId,
   WorkspaceId,
   type ClientMessage,
@@ -50,6 +51,7 @@ import {
   type CommandResult,
   type DeliveryEvent,
   type EventPayload,
+  type Interaction,
   type InteractionResolution,
   type ItemsPage,
   type ProviderKind,
@@ -77,6 +79,7 @@ import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { entityPage } from "./entity-pages.ts";
+import { answerRefusal } from "@ace/projection/interaction-summary";
 import { piControlResult } from "./pi-control.ts";
 import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
@@ -998,6 +1001,12 @@ export class FakeDaemon implements Host {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
   }
+  interactionOf(threadId: string, interactionId: string): Interaction | undefined {
+    const host = this.threads.get(threadId);
+    const id = InteractionId.safeParse(interactionId);
+    const key = id.success ? host?.interactionKey(id.data) : undefined;
+    return key === undefined ? undefined : host?.interaction(key);
+  }
   /** A page of `collection`'s entities created before `before`, as the daemon pages them. */
   entities(
     threadId: string,
@@ -1308,6 +1317,8 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
+          const refused = answerRefusal(pending, payload.resolution, payload.readWhole === true);
+          if (refused) return { commandId, ok: false, error: refused };
           this.apply(host.id, [
             {
               type: "interaction.closed",
