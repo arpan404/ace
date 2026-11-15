@@ -101,7 +101,7 @@ export async function decodeInChromium(
       if (typeof VideoDecoder === "undefined")
         return { decoded, width, height, errors: ["no VideoDecoder (secure context: " + isSecureContext + ", " + location.href + ", " + navigator.userAgent + ")"] };
       const decoder = new VideoDecoder({
-        output: (frame) => { decoded++; width = frame.codedWidth; height = frame.codedHeight; frame.close(); },
+        output: (frame) => { decoded++; width = frame.displayWidth; height = frame.displayHeight; frame.close(); },
         error: (error) => errors.push(String(error)),
       });
       decoder.configure({ codec: ${JSON.stringify(codec)}, optimizeForLatency: true });
