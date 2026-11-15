@@ -208,7 +208,7 @@ import XCTest
         var swipes = 0
         // Toward older, until the window has slid well past its bound.
         while (app.probeValue("pages.older") ?? 0) < Workload.olderPages, swipes < 600 {
-            list.fling(older: true)
+            list.fling(older: true, velocity: Workload.readingFlingVelocity)
             swipes += 1
         }
         let older = app.probeValue("pages.older") ?? 0
@@ -217,7 +217,7 @@ import XCTest
         // Back toward live for a few pages: the window slides the other way.
         swipes = 0
         while (app.probeValue("pages.newer") ?? 0) < Workload.newerPages, swipes < 300 {
-            list.fling(older: false)
+            list.fling(older: false, velocity: Workload.readingFlingVelocity)
             swipes += 1
         }
         XCTAssertGreaterThanOrEqual(app.probeValue("pages.newer") ?? 0, Workload.newerPages, "newer pages read")
@@ -361,6 +361,8 @@ enum Workload {
     /// Older pages read: about 5,000 items, two and a half times the window's bound.
     static let olderPages = 25.0
     static let newerPages = 5.0
+    /// Points per second for reading's flings, as a reader racing back through history flings.
+    static let readingFlingVelocity: CGFloat = 20_000
     static let streamingRowUpdatesPer5s = 50.0    // the fixture streams 100 deltas (20 a second)
 }
 
@@ -399,10 +401,12 @@ enum PerfBudget {
 
 extension XCUIElement {
     /// One fast fling, several screens long: toward older rows (down the screen) or newer.
-    func fling(older: Bool) {
+    /// XCUITest waits out each fling's deceleration, about 3 s, so its reach sets how long
+    /// reading 25 pages takes: a page of history is about 20 screens of rows.
+    func fling(older: Bool, velocity: CGFloat = 6_000) {
         let from = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.3 : 0.75))
         let to = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: older ? 0.75 : 0.3))
-        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: XCUIGestureVelocity(6_000), thenHoldForDuration: 0)
+        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: 0)
     }
 }
 
