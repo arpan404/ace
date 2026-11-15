@@ -6,10 +6,11 @@ import XCTest
 @MainActor final class TranscriptEndUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testReadingOlderMessagesStaysVisibleAndStillWhileTheTailStreams() {
+    func testReadingOlderMessagesStaysVisibleAndStillWhileTheTailStreams() async throws {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]
-        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        let tail = try await newest(in: app)
+        XCTAssertTrue(tail.waitForExistence(timeout: 30))
         for _ in 0..<8 { transcript.fling(older: true) }
         XCTAssertTrue(app.descendants(matching: .any)["transcript.paging"].waitForNonExistence(timeout: 15))
         let frame = transcript.frame
@@ -23,26 +24,28 @@ import XCTest
         XCTAssertEqual(visible.frame.minY, y, accuracy: 4, "Reading position must stay still without another gesture")
     }
 
-    func testScrollToEndAfterReadingFarBackShowsTheNewestMessage() {
+    func testScrollToEndAfterReadingFarBackShowsTheNewestMessage() async throws {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]
-        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        let tail = try await newest(in: app)
+        XCTAssertTrue(tail.waitForExistence(timeout: 30))
         // Far enough back that the history window opens and slides older.
         for _ in 0..<40 { transcript.fling(older: true) }
         XCTAssertEqual(transcript.value as? String, "Reading history")
         app.buttons["Scroll to end"].tap()
-        assertAtTheEnd(app, "after reading far back")
+        try await assertAtTheEnd(app, "after reading far back")
     }
 
-    func testScrollToEndAfterReadingAFewScreensUpShowsTheNewestMessage() {
+    func testScrollToEndAfterReadingAFewScreensUpShowsTheNewestMessage() async throws {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]
-        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        let tail = try await newest(in: app)
+        XCTAssertTrue(tail.waitForExistence(timeout: 30))
         for _ in 0..<3 { transcript.fling(older: true) }
         let jump = app.buttons["Scroll to end"]
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.tap()
-        assertAtTheEnd(app, "after reading a few screens up")
+        try await assertAtTheEnd(app, "after reading a few screens up")
     }
 
     /// Scrolled a little way up while the answer streams: Scroll to end shows above the composer
@@ -104,17 +107,17 @@ import XCTest
 
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
-    func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() throws {
+    func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() async throws {
         let app = open("ios-burst")
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let composer = app.textViews["composer.input"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         // Enough work first that the thread is taller than the screen: a short one starts at the top.
-        for _ in 0..<4 { _ = try sendBurst() }
+        for _ in 0..<4 { _ = try await sendBurst() }
         sleep(2)
         for round in 0..<6 {
-            let burst = try sendBurst()
+            let burst = try await sendBurst()
             let note = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Burst \(burst):")).firstMatch
             XCTAssertTrue(note.waitForExistence(timeout: 5), "burst \(burst) arrived")
             sleep(1)
@@ -127,11 +130,11 @@ import XCTest
     /// While the agent works, the connection drops and comes back, and the app goes to the
     /// background and returns (a locked phone, another app): the transcript stays on screen
     /// throughout, never the loading placeholder or an empty feed, and still ends at the newest lines.
-    func testTheTranscriptStaysOnScreenThroughReconnectsWhileTheAgentWorks() throws {
+    func testTheTranscriptStaysOnScreenThroughReconnectsWhileTheAgentWorks() async throws {
         let app = open("ios-burst")
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
-        for _ in 0..<4 { _ = try sendBurst() }
+        for _ in 0..<4 { _ = try await sendBurst() }
         sleep(2)
         var blank: [String] = []
         func watch(_ seconds: TimeInterval, _ phase: String) {
@@ -141,15 +144,15 @@ import XCTest
                 RunLoop.current.run(until: Date().addingTimeInterval(1))
             }
         }
-        _ = try sendBurst()
-        try setOnline(false)
+        _ = try await sendBurst()
+        try await setOnline(false)
         watch(3, "offline")
-        try setOnline(true)
-        _ = try sendBurst()
+        try await setOnline(true)
+        _ = try await sendBurst()
         watch(6, "reconnected")
         XCUIDevice.shared.press(.home)
         sleep(4)
-        let burst = try sendBurst()
+        let burst = try await sendBurst()
         app.activate()
         watch(6, "foreground")
         XCTAssertEqual(blank, [], "the transcript never went back to loading")
@@ -158,27 +161,23 @@ import XCTest
         XCTAssertTrue(note.isHittable, "and it is on screen at the end of the feed")
         screenshot("reconnected-while-working")
     }
-    private func setOnline(_ online: Bool) throws {
-        try post("/control", #"{"online":\#(online)}"#)
+    private func setOnline(_ online: Bool) async throws {
+        try await post("/control", #"{"online":\#(online)}"#)
     }
     /// Asks the fixture for a burst of 30 tool calls on ios-burst; its number.
-    private func sendBurst() throws -> Int {
-        try XCTUnwrap(try post("/review/burst", #"{"size":30}"#)["burst"] as? Int)
+    private func sendBurst() async throws -> Int {
+        let reply = try await post("/review/burst", #"{"size":30}"#)
+        return try XCTUnwrap(reply["burst"] as? Int)
     }
     /// POSTs `body` to the fixture's `path`; its JSON reply.
-    @discardableResult private func post(_ path: String, _ body: String) throws -> [String: Any] {
+    @discardableResult private func post(_ path: String, _ body: String) async throws -> [String: Any] {
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)\(path)")))
         request.httpMethod = "POST"
         request.httpBody = Data(body.utf8)
-        var reply: [String: Any] = [:]
-        let done = expectation(description: "fixture answered \(path)")
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { reply = json }
-            done.fulfill()
-        }.resume()
-        wait(for: [done], timeout: 10)
-        return reply
+        request.timeoutInterval = 10
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
     /// The thread opened with its rows drawn at the live end.
     private func waitForReady(_ transcript: XCUIElement) {
@@ -201,29 +200,69 @@ import XCTest
         XCTAssertGreaterThan(answer.frame.maxY, input.frame.minY - 200, "the end is just above the composer \(when)")
         XCTAssertFalse(jump.exists, "and Scroll to end stays away \(when)")
     }
-    /// The live end is drawn and on screen within a moment, and stays there.
-    private func assertAtTheEnd(_ app: XCUIApplication, _ when: String) {
+    /// The live end is drawn and on screen within a moment, and stays there: the answer's own last
+    /// line sits at the transcript's end, just above the composer, not somewhere under it.
+    private func assertAtTheEnd(_ app: XCUIApplication, _ when: String) async throws {
         let transcript = app.scrollViews["transcript"]
         let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
-        wait(for: [ready], timeout: 10)
-        let message = newest(in: app)
+        await fulfillment(of: [ready], timeout: 10)
+        let message = try await newest(in: app)
         let shown = expectation(for: NSPredicate(format: "exists == true AND hittable == true"), evaluatedWith: message)
-        wait(for: [shown], timeout: 3)
+        await fulfillment(of: [shown], timeout: 3)
+        assertEndAboveTheComposer(app, message, when)
         screenshot("scroll-to-end-\(name)")
         // Still there once the rows above have measured themselves.
         sleep(1)
         XCTAssertTrue(message.isHittable, "the newest message stays on screen \(when)")
+        assertEndAboveTheComposer(app, message, when + ", settled")
         XCTAssertFalse(app.buttons["Scroll to end"].exists, "Scroll to end goes once the end is in view \(when)")
     }
-    /// The caret after the answer streaming at the live end: the newest thing in the thread.
-    private func newest(in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Streaming")).firstMatch
+    /// The answer's bottom edge ends at the feed's end, just above the composer: hit-testing alone
+    /// lets a whole answer overlap the screen while its newest lines are still below, so the edge is
+    /// what says the feed stopped at its end. Only the feed's own furniture may sit under it: the
+    /// transcript's bottom inset and the live pill row, 83 pt on the iPhone 17 Pro, so a bound just
+    /// past that fails for an end left even a line short.
+    private func assertEndAboveTheComposer(_ app: XCUIApplication, _ message: XCUIElement, _ when: String) {
+        let composer = app.textViews["composer.input"]
+        let gap = composer.frame.minY - message.frame.maxY
+        XCTAssertLessThanOrEqual(message.frame.maxY, composer.frame.minY, "the answer's end clears the composer \(when), over by \(-gap) pt")
+        XCTAssertLessThan(gap, 96, "the answer's end sits at the feed's end \(when), \(gap) pt above the composer")
+    }
+    /// The answer at the live end: the thread's own last answer, drawn as `message.answer.<item>`.
+    /// Nothing in the row says it is streaming any more (`67b6b2fb1` took the caret, and its
+    /// "Streaming" label, away), so its place at the end of the thread is what marks it.
+    private func newest(in app: XCUIApplication) async throws -> XCUIElement {
+        app.descendants(matching: .any)["message.answer.\(try await lastAnswer())"]
+    }
+    /// The newest answer item id in the fixture's own view of `ios-stream`: its last answer, which
+    /// is the one streaming. Read from the fixture, not from what the app happens to have drawn, so
+    /// a test that finds its row is a test that reached the thread's real end.
+    private func lastAnswer() async throws -> String {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        guard let url = URL(string: "http://127.0.0.1:\(port)/state?thread=ios-stream") else {
+            throw FixtureProblem("no fixture URL for port \(port)")
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let status = (response as? HTTPURLResponse)?.statusCode else {
+            throw FixtureProblem("the fixture's /state answered without an HTTP status")
+        }
+        guard status == 200 else { throw FixtureProblem("the fixture's /state answered \(status)") }
+        let view: FixtureView
+        do {
+            view = try JSONDecoder().decode(FixtureView.self, from: data)
+        } catch {
+            throw FixtureProblem("couldn't read the fixture's thread: \(error)")
+        }
+        guard let id = view.itemOrder.last(where: { view.items[$0]?.isAnswer == true }) else {
+            throw FixtureProblem("the fixture's ios-stream thread lists no answer")
+        }
+        return id
     }
     private func open(_ threadId: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", threadId]
-        app.launch()
+        app.launchWithArguments()
         // The fixture build asks for notifications on first launch.
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 3) { allow.tap() }
@@ -238,4 +277,22 @@ import XCTest
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
         }
     }
+}
+
+/// The fixture's own view of a thread, cut to what these tests read of it.
+private struct FixtureView: Decodable {
+    struct Item: Decodable {
+        let type: String
+        let role: String?
+        var isAnswer: Bool { type == "message" && role == "assistant" }
+    }
+    /// Oldest first, the thread's newest item last.
+    let itemOrder: [String]
+    let items: [String: Item]
+}
+
+/// What stopped the fixture from naming the thread's newest answer: HTTP, network or decoding.
+private struct FixtureProblem: LocalizedError {
+    let errorDescription: String?
+    init(_ description: String) { errorDescription = description }
 }

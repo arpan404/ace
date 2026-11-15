@@ -203,9 +203,10 @@ export class StatusStore {
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,
+    maxBytes: number,
   ) {
     if (!this.window) throw new Error("Entity windows not initialized");
-    return this.window.page(thread, collection, before, limit);
+    return this.window.page(thread, collection, before, limit, maxBytes);
   }
   retainItemAgents(view: ThreadView): void {
     this.window?.retainAgents(view);

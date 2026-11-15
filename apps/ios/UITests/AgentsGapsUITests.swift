@@ -110,7 +110,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", "ios-elsewhere"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         let group = app.buttons["subagents.rollup"]
         XCTAssertTrue(group.waitForExistence(timeout: 15))
@@ -153,7 +153,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

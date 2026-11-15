@@ -52,7 +52,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9884"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func openMachine(_ app: XCUIApplication) {

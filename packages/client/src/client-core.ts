@@ -240,6 +240,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
             this.#snapshots?.identify(message.hostId);
+            this.#welcomed.resolve();
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -598,8 +599,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   #persistence() {
     const storage = this.#snapshots;
-    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+    return storage
+      ? { storage, scheduler: this.options.scheduler, welcomed: () => this.#welcomed.promise }
+      : undefined;
   }
+  /** Settles at this client's first welcome: kept records are waited for until then. */
+  #welcomed = Promise.withResolvers<void>();
   /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;

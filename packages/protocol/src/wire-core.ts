@@ -181,7 +181,30 @@ export const EntitiesPage = z
       entries: z.array(BackgroundTask).max(200),
     }),
   ])
-  .and(z.object({ seq, threadId: ThreadId, entitiesBefore: seq.positive().nullable() }));
+  .and(
+    z.object({
+      seq,
+      threadId: ThreadId,
+      entitiesBefore: seq.positive().nullable(),
+      /**
+       * Entities of this page too large for any reply (over 32 MiB of JSON), each named in its
+       * place: never dropped, so a reader can say one waits that it cannot show.
+       */
+      tooLarge: z
+        .array(
+          z.object({
+            id: z.string(),
+            /** An interaction's request kind. */
+            kind: z.string().optional(),
+            /** Pending, working or running, as the page's active entities are. */
+            active: z.boolean(),
+            bytes: seq,
+          }),
+        )
+        .max(200)
+        .optional(),
+    }),
+  );
 export type EntitiesPage = z.infer<typeof EntitiesPage>;
 export const CommandResult = z.object({
   issue: ForgeIssueRef.optional(),
@@ -385,8 +408,25 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     threadId: ThreadId,
     collection: EntityCollection,
+    /**
+     * `Number.MAX_SAFE_INTEGER` for the first page, else the `entitiesBefore` of the page before,
+     * passed back as it came. Newer daemons read any other value (an older daemon's cursor, a
+     * snapshot's) as the first page; older daemons read a newer daemon's cursor as their own
+     * first page, so a reader keeps entities by id.
+     */
     before: seq.positive(),
     limit: seq.positive().max(200),
+    /**
+     * The most bytes of entries a page holds (16 KiB to 128 KiB); 128 KiB without it. Older
+     * daemons ignore it. Newer daemons send active entities (pending requests, working agents)
+     * first, page after page, then the rest. An entity larger than this goes alone and whole, so
+     * that page exceeds it by that one entity; one too large for any reply is named in the
+     * page's `tooLarge` instead.
+     */
+    maxBytes: seq
+      .min(16 * 1024)
+      .max(128 * 1024)
+      .optional(),
   }),
   z.object({
     type: z.literal("threads.page"),
