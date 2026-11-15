@@ -24,6 +24,78 @@ export interface RelayCommand {
   sentAt?: number;
 }
 const relayCommands = new Map<string, RelayCommand>();
+/**
+ * Every line the daemon sent on the relay path, with when and a short account of what it held
+ * (reconnect-bytes.ts), and when each hello arrived.
+ */
+export interface SentLine {
+  at: number;
+  type: string;
+  bytes: number;
+  subscriptionId?: string;
+  /** events: payload type → [count, bytes]; and the threads its events were of. */
+  payloads?: Record<string, [number, number]>;
+  threads?: string[];
+  /** threads.patch: how many threads it carried, removed, and their ids. */
+  patched?: number;
+  removed?: number;
+  /** snapshot: its kind, and how many items or threads it held. */
+  view?: { kind: string; items: number; threads: number };
+}
+const sentLines: SentLine[] = [];
+const hellos: number[] = [];
+
+function account(line: string, at: number): SentLine {
+  const type = /^\{"type":"([^"]+)"/.exec(line)?.[1] ?? "?";
+  const sent: SentLine = { at, type, bytes: line.length };
+  if (type !== "events" && type !== "threads.patch" && type !== "snapshot") return sent;
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return sent;
+  }
+  if (typeof value !== "object" || value === null) return sent;
+  const message = value as Record<string, unknown>;
+  if (typeof message.subscriptionId === "string") sent.subscriptionId = message.subscriptionId;
+  if (type === "events" && Array.isArray(message.events)) {
+    const payloads: Record<string, [number, number]> = {};
+    const threads = new Set<string>();
+    for (const event of message.events as Record<string, unknown>[]) {
+      const payload = event.payload as Record<string, unknown> | undefined;
+      const kind =
+        typeof payload?.type === "string"
+          ? payload.type
+          : Array.isArray(event.d)
+            ? "item.delta"
+            : "?";
+      const entry = (payloads[kind] ??= [0, 0]);
+      entry[0]++;
+      entry[1] += JSON.stringify(event).length;
+      if (typeof event.threadId === "string") threads.add(event.threadId);
+    }
+    if (typeof message.threadId === "string") threads.add(message.threadId);
+    sent.payloads = payloads;
+    sent.threads = [...threads];
+  }
+  if (type === "threads.patch") {
+    const threads = message.threads as Record<string, unknown> | undefined;
+    sent.patched = threads ? Object.keys(threads).length : 0;
+    sent.removed = Array.isArray(message.removed) ? message.removed.length : 0;
+    sent.threads = threads ? Object.keys(threads) : [];
+  }
+  if (type === "snapshot") {
+    const view = message.view as Record<string, unknown> | undefined;
+    sent.view = {
+      kind: typeof view?.kind === "string" ? view.kind : "?",
+      items: view?.items && typeof view.items === "object" ? Object.keys(view.items).length : 0,
+      threads:
+        view?.threads && typeof view.threads === "object" ? Object.keys(view.threads).length : 0,
+    };
+  }
+  return sent;
+}
+
 /** What the daemon sent on the relay path, by message type: count and bytes. */
 const relaySent = new Map<string, { count: number; bytes: number }>();
 const epochNow = () => performance.timeOrigin + performance.now();
@@ -31,6 +103,7 @@ const epochNow = () => performance.timeOrigin + performance.now();
 /** The daemon's relay channel received `text` (`in`), or is sending it (`send`, then `sent`). */
 export function recordRelay(kind: "in" | "send" | "sent", text: string): void {
   if (kind === "in") {
+    if (text.startsWith('{"type":"hello"')) hellos.push(epochNow());
     if (!text.startsWith('{"type":"command"')) return;
     const commandId = /"command":\{"id":"([^"]+)"/.exec(text)?.[1];
     if (!commandId) return;
@@ -44,6 +117,7 @@ export function recordRelay(kind: "in" | "send" | "sent", text: string): void {
   }
   for (const line of text.split("\n")) {
     if (kind === "send") {
+      sentLines.push(account(line, epochNow()));
       const type = /^\{"type":"([^"]+)"/.exec(line)?.[1] ?? "?";
       const entry = relaySent.get(type) ?? { count: 0, bytes: 0 };
       entry.count++;
@@ -73,6 +147,8 @@ export function resetProbe(): void {
   deflates.length = 0;
   relayCommands.clear();
   relaySent.clear();
+  sentLines.length = 0;
+  hellos.length = 0;
   gaps.length = 0;
   if (timer) clearTimeout(timer);
   last = performance.now();
@@ -110,5 +186,7 @@ export function readProbe() {
     })),
     relayCommands: [...relayCommands.values()],
     relaySent: Object.fromEntries(relaySent),
+    sentLines,
+    hellos,
   };
 }
