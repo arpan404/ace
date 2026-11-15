@@ -55,6 +55,8 @@ export async function decodeInChromium(
       `--user-data-dir=${profile}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // Loopback is a secure context by the spec; some Chromium builds want it said.
+      `--unsafely-treat-insecure-origin-as-secure=${page.slice(0, -1)}`,
       page,
     ],
     { stdio: "ignore" },
