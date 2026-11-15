@@ -8,6 +8,7 @@ import {
 } from "@/boot/connection.tsx";
 import { MachineCodePrompt } from "@/features/ace-account/index.ts";
 import { ConnectCard } from "./connect-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The one sentence for how opening `name` through the ace account is going. */
 function sentence(status: ConnectionStatus, name: string): string {
@@ -71,8 +72,12 @@ export function AccountMachineScreen(props: {
   const said = sentence(status, account.name);
   const leave = connection.leave;
   return (
-    <ConnectCard labelledBy="connect-title">
-      <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="connect" variant="account-machine" labelledBy="connect-title">
+      <h1
+        id="connect-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         Open {account.name}
       </h1>
       {said && (
