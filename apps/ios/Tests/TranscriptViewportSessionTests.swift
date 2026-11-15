@@ -199,7 +199,7 @@ import Testing
         reading.applyReply(bridgeReply(
             evictedLeading: ["a"], beforeSeq: 1, afterSeq: 99,
             beforeCount: 5, afterCount: 0,
-            blockSeqs: ["a": BlockSeqSpan(first: 1, last: 10)]), operation: "older")
+            blockSeqs: ["a": BlockSeqSpan(first: 1, last: 10)]), operation: "older", now: 0)
         #expect(reading.hasFreshWindowEvidence)
         #expect(reading.isStale == false)
         let first = reading.takeWindowEvidence()
@@ -215,11 +215,11 @@ import Testing
 
     @Test func cachedReplyKeepsStaleUntilCurrentLands() {
         let reading = TranscriptReading()
-        reading.applyReply(bridgeReply(freshness: .cached), operation: "older")
+        reading.applyReply(bridgeReply(freshness: .cached), operation: "older", now: 0)
         #expect(reading.isStale)
-        reading.applyReply(bridgeReply(freshness: .cached), operation: "older")
+        reading.applyReply(bridgeReply(freshness: .cached), operation: "older", now: 0)
         #expect(reading.isStale)
-        reading.applyReply(bridgeReply(freshness: .current), operation: "older")
+        reading.applyReply(bridgeReply(freshness: .current), operation: "older", now: 0)
         #expect(!reading.isStale)
     }
 
