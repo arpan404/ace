@@ -501,3 +501,44 @@ fn a_keyframe_past_the_coupled_cap_still_goes_once_and_the_producer_is_asked_for
     );
     assert!(after[0].bitrate >= 150_000, "never below the floor");
 }
+
+#[test]
+fn a_late_ack_from_a_replaced_view_releases_nothing_of_its_successor() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let mut first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..5 {
+        first.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    // The client resubscribes: a new view of the same target on the same connection.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    // Exactly a full window: 60 units in flight, none dropped.
+    let mut fill = ingest(&mut engine, 1, h264(true, 10, 1, Vec::new()), NOW);
+    for n in 11..70 {
+        fill.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let sent = binaries(&fill).len();
+    assert_eq!(sent, 60, "a full window");
+    // The old view's last ack arrives late: sequences 1 to 5 were its own, never the new view's.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 5, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let mut after: Vec<Effect> = engine.effects().collect();
+    // The next unit still finds the window full: it waits for the new view's own acks.
+    after.extend(ingest(&mut engine, 1, h264(false, 70, 1, Vec::new()), NOW));
+    assert!(
+        binaries(&after).is_empty(),
+        "a stale ack opened the new view's window"
+    );
+}

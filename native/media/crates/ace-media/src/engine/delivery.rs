@@ -160,6 +160,19 @@ pub struct Delivery {
     bytes_out: u64,
     /// The capture time of the unit being delivered.
     stamp: f64,
+    /// The last sequence each connection and target used: a view of a target its connection
+    /// showed before continues after it, so a late ack from the retired view (acks name no view
+    /// on the wire) names sequences the new one never sent, and releases nothing of it.
+    sequences: HashMap<(String, String), u64>,
+}
+
+/// A target's key for `Delivery::sequences`.
+fn target_key(target: &ViewerTarget) -> String {
+    match target {
+        ViewerTarget::Browser { thread_id, .. } => format!("browser/{}", thread_id.get()),
+        ViewerTarget::Screen { session_id } => format!("screen/{}", session_id.get()),
+        ViewerTarget::Device { device_id } => format!("device/{}", device_id.get()),
+    }
 }
 
 fn media(out: &mut Vec<Effect>, connection: &str, message: MediaOut) {
@@ -174,6 +187,15 @@ fn id(value: &str) -> Id {
 }
 
 impl Delivery {
+    /// Removes a view, remembering the last sequence it used for its connection and target.
+    fn retire_view(&mut self, key: &str) -> Option<View> {
+        let view = self.views.remove(key)?;
+        let at = (view.connection.clone(), target_key(&view.target));
+        let last = self.sequences.entry(at).or_default();
+        *last = (*last).max(view.sequence);
+        Some(view)
+    }
+
     pub fn bytes_out(&self) -> u64 {
         self.bytes_out
     }
@@ -215,11 +237,11 @@ impl Delivery {
             .collect();
         let mut sources = Vec::new();
         for key in &replaced {
-            if let Some(old) = self.views.remove(key) {
+            if let Some(old) = self.retire_view(key) {
                 sources.push(old.source);
             }
         }
-        if let Some(old) = self.views.remove(open.viewer.get()) {
+        if let Some(old) = self.retire_view(open.viewer.get()) {
             sources.push(old.source);
         }
         sources.retain(|old| *old != source);
@@ -228,6 +250,11 @@ impl Delivery {
         for old in sources {
             self.replan(&old, now_ms, out);
         }
+        let start = self
+            .sequences
+            .get(&(open.connection.clone(), target_key(&open.target)))
+            .copied()
+            .unwrap_or(0);
         self.views.insert(
             open.viewer.get().to_owned(),
             View {
@@ -245,7 +272,7 @@ impl Delivery {
                 hint_bps: open.hint_bps,
                 encode: None,
                 taking: None,
-                sequence: 0,
+                sequence: start,
                 held: VecDeque::new(),
                 frames: 0,
                 dropped: 0,
@@ -273,7 +300,7 @@ impl Delivery {
     }
 
     pub fn close_view(&mut self, viewer: &str, now_ms: u64, out: &mut Vec<Effect>) {
-        if let Some(view) = self.views.remove(viewer) {
+        if let Some(view) = self.retire_view(viewer) {
             self.replan(&view.source, now_ms, out);
         }
     }
@@ -373,12 +400,14 @@ impl Delivery {
             .collect();
         let mut sources = Vec::new();
         for key in gone {
-            if let Some(view) = self.views.remove(&key) {
+            if let Some(view) = self.retire_view(&key) {
                 sources.push(view.source);
             }
         }
         sources.sort();
         sources.dedup();
+        // The connection is gone for good: nothing of it can be acked again.
+        self.sequences.retain(|(at, _), _| at != connection);
         for source in sources {
             self.replan(&source, now_ms, out);
         }
