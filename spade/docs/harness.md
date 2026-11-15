@@ -9,6 +9,8 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | -------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `user_message`                   | `text`, `context?`                                                       | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                           |
 | `skills_indexed`                 | `text`                                                                   | The skill index, fixed at the first turn                                                                                                                                            |
+| `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, fixed at the first turn ([plugins.md](plugins.md))                                                                                  |
+| `hook_ran`                       | `hook`, `target`, `outcomes[]`                                           | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                        |
 | `memory_indexed`                 | `text`                                                                   | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                         |
 | `question_asked`                 | `reply`, `call_id`, `question`                                           | `ask_user` is waiting for the person's next message (memory.md)                                                                                                                     |
 | `step_finished`                  | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen` | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from |
@@ -97,6 +99,10 @@ tells the model to have an ace agent search on the cheapest model the person has
 Connectors (the person's apps through their own remote MCP servers, [connectors.md](connectors.md))
 are offered the same way: deferred, named `<connector>__<tool>`, risk from their annotations,
 output untrusted, and only to bots the person allowed them.
+
+The person's plugins ([plugins.md](plugins.md)) add rules to the standing instructions, hooks
+at six points of a turn, and their local MCP servers' tools, offered like connectors': deferred,
+named `<plugin>__<tool>`, output untrusted, only to bots the person allowed the plugin.
 
 Each conversation gets a skill index (up to 40 skills by name, manual ones left out) frozen into
 its instructions before its first model call; skills added later are found with `skill_search`.
