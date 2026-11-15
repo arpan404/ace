@@ -7,6 +7,7 @@ mod bots;
 mod cloud_account;
 mod connectors;
 mod memory;
+mod plugins;
 mod skills;
 mod task;
 mod todo;
@@ -27,6 +28,7 @@ pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
 pub use memory::{AskUser, MemoryTool};
+pub use plugins::PluginTools;
 pub use skills::{
     AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
     WriteFuture, body_of,

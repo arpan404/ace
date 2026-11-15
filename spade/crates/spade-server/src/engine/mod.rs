@@ -25,6 +25,7 @@ mod media;
 mod memory;
 mod outbox;
 mod oversight;
+mod plugin_hooks;
 mod retry;
 mod review;
 pub mod roster;
@@ -150,6 +151,8 @@ pub struct Engine {
     teams: crate::teams::Shared,
     /// The bots' computers (ADR 0142), once the server has set them.
     computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
+    /// The person's plugins (ADR 0151, `plugin_hooks`), once the server has set them.
+    plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
@@ -225,6 +228,7 @@ impl Engine {
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
+            plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
             levels: Mutex::default(),

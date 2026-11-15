@@ -279,6 +279,12 @@ async fn drive(
                 if super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
+                if super::plugin_hooks::start_if_needed(engine, id, &events, cli).await {
+                    continue;
+                }
+                if !cli && super::plugin_hooks::before_step(engine, id, &events).await {
+                    continue;
+                }
                 if super::memory::index_if_due(engine, id, &events) {
                     continue;
                 }
@@ -326,6 +332,8 @@ async fn drive(
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop, pause).await {
+                    // A plugin's Stop hook may ask for one more step first (ADR 0151).
+                    Step::Answered if super::plugin_hooks::at_stop(engine, id).await => {}
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,
                         Ok(false) => {}
@@ -348,6 +356,9 @@ async fn drive(
             }
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
+                if super::plugin_hooks::before_calls(engine, id, &reply, &calls).await {
+                    continue;
+                }
                 match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {
                     Handled::Continue => {}
                     Handled::Paused => return Ended::Paused,

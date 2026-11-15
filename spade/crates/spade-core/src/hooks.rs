@@ -241,7 +241,8 @@ pub fn refusal(outcomes: &[HookOutcome]) -> Option<String> {
 /// How a `HookRan` reads to the model, after what it answered; `None` when it adds nothing.
 /// `PreToolUse` answers are read through the call's result and `PreCompact` adds nothing.
 pub fn shown(hook: &str, outcomes: &[HookOutcome]) -> Option<String> {
-    if hook == PRE_TOOL_USE || hook == PRE_COMPACT {
+    // `SessionStart` text is in the standing instructions (`PluginsStarted`).
+    if hook == PRE_TOOL_USE || hook == PRE_COMPACT || hook == SESSION_START {
         return None;
     }
     let parts: Vec<String> = outcomes

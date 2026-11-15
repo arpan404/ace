@@ -21,6 +21,7 @@ export const spadeActivityKinds = [
   "access",
   "spend",
   "cap",
+  "hook",
 ] as const;
 export type SpadeActivityKind = (typeof spadeActivityKinds)[number];
 
@@ -37,6 +38,7 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   access: "Access",
   spend: "Spending",
   cap: "Caps",
+  hook: "Plugins",
 };
 
 export interface SpadeActivityEntry {
@@ -211,6 +213,9 @@ function sentenceOf(entry: SpadeActivityEntry): {
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
     case "cap":
       return { sentence: name === "monthly" ? "Reached its monthly cap" : "Reached its daily cap" };
+    case "hook":
+      // Spade's summary is the whole sentence ("guard's PreToolUse hook refused a call: …").
+      return { sentence: capitalised(entry.summary || "A plugin's hook ran"), detail: "" };
     case undefined:
       return { sentence: name ? words.done : "Did something this app doesn't know" };
   }

@@ -495,6 +495,33 @@ impl ToolSource for AceLink {
 
 const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
 
+/// The person's accepted plugins through the daemon (ADR 0151).
+impl crate::plugins::Daemon for AceLink {
+    fn installed(
+        &self,
+    ) -> crate::plugins::BoxFuture<'_, Result<Vec<spade_ace::plugins::Installed>, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills.plugins().await.map_err(|e| e.to_string())
+        })
+    }
+
+    fn plugin<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> crate::plugins::BoxFuture<'a, Result<spade_ace::plugins::SpadePlugin, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills
+                .plugin_for_spade(name)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
 /// Each bot's browser and screen through the daemon (ADR 0142).
 impl crate::computer::daemon::Daemon for AceLink {
     fn drive<'a>(
