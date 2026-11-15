@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { fontProblems, parseManifest, problem, readabilityProblems } from "./checks.ts";
 import { suitLimits } from "./limits.ts";
+import { regionCss } from "./css/regions.ts";
 import { sanitiseSuitCss } from "./css/sanitise.ts";
 import { suitSchemes } from "./palette.ts";
 
@@ -150,8 +151,9 @@ const assetPaths = (files: Iterable<string>) =>
   new Set([...files].filter((path) => path.startsWith("assets/")));
 
 /**
- * The Suit's sanitised CSS with its asset urls pointing at `url(path)`, or null without
- * suit.css. Refusals are already in the summary's problems (`inspectSuit`).
+ * The Suit's CSS: suit.json's region styles, then suit.css, each sanitised with asset urls
+ * pointing at `url(path)`; null with neither. Refusals are already in the summary's problems
+ * (`inspectSuit`).
  */
 export function suitCss(
   id: string,
@@ -159,8 +161,18 @@ export function suitCss(
   assets: Iterable<string>,
   url: (path: string) => string,
 ): string | null {
-  if (inspected.cssSource === undefined) return null;
-  return sanitiseSuitCss({ id, text: inspected.cssSource, assets: assetPaths(assets), url }).css;
+  const paths = assetPaths(assets);
+  const regions = inspected.manifest?.regions
+    ? regionCss({ id, manifest: inspected.manifest, assets: paths, url }).css
+    : "";
+  const css =
+    inspected.cssSource === undefined
+      ? ""
+      : sanitiseSuitCss({ id, text: inspected.cssSource, assets: paths, url }).css;
+  const text = [regions, css].filter(Boolean).join("\n");
+  return text === "" && inspected.cssSource === undefined && !inspected.manifest?.regions
+    ? null
+    : text;
 }
 
 /** A Suit's summary from the files `plan` let the reader read, and the plan's own problems. */
@@ -181,6 +193,9 @@ export function inspectSuit(
   if (manifest) {
     const present = new Set(files.keys());
     problems.push(...fontProblems(manifest, present));
+    problems.push(
+      ...regionCss({ id, manifest, assets: assetPaths(present), url: (path) => path }).problems,
+    );
     // Readability only counts once the manifest itself holds together.
     if (problems.every((entry) => entry.check !== "schema"))
       problems.push(...readabilityProblems(manifest));

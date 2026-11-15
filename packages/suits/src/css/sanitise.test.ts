@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { suitLimits } from "../limits.ts";
+import { regionCss } from "./regions.ts";
 import { sanitiseSuitCss } from "./sanitise.ts";
 
 const run = (text: string, assets: string[] = ["assets/bg.png", "assets/face.woff2"]) =>
@@ -160,6 +161,18 @@ describe("suit.css rules a Suit may not write", () => {
       /agent-state part/,
     ],
     [
+      "shrinking an agent-state part's text",
+      `[data-part=working-line] { font-size: 0 }`,
+      1,
+      /agent-state part/,
+    ],
+    [
+      "pushing an agent-state part away",
+      `[data-part=approval-strip] { margin-top: -9999px }`,
+      1,
+      /agent-state part/,
+    ],
+    [
       "animating the Working line",
       `[data-part=working-line] { animation: x 1s }`,
       1,
@@ -214,6 +227,37 @@ describe("suit.css rules a Suit may not write", () => {
     expect(result.css).toBe("");
     expect(result.problems).toEqual([
       expect.objectContaining({ check: "css", message: expect.stringMatching(/limit/) }),
+    ]);
+  });
+});
+
+const regions = (style: Record<string, unknown>) =>
+  regionCss({
+    id: "neon",
+    manifest: { regions: style },
+    assets: new Set(["assets/bg.png"]),
+    url: (path) => `/v1/suits/neon/h/g/${path}`,
+  });
+
+describe("region styles in suit.json", () => {
+  it("become the region's custom properties, with asset urls served", () => {
+    const result = regions({
+      sidebar: { background: "url(assets/bg.png) center / cover", shadow: "0 0 12px #f0f" },
+    });
+    expect(result.problems).toEqual([]);
+    expect(result.css).toBe(
+      [
+        `[data-suit="neon"] [data-part="sidebar"]{--suit-sidebar-background:url(/v1/suits/neon/h/g/assets/bg.png)center/cover}`,
+        `[data-suit="neon"] [data-part="sidebar"]{--suit-sidebar-shadow:0 0 12px #f0f}`,
+      ].join("\n"),
+    );
+  });
+
+  it("are refused by suit.css's rules, at their field in suit.json", () => {
+    const result = regions({ rail: { background: "url(https://example.com/a.png)" } });
+    expect(result.css).toBe("");
+    expect(result.problems).toEqual([
+      expect.objectContaining({ check: "css", field: "regions.rail.background" }),
     ]);
   });
 });

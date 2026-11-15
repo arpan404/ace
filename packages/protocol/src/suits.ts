@@ -94,6 +94,22 @@ export const SuitFont = z.union([
 ]);
 export type SuitFont = z.infer<typeof SuitFont>;
 
+/** One CSS value; never a rule or a list of declarations. */
+const SuitCssValue = z
+  .string()
+  .min(1)
+  .max(2000)
+  .regex(/^[^{};]*$/, "one CSS value, without { } or ;");
+
+/** What `SuitManifest.regions` may set for one region; each reads `--suit-<region>-<name>`. */
+export const SuitRegionStyle = z.strictObject({
+  background: SuitCssValue.optional(),
+  border: SuitCssValue.optional(),
+  shadow: SuitCssValue.optional(),
+  backdropFilter: SuitCssValue.optional(),
+});
+export type SuitRegionStyle = z.infer<typeof SuitRegionStyle>;
+
 export const SuitManifest = z.looseObject({
   format: z.literal(suitFormatVersion),
   id: SuitId,
@@ -135,6 +151,11 @@ export const SuitManifest = z.looseObject({
   scenes: SuitScenes.optional(),
   /** How much of each region's scene or background shows through its surface, 0–1. */
   reveal: z.partialRecord(SuitRegion, z.number().min(0).max(1)).optional(),
+  /**
+   * A region's own background, border, shadow and backdrop filter as CSS values, without writing
+   * suit.css. The daemon checks each one by suit.css's rules (urls only into assets/).
+   */
+  regions: z.partialRecord(SuitRegion, SuitRegionStyle).optional(),
 });
 export type SuitManifest = z.infer<typeof SuitManifest>;
 

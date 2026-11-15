@@ -121,16 +121,15 @@ export const isAnimation = (property: string) => property.toLowerCase().startsWi
 
 /**
  * What a rule whose subject is a protected part (`protectedSuitParts`) may still set: its frame
- * (spacing, corners, border, type). Visibility, colour, size, motion and paint stay ace's.
+ * (padding, corners, border) and its typeface. Size, spacing that could push it away, visibility,
+ * colour, motion and paint stay ace's.
  */
 const framing = [
   /^padding(-|$)/,
-  /^margin(-|$)/,
-  /^gap$|^row-gap$|^column-gap$/,
   /^border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-(width|style|color))?$/,
   /^border(-(top|bottom|start|end)(-(left|right|start|end))?)?-radius$/,
-  /^font(-|$)/,
-  /^letter-spacing$|^word-spacing$|^line-height$|^text-transform$|^font-variant/,
+  /^font-(family|weight|style|stretch)$/,
+  /^text-transform$/,
   /^--suit-/,
 ];
 export const framesOnly = (property: string) =>
