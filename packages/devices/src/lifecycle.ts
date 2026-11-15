@@ -7,7 +7,8 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
-import type { DeviceMedia } from "./media-paths.ts";
+import { withMediaWant, type DeviceMedia } from "./media-paths.ts";
+import type { ScreenStreamSettings } from "@ace/protocol";
 
 export interface LifecycleOptions {
   platform: DevicePlatform;
@@ -34,6 +35,8 @@ export interface LifecycleOwner {
   authorize(session: DeviceSession, actor: Actor): void;
   /** A failure nobody asked about (a live view ending on its own), for the daemon log. */
   log(message: string, session: DeviceSession, error: unknown): void;
+  /** ace-media's plan for the device's views, as one stream request (`source.want`, D1). */
+  mediaWant?(session: DeviceSession, settings: ScreenStreamSettings): void;
 }
 function noop() {}
 
@@ -95,7 +98,11 @@ export async function startDevice(
       signal: controller.signal,
       platform: options.platform,
       ...(options.screen ? { screen: options.screen } : {}),
-      ...(options.media ? { media: options.media } : {}),
+      ...(options.media
+        ? {
+            media: withMediaWant(options.media, (settings) => owner.mediaWant?.(session, settings)),
+          }
+        : {}),
       runtime: options.runtime,
       env: options.env,
       publish(frame) {

@@ -8,6 +8,8 @@ import type {
 import { PathMerge } from "@ace/media/path-merge";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import type { SourceKind } from "@ace/media/routes";
+import type { ScreenStreamSettings } from "@ace/protocol";
+import { wantedStreamSettings } from "@ace/screen";
 import type { VideoUnit } from "./scrcpy-video.ts";
 
 /**
@@ -23,6 +25,26 @@ import type { VideoUnit } from "./scrcpy-video.ts";
 
 /** Where device sources are opened in ace-media: the daemon's shared sources. */
 export type DeviceMedia = { attach(producer: IngestProducer): IngestSource };
+
+/**
+ * A device's media, with every producer it attaches carrying ace-media's plan for the device's
+ * views (`source.want`, D1) to `want` as one stream request: a device runs one stream.
+ */
+export function withMediaWant(
+  media: DeviceMedia,
+  want: (settings: ScreenStreamSettings) => void,
+): DeviceMedia {
+  return {
+    attach: (producer) =>
+      media.attach({
+        ...producer,
+        want: (encodes) => {
+          const settings = wantedStreamSettings(encodes);
+          if (settings) want(settings);
+        },
+      }),
+  };
+}
 
 /**
  * The producer's answer to a switch: where it sends now, and the last sequence the previous

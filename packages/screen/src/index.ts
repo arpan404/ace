@@ -9,6 +9,7 @@ export { computerUseTools, computerUseHandler } from "./tools.ts";
 
 export { localScreenManager } from "./host.ts";
 export type { ScreenMedia } from "./media-source.ts";
+export { wantedStreamSettings } from "./media-source.ts";
 
 export { installScreenHelper } from "./install.ts";
 export { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";

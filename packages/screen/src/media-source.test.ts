@@ -98,6 +98,7 @@ it("an egress unit without the helper's stamp, or not H.264, is no screen frame"
 function session() {
   const accepted: Frame[] = [];
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
+  const configured: unknown[] = [];
   let producer: IngestProducer | undefined;
   const source = new ScreenMediaSource({
     sessionId: "s1",
@@ -107,6 +108,7 @@ function session() {
       requestV2: async () => ({}),
       request: async (command) => {
         if (command.op !== "stream.configure") return {};
+        configured.push(command.settings);
         const reply = replies.shift() ?? { ingest: "off", boundary: null };
         return { codec: "h264", ...reply, switched: true };
       },
@@ -155,7 +157,7 @@ function session() {
         payload: new Uint8Array(annexB),
       },
     });
-  return { source, accepted, replies, producer: ready, video, still, egress, address };
+  return { source, accepted, replies, configured, producer: ready, video, still, egress, address };
 }
 
 const video = (sequence: number, keyframe = false) => screenFrame(sequence, "h264", keyframe);
@@ -230,4 +232,32 @@ it("a flip back to the helper socket while ace-media still has the old path's un
   s.source.daemonFrame(s.video(8));
   expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   expect(s.source.stale).toBe(0);
+});
+
+it("ace-media's plan for the views it delivers reaches the helper, within its settings' bounds", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 1280, height: 800, fps: 15, bitrate: 600_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.configured.at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 800,
+    fps: 15,
+    bitrate: 600_000,
+  });
+  // A thin link's plan below the helper's bounds is held to them, never refused.
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 32, height: 20, fps: 5, bitrate: 50_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.configured.at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 64,
+    maxHeight: 64,
+    fps: 5,
+    bitrate: 128_000,
+  });
 });

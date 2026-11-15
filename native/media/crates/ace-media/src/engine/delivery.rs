@@ -39,6 +39,13 @@ pub const RATE_FLOOR: f64 = 150_000.0;
 const RTT_GUESS_MS: f64 = 100.0;
 /// What the bytes in flight may hold beyond one round trip (ADR 0149 decision 2).
 const SLACK_MS: f64 = 300.0;
+/// ADR 0149's coupled keyframe cap: a keyframe is at most about this long at the view's rate.
+const KEYFRAME_SECONDS: f64 = 0.5;
+/// A keyframe this far over the cap reconfigures its producer; each one within it lets the rate
+/// back up by this step.
+const KEYFRAME_SLACK: f64 = 1.25;
+/// The most one oversized keyframe cuts its encode's rate to.
+const KEYFRAME_CUT_FLOOR: f64 = 0.25;
 /// The bytes in flight a view is held to: at least one small unit, at most the fanout's window.
 const MIN_BUDGET: usize = 16 * 1024;
 const MAX_BUDGET: usize = 8 * 1024 * 1024;
@@ -121,6 +128,9 @@ struct SourceFacts {
     keyframes: HashMap<u32, u64>,
     /// The encodes the producer actually sends: coded size, codec and when last seen.
     seen: HashMap<u32, Seen>,
+    /// Encodes whose keyframes outgrew the coupled cap: the share of the plan's bit rate they
+    /// are asked for until their keyframes fit again.
+    cut: HashMap<u32, f64>,
 }
 
 struct Seen {
@@ -539,6 +549,9 @@ impl Delivery {
                 self.replan(source, now_ms, out);
             }
         }
+        if frame.kind == 1 && frame.flags & 1 != 0 && self.keyframe_sized(source, frame) {
+            self.replan(source, now_ms, out);
+        }
         let keys: Vec<String> = self
             .views
             .iter()
@@ -655,6 +668,37 @@ impl Delivery {
             self.bytes_out += sent;
             self.events(key, events, now_ms, out);
         }
+    }
+
+    /// A keyframe against ADR 0149's coupled cap for the views taking its encode (about half a
+    /// second of their share of the link): one far over it cuts the rate its producer is asked
+    /// for, so its next keyframes are smaller; each one within it lets the rate back up. The
+    /// oversized one still goes (an empty window takes any unit). True when the cut changed.
+    fn keyframe_sized(&mut self, source: &str, frame: &MediaFrame) -> bool {
+        let rate = self
+            .views
+            .values()
+            .filter(|v| v.source == source && v.taking == Some(frame.encode))
+            .map(|v| carried(v) * self.share(&v.session))
+            .fold(f64::INFINITY, f64::min);
+        if !rate.is_finite() {
+            return false;
+        }
+        let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
+        let size = frame.payload.len() as f64;
+        let facts = self.sources.entry(source.to_owned()).or_default();
+        let before = facts.cut.get(&frame.encode).copied().unwrap_or(1.0);
+        let after = if size > cap * KEYFRAME_SLACK {
+            (before * cap / size).clamp(KEYFRAME_CUT_FLOOR, 1.0)
+        } else {
+            (before * KEYFRAME_SLACK).min(1.0)
+        };
+        if after >= 1.0 {
+            facts.cut.remove(&frame.encode);
+        } else {
+            facts.cut.insert(frame.encode, after);
+        }
+        (after - before).abs() > f64::EPSILON
     }
 
     fn events(&mut self, key: &str, events: Vec<Event>, now_ms: u64, out: &mut Vec<Effect>) {
@@ -799,13 +843,14 @@ impl Delivery {
                 .filter_map(|(viewer, _)| budgets.get(viewer))
                 .copied()
                 .fold(f64::INFINITY, f64::min);
-            let bitrate = if budget.is_finite() {
-                f64::from(encode.bitrate)
-                    .min(budget.max(RATE_FLOOR))
-                    .round() as u32
+            let budgeted = if budget.is_finite() {
+                f64::from(encode.bitrate).min(budget.max(RATE_FLOOR))
             } else {
-                encode.bitrate
+                f64::from(encode.bitrate)
             };
+            // An encode whose keyframes outgrew the coupled cap is asked for less until they fit.
+            let cut = facts.cut.get(&id).copied().unwrap_or(1.0);
+            let bitrate = (budgeted * cut).max(RATE_FLOOR.min(budgeted)).round() as u32;
             wanted.push(EncodeSpec {
                 id,
                 codec: encode.codec.clone(),

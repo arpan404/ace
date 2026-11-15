@@ -58,6 +58,28 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
   }
 }
 
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(high, Math.max(low, Math.round(value)));
+
+/**
+ * ace-media's plan for a stream's views (`source.want`) as one stream request, for a producer
+ * that runs one stream (the screen helper, a device): the largest wanted encode, held to what
+ * `stream.configure` takes. Undefined for an empty plan.
+ */
+export function wantedStreamSettings(
+  encodes: readonly { width: number; height: number; fps: number; bitrate: number }[],
+): ScreenStreamSettings | undefined {
+  const encode = encodes.toSorted((a, b) => b.width * b.height - a.width * a.height)[0];
+  if (!encode) return undefined;
+  return {
+    codec: "h264",
+    maxWidth: clamp(encode.width, 64, 3840),
+    maxHeight: clamp(encode.height, 64, 3840),
+    fps: clamp(encode.fps, 1, 60),
+    bitrate: clamp(encode.bitrate, 128_000, 20_000_000),
+  };
+}
+
 export type ScreenMediaSourceOptions = {
   sessionId: string;
   helper: HelperPort;
@@ -114,6 +136,12 @@ export class ScreenMediaSource {
       keyframe: () => void options.helper.request({ op: "stream.keyframe" }).catch(() => {}),
       // ace-media's end marker for a path, after its last unit.
       pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
+      // ace-media's plan for the views it delivers (D1): the helper runs one encode, the
+      // largest wanted, held to what `stream.configure` takes.
+      want: (encodes) => {
+        const settings = wantedStreamSettings(encodes);
+        if (settings) void this.configure(settings).catch(() => {});
+      },
     });
   }
 

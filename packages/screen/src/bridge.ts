@@ -345,7 +345,7 @@ export function screenConnection(
           case "stream.configure": {
             // A view ace-media delivers is planned there at the size it asks for.
             const mediaViewer = delivered.get(operation.sessionId);
-            if (mediaViewer)
+            if (mediaViewer) {
               peer.delivery?.port()?.configure(
                 mediaViewer,
                 viewViewport({
@@ -355,6 +355,11 @@ export function screenConnection(
                 }),
                 false,
               );
+              // The helper runs ace-media's plan for that view (`source.want`): this request
+              // only resizes the view there, never reconfiguring the helper against it.
+              data = { codec: operation.settings.codec };
+              break;
+            }
             // The view's request, with its bit rate held to what its link carries.
             const follow = follows.get(operation.sessionId);
             data = follow

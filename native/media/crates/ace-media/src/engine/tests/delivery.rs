@@ -452,3 +452,52 @@ fn one_connection_holds_one_view_of_a_target_and_acks_reach_it() {
         "the acked view takes the next keyframe"
     );
 }
+
+#[test]
+fn a_keyframe_past_the_coupled_cap_still_goes_once_and_the_producer_is_asked_for_less() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A 400 kbit/s link: video's share is 280 kbit/s, so a keyframe should be at most about
+    // half a second of it, 17.5 KB.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The first is acked: the window is empty.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 1, "video": true })
+            .to_string(),
+        NOW,
+    );
+    engine.effects().for_each(drop);
+    // The producer sends a 500 KB keyframe all the same.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let effects = ingest(&mut engine, 1, big, NOW);
+    // An empty window takes it, so nothing deadlocks...
+    assert!(
+        !binaries(&effects).is_empty(),
+        "the oversized keyframe still went"
+    );
+    // ...and the producer is reconfigured to make smaller ones.
+    let Some(after) = wants(&effects).pop() else {
+        panic!("the producer was not asked for less");
+    };
+    assert!(
+        after[0].bitrate < before[0].bitrate,
+        "{} vs {}",
+        after[0].bitrate,
+        before[0].bitrate
+    );
+    assert!(after[0].bitrate >= 150_000, "never below the floor");
+}
