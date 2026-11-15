@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PictureScale,
   framesBpp,
+  keyframeBpp,
   keyframeSeconds,
   readableSide,
   stepNeeds,
@@ -54,11 +55,10 @@ describe("the picture and frame rate a link carries", () => {
     expect(steps.at(-1)?.scale).toBeLessThan(readableSide / 2560);
   });
 
-  it("a picture already near readable size keeps its pixels and loses frames", () => {
-    const small = { ...at(450e3, 0), pixels: 1170 * 720, side: 1170 };
-    const step = new PictureScale().update(small);
-    expect(step.scale).toBe(1);
-    expect(step.fps).toBeLessThan(15);
+  it("a picture already near readable size keeps 15 fps at full size on a link that carries it", () => {
+    // 1170 x 720 at 15 fps: 0.25 Mbit/s of motion, and its keyframe within half a second.
+    const small = { ...at(260e3, 0), pixels: 1170 * 720, side: 1170 };
+    expect(new PictureScale().update(small)).toEqual({ scale: 1, fps: 15 });
   });
 
   it("while the rate is still probing, the picture shrinks first and keeps 60 fps", () => {
@@ -73,7 +73,7 @@ describe("the picture and frame rate a link carries", () => {
     expect(stepNeeds(pixels, step)).toBeLessThanOrEqual(400_000);
     expect(carried(400_000, step)).toBeGreaterThanOrEqual(framesBpp(step.fps));
     // A keyframe of the picture fits half a second of the link.
-    expect(pixels * step.scale ** 2 * 0.25).toBeLessThanOrEqual(400_000 * keyframeSeconds);
+    expect(pixels * step.scale ** 2 * keyframeBpp).toBeLessThanOrEqual(400_000 * keyframeSeconds);
   });
 
   it("a link that falls short for a second gets a smaller step; a brief dip doesn't", () => {

@@ -21,8 +21,13 @@
 export const keepFramesBpp = 0.02;
 /** The frame rates a picture steps through, before it shrinks. */
 export const frameRates = [60, 30, 15, 8, 5] as const;
-/** A keyframe of text costs about this many bits a pixel, at a quantizer that keeps it readable. */
-export const keyframeBpp = 0.25;
+/**
+ * A keyframe is held to about this many bits a pixel within `keyframeSeconds` of the link. The
+ * quantizer codes it coarse enough to fit (`quantizer-control.ts`) and the deltas after it
+ * sharpen the picture; 0.15 keeps 15 fps of a readable picture on a 1.6 Mbit/s 3G link where
+ * 0.25 held it at 5 fps (measured on `3g-1600`, 2026-11-15).
+ */
+export const keyframeBpp = 0.15;
 /** A keyframe takes at most this long to send at the link's rate (ADR 0149 §3). */
 export const keyframeSeconds = 0.5;
 /** Each size step is this much of the one above it, per side. */
@@ -67,11 +72,13 @@ export interface PictureLink {
 }
 
 /**
- * Bits per pixel per frame at a lower frame rate: each frame carries more of the motion, so it
- * costs more, though less than in proportion.
+ * Bits per pixel per frame a step needs: the same at every frame rate. In quantizer mode the
+ * encoder keeps every frame it is given and codes it coarser, so fewer frames don't need more
+ * bits each to be kept; a lower frame rate simply spends the link on fewer of them. (Weighting
+ * low rates up, by √(60/fps), held `3g-1600` at 5–6 fps; without it, 12–13.)
  */
-export function framesBpp(fps: number): number {
-  return keepFramesBpp * Math.sqrt(60 / fps);
+export function framesBpp(_fps: number): number {
+  return keepFramesBpp;
 }
 
 /** The bits per second a step needs: its frames, and its keyframe within `keyframeSeconds`. */

@@ -66,7 +66,7 @@ test("following a link re-applies the request only when the cap moved by more th
   expect(applied).toHaveLength(2);
 });
 
-test("a phone view on a thin measured link drops frames first and keeps its size", async () => {
+test("a phone view on a thin measured link drops to 15 fps first and keeps its size", async () => {
   let rate = 16_000_000;
   const { follow, applied, advance } = following(() => rate);
   await follow.ask(asked);
@@ -83,9 +83,8 @@ test("a phone view on a thin measured link drops frames first and keeps its size
   follow.tick();
   advance(1_000);
   follow.tick();
-  // Below 15 fps: first a smaller picture, still readable on its long side, then fewer frames.
-  expect(applied.at(-1)).toMatchObject({ bitrate: 400_000 });
-  expect(applied.at(-1)?.fps).toBeLessThan(15);
+  // 15 fps of a smaller picture, still readable on its long side, rather than fewer frames.
+  expect(applied.at(-1)).toMatchObject({ bitrate: 400_000, fps: 15 });
   expect(applied.at(-1)?.maxWidth).toBeLessThan(1440);
   expect(applied.at(-1)?.maxHeight).toBeGreaterThanOrEqual(1152);
 });

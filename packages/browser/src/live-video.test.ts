@@ -4,6 +4,7 @@ import type { CaptureViewer } from "./capture-policy.ts";
 import { LiveVideo } from "./live-video.ts";
 import type { MediaLinkHint } from "@ace/protocol";
 import type { VideoEncode } from "./video-policy.ts";
+import { keyframeBpp } from "./video-scale.ts";
 
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
 
@@ -57,12 +58,13 @@ describe("the first picture a viewer gets", () => {
     expect(encode?.bitrate).toBeLessThanOrEqual(1_500_000);
   });
 
-  it("a viewer whose client says it is on 3G starts at a low step: fewer frames first", async () => {
+  it("a viewer whose client says it is on 3G starts at a low step: 15 fps of a readable picture", async () => {
     const encode = await firstEncode(false, { effectiveType: "3g" });
-    expect(encode?.fps).toBe(5);
+    expect(encode?.fps).toBe(15);
     expect(encode?.bitrate).toBe(500_000);
+    expect(Math.max(encode?.width ?? 0, encode?.height ?? 0)).toBeGreaterThanOrEqual(1152);
     // Its keyframe fits half a second of the link: the picture is smaller, not mushy.
-    expect((encode?.width ?? 0) * (encode?.height ?? 0) * 0.25).toBeLessThanOrEqual(250_000);
+    expect((encode?.width ?? 0) * (encode?.height ?? 0) * keyframeBpp).toBeLessThanOrEqual(250_000);
   });
 });
 

@@ -7,7 +7,8 @@
 //! allocates.
 pub const KEEP_FRAMES_BPP: f64 = 0.02;
 pub const FRAME_RATES: [f64; 5] = [60.0, 30.0, 15.0, 8.0, 5.0];
-pub const KEYFRAME_BPP: f64 = 0.25;
+/// About this many bits a pixel per keyframe within `KEYFRAME_SECONDS` (video-scale.ts).
+pub const KEYFRAME_BPP: f64 = 0.15;
 pub const KEYFRAME_SECONDS: f64 = 0.5;
 const SIZE_STEP: f64 = 0.84;
 const SIZE_STEPS: i32 = 6;
@@ -29,8 +30,10 @@ pub struct PictureLink {
     pub now: f64,
     pub probing: bool,
 }
-pub fn frames_bpp(fps: f64) -> f64 {
-    KEEP_FRAMES_BPP * (60.0 / fps).sqrt()
+/// Bits per pixel per frame a step needs: the same at every frame rate, as the quantizer keeps
+/// every frame it is given (video-scale.ts).
+pub fn frames_bpp(_fps: f64) -> f64 {
+    KEEP_FRAMES_BPP
 }
 /// Size steps at 15 fps that keep a picture of this longer side at least `READABLE_SIDE`.
 pub fn readable_steps(side: f64) -> usize {
