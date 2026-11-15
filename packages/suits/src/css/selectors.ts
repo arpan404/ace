@@ -40,6 +40,8 @@ const selectorPseudoClasses = new Set(["not", "is", "where", "has"]);
 const pseudoElements = new Set([
   "before",
   "after",
+  // An answer's opening letter, for drop caps and illuminated initials.
+  "first-letter",
   "placeholder",
   "selection",
   "-webkit-scrollbar",

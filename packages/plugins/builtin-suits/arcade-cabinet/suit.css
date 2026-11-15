@@ -244,14 +244,31 @@
   --suit-l: var(--suit-glow);
   --suit-f: var(--color-active);
 }
+/* The open stage gets the cabinet's cursor: a big ▶ outlined in ink, blinking like a menu's. */
+[data-part="thread-row"][data-state="active"] {
+  padding-left: 32px;
+}
 [data-part="thread-row"][data-state="active"]::before {
   content: "";
-  left: 5px;
+  z-index: 1;
+  left: 9px;
   top: 50%;
-  width: 10px;
-  height: 14px;
-  margin-top: -7px;
-  background: url("assets/sprites/cursor.svg") no-repeat center / 10px 14px;
+  width: 14px;
+  height: 20px;
+  margin-top: -10px;
+  background: url("assets/sprites/cursor.svg") no-repeat center / 14px 20px;
+  filter: drop-shadow(2px 0 0 #07061a) drop-shadow(0 2px 0 #07061a) drop-shadow(0 0 4px #38e0d4);
+  animation: cursor-blink 1.1s steps(1, end) infinite;
+}
+@keyframes cursor-blink {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0.55;
+  }
 }
 
 [data-part="thread-title"] {
@@ -459,6 +476,11 @@
     -2px 0 0 0 var(--suit-ink),
     2px 0 0 0 var(--suit-ink);
 }
+/* A settled step shows only its pixel sprite; a working or failed one keeps ace's glyph too. */
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"] {
+  display: none;
+}
 [data-part="tool-row"][data-variant="read"]::before {
   background-image: url("assets/sprites/icon-read.svg");
 }
@@ -632,6 +654,64 @@
   font-family: var(--font-sans);
 }
 
+/* A group of steps is a level header in the HUD's pixel face; the queue above the composer is the
+   NEXT UP list, framed in pixels, each waiting message one numbered line. */
+[data-part="tool-group-header"] {
+  border-radius: 0;
+  font-family: var(--suit-display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-link);
+  box-shadow: inset 0 -2px 0 0 var(--suit-edge);
+}
+[data-part="tool-group-header"]:hover,
+[data-part="tool-group-header"][data-state="open"] {
+  color: var(--color-foreground);
+  background: var(--color-hover);
+  box-shadow: inset 0 -2px 0 0 var(--suit-glow);
+}
+[data-part="composer-strip"][data-variant="queue"]::after {
+  content: "";
+  position: absolute;
+  inset: 4px 4px 14px;
+  box-shadow:
+    inset 0 2px 0 0 var(--suit-edge),
+    inset 0 -2px 0 0 var(--suit-edge),
+    inset 2px 0 0 0 var(--suit-edge),
+    inset -2px 0 0 0 var(--suit-edge);
+  pointer-events: none;
+}
+[data-part="queue-strip"] {
+  font-family: var(--suit-display);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-link);
+  counter-reset: next;
+}
+[data-part="queue-item"] {
+  counter-increment: next;
+  border-radius: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-foreground);
+}
+[data-part="queue-item"]::before {
+  content: counter(next) ".";
+  margin-right: 6px;
+  font-family: var(--suit-display);
+  font-size: 9px;
+  color: var(--color-faint-foreground);
+}
+[data-part="queue-item"]:hover,
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--color-hover);
+  box-shadow: inset 2px 0 0 0 var(--suit-glow);
+}
+
 /* ------------------------------------------------------------------ controls */
 
 [data-part="button"] {
@@ -704,12 +784,75 @@
 [data-part="slider"] {
   border-radius: 0;
 }
+/* Switches are a two-position pixel toggle: a dark slot, and a square block that lights when on. */
 [data-part="switch"] {
+  background: var(--color-code);
   box-shadow:
     0 -2px 0 0 var(--suit-ink),
     0 2px 0 0 var(--suit-ink),
     -2px 0 0 0 var(--suit-ink),
-    2px 0 0 0 var(--suit-ink);
+    2px 0 0 0 var(--suit-ink),
+    inset 0 0 0 2px var(--suit-edge);
+}
+[data-part="switch"][data-state="checked"] {
+  background: #1e9e96;
+  box-shadow:
+    0 -2px 0 0 var(--suit-ink),
+    0 2px 0 0 var(--suit-ink),
+    -2px 0 0 0 var(--suit-ink),
+    2px 0 0 0 var(--suit-ink),
+    inset 0 0 0 2px var(--suit-glow);
+}
+[data-part="switch-thumb"] {
+  border-radius: 0;
+  background: #cfcaf5;
+  box-shadow:
+    inset 0 2px 0 0 #f2efff,
+    inset 0 -2px 0 0 #6a62c8;
+}
+[data-part="switch"][data-state="checked"] [data-part="switch-thumb"] {
+  background: #f2efff;
+  box-shadow:
+    inset 0 2px 0 0 #ffffff,
+    inset 0 -2px 0 0 #38e0d4;
+}
+/* The slider's knob is a square block with a pixel bevel. */
+[data-part="slider-thumb"] {
+  border-radius: 0;
+  background: #f2efff;
+  box-shadow:
+    0 0 0 2px var(--suit-ink),
+    inset 0 -3px 0 0 #6a62c8,
+    inset 0 3px 0 0 #ffffff;
+}
+/* One-of-n is a row of cabinet buttons in a pixel frame; the chosen one is lit cyan. */
+[data-part="segmented"] {
+  border-radius: 0;
+  background: var(--color-code);
+  box-shadow:
+    0 -2px 0 0 var(--suit-ink),
+    0 2px 0 0 var(--suit-ink),
+    -2px 0 0 0 var(--suit-ink),
+    2px 0 0 0 var(--suit-ink),
+    inset 0 0 0 2px var(--suit-edge);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 0;
+  background: var(--color-tint);
+  box-shadow:
+    inset 0 2px 0 0 #9df5ee,
+    inset 0 -2px 0 0 #1e9e96;
+  transition-timing-function: steps(3);
+}
+[data-part="segment"] {
+  border-radius: 0;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-part="segment"][data-state="selected"] {
+  color: var(--color-tint-foreground);
 }
 
 [data-part="tabs"] {

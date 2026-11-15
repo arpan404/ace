@@ -1,0 +1,204 @@
+{
+  "format": 1,
+  "id": "quest-journal",
+  "name": "Quest Journal",
+  "description": "An adventurer's journal by candlelight: a quest log with wax seals, inked pages with illuminated initials, a ledger of deeds, a notice board of bounties and a banner when a quest is done.",
+  "version": "1",
+  "base": "ace",
+  "dark": {
+    "canvas": "#1E1712",
+    "sidebar": "#17110D",
+    "surface": "#271E17",
+    "raised": "#2F251C",
+    "hover": "#382C22",
+    "active": "#43352A",
+    "code": "#16110D",
+    "border": "#3D3025",
+    "borderStrong": "#614C38",
+    "text": "#F1E4C8",
+    "muted": "#D6C3A0",
+    "subtle": "#B09A78",
+    "faint": "#857257",
+    "accent": "#C99252",
+    "accentHover": "#D9A566",
+    "accentFg": "#1E1712",
+    "accentText": "#E2B47A",
+    "diffAdd": "#232A17",
+    "diffAddFg": "#B8CF86",
+    "diffDel": "#33191A",
+    "diffDelFg": "#E89A8A",
+    "syntax": {
+      "kw": "#E0A878",
+      "fn": "#E6CF8E",
+      "str": "#B9C98C",
+      "num": "#E8B48E",
+      "type": "#D4B6E0",
+      "com": "#9D8A6C",
+      "punc": "#C9B796"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F2E7CF",
+    "sidebar": "#FCF8EF",
+    "surface": "#F7EEDA",
+    "raised": "#FBF4E4",
+    "hover": "#EADCBD",
+    "active": "#E0CEA8",
+    "code": "#ECDFC2",
+    "border": "#D8C49E",
+    "borderStrong": "#B39A72",
+    "text": "#2B1F15",
+    "muted": "#4F3D2C",
+    "subtle": "#6B5640",
+    "faint": "#8E7759",
+    "accent": "#86502A",
+    "accentHover": "#74431F",
+    "accentFg": "#FBF4E4",
+    "accentText": "#74431F",
+    "diffAdd": "#E2E4C2",
+    "diffAddFg": "#4B6420",
+    "diffDel": "#F0D3C6",
+    "diffDelFg": "#9A3A26",
+    "syntax": {
+      "kw": "#8E3E1E",
+      "fn": "#6E4A12",
+      "str": "#4B6420",
+      "num": "#9A4A2A",
+      "type": "#6A3E7A",
+      "com": "#7D6A52",
+      "punc": "#5A4734"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "asset": "assets/fonts/Alegreya.woff2",
+      "family": "Quest Book"
+    },
+    "prose": {
+      "asset": "assets/fonts/Alegreya.woff2",
+      "family": "Quest Book"
+    },
+    "mono": {
+      "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
+    }
+  },
+  "shape": {
+    "radius": 0.5,
+    "border": 1,
+    "density": "comfortable"
+  },
+  "motion": {
+    "speed": 1.2
+  },
+  "layout": {
+    "toolRows": "detailed",
+    "sidebarWidth": 288,
+    "transcriptWidth": 820
+  },
+  "labels": {
+    "composer-placeholder": "Write your next quest…",
+    "empty-transcript": "A blank page awaits the first line",
+    "empty-sidebar": "No quests logged yet",
+    "send": "Seal",
+    "working-word": "Questing"
+  },
+  "ornaments": [
+    {
+      "slot": "sidebar-header",
+      "asset": "assets/ornaments/quest-log-plate.svg"
+    },
+    {
+      "slot": "transcript-top",
+      "asset": "assets/ornaments/headpiece.svg"
+    },
+    {
+      "slot": "empty-state",
+      "asset": "assets/ornaments/map-fragment.svg"
+    },
+    {
+      "slot": "corner-top-left",
+      "asset": "assets/ornaments/corner-top-left.svg"
+    },
+    {
+      "slot": "corner-top-right",
+      "asset": "assets/ornaments/corner-top-right.svg"
+    },
+    {
+      "slot": "corner-bottom-left",
+      "asset": "assets/ornaments/corner-bottom-left.svg"
+    },
+    {
+      "slot": "corner-bottom-right",
+      "asset": "assets/ornaments/corner-bottom-right.svg"
+    }
+  ],
+  "scenes": {
+    "app": "scene.js",
+    "celebration": "celebration.js"
+  },
+  "reveal": {
+    "app": 0.9,
+    "transcript": 0.55,
+    "page": 0.4,
+    "header": 0.5,
+    "rail": 0
+  },
+  "terminal": {
+    "dark": {
+      "background": "#16110D",
+      "foreground": "#EADBBE",
+      "cursor": "#D9A566",
+      "cursorAccent": "#16110D",
+      "selection": "#C9925255",
+      "ansi": {
+        "black": "#2F251C",
+        "red": "#E0806E",
+        "green": "#A9C27A",
+        "yellow": "#E6C77A",
+        "blue": "#8FB0D6",
+        "magenta": "#C99AD0",
+        "cyan": "#8CC4B8",
+        "white": "#D6C3A0",
+        "brightBlack": "#857257",
+        "brightRed": "#F0A090",
+        "brightGreen": "#C6DA9C",
+        "brightYellow": "#F2DCA0",
+        "brightBlue": "#B2CCEA",
+        "brightMagenta": "#DDB8E2",
+        "brightCyan": "#AEDCD2",
+        "brightWhite": "#F1E4C8"
+      }
+    },
+    "light": {
+      "background": "#EFE3C8",
+      "foreground": "#2B1F15",
+      "cursor": "#8E5A26",
+      "cursorAccent": "#FBF4E4",
+      "selection": "#8E5A2640",
+      "ansi": {
+        "black": "#2B1F15",
+        "red": "#9A3A26",
+        "green": "#4B6420",
+        "yellow": "#7A5A10",
+        "blue": "#2E5480",
+        "magenta": "#7A3E7A",
+        "cyan": "#2A6A60",
+        "white": "#6B5640",
+        "brightBlack": "#5A4734",
+        "brightRed": "#B04A30",
+        "brightGreen": "#5A7A28",
+        "brightYellow": "#8E6A18",
+        "brightBlue": "#3A6494",
+        "brightMagenta": "#8E4A8E",
+        "brightCyan": "#327A70",
+        "brightWhite": "#4F3D2C"
+      }
+    },
+    "fontSize": 13,
+    "lineHeight": 1.3,
+    "cursorStyle": "bar",
+    "cursorBlink": true
+  }
+}
