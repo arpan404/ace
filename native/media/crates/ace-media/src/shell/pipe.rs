@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Windows: ace-media's private sockets are named pipes. Each is created with a protected DACL
 //! that admits only the current user ([`pipe_dacl`]), refuses remote clients, and claims its
-//! unguessable name as the first instance, so creation fails if anyone got there first. A fresh
-//! instance is created as each connection is accepted, so a client always finds one waiting.
+//! unguessable name as the first instance, so creation fails if anyone got there first. Two
+//! instances always wait, and each accepted one is replaced at once, so a client connecting
+//! while another is being accepted still finds a free instance instead of `ERROR_PIPE_BUSY`.
 #![allow(unsafe_code)]
 use super::listener::{Home, Role, pipe_dacl};
 use std::io;
@@ -25,7 +26,7 @@ pub type Stream = NamedPipeServer;
 
 pub struct Listener {
     name: String,
-    next: NamedPipeServer,
+    waiting: [NamedPipeServer; 2],
     descriptor: Descriptor,
 }
 
@@ -34,20 +35,28 @@ impl Listener {
     pub fn bind(home: &Home, role: Role) -> io::Result<Self> {
         let descriptor = Descriptor::from_sddl(&pipe_dacl(&user_sid()?))?;
         let name = home.address(role);
-        let next = create(&name, true, &descriptor)?;
+        let first = create(&name, true, &descriptor)?;
+        let second = create(&name, false, &descriptor)?;
         Ok(Self {
             name,
-            next,
+            waiting: [first, second],
             descriptor,
         })
     }
 
-    /// The next connected instance. A new instance is waiting before this returns; if one
-    /// can't be made, the connected instance stays and is handed out on the next call.
+    /// The next connected instance, replaced by a fresh one before this returns. If none can be
+    /// made, the connected instance stays and is handed out on the next call. (Waiting on a
+    /// connect is cancel safe: the connect stays in flight.)
     pub async fn accept(&mut self) -> io::Result<Stream> {
-        let connected = self.next.connect().await;
+        let (index, connected) = {
+            let [a, b] = &self.waiting;
+            tokio::select! {
+                connected = a.connect() => (0, connected),
+                connected = b.connect() => (1, connected),
+            }
+        };
         let fresh = create(&self.name, false, &self.descriptor)?;
-        let used = std::mem::replace(&mut self.next, fresh);
+        let used = std::mem::replace(&mut self.waiting[index], fresh);
         connected.map(|()| used)
     }
 }
@@ -196,7 +205,7 @@ mod tests {
     use tokio::net::windows::named_pipe::ClientOptions;
 
     #[tokio::test]
-    async fn split_connections_carry_bytes_both_ways_and_the_next_client_finds_an_instance() {
+    async fn clients_at_once_all_connect_and_split_connections_carry_bytes_both_ways() {
         let home = match Home::new(&std::env::temp_dir(), std::process::id()) {
             Ok(home) => home,
             Err(error) => panic!("home: {error}"),
@@ -210,6 +219,16 @@ mod tests {
             Listener::bind(&home, Role::Control).is_err(),
             "a second first instance of the same name is refused"
         );
+        // Two producers at once: both find an instance before either is accepted.
+        let early = [
+            ClientOptions::new().open(&name),
+            ClientOptions::new().open(&name),
+        ];
+        assert!(early.iter().all(Result::is_ok), "opens: {early:?}");
+        for _ in 0..2 {
+            assert!(listener.accept().await.is_ok());
+        }
+        drop(early);
         for round in 0u8..3 {
             let client = ClientOptions::new().open(&name);
             let Ok(mut client) = client else {
