@@ -77,7 +77,11 @@ export function relayMediaStreams(options: MediaRelayOptions): OpenMediaRelay {
       )
         return end(mediaCloseCodes.refused);
       events.welcome();
-      while (!ended) events.message(await opened.receiveRaw());
+      for (;;) {
+        const data = await opened.receiveRaw();
+        if (ended) return;
+        events.message(data);
+      }
     })().catch((error: unknown) =>
       end(error instanceof RelayClosedError ? error.code : ended ? 1000 : 1006),
     );

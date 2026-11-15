@@ -23,7 +23,7 @@ export interface WebMedia {
    * How this client reaches the daemon through the relay, from whichever view knows its
    * endpoint; a grant without a `url` opens a relay stream with it, and goes legacy without.
    */
-  useRelay(open: OpenMediaRelay | undefined): void;
+  relayWith(open: OpenMediaRelay | undefined): void;
 }
 
 export interface WebMediaOptions {
@@ -79,7 +79,7 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
   const made: WebMedia = {
     connection,
     route,
-    useRelay: (open) => {
+    relayWith: (open) => {
       relay = open;
     },
   };

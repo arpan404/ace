@@ -247,7 +247,7 @@ export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   useEffect(() => {
     if (!endpoint) return;
     const web = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon);
-    web?.useRelay(mediaRelayFor(endpoint));
+    web?.relayWith(mediaRelayFor(endpoint));
     const media = web?.route;
     const entry = acquire(endpoint, media);
     const follow = () => setSession(entry.session);

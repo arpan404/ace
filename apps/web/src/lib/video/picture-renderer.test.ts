@@ -343,22 +343,24 @@ test("a decoder that keeps answering is never interrupted by the deadline", asyn
   expect(view.acks.filter((ack) => ack.keyframe)).toEqual([]);
 });
 
+/** A platform whose decoder refuses HEVC outright and plays H.264. */
+const playsH264Only: VideoDecoderFactory = (handlers) => {
+  let codec = "";
+  return {
+    configure: (config) => void (codec = config.codec),
+    decode: (chunk) => {
+      if (codec.startsWith("hvc1")) handlers.error(true);
+      else handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} });
+    },
+    close: () => {},
+  };
+};
+
 test("a view that can't play HEVC names it, then plays the same stream once it falls back to H.264", async () => {
   const shown: number[] = [];
   const failed: string[] = [];
-  const factory: VideoDecoderFactory = (handlers) => {
-    let codec = "";
-    return {
-      configure: (config) => void (codec = config.codec),
-      decode: (chunk) => {
-        if (codec.startsWith("hvc1")) handlers.error(true);
-        else handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} });
-      },
-      close: () => {},
-    };
-  };
   const renderer = pictureRenderer<LivePicture>({
-    decoder: factory,
+    decoder: playsH264Only,
     show: (_image, at) => shown.push(at.sequence),
     ack: () => {},
     fallback: (at) => failed.push(at?.codec ?? "none"),

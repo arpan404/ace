@@ -256,7 +256,7 @@ function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
     const web = endpoint.kind === "fake" ? undefined : mediaFor(client);
-    web?.useRelay(mediaRelayFor(endpoint));
+    web?.relayWith(mediaRelayFor(endpoint));
     const media = web?.route;
     entry = {
       session: openSession(endpoint, lastKnown.get(endpoint), media),

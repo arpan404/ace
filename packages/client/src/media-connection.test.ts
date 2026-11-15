@@ -89,8 +89,8 @@ function harness(replies: unknown[], options: { relay?: boolean } = {}) {
     },
     ...(options.relay
       ? {
-          relay: () => (ticket: string, events: MediaRelayEvents) => {
-            const relay: FakeRelay = { ticket, events, sent: [], closed: undefined };
+          relay: () => (presented: string, events: MediaRelayEvents) => {
+            const relay: FakeRelay = { ticket: presented, events, sent: [], closed: undefined };
             relays.push(relay);
             return {
               send: (data: string | Uint8Array) => void relay.sent.push(data),

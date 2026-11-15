@@ -18,7 +18,7 @@ export function WithServices(props: { children: ReactNode; quiet?: boolean }) {
   // A browser view's media connection reaches a relay-only daemon through the relay.
   useEffect(() => {
     const relay = mediaRelayFor(endpoint);
-    if (relay && typeof client.onStream === "function") mediaFor(client).useRelay(relay);
+    if (relay && typeof client.onStream === "function") mediaFor(client).relayWith(relay);
   }, [client, endpoint]);
   const { storage } = useLayout();
   if (state.status === "failed")
