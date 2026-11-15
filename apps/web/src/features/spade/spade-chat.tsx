@@ -10,6 +10,7 @@ import {
   type SpadeAvatar,
   type SpadeChatItem,
   type SpadeHelperStep,
+  type SpadeStep,
   type SpadeProposal,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
@@ -88,6 +89,8 @@ export function SpadeChat(props: {
   onRetry?(text: string): Promise<boolean>;
   /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
   onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
+  /** A reply's steps in Spade's own words and detail, read when its steps line opens. */
+  onStepWords?(steps: readonly SpadeStep[]): Promise<readonly SpadeStep[]>;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -126,6 +129,7 @@ export function SpadeChat(props: {
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onHelperSteps: props.onHelperSteps,
+    onStepWords: props.onStepWords,
   };
   return (
     <div
@@ -190,6 +194,7 @@ interface Handlers {
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
+  onStepWords: ((steps: readonly SpadeStep[]) => Promise<readonly SpadeStep[]>) | undefined;
 }
 
 /**
@@ -350,7 +355,13 @@ function RunItem(props: {
         </div>
       );
     case "steps":
-      return <StepsLine summary={item.summary} steps={item.steps} />;
+      return (
+        <StepsLine
+          summary={item.summary}
+          steps={item.steps}
+          readWords={handlers.onStepWords && (() => handlers.onStepWords?.(item.steps))}
+        />
+      );
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
     case "ask":

@@ -228,39 +228,64 @@ export function BubbleFrame(props: {
 
 /**
  * A reply's steps, folded into one line under it ("Ran 7 commands, wrote a file") that opens to
- * each step, in Spade's words, with the one line of what it touched when Spade gives one. A
- * lone step with no detail is the line alone.
+ * each step. Opening it reads each step in Spade's own words with one line of what it touched
+ * (`readWords`, from the activity log); until that answers, or if it can't, each reads in the
+ * chat's words. A lone step with nothing to read is the line alone.
  */
-export function StepsLine(props: { summary: string; steps: readonly SpadeStep[] }) {
+export function StepsLine(props: {
+  summary: string;
+  steps: readonly SpadeStep[];
+  readWords: (() => Promise<readonly SpadeStep[]> | undefined) | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  // What the log said, by step: steps still arriving read in the chat's words meanwhile.
+  const [said, setSaid] = useState<ReadonlyMap<string, SpadeStep>>(new Map());
+  const read = props.readWords;
+  const readable = read !== undefined && props.steps.some((step) => step.seq !== undefined);
   const [only] = props.steps;
-  // One step with nothing more to say opens to nothing new: it is a line, not a disclosure.
-  if (props.steps.length === 1 && !only?.detail)
+  if (props.steps.length === 1 && !only?.detail && !readable)
     return (
       <p className="ml-1.5 flex h-7 min-w-0 items-center px-2 text-ui text-muted-foreground">
         <span className="truncate">{props.summary}</span>
       </p>
     );
+  const toggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    const opened = event.currentTarget.open;
+    setOpen(opened);
+    if (!opened || !readable) return;
+    void read()?.then(
+      (steps) => setSaid(new Map(steps.map((step) => [step.key, step]))),
+      // The chat's own words still say what happened.
+      () => undefined,
+    );
+  };
   return (
     <Disclosure
       summary={<span className="min-w-0 truncate">{props.summary}</span>}
       summaryClassName="h-7 rounded-full px-2 text-ui text-muted-foreground hover:bg-hover"
       className="ml-1.5 min-w-0 max-w-full"
+      onToggle={toggle}
     >
-      <ol
-        aria-label="Steps"
-        className="mt-1 mb-1 ml-3.5 flex flex-col gap-0.5 border-l border-border pl-3.5"
-      >
-        {props.steps.map((step) => (
-          <li key={step.key} className="flex min-w-0 gap-2 text-ui text-muted-foreground">
-            <span className="shrink-0">{step.line}</span>
-            {step.detail && (
-              <span className="min-w-0 truncate font-mono text-xs leading-5 text-subtle-foreground">
-                {step.detail}
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
+      {open && (
+        <ol
+          aria-label="Steps"
+          className="mt-1 mb-1 ml-3.5 flex flex-col gap-0.5 border-l border-border pl-3.5"
+        >
+          {props.steps.map((step) => {
+            const shown = said.get(step.key) ?? step;
+            return (
+              <li key={step.key} className="flex min-w-0 gap-2 text-ui text-muted-foreground">
+                <span className="shrink-0">{shown.line}</span>
+                {shown.detail && (
+                  <span className="min-w-0 truncate font-mono text-xs leading-5 text-subtle-foreground">
+                    {shown.detail}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </Disclosure>
   );
 }

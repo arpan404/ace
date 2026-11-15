@@ -217,85 +217,85 @@ describe("a reply's steps", () => {
   });
 });
 
-describe("a reply's steps in Spade's words", () => {
-  /**
-   * r1 ran a command (started at seq 3, done at 5) and asked to send an email, which the person
-   * declined (6), so it never started: the log files it at its result (7).
-   */
-  const worked = () => {
-    const c = conversation();
-    c.stored({ type: "reply_started", reply: "r1" });
-    c.stored({
-      type: "step_finished",
-      reply: "r1",
-      text: "",
-      calls: [
-        { id: "a", name: "shell", arguments: {} },
-        { id: "b", name: "send_email", arguments: {} },
-      ],
-    });
-    c.stored({ type: "tool_started", reply: "r1", call_id: "a", name: "shell" });
-    c.stored({ type: "approval_requested", reply: "r1", call_id: "b", name: "send_email" });
-    c.stored({
-      type: "tool_finished",
-      reply: "r1",
-      call_id: "a",
-      name: "shell",
-      content: "",
-      is_error: false,
-    });
-    c.stored({ type: "approval_answered", reply: "r1", call_id: "b", allowed: false });
-    c.stored({
-      type: "tool_finished",
-      reply: "r1",
-      call_id: "b",
-      name: "send_email",
-      content: "The person declined this action.",
-      is_error: true,
-    });
-    c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
-    const steps = c.bubbles().find((bubble) => bubble.kind === "steps");
-    if (steps?.kind !== "steps") throw new Error("no steps");
-    return steps.steps;
-  };
-  // As Spade's activity log answers, newest first: each call filed at the event that logged it.
-  const log = parseSpadeActivity(
-    JSON.stringify({
-      entries: [
-        {
-          id: "8-0",
-          seq: 8,
-          kind: "spend",
-          sentence: "Finished · 2 steps",
-          summary: "2 steps",
-        },
-        {
-          id: "7-0",
-          seq: 7,
-          kind: "tool",
-          name: "send_email",
-          summary: "to: marta@example.com",
-          sentence: "You declined: send an email",
-          detail: "To Marta · Plan",
-          outcome: "declined",
-          reply: "r1",
-        },
-        {
-          id: "3-0",
-          seq: 3,
-          kind: "tool",
-          name: "shell",
-          summary: "gh pr list",
-          sentence: "Ran a command",
-          detail: "gh pr list --state open",
-          outcome: "ok",
-          reply: "r1",
-        },
-      ],
-      more: false,
-    }),
-  );
+/**
+ * r1 ran a command (started at seq 3, done at 5) and asked to send an email, which the person
+ * declined (6), so it never started: the log files it at its result (7).
+ */
+const worked = () => {
+  const c = conversation();
+  c.stored({ type: "reply_started", reply: "r1" });
+  c.stored({
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [
+      { id: "a", name: "shell", arguments: {} },
+      { id: "b", name: "send_email", arguments: {} },
+    ],
+  });
+  c.stored({ type: "tool_started", reply: "r1", call_id: "a", name: "shell" });
+  c.stored({ type: "approval_requested", reply: "r1", call_id: "b", name: "send_email" });
+  c.stored({
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "a",
+    name: "shell",
+    content: "",
+    is_error: false,
+  });
+  c.stored({ type: "approval_answered", reply: "r1", call_id: "b", allowed: false });
+  c.stored({
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "b",
+    name: "send_email",
+    content: "The person declined this action.",
+    is_error: true,
+  });
+  c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
+  const steps = c.bubbles().find((bubble) => bubble.kind === "steps");
+  if (steps?.kind !== "steps") throw new Error("no steps");
+  return steps.steps;
+};
+// As Spade's activity log answers, newest first: each call filed at the event that logged it.
+const log = parseSpadeActivity(
+  JSON.stringify({
+    entries: [
+      {
+        id: "8-0",
+        seq: 8,
+        kind: "spend",
+        sentence: "Finished · 2 steps",
+        summary: "2 steps",
+      },
+      {
+        id: "7-0",
+        seq: 7,
+        kind: "tool",
+        name: "send_email",
+        summary: "to: marta@example.com",
+        sentence: "You declined: send an email",
+        detail: "To Marta · Plan",
+        outcome: "declined",
+        reply: "r1",
+      },
+      {
+        id: "3-0",
+        seq: 3,
+        kind: "tool",
+        name: "shell",
+        summary: "gh pr list",
+        sentence: "Ran a command",
+        detail: "gh pr list --state open",
+        outcome: "ok",
+        reply: "r1",
+      },
+    ],
+    more: false,
+  }),
+);
 
+describe("a reply's steps in Spade's words", () => {
   test("each step takes its sentence and one line of detail from the activity log", () => {
     const steps = spadeStepsWithActivity(worked(), log?.entries ?? []);
     expect(steps.map((step) => [step.line, step.detail])).toEqual([

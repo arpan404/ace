@@ -69,14 +69,14 @@ test("a code block sits in its own well with its language and a Copy of just the
   expect(code.closest("pre")).not.toBeNull();
 });
 
-test("a reply's steps fold into one line under it that opens to each step", async () => {
+test("a reply's steps fold into one line under it that opens to each step in Spade's words", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     const garden = spade.addAgent({ id: "garden", name: "Garden" });
     const store = (event: Record<string, unknown>) => spade.store(garden.conversation, event);
-    store({ type: "user_message", text: "Check the beds" });
-    store({ type: "reply_started", reply: "r1" });
+    store({ type: "user_message", text: "Check the beds" }); // 1
+    store({ type: "reply_started", reply: "r1" }); // 2
     store({
       type: "step_finished",
       reply: "r1",
@@ -86,7 +86,7 @@ test("a reply's steps fold into one line under it that opens to each step", asyn
         { id: "b", name: "shell", arguments: { command: "cat beds/notes" } },
         { id: "c", name: "workspace_write", arguments: { path: "plan.md" } },
       ],
-    });
+    }); // 3
     for (const [id, name] of [
       ["a", "shell"],
       ["b", "shell"],
@@ -99,19 +99,38 @@ test("a reply's steps fold into one line under it that opens to each step", asyn
         name,
         content: "",
         is_error: false,
-      });
+      }); // 4, 5, 6
     store({ type: "reply_finished", reply: "r1", text: "The beds are fine." });
+    // Spade's log files each call at its result here (none started): the second has no entry.
+    const entry = (seq: number, kind: string, sentence: string, detail: string) => ({
+      id: `${seq}-0`,
+      seq,
+      at: 0,
+      kind,
+      name: "",
+      summary: detail,
+      sentence,
+      detail,
+      outcome: "ok",
+      reply: "r1",
+    });
+    spade.oversight.activity.set("garden", [
+      entry(6, "file", "Wrote a file", "plan.md"),
+      entry(4, "tool", "Ran a command", "ls beds"),
+    ]);
   });
   const chat = within(await feed("Garden"));
   const line = await chat.findByText("Ran 2 commands, wrote a file");
-  // Tool arguments never show.
+  // Tool arguments never show in the chat itself.
   expect(chat.queryByText(/ls beds|plan\.md/)).toBeNull();
   await userEvent.click(line);
-  const steps = within(chat.getByRole("list", { name: "Steps" }));
+  const steps = within(await chat.findByRole("list", { name: "Steps" }));
+  await steps.findByText("ls beds");
   expect(steps.getAllByRole("listitem").map((step) => step.textContent)).toEqual([
+    "Ran a commandls beds",
+    // Not in the log: the chat's own words.
     "Ran a command",
-    "Ran a command",
-    "Wrote a file",
+    "Wrote a fileplan.md",
   ]);
 });
 
