@@ -179,6 +179,9 @@ struct BlockRow: Codable, Sendable, Equatable {
     var background: [Background]? = nil
     /// An answer block: its text still arrives while its turn runs.
     var streaming: Bool? = nil
+    /// While it streams, the word VoiceOver hears on the answer's row (`@ace/ui-core`
+    /// `answerWritingLabel`, "Writing"); nil otherwise.
+    var writing: String? = nil
     /// An event block's one row as the web decides it (`@ace/ui-core` `eventView`); nil for the
     /// person's own bubble.
     var event: EventRow? = nil

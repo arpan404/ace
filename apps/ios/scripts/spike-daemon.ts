@@ -329,6 +329,9 @@ let naps = 0;
 const connections = new Map<ServerWebSocket<SpikeSocketData>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
 let deltas = streamed > 0 ? streamed : 0;
+/** The ios-stream answer the timer streams into; `/stream/finish` moves it on. */
+let streamKey = "stream";
+let answers = 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
@@ -496,6 +499,17 @@ const server = Bun.serve<SpikeSocketData>({
         replays,
         fragmentParts,
       });
+    // Finishes the answer streaming on ios-stream and starts the next, so the thread keeps
+    // streaming for whatever runs after; the finished answer's key.
+    if (path === "/stream/finish" && request.method === "POST") {
+      const finished = streamKey;
+      streamKey = `stream-${++answers}`;
+      daemon.apply("ios-stream", [
+        facts.finish("root", finished),
+        facts.message("root", streamKey, "assistant", "And the next step:", false),
+      ]);
+      return Response.json({ finished });
+    }
     if (path === "/control" && request.method === "POST") {
       online = Control.parse(await request.json()).online;
       if (!online) for (const socket of connections.keys()) socket.close(1001);
@@ -587,7 +601,7 @@ const server = Bun.serve<SpikeSocketData>({
 const timer = setInterval(() => {
   deltas++;
   daemon.apply("ios-stream", [
-    facts.stream("root", "stream", ` Next step ${deltas}: wire the safe kill-all filters.`),
+    facts.stream("root", streamKey, ` Next step ${deltas}: wire the safe kill-all filters.`),
   ]);
 }, 50);
 process.on("SIGINT", () => {
