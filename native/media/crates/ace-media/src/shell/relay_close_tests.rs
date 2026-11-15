@@ -252,3 +252,40 @@ async fn a_revocation_at_the_moment_a_graceful_close_completes_still_resets() {
         let _ = graceful.await;
     }
 }
+
+#[tokio::test]
+async fn a_task_that_panics_ends_its_stream_with_a_reset_and_tells_the_engine() {
+    let (listener, url) = listen().await;
+    let accepted = tokio::spawn(relay(listener));
+    let (events, mut rx) = mpsc::channel(16);
+    let pool = Pool::default();
+    let mut sockets = RelaySockets::new(events, pool.clone());
+    sockets.dial("st".into(), url);
+    assert!(matches!(rx.recv().await, Some(RelayEvent::Dialed { .. })));
+    let mut relay = accepted.await.unwrap_or_else(|_| panic!("relay"));
+    let alive = sockets.alive("st").unwrap_or_default();
+    // The relay is idle; the writer panics.
+    sockets.panic_writer("st");
+    // The engine hears the stream ended...
+    let ended = tokio::time::timeout(END, rx.recv())
+        .await
+        .unwrap_or_else(|_| panic!("no event after the panic"));
+    assert!(
+        matches!(
+            ended,
+            Some(RelayEvent::Ended {
+                reason: "panic",
+                ..
+            })
+        ),
+        "the panic went unreported"
+    );
+    // ...and the main loop answers that as it answers every end: a forced close.
+    if let Some(close) = sockets.ended("st") {
+        let _ = close.await;
+    }
+    let (_, end) = read_to_end(&mut relay, &alive)
+        .await
+        .unwrap_or_else(|why| panic!("{why}"));
+    assert_eq!(end, Ended::Reset);
+}

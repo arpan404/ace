@@ -176,6 +176,12 @@ impl RelaySockets {
         Some(joined)
     }
 
+    /// A stream's socket ended on its own (`RelayEvent::Ended`: the relay closed it, a write
+    /// failed, a task panicked): whatever of it is left goes, forced, with a reset.
+    pub fn ended(&mut self, stream: &str) -> Option<JoinHandle<()>> {
+        self.close(stream, CloseMode::Forced)
+    }
+
     /// Ends once every close in progress has (shutdown waits for it, within its budget).
     pub fn settled(&mut self) -> impl Future<Output = ()> + use<> {
         self.closing.retain(|_, closing| !*closing.done.borrow());
@@ -208,6 +214,16 @@ impl RelaySockets {
             lock(&entry.finale).pause = Some(pause.clone());
         }
         pause
+    }
+
+    /// Makes the stream's writer panic (tests).
+    #[cfg(test)]
+    pub fn panic_writer(&self, stream: &str) {
+        if let Some(Ok(held)) = self.streams.get(stream).map(|entry| entry.slot.lock())
+            && let Some(socket) = held.as_ref()
+        {
+            socket.panic_writer();
+        }
     }
 
     /// Aborts the stream's writer alone, as a close that finished too early would (tests).

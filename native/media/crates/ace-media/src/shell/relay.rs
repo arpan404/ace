@@ -52,6 +52,9 @@ pub(super) enum Out {
     Pong(Vec<u8>),
     /// A graceful close: send what is queued ahead of this, then the WebSocket close.
     Close,
+    /// Makes the writer panic (tests).
+    #[cfg(test)]
+    Panic,
 }
 
 /// How a stream's socket makes its final close, decided in one place: the second handle on the
@@ -109,6 +112,8 @@ impl Socket {
                 Out::Frame(frame) => frame,
                 Out::Pong(data) => data,
                 Out::Close => Vec::new(),
+                #[cfg(test)]
+                Out::Panic => Vec::new(),
             })
     }
 
@@ -116,6 +121,12 @@ impl Socket {
     #[cfg(test)]
     pub(super) fn alive(&self) -> Weak<()> {
         self.alive.clone()
+    }
+
+    /// Makes the writer panic, as a bug in it would (tests).
+    #[cfg(test)]
+    pub(super) fn panic_writer(&self) {
+        let _ = self.tx.try_send(Out::Panic);
     }
 
     /// Aborts the writer alone, as a close that finished too early would (tests).
@@ -271,6 +282,33 @@ fn accept(head: &[u8], end: usize, key: &str) -> Result<(), &'static str> {
     }
 }
 
+/// Spawns one of a socket's tasks under supervision: if it panics, the stream ends as if its
+/// socket had (`Ended` with reason `panic`), so the main loop force-closes what is left: the other
+/// tasks joined and the socket reset. Every other way a task ends is reported by the task itself
+/// or is part of a close.
+fn supervised(
+    stream: Id,
+    events: mpsc::Sender<RelayEvent>,
+    task: impl Future<Output = ()> + Send + 'static,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        use futures_util::FutureExt;
+        // The task's halves and token are dropped while it unwinds, before this reports.
+        if std::panic::AssertUnwindSafe(task)
+            .catch_unwind()
+            .await
+            .is_err()
+        {
+            let _ = events
+                .send(RelayEvent::Ended {
+                    stream,
+                    reason: "panic",
+                })
+                .await;
+        }
+    })
+}
+
 pub(super) fn spawn_tls(
     stream: Id,
     tls: Box<Tls>,
@@ -281,7 +319,8 @@ pub(super) fn spawn_tls(
     let (tx, rx) = mpsc::channel(WRITE_QUEUE);
     let token = Arc::new(());
     let alive = Arc::downgrade(&token);
-    let task = tokio::spawn(async move {
+    let ends = events.clone();
+    let task = supervised(stream.clone(), ends, async move {
         let _token = token;
         pump_tls(stream, tls, leftover, rx, events, pool).await;
     });
@@ -304,7 +343,7 @@ pub(super) fn spawn(
     let token = Arc::new(());
     let alive = Arc::downgrade(&token);
     let writing = token.clone();
-    let writer = tokio::spawn({
+    let writer = supervised(stream.clone(), events.clone(), {
         let (stream, events) = (stream.clone(), events.clone());
         async move {
             let _token = writing;
@@ -312,7 +351,7 @@ pub(super) fn spawn(
         }
     });
     let pongs = tx.clone();
-    let reader = tokio::spawn(async move {
+    let reader = supervised(stream.clone(), events.clone(), async move {
         let _token = token;
         read_frames(stream, read, leftover, pongs, events).await;
     });
@@ -412,6 +451,8 @@ async fn write_to(
             Out::Frame(frame) => (OP_BINARY, frame),
             Out::Pong(data) => (OP_PONG, data),
             Out::Close => return finish(write, &mut masks).await,
+            #[cfg(test)]
+            Out::Panic => panic!("a writer panic, injected by a test"),
         };
         let key = masks.next();
         let (head, n) = relay_ws::header(opcode, payload.len(), key);

@@ -439,7 +439,7 @@ async fn serve(
                     engine.relay_frame(&stream, frame, clock.now())
                 }
                 relay::RelayEvent::Ended { stream, reason } => {
-                    gate.closed(relays.close(stream.get(), CloseMode::Forced));
+                    gate.closed(relays.ended(stream.get()));
                     engine.relay_ended(&stream, reason, clock.now());
                 }
             },

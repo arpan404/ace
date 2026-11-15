@@ -288,6 +288,8 @@ pub(super) async fn pump_tls(
                 let (opcode, mut payload) = match out {
                     Out::Frame(frame) => (OP_BINARY, frame),
                     Out::Pong(data) => (OP_PONG, data),
+                    #[cfg(test)]
+                    Out::Panic => panic!("a pump panic, injected by a test"),
                     Out::Close => {
                         // A graceful close: the WebSocket close, TLS's close_notify, normal
                         // linger and our FIN; then the relay's side until it closes it.
