@@ -49,6 +49,8 @@ pub struct Grants {
     ledger: Ledger,
     viewers: HashMap<String, Viewer>,
     streams: HashMap<String, Stream>,
+    /// Connections dropped since the engine last asked, with why: delivery closes their sockets.
+    closed: Vec<(String, String)>,
 }
 
 pub struct Grant<'a> {
@@ -87,6 +89,11 @@ impl Grants {
 
     pub fn streams(&self) -> usize {
         self.streams.len()
+    }
+
+    /// The connections dropped since the last call, with their reasons.
+    pub fn take_closed(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.closed)
     }
 
     /// The ledger's verdict, sent as `grant.refused` when it refuses.
@@ -342,6 +349,7 @@ impl Grants {
             vault.erase(secret);
         }
         self.viewers.retain(|_, v| v.connection != key);
+        self.closed.push((key.to_owned(), reason.to_owned()));
         let streams: Vec<String> = self
             .streams
             .iter()

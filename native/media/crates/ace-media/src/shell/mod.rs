@@ -12,6 +12,7 @@ mod pictures;
 mod readers;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
+mod viewers;
 mod writer;
 
 use crate::encode::worker::Output;
@@ -174,6 +175,14 @@ async fn serve(
         Err(error) => return fail(&format!("ingest websocket: {error}")),
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
+    // Clients' media connections (D1): loopback, plain WebSocket.
+    let media_listener = match TcpListener::bind(("127.0.0.1", 0)).await {
+        Ok(listener) => listener,
+        Err(error) => return fail(&format!("media listener: {error}")),
+    };
+    let loopback_port = media_listener
+        .local_addr()
+        .map_or(0, |a| u32::from(a.port()));
 
     let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
     let Ok((mut capabilities, late)) = probed else {
@@ -219,7 +228,7 @@ async fn serve(
             socket: control_path.to_string_lossy().into_owned(),
         },
         listen: Listen {
-            loopback_port: 0,
+            loopback_port,
             remote_port: None,
         },
     };
@@ -233,6 +242,9 @@ async fn serve(
     let ingest = Ingest::new(ingest_tx);
     ingest::serve_socket(ingest_socket, ingest.clone());
     ingest::serve_websocket(websocket, ingest);
+    let (media_tx, mut media_rx) = mpsc::channel(256);
+    viewers::serve(media_listener, media_tx);
+    let mut outboxes = viewers::Outboxes::default();
 
     let (normal_tx, mut normal_rx) = mpsc::channel(4);
     tokio::spawn(async move {
@@ -335,6 +347,7 @@ async fn serve(
                         lag: &lag,
                         pictures: &mut pictures,
                         readers: &mut readers,
+                        media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
@@ -378,6 +391,23 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            Some(event) = media_rx.recv() => match event {
+                viewers::MediaEvent::Hello { ticket, outbox, admit } => {
+                    let opened = engine.claim_ticket(&ticket[..], clock.now());
+                    drop(ticket);
+                    if let Some(connection) = &opened {
+                        outboxes.insert(connection.get().to_owned(), outbox);
+                    }
+                    let _ = admit.send(opened.map(|c| c.get().to_owned()));
+                }
+                viewers::MediaEvent::Text(connection, text) => {
+                    engine.media_message(&connection, &text, clock.now());
+                }
+                viewers::MediaEvent::Closed(connection) => {
+                    outboxes.close(&connection, media_wire::media_link::close::CLOSED);
+                    engine.media_closed(&connection, clock.now());
+                }
+            },
             _ = tick.tick() => {
                 let now = clock.now();
                 engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
@@ -391,6 +421,7 @@ async fn serve(
             lag: &lag,
             pictures: &mut pictures,
             readers: &mut readers,
+            media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
