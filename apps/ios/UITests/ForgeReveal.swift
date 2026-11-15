@@ -18,3 +18,14 @@ extension XCUIApplication {
         }
     }
 }
+
+extension XCUIApplication {
+    /// Taps the button named `identifier` on a long settings page, scrolling it into view first:
+    /// down the page, then back up when it lies above.
+    func tapScrolled(_ identifier: String) {
+        let button = buttons[identifier]
+        for _ in 0..<4 where !(button.exists && button.isHittable) { swipeUp() }
+        for _ in 0..<8 where !(button.exists && button.isHittable) { swipeDown() }
+        button.tap()
+    }
+}

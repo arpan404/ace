@@ -12,7 +12,7 @@ struct LookGrid: View {
     let pickTheme: (String) -> Void
     @Environment(SuitLookModel.self) private var suits: SuitLookModel?
     @State private var gallery = SuitGallery()
-    private let columns = [GridItem(.adaptive(minimum: AceDesign.Size.tap * 2 + AceDesign.Space.tight), spacing: AceDesign.Space.row)]
+    private let columns = [GridItem(.adaptive(minimum: AceDesign.Size.tap * 2 + AceDesign.Space.tight), spacing: AceDesign.Space.row, alignment: .top)]
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .center, spacing: AceDesign.Space.margin) {

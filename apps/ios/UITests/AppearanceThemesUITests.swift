@@ -15,16 +15,16 @@ import UIKit
         defer { app.terminate() }
         app.openBrowseDestination("settings.appearance")
         XCTAssertTrue(app.buttons["appearance.dark"].waitForExistence(timeout: 10))
-        app.buttons["appearance.dark"].tap()
-        app.buttons["appearance.theme.ace"].tap()
-        app.buttons["appearance.accent.theme"].tap()
+        app.tapScrolled("appearance.dark")
+        app.tapScrolled("appearance.theme.ace")
+        app.tapScrolled("appearance.accent.theme")
         XCTAssertTrue(waitForPage { $0.blue - $0.red < 3 }, "ace's dark page is neutral")
         screenshot("dark-ace")
 
         // Midnight's dark page is a blue-black.
-        app.buttons["appearance.theme.midnight"].tap()
+        app.tapScrolled("appearance.theme.midnight")
         XCTAssertTrue(waitForPage { $0.blue - $0.red >= 8 }, "Midnight turns the open sheet blue-black")
-        app.buttons["appearance.accent.teal"].tap()
+        app.tapScrolled("appearance.accent.teal")
         XCTAssertTrue(app.buttons["appearance.accent.teal"].isSelected)
         screenshot("dark-midnight-teal")
         app.swipeUp()
@@ -32,9 +32,9 @@ import UIKit
         app.swipeDown()
 
         // Paper's light page is warm cream.
-        app.buttons["appearance.light"].tap()
-        app.buttons["appearance.theme.paper"].tap()
-        app.buttons["appearance.accent.theme"].tap()
+        app.tapScrolled("appearance.light")
+        app.tapScrolled("appearance.theme.paper")
+        app.tapScrolled("appearance.accent.theme")
         XCTAssertTrue(waitForPage { $0.red - $0.blue >= 6 && $0.red > 240 }, "Paper turns the open sheet cream")
         screenshot("light-paper")
         app.swipeUp()
@@ -53,10 +53,10 @@ import UIKit
         app.launchWithArguments()
         app.openBrowseDestination("settings.appearance")
         XCTAssertTrue(app.buttons["appearance.theme.ace"].waitForExistence(timeout: 10))
-        app.buttons["appearance.theme.ace"].tap()
-        app.buttons["appearance.dark"].tap()
+        app.tapScrolled("appearance.theme.ace")
+        app.tapScrolled("appearance.dark")
         XCTAssertTrue(waitForPage { $0.blue - $0.red < 3 && $0.red < 30 }, "ace restores the neutral dark page")
-        app.buttons["appearance.system"].tap()
+        app.tapScrolled("appearance.system")
     }
 
     private struct Pixel { let red: Int; let green: Int; let blue: Int }
