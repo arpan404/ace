@@ -195,3 +195,67 @@ it("a hand-over cancelled while admission is pending exports no keys and sends n
   ]);
   expect(nothing).toBe("nothing");
 });
+
+it("the ephemeral key it was given is wiped on every path: hand-over, refusal, cancellation and a bad key", async () => {
+  const zeroed = (key: Uint8Array) => key.every((byte) => byte === 0);
+  // Handed over.
+  {
+    const link = wire();
+    const ephemeral = keyPair();
+    const done = handOverMediaStream(link.daemon, {
+      hostKeys: host,
+      ephemeralKey: ephemeral,
+      signal: new AbortController().signal,
+      admit: async () => ({ ok: true, welcome, grant: "g" }),
+    });
+    const client = await clientHandshake(link);
+    link.client.send(client.send.encrypt(jsonFragment(hello())));
+    expect((await done).ok).toBe(true);
+    expect(zeroed(ephemeral.privateKey)).toBe(true);
+  }
+  // Refused.
+  {
+    const link = wire();
+    const ephemeral = keyPair();
+    const done = handOverMediaStream(link.daemon, {
+      hostKeys: host,
+      ephemeralKey: ephemeral,
+      signal: new AbortController().signal,
+      admit: async () => ({ ok: false }),
+    });
+    const client = await clientHandshake(link);
+    link.client.send(client.send.encrypt(jsonFragment(hello())));
+    expect((await done).ok).toBe(false);
+    expect(zeroed(ephemeral.privateKey)).toBe(true);
+  }
+  // Cancelled before the client said anything.
+  {
+    const link = wire();
+    const ephemeral = keyPair();
+    const cancel = new AbortController();
+    const done = handOverMediaStream(link.daemon, {
+      hostKeys: host,
+      ephemeralKey: ephemeral,
+      signal: cancel.signal,
+      admit: async () => ({ ok: true, welcome, grant: "g" }),
+    });
+    // Wiped as soon as Noise has its copy, before anything arrives.
+    expect(zeroed(ephemeral.privateKey)).toBe(true);
+    cancel.abort();
+    link.client.send(new Uint8Array(32));
+    expect((await done).ok).toBe(false);
+  }
+  // A key Noise can't take: the constructor fails, and the buffer is wiped all the same.
+  {
+    const bad = { publicKey: new Uint8Array(32), privateKey: new Uint8Array(31).fill(7) };
+    await expect(
+      handOverMediaStream(wire().daemon, {
+        hostKeys: host,
+        ephemeralKey: bad,
+        signal: new AbortController().signal,
+        admit: async () => ({ ok: false }),
+      }),
+    ).resolves.toMatchObject({ ok: false });
+    expect(zeroed(bad.privateKey)).toBe(true);
+  }
+});

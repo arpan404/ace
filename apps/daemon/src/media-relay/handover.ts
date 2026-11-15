@@ -145,6 +145,9 @@ class Sealed {
  * welcome. On success the result holds the 120-byte block, which the caller hands to ace-media
  * and wipes; on any failure every key is destroyed and nothing is returned.
  *
+ * `ephemeralKey` is this hand-over's alone: its private key is wiped as soon as Noise has its own
+ * copy, whatever happens next.
+ *
  * `signal` cancels it (the hand-over deadline): every key is destroyed at once, admission is
  * told through the same signal, and nothing is sealed or exported after it, whatever admission
  * answers later.
@@ -159,12 +162,20 @@ export async function handOverMediaStream<Grant>(
   },
 ): Promise<HandoverResult<Grant>> {
   const { signal } = options;
-  const noise = new NoiseXX({
-    initiator: false,
-    staticKey: options.hostKeys,
-    ephemeralKey: options.ephemeralKey,
-    prologue: STREAM_PROLOGUE,
-  });
+  let noise: NoiseXX;
+  try {
+    noise = new NoiseXX({
+      initiator: false,
+      staticKey: options.hostKeys,
+      ephemeralKey: options.ephemeralKey,
+      prologue: STREAM_PROLOGUE,
+    });
+  } catch {
+    return failed("handshake key");
+  } finally {
+    // Noise holds its own copy now (or failed to take one): the caller's is wiped either way.
+    options.ephemeralKey.privateKey.fill(0);
+  }
   let sealed: Sealed | undefined;
   const spend = () => {
     noise.destroy();
