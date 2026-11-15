@@ -1,0 +1,1601 @@
+/*
+ * Tidewater: ace as a coastal harbour drawn on a tide chart. Every selector names a published
+ * part (docs/design/suit-parts.md).
+ *
+ * The sheet. Surfaces are chart paper; the sidebar is the harbour log on sand; the side panel is
+ * the chart table. Lines are chart linework: hairline neatlines, the alternating latitude scale
+ * along a sheet's border, depth contours and soundings as faint texture, rope where things are
+ * bound. One brass accent (the accent token) marks what is lit: the open mooring, a selected
+ * drawer, the primary action. Agent state keeps ace's own colours throughout.
+ */
+
+@font-face {
+  font-family: "Tide Display";
+  src: url("assets/fonts/CormorantGaramond-SemiBold.woff2") format("woff2");
+  font-weight: 500 700;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Tide Display";
+  src: url("assets/fonts/CormorantGaramond-MediumItalic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Tide Label";
+  src: url("assets/fonts/BarlowCondensed-Medium.woff2") format("woff2");
+  font-weight: 400 500;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Tide Label";
+  src: url("assets/fonts/BarlowCondensed-SemiBold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-display: fallback;
+}
+
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part (in a portal), so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-display: "Tide Display", "Iowan Old Style", Georgia, serif;
+  --suit-label: "Tide Label", "Avenir Next Condensed", var(--font-sans);
+  /* Chart ink: the blue the soundings and contours are printed in. */
+  --suit-sea: #2a5d72;
+  --suit-shallow: #dcebee;
+  --suit-sand: #e9dfc8;
+  --suit-rope: #b39668;
+  --suit-rope-dark: #8a6f45;
+  --suit-rope-light: #d6c098;
+  --suit-paper: var(--color-surface-2);
+  --suit-ink: var(--color-foreground);
+  --suit-lamp: color-mix(in oklab, var(--color-tint) 22%, transparent);
+  --suit-wash: color-mix(in oklab, var(--suit-sea) 8%, transparent);
+  --suit-hairline: color-mix(in oklab, var(--suit-sea) 26%, var(--color-border));
+  --suit-contours: url("assets/textures/contours-light.svg");
+  --suit-shadow: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 10px 28px -14px rgb(22 52 66 / 0.32);
+  /* A twisted rope: short diagonal strands in three tones. */
+  --suit-rope-band: repeating-linear-gradient(
+    120deg,
+    var(--suit-rope-light) 0 2px,
+    var(--suit-rope) 2px 4.5px,
+    var(--suit-rope-dark) 4.5px 5.5px
+  );
+  /* The latitude scale printed round a chart's border: ink and paper bars between hairlines. */
+  --suit-scale:
+    linear-gradient(var(--suit-sea), var(--suit-sea)) 0 0 / 100% 1px no-repeat,
+    linear-gradient(var(--suit-sea), var(--suit-sea)) 0 100% / 100% 1px no-repeat,
+    repeating-linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--suit-sea) 70%, transparent) 0 14px,
+        transparent 14px 28px
+      )
+      0 50% / 100% 3px no-repeat;
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"],
+[data-part="app"][data-scheme="dark"],
+[data-part="menu"][data-scheme="dark"],
+[data-part="popover"][data-scheme="dark"],
+[data-part="dialog"][data-scheme="dark"] {
+  --suit-sea: #8fc0d2;
+  --suit-shallow: #12303a;
+  --suit-sand: #1d1a14;
+  --suit-rope: #8f7a55;
+  --suit-rope-dark: #5e4d33;
+  --suit-rope-light: #b49c72;
+  --suit-wash: color-mix(in oklab, var(--suit-sea) 7%, transparent);
+  --suit-hairline: color-mix(in oklab, var(--suit-sea) 18%, var(--color-border));
+  --suit-contours: url("assets/textures/contours-dark.svg");
+  --suit-shadow: 0 1px 0 rgb(143 192 210 / 0.06) inset, 0 14px 36px -16px rgb(0 0 0 / 0.6);
+}
+
+[data-part="app"] {
+  --suit-rail-background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-sidebar) 86%, transparent),
+    color-mix(in oklab, var(--color-sidebar) 72%, transparent)
+  );
+  /* The harbour log lies on sand, with the chart's depth contours showing at its corners. */
+  --suit-sidebar-background:
+    var(--suit-contours) right -560px top -520px / 900px 900px no-repeat,
+    var(--suit-contours) left -600px bottom -560px / 900px 900px no-repeat, var(--color-sidebar);
+  --suit-header-background: color-mix(in oklab, var(--color-background) 84%, transparent);
+  --suit-transcript-background: transparent;
+  --suit-page-background: transparent;
+  --suit-right-panel-background: var(--color-sidebar);
+  --suit-composer-background: var(--color-surface-1);
+  font-family: var(--font-sans);
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"] {
+  font-family: var(--suit-display);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+[data-part="tab"],
+[data-part="panel-tab"],
+[data-part="badge"],
+[data-part="turn-divider"],
+[data-part="project-header"],
+[data-part="settings-section"],
+[data-part="label-chip"],
+[data-part="kbd"] {
+  font-family: var(--suit-label);
+}
+
+[data-part="link"] {
+  color: var(--color-link);
+  text-decoration-color: color-mix(in oklab, var(--color-link) 45%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+[data-part="link"]:hover {
+  text-decoration-color: var(--color-link);
+}
+
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 26%, transparent);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"] {
+  scrollbar-color: color-mix(in oklab, var(--suit-sea) 40%, var(--color-border-strong)) transparent;
+}
+
+/* ------------------------------------------------------------------ window */
+
+[data-part="rail"] {
+  box-shadow: inset -1px 0 0 var(--suit-hairline);
+}
+[data-part="rail-item"] {
+  border-radius: 999px;
+  fill: currentColor;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash);
+}
+/* The current place is lit like a harbour light: a brass ring with a warm glow. */
+[data-part="rail-item"][data-state="active"] {
+  color: var(--color-link);
+  background: radial-gradient(circle, var(--suit-lamp), transparent 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 55%, transparent);
+}
+
+[data-part="sidebar"] {
+  box-shadow: inset -1px 0 0 var(--suit-hairline);
+}
+
+/* ------------------------------------------------------------------ sidebar: the harbour log */
+
+[data-part="sidebar-header"] {
+  position: relative;
+}
+/* Under the log's title, a length of rope binds the page. */
+[data-part="sidebar-header"]::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--suit-rope-band);
+  opacity: 0.85;
+  pointer-events: none;
+}
+[data-part="sidebar-header"] [data-part="page-title"],
+[data-part="sidebar-header"] [data-part="header-title"] {
+  font-size: 22px;
+}
+
+[data-part="project-header"] {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[data-part="thread-list"] {
+  counter-reset: berth;
+}
+
+/*
+ * Each thread is a mooring: a berth number on a small enamel plate at its left, and ace's status
+ * mark set in a buoy-shaped socket. The open one has its harbour light lit.
+ */
+[data-part="thread-row"] {
+  counter-increment: berth;
+  position: relative;
+  border-radius: 8px;
+  padding-left: 38px;
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+[data-part="thread-row"]::before {
+  content: counter(berth, decimal-leading-zero);
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  box-sizing: border-box;
+  width: 22px;
+  padding: 3px 0 2px;
+  text-align: center;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--color-muted-foreground);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  pointer-events: none;
+}
+/* The mooring line: a short rope from the berth plate down the row. */
+[data-part="thread-row"]::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 30px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    var(--suit-rope) 0 3px,
+    var(--suit-rope-dark) 3px 4px
+  );
+  opacity: 0.55;
+  pointer-events: none;
+}
+[data-part="thread-row"]:hover {
+  background: color-mix(in oklab, var(--suit-sea) 9%, transparent);
+}
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  background:
+    radial-gradient(
+      circle at 19px 17px,
+      color-mix(in oklab, var(--color-tint) 26%, transparent),
+      transparent 46px
+    ),
+    color-mix(in oklab, var(--color-surface-2) 82%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 42%, var(--color-border)),
+    0 6px 16px -10px rgb(22 52 66 / 0.35);
+}
+/* The lit harbour light: the berth plate becomes a brass lamp. */
+[data-part="thread-row"][data-state="active"]::before {
+  content: "✦";
+  font-size: 12px;
+  padding: 3px 0 3px;
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+  border-color: var(--color-tint);
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-tint) 22%, transparent),
+    0 0 14px 2px color-mix(in oklab, var(--color-tint) 45%, transparent);
+}
+[data-part="thread-row"][data-state="active"]::after {
+  opacity: 0.9;
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  color: var(--color-foreground);
+  font-weight: 650;
+}
+[data-part="thread-meta"] {
+  font-size: 11.5px;
+}
+
+/* A status mark rides in a buoy: a socket rounder at its crown, its colour still ace's. */
+[data-part="thread-row"] [data-part="status-icon"] {
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 50% 50% 46% 46% / 60% 60% 40% 40%;
+}
+
+[data-part="sidebar-tabs"] {
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-2);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="sidebar-tabs"] [data-part="tab"] {
+  border-radius: 999px;
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+}
+
+/* The band at the log's foot: today's tide curve, its name in the label face. */
+[data-part="sidebar-footer"] {
+  position: relative;
+  min-height: 46px;
+  color: color-mix(in oklab, var(--suit-sea) 55%, transparent);
+}
+[data-part="sidebar-footer"]::before {
+  content: "TIDE TABLE · HW 06:42 · LW 12:58";
+  position: absolute;
+  left: 16px;
+  top: 4px;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--color-subtle-foreground);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ header: the chart's title */
+
+[data-part="header"] {
+  position: relative;
+  box-shadow: inset 0 -1px 0 var(--suit-hairline);
+}
+/* The header's lower edge is the chart sheet's border: the latitude scale. */
+[data-part="header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  background: var(--suit-scale);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/*
+ * The title sits in a cartouche: a double-ruled frame with notched corners, a kicker naming the
+ * chart in small capitals ahead of it.
+ */
+[data-part="header-title"] {
+  font-size: 18px;
+  font-weight: 600;
+}
+[data-part="header-title"]::before {
+  content: "Harbour log";
+  display: inline-block;
+  margin-right: 10px;
+  padding: 4px 9px 3px;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  color: var(--color-link);
+  border: 3px double color-mix(in oklab, var(--color-tint) 60%, var(--color-border-strong));
+  border-radius: 2px;
+  background: var(--color-surface-2);
+}
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "Harbour office";
+}
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before {
+  content: "Chart sheet";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "Ship’s stores";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "New passage";
+}
+[data-page="usage"] [data-part="header-title"]::before {
+  content: "Tide tables";
+}
+[data-page="history"] [data-part="header-title"]::before {
+  content: "Old logs";
+}
+[data-page="skills"] [data-part="header-title"]::before,
+[data-page="skill"] [data-part="header-title"]::before {
+  content: "Seamanship";
+}
+[data-page="automations"] [data-part="header-title"]::before,
+[data-page="automation"] [data-part="header-title"]::before {
+  content: "Standing orders";
+}
+
+[data-part="header"] [data-part="icon-button"] {
+  border-radius: 999px;
+}
+
+/* ------------------------------------------------------------------ transcript: the logbook */
+
+[data-part="transcript"] {
+  counter-reset: entry signal;
+}
+
+/*
+ * The agent's answers are logbook entries: a ruled margin with the entry's number in it, a
+ * double rule in brass ink down the margin's edge, and the words in the plain reading face.
+ */
+[data-part="message-agent"] {
+  counter-increment: entry;
+  position: relative;
+  padding-left: 68px;
+  background:
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 45%, transparent),
+        color-mix(in oklab, var(--color-tint) 45%, transparent)
+      )
+      52px 2px / 1px calc(100% - 4px) no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 45%, transparent),
+        color-mix(in oklab, var(--color-tint) 45%, transparent)
+      )
+      55px 2px / 1px calc(100% - 4px) no-repeat;
+}
+[data-part="message-agent"]::before {
+  content: "Log";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 44px;
+  text-align: right;
+  font-family: var(--suit-display);
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--color-link);
+  white-space: nowrap;
+}
+[data-part="message-agent"]::after {
+  content: "No. " counter(entry);
+  position: absolute;
+  left: 0;
+  top: 22px;
+  width: 44px;
+  text-align: right;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  color: var(--color-subtle-foreground);
+}
+
+/*
+ * The person's message is a signal card: a row of hoisted signal flags along its top, the words
+ * on paper below a hairline, the card's edge bound in a thin rope.
+ */
+[data-part="message-user"] {
+  counter-increment: signal;
+  position: relative;
+  padding-top: 32px;
+  border: 1px solid color-mix(in oklab, var(--suit-rope) 70%, var(--color-border));
+  border-radius: 10px 10px 2px 10px;
+  background:
+    url("assets/ornaments/signal-flags.svg") 14px 8px / 96px 18px no-repeat,
+    linear-gradient(var(--suit-hairline), var(--suit-hairline)) 0 28px / 100% 1px no-repeat,
+    var(--color-surface-2);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="message-user"]::before {
+  content: "Signal " counter(signal, decimal-leading-zero);
+  position: absolute;
+  top: 9px;
+  right: 14px;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-subtle-foreground);
+  white-space: nowrap;
+}
+
+[data-part="message-meta"] {
+  font-size: 11.5px;
+}
+
+[data-part="turn-divider"] {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+[data-part="inline-code"] {
+  border-radius: 4px;
+  background: var(--color-code);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding-inline: 4px;
+}
+
+[data-part="code-block"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: var(--color-code);
+  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--suit-sea) 40%, transparent);
+}
+
+[data-part="tool-output"],
+[data-part="diff"] {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-code);
+  font-family: var(--font-mono);
+}
+
+[data-part="attachment"] {
+  border-radius: 6px;
+  border: 1px solid var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ work log: the voyage log */
+
+/*
+ * The work log is the voyage: a dashed course line runs down through every step, and each step
+ * is a waypoint, a small chart circle holding the glyph of its kind (spyglass for a search, a
+ * chart for a read, the lead line for a listing, the helm for a command, a knot for an edit, a
+ * signal flag for the web, a sextant for thought, an anchor for a tool, a quill for a note).
+ * While a step runs, ace's own spinner shows in the circle.
+ */
+[data-part="tool-row"],
+[data-part="tool-group-header"] {
+  position: relative;
+  border-radius: 6px;
+  transition: background-color 160ms ease;
+}
+[data-part="tool-row"]::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: -4px;
+  bottom: -4px;
+  width: 0;
+  border-left: 1.5px dashed color-mix(in oklab, var(--suit-sea) 38%, transparent);
+  pointer-events: none;
+}
+[data-part="tool-row"]:hover,
+[data-part="tool-group-header"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="tool-row"][data-state="open"],
+[data-part="tool-group-header"][data-state="open"] {
+  background: linear-gradient(90deg, var(--suit-wash), transparent 85%);
+}
+
+/* A leg of the voyage: its heading set in the label face with a small course mark. */
+[data-part="tool-group-header"] {
+  font-weight: 550;
+}
+[data-part="tool-group-header"]::before {
+  content: "Leg";
+  margin-right: 8px;
+  padding: 2px 6px 1px;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--color-link);
+  border: 1px solid color-mix(in oklab, var(--color-tint) 45%, var(--color-border));
+  border-radius: 3px;
+}
+
+[data-part="tool-icon"] {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--suit-sea) 45%, var(--color-border-strong));
+  background:
+    radial-gradient(circle, transparent 62%, color-mix(in oklab, var(--suit-sea) 10%, transparent) 64%),
+    var(--color-surface-2);
+  box-shadow: 0 0 0 3px var(--color-background);
+}
+[data-part="tool-row"]:not([data-state="working"]) [data-part="tool-icon"] {
+  color: transparent;
+}
+[data-part="tool-row"]:not([data-state="working"]) [data-part="tool-icon"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: var(--suit-sea);
+  mask: url("assets/icons/anchor.svg") no-repeat center / 14px 14px;
+}
+[data-part="tool-row"][data-state="failed"] [data-part="tool-icon"] {
+  border-color: var(--status-failed);
+}
+[data-part="tool-row"][data-variant="search"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/spyglass.svg");
+}
+[data-part="tool-row"][data-variant="read"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/chart.svg");
+}
+[data-part="tool-row"][data-variant="list"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/lead-line.svg");
+}
+[data-part="tool-row"][data-variant="shell"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/wheel.svg");
+}
+[data-part="tool-row"][data-variant="edit"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/knot.svg");
+}
+[data-part="tool-row"][data-variant="web"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/flag.svg");
+}
+[data-part="tool-row"][data-variant="think"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/sextant.svg");
+}
+[data-part="tool-row"][data-variant="note"] [data-part="tool-icon"]::after {
+  mask-image: url("assets/icons/quill.svg");
+}
+
+/* The Working line keeps ace's words and colour; the Suit sets it as a log's running line. */
+[data-part="working-line"] {
+  font-family: var(--suit-label);
+  font-weight: 600;
+  padding-inline: 10px 8px;
+  border-left: 2px solid currentColor;
+  border-radius: 0;
+}
+
+/* Approvals and questions keep ace's colours; the Suit frames them as a pilot's request slip. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+}
+
+/* ------------------------------------------------------------------ composer: signal to shore */
+
+[data-part="composer"] {
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--suit-rope) 65%, var(--color-border-strong));
+  border-radius: 14px;
+  box-shadow: var(--suit-shadow);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+/* The pad is bound along its top edge with rope. */
+[data-part="composer"]::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: -2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--suit-rope-band);
+  pointer-events: none;
+}
+[data-part="composer"]:focus-within {
+  border-color: color-mix(in oklab, var(--color-tint) 60%, var(--color-border-strong));
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-tint) 14%, transparent),
+    var(--suit-shadow);
+}
+[data-part="composer-input"] {
+  caret-color: var(--color-tint);
+}
+[data-part="composer-input"]::placeholder {
+  color: var(--color-subtle-foreground);
+  font-style: italic;
+}
+
+/* Send is the lighthouse: a brass lamp with the tower in it, its beam sweeping out on hover. */
+[data-part="composer-send"] {
+  position: relative;
+  border-radius: 999px;
+  transition:
+    background-color 160ms ease,
+    box-shadow 200ms ease;
+}
+[data-part="composer-send"][data-variant="send"] {
+  color: transparent;
+  background:
+    radial-gradient(circle at 50% 35%, rgb(255 244 220 / 0.38), transparent 60%), var(--color-tint);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint-foreground) 30%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--color-tint) 16%, transparent);
+}
+[data-part="composer-send"][data-variant="send"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-tint-foreground);
+  mask: url("assets/icons/lighthouse.svg") no-repeat center / 18px 18px;
+}
+[data-part="composer-send"][data-variant="send"]:hover {
+  background:
+    radial-gradient(circle at 50% 35%, rgb(255 244 220 / 0.5), transparent 60%),
+    var(--color-tint-hover);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint-foreground) 30%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--color-tint) 18%, transparent),
+    0 0 22px 4px color-mix(in oklab, var(--color-tint) 40%, transparent);
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"] {
+  background: var(--color-hover);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"]::after {
+  background: var(--color-subtle-foreground);
+}
+
+[data-part="model-picker"] {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  transition: border-color 160ms ease;
+}
+[data-part="model-picker"]:hover,
+[data-part="model-picker"][data-state="open"] {
+  border-color: color-mix(in oklab, var(--color-tint) 45%, var(--color-border));
+}
+
+/* The strip over the composer is the halyard: what waits there hangs from a rope. */
+[data-part="composer-strip"] {
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--suit-rope) 55%, var(--color-border));
+  border-radius: 12px 12px 0 0;
+  background: var(--color-surface-2);
+}
+[data-part="queue-strip"] {
+  font-size: 13px;
+}
+[data-part="queue-item"] {
+  position: relative;
+  border-radius: 4px;
+  padding-left: 22px;
+}
+/* Each queued message is a pennant on the halyard, waiting to be run up. */
+[data-part="queue-item"]::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 10px;
+  height: 9px;
+  margin-top: -4.5px;
+  background: var(--color-tint);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  pointer-events: none;
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  border-radius: 6px;
+  font-weight: 600;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+/* A primary action is a brass plate, an engraved line inside its edge. */
+[data-part="button"][data-variant="primary"] {
+  background:
+    linear-gradient(180deg, rgb(255 240 210 / 0.22), transparent 60%), var(--color-tint);
+  color: var(--color-tint-foreground);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 70%, black),
+    inset 0 0 0 2.5px color-mix(in oklab, var(--color-tint-foreground) 22%, transparent);
+}
+[data-part="button"][data-variant="primary"]:hover {
+  background:
+    linear-gradient(180deg, rgb(255 240 210 / 0.26), transparent 60%), var(--color-tint-hover);
+}
+[data-part="button"][data-variant="secondary"],
+[data-part="button"]:not([data-variant]) {
+  background: var(--color-surface-2);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="button"][data-variant="secondary"]:hover,
+[data-part="button"]:not([data-variant]):hover {
+  background: var(--color-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 45%, var(--color-border-strong));
+}
+[data-part="button"][data-variant="ghost"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="button"][data-state="disabled"] {
+  opacity: 1;
+  color: var(--color-subtle-foreground);
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+[data-part="icon-button"] {
+  border-radius: 999px;
+}
+[data-part="icon-button"]:hover,
+[data-part="icon-button"][data-state="active"] {
+  background: var(--suit-wash);
+}
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-faint-foreground);
+  opacity: 1;
+}
+
+/* Fields are wells on the chart paper with an ink rule beneath. */
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 6px;
+  caret-color: var(--color-tint);
+  background: var(--color-surface-2);
+  box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--suit-sea) 45%, transparent);
+}
+[data-part="input"]:focus-within,
+[data-part="select"]:focus-within,
+[data-part="search-field"]:focus-within {
+  box-shadow:
+    inset 0 -2px 0 var(--color-tint),
+    0 0 0 3px color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+
+[data-part="checkbox"] {
+  border-radius: 3px;
+}
+/* A switch is a tide gauge: its track a channel of water, its thumb a brass float. */
+[data-part="switch"] {
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--suit-sea) 16%, var(--color-surface-1));
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="switch"][data-state="checked"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--suit-sea) 70%, var(--color-tint)),
+    var(--suit-sea)
+  );
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.22);
+}
+[data-part="switch-thumb"] {
+  background: radial-gradient(circle at 36% 30%, #fff6e4, #e2c79a 70%, #b38d55);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.3),
+    inset 0 0 0 1px rgb(120 84 40 / 0.45);
+}
+[data-part="slider"] {
+  border-radius: 999px;
+}
+[data-part="slider-thumb"] {
+  background: radial-gradient(circle at 36% 30%, #fff6e4, #e2c79a 70%, #b38d55);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+[data-part="progress"] {
+  border-radius: 999px;
+}
+
+/* A one-of-n choice is a rope-bound rack; the chosen one a brass plate in it. */
+[data-part="segmented"] {
+  border-radius: 8px;
+  background: var(--color-surface-1);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--suit-rope) 60%, var(--color-border));
+}
+[data-part="segmented-thumb"] {
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 55%, var(--color-border-strong)),
+    0 2px 6px -2px rgb(22 52 66 / 0.3);
+}
+[data-part="segment"][data-state="selected"] {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+
+[data-part="tabs"] {
+  border-radius: 8px;
+}
+[data-part="tab"] {
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-muted-foreground);
+}
+[data-part="tab"]:hover {
+  color: var(--color-foreground);
+}
+/* The chosen word is underlined with a wave. */
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--color-tint);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 5px;
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  text-decoration-line: none;
+}
+
+[data-part="badge"] {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+[data-part="kbd"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  font-size: 12px;
+}
+[data-part="label-chip"] {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
+/* A divider is a hairline of chart ink with a sounding dot at its middle. */
+[data-part="divider"] {
+  background: linear-gradient(90deg, transparent, var(--suit-hairline) 20%, var(--suit-hairline) 80%, transparent);
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ floating layers: chart slips */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="tooltip"] {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-2);
+  box-shadow:
+    inset 0 0 0 3px var(--color-surface-2),
+    inset 0 0 0 4px var(--suit-hairline),
+    0 18px 44px -18px rgb(14 36 48 / 0.45);
+}
+[data-part="menu"],
+[data-part="popover"] {
+  border-radius: 10px;
+}
+[data-part="tooltip"] {
+  border-radius: 6px;
+  box-shadow: 0 6px 18px -8px rgb(14 36 48 / 0.4);
+}
+[data-part="toast"] {
+  border-radius: 10px;
+}
+/* A dialog is a chart sheet: the latitude scale runs along its top border. */
+[data-part="dialog"],
+[data-part="command-palette"] {
+  position: relative;
+  border-radius: 12px;
+}
+[data-part="dialog"]::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 8px;
+  height: 6px;
+  background: var(--suit-scale);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+[data-part="menu-item"] {
+  border-radius: 6px;
+}
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus,
+[data-part="menu-item"]:focus-visible {
+  background: color-mix(in oklab, var(--suit-sea) 11%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="menu-item"][data-state="checked"] {
+  color: var(--color-link);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="page-title"] {
+  font-size: 1.3em;
+}
+[data-part="card"] {
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+[data-part="card"][data-state="checked"] {
+  border-color: var(--color-tint);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-tint) 18%, transparent),
+    var(--suit-shadow);
+}
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 6px;
+}
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, var(--color-surface-2));
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="stat"] {
+  font-family: var(--suit-display);
+}
+[data-part="avatar"] {
+  box-shadow: 0 0 0 1px var(--color-border-strong);
+}
+
+/* ------------------------------------------------------------------ settings: ship's stores */
+
+[data-page="settings"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "Ship’s stores";
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--suit-label);
+  font-size: 12px;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-link);
+}
+[data-part="nav-item"] {
+  border-radius: 8px;
+  position: relative;
+}
+[data-part="nav-item"]:hover {
+  background: color-mix(in oklab, var(--suit-sea) 9%, transparent);
+}
+[data-part="nav-item"][data-state="active"] {
+  background:
+    radial-gradient(
+      circle at 14px 50%,
+      color-mix(in oklab, var(--color-tint) 26%, transparent),
+      transparent 40px
+    ),
+    color-mix(in oklab, var(--color-surface-2) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 42%, var(--color-border));
+  color: var(--color-foreground);
+}
+[data-part="page-body"] {
+  counter-reset: store;
+}
+/* Each settings group is a locker in the stores, stencilled with its number. */
+[data-part="card"][data-variant="settings-group"] {
+  counter-increment: store;
+  position: relative;
+  padding-bottom: 20px;
+  border-color: var(--color-border-strong);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="card"][data-variant="settings-group"]::after {
+  content: "Locker " counter(store, decimal-leading-zero);
+  position: absolute;
+  right: 12px;
+  bottom: 6px;
+  font-family: var(--suit-label);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="settings-section"] {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+[data-part="settings-section"] [data-part="card"],
+[data-part="settings-section"] [data-part="settings-row"] {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px dotted color-mix(in oklab, var(--suit-sea) 35%, var(--color-border));
+}
+
+/* ------------------------------------------------------------------ the harbour arrivals board */
+
+[data-page="pulls"] [data-part="page-title"]::before,
+[data-page="issues"] [data-part="page-title"]::before,
+[data-page="inbox"] [data-part="page-title"]::before {
+  content: "Harbour office";
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--suit-label);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-link);
+}
+/* The list's box is the board itself: a painted header band names it. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"] {
+  position: relative;
+  padding-top: 30px;
+  border-color: var(--color-border-strong);
+  box-shadow: var(--suit-shadow);
+  overflow: hidden;
+}
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before {
+  content: "Arrivals · today’s tide";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 9px 16px 0;
+  font-family: var(--suit-label);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: #f2ead8;
+  background: linear-gradient(180deg, #1d3d4f, #16303f);
+  border-bottom: 3px solid var(--suit-rope);
+  pointer-events: none;
+}
+[data-page="issues"] [data-part="card"]::before {
+  content: "Notices to mariners";
+}
+[data-page="pulls"] [data-part="filter-bar"],
+[data-page="issues"] [data-part="filter-bar"] {
+  border-bottom: 1px solid var(--color-border-strong);
+}
+/*
+ * Each pull request is a vessel on the board: a flap at its left gives its standing (Incoming,
+ * At anchor, Docked, Sailed), painted white on the board's navy; its own title follows.
+ */
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  --suit-flap: #1d3d4f;
+  position: relative;
+  padding-left: 100px;
+  transition: background-color 160ms ease;
+}
+[data-part="pr-row"] + [data-part="pr-row"],
+[data-part="issue-row"] + [data-part="issue-row"] {
+  box-shadow: inset 0 1px 0 var(--color-border);
+}
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "Incoming";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  box-sizing: border-box;
+  width: 76px;
+  padding: 5px 0 4px;
+  text-align: center;
+  font-family: var(--suit-label);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #f2ead8;
+  background:
+    linear-gradient(rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.28)) 0 50% / 100% 1px no-repeat,
+    var(--suit-flap);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  pointer-events: none;
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="pr-row"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+[data-part="pr-row"][data-variant="draft"] {
+  --suit-flap: #4b5a63;
+}
+[data-part="pr-row"][data-variant="draft"]::before {
+  content: "At anchor";
+}
+[data-part="pr-row"][data-variant="merged"] {
+  --suit-flap: #7a4a24;
+}
+[data-part="pr-row"][data-variant="merged"]::before {
+  content: "Docked";
+}
+[data-part="pr-row"][data-variant="closed"],
+[data-part="issue-row"][data-variant="closed"] {
+  --suit-flap: #5a5246;
+}
+[data-part="pr-row"][data-variant="closed"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  content: "Sailed";
+}
+[data-part="issue-row"]::before {
+  content: "Posted";
+}
+
+/* ------------------------------------------------------------------ the pull request: a chart sheet */
+
+[data-page="pull"] [data-part="page-header"],
+[data-page="issue"] [data-part="page-header"] {
+  position: relative;
+  padding-bottom: 16px;
+}
+/* The sheet's lower border is the latitude scale. */
+[data-page="pull"] [data-part="page-header"]::after,
+[data-page="issue"] [data-part="page-header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  background: var(--suit-scale);
+  opacity: 0.55;
+  pointer-events: none;
+}
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 28px;
+  line-height: 1.2;
+}
+/* A kicker over the title names the sheet and where the vessel stands. */
+[data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "Chart of the passage · incoming";
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--suit-label);
+  font-size: 12px;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-link);
+}
+[data-page="pull"][data-variant="draft"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "Chart of the passage · at anchor";
+}
+[data-page="pull"][data-variant="merged"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "Chart of the passage · docked";
+}
+[data-page="pull"][data-variant="closed"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "Chart of the passage · sailed";
+}
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "Notice to mariners";
+}
+
+/* The sheet itself: chart paper with its contours, framed by a neatline. */
+[data-page="pull"] [data-part="page-body"],
+[data-page="issue"] [data-part="page-body"] {
+  position: relative;
+}
+[data-page="pull"] [data-part="page"],
+[data-page="issue"] [data-part="page"] {
+  background:
+    var(--suit-contours) right -380px top -300px / 900px 900px no-repeat,
+    var(--suit-contours) left -640px bottom -620px / 900px 900px no-repeat;
+}
+
+/* The description is the chart's legend; a compass rose sits in its corner as the cartouche. */
+[data-part="card"][data-variant="description"] {
+  position: relative;
+  border-color: var(--color-border-strong);
+  box-shadow: var(--suit-shadow);
+  font-size: 14px;
+  line-height: 1.65;
+}
+[data-part="card"][data-variant="description"]::after {
+  content: "";
+  position: absolute;
+  right: -14px;
+  top: -40px;
+  width: 72px;
+  height: 80px;
+  background: color-mix(in oklab, var(--suit-sea) 60%, transparent);
+  mask: url("assets/ornaments/compass-rose.svg") no-repeat center / contain;
+  pointer-events: none;
+}
+[data-part="review-comment"] {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/*
+ * The merge box is the pilot's slip, "Clear to dock": a paper slip with a perforated top edge,
+ * its heading stamped in the label face, bound in rope.
+ */
+[data-part="merge-box"] {
+  position: relative;
+  padding-top: 34px;
+  border: 1px solid color-mix(in oklab, var(--suit-rope) 75%, var(--color-border-strong));
+  border-radius: 4px 4px 10px 10px;
+  background:
+    radial-gradient(circle at 50% 0, var(--color-background) 3px, transparent 3.5px) 0 -3px / 12px
+      8px repeat-x,
+    linear-gradient(var(--suit-hairline), var(--suit-hairline)) 0 28px / 100% 1px no-repeat,
+    var(--color-surface-2);
+  box-shadow: var(--suit-shadow);
+}
+[data-part="merge-box"]::before {
+  content: "Pilot’s slip · clear to dock";
+  position: absolute;
+  top: 10px;
+  left: 16px;
+  font-family: var(--suit-label);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-link);
+  pointer-events: none;
+}
+[data-part="merge-box"][data-state="waiting"]::before {
+  content: "Pilot’s slip · awaiting the pilot";
+}
+[data-part="merge-box"][data-state="done"]::before {
+  content: "Pilot’s slip · docked and berthed";
+}
+[data-part="merge-box"][data-state="closed"]::before {
+  content: "Pilot’s slip · sailed without docking";
+}
+/* The slip's number, stamped at its right. */
+[data-part="merge-box"]::after {
+  content: "No. 0417";
+  position: absolute;
+  top: 9px;
+  right: 14px;
+  padding: 2px 6px 1px;
+  font-family: var(--suit-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--color-subtle-foreground);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  pointer-events: none;
+}
+[data-part="merge-box"] [data-part="list-row"] {
+  border-radius: 4px;
+}
+[data-part="merge-box"] [data-part="button"][data-variant="primary"] {
+  padding-inline: 18px;
+}
+
+[data-page="pull"] [data-part="page-section"],
+[data-page="issue"] [data-part="page-section"] {
+  position: relative;
+}
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 4px;
+}
+[data-part="check-row"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+[data-part="timeline-item"] {
+  border-radius: 8px;
+}
+[data-part="review-thread"] {
+  border-radius: 8px;
+}
+
+/* ------------------------------------------------------------------ side panel: the chart table */
+
+/*
+ * The side panel is the chart table: its tabs are drawer fronts in teak with brass pulls, the
+ * open drawer pulled out a little, and the body a sheet of chart paper laid on the table.
+ */
+[data-part="right-panel"] {
+  position: relative;
+  box-shadow: inset 1px 0 0 var(--suit-hairline);
+}
+[data-part="panel-header"] {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgb(90 58 28 / 0.05) 0 2px,
+      transparent 2px 5px,
+      rgb(90 58 28 / 0.04) 5px 6px,
+      transparent 6px 9px
+    ),
+    linear-gradient(180deg, #e6d6b8, #dcc9a6);
+  box-shadow:
+    inset 0 -1px 0 #b79d72,
+    inset 0 -3px 0 rgb(0 0 0 / 0.06);
+}
+[data-scheme="dark"] [data-part="panel-header"] {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgb(255 220 170 / 0.03) 0 2px,
+      transparent 2px 5px,
+      rgb(255 220 170 / 0.025) 5px 6px,
+      transparent 6px 9px
+    ),
+    linear-gradient(180deg, #241d16, #1d1712);
+  box-shadow:
+    inset 0 -1px 0 #3d3123,
+    inset 0 -3px 0 rgb(0 0 0 / 0.25);
+}
+[data-part="panel-tab"] {
+  position: relative;
+  border-radius: 4px 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #3d2c1a;
+  background: linear-gradient(180deg, #eee2c9, #e2d1b0);
+  box-shadow:
+    inset 0 0 0 1px #c2a678,
+    inset 0 1px 0 rgb(255 255 255 / 0.5);
+}
+[data-scheme="dark"] [data-part="panel-tab"] {
+  color: #e3d3b6;
+  background: linear-gradient(180deg, #2f261d, #261f18);
+  box-shadow:
+    inset 0 0 0 1px #4a3b2a,
+    inset 0 1px 0 rgb(255 230 190 / 0.06);
+}
+/* The drawer's brass pull, under its label. */
+[data-part="panel-tab"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 18px;
+  height: 3px;
+  margin-left: -9px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #e6c48a, #a87a3c);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+[data-part="panel-tab"]:hover {
+  background: linear-gradient(180deg, #f3e9d5, #e8d9bb);
+}
+[data-scheme="dark"] [data-part="panel-tab"]:hover {
+  background: linear-gradient(180deg, #3a2f24, #2e261d);
+}
+/* The open drawer is pulled out: lighter, its pull lit, a shadow under its lip. */
+[data-part="panel-tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  background: var(--color-surface-2);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-strong),
+    inset 0 2px 0 var(--color-tint),
+    0 3px 6px -3px rgb(0 0 0 / 0.35);
+}
+[data-part="panel-tab"][data-state="selected"]::after {
+  background: var(--color-tint);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--color-tint) 60%, transparent);
+}
+[data-part="panel-body"][data-state="active"] {
+  background: var(--color-surface-2);
+}
+[data-part="panel-toolbar"] {
+  font-size: 12.5px;
+  box-shadow: inset 0 -1px 0 var(--suit-hairline);
+}
+[data-part="file-tree"] {
+  font-size: 12.5px;
+}
+[data-part="file-tree"] [data-part="list-row"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 12%, transparent);
+}
+[data-part="diff-file"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  margin: 6px 6px 10px;
+  background: var(--color-code);
+}
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+
+/*
+ * The terminal is the radio room's set: a screen in a brass bezel, a rivet at each corner.
+ */
+[data-part="terminal-tab"] {
+  margin: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 2px solid #b48a4e;
+  background:
+    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) 4px 4px / 8px 8px
+      no-repeat,
+    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) right 4px top 4px / 8px
+      8px no-repeat,
+    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) left 4px bottom 4px /
+      8px 8px no-repeat,
+    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) right 4px bottom 4px /
+      8px 8px no-repeat,
+    #f7f4ec;
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 0.12),
+    0 6px 16px -10px rgb(0 0 0 / 0.5);
+}
+[data-scheme="dark"] [data-part="terminal-tab"] {
+  border-color: #8d6a3a;
+  background:
+    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) 4px 4px / 8px 8px
+      no-repeat,
+    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) right 4px top 4px / 8px
+      8px no-repeat,
+    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) left 4px bottom 4px /
+      8px 8px no-repeat,
+    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) right 4px bottom 4px /
+      8px 8px no-repeat,
+    #08121a;
+}
+[data-part="terminal"] {
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------------ empty states */
+
+[data-part="empty-state"] {
+  font-family: var(--suit-display);
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
