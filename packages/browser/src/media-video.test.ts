@@ -339,3 +339,23 @@ it("ace-media's plan becomes the capture's, under ace-media's own ids", async ()
   expect(ids?.[1]).toBe(0);
   expect(ids?.[0]).not.toBe(0);
 });
+
+it("encode ids are reused as plans change, so a long capture never runs out of them", async () => {
+  const { media } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
+  // A capture resized thousands of times: each plan is a new key.
+  for (let n = 0; n < 5_000; n++) handle.encodes([spec(`avc1/${n}`), spec(`vp8/${n}`)]);
+  const ids = captures[0]?.encodes.flatMap((specs) => specs.map((s) => s.id ?? -1)) ?? [];
+  // Two encodes at a time, and the two ids the last plan gave back resting for one plan: ids
+  // stay within the four at the base, never climbing toward 2^32.
+  expect(Math.max(...ids)).toBe(2 ** 20 + 3);
+  expect(Math.min(...ids)).toBe(2 ** 20);
+  // Two encodes running at once never share one.
+  const all = captures[0]?.encodes ?? [];
+  const last = all.at(-1)?.map((s) => s.id);
+  expect(new Set(last).size).toBe(2);
+  // A plan never reuses an id the one before it ran.
+  const before = new Set(all.at(-2)?.map((s) => s.id));
+  expect(last?.some((id) => before.has(id ?? -1))).toBe(false);
+});
