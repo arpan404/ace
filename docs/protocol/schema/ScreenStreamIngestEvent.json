@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenStreamIngestEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "boundary": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "event": {
+      "const": "stream.ingest",
+      "type": "string"
+    },
+    "sessionId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "state": {
+      "const": "closed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event",
+    "sessionId",
+    "state",
+    "boundary"
+  ],
+  "type": "object"
+}

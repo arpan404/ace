@@ -36,4 +36,48 @@ if (process.platform !== "win32") {
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
+  // E3b: a Simulator read by the binary itself, an Android device's scrcpy units forwarded by
+  // the daemon, and (on a Mac) an emulator's host-encoded picture, through the binary and back.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/simulator-media.process.test.ts",
+      "src/scrcpy-media.process.test.ts",
+      ...(process.platform === "darwin"
+        ? [
+            "src/frame-encoder-media.process.test.ts",
+            "src/simulator-transcode-media.process.test.ts",
+          ]
+        : []),
+    ],
+    {
+      cwd: new URL("../packages/devices/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+  // E3: the Mac screen helper keeps its signing identity, and (with ACE_SCREEN_INTEGRATION=1,
+  // which shows a fixture window) streams through this binary and back on egress.
+  if (process.platform === "darwin")
+    execFileSync(
+      "bun",
+      [
+        "--bun",
+        "x",
+        "vitest",
+        "run",
+        "src/helper-identity.native.process.test.ts",
+        "src/media-ingest.native.process.test.ts",
+        "src/media-backlog.process.test.ts",
+      ],
+      {
+        cwd: new URL("../packages/screen/", import.meta.url),
+        env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+        stdio: "inherit",
+      },
+    );
 }

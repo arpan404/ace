@@ -10,8 +10,8 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     let queue = DispatchQueue(label: "ace.screen.capture")
     func drain() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
     private lazy var encoder = JPEGEncoder(context: CIContext(options: [.cacheIntermediates: false]))
-    private lazy var video: VideoEncoder = VideoEncoder(sessionId: sessionId, version: version,
-        publish: { [weak self] packet in if let self { self.writer.publish(packet, sessionId: self.sessionId) } },
+    private lazy var video: VideoEncoder = VideoEncoder(
+        units: { [weak self] unit in self?.route(unit) },
         completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } },
         dropped: { [weak self] quality in
             guard quality == .refine else { return }
@@ -20,10 +20,14 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 self.refine.dropped(at: self.runtime.nanos()); self.armRefine()
             }
         })
-    private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]?; var quality = StreamQuality.motion }
+    private struct ChangedImage {
+        let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]?; var quality = StreamQuality.motion
+        /// The privacy epoch when ScreenCaptureKit handed the picture over, and when (uptime ns).
+        var epoch: UInt32 = 0; var capturedAt: UInt64 = 0
+    }
     private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
         guard let self else { return .unavailable }
-        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, at: self.runtime.nanos(), quality: changed.quality)
+        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, at: self.runtime.nanos(), quality: changed.quality, epoch: changed.epoch, capturedAt: changed.capturedAt)
         if result == .submitted { self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock() }
         if result == .unavailable { self.codec = "jpeg"; self.publishImage(changed) }
         if result != .busy, changed.quality == .refine { self.refine.sent() }
@@ -35,7 +39,44 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
             timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage, quality: jpegQuality(changed.quality)) else { return }
         lock.lock(); sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
-        writer.publish(packet, sessionId: sessionId)
+        ingest.legacyStill { writer.publish(packet, sessionId: sessionId) }
+    }
+    // Video goes to ace-media's ingest while the daemon routes it there (`stream.configure`'s
+    // `ingest`), else to the daemon's socket; stills always take the daemon's socket. The route
+    // owns its writers: a replaced one drains before it closes, and only the current one's
+    // failure moves video back.
+    private lazy var ingest: IngestRoute = {
+        let route = IngestRoute(legacy: { [weak self] unit in
+            guard let self, let packet = legacyFramePacket(unit, sessionId: self.sessionId, version: self.version) else { return }
+            self.writer.publish(packet, sessionId: self.sessionId)
+        }, now: { [runtime] in runtime.nanos() })
+        route.onKeyframe = { [weak self] in self?.requestKeyframe() }
+        // The connection to ace-media failed: video is back on the daemon's socket, and the
+        // daemon hears it with the boundary, so it stops waiting for egress.
+        route.onClosed = { [weak self, sessionId] boundary in
+            self?.requestKeyframe()
+            var event: [String: Any] = ["event": "stream.ingest", "sessionId": sessionId, "state": "closed"]
+            event["boundary"] = boundary as Any? ?? NSNull()
+            guard let line = try? JSONSerialization.data(withJSONObject: event) else { return }
+            DispatchQueue.main.async { FileHandle.standardOutput.write(line + Data([10])) }
+        }
+        return route
+    }()
+    /// The epoch new pictures are stamped with; read and set on `queue`.
+    private var epoch: UInt32 = 0
+    private func route(_ unit: EncodedVideo) { ingest.publish(unit) }
+    /// Points video at ace-media (`target`) or the daemon's socket (nil). After a switch, the
+    /// last sequence the previous path took; the new path starts at a keyframe.
+    func routeVideo(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
+        let moved = try ingest.route(to: target)
+        if moved.switched { requestKeyframe() }
+        return moved
+    }
+    var ingesting: Bool { ingest.ingesting }
+    func closeIngest() { ingest.close() }
+    /// A new epoch for pictures captured from now on; returns once it applies.
+    func setEpoch(_ next: UInt32) async {
+        await withCheckedContinuation { continuation in queue.async { self.epoch = next; continuation.resume() } }
     }
     /// A still picture is re-sent once at refine quality; see `RefineOnIdle`.
     private var refine = RefineOnIdle()
@@ -123,7 +164,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             if now - lastResize > 500_000_000 { lastResize = now; onResize?() }
         }
         let currentScale = measured.flatMap { $0.isFinite && $0 > 0 && $0 <= 8 ? $0 : nil } ?? Double(CVPixelBufferGetWidth(image)) / targetWidth
-        let changed = ChangedImage(image: image, timestamp: runtime.milliseconds(), scale: currentScale, damage: damage)
+        let changed = ChangedImage(image: image, timestamp: runtime.milliseconds(), scale: currentScale, damage: damage, epoch: epoch, capturedAt: runtime.nanos())
         if var screenshot = images.receive(changed) {
             screenshot.quality = .refine
             pendingVideo.clear(); video.close(); publishImage(screenshot)
@@ -264,11 +305,30 @@ struct ShareableContent {
         self.output = output; self.configuration = (filter, config); self.target = target
         do { if request.version == 1 || request.capture == true { try await setCapturing(true) } } catch { self.stream = nil; self.configuration = nil; self.output = nil; self.target = nil; throw error }
     }
-    func configureStream(_ settings: StreamSettings) async throws {
+
+    /// Applies `stream.configure`: settings, then where video goes and the epoch. Each request is
+    /// the whole state, so an absent `ingest` means the daemon's socket. The reply says where
+    /// video now goes and, after a switch, the last sequence the previous path took.
+    func configureStream(_ settings: StreamSettings, ingest address: StreamIngest?, epoch: UInt32?) async throws -> [String: Any] {
         guard ["jpeg", "h264"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...3840).contains(settings.maxHeight),
-              (1...60).contains(settings.fps), (128000...20000000).contains(settings.bitrate), let configuration, let output else {
+              (1...60).contains(settings.fps), (128000...20000000).contains(settings.bitrate), configuration != nil, let output else {
             throw HelperError("Invalid stream settings", code: "bounds")
         }
+        let token = try address.map { address -> Data in
+            guard let token = Data(base64Encoded: address.token), token.count == 32, !address.socket.isEmpty else { throw HelperError("Invalid ingest address", code: "bounds") }
+            return token
+        }
+        if let epoch { await output.setEpoch(epoch) }
+        try await applyStreamSettings(settings)
+        var data: [String: Any] = ["codec": settings.codec]
+        let target = address.flatMap { address in token.map { (socket: address.socket, token: $0) } }
+        let moved = try output.routeVideo(to: target)
+        if moved.switched { data["switched"] = true; data["boundary"] = moved.boundary as Any? ?? NSNull() }
+        data["ingest"] = output.ingesting ? "on" : "off"
+        return data
+    }
+    private func applyStreamSettings(_ settings: StreamSettings) async throws {
+        guard let configuration, let output else { throw HelperError("Invalid stream settings", code: "bounds") }
         if let previous = self.settings, previous.codec == "h264", settings.codec == "h264",
            previous.maxWidth == settings.maxWidth, previous.maxHeight == settings.maxHeight, previous.fps == settings.fps {
             // A link-driven rate change: same picture, same encoder, no keyframe.
@@ -279,6 +339,9 @@ struct ShareableContent {
         self.settings = settings
         let config = configuration.config
         (config.width, config.height) = streamCaptureSize(points: shownFrame.size, density: density, maxWidth: settings.maxWidth, maxHeight: settings.maxHeight)
+        // Live video asks ScreenCaptureKit for NV12 at the encode size: it scales and converts on
+        // the GPU, and its IOSurfaces go to VideoToolbox untouched. Stills keep BGRA.
+        config.pixelFormat = settings.codec == "h264" ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.fps))
         await output.configure(settings, targetWidth: frame.width)
         try await stream?.updateConfiguration(config)
@@ -390,6 +453,7 @@ struct ShareableContent {
         try releasePointer()
         if capturing { _ = try await setCapturing(false) }
         if let output { writer.retire(output.sessionId) }
+        output?.closeIngest()
         contentInset = 0
         stream = nil; configuration = nil; target = nil; initialRequest = nil; capturedWindowId = nil; captureWindow = nil; settings = nil; output = nil; allowed.removeAll(); cachedContent = nil; resolver.invalidate()
     }

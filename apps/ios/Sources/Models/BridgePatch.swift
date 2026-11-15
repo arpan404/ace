@@ -56,6 +56,13 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var group: String? = nil
     /// Inbox rows only: false when the thread never settles by itself.
     var autoSettle: Bool? = nil
+    /// Inbox rows only: the snoozes that end on an event and fit the thread now ("Until it
+    /// needs you", "Until the PR changes"), beside the layout's times. Nil from older bridges.
+    var snoozeEvents: [SnoozeEvent]? = nil
+    /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
+    var snoozeWake: String? = nil
+    /// Inbox rows only: that event's id ("needs_you", "pr"), so Undo of a settle puts it back.
+    var snoozeOn: String? = nil
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil
@@ -76,6 +83,7 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct SnoozeEvent: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String; let detail: String }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
     /// The preview's first line: the sentence, what it is about, and its ink ("warning",
     /// "destructive" or "muted").
@@ -183,6 +191,16 @@ struct BubbleLine: Codable, Sendable, Equatable {
     var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
+    /// How many lines a long bubble shows folded; absent from older bridges (ten).
+    var fold: Int? = nil
+    /// The markdown the bubble renders instead of its runs, every line break kept as a hard
+    /// break; empty (or absent from older bridges) when it draws its runs.
+    var markdown: String? = nil
+    /// The words as written, for Copy, Select text and Share; empty for a message with mentions
+    /// (it copies its runs) and absent from older bridges.
+    var source: String? = nil
+    /// The words ran past what the row carries: the menu reads them whole (`readBubble`).
+    var cut: Bool? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose

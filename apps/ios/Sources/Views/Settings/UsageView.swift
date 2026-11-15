@@ -163,14 +163,16 @@ struct UsageView: View {
         ServiceProblem(message: reportProblem)
         if let report {
             let view = tab == .cost ? report.cost : report.tokens
-            if view.providers.isEmpty, view.byDay.isEmpty {
+            if !view.hasUsage {
                 if report.coverage.complete || reportLoading {
                     empty("No usage in this range", systemImage: "chart.xyaxis.line")
                 } else {
                     empty("No usage could be read", systemImage: "chart.xyaxis.line", detail: report.coverage.line)
                 }
             } else {
-                UsageSpendView(view: view)
+                UsageSpendView(view: view, ledger: report.from.isEmpty ? nil : UsageLedgerContext(
+                    reads: reads, from: report.from, to: report.to, cost: tab == .cost, provider: provider,
+                    generation: scoped.map { "\($0.hostId):\($0.client.connection)" }, refreshed: refreshed))
             }
         } else if reportLoading {
             loading("Reading usage")

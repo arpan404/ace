@@ -44,9 +44,10 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
     /// A machine runtime whose VM evaluates the client bundle now, before its machine is known,
     /// reading nothing and connecting nowhere until `adopt` gives it one (`RuntimeWarmup`).
-    static func warm() -> ClientRuntime {
-        let runtime = ClientRuntime(priority: .userInitiated)
-        runtime.boot(then: nil)
+    /// `evaluated` runs on the VM thread once the bundle has evaluated.
+    static func warm(priority: QualityOfService = .userInitiated, evaluated: (@Sendable () -> Void)? = nil) -> ClientRuntime {
+        let runtime = ClientRuntime(priority: priority)
+        runtime.boot(then: nil, evaluated: evaluated)
         return runtime
     }
     /// Gives a warm runtime its machine. The host is bound on the VM thread after the bundle has
@@ -102,7 +103,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         function.call(withArguments: [entry.json])
     }
     /// Starts the VM thread and evaluates the bundle; then runs `entry`, unless the runtime is warm.
-    private func boot(then entry: (name: String, json: String)?) {
+    private func boot(then entry: (name: String, json: String)?, evaluated: (@Sendable () -> Void)? = nil) {
         let label = entry?.name ?? "warm"
         let ready = DispatchSemaphore(value: 0)
         let worker = Thread { [self] in
@@ -130,6 +131,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
                     let evaluating = LaunchTrace.begin("script.evaluate", label)
                     context.evaluateScript(script, withSourceURL: path)
                     evaluating.end()
+                    evaluated?()
                     if let entry { run(entry, in: context) }
                 } catch { fail("Could not load the shared client") }
             }

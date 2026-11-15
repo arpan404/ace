@@ -93,6 +93,55 @@ test("one machine's limits shape each provider's accounts with what is left of e
   expect(reply.quiet.length).toBeGreaterThan(0);
 });
 
+test("a window used faster than it resets says when it runs out; a slower one marks what its pace leaves", async () => {
+  const now = Date.now();
+  const hour = 3_600_000;
+  const daemon = fixture();
+  // Personal's windows, each an hour into five: half used runs out, a tenth leaves half.
+  daemon.services.accounts = daemon.services.accounts.map((account) =>
+    account.provider === "codex" && account.label === "Personal"
+      ? {
+          ...account,
+          quota: {
+            ...account.quota,
+            observedAt: now,
+            windows: Object.fromEntries(
+              Object.entries(account.quota.windows).map(([id], index) => [
+                id,
+                {
+                  usedPercent: index === 0 ? 50 : 10,
+                  resetsAt: now + 4 * hour,
+                  windowDurationMins: 300,
+                  observedAt: now,
+                  source: "cli" as const,
+                },
+              ]),
+            ),
+          },
+        }
+      : account,
+  );
+  const { accounts } = await readUsageAccounts(await connect(daemon), false, signal());
+  const reply = combineLimits(
+    {
+      type: "usage.combineLimits",
+      machines: [{ id: "mac", name: "Mac", reach: "counted", accounts }],
+    },
+    now,
+  );
+  const windows =
+    reply.providers
+      .find((group) => group.provider === "codex")
+      ?.accounts.find((account) => account.label === "Personal")?.windows ?? [];
+  const fast = windows.find((window) => window.leftPercent === 50);
+  const slow = windows.find((window) => window.leftPercent === 90);
+  expect(fast?.when).toMatchObject({ runsOut: true, text: expect.stringMatching(/^Out around /) });
+  expect(fast?.when.spoken).toMatch(/^Runs out around /);
+  expect(fast?.leftAtReset).toBeNull();
+  expect(slow?.when).toMatchObject({ runsOut: false, text: expect.stringMatching(/^Resets /) });
+  expect(slow?.leftAtReset).toBe(50);
+});
+
 test("two machines' limits list each account under its machine, and an offline one is named", async () => {
   const mac = await readUsageAccounts(await connect(fixture()), false, signal());
   const reply = combineLimits(

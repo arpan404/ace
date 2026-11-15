@@ -12,6 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+media-bitstream = { path = "../media-bitstream" }
 media-chrome = { path = "../media-chrome" }
 media-codec = { path = "../media-codec" }
 media-core = { path = "../media-core" }
@@ -38,7 +39,6 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = ["h
 media-vt = { path = "../media-vt" }
 
 [dev-dependencies]
-media-bitstream = { path = "../media-bitstream" }
 
 [[example]]
 name = "ingest"
