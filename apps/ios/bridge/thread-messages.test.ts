@@ -238,6 +238,40 @@ test("an answer that finishes before its turn ends stops saying Writing then, an
   );
 });
 
+test("an answer the provider reopens says Writing again until it finishes again", async () => {
+  const fake = start("reopened");
+  fake.apply("reopened", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "reopened");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(() => answerBlock()?.streaming === false, "the answer finished");
+  // The same item opens again while its turn runs (`item.upsert` may set complete back to false).
+  fake.apply("reopened", [facts.message("root", "reply", "assistant", "Working again", false)]);
+  await until(() => answerBlock()?.writing === "Writing", "Writing again once reopened");
+  const from = native.frames.length;
+  fake.apply("reopened", [facts.stream("root", "reply", " and on")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working again and on"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // Still tracked: a reconnect takes Writing away and brings it back.
+  const away = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(away), "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "finished again",
+  );
+}, 20_000);
+
 test("a reconnect redraws only the answer still arriving, never the settled ones", async () => {
   const fake = start("settled-away");
   fake.apply("settled-away", [
