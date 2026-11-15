@@ -508,3 +508,148 @@ async fn a_helper_over_its_spending_limit_ends_saying_so_and_its_cost_is_the_bot
     assert!(last["cost_micros"].as_u64().unwrap_or(0) >= spent, "{last}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_helpers_ask_user_is_refused_and_it_carries_on_to_its_answer() -> Result {
+    let mut scripts = warm_up();
+    scripts.extend([
+        starts(&[helper_call("h1", "Read the build log", None)]),
+        // The helper's step outlasts the bot's pause, so the bot's next step comes first.
+        Script::reply("")
+            .call("q1", "ask_user", json!({ "question": "Which build?" }))
+            .call("w1", "linger", json!({})),
+        Script::reply("A helper is reading the log."),
+        Script::reply("The build log says step 3 failed."),
+        Script::reply("Step 3 failed."),
+    ]);
+    let linger = FakeTool::new("linger", Risk::Read, "ok").slow(Duration::from_millis(1000));
+    let spade = Spade::start(scripts, tools(vec![pause(), linger])).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Why did CI fail?").await?;
+    let events = spade.wait_for(&conversation, "job_finished").await?;
+    let result = events
+        .iter()
+        .find(|e| e["type"] == "job_finished")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(result["content"], "The build log says step 3 failed.");
+    let found = helpers(&spade, &conversation).await?;
+    let helper = found[0]["conversation"].as_str().unwrap_or_default();
+    let steps = spade.events(helper).await?;
+    assert_eq!(count(&steps, "question_asked"), 0, "{:?}", types(&steps));
+    let answered = steps
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "q1")
+        .cloned()
+        .ok_or("ask_user got no result")?;
+    assert_eq!(answered["is_error"], true);
+    let said = answered["content"].as_str().unwrap_or_default();
+    assert!(said.contains("Refused"), "{said}");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stop_pressed_while_a_helper_is_being_made_means_it_is_never_made() -> Result {
+    let mut scripts = warm_up();
+    scripts.extend([
+        starts(&[helper_call("h1", "Read every log", None)]),
+        Script::reply("A helper is starting."),
+        Script::reply("This must not be asked for."),
+        Script::reply("Nor this."),
+    ]);
+    let spade = Spade::start(scripts, tools(vec![pause()])).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    // The helper's job blocks just before it stores its helper, until the stop is in.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let wait = Arc::new(std::sync::Mutex::new(wait));
+    let at = reached.clone();
+    spade.engine.hold_helper_starts(Arc::new(move |_| {
+        at.notify_one();
+        if let Ok(wait) = wait.lock() {
+            let _ = wait.recv_timeout(Duration::from_secs(10));
+        }
+    }));
+    spade.say(&conversation, "Read the logs").await?;
+    tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    let seen = spade.fake.seen().len();
+    go.send(())?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        helpers(&spade, &conversation).await?.is_empty(),
+        "a helper was made after Stop"
+    );
+    assert_eq!(spade.fake.seen().len(), seen, "nothing more was asked for");
+    let events = spade.events(&conversation).await?;
+    assert_eq!(count(&events, "job_finished"), 1, "{:?}", types(&events));
+    assert_eq!(count(&events, "reply_started"), 2);
+    assert_eq!(state(&spade, &agent).await?, "idle");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stop_stored_just_before_a_restart_holds_for_the_helpers_after_it() -> Result {
+    use spade_core::event::{Event, Known};
+    let mut scripts = warm_up();
+    scripts.extend([
+        starts(&[helper_call("h1", "Read the server log", None)]),
+        Script::reply("never").held(Duration::from_secs(30)),
+        Script::reply("A helper is reading the log."),
+    ]);
+    let spade = Spade::start(scripts, tools(vec![pause()])).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Read the server log").await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    wait_helpers(&spade, &conversation, |h| {
+        h.first().is_some_and(|h| h["state"] == "working")
+    })
+    .await?;
+    let reply = events
+        .iter()
+        .find(|e| e["type"] == "job_started")
+        .and_then(|e| e["reply"].as_str())
+        .ok_or("no job started")?
+        .to_owned();
+    // Spade stored the person's Stop, then went away before it stopped the job and its helper.
+    spade_store::Store::open(&spade.database())?.append(
+        &conversation,
+        &Event::Known(Known::StopRequested {
+            reply: Some(reply),
+            jobs: vec!["h1".to_owned()],
+        }),
+        0,
+    )?;
+
+    let spade = spade
+        .restart(
+            tools(vec![pause()]),
+            vec![Script::reply("This must not be asked for.")],
+        )
+        .await?;
+    let found = helpers(&spade, &conversation).await?;
+    let helper = found[0]["conversation"].as_str().unwrap_or_default();
+    spade.wait_for(helper, "reply_stopped").await?;
+    let events = spade.wait_for(&conversation, "job_finished").await?;
+    let result = events
+        .iter()
+        .find(|e| e["type"] == "job_finished")
+        .cloned()
+        .unwrap_or_default();
+    let said = result["content"].as_str().unwrap_or_default();
+    assert!(said.starts_with("Stopped by the person"), "{said}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(spade.fake.seen().is_empty(), "the stopped helper resumed");
+    let events = spade.events(&conversation).await?;
+    assert_eq!(count(&events, "reply_started"), 2, "{:?}", types(&events));
+    assert_eq!(count(&events, "job_finished"), 1);
+    Ok(())
+}

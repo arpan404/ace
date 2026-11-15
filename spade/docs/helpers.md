@@ -64,7 +64,10 @@ limit; the helper's own limits bound it.
 - **Stop.** Stop on the bot's conversation stops the helpers of the reply it names and of the
   jobs it names (every running job): a running helper is stopped like any reply
   (`stop_requested`, then `reply_stopped`), a queued one gets a `stop_requested` with no reply and
-  never starts. The job ends "Stopped by the person…", which opens no reply.
+  never starts. The job ends "Stopped by the person…", which opens no reply. A helper is stored
+  under the lock Stop stores its marker under, and not at all once a stored stop names its job
+  or reply, so Stop either finds it or it is never made. After a restart, a helper job a stored
+  stop names is not run again: its helper is closed as stopped and the job ends stopped.
 
 What the result says, from `helper::ended`:
 
@@ -87,7 +90,9 @@ Every profile leaves out `helper`, `ask_user`, `memory_save`, `memory_update`, `
 (and any tool of risk `memory`), `skill_propose`, `task_status`, `bot_message`, `group_ask`, and
 every background tool (`research`, ace's `wait`): a helper's answer is its last message, and a
 background result would arrive after it. Deferred tools (ace's, connectors') are narrowed the
-same way, so `explore` keeps read-only ace and connector tools.
+same way, so `explore` keeps read-only ace and connector tools. A call to a tool the profile
+leaves out is answered with a refusal and never run, checked before anything the turn loop
+answers itself (a helper's `ask_user` would wait on a question nobody sees).
 
 **Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self) ->
 Vec<Profile>`, set once with `Engine::set_profile_source`. A `Profile` has a name, a one-line

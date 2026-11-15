@@ -292,8 +292,25 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
     let events = engine.load(id)?;
     for job in Transcript::fold(&events).jobs {
         // A helper's work is all in its events: its job runs again and waits for it (ADR 0152).
-        if engine.store.helper_for_job(id, &job)?.is_some() {
-            reattach(engine, id, &events, &job);
+        if let Some(helper) = engine.store.helper_for_job(id, &job)? {
+            // Unless Stop was stored for it before the restart and its end was not: the stop
+            // holds, so the helper is closed as stopped and never resumed.
+            if spade_core::turn::job_stopped(&events, &job) {
+                engine.stop_helper_after_restart(&helper)?;
+                let stopped = Event::Known(Known::JobFinished {
+                    name: job_name(&events, &job),
+                    job,
+                    content: JOB_STOPPED.to_owned(),
+                    is_error: true,
+                    uncertain: true,
+                    files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
+                });
+                engine.record(id, &stopped)?;
+            } else {
+                reattach(engine, id, &events, &job);
+            }
             continue;
         }
         let finished = Event::Known(Known::JobFinished {
