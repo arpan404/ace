@@ -1,6 +1,7 @@
 import {
   Client,
   ClientCore,
+  type ClientOptions,
   type Limits,
   type Scheduler,
   type ThreadSource,
@@ -25,6 +26,8 @@ export function world(
   projectScheduler?: (callback: () => void) => void,
   outbox?: Storage,
   limits?: Partial<Limits>,
+  /** Other options for the worker's client, such as `openTail`. */
+  client: Partial<ClientOptions> = {},
 ) {
   let now = 1;
   let ids = 0;
@@ -117,6 +120,7 @@ export function world(
             random: () => 0.5,
             id: () => `id-${++ids}`,
             ...(limits ? { limits } : {}),
+            ...client,
           }),
       };
     },

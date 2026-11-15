@@ -19,7 +19,7 @@ private final class Clock: @unchecked Sendable {
 }
 
 @Suite struct AccountGrantTests {
-    @Test func everyRelayConnectionFetchesAFreshGrantAndItsHelloPresentsTheSameOne() async throws {
+    @Test func theHelloPresentsTheLastFetchedGrantUntilItIsAboutToLapse() async throws {
         let fetches = Counter(), clock = Clock()
         let grants = AccountGrants(now: { clock.now }) { () async throws(AccountGrantError) -> AceGrant in
             AceGrant(token: "grant-\(fetches.next())", expiresAt: clock.now + 300_000)
@@ -32,6 +32,27 @@ private final class Clock: @unchecked Sendable {
         clock.advance(250_000)
         #expect(try await grants.current() == "grant-3")
         #expect(fetches.count == 3)
+    }
+    @Test func aRefusedGrantIsNotKeptButANewerOneIs() async throws {
+        let fetches = Counter(), clock = Clock()
+        let grants = AccountGrants(now: { clock.now }) { () async throws(AccountGrantError) -> AceGrant in
+            AceGrant(token: "grant-\(fetches.next())", expiresAt: clock.now + 300_000)
+        }
+        #expect(grants.kept() == nil)
+        #expect(try await grants.current() == "grant-1")
+        #expect(grants.kept() == "grant-1")
+        grants.discard("grant-1")
+        #expect(grants.kept() == nil)
+        #expect(try await grants.current() == "grant-2")
+        // A refusal of an older grant arriving late leaves the newer one in place.
+        grants.discard("grant-1")
+        #expect(grants.kept() == "grant-2")
+    }
+    @Test func onlyTheDaemonsUnauthorizedErrorRefusesAHellosGrant() {
+        #expect(RelaySocket.refusesGrant(#"{"type":"error","code":"unauthorized","message":"Valid hello required"}"#))
+        #expect(!RelaySocket.refusesGrant(#"{"type":"error","code":"machine_code_required","message":"Enter this machine's code."}"#))
+        #expect(!RelaySocket.refusesGrant(#"{"type":"welcome","code":"unauthorized"}"#))
+        #expect(!RelaySocket.refusesGrant("not json"))
     }
 
     @Test func aSignedOutPhoneGetsNoGrantAndTheBackendStatusDecidesRetrying() async throws {

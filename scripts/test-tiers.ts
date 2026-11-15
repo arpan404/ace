@@ -52,6 +52,10 @@ export const nodeOnlySuites = [
   // frozen main thread through node:inspector to read its stack. Bun's node:inspector has no
   // Debugger domain; what holds on both runtimes is in stall-watchdog.process.test.ts.
   "packages/diagnostics/src/stall-watchdog-stacks.process.test.ts",
+  // Release daemons run on Node, whose HTTP server arms its own keep-alive timeout on each
+  // connection it is handed when a response finishes; Bun's doesn't. The cases also run on Bun
+  // from sni-keep-alive.process.test.ts.
+  "apps/daemon/src/machines/sni-keep-alive-on-node.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react

@@ -87,42 +87,61 @@ struct MachineScope: Sendable, Equatable { let hostId: String; let deviceId: Str
 /// What a socket event carries: text, or a binary message's own bytes.
 enum SocketPayload: Sendable { case text(String), bytes(Data) }
 
-/// Delegates are serial. The callback transfers owned values back onto the JSC run loop.
-final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+/// Callbacks are serial, on its session's queue. The callback transfers owned values back onto
+/// the JSC run loop. On its machine's `PinnedSession`, the upgrade can go over a connection the
+/// ticket exchange just opened; without one it has a session of its own.
+final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
+    /// From open to the upgrade's answer. A slow link (3G, about 400 ms a round trip) needs
+    /// TCP, TLS and the upgrade, under 2 s, with room for two lost SYNs; an address that never
+    /// answers then fails in seconds, so the SDK tries its next path or backs off, rather than
+    /// holding the machine for URLSession's 60 s. The relay's handshake has the same bound.
+    static let connectTimeout: TimeInterval = 10
     private let target: ConnectionTarget
     private let event: @Sendable (String, SocketPayload) -> Void
-    private let now: @Sendable () -> Date
-    /// Browser stream pieces are assembled here, on the delegate queue, and go to `streams`
+    /// Browser stream pieces are assembled here, on the session queue, and go to `streams`
     /// without entering JavaScriptCore; other binary messages reach the SDK.
     private let streams: BrowserStreamHub?
+    private let session: PinnedSession
+    /// A session made for this socket alone ends with it.
+    private let ownsSession: Bool
     private var router = BinaryRouter()
     private var task: URLSessionWebSocketTask?
-    private var session: URLSession?
     private var ended = false
-    private let queue = OperationQueue()
+    /// The daemon's welcome arrived on this socket (`LaunchTrace` marks the first).
+    private var welcomed = false
+    private let connectTimeout: TimeInterval
+    private var deadline: DispatchWorkItem?
+    private var queue: OperationQueue { session.queue }
 
-    init(target: ConnectionTarget, now: @escaping @Sendable () -> Date = { Date() }, streams: BrowserStreamHub? = nil,
-         event: @escaping @Sendable (String, SocketPayload) -> Void) {
+    init(target: ConnectionTarget, session: PinnedSession? = nil, now: @escaping @Sendable () -> Date = { Date() },
+         connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
+         streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
+        self.connectTimeout = connectTimeout
         self.event = event
-        self.now = now
         self.streams = streams
-        super.init()
-        queue.maxConcurrentOperationCount = 1
+        self.session = session ?? PinnedSession(target: target, now: now)
+        ownsSession = session == nil
     }
     func open() {
         do { try target.validate() } catch { event("close", .text("4003")); return }
-        let config = URLSessionConfiguration.ephemeral
-        config.tlsMinimumSupportedProtocolVersion = .TLSv12
-        config.urlCache = nil
-        config.httpCookieStorage = nil
-        let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
-        self.session = session
-        let task = session.webSocketTask(with: target.endpoint)
-        task.maximumMessageSize = 2 * 1024 * 1024
-        self.task = task
-        LaunchTrace.mark("socket.open", target.endpoint.host ?? "")
-        task.resume()
+        queue.addOperation { [self] in
+            guard !ended else { return }
+            guard let task = session.webSocketTask(target.endpoint, handler: self) else { finish(1006); return }
+            task.maximumMessageSize = 2 * 1024 * 1024
+            self.task = task
+            LaunchTrace.mark("socket.open", target.endpoint.host ?? "")
+            // Cancelled once the socket opens or ends, so no stale deadline outlives it.
+            let deadline = DispatchWorkItem { [weak self] in
+                self?.queue.addOperation { [weak self] in
+                    guard let self, !self.ended, self.deadline != nil else { return }
+                    self.finish(1006)
+                }
+            }
+            self.deadline = deadline
+            DispatchQueue.global().asyncAfter(deadline: .now() + connectTimeout, execute: deadline)
+            task.resume()
+        }
     }
     func send(_ text: String) {
         queue.addOperation { [weak self] in
@@ -143,11 +162,16 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         queue.addOperation { [weak self] in
             guard let self else { return }
             self.ended = true
-            self.task?.cancel(with: .goingAway, reason: nil)
-            self.session?.invalidateAndCancel()
-            self.task = nil
-            self.session = nil
+            self.end()
         }
+    }
+    /// Lets the task go, and the session when it is this socket's own.
+    private func end() {
+        deadline?.cancel()
+        deadline = nil
+        task?.cancel(with: .goingAway, reason: nil)
+        task = nil
+        if ownsSession { session.close() }
     }
     private func receive() {
         task?.receive { [weak self] result in
@@ -155,6 +179,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
                 guard let self, !self.ended else { return }
                 switch result {
                 case .success(.string(let text)):
+                    if !self.welcomed, text.hasPrefix(#"{"type":"welcome""#) { self.welcomed = true; LaunchTrace.mark("socket.welcome") }
                     self.event("message", .text(self.streams?.text(text) ?? text)); self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
@@ -177,36 +202,25 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         ended = true
         // "<code> <reason>": the reason tells the owner's revocation ("Device revoked") from any other 4003.
         event("close", .text(reason.isEmpty ? String(code) : "\(code) \(reason)"))
-        task?.cancel(with: .goingAway, reason: nil)
-        session?.invalidateAndCancel()
-        task = nil
-        session = nil
+        end()
     }
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
-        guard !ended else { return }
+    func opened(_ task: URLSessionWebSocketTask) {
+        guard !ended, task === self.task else { return }
+        deadline?.cancel()
+        deadline = nil
         LaunchTrace.mark("socket.ready")
         event("open", .text(""))
         receive()
     }
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        finish(closeCode.rawValue, reason: reason.flatMap { String(data: $0, encoding: .utf8) } ?? "")
+    func closed(_ task: URLSessionWebSocketTask, code: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        finish(code.rawValue, reason: reason.flatMap { String(data: $0, encoding: .utf8) } ?? "")
     }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    func completed(_ task: URLSessionTask, error: Error?) {
         if error != nil { finish(1006) }
     }
-    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
-                    completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        switch PinnedTrust.evaluate(challenge, host: target.endpoint.host, pin: target.pin, now: now()) {
-        case .success(let credential): completionHandler(.useCredential, credential)
-        case .failure:
-            completionHandler(.cancelAuthenticationChallenge, nil)
-            // Report why before the fatal close: 4003 alone also means a revoked device.
-            if !ended { event("trust", .text("pin")) }
-            finish(4003)
-        }
-    }
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
+    func refusedTrust(_ task: URLSessionTask) {
+        // Report why before the fatal close: 4003 alone also means a revoked device.
+        if !ended { event("trust", .text("pin")) }
+        finish(4003)
     }
 }

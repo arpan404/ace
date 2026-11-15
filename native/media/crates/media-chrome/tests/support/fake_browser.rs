@@ -130,10 +130,17 @@ fn page(url: String) {
                         let mut reply = chunk(index, generation, false, 0);
                         reply.resize(reply.len() + size, 0);
                         if output.send(Message::binary(reply)).is_err() {
-                            return;
+                            break;
                         }
                     }
-                    continue;
+                    // A small flood can fit in the socket buffer before the reader
+                    // ends it; observe the peer close even when every send succeeded.
+                    if output.read().is_err() {
+                        if let Some(marker) = std::env::var_os("FAKE_FLOOD_ENDED") {
+                            let _ = std::fs::write(marker, b"output closed");
+                        }
+                    }
+                    return;
                 }
                 let mut timestamp = [0u8; 8];
                 timestamp.copy_from_slice(&bytes[24..32]);

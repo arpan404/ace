@@ -28,6 +28,15 @@ final class NativeHost: @unchecked Sendable {
     private var snapshots: SnapshotStore?
     private var sockets: [String: any DaemonSocket] = [:]
     private var timers: [String: Timer] = [:]
+    /// The machine's pinned HTTPS and WSS connections, made on first use and kept until this
+    /// runtime ends, so a ticket and the socket after it reuse one connection and TLS session.
+    private var pinnedSession: PinnedSession?
+    private func pinned(_ target: ConnectionTarget) -> PinnedSession {
+        if let pinnedSession { return pinnedSession }
+        let made = PinnedSession(target: target, now: services.now)
+        pinnedSession = made
+        return made
+    }
 
     init(runtime: ClientRuntime, binding: HostBinding) {
         self.runtime = runtime; self.binding = binding
@@ -150,8 +159,11 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(.invalid)); return
         }
         let tracing = LaunchTrace.begin("http", request.path)
-        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
+        let ticket = request.path == "/v1/tickets"
+        PinnedHTTP.send(on: pinned(target), origin: origin, request: request) { result in
             tracing.end()
+            // Only whether and how it was answered; never the ticket.
+            if ticket { LaunchTrace.mark("ticket.answered", (try? result.get()).map { String($0.status) } ?? "failed") }
             callback.finish()
             reply(result)
         }
@@ -180,12 +192,13 @@ final class NativeHost: @unchecked Sendable {
             let socket: any DaemonSocket
             switch (SocketOpening.parse(text), target.relay) {
             case (.daemon, let relay?): socket = RelaySocket(route: relay, streams: streams, event: event)
-            case (.daemon, nil): socket = PinnedSocket(target: target, now: services.now, streams: streams, event: event)
+            case (.daemon, nil): socket = PinnedSocket(target: target, session: pinned(target), streams: streams, event: event)
             // Through the relay a media connection is always a relay stream, whatever URL came with it:
             // the phone has no pin for the machine's own listeners there.
             case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", streams: streams, event: event)
             case (.media(let url?), nil):
                 guard let media = target.media(at: url) else { event("close", .text("1008")); return }
+                // Its own session, held to the media address's host with the daemon's pin.
                 socket = PinnedSocket(target: media, now: services.now, streams: streams, event: event)
             default:
                 // A direct media connection without an address, or one that isn't this daemon's
@@ -221,6 +234,8 @@ final class NativeHost: @unchecked Sendable {
         sockets.removeAll()
         for timer in timers.values { timer.invalidate() }
         timers.removeAll()
+        pinnedSession?.close()
+        pinnedSession = nil
         storageQueue.sync { store = nil }
     }
 }

@@ -20,6 +20,7 @@ import {
   viewViewport,
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
+import type { MediaOwner } from "@ace/media/media-connections";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
 import { heldPushes } from "./held-pushes.ts";
@@ -38,10 +39,11 @@ export interface DevicePeer {
   now?(): number;
   after?(ms: number, run: () => void): () => void;
   /**
-   * Delivery by ace-media (D1) for subscribes that name a media connection, with this main
-   * session's id. Without it, or while ace-media doesn't serve devices, they are served here.
+   * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
+   * connection is: its session, device and admission (a main session, or a channel of its own).
+   * Without it, or while ace-media doesn't serve devices, they are served here.
    */
-  delivery?: { session: string; port: () => MediaDeliveryPort | undefined };
+  delivery?: { owner: () => MediaOwner | undefined; port: () => MediaDeliveryPort | undefined };
 }
 /**
  * A transport owner supplies authenticated identity and revocation checks. The channel speaks
@@ -72,13 +74,14 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
   ): string | undefined => {
     const delivery = peer.delivery;
     const port = delivery?.port();
+    const requester = delivery?.owner();
     const kinds = ["simulator", "scrcpy", "emulator-frames"] as const;
-    if (!delivery || !port || !kinds.some((kind) => port.serves(kind))) return undefined;
-    const viewer = `${delivery.session}/${deviceId}`.slice(0, 64);
+    if (!requester || !port || !kinds.some((kind) => port.serves(kind))) return undefined;
+    const viewer = `${requester.session}/${deviceId}`.slice(0, 64);
     const link = viewLink(operation.link);
     const bound = port.bind({
       viewer,
-      session: delivery.session,
+      requester,
       connection,
       target: { kind: "device", deviceId },
       codecs: operation.codecs ?? ["avc1.42E033"],
