@@ -44,15 +44,17 @@ function harness(port = 41_000) {
   };
 }
 
+/** A paired credential's generation as the daemon gives it: a hash, here of `n`. */
+const credential = (n: number) => n.toString(16).padStart(32, "0");
 const phone = (session: string, generation = 1): MediaOwner => ({
   session,
   device: "phone",
-  admission: { kind: "pairing", generation },
+  admission: { kind: "pairing", generation: credential(generation) },
 });
 const laptop: MediaOwner = {
   session: "laptop-session",
   device: "laptop",
-  admission: { kind: "pairing", generation: 1 },
+  admission: { kind: "pairing", generation: credential(1) },
 };
 
 function granted(result: Awaited<ReturnType<MediaConnections["connect"]>>) {
@@ -155,7 +157,7 @@ test("a closed session closes its connections on the priority lane, and only its
 test("after a revocation nothing more is minted for its owner, and a pairing's stays", async () => {
   const { connections, advance } = harness();
   const held = granted(await connections.connect(phone("a")));
-  void connections.revoke("phone", { kind: "pairing", generation: 1 });
+  void connections.revoke("phone", { kind: "pairing", generation: credential(1) });
   expect(connections.owned(phone("a"), held.connection)).toBeUndefined();
   expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
   advance(60_000);

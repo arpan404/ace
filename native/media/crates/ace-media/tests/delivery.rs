@@ -31,8 +31,9 @@ fn owner(device: &str, admission: Value) -> Value {
     json!({ "session": format!("session-{device}"), "device": device, "admission": admission })
 }
 
+/// A pairing admission: generations are opaque strings (credential hashes) the daemon gives.
 fn pairing(generation: u64) -> Value {
-    json!({ "kind": "pairing", "generation": generation })
+    json!({ "kind": "pairing", "generation": format!("{generation:032x}") })
 }
 
 fn ticket(media: &mut Media, connection: &str, owner: &Value, issued: u64, ms: u64, bytes: u8) {

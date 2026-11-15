@@ -14,7 +14,8 @@ const wellFormedJson = z.unknown().refine(wellFormed);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("pairing"), generation: sequence }),
+  /** The paired credential's generation: an opaque string (a hash), compared for equality only. */
+  z.strictObject({ kind: z.literal("pairing"), generation: id }),
   z.strictObject({ kind: z.literal("account"), account: id }),
 ]);
 const Origin = z.discriminatedUnion("kind", [

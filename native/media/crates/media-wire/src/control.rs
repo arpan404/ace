@@ -86,8 +86,10 @@ impl<'de> Deserialize<'de> for Id {
 pub enum Admission {
     #[serde(rename = "pairing")]
     Pairing {
+        /// The paired credential's generation: an opaque string the daemon gives (a hash), only
+        /// ever compared for equality.
         #[serde(rename = "generation")]
-        generation: Sequence,
+        generation: Id,
     },
     #[serde(rename = "account")]
     Account {
