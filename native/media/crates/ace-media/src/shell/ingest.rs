@@ -5,6 +5,7 @@
 //! to the engine, which decides whether the connection stays; after that each connection is a
 //! task that reads whole `MediaFrame`s.
 use super::budget::{Budget, Cap, Slot};
+use super::listener::Listener;
 use crate::engine::sources::IngestId;
 use crate::framing::{
     HELLO_MAX, MEDIA_HEADER_MAX, MEDIA_PAYLOAD_MAX, TOKEN_LEN, hello_token, read_hello, read_media,
@@ -14,7 +15,7 @@ use media_wire::frame::MediaFrame;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -97,10 +98,10 @@ impl Ingest {
     }
 }
 
-pub fn serve_socket(listener: UnixListener, ingest: Ingest) {
+pub fn serve_socket(mut listener: Listener, ingest: Ingest) {
     tokio::spawn(async move {
         loop {
-            let Ok((mut stream, _)) = listener.accept().await else {
+            let Ok(mut stream) = listener.accept().await else {
                 continue;
             };
             let Some((slot, pending)) = ingest.admit_slots() else {

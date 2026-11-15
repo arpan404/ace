@@ -182,6 +182,10 @@ export default defineConfig({
     reporters: ["default", new FailureDetailsReporter()],
     include: [
       "packages/browser/src/video-software.process.test.ts",
+      // ace-media's supervisor and egress route over named pipes (with ACE_MEDIA_TEST_BINARY,
+      // against the real binary; otherwise the supervisor test drives the TypeScript stand-in).
+      "packages/media/src/supervisor.process.test.ts",
+      "packages/media/src/egress.process.test.ts",
       "packages/browser/src/discovery.test.ts",
       "packages/browser/src/chrome-video.test.ts",
       "packages/browser-extension/src/install.process.test.ts",

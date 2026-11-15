@@ -15,6 +15,21 @@ pub const VAULT_SLOTS: usize = 2048;
 #[repr(align(65536))]
 struct Page([[u8; SECRET_LEN]; VAULT_SLOTS]);
 
+/// The slab, made on the heap. `Box::new` would build the 64 KiB-aligned value on the stack
+/// first, which faults on Windows x64.
+#[allow(unsafe_code)]
+fn zeroed_page() -> Box<Page> {
+    // All-zero bytes are a valid `Page`: it is only bytes.
+    let layout = std::alloc::Layout::new::<Page>();
+    // SAFETY: the layout has a non-zero size; a null result is handled.
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<Page>();
+    if ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: a fresh allocation of `Page`'s layout, zeroed, owned by nothing else.
+    unsafe { Box::from_raw(ptr) }
+}
+
 /// Every ticket and token of the process, in one locked slab.
 pub struct Vault {
     page: Box<Page>,
@@ -34,7 +49,7 @@ impl Default for Vault {
 
 impl Vault {
     pub fn new() -> Self {
-        let page = Box::new(Page([[0; SECRET_LEN]; VAULT_SLOTS]));
+        let page = zeroed_page();
         let locked = media_noise::lock_memory(page.0.as_flattened());
         Self {
             page,

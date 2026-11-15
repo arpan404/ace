@@ -3,7 +3,7 @@ import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { FrameDecoder, framePacket, wireFrame, type Frame } from "./frames.ts";
-import { egressScreenFrame, ScreenMediaSource } from "./media-source.ts";
+import { egressScreenFrame, helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
 
 const settings: ScreenStreamSettings = {
   codec: "h264",
@@ -98,15 +98,18 @@ it("an egress unit without the helper's stamp, or not H.264, is no screen frame"
 function session() {
   const accepted: Frame[] = [];
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
+  const sent: unknown[] = [];
   let producer: IngestProducer | undefined;
   const source = new ScreenMediaSource({
     sessionId: "s1",
+    platform: "macos",
     helper: {
       capabilities: undefined,
       permissions: async () => ({ screenRecording: true, accessibility: true }),
       requestV2: async () => ({}),
       request: async (command) => {
         if (command.op !== "stream.configure") return {};
+        sent.push(command);
         const reply = replies.shift() ?? { ingest: "off", boundary: null };
         return { codec: "h264", ...reply, switched: true };
       },
@@ -155,7 +158,7 @@ function session() {
         payload: new Uint8Array(annexB),
       },
     });
-  return { source, accepted, replies, producer: ready, video, still, egress, address };
+  return { source, accepted, replies, sent, producer: ready, video, still, egress, address };
 }
 
 const video = (sequence: number, keyframe = false) => screenFrame(sequence, "h264", keyframe);
@@ -230,4 +233,26 @@ it("a flip back to the helper socket while ace-media still has the old path's un
   s.source.daemonFrame(s.video(8));
   expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   expect(s.source.stale).toBe(0);
+});
+
+const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
+
+it("a helper streams its own video only where it encodes H.264: the Mac, and Windows with a Media Foundation encoder", () => {
+  expect(helperEncodesVideo(helper("macos", ["jpeg", "h264"]))).toBe(true);
+  expect(helperEncodesVideo(helper("windows", ["jpeg", "h264"]))).toBe(true);
+  // No MFT: JPEG only, so the daemon's last-resort encoder makes the video.
+  expect(helperEncodesVideo(helper("windows", ["jpeg"]))).toBe(false);
+  expect(helperEncodesVideo(helper("linux-wayland", ["jpeg", "h264"]))).toBe(false);
+  expect(helperEncodesVideo(undefined)).toBe(false);
+});
+
+it("the helper is told which process serves ace-media's ingest, so it can refuse any other", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point({ ...s.address("p1"), pid: 4242 });
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    ingest: { socket: "/run/m1i.sock", pid: 4242 },
+  });
 });
