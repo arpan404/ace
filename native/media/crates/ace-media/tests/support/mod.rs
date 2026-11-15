@@ -2,7 +2,7 @@
 //! Driving the real binary: spawning it in a private runtime directory, its control frames,
 //! lanes, ingest frames and a hand-made WebSocket client.
 #![allow(dead_code)]
-use media_wire::control::{ControlFrame, FromMedia, Lane, Status, ToMedia};
+use media_wire::control::{Capability, ControlFrame, FromMedia, Lane, Status, ToMedia};
 use media_wire::frame::MediaFrame;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -13,6 +13,10 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
+
+#[cfg(target_os = "macos")]
+#[path = "probed.rs"]
+pub mod probed;
 
 pub const SECRET: [u8; 32] = [7; 32];
 
@@ -53,6 +57,8 @@ pub struct Media {
     pub stdin: Option<ChildStdin>,
     pub stdout: ChildStdout,
     pub dir: PathBuf,
+    /// The binary's capability list: `ready`'s, replaced by each `capabilities.changed`.
+    pub capabilities: Vec<Capability>,
 }
 
 impl Drop for Media {
@@ -87,6 +93,7 @@ impl Media {
             stdin: Some(stdin),
             stdout,
             dir,
+            capabilities: Vec::new(),
         }
     }
 
@@ -103,8 +110,56 @@ impl Media {
         self.write(&frame(value, payload, Lane::Normal));
     }
 
+    /// The next message, after applying any `capabilities.changed` before it: one may arrive
+    /// at any time after `ready` (a trial that finished late), between any two others.
     pub fn read(&mut self) -> FromMedia {
-        read_frame(&mut self.stdout, Lane::Normal)
+        loop {
+            match read_frame(&mut self.stdout, Lane::Normal) {
+                FromMedia::CapabilitiesChanged { capabilities } => self.capabilities = capabilities,
+                message => {
+                    if let FromMedia::Ready { capabilities, .. } = &message {
+                        self.capabilities = capabilities.clone();
+                    }
+                    return message;
+                }
+            }
+        }
+    }
+
+    /// Waits, after `ready` and before any source opens, until the binary holds what this Mac's
+    /// VideoToolbox trial finally finds: every step that trial found working is reported the
+    /// same way. On a busy machine some arrive only as `capabilities.changed`; a test that
+    /// decides from `ready` alone reads them too early. The binary's trial ends within
+    /// `media_vt::LATE_LIMIT`, so this ends.
+    #[cfg(target_os = "macos")]
+    pub fn settle_probe(&mut self) {
+        let family = |c: &Capability| {
+            let codec = c.codec.as_deref().unwrap_or("");
+            (c.step, codec.get(..4).unwrap_or(codec).to_owned())
+        };
+        let expected: Vec<Capability> = probed::probed()
+            .into_iter()
+            .filter(|c| c.state == media_wire::control::TrialState::Ok)
+            .collect();
+        let agrees = |held: &[Capability]| {
+            expected.iter().all(|want| {
+                held.iter().any(|c| {
+                    c.backend == want.backend
+                        && family(c) == family(want)
+                        && c.state == want.state
+                        && c.hardware == want.hardware
+                })
+            })
+        };
+        while !agrees(&self.capabilities) {
+            match read_frame(&mut self.stdout, Lane::Normal) {
+                FromMedia::CapabilitiesChanged { capabilities } => self.capabilities = capabilities,
+                FromMedia::Log { .. } => {}
+                other => {
+                    panic!("expected capabilities.changed while the probe settles, got {other:?}")
+                }
+            }
+        }
     }
 
     /// Sends `init` and returns the control socket, the ingest socket and the WebSocket port.
