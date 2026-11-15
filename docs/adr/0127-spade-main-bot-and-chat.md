@@ -43,6 +43,10 @@ delegating to an autonomous one.
    sub-agents and compaction are not shown; they belong to the bot. When a bot needs the person
    (an approval, a question), that arrives as a message bubble with text buttons.
 
+   Note (2026-11-15, Spade v4): a face also carries a status dot, but only for needs-you,
+   failed and off, the states that must read at a glance and when a picture face can't pose.
+   Working has no dot; the face moving says it (docs/design/spade.md).
+
 ## Consequences
 
 - The person delegates instead of supervising; the cost is less visibility into a bot's steps
