@@ -116,6 +116,23 @@ struct TranscriptTurnRail: View {
     }
 }
 
+/// The rail over the feed, not in it, so it shares neither the transcript's scroll view nor its
+/// layout; its band takes touches through recognizers on the feed (`TurnRailBand`), so swipes
+/// still scroll. The feed brings a picked turn into view (`TurnRailPlace`).
+struct TurnRailOverlay: ViewModifier {
+    let model: ClientModel
+    let threadId: String
+    let behind: Bool
+    let place: TurnRailPlace
+    let bottom: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .overlay { TranscriptTurnRail(model: model, threadId: threadId, behind: behind, reading: place, bottom: bottom) }
+            .gesture(TurnRailBand.Hold(place: place))
+            .gesture(TurnRailBand.Tap(place: place))
+    }
+}
+
 /// What the feed and the rail tell each other: where the top of the transcript is as a scroll
 /// settles and whether the keyboard is up, which only the rail reads and which is written only
 /// when it changes; and the turn picked on the rail, which only the feed reads.
@@ -132,7 +149,13 @@ struct TranscriptTurnRail: View {
     /// The band's frame in the window while it is on screen, for the recognizers on the feed
     /// (`TurnRailBand`). Not observed: it never re-renders anything.
     @ObservationIgnored var band: CGRect?
-    func fingerMoved(to y: CGFloat) { if y != finger { finger = y } }
+    /// Each scrub that began: the reader took the feed, so a focus still landing lets go. Only
+    /// the feed reads it.
+    private(set) var takeovers = 0
+    func fingerMoved(to y: CGFloat) {
+        if finger == nil { takeovers += 1 }
+        if y != finger { finger = y }
+    }
     func fingerLifted(at y: CGFloat?) {
         finger = nil
         if let y { lift = Lift(id: (lift?.id ?? 0) + 1, y: y) }

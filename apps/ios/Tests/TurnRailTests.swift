@@ -127,6 +127,16 @@ import Testing
         #expect(place.lift != first)
         #expect(place.finger == nil)
     }
+    @Test func aScrubStartingTellsTheFeedTheReaderTookOverOncePerScrub() {
+        let place = TurnRailPlace()
+        place.fingerMoved(to: 10)
+        #expect(place.takeovers == 1)
+        // Moving on within the same scrub isn't another takeover.
+        #expect(!notifies(place, read: { _ = place.takeovers }, change: { place.fingerMoved(to: 40) }))
+        place.fingerLifted(at: 40)
+        place.fingerMoved(to: 5)
+        #expect(place.takeovers == 2)
+    }
     @Test func theKeyboardReachesTheRailOnlyWhenItRisesOrFalls() {
         let place = TurnRailPlace()
         #expect(!notifies(place, read: { _ = place.keyboardUp }, change: { place.keyboard(up: false) }))

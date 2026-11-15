@@ -125,14 +125,7 @@ struct ThreadView: View {
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
-            // Over the feed, not in it: the rail shares neither the transcript's scroll view nor its
-            // layout. The feed brings a picked turn into view (`railPlace`).
-            .overlay {
-                TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, reading: railPlace, bottom: barHeight)
-            }
-            // The rail's band takes its touches through the feed, so swipes still scroll (`TurnRailBand`).
-            .gesture(TurnRailBand.Hold(place: railPlace))
-            .gesture(TurnRailBand.Tap(place: railPlace))
+            .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
             .markdownShelf(threadId: thread.id)
     }
 
@@ -443,6 +436,8 @@ struct ThreadView: View {
 
     /// A long paste goes as a text file, as the web's does: staged off the main actor in paste
     /// order, attached only to this thread, and Send waits for it (`PasteQueue`).
+    /// This thread's long pastes still on their way, in paste order.
+    private var pastesAdding: [PasteIntake.Adding] { pastes.intake.adding(in: thread.id) }
     private func pasteLong(_ words: String) {
         attachProblem = nil
         let model = model
@@ -488,7 +483,7 @@ struct ThreadView: View {
                          },
                          // A long paste goes as a text file, as the web's does; the chip can put it back.
                          pasteLong: screen.attachmentsLocked != nil ? nil : { pasteLong($0) },
-                         adding: pastes.intake.adding(in: thread.id).count,
+                         adding: pastesAdding.count,
                          restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
@@ -502,7 +497,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastes.intake.adding(in: thread.id), asText: { pasteAsText($0) })
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) })
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)
