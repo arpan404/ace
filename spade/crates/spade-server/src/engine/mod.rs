@@ -13,6 +13,7 @@ mod computer;
 mod continuation;
 mod control;
 mod endpoints;
+mod goals;
 mod group_run;
 mod groups;
 mod helpers;
@@ -42,6 +43,7 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use goals::{GoalError, GoalInput};
 pub use groups::{
     GROUP_NAME_CHARS, GroupError, GroupFile, GroupInput, GroupLast, GroupView, MemberRef,
 };
@@ -382,6 +384,10 @@ impl Engine {
             problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
             access: autonomy::access_of(events.iter(), self.limits.new_bot_access),
             task: spade_core::task::state_in(events.iter()),
+            task_progress: spade_core::goal::view::progress_in(
+                events.iter(),
+                !transcript.jobs.is_empty(),
+            ),
             continued: transcript.open_reply().is_some()
                 && autonomy::continued(events.len(), |at| events.at(at).0),
         };

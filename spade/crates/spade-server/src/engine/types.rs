@@ -271,6 +271,8 @@ pub struct Activity {
     pub access: spade_core::autonomy::Access,
     /// The bot's task as it last said (ADR 0144).
     pub task: Option<spade_core::task::State>,
+    /// The task's progress, from its goal, plan and checks (ADR 0159).
+    pub task_progress: spade_core::goal::view::Progress,
     /// The open reply is a step Spade started itself for the task.
     pub continued: bool,
 }

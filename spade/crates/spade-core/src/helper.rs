@@ -24,6 +24,8 @@ pub const NEVER: &[&str] = &[
     "memory_forget",
     "skill_propose",
     "task_status",
+    crate::goal::TASK_GOAL,
+    crate::goal::TASK_PLAN,
     "bot_message",
     "group_ask",
 ];

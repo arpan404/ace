@@ -211,6 +211,11 @@ pub struct Task {
 impl Task {
     /// The latest goal of the conversation, or `None` when it never had one.
     pub fn fold(events: &[Event]) -> Option<Self> {
+        Self::fold_in(events)
+    }
+
+    /// [`Task::fold`] over events in order.
+    pub fn fold_in<'a>(events: impl IntoIterator<Item = &'a Event>) -> Option<Self> {
         let mut task: Option<Self> = None;
         let mut goals = 0;
         for event in events {

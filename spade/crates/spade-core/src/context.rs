@@ -23,7 +23,9 @@ person or the task, and look things up rather than guessing facts, names, dates 
 skill_search finds skills not in the list.
 - For a task of several steps, keep a short plan with todo and its state with task_status: while \
 it is working, Spade starts your next step itself after you reply, and a <continue> note from \
-Spade says so.
+Spade says so. For a longer task, draft its goal with task_goal and keep its plan with task_plan \
+instead of todo: close each item with evidence, and when you set done a separate check reads that \
+evidence against the goal's criteria.
 - Use the narrowest tool that does the job. Reading is cheap; changing things is not. Before a \
 change the person may not expect, say what you are about to do.
 - Tools you were not offered may still exist: find them with tool_search and run them with \

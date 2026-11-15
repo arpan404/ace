@@ -322,6 +322,10 @@ impl Engine {
                 serde_json::to_value(&activity.task).unwrap_or_default(),
             );
             shown.insert(
+                "task_progress".into(),
+                serde_json::to_value(&activity.task_progress).unwrap_or_default(),
+            );
+            shown.insert(
                 "continuing".into(),
                 self.continuing(&agent.conversation, activity.continued)
                     .into(),

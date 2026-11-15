@@ -54,10 +54,19 @@ pub fn task(events: &[Event]) -> Option<TaskView> {
     })
 }
 
-/// Progress alone, for the roster.
+/// Progress alone.
 pub fn progress(events: &[Event]) -> Progress {
-    match Task::fold(events) {
-        Some(task) => progress_of(&task, crate::task::jobs_running(events)),
+    progress_in(events, crate::task::jobs_running(events))
+}
+
+/// [`progress`] over events in order, given whether a background job still runs (the roster
+/// knows that from its own fold).
+pub fn progress_in<'a>(
+    events: impl IntoIterator<Item = &'a Event>,
+    jobs_running: bool,
+) -> Progress {
+    match Task::fold_in(events) {
+        Some(task) => progress_of(&task, jobs_running),
         None => Progress {
             state: State::None,
             items_total: 0,

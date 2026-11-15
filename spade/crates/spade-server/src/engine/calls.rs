@@ -125,6 +125,16 @@ pub(super) async fn handle_calls(
                     }
                 }
             },
+            // The task's goal and plan (ADR 0159) are answered from the events.
+            Status::New if spade_core::goal::is_tool(&name) => {
+                match engine.goal_call(id, reply, &name, &arguments) {
+                    Ok(Some(output)) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                    Ok(None) => return Handled::Stopped,
+                    Err(error) => return Handled::Failed(error.to_string()),
+                }
+            }
             Status::Asked => waiting = true,
             Status::Answered => {
                 let said = question::call_result(events, &pending.call.id)

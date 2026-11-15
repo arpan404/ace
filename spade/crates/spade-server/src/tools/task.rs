@@ -49,7 +49,10 @@ impl Tool for TaskStatus {
                 }
                 spade_core::task::Status::Waiting => "Noted: waiting.",
                 spade_core::task::Status::BlockedOnPerson => "Noted: waiting on the person.",
-                spade_core::task::Status::Done => "Noted: done.",
+                spade_core::task::Status::Done => {
+                    "Noted: done. When the task has a goal, a separate check reads your plan's \
+                     evidence against its criteria before it counts as done."
+                }
             })
         })
     }
