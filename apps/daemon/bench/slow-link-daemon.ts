@@ -53,6 +53,9 @@ const FrameData = z.discriminatedUnion("kind", [
   // A question raised inside a turn that is already running (head-of-line.ts).
   z.object({ kind: z.literal("ask"), key: z.string() }),
   z.object({ kind: z.literal("end") }),
+  // head-of-line.ts: a turn whose one shell call printed `bytes` of output (read with
+  // `output.read`).
+  z.object({ kind: z.literal("shell"), key: z.string(), bytes: z.number().int().positive() }),
 ]);
 type FrameData = z.infer<typeof FrameData>;
 
@@ -101,6 +104,39 @@ function turnFacts(index: number, pad?: string): Fact[] {
 
 function translate(data: FrameData): Fact[] {
   if (data.kind === "turn") return turnFacts(data.turn, data.pad);
+  if (data.kind === "shell")
+    return [
+      { type: "turn.started", agent: "root", trigger: "user" },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: data.key,
+        draft: {
+          type: "tool_call",
+          complete: false,
+          call: {
+            kind: "shell",
+            title: "Run the build",
+            status: "running",
+            detail: { kind: "shell", command: "make" },
+          },
+        },
+      },
+      {
+        type: "item.delta",
+        agent: "root",
+        item: data.key,
+        field: "output",
+        append: providerText(data.bytes),
+      },
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: data.key,
+        draft: { type: "tool_call", complete: true, call: { status: "succeeded" } },
+      },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
+    ];
   if (data.kind === "end") return [{ type: "turn.ended", agent: "root", outcome: "completed" }];
   if (data.kind === "stream-start")
     return [
@@ -351,6 +387,12 @@ const Request = z.discriminatedUnion("op", [
     thread: z.string(),
     bytes: z.number().int().positive(),
   }),
+  z.object({
+    id: z.number(),
+    op: z.literal("output-turn"),
+    thread: z.string(),
+    bytes: z.number().int().positive(),
+  }),
   z.object({ id: z.number(), op: z.literal("probe-reset") }),
   z.object({ id: z.number(), op: z.literal("probe-read") }),
 ]);
@@ -383,6 +425,15 @@ process.on("message", (input: unknown) => {
       if (request.op === "raw-turn") {
         const pad = providerText(request.bytes);
         await turn(request.thread, "Run the long command", { kind: "turn", turn: 0, pad });
+        process.send?.({ id: request.id, head: daemon.store.headSeq() });
+        return;
+      }
+      if (request.op === "output-turn") {
+        await turn(request.thread, "Run the build", {
+          kind: "shell",
+          key: `shell-${++streams}`,
+          bytes: request.bytes,
+        });
         process.send?.({ id: request.id, head: daemon.store.headSeq() });
         return;
       }

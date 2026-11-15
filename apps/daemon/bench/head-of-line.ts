@@ -10,7 +10,10 @@
  * - resume: the catch-up after bulky turns (24 KiB tool outputs) ran while the client was away;
  * - catch-up: the catch-up after a 2,000-delta streamed turn;
  * - live: a stream of deltas at full rate;
- * - raw: an `item.raw` page of the streamed item (its provider frames).
+ * - raw: the raw-frames view reading an item's provider frames with `item.raw`, page after
+ *   page, one in flight at a time, as the view reads them;
+ * - output: a shell's 900 KiB output read with `output.read` until its end, as the output view
+ *   reads it.
  *
  * Urgent kinds: a question raised on another thread (as the thread shows it, and as the sidebar
  * shows the thread going to needs_you), one on the same thread as the bulk, a Stop's
@@ -78,7 +81,7 @@ interface Wait {
 }
 type Urgent = "otherApproval" | "sidebarNeedsYou" | "sameApproval" | "stopAck" | "sendReceipt";
 type UrgentSet = Partial<Record<Urgent, Wait>> & { failed?: string[] };
-type Bulk = "snapshot" | "resume" | "catchUp" | "live" | "raw";
+type Bulk = "snapshot" | "resume" | "catchUp" | "live" | "raw" | "output";
 
 /** Resolves when `ready()` first holds, checked on each change `observe` reports. */
 function until(
@@ -463,28 +466,97 @@ async function session(path: LinkPath, profileName: string) {
       const from = down();
       const startedAt = performance.now();
       let done = false;
-      const reply = phone
-        .request(
-          { type: "item.raw", threadId: ready.threads.live.id, itemId, from: 0 },
-          { timeoutMs: timeout },
-        )
-        .then((page) => {
-          done = true;
-          return page;
-        });
+      // Every page, one after another, each with the version the first named.
+      const reply = (async () => {
+        let next: number | undefined = 0;
+        let revision: string | undefined;
+        let rawBytes = 0;
+        let pages = 0;
+        while (next !== undefined) {
+          const page = await phone.request(
+            {
+              type: "item.raw",
+              threadId: ready.threads.live.id,
+              itemId,
+              from: next,
+              ...(revision ? { revision } : {}),
+            },
+            { timeoutMs: timeout },
+          );
+          if (!("raw" in page)) throw new Error("item.raw answered without payloads");
+          rawBytes += JSON.stringify(page.raw).length;
+          pages++;
+          revision = page.revision;
+          next = page.next;
+        }
+        done = true;
+        return { rawBytes, pages };
+      })();
       const busy = await inFlight(from, 4096, () => done);
       const result = await urgent(prepared, {
         reader: liveLease.store,
         thread: ready.threads.live.id,
         running: false,
       });
-      const page = await reply;
+      const read = await reply;
       return {
         urgent: result,
         bulk: {
           bytes: down() - from,
           ms: Math.round(performance.now() - startedAt),
-          rawBytes: "raw" in page ? JSON.stringify(page.raw).length : 0,
+          ...read,
+          busyWhenProduced: busy,
+        },
+      };
+    });
+
+    // A shell's output: read to its end, as the output view reads it.
+    const outputHead = Head.parse(
+      await daemon.request({ op: "output-turn", thread: ready.threads.live.id, bytes: 900 * 1024 }),
+    ).head;
+    await until(
+      (changed) => liveLease.store.observe(changed),
+      () => (liveLease.store.cursor ?? 0) >= outputHead && settled(liveLease.store),
+      "output turn",
+    );
+    episodes.output = await probe(async () => {
+      const streamId = liveLease.store.order
+        .map((id) => liveLease.store.item(id))
+        .findLast((item) => item?.type === "tool_call" && item.call.detail.kind === "shell")
+        ?.call;
+      const stream =
+        streamId?.detail.kind === "shell" ? streamId.detail.output?.streamId : undefined;
+      if (!stream) throw new Error("No shell output to read");
+      const prepared = await prepare();
+      const from = down();
+      const startedAt = performance.now();
+      let done = false;
+      const reply = (async () => {
+        let outputBytes = 0;
+        let reads = 0;
+        for await (const bytes of phone.output(
+          { streamId: stream, offset: 0, limit: 256 * 1024 },
+          { timeoutMs: timeout },
+        )) {
+          outputBytes += bytes.length;
+          reads++;
+        }
+        done = true;
+        return { outputBytes, reads };
+      })();
+      const busy = await inFlight(from, 4096, () => done);
+      const result = await urgent(prepared, {
+        reader: liveLease.store,
+        thread: ready.threads.live.id,
+        running: false,
+      });
+      const read = await reply;
+      return {
+        urgent: result,
+        bulk: {
+          bytes: down() - from,
+          ms: Math.round(performance.now() - startedAt),
+          ...read,
           busyWhenProduced: busy,
         },
       };
