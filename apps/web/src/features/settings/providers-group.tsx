@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { SettingCard, settingsGroup } from "@/components/setting-row.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A Providers group: its heading with a quiet aside on the same line (a count, where the list
@@ -13,7 +14,7 @@ export function ProvidersGroup(props: {
 }) {
   const id = useId();
   return (
-    <section className={settingsGroup} aria-labelledby={id}>
+    <section {...part("settings-section")} className={settingsGroup} aria-labelledby={id}>
       <div className="mb-1.5 flex min-h-7 min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
         <h3 id={id} className="text-base font-semibold text-foreground">
           {props.label}

@@ -157,6 +157,11 @@ export interface ServerOptions {
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
+  /** The Suit library (ADR 0150): socket requests, change pushes and its asset URLs. */
+  suits?: import("./suits/library.ts").SuitLibrary;
+  suitLooks?: import("./suits/looks.ts").SuitLooks;
+  /** Collects the live checks devices answer after an agent's preview or keep. */
+  suitChecks?: import("./suits/live-checks.ts").SuitLiveChecks;
   browser?: BrowserService;
   /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
   mediaDelivery?: () => import("./services/media.ts").DaemonDelivery | undefined;

@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { RelativeTime } from "@/components/person-avatar.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
+import { part } from "@/lib/suit-part.ts";
 import type { IssueWrites } from "./issue-writes.ts";
 
 /** An issue's state as words in its tone: "Open", "Closed as completed", "Closed as not planned". */
@@ -22,7 +23,11 @@ export function IssueState(props: { issue: ForgeIssueDetail }) {
         ? (["idle", "Closed as not planned"] as const)
         : (["waiting", "Closed as completed"] as const);
   return (
-    <span data-tone={tone} className="shrink-0 font-medium text-(--tone-text)">
+    <span
+      {...part("badge", undefined, notPlanned ? "not-planned" : issue.state)}
+      data-tone={tone}
+      className="shrink-0 font-medium text-(--tone-text)"
+    >
       {words}
     </span>
   );
@@ -125,7 +130,7 @@ export function IssueHeader(props: {
   const navigate = useNavigate();
   const threads = issue.relatedThreads.filter((thread) => !thread.archived).length;
   return (
-    <header>
+    <header {...part("page-header")}>
       <WorkHeading
         back={{ label: props.backLabel, onBack: props.onBack }}
         title={<Title issue={issue} writes={props.writes} />}

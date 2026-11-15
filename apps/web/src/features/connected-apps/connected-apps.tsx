@@ -137,6 +137,8 @@ export function ConnectedApps(props: { machine: Machine; client: ClientApi; conn
           {ended.map((grant) => (
             <HairlineRow
               key={grant.id}
+              data-row="grant"
+              state="disabled"
               title={<span className="text-muted-foreground">{grant.name}</span>}
               tag={clientDomainWords(grant.domain)}
               sub={`${endedWords(grant)} ${formatAgo(grant.revokedAt ?? grant.expiresAt ?? now, now)} · ${scopeWords(grant.scopes)}`}

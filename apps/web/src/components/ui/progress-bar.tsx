@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A thin determinate bar: a 4px track with the fill grown from the left in the accent colour,
@@ -17,6 +18,7 @@ export function ProgressBar(props: {
     <div
       role="progressbar"
       aria-label={props.label}
+      {...part("progress", props.value === undefined ? "working" : undefined)}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={props.value}

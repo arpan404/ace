@@ -4,6 +4,7 @@ import { CaretDownIcon } from "@ace/icons";
 import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useModelCatalogState } from "@/lib/model-catalog.ts";
 import { ModelPickerPanel } from "./model-picker-panel.tsx";
 
@@ -40,6 +41,7 @@ export function ModelField(props: ModelFieldProps) {
       <PopoverTrigger
         aria-label={`${props.label}: ${[props.value, props.note].filter(Boolean).join(", ")}`}
         disabled={props.disabled}
+        {...part("select", props.disabled && "disabled", "model")}
         className={cn(
           "relative inline-flex h-8 min-w-0 items-center gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground transition-[background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit disabled:opacity-50",
           props.className,

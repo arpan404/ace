@@ -10,6 +10,7 @@ import {
   lockedUseUnavailable,
 } from "@ace/ui-core";
 import type { ComputerUse } from "./use-computer-use.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useLockedUse } from "./use-locked-use.ts";
 
 /** The Electron host says its platform; a plain browser falls back to its user agent. */
@@ -46,6 +47,7 @@ export function LockedUseRow(props: { use: ComputerUse }) {
   const recheck = (
     <button
       type="button"
+      {...part("link", (!locked.connected || locked.pending) && "disabled")}
       className="text-link focus-ring rounded-xs hover:underline disabled:opacity-40"
       disabled={!locked.connected || locked.pending}
       onClick={locked.recheck}

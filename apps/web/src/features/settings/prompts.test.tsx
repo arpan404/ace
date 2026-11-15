@@ -165,5 +165,5 @@ test("leaving prompt settings asks before discarding an unsaved edit", async () 
   );
   await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
   await userEvent.click(await screen.findByRole("button", { name: "Discard" }));
-  expect(await screen.findByRole("radiogroup", { name: "Theme" })).toBeTruthy();
+  expect(await screen.findByRole("radiogroup", { name: "Look" })).toBeTruthy();
 });

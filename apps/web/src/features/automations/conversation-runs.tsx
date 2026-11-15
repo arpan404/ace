@@ -8,6 +8,7 @@ import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow, useSeconds } from "@/lib/time.ts";
 import { useAutomationHistory } from "@/features/automation-data/index.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import type { AutomationSource } from "@ace/protocol";
 
 /*
@@ -106,6 +107,15 @@ function Working(props: { run: AutomationRun }) {
   return <>{workingFor(props.run, now)}</>;
 }
 
+/** A run's status as its row's `data-state`; a skipped run has none. */
+const runStates: Record<AutomationRun["status"], SuitPartState | undefined> = {
+  queued: "waiting",
+  running: "working",
+  succeeded: "done",
+  failed: "failed",
+  skipped: undefined,
+};
+
 function RunTurn(props: {
   run: AutomationRun;
   timezone: string | undefined;
@@ -116,7 +126,11 @@ function RunTurn(props: {
   const now = useNow();
   const turn = runTurn(run, now, props.timezone);
   return (
-    <article aria-label={`Run, ${turn.when}`} className="mt-10 flex flex-col gap-3">
+    <article
+      aria-label={`Run, ${turn.when}`}
+      {...part("list-row", runStates[run.status], run.status)}
+      className="mt-10 flex flex-col gap-3"
+    >
       <TurnHead
         when={turn.when}
         status={turn.status}
@@ -167,7 +181,7 @@ export function ConversationRuns(props: {
     );
   const runs = history.runs.toReversed();
   return (
-    <section aria-label="Runs">
+    <section aria-label="Runs" {...part("list", undefined, "runs")}>
       {history.hasNextPage && (
         <div className="mt-6 flex justify-center">
           <TextAction

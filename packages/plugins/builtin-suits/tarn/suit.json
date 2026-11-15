@@ -1,0 +1,153 @@
+{
+  "format": 1,
+  "id": "tarn",
+  "name": "Tarn",
+  "description": "A mountain lake at blue hour behind cool slate panels, in blue-black ink and fine hairlines.",
+  "version": "1",
+  "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
+  "dark": {
+    "canvas": "#16181B",
+    "sidebar": "#0E0F12",
+    "surface": "#1C1E22",
+    "raised": "#212428",
+    "hover": "#24272B",
+    "active": "#2C2F34",
+    "code": "#121316",
+    "border": "#292C30",
+    "borderStrong": "#3D4046",
+    "text": "#E7EAEE",
+    "muted": "#B2B6BC",
+    "subtle": "#93979E",
+    "faint": "#686C73",
+    "accent": "#DCE3F2",
+    "accentHover": "#F0F3FC",
+    "accentFg": "#111419",
+    "accentText": "#D5DEF3",
+    "diffAdd": "#1A2A24",
+    "diffAddFg": "#6CC7A2",
+    "diffDel": "#2D1D21",
+    "diffDelFg": "#EC8090",
+    "syntax": {
+      "kw": "#AEBBE0",
+      "fn": "#E7EAEE",
+      "str": "#A9CBB6",
+      "num": "#D9BB9C",
+      "type": "#9FC6D2",
+      "com": "#8B9098",
+      "punc": "#93979E"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F8F9FA",
+    "sidebar": "#EEEFF2",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#ECEEF0",
+    "active": "#E3E5E9",
+    "code": "#F1F2F5",
+    "border": "#DEE0E3",
+    "borderStrong": "#C8CBCF",
+    "text": "#181C22",
+    "muted": "#494D55",
+    "subtle": "#5F636B",
+    "faint": "#858991",
+    "accent": "#1F2638",
+    "accentHover": "#101524",
+    "accentFg": "#FFFFFF",
+    "accentText": "#232D47",
+    "diffAdd": "#E1F1E9",
+    "diffAddFg": "#00724F",
+    "diffDel": "#F7E4E7",
+    "diffDelFg": "#A3233A",
+    "syntax": {
+      "kw": "#3A4A7C",
+      "fn": "#181C22",
+      "str": "#35694F",
+      "num": "#87582A",
+      "type": "#28606F",
+      "com": "#646972",
+      "punc": "#5F636B"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"Tarn Sans\", \"Hanken Grotesk\""
+    },
+    "prose": {
+      "system": "\"Tarn Sans\", \"Hanken Grotesk\""
+    },
+    "mono": {
+      "asset": "assets/fonts/CommitMono-Regular.woff2",
+      "family": "Tarn Mono"
+    }
+  },
+  "shape": {
+    "radius": 0.75,
+    "border": 1
+  },
+  "reveal": {
+    "right-panel": 0.5
+  },
+  "terminal": {
+    "fontFamily": "Tarn Mono",
+    "fontSize": 12.5,
+    "lineHeight": 1.4,
+    "cursorStyle": "bar",
+    "cursorBlink": false,
+    "dark": {
+      "foreground": "#D9DDE3",
+      "cursor": "#DCE3F2",
+      "cursorAccent": "#0E0F12",
+      "selection": "#DCE3F238",
+      "ansi": {
+        "black": "#2C2F34",
+        "red": "#EC8090",
+        "green": "#7CC8A4",
+        "yellow": "#DDBE80",
+        "blue": "#93AEE4",
+        "magenta": "#BBA6E2",
+        "cyan": "#82C6D4",
+        "white": "#C6CAD0",
+        "brightBlack": "#686C73",
+        "brightRed": "#F49AA7",
+        "brightGreen": "#98D8B8",
+        "brightYellow": "#EACF99",
+        "brightBlue": "#B0C4EE",
+        "brightMagenta": "#CFBEEC",
+        "brightCyan": "#A2D8E3",
+        "brightWhite": "#F0F3F6"
+      }
+    },
+    "light": {
+      "foreground": "#22262D",
+      "cursor": "#1F2638",
+      "cursorAccent": "#EEEFF2",
+      "selection": "#1F263826",
+      "ansi": {
+        "black": "#181C22",
+        "red": "#B02F45",
+        "green": "#1F7655",
+        "yellow": "#86600F",
+        "blue": "#34579F",
+        "magenta": "#6C4DA6",
+        "cyan": "#1C6B7C",
+        "white": "#5F636B",
+        "brightBlack": "#494D55",
+        "brightRed": "#C74157",
+        "brightGreen": "#2A8A65",
+        "brightYellow": "#9A7118",
+        "brightBlue": "#4468B3",
+        "brightMagenta": "#7F5FBA",
+        "brightCyan": "#267F92",
+        "brightWhite": "#858991"
+      }
+    },
+    "reveal": 0.5
+  }
+}

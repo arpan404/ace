@@ -3,12 +3,13 @@ import type { ReadinessView } from "@ace/ui-core";
 import { ArrowClockwiseIcon, CaretRightIcon, InfoIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SignInButton } from "@/features/sign-in/index.ts";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import { installPlan, listAction, unsupportedPlan, type ListAction } from "./list-action.ts";
 import { useInstall } from "./use-install.ts";
 
@@ -93,6 +94,7 @@ export function ProviderListRow(props: ProviderListRowProps) {
           : undefined;
   return (
     <ListRowFrame
+      state={rowState(action.kind, missing)}
       provider={provider}
       acpAgentId={props.acpAgentId}
       name={name}
@@ -178,10 +180,17 @@ export function ListRowFrame(props: {
   sub?: ReactNode;
   right?: ReactNode;
   children?: ReactNode;
+  /** The row's `data-state` for Suits: installing, failed, or not installed. */
+  state?: SuitPartState | undefined;
 }) {
   const { name } = props;
   return (
-    <div role="group" aria-label={name} className="flex min-w-0 flex-col">
+    <div
+      role="group"
+      aria-label={name}
+      {...part("list-row", props.state, "provider")}
+      className="flex min-w-0 flex-col"
+    >
       <div className="group/row relative flex min-h-(--setting-row-height) min-w-0 items-center gap-3 py-2">
         <ProviderIcon
           provider={props.provider}
@@ -197,6 +206,7 @@ export function ListRowFrame(props: {
                 to="/settings/providers/$provider"
                 params={{ provider: props.page }}
                 aria-label={name}
+                {...part("link", undefined, "row")}
                 className="min-w-0 truncate text-ui font-medium text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
               >
                 {name}
@@ -227,6 +237,13 @@ export function ListRowFrame(props: {
       {props.children}
     </div>
   );
+}
+
+/** A provider row's state for Suits: working while its installer runs. */
+function rowState(kind: ListAction["kind"], missing: boolean): SuitPartState | undefined {
+  if (kind === "busy") return "working";
+  if (kind === "failed") return "failed";
+  return missing ? "disabled" : undefined;
 }
 
 /** The row's right side: progress or an outcome in words, or the one action. */
@@ -286,7 +303,7 @@ function Action(props: {
               to="/settings/providers/$provider"
               params={{ provider: props.page }}
               aria-label={`Set up ${name}`}
-              className={buttonVariants({ size: "sm", variant: "secondary" })}
+              {...buttonLook({ size: "sm", variant: "secondary" })}
             >
               Set up
             </Link>
@@ -300,7 +317,7 @@ function Action(props: {
           href={action.href}
           target="_blank"
           rel="noreferrer"
-          className={buttonVariants({ size: "sm", variant: "secondary" })}
+          {...buttonLook({ size: "sm", variant: "secondary" })}
         >
           {action.kind === "manual" ? action.label : `Get ${action.name}`}
         </a>
@@ -364,6 +381,7 @@ function InstallProgress(props: { label: string; value: number | undefined; word
     <span
       role="progressbar"
       aria-label={props.label}
+      {...part("progress", props.value === undefined ? "working" : undefined, "install")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={props.value}

@@ -52,6 +52,7 @@ function NoMachineRail() {
     <nav
       aria-label="App"
       data-slot="rail"
+      data-part="rail"
       className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
     >
       <TooltipSide value="right">
@@ -60,6 +61,8 @@ function NoMachineRail() {
             to="/"
             aria-label="Projects"
             aria-current={settings ? undefined : "page"}
+            data-state={settings ? undefined : "active"}
+            data-part="rail-item"
             className={railPlaceClass}
           >
             <Icon icon={FolderSimpleIcon} size={20} active={!settings} />
@@ -72,6 +75,8 @@ function NoMachineRail() {
             to="/settings/remote"
             aria-label="Settings"
             aria-current={settings && !profile ? "page" : undefined}
+            data-state={settings && !profile ? "active" : undefined}
+            data-part="rail-item"
             className={railPlaceClass}
           >
             <Icon icon={GearSixIcon} size={20} active={settings && !profile} />
@@ -82,6 +87,8 @@ function NoMachineRail() {
             to="/settings/profile"
             aria-label="Profile"
             aria-current={profile ? "page" : undefined}
+            data-state={profile ? "active" : undefined}
+            data-part="rail-item"
             className={railPlaceClass}
           >
             <ProfileAvatar name={name} className="size-7 text-2xs" iconSize={14} />

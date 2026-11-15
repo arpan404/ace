@@ -128,7 +128,7 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const readable = sent ? !!sent.text.trim() : shown.readable;
   if (!readable && !files && !quotes) return null;
   return (
-    <div className="group/bubble flex flex-col items-end">
+    <div className="group/bubble flex flex-col items-end [[data-layout-messages=flat]_&]:items-start">
       {sent ? (
         sent.line
       ) : (
@@ -148,9 +148,9 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
         </Suspense>
       )}
       {/* The actions sit under the bubble, right-aligned with it. */}
-      <div className="flex w-full min-w-0 flex-col items-end gap-1">
+      <div className="flex w-full min-w-0 flex-col items-end gap-1 [[data-layout-messages=flat]_&]:items-start">
         {(readable || quotes) && (
-          <div className={userBubble}>
+          <div data-part="message-user" className={userBubble}>
             {/* What it replies to, above the words. */}
             {quotes && !sent && (
               <div className={readable ? "mb-2" : undefined}>
@@ -167,7 +167,7 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
             )}
           </div>
         )}
-        <div className={cn(messageActions("bubble"), "shrink-0")}>
+        <div data-part="message-meta" className={cn(messageActions("bubble"), "shrink-0")}>
           <time
             dateTime={new Date(saidAt(message)).toISOString()}
             className="pr-1 text-xs text-subtle-foreground"
@@ -217,7 +217,7 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
   );
   if (!readable && !files && !quotes) return null;
   return (
-    <div className="flex flex-col items-end">
+    <div className="flex flex-col items-end [[data-layout-messages=flat]_&]:items-start">
       {files && (
         <Suspense fallback={<AttachmentsRoom images={files.images} />}>
           <DeferredAttachments.Component
@@ -230,7 +230,7 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
         </Suspense>
       )}
       {(readable || quotes) && (
-        <div className={userBubble}>
+        <div data-part="message-user" className={userBubble}>
           {quotes && (
             <div className={readable ? "mb-2" : undefined}>
               <QuotesCard quotes={quotes} />

@@ -3,6 +3,7 @@ import { AceSignInReturnStatus } from "@ace/protocol/ace-account";
 import { Button } from "@/components/ui/button.tsx";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const copy: Record<AceSignInReturnStatus, { title: string; body: string }> = {
   "signed-in": {
@@ -36,8 +37,12 @@ export function SignInLanding(props: { status: AceSignInReturnStatus; close: () 
   const [kept, setKept] = useState(false);
   const { title, body } = copy[props.status];
   return (
-    <ConnectCard labelledBy="sign-in-landing-title">
-      <h1 id="sign-in-landing-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="sign-in" variant="landing" labelledBy="sign-in-landing-title">
+      <h1
+        id="sign-in-landing-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         {title}
       </h1>
       <p className="mt-1.5 text-ui leading-normal text-muted-foreground">{body}</p>

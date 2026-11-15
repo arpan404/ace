@@ -11,6 +11,7 @@ import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
+import { part } from "@/lib/suit-part.ts";
 import { instructionsShown, skillBody } from "./library-model.ts";
 import { SkillRequestError, useDeleteSkill, useEditSkill, useSkillFile } from "./library-source.ts";
 import { SkillDetails } from "./skill-details.tsx";
@@ -145,10 +146,13 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
       </>
     ) : undefined;
   return (
-    <Screen title="Skills" namedByPanel menu={menu}>
+    <Screen page="skill" title="Skills" namedByPanel menu={menu}>
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
+        <div
+          {...part("page-body")}
+          className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
+        >
           <SkillHeading title={title} description={editing ? "" : entry.description}>
             {!editing && <UseInThread name={entry.name} project={workspaceId} />}
           </SkillHeading>

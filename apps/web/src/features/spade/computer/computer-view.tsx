@@ -17,6 +17,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { BotTerminal } from "./bot-terminal.tsx";
 import { DriverStatus } from "./driver-status.tsx";
@@ -71,6 +72,7 @@ export function ComputerView(props: {
         <div
           role="tablist"
           aria-label="Computer"
+          {...part("tabs", undefined, "computer")}
           className="no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-lg bg-secondary p-0.5"
         >
           {tabs.map((kind) => {
@@ -82,6 +84,7 @@ export function ComputerView(props: {
                 type="button"
                 role="tab"
                 aria-selected={selected}
+                {...part("tab", selected && "selected", kind)}
                 onClick={() => props.onOpen(kind)}
                 className={cn(
                   "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-ui transition-colors duration-(--motion-fast) focus-ring",

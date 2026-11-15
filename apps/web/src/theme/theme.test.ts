@@ -257,3 +257,18 @@ test("shortcuts read as platform glyphs", () => {
   expect(formatKeys("ctrl+`", true)).toBe("⌃`");
   expect(formatKeys("g h", true)).toBe("G H");
 });
+
+test("a scene moves as Backdrop motion says, and is still whenever motion is reduced", () => {
+  const motion = (backdropMotion: "full" | "reduced" | "still", reducedMotion = false) =>
+    resolveAppearance({ ...defaultAppearance, backdropMotion }, { ...os, reducedMotion })
+      .backdropMotion;
+  expect(motion("full")).toBe("full");
+  expect(motion("reduced")).toBe("reduced");
+  expect(motion("still")).toBe("still");
+  expect(motion("full", true)).toBe("still");
+  expect(motion("reduced", true)).toBe("still");
+  expect(
+    resolveAppearance({ ...defaultAppearance, reduceMotion: "on", backdropMotion: "full" }, os)
+      .backdropMotion,
+  ).toBe("still");
+});

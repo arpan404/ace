@@ -21,11 +21,12 @@ export function SkillsLandingScreen() {
     return (
       <ViewListPage
         title="Skills"
+        page="skills"
         fallback={<Navigate to="/skills/$skillId" params={{ skillId: first.id }} replace />}
       />
     );
   return (
-    <Screen title="Skills" namedByPanel>
+    <Screen page="skills" title="Skills" namedByPanel>
       {skills.isError ? (
         <EmptyState
           icon={CubeIcon}

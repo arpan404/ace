@@ -59,6 +59,7 @@ export function ThreadsTabs(props: {
     <div
       role="tablist"
       aria-label="Projects"
+      data-part="sidebar-tabs"
       className="ace-floating threads-tabs-mount absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-full p-1"
       onKeyDown={(event) => {
         const by = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -96,6 +97,8 @@ export function ThreadsTabs(props: {
               type="button"
               role="tab"
               aria-selected={current}
+              data-part="tab"
+              data-state={current ? "selected" : undefined}
               tabIndex={current ? 0 : -1}
               aria-label={labels[id]}
               onClick={() => props.onTab(id)}

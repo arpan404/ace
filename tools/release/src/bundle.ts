@@ -93,6 +93,8 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/plugins/src/builtins.ts"))
                 contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
+              if (args.path.endsWith("/plugins/src/builtin-suits.ts"))
+                contents = contents.replace('"../builtin-suits"', '"./builtin-suits"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -214,6 +216,9 @@ export async function bundleDaemon(
     outExtension: { ".js": ".mjs" },
   });
   await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
+    recursive: true,
+  });
+  await cp(join(repo, "packages/plugins/builtin-suits"), join(root, "builtin-suits"), {
     recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");

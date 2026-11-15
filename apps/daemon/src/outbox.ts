@@ -1,4 +1,5 @@
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { MainSocket } from "./main-socket.ts";
@@ -137,7 +138,7 @@ export class Outbox {
       () => frameHoldFor(link.view),
     );
   }
-  send(message: ServerMessage | PluginServerMessage): void {
+  send(message: ServerMessage | PluginServerMessage | SuitServerMessage): void {
     if (message.type === "events") {
       for (const frame of this.encoder.split(message, this.shape)) this.sendOne(frame);
     } else if (message.type === "snapshot" || message.type === "entities.page") {
@@ -186,7 +187,7 @@ export class Outbox {
       }
     } else this.sendOne(message);
   }
-  private sendOne(message: ServerMessage | PluginServerMessage): void {
+  private sendOne(message: ServerMessage | PluginServerMessage | SuitServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
       const charge = this.encoder.encodedBytes(message, this.shape);
@@ -223,7 +224,7 @@ export class Outbox {
   }
   /** Queue a message already encoded as `encoded`, of `charge` UTF-8 bytes. */
   private sendSerialized(
-    message: ServerMessage | PluginServerMessage,
+    message: ServerMessage | PluginServerMessage | SuitServerMessage,
     encoded: string,
     charge: number,
   ): void {

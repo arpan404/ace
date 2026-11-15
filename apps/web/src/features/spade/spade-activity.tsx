@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useNow } from "@/lib/time.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import { readActivity } from "./spade-oversight-api.ts";
 import { personZone } from "./spade-routines-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -68,8 +69,11 @@ export function SpadeActivity(props: { bot: RosterBot }) {
     );
   return (
     <div className="h-full overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-      <div className={`${readingColumn} flex flex-col gap-4 py-6`}>
-        <div className="flex flex-wrap items-center gap-2">
+      <div {...part("page-body")} className={`${readingColumn} flex flex-col gap-4 py-6`}>
+        <div
+          {...part("filter-bar", undefined, "search")}
+          className="flex flex-wrap items-center gap-2"
+        >
           <Input
             id={ids.search}
             type="search"
@@ -95,7 +99,12 @@ export function SpadeActivity(props: { bot: RosterBot }) {
             </Button>
           )}
         </div>
-        <div role="group" aria-label="Kinds" className="-mx-1.5 flex flex-wrap gap-1">
+        <div
+          role="group"
+          aria-label="Kinds"
+          {...part("filter-bar", undefined, "kinds")}
+          className="-mx-1.5 flex flex-wrap gap-1"
+        >
           {spadeActivityKinds.map((kind) => (
             <Button
               key={kind}
@@ -130,7 +139,7 @@ export function SpadeActivity(props: { bot: RosterBot }) {
                 : `${bot.name} hasn't done anything yet.`}
           </p>
         ) : (
-          <ol aria-label="Activity" className="flex flex-col">
+          <ol aria-label="Activity" {...part("list")} className="flex flex-col">
             {entries.map((entry) => (
               <Row key={entry.id} entry={entry} now={now} zone={zone} />
             ))}
@@ -152,10 +161,20 @@ export function SpadeActivity(props: { bot: RosterBot }) {
   );
 }
 
+/** An entry's outcome as its row's `data-state`. */
+const outcomeState: Record<string, SuitPartState> = {
+  running: "working",
+  ok: "done",
+  error: "failed",
+};
+
 function Row(props: { entry: SpadeActivityEntry; now: number; zone: string }) {
   const words = spadeActivityWords(props.entry);
   return (
-    <li className="flex min-w-0 gap-3 py-2">
+    <li
+      {...part("list-row", outcomeState[props.entry.outcome ?? ""], props.entry.kind)}
+      className="flex min-w-0 gap-3 py-2"
+    >
       <span className="w-24 shrink-0 text-meta text-subtle-foreground tabular-nums">
         {spadeWhen(props.entry.at, props.now, props.zone)}
       </span>

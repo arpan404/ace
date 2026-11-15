@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <title>Suit scene bench</title>
+    <style>
+      body {
+        background: #0b0d12;
+        color: #d6dae2;
+        font:
+          13px/1.5 ui-monospace,
+          Menlo,
+          monospace;
+        padding: 24px;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      td,
+      th {
+        padding: 4px 14px 4px 0;
+        text-align: left;
+      }
+      th {
+        color: #8a91a0;
+        font-weight: 500;
+      }
+      canvas {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        width: 360px;
+        height: 225px;
+        opacity: 0.9;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      Each scene drawn at 1440 × 900 CSS px, pixel ratio 2, 30 frames to warm up, then timed.
+    </div>
+    <div id="state">running…</div>
+    <table id="results">
+      <tr>
+        <th>scene</th>
+        <th>backing px</th>
+        <th>frame+sync median</th>
+        <th>frame+sync p95</th>
+        <th>with signals p95</th>
+        <th>runtime, no glass</th>
+        <th>runtime, 5 panes</th>
+        <th>glass adds</th>
+        <th>timer query median (reads high)</th>
+      </tr>
+    </table>
+    <script src="bench.js"></script>
+  </body>
+</html>

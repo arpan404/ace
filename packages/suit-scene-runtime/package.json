@@ -1,0 +1,14 @@
+{
+  "name": "@ace/suit-scene-runtime",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {}
+}

@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The words of a thrown value, for the person to read and copy; never a daemon token. */
 export function errorText(error: unknown): string {
@@ -45,8 +46,12 @@ export function BootFailure(props: {
     toast.error({ title: "Couldn't copy. Select the message and copy it yourself." }),
   );
   return (
-    <ConnectCard labelledBy="boot-failure-title">
-      <h1 id="boot-failure-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="connect" variant="boot-failure" labelledBy="boot-failure-title">
+      <h1
+        id="boot-failure-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         ace couldn't start
       </h1>
       <p className="mt-1.5 text-ui leading-normal text-muted-foreground">

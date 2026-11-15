@@ -32,6 +32,7 @@ import {
   type Notification,
 } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { orderedSocket } from "./ordered-socket.ts";
@@ -326,7 +327,7 @@ export async function startServer(options: ServerOptions): Promise<{
     );
     // What this client's hello said it can put back stays out of its snapshots and pages.
     let trimmer = new WireTrimmer(undefined);
-    const send = (message: ServerMessage | PluginServerMessage) => {
+    const send = (message: ServerMessage | PluginServerMessage | SuitServerMessage) => {
       for (const frame of trimmer.outgoing(busyRefusal(message))) outbox.send(frame);
     };
     const fail = (

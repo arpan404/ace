@@ -19,6 +19,9 @@ function ContextMenuContent({ className, children, ...props }: ContextMenuPrimit
       >
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
+          data-part="menu"
+          data-variant="context"
+          data-state="open"
           className={cn(material, popupFrame, "min-w-[220px]", className)}
           finalFocus={() => !document.querySelector('[role="dialog"], [data-inline-rename]')}
           {...props}

@@ -1,0 +1,334 @@
+/*
+ * Tarn: cool slate and blue-black ink. One material, one accent (the ink itself), and depth
+ * from three things only: a hairline, a lit top edge and a soft shadow. Colours are suit.json's;
+ * this file sets type, edges, elevation and the states of rows and controls. Edges are drawn as
+ * shadows, never borders, so nothing here changes a part's size.
+ */
+
+/* Type: one sans for the interface and answers, in real weights and a real italic. */
+@font-face {
+  font-family: "Tarn Sans";
+  src: url("assets/fonts/HankenGrotesk.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Tarn Sans";
+  src: url("assets/fonts/HankenGrotesk-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: fallback;
+}
+
+/*
+ * The Suit's own values. Floating layers render outside the app part, so they get them too.
+ * wash: ink laid thinly over whatever is underneath, so a hover reads on every surface.
+ * edge: the hairline round anything raised. lift: its shadow, small, medium and floating.
+ * plate: the fill of a raised row or control. well: the fill of a recessed track.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-wash-1: color-mix(in oklab, var(--color-foreground) 4%, transparent);
+  --suit-wash-2: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  --suit-wash-3: color-mix(in oklab, var(--color-foreground) 11%, transparent);
+  --suit-focus-edge: color-mix(in oklab, var(--color-tint) 42%, var(--color-border-strong));
+  --suit-halo: 0 0 0 3px color-mix(in oklab, var(--color-tint) 14%, transparent);
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"] {
+  --suit-edge: rgb(24 28 34 / 0.09);
+  --suit-edge-strong: rgb(24 28 34 / 0.15);
+  --suit-top: inset 0 1px 0 rgb(255 255 255 / 0.7);
+  --suit-lift-1: 0 1px 2px rgb(24 28 34 / 0.06);
+  --suit-lift-2: 0 1px 2px rgb(24 28 34 / 0.05), 0 8px 24px -12px rgb(24 28 34 / 0.16);
+  --suit-lift-3:
+    0 1px 2px rgb(24 28 34 / 0.06), 0 8px 20px -6px rgb(24 28 34 / 0.12),
+    0 24px 48px -20px rgb(24 28 34 / 0.22);
+  --suit-plate: #ffffff;
+  --suit-well: rgb(24 28 34 / 0.055);
+  --suit-page-background: color-mix(in oklab, var(--color-background) 40%, transparent);
+  /* Near-white and mostly solid: ace's status colours are tuned for a pale sidebar. */
+  --suit-sidebar-background: rgb(253 253 254 / 0.9);
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-edge: rgb(255 255 255 / 0.07);
+  --suit-edge-strong: rgb(255 255 255 / 0.12);
+  --suit-top: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --suit-lift-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --suit-lift-2: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 28px -12px rgb(0 0 0 / 0.55);
+  --suit-lift-3:
+    0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -6px rgb(0 0 0 / 0.45),
+    0 28px 56px -20px rgb(0 0 0 / 0.6);
+  --suit-plate: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  --suit-well: rgb(0 0 0 / 0.24);
+  --suit-page-background: color-mix(in oklab, var(--color-background) 46%, transparent);
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 70%, transparent);
+}
+
+/* ── Sidebar and navigation ─────────────────────────────────────────────────────────────── */
+
+[data-part="thread-row"]:hover,
+[data-part="chat-row"]:hover,
+[data-part="nav-item"]:hover,
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash-1);
+}
+/* The open row is a raised plate: its own fill, a hairline and the smallest shadow. */
+[data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
+[data-part="chat-row"][data-state="active"],
+[data-part="nav-item"][data-state="active"],
+[data-part="rail-item"][data-state="active"] {
+  background: var(--suit-plate);
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-part="header-title"] {
+  letter-spacing: -0.006em;
+}
+
+/* ── Transcript ─────────────────────────────────────────────────────────────────────────── */
+
+[data-part="message-user"] {
+  background: var(--color-surface-1);
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-part="link"]:not([data-variant]) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 34%, transparent);
+  transition: text-decoration-color 140ms ease;
+}
+[data-part="link"]:not([data-variant]):hover {
+  text-decoration-color: var(--color-link);
+}
+[data-part="inline-code"] {
+  background: var(--suit-wash-2);
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  box-shadow: 0 0 0 1px var(--suit-edge);
+}
+/* The work log: quiet rows, a thin wash under the pointer, and no fill on an open group. */
+[data-part="tool-row"]:hover,
+[data-part="tool-group-header"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="tool-group-header"][data-state="open"] {
+  background: transparent;
+  color: var(--color-foreground);
+}
+[data-part="tool-group-header"][data-state="open"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="attachment"] {
+  box-shadow: 0 0 0 1px var(--suit-edge);
+}
+
+/* ── Composer ───────────────────────────────────────────────────────────────────────────── */
+
+[data-part="composer"] {
+  background: var(--color-surface-1);
+  border-color: var(--suit-edge-strong);
+  box-shadow: var(--suit-top), var(--suit-lift-2);
+}
+[data-part="composer"]:focus-within {
+  border-color: var(--suit-focus-edge);
+  box-shadow: var(--suit-top), var(--suit-halo), var(--suit-lift-2);
+}
+[data-part="composer-send"]:is(
+    [data-variant="send"],
+    [data-variant="steer"],
+    [data-variant="queue"]
+  ):not([data-state="disabled"]) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    var(--suit-lift-1);
+}
+[data-part="model-picker"]:hover,
+[data-part="model-picker"][data-state="open"] {
+  background: var(--suit-wash-2);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--suit-wash-2);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────────────────────── */
+
+[data-part="button"][data-variant="primary"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    var(--suit-lift-1);
+}
+[data-part="button"][data-variant="secondary"] {
+  background: var(--suit-plate);
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    var(--suit-lift-1);
+}
+[data-part="button"][data-variant="secondary"]:hover {
+  background: color-mix(in oklab, var(--color-foreground) 4%, #ffffff);
+}
+[data-scheme="dark"] [data-part="button"][data-variant="secondary"]:hover {
+  background: var(--suit-wash-3);
+}
+[data-part="button"]:is([data-variant="primary"], [data-variant="secondary"]):active {
+  box-shadow: 0 0 0 1px var(--suit-edge-strong);
+}
+[data-part="button"][data-state="disabled"],
+[data-part="button"]:disabled {
+  box-shadow: none;
+}
+[data-part="button"][data-variant="secondary"][data-state="disabled"],
+[data-part="button"][data-variant="secondary"]:disabled {
+  box-shadow: 0 0 0 1px var(--suit-edge);
+}
+[data-part="button"][data-variant="ghost"]:hover,
+[data-part="icon-button"]:hover {
+  background: var(--suit-wash-2);
+}
+[data-part="icon-button"][data-state="active"] {
+  background: var(--suit-wash-3);
+}
+
+/* Fields are wells: a hairline at rest, the ink and a soft halo in focus. */
+[data-part="input"],
+[data-part="search-field"],
+[data-part="select"] {
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="input"]:focus,
+[data-part="input"]:focus-within,
+[data-part="search-field"]:focus-within {
+  box-shadow:
+    inset 0 0 0 1px var(--suit-focus-edge),
+    var(--suit-halo);
+}
+[data-part="select"]:hover {
+  box-shadow: inset 0 0 0 1px var(--suit-edge-strong);
+}
+
+[data-part="switch-thumb"] {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.1),
+    0 1px 2px rgb(0 0 0 / 0.24);
+}
+[data-part="slider-thumb"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    0 1px 3px rgb(0 0 0 / 0.22);
+}
+/* A segmented control is a recessed track with one raised segment. */
+[data-part="segmented"] {
+  background: var(--suit-well);
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="segmented-thumb"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-scheme="light"] [data-part="segmented-thumb"] {
+  background: #ffffff;
+}
+[data-part="kbd"] {
+  font-family: var(--font-mono);
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--suit-edge-strong);
+}
+[data-part="badge"],
+[data-part="stat"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="panel-body"] {
+  scrollbar-color: color-mix(in oklab, var(--color-foreground) 18%, transparent) transparent;
+}
+
+/* ── Floating layers ────────────────────────────────────────────────────────────────────── */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="toast"],
+[data-part="command-palette"],
+[data-part="dialog"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    var(--suit-top),
+    var(--suit-lift-3);
+}
+[data-part="menu-item"]:hover {
+  background: var(--suit-wash-2);
+}
+[data-part="tooltip"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    var(--suit-lift-2);
+}
+
+/* ── Pages ──────────────────────────────────────────────────────────────────────────────── */
+
+[data-part="page-title"] {
+  letter-spacing: -0.018em;
+}
+/*
+ * Grouped content is a sheet lifted one step off the page. Only in the main column: the side
+ * panel's launcher names its tools with some of the same variants.
+ */
+[data-part="main"] [data-part="card"]:not([data-variant]),
+[data-part="main"]
+  [data-part="card"]:is(
+    [data-variant="settings-group"],
+    [data-variant="description"],
+    [data-variant="changes"],
+    [data-variant="check"]
+  ),
+[data-part="card"][data-variant="connect"],
+[data-part="merge-box"] {
+  background: var(--color-surface-1);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-top),
+    var(--suit-lift-1);
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover,
+[data-part="check-row"]:hover {
+  background: var(--suit-wash-1);
+}
+/* A state pill's label is white, as on ace's own white page, not the Suit's off-white canvas. */
+[data-scheme="light"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
+  color: #ffffff;
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}

@@ -15,7 +15,7 @@ export function SubagentPrompt(props: { threadId: string; spawnedBy: string }) {
   if (!spawn || !text) return null;
   return (
     <div className="mb-6 flex flex-col items-end">
-      <div className={userBubble}>
+      <div data-part="message-user" className={userBubble}>
         <BubbleText text={text} />
       </div>
       <div className="mt-1 flex min-h-6 items-center gap-2">

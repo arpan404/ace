@@ -24,6 +24,7 @@ import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
@@ -205,6 +206,7 @@ export function PrPrimaryControl(props: {
 function BranchName(props: { name: string; deleted?: boolean | undefined }) {
   return (
     <span
+      {...part("branch-chip", undefined, props.deleted ? "deleted" : undefined)}
       title={props.name}
       className={cn(
         "rounded-sm bg-fill-strong px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
@@ -222,6 +224,7 @@ function StatePill(props: { state: "open" | "draft" | "merged" | "closed" }) {
   const tone = prTone[props.state];
   return (
     <span
+      {...part("badge", undefined, props.state)}
       data-tone={props.state === "draft" ? undefined : tone}
       className={cn(
         "mr-2 inline-flex h-6.5 items-center gap-1 rounded-full pr-2.5 pl-2 align-middle text-ui font-medium",
@@ -289,7 +292,7 @@ export function PrHeader(props: {
       toast.error({ title: `Couldn't open ${forgeDisplayName(repository.forge)}` }),
     );
   return (
-    <header className="shrink-0 pt-2">
+    <header {...part("pr-header")} className="shrink-0 pt-2">
       <div className="flex h-8 min-w-0 items-center gap-1 px-[var(--forge-gutter,1rem)]">
         {props.onBack && (
           <IconButton

@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 import type { ForgeComment } from "@ace/protocol";
 import type { IconProps } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrBoxHead, prBox } from "./pr-box.tsx";
 import { CommentContent, CommentHeadControls, useCommentControls } from "./pr-comment.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
@@ -18,12 +19,17 @@ export const timelineLine =
 
 /** One stop on the line: its mark in the gutter, then what happened. */
 export function TimelineStop(props: {
+  /** What happened, as the stop's Suit variant: `push`, `review`, `event`, … */
+  variant: string;
   marker: ReactNode;
   children: ReactNode;
   className?: string | undefined;
 }) {
   return (
-    <div className={cn("grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 pb-4.5", props.className)}>
+    <div
+      {...part("timeline-item", undefined, props.variant)}
+      className={cn("grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 pb-4.5", props.className)}
+    >
       <div className="relative z-[1] flex justify-center">{props.marker}</div>
       <div className="min-w-0 pt-1">{props.children}</div>
     </div>
@@ -74,6 +80,8 @@ export function TimelineWords(props: { actor: string; children: ReactNode; at: s
 
 /** A box in the conversation: its author's 40px avatar in the gutter, a caret pointing at it. */
 export function TimelineBox(props: {
+  /** What the box holds, as its Suit variant: a comment's kind, `thread`, `composer`. */
+  variant: string;
   author: string;
   avatarUrl?: string | undefined;
   children: ReactNode;
@@ -81,7 +89,10 @@ export function TimelineBox(props: {
   boxClassName?: string | undefined;
 }) {
   return (
-    <div className={cn("grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 pb-4.5", props.className)}>
+    <div
+      {...part("timeline-item", undefined, props.variant)}
+      className={cn("grid grid-cols-[40px_minmax(0,1fr)] gap-x-4 pb-4.5", props.className)}
+    >
       <div className="relative z-[1]">
         <PrAvatar name={props.author} url={props.avatarUrl} className="size-10" />
       </div>
@@ -118,11 +129,16 @@ export function PrCommentBox(props: {
   const controls = useCommentControls(comment, props.quoteTarget);
   return (
     <TimelineBox
+      variant={comment.kind}
       author={comment.author}
       avatarUrl={comment.authorAvatarUrl}
       className={props.className}
     >
-      <div className="group/comment min-w-0" data-comment-id={`${comment.kind}:${comment.id}`}>
+      <div
+        {...part("review-comment", undefined, comment.kind)}
+        className="group/comment min-w-0"
+        data-comment-id={`${comment.kind}:${comment.id}`}
+      >
         <PrBoxHead actions={<CommentHeadControls controls={controls} />}>
           <span className="truncate font-semibold text-foreground">{comment.author}</span>
           {props.words}

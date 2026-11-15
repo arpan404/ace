@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { deviceKind, type DeviceGroup, type DeviceKind } from "@ace/ui-core/devices";
 import { deviceGlyphs } from "./device-frame.tsx";
 
@@ -21,7 +22,10 @@ function DeviceListRow(props: {
 }) {
   const { row } = props;
   return (
-    <li className={rowBox}>
+    <li
+      {...part("list-row", props.open ? "open" : row.running ? "working" : undefined, "device")}
+      className={rowBox}
+    >
       <button
         type="button"
         onClick={props.onOpen}
@@ -68,7 +72,11 @@ export function RecentRows(props: {
   onBoot(row: DeviceRow): void;
 }) {
   return (
-    <ul aria-label="Recent devices" className="flex flex-col">
+    <ul
+      aria-label="Recent devices"
+      {...part("list", undefined, "recent-devices")}
+      className="flex flex-col"
+    >
       {props.recent.map(({ row, at }) => (
         <DeviceListRow
           key={row.id}
@@ -107,13 +115,14 @@ export function DeviceGroups(props: {
 }) {
   const [unfolded, setUnfolded] = useState<ReadonlySet<DeviceKind>>(new Set());
   return (
-    <div className="flex flex-col">
+    <div {...part("list", undefined, "device-kinds")} className="flex flex-col">
       {props.groups.map((group) => {
         const expanded = props.searching || unfolded.has(group.kind);
         return (
           <Disclosure
             key={group.kind}
             open={expanded}
+            {...part("list-group", expanded ? "open" : "closed", group.kind)}
             onToggle={(event) => {
               const next = event.currentTarget.open;
               if (props.searching || next === unfolded.has(group.kind)) return;

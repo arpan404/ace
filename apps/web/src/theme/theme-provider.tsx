@@ -23,6 +23,11 @@ import {
   type SystemPreferences,
 } from "./appearance.ts";
 import { themesStylesheet, themeStylesheet } from "./css.ts";
+import type { SuitDetail } from "@ace/protocol/suits";
+import { suitDensity, suitPalette, suitSchemes, suitSheets } from "./suits/suit-css.ts";
+import { browserFontLoader, useSuitFontsReady } from "./suits/suit-fonts.ts";
+import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
+import { suitLayoutStylesheet } from "./suits/suit-layout.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "@ace/themes";
@@ -42,6 +47,8 @@ export interface Environment {
    * mode that picks between them, so its next launch (and every resize) starts in this theme.
    */
   windowBackground?: ((value: { mode: Mode; light: string; dark: string }) => void) | undefined;
+  /** `?suit=off` this session (`suitsOffForSession`): the chosen theme shows, never a Suit. */
+  suitsOff?: boolean | undefined;
 }
 
 interface ThemeValue {
@@ -53,6 +60,12 @@ interface ThemeValue {
   systemReducesTransparency: boolean;
   /** This device draws without graphics acceleration, so Translucency shows as Solid. */
   softwareRendering: boolean;
+  /** The Suit on screen, or null when the theme shows. */
+  suit: SuitDetail | null;
+  /** Suits are off this session (`?suit=off`). */
+  suitsOff: boolean;
+  /** What the Suit library knows (`SuitLibraryProvider`), so the picked Suit can apply. */
+  reportSuits(report: SuitReport): void;
 }
 const ThemeContext = createContext<ThemeValue | undefined>(undefined);
 
@@ -106,7 +119,17 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const softwareRendering = props.environment.softwareRendering ?? false;
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
   const system = useSystemPreferences(matchMedia, softwareRendering);
-  const resolved = useMemo(() => resolveAppearance(appearance, system), [appearance, system]);
+  const suitsOff = props.environment.suitsOff ?? false;
+  const { applied, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
+  // A Suit shows once its bundled fonts have loaded, so a switch never flashes a fallback face.
+  const [fontLoader] = useState(() => browserFontLoader(root?.ownerDocument));
+  const suit = useSuitFontsReady(applied, fontLoader);
+  const resolved = useMemo(
+    () => resolveAppearance(appearance, system, suit),
+    [appearance, system, suit],
+  );
+  // A Suit's own density, when it sets one, over the device's.
+  const density = (suit && suitDensity(suit.manifest)) ?? appearance.density;
   const { accent, customAccent } = appearance;
   // Every theme with the chosen accent: one sheet, so a theme switch is an attribute flip.
   const stylesheet = useMemo(
@@ -114,34 +137,59 @@ export function ThemeProvider(props: { environment: Environment; children: React
     [accent, customAccent],
   );
 
+  // The Suit's rules, after the themes' so they win where both match; its suit.css in
+  // `@layer suit` under ace's guard, then its reading-column width. A new version of the Suit
+  // swaps this text, never a reload.
+  const suitSheet = useMemo(
+    () =>
+      suit
+        ? [suitSheets(suit), suitLayoutStylesheet(suit.manifest)].filter(Boolean).join("\n")
+        : "",
+    [suit],
+  );
+
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
     if (!root) return;
-    applyTheme(root, stylesheet, {
+    applyTheme(root, stylesheet, suitSheet, {
       "data-theme": resolved.theme,
+      "data-suit": resolved.suit ?? undefined,
       "data-scheme": resolved.scheme,
       "data-surface": resolved.surface,
       "data-reduce-motion": resolved.reduceMotion ? "" : undefined,
-      "data-density": appearance.density,
+      "data-density": density,
       "data-glass-engine": glassEngine,
     });
     root.style.setProperty(
       "--transcript-size",
       `${transcriptSizes[appearance.transcriptSize].px}px`,
     );
-    setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
-  }, [root, stylesheet, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
+    const page = suit
+      ? suitPalette(suit.manifest, resolved.scheme)
+      : themes[resolved.theme][resolved.scheme];
+    setThemeColour(root.ownerDocument, page.s0);
+  }, [
+    root,
+    stylesheet,
+    suitSheet,
+    suit,
+    resolved,
+    density,
+    appearance.transcriptSize,
+    glassEngine,
+  ]);
 
   // The glass at the chosen translucency, over the stylesheet's default. A slider drag changes
   // only the glass variables: no stylesheet rebuild, and the liquid filters below stay put.
   const { theme, scheme, translucency } = resolved;
   useLayoutEffect(() => {
     if (!root) return;
-    const variables = glassVariables(themes[theme][scheme], scheme, translucency);
+    const palette = suit ? suitPalette(suit.manifest, scheme) : themes[theme][scheme];
+    const variables = glassVariables(palette, scheme, translucency);
     for (const [name, value] of Object.entries(variables))
       if (translucency > 0) root.style.setProperty(name, value);
       else root.style.removeProperty(name);
-  }, [root, theme, scheme, translucency]);
+  }, [root, suit, theme, scheme, translucency]);
 
   // Per-layer liquid glass filters, only while they can show.
   const liquid = glassEngine === "liquid" && resolved.surface === "translucent";
@@ -151,30 +199,13 @@ export function ThemeProvider(props: { environment: Environment; children: React
   }, [root, liquid]);
 
   useEffect(() => {
-    const boot: BootAppearance = {
-      theme: appearance.theme,
-      mode: appearance.mode,
-      // A theme with no glass boots solid, so its first frame never flashes translucent.
-      surface:
-        themes[appearance.theme].light.material.glass &&
-        appearance.translucency > 0 &&
-        !softwareRendering
-          ? "translucent"
-          : "solid",
-      translucency: appearance.translucency,
-      reduceMotion: appearance.reduceMotion,
-      density: appearance.density,
-      transcriptPx: transcriptSizes[appearance.transcriptSize].px,
-      css: themeStylesheet(appearance.theme, appearance, appearance.translucency),
-    };
-    writeJson(storage, bootAppearanceKey, boot);
-  }, [storage, appearance, softwareRendering]);
+    writeJson(storage, bootAppearanceKey, bootAppearance(appearance, suit, softwareRendering));
+  }, [storage, appearance, suit, softwareRendering]);
 
   const { windowBackground } = props.environment;
   useEffect(() => {
-    const palette = themes[appearance.theme];
-    windowBackground?.({ mode: appearance.mode, light: palette.light.s0, dark: palette.dark.s0 });
-  }, [windowBackground, appearance.theme, appearance.mode]);
+    windowBackground?.(windowColours(appearance, suit));
+  }, [windowBackground, appearance, suit]);
 
   const update = useCallback(
     (next: Partial<Appearance>) => {
@@ -185,7 +216,12 @@ export function ThemeProvider(props: { environment: Environment; children: React
           return merged;
         });
       // A new palette cross-fades the window; the other settings apply directly.
-      if (next.theme !== undefined || next.mode !== undefined || next.accent !== undefined)
+      if (
+        next.theme !== undefined ||
+        next.mode !== undefined ||
+        next.accent !== undefined ||
+        next.suit !== undefined
+      )
         withViewTransition(() => flushSync(apply));
       else apply();
     },
@@ -198,25 +234,90 @@ export function ThemeProvider(props: { environment: Environment; children: React
       resolved,
       systemReducesTransparency: system.reducedTransparency,
       softwareRendering: system.softwareRendering,
+      suit,
+      suitsOff,
+      reportSuits,
     }),
-    [appearance, update, resolved, system.reducedTransparency, system.softwareRendering],
+    [
+      appearance,
+      update,
+      resolved,
+      system.reducedTransparency,
+      system.softwareRendering,
+      suit,
+      suitsOff,
+      reportSuits,
+    ],
   );
   return <ThemeContext.Provider value={value}>{props.children}</ThemeContext.Provider>;
+}
+
+/**
+ * What `index.html` replays before first paint. A Suit's rules follow the theme's, with its one
+ * scheme and density beside them, used only while the Suit is on (not under `?suit=off`).
+ */
+function bootAppearance(
+  appearance: Appearance,
+  suit: SuitDetail | null,
+  softwareRendering: boolean,
+): BootAppearance {
+  const only = suit ? suitSchemes(suit.manifest) : [];
+  const glass = suit
+    ? suitPalette(suit.manifest, only[0] ?? "dark").material.glass
+    : themes[appearance.theme].light.material.glass;
+  const themeCss = themeStylesheet(appearance.theme, appearance, appearance.translucency);
+  return {
+    theme: appearance.theme,
+    suit: suit ?? undefined,
+    mode: appearance.mode,
+    suitScheme: only.length === 1 ? only[0] : undefined,
+    // A theme with no glass boots solid, so its first frame never flashes translucent.
+    surface: glass && appearance.translucency > 0 && !softwareRendering ? "translucent" : "solid",
+    translucency: appearance.translucency,
+    reduceMotion: appearance.reduceMotion,
+    density: appearance.density,
+    suitDensity: suit ? suitDensity(suit.manifest) : undefined,
+    transcriptPx: transcriptSizes[appearance.transcriptSize].px,
+    css: suit ? `${themeCss}\n${suitSheets(suit, appearance.translucency)}` : themeCss,
+  };
+}
+
+/** The desktop window's colour behind the page, per scheme, in the theme or Suit on screen. */
+function windowColours(appearance: Appearance, suit: SuitDetail | null) {
+  if (!suit) {
+    const palette = themes[appearance.theme];
+    return { mode: appearance.mode, light: palette.light.s0, dark: palette.dark.s0 };
+  }
+  const only = suitSchemes(suit.manifest);
+  return {
+    mode: only.length === 1 && only[0] ? only[0] : appearance.mode,
+    light: suitPalette(suit.manifest, "light").s0,
+    dark: suitPalette(suit.manifest, "dark").s0,
+  };
+}
+
+function styleElement(document: Document, id: string): HTMLElement {
+  let sheet = document.getElementById(id);
+  if (!sheet) {
+    sheet = document.createElement("style");
+    sheet.id = id;
+    document.head.append(sheet);
+  }
+  return sheet;
 }
 
 function applyTheme(
   root: HTMLElement,
   stylesheet: string,
+  suitSheet: string,
   attributes: Record<string, string | undefined>,
 ) {
   const document = root.ownerDocument;
-  let sheet = document.getElementById("ace-themes");
-  if (!sheet) {
-    sheet = document.createElement("style");
-    sheet.id = "ace-themes";
-    document.head.append(sheet);
-  }
+  const sheet = styleElement(document, "ace-themes");
   if (sheet.textContent !== stylesheet) sheet.textContent = stylesheet;
+  // Appended after the themes' sheet, so a Suit's rules win at equal specificity.
+  const suitElement = styleElement(document, "ace-suit");
+  if (suitElement.textContent !== suitSheet) suitElement.textContent = suitSheet;
   for (const [name, value] of Object.entries(attributes))
     if (value === undefined) root.removeAttribute(name);
     else if (root.getAttribute(name) !== value) root.setAttribute(name, value);
@@ -231,6 +332,14 @@ function setThemeColour(document: Document, colour: string) {
     document.head.append(meta);
   }
   if (meta.content !== colour) meta.content = colour;
+}
+
+/**
+ * The Suit on screen, or null; null too outside a `ThemeProvider`, so a part a Suit can dress
+ * (an empty state, the composer) still renders on its own.
+ */
+export function useSuitOnScreen(): SuitDetail | null {
+  return useContext(ThemeContext)?.suit ?? null;
 }
 
 export function useTheme(): ThemeValue {

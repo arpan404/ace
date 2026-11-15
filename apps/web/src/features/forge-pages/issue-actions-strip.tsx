@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { IssueWrites } from "./issue-writes.ts";
 
 const words: Record<ForgeIssueAction["action"], string> = {
@@ -59,10 +60,15 @@ export function IssueActionsStrip(props: {
   );
   if (!open.length) return null;
   return (
-    <ul aria-label="Unconfirmed changes" className="mt-4 flex flex-col gap-1">
+    <ul
+      {...part("page-section", undefined, "unconfirmed")}
+      aria-label="Unconfirmed changes"
+      className="mt-4 flex flex-col gap-1"
+    >
       {open.map((action) => (
         <li
           key={action.id}
+          {...part("list-row", action.state === "pending" ? "working" : "waiting")}
           role="status"
           className="flex items-center gap-2 text-ui text-muted-foreground"
         >

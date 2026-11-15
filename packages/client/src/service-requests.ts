@@ -16,25 +16,27 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.request"
   ? Replies<"cli.result">
-  : Q["type"] extends "user_browser.settings"
-    ? Replies<"user_browser.settings.result">
-    : Q["type"] extends `provider.accounts.${string}`
-      ? Replies<"provider.accounts.result">
-      : Q["type"] extends `provider.install.${string}`
-        ? Replies<"provider.install.result">
-        : Q["type"] extends `provider.login.${string}` | "provider.logout"
-          ? Replies<"provider.login.result">
-          : Q["type"] extends `onboarding.${string}`
-            ? Replies<"onboarding.result">
-            : Q["type"] extends "worktree.creation.request"
-              ? Replies<"worktree.creation.result">
-              : Q["type"] extends "verify.request"
-                ? Replies<"verify.result">
-                : Q["type"] extends "lockedUse.subscribe"
-                  ? Replies<"lockedUse.status">
-                  : Q["type"] extends `lockedUse.${string}`
-                    ? Replies<"lockedUse.result">
-                    : LegacyServiceResponse<Q>;
+  : Q["type"] extends "suitRequest"
+    ? Replies<"suitResult">
+    : Q["type"] extends "user_browser.settings"
+      ? Replies<"user_browser.settings.result">
+      : Q["type"] extends `provider.accounts.${string}`
+        ? Replies<"provider.accounts.result">
+        : Q["type"] extends `provider.install.${string}`
+          ? Replies<"provider.install.result">
+          : Q["type"] extends `provider.login.${string}` | "provider.logout"
+            ? Replies<"provider.login.result">
+            : Q["type"] extends `onboarding.${string}`
+              ? Replies<"onboarding.result">
+              : Q["type"] extends "worktree.creation.request"
+                ? Replies<"worktree.creation.result">
+                : Q["type"] extends "verify.request"
+                  ? Replies<"verify.result">
+                  : Q["type"] extends "lockedUse.subscribe"
+                    ? Replies<"lockedUse.status">
+                    : Q["type"] extends `lockedUse.${string}`
+                      ? Replies<"lockedUse.result">
+                      : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "outside.request"
   ? Replies<"outside.result">
@@ -309,6 +311,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "commands.list": ["commands.list.result"],
   "commands.resolve": ["commands.resolve.result"],
   pluginRequest: ["pluginResult"],
+  suitRequest: ["suitResult"],
   "diagnostics.health": ["diagnostics.health.result"],
   "diagnostics.request": ["diagnostics.result"],
   "screen.request": ["screen.result"],
