@@ -125,6 +125,44 @@ import Testing
         #expect(landing.deadline == nil)
     }
 
+    @Test func retryingAFailedFocusedOpenAimsAtItsFocusAgain() {
+        var landing = aimed()
+        landing.readFailed()
+        #expect(!landing.isActive)
+        landing.retried(now: start + 40_000)
+        #expect(landing.target == "item.103")
+        #expect(landing.deadline == start + 40_000 + TranscriptFocusLanding.replyLimit)
+        // The retry's reply names the focus, so it lands like the first try would have.
+        landing.replied(focus: "item.103", now: start + 41_000)
+        #expect(landing.target == "item.103")
+    }
+
+    @Test func retryingAFailedTurnJumpWaitsForItsReplyAgain() {
+        var landing = TranscriptFocusLanding()
+        landing.jumped(to: nil, now: start)
+        landing.readFailed()
+        landing.retried(now: start + 100)
+        landing.replied(focus: "item.40", now: start + 200)
+        #expect(landing.target == "item.40")
+    }
+
+    @Test func retryingAReadThatWasNoJumpAimsAtNothing() {
+        // A reopened session or a page failed: its retry restores no focus.
+        var landing = TranscriptFocusLanding()
+        landing.readFailed()
+        landing.retried(now: start)
+        landing.replied(focus: "item.103", now: start + 100)
+        #expect(!landing.isActive)
+    }
+
+    @Test func aRetryAfterTheReaderTookOverAimsAtNothing() {
+        var landing = aimed()
+        landing.readFailed()
+        landing.readerTookOver()
+        landing.retried(now: start + 100)
+        #expect(!landing.isActive)
+    }
+
     @Test func aNewFocusStartsAFreshBudgetAndDeadline() {
         var landing = aimed()
         for _ in 0..<TranscriptFocusLanding.maxScrolls { _ = landing.step(row: "block:7", frame: nil, in: screen, now: start) }

@@ -225,19 +225,39 @@ struct ThreadFocus: Equatable {
             do {
                 let reply = try await model.service(payload, as: TranscriptReadingReply.self)
                 guard !Task.isCancelled, generation == version else { return }
-                guard reply.active else { close(model: model); landing.readFailed(); isStale = false; revision += 1; return }
-                applyReply(reply, operation: operation, now: model.now())
-                ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
+                received(reply, operation: operation, model: model, asked: asked)
             } catch {
                 guard !Task.isCancelled, generation == version else { return }
-                model.releaseReading()
-                // Nothing is coming to land: paging and the end's reads may go again.
-                landing.readFailed()
-                problem = error.localizedDescription
+                failed(error, model: model)
             }
         }
     }
-    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live, item: retryItem, turn: retryTurn, anchorItemId: retryAnchorItemId) }
+    /// The current read's reply: the window closed, or its rows and evidence to fold in.
+    private func received(_ reply: TranscriptReadingReply, operation: String, model: ClientModel, asked: Double) {
+        guard reply.active else {
+            close(model: model)
+            landing.readFailed()
+            isStale = false
+            revision += 1
+            return
+        }
+        applyReply(reply, operation: operation, now: model.now())
+        ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
+    }
+    /// The current read failed: what it held is applied, and nothing is coming to land, so
+    /// paging and the end's reads may go again.
+    private func failed(_ error: any Error, model: ClientModel) {
+        model.releaseReading()
+        landing.readFailed()
+        problem = error.localizedDescription
+    }
+    func retry(model: ClientModel, live: ThreadModel) {
+        guard !loading else { return }
+        // A focused open that failed lands on its focus when it succeeds; a reopened session
+        // or a page aims at nothing.
+        landing.retried(now: model.now())
+        read(retryOperation, model: model, live: live, item: retryItem, turn: retryTurn, anchorItemId: retryAnchorItemId)
+    }
     func live(model: ClientModel, thread: ThreadModel) {
         cancel(model: model)
         read("live", model: model, live: thread)

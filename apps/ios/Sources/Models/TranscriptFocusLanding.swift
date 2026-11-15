@@ -20,6 +20,9 @@ struct TranscriptFocusLanding: Equatable, Sendable {
     private(set) var awaitsReply = false
     /// When the focus lets the place go if it hasn't landed, in the clock's milliseconds.
     private(set) var deadline: Double?
+    /// A jump whose read failed, kept so retrying it aims at its focus again: the item asked
+    /// for, or nil for a turn whose reply names it.
+    private(set) var failedJump: String??
     /// Scrolls spent on one focus before it stops being chased.
     static let maxScrolls = 30
     /// From the jump to its reply: longer than the service's own 30-second timeout, whose
@@ -68,6 +71,7 @@ struct TranscriptFocusLanding: Equatable, Sendable {
     /// A jump was sent: aim at the item asked for (nil for a turn, whose item only the reply
     /// names) before the reply, since the window's rows can land first.
     mutating func jumped(to item: String?, now: Double) {
+        failedJump = nil
         aim(at: item)
         awaitsReply = true
         deadline = now + Self.replyLimit
@@ -82,11 +86,24 @@ struct TranscriptFocusLanding: Equatable, Sendable {
         deadline = focus == nil ? nil : now + Self.landLimit
     }
 
-    /// The jump failed or its window closed: nothing is coming to land.
-    mutating func readFailed() { release() }
+    /// The read failed or its window closed: nothing is coming to land. A jump still on its way
+    /// is kept for a retry.
+    mutating func readFailed() {
+        if awaitsReply { failedJump = .some(target) }
+        release()
+    }
 
-    /// The reader moved the feed: their place, not the focus's.
-    mutating func readerTookOver() { release() }
+    /// The failed read is being retried: a failed jump aims at its focus again.
+    mutating func retried(now: Double) {
+        guard let jump = failedJump else { return }
+        jumped(to: jump, now: now)
+    }
+
+    /// The reader moved the feed: their place, not the focus's, and a retry lands nowhere.
+    mutating func readerTookOver() {
+        failedJump = nil
+        release()
+    }
 
     /// The feed's tick at the deadline: lets the place go when nothing else laid out.
     mutating func expire(now: Double) {
