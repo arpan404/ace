@@ -431,12 +431,13 @@ mod tests {
             connection
                 .execute_batch(
                 "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
-                 DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;",
+                 DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
+                 ALTER TABLE spend DROP COLUMN role;",
             )?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 5,
+                crate::schema::current_version() as i64 - 6,
             )?;
         }
         let store = Store::open(&path)?;

@@ -12,6 +12,7 @@ mod routines;
 mod schema;
 mod seen;
 mod skills;
+mod spend;
 mod teams;
 
 pub use agents::{Agent, NewAgent};
