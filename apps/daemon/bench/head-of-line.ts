@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { startRelay } from "@ace/relay";
 import { accessRequest, redeemPairing } from "@ace/daemon/client-access";
-import { PairingResponse, ThreadId } from "@ace/protocol";
+import { ItemRawResponse, PairingResponse, ThreadId, type Item } from "@ace/protocol";
 import { linkProfile, startLinkShaper, type LinkShaper } from "@ace/perf-kit/link";
 import type { Client, ThreadSource } from "@ace/client";
 import { startBenchDaemon } from "@ace/perf-kit/daemon";
@@ -473,7 +473,7 @@ async function session(path: LinkPath, profileName: string) {
         let rawBytes = 0;
         let pages = 0;
         while (next !== undefined) {
-          const page = await phone.request(
+          const answer: unknown = await phone.request(
             {
               type: "item.raw",
               threadId: ready.threads.live.id,
@@ -483,7 +483,7 @@ async function session(path: LinkPath, profileName: string) {
             },
             { timeoutMs: timeout },
           );
-          if (!("raw" in page)) throw new Error("item.raw answered without payloads");
+          const page = ItemRawResponse.parse(answer);
           rawBytes += JSON.stringify(page.raw).length;
           pages++;
           revision = page.revision;
@@ -520,12 +520,14 @@ async function session(path: LinkPath, profileName: string) {
       "output turn",
     );
     episodes.output = await probe(async () => {
-      const streamId = liveLease.store.order
+      const shell = liveLease.store.order
         .map((id) => liveLease.store.item(id))
-        .findLast((item) => item?.type === "tool_call" && item.call.detail.kind === "shell")
-        ?.call;
-      const stream =
-        streamId?.detail.kind === "shell" ? streamId.detail.output?.streamId : undefined;
+        .findLast(
+          (item): item is Extract<Item, { type: "tool_call" }> =>
+            item?.type === "tool_call" && item.call.detail.kind === "shell",
+        );
+      const detail = shell?.call.detail;
+      const stream = detail?.kind === "shell" ? detail.output?.streamId : undefined;
       if (!stream) throw new Error("No shell output to read");
       const prepared = await prepare();
       const from = down();

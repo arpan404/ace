@@ -75,7 +75,11 @@ interface Row {
   /** The most one reply of it may be. */
   bound: number;
   /** Store the data and read it all, page by page; returns what the pages gave back and expects. */
-  read(store: Store, threadId: string, ask: Awaited<ReturnType<typeof connect>>): Promise<{
+  read(
+    store: Store,
+    threadId: string,
+    ask: Awaited<ReturnType<typeof connect>>,
+  ): Promise<{
     replies: string[];
     got: unknown;
     stored: unknown;
@@ -83,14 +87,25 @@ interface Row {
 }
 
 /** Every `item.raw` page of `item`, read as the raw view reads them. */
-async function rawPages(item: Item, store: Store, threadId: string, ask: Awaited<ReturnType<typeof connect>>) {
+async function rawPages(
+  item: Item,
+  store: Store,
+  threadId: string,
+  ask: Awaited<ReturnType<typeof connect>>,
+) {
   store.appendEvents(threadId as never, [{ type: "item.created", item }]);
   const replies: string[] = [];
   const got: unknown[] = [];
   let from: number | undefined = 0;
   let revision: string | undefined;
   while (from !== undefined) {
-    const text = await ask({ type: "item.raw", threadId, itemId: item.id, from, ...(revision ? { revision } : {}) });
+    const text = await ask({
+      type: "item.raw",
+      threadId,
+      itemId: item.id,
+      from,
+      ...(revision ? { revision } : {}),
+    });
     replies.push(text);
     const page = ServerMessage.parse(JSON.parse(text));
     if (page.type !== "item.raw") throw new Error(`Unexpected ${page.type}`);
@@ -110,7 +125,8 @@ async function outputReads(streamId: string, ask: Awaited<ReturnType<typeof conn
     const text = await ask({ type: "output.read", streamId, offset, limit: 256 * 1024 });
     replies.push(text);
     const reply = ServerMessage.parse(JSON.parse(text));
-    if (reply.type !== "output.data") throw new Error(`Unexpected ${reply.type}: ${text.slice(0, 200)}`);
+    if (reply.type !== "output.data")
+      throw new Error(`Unexpected ${reply.type}: ${text.slice(0, 200)}`);
     chunks.push(Buffer.from(reply.bytes, "base64"));
     if (reply.eof) break;
     offset = reply.nextOffset;
@@ -138,7 +154,10 @@ const rows: Row[] = [
       rawPages(
         message(
           "many",
-          Array.from({ length: 40 }, (_, index) => ({ type: "assistant", data: { index, text: words(60_000) } })),
+          Array.from({ length: 40 }, (_, index) => ({
+            type: "assistant",
+            data: { index, text: words(60_000) },
+          })),
         ),
         store,
         threadId,
@@ -150,7 +169,13 @@ const rows: Row[] = [
     bound: pageReplyBytes + envelopeBytes,
     read: (store, threadId, ask) =>
       rawPages(
-        message("small", Array.from({ length: 3000 }, (_, index) => ({ type: "delta", data: { index, text: words(200) } }))),
+        message(
+          "small",
+          Array.from({ length: 3000 }, (_, index) => ({
+            type: "delta",
+            data: { index, text: words(200) },
+          })),
+        ),
         store,
         threadId,
         ask,
@@ -218,13 +243,16 @@ const rows: Row[] = [
   },
 ];
 
-test.each(rows)("$name: every reply stays within the bound, and reading on gives it all", async (row) => {
-  const f = await fixture();
-  cleanups.push(() => f.close());
-  const ask = await connect(f.server.url);
-  const { replies, got, stored } = await row.read(f.store, f.thread.id, ask);
-  expect(replies.length).toBeGreaterThan(1);
-  const largest = Math.max(...replies.map((text) => Buffer.byteLength(text)));
-  expect(largest).toBeLessThanOrEqual(row.bound);
-  expect(got).toEqual(stored);
-});
+test.each(rows)(
+  "$name: every reply stays within the bound, and reading on gives it all",
+  async (row) => {
+    const f = await fixture();
+    cleanups.push(() => f.close());
+    const ask = await connect(f.server.url);
+    const { replies, got, stored } = await row.read(f.store, f.thread.id, ask);
+    expect(replies.length).toBeGreaterThan(1);
+    const largest = Math.max(...replies.map((text) => Buffer.byteLength(text)));
+    expect(largest).toBeLessThanOrEqual(row.bound);
+    expect(got).toEqual(stored);
+  },
+);

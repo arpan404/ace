@@ -96,7 +96,11 @@ describe("the Raw view's reads", () => {
     {
       name: "a page with more after it reads on to the next by itself",
       state: () => run(initialRawReads(true), { type: "open" }),
-      input: { type: "reply", id: 1, reply: { from: 0, raw: [], revision: "r1", next: 1 } } as RawInput,
+      input: {
+        type: "reply",
+        id: 1,
+        reply: { from: 0, raw: [], revision: "r1", next: 1 },
+      } as RawInput,
       expect: { phase: "reading", read: { id: 2, from: 1, revision: "r1" }, auto: autoPages - 2 },
     },
     {
@@ -135,9 +139,16 @@ describe("the Raw view's reads", () => {
       name: "a change while reading on makes the page stale; a new batch starts from the start",
       state: () => {
         const first = run(initialRawReads(false), { type: "open" });
-        return run(first, answer(first, { raw: ["a"], next: 1 }), { type: "changed", running: false });
+        return run(first, answer(first, { raw: ["a"], next: 1 }), {
+          type: "changed",
+          running: false,
+        });
       },
-      input: { type: "reply", id: 2, reply: { from: 1, raw: [], revision: "r1", next: 2 } } as RawInput,
+      input: {
+        type: "reply",
+        id: 2,
+        reply: { from: 1, raw: [], revision: "r1", next: 2 },
+      } as RawInput,
       expect: { phase: "reading", read: { id: 3, from: 0 }, auto: autoPages - 1 },
     },
     {
