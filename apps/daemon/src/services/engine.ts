@@ -65,8 +65,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
       (cli) => daemonClaudeAdapter(context, cli),
       async (adapters) => {
-        await registerPi(context, adapters);
-        await registerAntigravity(context, adapters);
+        // Independent providers: Pi's CLI and Antigravity's approved install are read together.
+        await Promise.all([registerPi(context, adapters), registerAntigravity(context, adapters)]);
       },
       cursorOptions,
       services.providerConfigurations?.for("cursor").enabled === false
@@ -185,8 +185,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
           (cli) => daemonClaudeAdapter(context, cli),
           async (adapters) => {
-            if (!adapters.has("pi")) await registerPi(context, adapters);
-            await registerAntigravity(context, adapters);
+            await Promise.all([
+              adapters.has("pi") ? undefined : registerPi(context, adapters),
+              registerAntigravity(context, adapters),
+            ]);
           },
           cursorOptions,
           services.providerConfigurations?.for("cursor").enabled === false
