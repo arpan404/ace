@@ -484,6 +484,7 @@ Example:
     "createdAt": 6,
     "id": "example",
     "summary": "example",
+    "tokensAfter": 9,
     "type": "compaction"
   },
   "type": "item.created"
@@ -524,24 +525,24 @@ Example:
 ```json
 {
   "item": {
-    "accountId": "example",
     "agentId": "example",
     "childThreadId": "example",
     "createdAt": 5,
-    "generation": 0,
+    "generation": 4,
     "id": "example",
     "model": "example",
     "origin": "ace",
     "phase": "settled",
     "provider": "claude",
+    "rawOmitted": true,
     "role": "example",
     "runId": "example",
     "status": {
-      "state": "new"
+      "state": "failed"
     },
     "title": "example",
     "type": "delegation.started",
-    "updatedAt": 5
+    "updatedAt": 0
   },
   "type": "item.updated"
 }

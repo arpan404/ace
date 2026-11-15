@@ -7,6 +7,7 @@ import {
   type Devices,
   type PairedDevice,
   type Scope,
+  type SessionActor,
 } from "./devices.ts";
 import { validToken } from "./local-files.ts";
 import { MemoryPairingCodes, type PairingCodeStore } from "./pairing-codes.ts";
@@ -158,6 +159,21 @@ export class RemoteAuth {
     if ("error" in allocation) throw new AccessError(429, allocation.error);
     const { expiresAt } = allocation;
     return { ticket, expiresAt };
+  }
+  /**
+   * The next ticket for a paired device whose socket just opened with one, handed over in its
+   * welcome (ADR 0150): one-use, as short-lived and as bound to the device's credential as an
+   * exchanged ticket, and voided by revocation the same way. Undefined for any other session,
+   * or when the device's quota is spent; the client then exchanges one as before.
+   */
+  handOver(actor: SessionActor): { ticket: string; ttlMs: number } | undefined {
+    if (!actor.revocable || actor.generation === undefined) return undefined;
+    try {
+      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation });
+      return { ticket, ttlMs: expiresAt - this.now() };
+    } catch {
+      return undefined;
+    }
   }
   consume(ticket: string): PairedDevice | undefined {
     const issued = this.tickets.consume(hash(ticket), this.now());
