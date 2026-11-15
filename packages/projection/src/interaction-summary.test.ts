@@ -132,6 +132,40 @@ describe("requests sent with their thread", () => {
     expect(ids).toContain("cancel");
   });
 
+  it("options and questions whose ids are too long to keep are left out, so the summary stays small", () => {
+    const long = "i".repeat(wholeRequestChars);
+    const approved = summarizeInteraction(
+      interaction(
+        approval("short", [
+          { id: long, label: "Allow", kind: "allow_once" },
+          { id: "deny", label: "Deny", kind: "deny" },
+        ]),
+      ),
+    );
+    if (approved.request.kind !== "approval") throw new Error("not an approval");
+    expect(approved.request.options.map((option) => option.id)).toEqual(["deny"]);
+    const asked = summarizeInteraction(
+      interaction({
+        kind: "question",
+        questions: [
+          { id: long, text: "Hidden?", options: [] },
+          {
+            id: "q",
+            text: "Which?",
+            options: [
+              { id: long, label: "A" },
+              { id: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    );
+    if (asked.request.kind !== "question") throw new Error("not a question");
+    expect(asked.request.questions.map((question) => question.id)).toEqual(["q"]);
+    expect(asked.request.questions[0]?.options.map((option) => option.id)).toEqual(["b"]);
+    expect(JSON.stringify(approved).length + JSON.stringify(asked).length).toBeLessThan(8192);
+  });
+
   it("an address too long to send whole is left out, never cut", () => {
     const summary = summarizeInteraction(interaction(oversized.elicitation));
     if (summary.request.kind !== "elicitation") throw new Error("not an elicitation");

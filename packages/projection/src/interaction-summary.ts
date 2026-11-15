@@ -41,7 +41,7 @@ export function requestChars(request: InteractionRequest): number {
 }
 
 /** Whether a client gets `interaction` summarized rather than whole. */
-export function sentSummarized(interaction: Interaction): boolean {
+export function sentSummarized(interaction: Pick<Interaction, "request" | "truncated">): boolean {
   return (
     interaction.truncated !== undefined || requestChars(interaction.request) > wholeRequestChars
   );
@@ -110,7 +110,7 @@ function summarizeRequest(request: InteractionRequest): InteractionRequest {
         title: cut(request.title, titleChars),
         ...some(request.description, textChars, (description) => ({ description })),
         ...(request.target ? { target: summarizeTarget(request.target) } : {}),
-        options: keptOptions(request.options).map(cutOption),
+        options: keptOptions(request.options.filter(named)).map(cutOption),
         ...(request.defaultToNo === undefined ? {} : { defaultToNo: request.defaultToNo }),
         ...(request.suppressAlwaysAllowRule === undefined
           ? {}
@@ -127,7 +127,7 @@ function summarizeRequest(request: InteractionRequest): InteractionRequest {
     case "question":
       return {
         kind: "question",
-        questions: request.questions.slice(0, mostQuestions).map(cutQuestion),
+        questions: request.questions.filter(named).slice(0, mostQuestions).map(cutQuestion),
         ...(request.target ? { target: summarizeTarget(request.target) } : {}),
       };
     case "plan_review":
@@ -165,6 +165,14 @@ function summarizeRequest(request: InteractionRequest): InteractionRequest {
   }
 }
 
+/**
+ * Whether an id is short enough to keep. Ids are what an answer names, so they are never cut;
+ * one longer than this is left out with what it names, which keeps a summary bounded.
+ */
+function named(entry: { id: string }): boolean {
+  return entry.id.length <= longestId;
+}
+
 function cutOption(option: ApprovalOption): ApprovalOption {
   return { id: option.id, label: cut(option.label, labelChars), kind: option.kind };
 }
@@ -173,7 +181,7 @@ function cutQuestion(question: Question): Question {
   const kept: Question = {
     id: question.id,
     text: cut(question.text, titleChars),
-    options: question.options.slice(0, mostAnswers).map(cutAnswer),
+    options: question.options.filter(named).slice(0, mostAnswers).map(cutAnswer),
     multiSelect: question.multiSelect,
     allowOther: question.allowOther,
     secret: question.secret,

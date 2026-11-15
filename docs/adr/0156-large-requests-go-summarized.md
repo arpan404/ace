@@ -57,8 +57,13 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
 - The web reads a summarized request whole when it is shown and offers its affirmative options
   once it has. The phone shows the summary, says it is too large to review there, and offers
   only declines.
-- A request from another machine that is too large can only be declined through this daemon; to
-  approve it, connect to that machine.
+- Between paired machines a request still travels whole (machine `status` and `respond`). The
+  parent holds it whole, so its own clients get the summary, read it whole and are gated there;
+  the child accepts a paired machine's answer as that machine's person's, as it did before. A
+  copy that arrives already summarized can only be declined; to approve it, connect to the
+  machine that asked.
+- An id longer than 1 Ki code units is never cut, since answers name it: the option or question
+  it names is left out of the summary instead.
 - A snapshot's active requests are still bounded only by their count: about 500 requests just
   under the bound would reach the stream budget. Accepted; no such thread is known.
 
