@@ -21,7 +21,9 @@ struct ApprovalCard: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if approval.truncated {
+            if let note = nonEmpty(approval.summarized) {
+                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+            } else if approval.truncated {
                 Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             // One row when it fits; else Details above the answers; at large text everything stacks.
