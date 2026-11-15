@@ -42,7 +42,7 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
                 "name": { "type": "string", "description": "Its name, 1 to 40 characters." },
                 "task": { "type": "string", "description": "What it is for: its standing instructions." },
                 "brief": { "type": "string", "description": "Its first message; the task when unset." },
-                "model": { "type": "string", "description": "endpoint/model; yours when unset." },
+                "model": { "type": "string", "description": "A role (main, helper, verify, review, compact, title) or an endpoint/model the person set up for you; yours when unset." },
                 "tools": { "type": "array", "items": { "type": "string" }, "description": "Only these of your tools; all of yours when unset." },
                 "connectors": { "type": "array", "items": { "type": "string" } },
                 "plugins": { "type": "array", "items": { "type": "string" } },

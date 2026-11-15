@@ -287,9 +287,14 @@ pub fn settled_by(events: &[Event], event: &Event) -> Vec<Event> {
                 .as_deref()
                 .is_none_or(|bot| bot == from.id || bot.eq_ignore_ascii_case(&from.name)),
             // A worker's report is what the bot reads (ADR 0161).
-            (Known::WorkerReported(report), Some(Condition::Worker { worker }), _) => worker
-                .as_deref()
-                .is_none_or(|w| w == report.worker || w.eq_ignore_ascii_case(&report.name)),
+            // Not while an ace child is only being stopped: it has not settled.
+            (Known::WorkerReported(report), Some(Condition::Worker { worker }), _)
+                if report.state != crate::tree::ReportState::Stopping =>
+            {
+                worker
+                    .as_deref()
+                    .is_none_or(|w| w == report.worker || w.eq_ignore_ascii_case(&report.name))
+            }
             _ => false,
         }
     };

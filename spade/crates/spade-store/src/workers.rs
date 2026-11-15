@@ -32,6 +32,22 @@ impl Store {
         Ok(links)
     }
 
+    /// The conversations that noted an ace child as being stopped (ADR 0161), each once: where
+    /// a cancel ace hasn't confirmed may be owed after a restart.
+    pub fn ace_stops(&self) -> Result<Vec<String>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT conversation_id FROM events
+             WHERE body LIKE '{\"type\":\"worker_reported\"%'
+               AND json_extract(body, '$.kind') = 'ace'
+               AND json_extract(body, '$.state') = 'stopping'
+             ORDER BY conversation_id",
+        )?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     /// What `conversations` spent together since `since_ms`.
     pub fn spent_by_all(&self, conversations: &[String], since_ms: i64) -> Result<u64> {
         if conversations.is_empty() {

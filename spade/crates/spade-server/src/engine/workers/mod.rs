@@ -23,7 +23,7 @@ mod view;
 pub use create::ConnectorGrants;
 pub use lifecycle::Workers;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -52,6 +52,8 @@ pub(super) struct Shared {
     admitting: Mutex<()>,
     /// Where connectors are granted, once the server has set it.
     grants: OnceLock<Arc<dyn ConnectorGrants>>,
+    /// Ace children (bot conversation, thread) whose cancel is being tried until ace confirms.
+    cancelling: Mutex<HashSet<(String, String)>>,
 }
 
 #[derive(Default)]
@@ -97,6 +99,18 @@ pub(super) fn rolled(own: State, under: State) -> State {
         State::Waiting => 3,
     };
     if rank(under) > rank(own) { under } else { own }
+}
+
+/// What `activity`'s ace children add to its state: waiting while one waits on the person,
+/// else working while one may still run (working, or being stopped), until ace says it settled.
+fn ace_state(activity: &Activity) -> State {
+    if activity.ace_waiting {
+        State::Waiting
+    } else if activity.ace_working {
+        State::Working
+    } else {
+        State::Idle
+    }
 }
 
 impl Engine {
@@ -160,6 +174,24 @@ impl Engine {
         up
     }
 
+    /// What the reviewer reads as the person's words for `id` (`events` its own): for a worker,
+    /// the person's messages up its tree, root first, so a maker's brief or message never reads
+    /// as the person's request.
+    pub(super) fn person_words(&self, id: &str, events: &[Event]) -> Vec<String> {
+        let ancestors = self.worker_ancestors(id);
+        if ancestors.is_empty() {
+            return spade_core::review::person_words(events);
+        }
+        let loaded: Vec<Arc<Vec<Event>>> = ancestors
+            .iter()
+            .rev()
+            .filter_map(|up| self.load(up).ok())
+            .collect();
+        let mut chain: Vec<&[Event]> = loaded.iter().map(|e| e.as_slice()).collect();
+        chain.push(events);
+        spade_core::review::person_words_in(&chain)
+    }
+
     /// `id` and every worker conversation under it, parents before their workers.
     pub(crate) fn worker_subtree(&self, id: &str) -> Vec<String> {
         let index = self.tree_index();
@@ -210,15 +242,11 @@ impl Engine {
     /// task never done meanwhile.
     pub(super) fn roll_up(&self, id: &str, own: Activity) -> Activity {
         let children = self.worker_children(id);
-        if children.is_empty() && !own.ace_waiting {
+        if children.is_empty() && !own.ace_waiting && !own.ace_working {
             return own;
         }
         let mut activity = own;
-        let mut under = if activity.ace_waiting {
-            State::Waiting
-        } else {
-            State::Idle
-        };
+        let mut under = ace_state(&activity);
         let mut working = 0;
         for child in &children {
             let state = self.node_state(child, 0);
@@ -251,9 +279,7 @@ impl Engine {
         if state == State::Idle && self.continuing(id, false) {
             state = State::Working;
         }
-        if own.ace_waiting {
-            state = rolled(state, State::Waiting);
-        }
+        state = rolled(state, ace_state(&own));
         if depth < DEEPEST {
             for child in self.worker_children(id) {
                 state = rolled(state, self.node_state(&child, depth + 1));
@@ -292,6 +318,8 @@ impl Engine {
             .unwrap_or_default();
         lock(&self.workers.dirty).extend(all);
         self.workers.kick.notify_one();
+        // A cancel ace never confirmed before Spade stopped is tried again.
+        self.resume_ace_stops();
         if self.workers.running.swap(true, Ordering::SeqCst) {
             return;
         }

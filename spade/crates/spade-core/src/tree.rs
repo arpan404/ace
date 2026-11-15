@@ -122,6 +122,8 @@ pub enum ReportState {
     /// Stopped by the person or its orchestrator. Stored, and opens a reply only when the
     /// orchestrator waits on that worker.
     Stopped,
+    /// An ace child Spade asked ace to cancel, until ace confirms: it still counts as running.
+    Stopping,
     #[serde(other)]
     Other,
 }
@@ -135,6 +137,7 @@ impl ReportState {
             Self::Parked => "parked",
             Self::Failed => "failed",
             Self::Stopped => "stopped",
+            Self::Stopping => "stopping",
             Self::Other => "other",
         }
     }
@@ -148,6 +151,7 @@ impl ReportState {
             Self::Parked => "is waiting for budget",
             Self::Failed => "failed",
             Self::Stopped => "was stopped",
+            Self::Stopping => "is being stopped",
             Self::Other => "reported",
         }
     }
@@ -155,7 +159,7 @@ impl ReportState {
     /// Whether the report opens a reply in the orchestrator by itself. A stop came from the
     /// person or the orchestrator: nothing to act on, unless the orchestrator waits on it.
     pub const fn opens_reply(self) -> bool {
-        !matches!(self, Self::Stopped)
+        !matches!(self, Self::Stopped | Self::Stopping)
     }
 }
 
@@ -235,6 +239,9 @@ pub enum AceState {
     /// Held at a usage limit: the person or the bot must act.
     Limited,
     Stopped,
+    /// Spade asked ace to cancel it and ace hasn't confirmed yet: still running, as far as
+    /// anyone can tell (ace's priority 1).
+    Stopping,
     /// Its job ended and ace didn't say how.
     Ended,
 }
@@ -260,6 +267,7 @@ impl AceState {
             Self::NeedsYou => "needs_you",
             Self::Limited => "limited",
             Self::Stopped => "stopped",
+            Self::Stopping => "stopping",
             Self::Ended => "ended",
         }
     }
@@ -267,6 +275,16 @@ impl AceState {
     /// Whether it waits on the person (or the bot) to act.
     pub const fn waiting(self) -> bool {
         matches!(self, Self::NeedsYou | Self::Limited)
+    }
+
+    /// Whether it may still be running: working, or asked to stop and not yet confirmed.
+    pub const fn working(self) -> bool {
+        matches!(self, Self::Working | Self::Stopping)
+    }
+
+    /// Whether it is not settled: working, stopping, or waiting on the person or a limit.
+    pub const fn unsettled(self) -> bool {
+        self.working() || self.waiting()
     }
 }
 
@@ -310,7 +328,10 @@ pub fn ace_children<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceC
                 };
                 let named = thread_ids(arguments);
                 for child in children.iter_mut().filter(|c| named.contains(&c.thread)) {
-                    child.state = AceState::Working;
+                    // One being stopped stays so until ace confirms.
+                    if child.state != AceState::Stopping {
+                        child.state = AceState::Working;
+                    }
                     child.job = job.clone();
                 }
             }
@@ -320,6 +341,8 @@ pub fn ace_children<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceC
                 let states = thread_states(content);
                 for child in children.iter_mut().filter(|c| &c.job == job) {
                     match states.iter().find(|(t, _)| t == &child.thread) {
+                        // Still running while it is being stopped: it stays stopping.
+                        Some((_, AceState::Working)) if child.state == AceState::Stopping => {}
                         Some((_, state)) => child.state = *state,
                         // A job cut off by Stop says nothing of its children: a stopped one stays
                         // stopped, and one that was running is no longer read as running.
@@ -329,10 +352,15 @@ pub fn ace_children<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceC
                 }
             }
             Known::WorkerReported(report) if report.kind == Kind::Ace => {
-                if let Some(child) = children.iter_mut().find(|c| c.thread == report.worker)
-                    && report.state == ReportState::Stopped
-                {
-                    child.state = AceState::Stopped;
+                if let Some(child) = children.iter_mut().find(|c| c.thread == report.worker) {
+                    match report.state {
+                        ReportState::Stopped => child.state = AceState::Stopped,
+                        // Asked to cancel: only one that may still run is stopping.
+                        ReportState::Stopping if child.state.unsettled() => {
+                            child.state = AceState::Stopping;
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => {}
@@ -603,7 +631,7 @@ pub fn report_text(report: &Report) -> String {
              worker_stop."
         }
         ReportState::Failed => "Decide whether to message it to try again, or stop it.",
-        ReportState::Stopped | ReportState::Other => "",
+        ReportState::Stopped | ReportState::Stopping | ReportState::Other => "",
     };
     let mut text = format!(
         "<worker_report worker=\"{}\" kind=\"{}\" state=\"{}\" from=\"spade\">\n\
@@ -628,6 +656,15 @@ fn quoted_name(name: &str) -> String {
     name.chars()
         .filter(|c| !c.is_control() && !matches!(c, '<' | '>'))
         .take(40)
+        .collect()
+}
+
+/// The ace children Spade asked ace to cancel and ace hasn't confirmed: the cancel is tried
+/// again until it is (after a restart too).
+pub fn ace_stopping<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceChild> {
+    ace_children(events)
+        .into_iter()
+        .filter(|c| c.state == AceState::Stopping)
         .collect()
 }
 

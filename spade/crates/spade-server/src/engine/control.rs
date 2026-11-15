@@ -73,10 +73,10 @@ impl Engine {
             }
             (loaded, reply, jobs, pending, stored)
         };
-        // A wake or service the stopped work stored before the marker, after the first sweep,
-        // ends too. One stored after the marker was refused (both are admitted under the record
-        // lock), so once Stop returns none from the stopped work exists.
-        let woke = self.stop_wakes(id) || woke;
+        // A wake, service or worker the stopped work stored before the marker, after the first
+        // sweep, ends too. One stored after the marker was refused (each is admitted under the
+        // record lock), so once Stop returns none from the stopped work exists.
+        let woke = self.stop_workers(id) | self.stop_wakes(id) || woke;
         // Then the workers are told.
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());

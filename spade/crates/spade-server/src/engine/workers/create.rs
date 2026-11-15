@@ -16,6 +16,9 @@ use super::super::Engine;
 use super::lock;
 use crate::tools::ToolOutput;
 
+/// What `bot_create` answers when the work that called it was stopped.
+const STOPPED: &str = "Not made: the person stopped this work.";
+
 /// Where a bot's connectors are granted (ADR 0131): the server sets the person's connector hub.
 pub trait ConnectorGrants: Send + Sync {
     /// The connectors `agent` may use now: `None` for every one.
@@ -113,10 +116,10 @@ impl Engine {
         if task.is_empty() {
             return Err("Give the worker a task: what it is for, in full.".to_owned());
         }
+        // Routing's choice (ADR 0162): a role, or a model the person configured, within the
+        // maker's allowed list.
         let model = match arguments.model.as_deref().map(str::trim) {
-            Some(model) if !model.is_empty() => {
-                self.check_model(model).map_err(|e| e.to_string())?
-            }
+            Some(model) if !model.is_empty() => self.pick_model(caller, model)?,
             _ => self.reply_model(caller),
         };
         let depth = self.worker_ancestors(caller).len() + 1;
@@ -184,22 +187,46 @@ impl Engine {
             // Named by its maker: no model call for a title.
             Event::renamed(name.clone()),
         ];
-        self.store
-            .create_agent(
-                NewAgent {
-                    id: &id,
-                    kind: super::super::BOT,
-                    name: &name,
-                    task: &task,
-                    avatar: &avatar,
-                    model: &model,
-                    conversation: &conversation,
-                },
-                &first,
-                self.now_ms(),
-            )
-            .map_err(|e| format!("Spade could not make it: {e}"))?;
-        self.workers_stored(&conversation, &first);
+        let call = key.split_once('.').map_or(key, |(_, c)| c).to_owned();
+        let started = Event::Known(Known::WorkerStarted(Started {
+            worker: id.clone(),
+            kind: Kind::Bot,
+            name: name.clone(),
+            conversation: Some(conversation.clone()),
+            call: call.clone(),
+            budget_micros,
+        }));
+        self.registering("worker", caller);
+        {
+            // Admitted under the lock Stop stores its marker under: a worker from stopped work is
+            // never made, and one made before the marker is there for Stop's second sweep.
+            let _order = lock(&self.record_lock);
+            let now = self.load(caller).map_err(|e| e.to_string())?;
+            if spade_core::turn::call_stopped(&now, &call) || self.deleting(caller) {
+                return Err(STOPPED.to_owned());
+            }
+            self.store
+                .create_agent(
+                    NewAgent {
+                        id: &id,
+                        kind: super::super::BOT,
+                        name: &name,
+                        task: &task,
+                        avatar: &avatar,
+                        model: &model,
+                        conversation: &conversation,
+                    },
+                    &first,
+                    self.now_ms(),
+                )
+                .map_err(|e| format!("Spade could not make it: {e}"))?;
+            self.workers_stored(&conversation, &first);
+            if let Err(error) = self.append(caller, &started) {
+                // The worker's own link is what the tree is folded from; this is the maker's note.
+                tracing::warn!(%error, "a worker's start was not noted in its maker's conversation");
+            }
+        }
+        self.announce(caller);
         if let (Some(grants), false) = (self.workers.grants.get(), connectors.is_empty())
             && let Err(error) = grants.grant(&id, connectors)
         {
@@ -209,19 +236,6 @@ impl Engine {
             && let Err(error) = all.set_allowed(&id, plugins)
         {
             tracing::warn!(%error, "a worker's plugins were not granted");
-        }
-        let call = key.split_once('.').map_or(key, |(_, c)| c).to_owned();
-        let started = Event::Known(Known::WorkerStarted(Started {
-            worker: id,
-            kind: Kind::Bot,
-            name,
-            conversation: Some(conversation.clone()),
-            call,
-            budget_micros,
-        }));
-        if let Err(error) = self.record(caller, &started) {
-            // The worker's own link is what the tree is folded from; this is the maker's note.
-            tracing::warn!(%error, "a worker's start was not noted in its maker's conversation");
         }
         Ok(conversation)
     }
@@ -299,10 +313,9 @@ impl Engine {
     }
 
     /// The brief that starts worker `conversation`, as its first message: Spade's words saying
-    /// who sent it, and another bot's message (untrusted) when its maker had untrusted content
-    /// in view as it wrote it, as for a helper's task (ADR 0152).
+    /// who sent it, always as its maker's message (never the person's: the reviewer reads the
+    /// person's words from the root of the tree, and a maker's message never resets refusals).
     pub(super) fn brief_message(&self, conversation: &str, link: &Link) -> Event {
-        let tainted = link.untrusted;
         let mut message = Event::user_message(link.brief.clone());
         if let Event::Known(Known::UserMessage {
             context: shown,
@@ -317,14 +330,12 @@ impl Engine {
                  neither you nor it can decide.",
                 link.parent_name, link.parent
             ));
-            if tainted {
-                *from_agent = Some(FromAgent {
-                    id: link.parent.clone(),
-                    name: link.parent_name.clone(),
-                    depth: u32::try_from(self.worker_ancestors(conversation).len()).unwrap_or(1),
-                    machine: None,
-                });
-            }
+            *from_agent = Some(FromAgent {
+                id: link.parent.clone(),
+                name: link.parent_name.clone(),
+                depth: u32::try_from(self.worker_ancestors(conversation).len()).unwrap_or(1),
+                machine: None,
+            });
         }
         message
     }

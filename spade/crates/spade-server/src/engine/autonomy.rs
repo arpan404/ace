@@ -150,7 +150,7 @@ pub(super) async fn review(
     let case = Case {
         bot,
         task,
-        person: review::person_words(events),
+        person: engine.person_words(id, events),
         untrusted: untrusted.clone(),
         folder: &folder,
         tool: under.name,

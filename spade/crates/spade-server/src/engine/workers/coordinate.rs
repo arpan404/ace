@@ -111,7 +111,7 @@ impl Engine {
                          settles. Message it then.",
                     );
                 }
-                let message = self.message_from(caller, text);
+                let message = self.message_from(caller, &conversation, text);
                 match self.deliver(&conversation, &message) {
                     Ok(()) => ToolOutput::ok(
                         "Delivered. Its report comes back here when it settles again.",
@@ -135,12 +135,10 @@ impl Engine {
         }
     }
 
-    /// A message from the bot of `caller` as its worker reads it: Spade's words saying who sent
-    /// it, and another bot's message (untrusted) when the sender had untrusted content in view.
-    fn message_from(&self, caller: &str, text: &str) -> Event {
-        let events = self.load(caller).unwrap_or_default();
-        let registry = self.registry_for(caller);
-        let tainted = !spade_core::context::untrusted_in_view(&events, &registry).is_empty();
+    /// A message from the bot of `caller` to its worker `worker`: Spade's words saying who sent
+    /// it, always as another bot's message, so the worker's reviewer never reads it as the
+    /// person's and it never resets the worker's refusals (ADR 0163).
+    fn message_from(&self, caller: &str, worker: &str, text: &str) -> Event {
         let me = self.store.agent_for_conversation(caller).ok().flatten();
         let mut message = Event::user_message(text);
         if let (
@@ -156,14 +154,12 @@ impl Engine {
                 "From the bot {} (id {}), whose worker you are.",
                 me.name, me.id
             ));
-            if tainted {
-                *from_agent = Some(FromAgent {
-                    id: me.id,
-                    name: me.name,
-                    depth: 1,
-                    machine: None,
-                });
-            }
+            *from_agent = Some(FromAgent {
+                id: me.id,
+                name: me.name,
+                depth: u32::try_from(self.worker_ancestors(worker).len()).unwrap_or(1),
+                machine: None,
+            });
         }
         message
     }

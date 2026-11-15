@@ -2,6 +2,7 @@
 //! workers asks what becomes of them: stopped, or kept working, as top-level bots either way.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::json;
 use spade_core::Event;
@@ -66,46 +67,103 @@ impl Engine {
         any
     }
 
-    /// Asks ace to cancel the ace child `thread` of `id`, and notes it stopped.
+    /// Asks ace to cancel the ace child `thread` of `id`. The intent is stored first (the child
+    /// reads stopping, and still counts as running), then the cancel is tried until ace confirms
+    /// it, after a restart too ([`Engine::resume_ace_stops`]); only then is it noted stopped.
     pub(super) fn cancel_ace_child(self: &Arc<Self>, id: &str, thread: &str, name: &str) {
-        let stopped = Event::Known(Known::WorkerReported(Report {
-            worker: thread.to_owned(),
-            kind: Kind::Ace,
-            name: name.to_owned(),
-            state: ReportState::Stopped,
-            epoch: "stop".to_owned(),
-            summary: "it was cancelled.".to_owned(),
-            words: None,
-        }));
-        if let Err(error) = self.record(id, &stopped) {
-            tracing::error!(%error, "could not note an ace child stopped");
-        }
-        let request = format!("spade-stop-{}", id_safe(thread));
-        self.run_ace(
-            id,
-            "agent_cancel",
-            &request,
-            json!({ "threadId": thread, "requestId": request }),
+        let stopping = ace_report(
+            thread,
+            name,
+            ReportState::Stopping,
+            "it is being cancelled.",
         );
+        if let Err(error) = self.record(id, &stopping) {
+            tracing::error!(%error, "could not note an ace child being stopped");
+        }
+        self.keep_cancelling(id, thread, name);
     }
 
-    /// Runs one of ace's tools for `id` in the background; what it answers is only logged.
-    fn run_ace(self: &Arc<Self>, id: &str, name: &str, call: &str, arguments: serde_json::Value) {
-        let Some(tool) = self.tools.get_for(id, name) else {
-            tracing::warn!(
-                tool = name,
-                "ace's tool is not here; an ace child was not told"
-            );
-            return;
+    /// After a restart: every ace child still being stopped is cancelled again until ace
+    /// confirms.
+    pub(super) fn resume_ace_stops(self: &Arc<Self>) {
+        let conversations = match self.store.ace_stops() {
+            Ok(conversations) => conversations,
+            Err(error) => {
+                tracing::error!(%error, "could not read the ace children being stopped");
+                return;
+            }
         };
-        let key = format!("{id}.{call}");
+        for id in conversations {
+            let Ok(events) = self.load(&id) else { continue };
+            for child in tree::ace_stopping(events.iter()) {
+                self.keep_cancelling(&id, &child.thread, &child.name);
+            }
+        }
+    }
+
+    /// Asks ace to cancel `thread` until it answers without an error, waiting longer each time,
+    /// then notes the child stopped. Ends early if the child settled meanwhile (a later result
+    /// says so) or its bot is gone. One loop per child.
+    fn keep_cancelling(self: &Arc<Self>, id: &str, thread: &str, name: &str) {
+        let owed = (id.to_owned(), thread.to_owned());
+        if !super::lock(&self.workers.cancelling).insert(owed.clone()) {
+            return;
+        }
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            super::lock(&self.workers.cancelling).remove(&owed);
             return;
         };
+        let weak = Arc::downgrade(self);
+        let (id, thread, name) = (id.to_owned(), thread.to_owned(), name.to_owned());
         runtime.spawn(async move {
-            let output = tool.run(&key, arguments).await;
-            if output.is_error {
-                tracing::warn!(answer = %output.content, "ace refused a call for an ace child");
+            let request = format!("spade-stop-{}", id_safe(&thread));
+            let key = format!("{id}.{request}");
+            let mut wait = Duration::from_millis(250);
+            loop {
+                let Some(engine) = weak.upgrade() else { return };
+                let still = engine.load(&id).is_ok_and(|events| {
+                    tree::ace_stopping(events.iter())
+                        .iter()
+                        .any(|c| c.thread == thread)
+                });
+                if !still {
+                    break;
+                }
+                let confirmed = match engine.tools.get_for(&id, "agent_cancel") {
+                    Some(tool) => {
+                        let arguments = json!({ "threadId": thread, "requestId": request });
+                        let output = tool.run(&key, arguments).await;
+                        if output.is_error {
+                            tracing::warn!(answer = %output.content, "ace did not cancel an ace child; trying again");
+                        }
+                        !output.is_error
+                    }
+                    None => {
+                        tracing::warn!("ace's agent_cancel is not here; an ace child's cancel waits");
+                        false
+                    }
+                };
+                if confirmed {
+                    let stopped =
+                        ace_report(&thread, &name, ReportState::Stopped, "it was cancelled.");
+                    match engine.record(&id, &stopped) {
+                        Ok(_) => {
+                            engine.announce(&id);
+                            for up in engine.worker_ancestors(&id) {
+                                engine.announce(&up);
+                            }
+                            break;
+                        }
+                        Err(spade_store::StoreError::NoConversation(_)) => break,
+                        Err(error) => tracing::error!(%error, "could not note an ace child stopped"),
+                    }
+                }
+                drop(engine);
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(Duration::from_secs(30));
+            }
+            if let Some(engine) = weak.upgrade() {
+                super::lock(&engine.workers.cancelling).remove(&(id, thread));
             }
         });
     }
@@ -119,6 +177,11 @@ impl Engine {
     ) -> Result<(), AgentError> {
         let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
         for child in self.worker_children(&agent.conversation) {
+            // A queued worker's brief is held in its link, which detaching ends: read first.
+            let held = self
+                .worker_queued(&child)
+                .then(|| self.worker_link(&child))
+                .flatten();
             if workers == Workers::Stop {
                 let _ = self.stop(&child);
             }
@@ -126,6 +189,12 @@ impl Engine {
                 by: "person".to_owned(),
             });
             self.record(&child, &detached)?;
+            // Kept working: a queued one starts on its brief now, as a bot of its own, rather
+            // than waiting for a slot of a maker that is gone.
+            if let (Workers::Keep, Some(link)) = (workers, held) {
+                let brief = self.brief_message(&child, &link);
+                self.deliver(&child, &brief)?;
+            }
         }
         self.delete_agent_now(id).await
     }
@@ -149,6 +218,19 @@ impl Engine {
         }
         self.forget_worker(conversation);
     }
+}
+
+/// A note on ace child `thread` in its bot's conversation.
+fn ace_report(thread: &str, name: &str, state: ReportState, summary: &str) -> Event {
+    Event::Known(Known::WorkerReported(Report {
+        worker: thread.to_owned(),
+        kind: Kind::Ace,
+        name: name.to_owned(),
+        state,
+        epoch: state.name().to_owned(),
+        summary: summary.to_owned(),
+        words: None,
+    }))
 }
 
 /// Only the characters ace accepts in an id.

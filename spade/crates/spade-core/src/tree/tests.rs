@@ -341,6 +341,71 @@ fn ace_children_follow_delegate_and_wait_results_and_a_stop() {
 }
 
 #[test]
+fn an_ace_child_being_stopped_counts_as_running_until_ace_confirms() {
+    let child = e(json!({
+        "type": "worker_started", "worker": "t1", "kind": "ace", "name": "Fix", "call": "d1"
+    }));
+    let report = |state: &str| {
+        e(json!({
+            "type": "worker_reported", "worker": "t1", "kind": "ace", "name": "Fix",
+            "state": state, "epoch": state, "summary": ""
+        }))
+    };
+    let result = |job: &str, name: &str, state: &str| {
+        e(json!({
+            "type": "job_finished", "job": job, "name": name,
+            "content": json!({ "ok": true, "data": { "threadIds": ["t1"],
+                "threads": [{ "threadId": "t1", "state": state }] } }).to_string()
+        }))
+    };
+    let state = |events: &[Event]| ace_children(events).first().map(|c| c.state);
+    let stopping = vec![child.clone(), report("stopping")];
+    assert_eq!(state(&stopping), Some(AceState::Stopping));
+    assert!(AceState::Stopping.working() && AceState::Stopping.unsettled());
+    assert_eq!(ace_stopping(&stopping).len(), 1, "its cancel is owed");
+    let cases = [
+        // ace still says it works: it stays stopping.
+        (
+            result("d1", "delegate", "working"),
+            Some(AceState::Stopping),
+        ),
+        // Its job was cut off by the stop and said nothing of it.
+        (
+            e(
+                json!({ "type": "job_finished", "job": "d1", "name": "delegate",
+                       "content": "Stopped by the person.", "is_error": true }),
+            ),
+            Some(AceState::Stopping),
+        ),
+        // ace confirmed, or it settled meanwhile.
+        (report("stopped"), Some(AceState::Stopped)),
+        (
+            result("d1", "delegate", "cancelled"),
+            Some(AceState::Stopped),
+        ),
+        (result("d1", "delegate", "done"), Some(AceState::Done)),
+    ];
+    for (then, expected) in cases {
+        let mut events = stopping.clone();
+        events.push(then.clone());
+        assert_eq!(state(&events), expected, "{then:?}");
+    }
+    // A child that had settled is not made running by a late stop.
+    let done = vec![child, result("d1", "delegate", "done"), report("stopping")];
+    assert_eq!(state(&done), Some(AceState::Done));
+    // Being stopped is not a report that settles a wait for that worker.
+    let wait = e(json!({
+        "type": "wake_set", "wake": "w1", "reply": "r1", "purpose": { "kind": "wait" },
+        "condition": { "kind": "worker", "worker": "t1" }, "reason": ""
+    }));
+    assert!(crate::wake::settled_by(std::slice::from_ref(&wait), &report("stopping")).is_empty());
+    assert_eq!(
+        crate::wake::settled_by(&[wait], &report("stopped")).len(),
+        1
+    );
+}
+
+#[test]
 fn a_worker_never_gets_more_tools_than_its_parent() {
     let granted = vec!["web_search".to_owned()];
     assert!(allows(Some(&granted), "web_search"));

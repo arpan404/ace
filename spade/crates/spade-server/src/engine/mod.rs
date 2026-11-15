@@ -415,6 +415,7 @@ impl Engine {
         // copies the history the turn holds.
         let events = self.read_split(id, false)?;
         let transcript = Transcript::fold(events.iter());
+        let ace = spade_core::tree::ace_children(events.iter());
         let activity = Activity {
             answering: transcript.open_reply().is_some(),
             jobs: transcript.jobs.len(),
@@ -433,9 +434,8 @@ impl Engine {
                 && autonomy::continued(events.len(), |at| events.at(at).0),
             wake: spade_core::wake::soonest(&spade_core::wake::open(events.iter())).cloned(),
             services: spade_core::service::running(events.iter()).len(),
-            ace_waiting: spade_core::tree::ace_children(events.iter())
-                .iter()
-                .any(|c| c.state.waiting()),
+            ace_waiting: ace.iter().any(|c| c.state.waiting()),
+            ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
         };
         self.activity

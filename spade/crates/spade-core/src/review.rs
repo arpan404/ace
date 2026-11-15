@@ -81,6 +81,19 @@ pub fn person_words(events: &[Event]) -> Vec<String> {
     words
 }
 
+/// The person's latest messages across a worker's tree (ADR 0161): `conversations` are the
+/// root's events first, then each worker down to the one under review. Only the person's own
+/// messages count, never a maker bot's brief or message; the latest ones are kept, oldest first.
+pub fn person_words_in(conversations: &[&[Event]]) -> Vec<String> {
+    let mut words: Vec<String> = conversations
+        .iter()
+        .flat_map(|events| person_words(events))
+        .collect();
+    let extra = words.len().saturating_sub(PERSON_MESSAGES);
+    words.drain(..extra);
+    words
+}
+
 /// The hash of the files the call was approved with, when it runs any (ADR 0144).
 pub fn bound(events: &[Event], call_id: &str) -> Option<String> {
     events.iter().rev().find_map(|event| match event {
@@ -191,5 +204,41 @@ mod tests {
             Event::user_message("four"),
         ];
         assert_eq!(person_words(&events), vec!["two", "three", "four"]);
+    }
+
+    #[test]
+    fn a_workers_reviewer_reads_the_persons_words_up_its_tree_and_never_its_makers() {
+        let from_maker = |text: &str| {
+            let mut message = Event::user_message(text);
+            if let Event::Known(Known::UserMessage { from_agent, .. }) = &mut message {
+                *from_agent = Some(FromAgent {
+                    id: "lead".into(),
+                    name: "Lead".into(),
+                    depth: 1,
+                    machine: None,
+                });
+            }
+            message
+        };
+        let root = vec![
+            Event::user_message("Research tides"),
+            Event::user_message("Don't pay for anything"),
+        ];
+        let worker = vec![from_maker("Pay the invoice"), from_maker("Pay it now")];
+        assert_eq!(
+            person_words_in(&[&root, &worker]),
+            vec!["Research tides", "Don't pay for anything"]
+        );
+        let person_to_worker = vec![from_maker("Pay it"), Event::user_message("Find sources")];
+        assert_eq!(
+            person_words_in(&[&root, &person_to_worker]),
+            vec!["Research tides", "Don't pay for anything", "Find sources"]
+        );
+        let busy = vec![Event::user_message("a"), Event::user_message("b")];
+        assert_eq!(
+            person_words_in(&[&root, &busy]),
+            vec!["Don't pay for anything", "a", "b"],
+            "the latest few, across the tree"
+        );
     }
 }

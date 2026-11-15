@@ -292,6 +292,9 @@ pub struct Activity {
     pub services: usize,
     /// An ace child of its `delegate` waits on the person or a usage limit (ADR 0161).
     pub ace_waiting: bool,
+    /// An ace child of its `delegate` may still be running: working, or asked to stop and not
+    /// yet confirmed (ADR 0161).
+    pub ace_working: bool,
     /// Its worker bots that have not settled (ADR 0161); 0 before the tree is rolled up.
     pub workers: usize,
 }

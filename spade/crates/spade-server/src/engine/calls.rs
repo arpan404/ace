@@ -522,6 +522,17 @@ async fn run_tools(
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
             let def = engine.registry_for(id).get(&name).cloned();
+            // The grant is checked again where the call runs: a call the person approved before a
+            // tool was taken from this bot, or from a bot above it in its tree (ADR 0161), never
+            // runs on the grant it had when it was asked.
+            if def.is_none() && name != TOOL_SEARCH {
+                let gone = ToolOutput::error(format!(
+                    "Not run: {name} is no longer granted to this bot (the person took it from \
+                     it or from a bot above it). Carry on without it."
+                ));
+                finished.push_back((call, name, gone));
+                continue;
+            }
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),

@@ -52,7 +52,7 @@ pub(super) async fn call(
     let case = Case {
         bot,
         task,
-        person: review::person_words(events),
+        person: engine.person_words(id, events),
         untrusted: context::untrusted_in_view(events, registry),
         tool: name,
         description: &def.spec.description,

@@ -69,8 +69,9 @@ impl Engine {
                 State::Idle => {}
             }
         }
-        if tree::ace_children(events).iter().any(|c| c.state.waiting()) {
-            around.children_waiting = true;
+        for child in tree::ace_children(events) {
+            around.children_waiting |= child.state.waiting();
+            around.children_working |= child.state.working();
         }
         around.carries_on = self.continuing(id, false)
             || matches!(task::next(events, &self.limits.task), Next::Continue { .. })
