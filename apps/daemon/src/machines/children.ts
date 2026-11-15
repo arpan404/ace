@@ -632,12 +632,19 @@ export class MachineChildren implements RemoteChildren {
       // The machine's failure, not the child's own, only if the machine was down when this read
       // went out; one sent during an outage that has ended since starts no wait.
       const of = failureOf(this.reachability.get(machine) ?? {}, stamp);
-      outcome = refusedNotFound(error)
-        ? { kind: "not_found" }
-        : { kind: "failed", machineWide: of !== "own", machineBack: of === "machine_back" };
+      const notFound = refusedNotFound(error);
       // A refusal for a child it doesn't hold is the machine answering.
-      if (outcome.kind === "not_found") this.machineReachable(machine, startedAt);
+      if (notFound) this.machineReachable(machine, startedAt);
       else if (of === "machine") this.unreached(machine, startedAt, error);
+      outcome = notFound
+        ? { kind: "not_found" }
+        : {
+            kind: "failed",
+            machineWide: of !== "own",
+            machineBack: of === "machine_back",
+            // A machine's wait is paced by its failures in this outage, not the child's.
+            machineFailures: this.reachability.get(machine)?.downFailures,
+          };
       const reason = unreadReason(this.deps.label(machine), error);
       const working = ids.filter((id) => rows.get(id)?.settled === 0);
       for (const id of working) this.unreachable.set(id, reason);
