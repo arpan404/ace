@@ -13,7 +13,12 @@ import {
   spadeMicrosOf,
   spadeMoney,
   spadeView,
+  type SpadeBubble,
 } from "./index.ts";
+
+/** The bubbles without a reply's steps line. */
+const withoutSteps = (bubbles: SpadeBubble[]) =>
+  bubbles.filter((bubble) => bubble.kind !== "steps");
 
 function conversation() {
   const state = emptySpadeConversation();
@@ -25,7 +30,8 @@ function conversation() {
     );
     if (input) foldSpade(state, input);
   };
-  return { stored, bubbles: () => spadeBubbles(spadeView(state)) };
+  // The reply's steps line is steps.test.ts's.
+  return { stored, bubbles: () => withoutSteps(spadeBubbles(spadeView(state))) };
 }
 
 const agentBody = (fields: Record<string, unknown>) =>

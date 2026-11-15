@@ -408,7 +408,7 @@ function replyBubbles(
     bubbles.splice(afterWords, 0, {
       kind: "steps",
       key: `steps:${entry.key}`,
-      reply: entry.key,
+      reply: entry.reply,
       summary: spadeStepsSummary(steps),
       steps,
       ...at,
