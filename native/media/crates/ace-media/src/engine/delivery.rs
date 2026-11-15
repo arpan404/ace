@@ -728,9 +728,13 @@ impl Delivery {
         };
         let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
         let size = frame.payload.len() as f64;
+        // One keyframe moves each planned encode's cut once, however many views share it.
+        let mut planned: Vec<u32> = taking.iter().map(|(_, id)| *id).collect();
+        planned.sort_unstable();
+        planned.dedup();
         let facts = self.sources.entry(source.to_owned()).or_default();
         let mut changed = false;
-        for planned in taking.iter().map(|(_, id)| *id) {
+        for planned in planned {
             let before = facts.cut.get(&planned).copied().unwrap_or(1.0);
             let after = if size > cap * KEYFRAME_SLACK {
                 (before * cap / size).clamp(KEYFRAME_CUT_FLOOR, 1.0)

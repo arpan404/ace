@@ -702,3 +702,66 @@ fn a_source_whose_ids_run_out_is_opened_again_never_given_an_id_twice() {
     unit.encode = planned;
     assert!(!binaries(&ingest(&mut engine, 2, unit, NOW)).is_empty());
 }
+
+/// The bit rate the producer is asked for after one 25 KB keyframe (a little over the 17.5 KB
+/// cap of a 400 kbit/s link, so its cut stays clear of the floors), with `views` views (one per
+/// connection, all alike) sharing its encode.
+fn asked_after_an_oversized_keyframe(views: usize) -> u32 {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let connections = ["mc_test", "mc_two", "mc_three"];
+    for (n, connection) in connections.iter().enumerate().take(views) {
+        let issued = 3 + 2 * n as u64;
+        if n > 0 {
+            let token = 20 + n as u8;
+            ticket(
+                &mut engine,
+                connection,
+                owner("phone", pairing(1)),
+                issued,
+                token,
+            );
+            assert!(engine.claim_ticket(&[token; 32], NOW).is_some());
+        }
+        send(
+            &mut engine,
+            json!({ "type": "viewer.open", "viewer": format!("v{}", n + 1),
+                    "connection": connection, "owner": owner("phone", pairing(1)),
+                    "issued": issued + 1, "source": "s1",
+                    "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                    "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                    "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+            &[],
+            NOW,
+        );
+    }
+    ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for connection in connections.iter().take(views) {
+        engine.media_message(
+            connection,
+            &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 1, "video": true })
+                .to_string(),
+            NOW,
+        );
+    }
+    engine.effects().for_each(drop);
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(25_000, 1);
+    let effects = ingest(&mut engine, 1, big, NOW);
+    let Some(after) = wants(&effects).pop() else {
+        panic!("the producer was not asked for less");
+    };
+    assert_eq!(after.len(), 1, "the views share one encode");
+    assert!(
+        after[0].bitrate > 150_000,
+        "{views} views: at the floor ({})",
+        after[0].bitrate
+    );
+    after[0].bitrate
+}
+
+#[test]
+fn a_keyframe_cuts_its_shared_encode_once_however_many_views_take_it() {
+    let one = asked_after_an_oversized_keyframe(1);
+    assert_eq!(asked_after_an_oversized_keyframe(2), one);
+    assert_eq!(asked_after_an_oversized_keyframe(3), one);
+}
