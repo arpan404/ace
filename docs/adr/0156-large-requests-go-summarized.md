@@ -66,6 +66,8 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
 
 - `packages/projection/src/interaction-summary.test.ts`: summaries are bounded and flagged for
   every kind, keep every decline, and which answers need the whole request.
-- `apps/daemon/src/large-requests.process.test.ts`: the #2099 reproductions open, live events and
-  entity pages carry summaries, `interaction.read` returns the whole request, and an affirmative
-  answer without `readWhole` is refused.
+- `apps/daemon/src/pending-pages.process.test.ts`: the #2099 reproductions open, live events and
+  entity pages carry summaries, `interaction.read` returns the whole request under one version
+  (a new one once it is replaced), and an affirmative answer without `readWhole` is refused.
+- `apps/daemon/src/interaction-reads.test.ts`: pages never split a character, a mirrored summary
+  can't be read whole.
