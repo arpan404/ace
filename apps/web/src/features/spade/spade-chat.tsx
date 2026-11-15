@@ -113,7 +113,7 @@ export function SpadeChat(props: {
         const next = bubbles[index + 1];
         const last = index === bubbles.length - 1;
         // The face sits by the last of a run of one sender's bubbles, or by the working line.
-        const lastOfRun = !(next && sameSender(item, next)) && !((busy || lined) && last);
+        const lastOfRun = !(next && sameSender(item, next)) && !(lined && last);
         const previous = bubbles[index - 1];
         return (
           <Bubble

@@ -106,14 +106,16 @@ test("a command the bot wants to run shows itself, and can be allowed always as 
   const request = within(
     await screen.findByRole("group", { name: "Writer wants to run a command" }),
   );
-  await userEvent.click(request.getByRole("button", { name: "Review" }));
   expect(request.getByLabelText("Command").textContent).toBe("npm test");
-  await userEvent.click(request.getByRole("button", { name: "Always allow this command" }));
+  await userEvent.click(request.getByRole("button", { name: "Always allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-writer/approvals/k1")).toEqual([
       { allowed: true, always: true },
     ]),
   );
+  // Answered, it stays where it was asked, saying so.
+  expect(await request.findByText("Always allowed")).toBeTruthy();
+  expect(request.queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
 test("Files lists the bot's folder, opens a file and deletes after confirming", async () => {

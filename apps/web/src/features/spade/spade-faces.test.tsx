@@ -68,7 +68,7 @@ test("each roster row's face is its bot's state: working, needs you, blocked or 
   expect(faceOf(await botRow("Scout"))?.getAttribute("data-face")).toBe("round lagoon");
 });
 
-test("while a bot works, the working line carries its face working; asking, its face asks in the request above the composer", async () => {
+test("while a bot works, the working line carries its face working; asking, its face asks beside the request's bubble", async () => {
   const { spade } = await spadeApp("/spade/scout", crew);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   const line = await chat.findByRole("status");
@@ -77,8 +77,9 @@ test("while a bot works, the working line carries its face working; asking, its 
   const scout = spade.agents.find((agent) => agent.id === "scout");
   if (!scout) throw new Error("no Scout");
   spade.ask(scout, "k-sheet", "write_sheet", undefined, "r-scout");
-  const request = await screen.findByRole("group", { name: /^Scout wants to/ });
-  expect(faceOf(request)?.getAttribute("data-state")).toBe("needs-you");
+  const request = await chat.findByRole("group", { name: /^Scout wants to/ });
+  const bubble = request.closest<HTMLElement>("[role=article]");
+  expect(bubble && faceOf(bubble)?.getAttribute("data-state")).toBe("needs-you");
   // The wait is said once, in the request: the working line goes.
   await waitFor(() => expect(chat.queryByRole("status")).toBeNull());
 });

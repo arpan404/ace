@@ -109,7 +109,7 @@ test("while a bot works its face, status and time show under its last bubble, wi
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
-test("an approval waits above the composer, and Send answers it", async () => {
+test("a request waits in the chat as the bot's bubble, and Allow answers it in place", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -118,14 +118,43 @@ test("an approval waits above the composer, and Send answers it", async () => {
   });
   await userEvent.click(await botRow("Inbox"));
   const request = await screen.findByRole("group", { name: "Inbox wants to send an email" });
-  await userEvent.click(within(request).getByRole("button", { name: "Send" }));
+  // The composer stays free while it waits.
+  expect(screen.getByRole("combobox", { name: "Message Inbox" })).toBeTruthy();
+  await userEvent.click(within(request).getByRole("button", { name: "Allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k7")).toEqual([
       { allowed: true, always: false },
     ]),
   );
+  expect(await within(request).findByText("Allowed")).toBeTruthy();
+});
+
+test("with focus on a waiting request, Escape denies it and Enter allows the next", async () => {
+  const { spade } = await spadeApp("/spade/inbox", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
+    api.ask(inbox, "k1", "shell", { command: "ls" });
+  });
+  const first = await screen.findByRole("group", { name: "Inbox wants to run a command" });
+  first.focus();
+  await userEvent.keyboard("{Escape}");
   await waitFor(() =>
-    expect(screen.queryByRole("group", { name: "Inbox wants to send an email" })).toBeNull(),
+    expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k1")).toEqual([
+      { allowed: false, always: false },
+    ]),
+  );
+  expect(await within(first).findByText("Denied")).toBeTruthy();
+  const inbox = spade.agents.find((agent) => agent.id === "inbox");
+  if (!inbox) throw new Error("no Inbox");
+  spade.ask(inbox, "k2", "workspace_write", { path: "notes.md", content: "hi" });
+  const next = await screen.findByRole("group", { name: "Inbox wants to write a file" });
+  next.focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k2")).toEqual([
+      { allowed: true, always: false },
+    ]),
   );
 });
 
@@ -183,18 +212,26 @@ test("Spade itself can be edited but never deleted", async () => {
   expect(screen.queryByRole("menuitem", { name: "Delete bot" })).toBeNull();
 });
 
-test("an approval shows what the call would do on request, as plain text", async () => {
+test("a request is the bot's bubble saying who an email goes to and what, as plain text", async () => {
   await spadeApp("/spade/inbox", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
-    api.ask(inbox, "k7", "send_email", { to: "marta@example.com", body: "<b>Thursday</b> works" });
+    api.ask(inbox, "k7", "send_email", {
+      to: "marta@example.com",
+      subject: "Thursday",
+      body: "<b>Thursday</b> works",
+    });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Review" }));
-  const details = await screen.findByLabelText("Details");
-  expect(details.textContent).toContain('"to": "marta@example.com"');
-  expect(details.textContent).toContain("<b>Thursday</b> works");
-  expect(details.querySelector("b")).toBeNull();
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Inbox" }));
+  const request = await chat.findByRole("group", {
+    name: "Inbox wants to send an email to marta@example.com",
+  });
+  expect(request.textContent).toContain("Subject: Thursday");
+  expect(request.textContent).toContain("<b>Thursday</b> works");
+  expect(request.querySelector("b")).toBeNull();
+  // Never the call's raw JSON.
+  expect(request.textContent).not.toContain("{");
 });
 
 test("Stop stays in the composer while a bot waits on the person", async () => {

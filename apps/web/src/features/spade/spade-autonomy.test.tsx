@@ -83,17 +83,18 @@ test("a request the reviewer escalated shows its reason, and Allow answers it", 
     );
   });
   await userEvent.click(await botRow("Scout"));
-  const request = within(await screen.findByRole("group", { name: /^Scout wants to/ }));
+  const request = within(
+    await screen.findByRole("group", { name: "Scout wants to use book flight" }),
+  );
   expect(request.getByText("It could spend money, so you decide.")).toBeTruthy();
-  // Nothing of the review is in the conversation itself.
-  expect(within(screen.getByRole("feed")).queryByText(/spend money/)).toBeNull();
   await userEvent.click(request.getByRole("button", { name: "Allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k1")).toEqual([
       { allowed: true, always: false },
     ]),
   );
-  await waitFor(() => expect(screen.queryByRole("group", { name: /^Scout wants to/ })).toBeNull());
+  // It stays in the chat, answered.
+  expect(await request.findByText("Allowed")).toBeTruthy();
 });
 
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {

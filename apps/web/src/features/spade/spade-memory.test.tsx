@@ -109,36 +109,14 @@ const openMemory = async () => {
   return within(await screen.findByRole("region", { name: "Memory" }));
 };
 
-test("a note the bot saved reads as one Remembered line that opens it for editing", async () => {
+test("a note the bot saved stays out of the chat and is in its memory", async () => {
   await spadeApp("/spade/travel", rememberedChat);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
   await chat.findByText("Got it.");
-  // One line for the save, nothing else of the tool.
-  expect(chat.queryByText(/memory/i)).toBeNull();
-  await userEvent.click(chat.getByRole("button", { name: "Remembered: Prefers window seats" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
-  expect((await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" })).value).toBe(
-    "Prefers window seats",
-  );
-});
-
-test("a Remembered line opens the note as Spade has it now, not as last read", async () => {
-  const { spade } = await spadeApp("/spade/travel", rememberedChat);
-  await screen.findByRole("feed", { name: "Conversation with Travel" });
-  // Read the notes once on the bot's page, so the old text is cached, then back to the chat.
-  const first = await openMemory();
-  await first.findByRole("button", { name: "Edit: Prefers window seats" });
-  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
-  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
-  await chat.findByText("Got it.");
-  spade.notes.rewrite("n_1", "Prefers aisle seats");
-
-  await userEvent.click(chat.getByRole("button", { name: "Remembered: Prefers window seats" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
-  // The field's first text is the fresh one: it never shows the cached note.
-  expect((await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" })).value).toBe(
-    "Prefers aisle seats",
-  );
+  expect(chat.queryByText(/window seats/i)).toBeNull();
+  expect(chat.queryByText(/memory|remembered/i)).toBeNull();
+  const memory = await openMemory();
+  expect(await memory.findByRole("button", { name: "Edit: Prefers window seats" })).toBeTruthy();
 });
 
 test("an open note follows the bot's changes until typed in, then Save won't overwrite them", async () => {
