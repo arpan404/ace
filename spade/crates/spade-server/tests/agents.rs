@@ -357,6 +357,11 @@ async fn titles_use_the_fast_model_when_one_is_set_and_the_agents_own_otherwise(
         "the agent's own model"
     );
 
+    // A fast model must be one the person has configured (ADR 0162).
+    let (status, body) = spade
+        .post("/v1/endpoints/fake/models", json!({ "id": "quick" }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
     let (status, body) = spade
         .put("/v1/settings", json!({ "fast_model": "fake/quick" }))
         .await?;
