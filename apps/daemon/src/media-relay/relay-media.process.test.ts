@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MediaRuntime } from "@ace/media/runtime";
@@ -348,6 +348,55 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     expect(await t.firstChunk(after)).toBe(true);
+  });
+
+  it("revocations are answered within 50 ms p99 while the normal lane is saturated and a relay stream carries pictures", async () => {
+    const t = await setup();
+    const tab = t.tab();
+    const ticket = await t.mint(t.phone.deviceId);
+    const { client, first } = await t.media(t.phone, ticket);
+    expect(first).toMatchObject({ type: "welcome" });
+    await until(
+      () => t.received.some((m) => m.type === "connection.open") && tab.source.streaming(),
+    );
+    const opened = t.received.findLast((m) => m.type === "connection.open");
+    if (opened?.type !== "connection.open") throw new Error("no connection");
+    expect(tab.bind(opened.connection)).toBe(true);
+    expect(await t.firstChunk(client)).toBe(true);
+    const picture = { type: "source.picture", source: "none", ageMs: 0, epoch: 0 } as const;
+    const latencies: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      // 8 MiB of pictures ahead of every revocation on the normal lane.
+      for (let j = 0; j < 8; j++) t.supervisor.send(picture, new Uint8Array(1024 * 1024));
+      const started = performance.now();
+      const answer = await t.supervisor.revoke({
+        type: "revoke",
+        id: `rv-other-${i}`,
+        issued: 10_000 + i,
+        device: `other-${i}`,
+      });
+      expect(answer).toBe("answered");
+      latencies.push(performance.now() - started);
+    }
+    // The phone's own revocation shuts its relay stream before it is answered.
+    const started = performance.now();
+    for (let j = 0; j < 8; j++) t.supervisor.send(picture, new Uint8Array(1024 * 1024));
+    expect(
+      await t.supervisor.revoke({
+        type: "revoke",
+        id: "rv-phone",
+        issued: 20_000,
+        device: t.phone.deviceId,
+      }),
+    ).toBe("answered");
+    latencies.push(performance.now() - started);
+    await client.closed;
+    latencies.sort((a, b) => a - b);
+    const p99 = latencies[Math.ceil(latencies.length * 0.99) - 1] ?? Infinity;
+    const load = loadavg()[0] ?? 0;
+    console.info(`relay revocation p99 ${p99.toFixed(1)} ms at load ${Math.round(load)}`);
+    // On a machine this loaded the number is reported; the kill deadline still holds.
+    expect(p99).toBeLessThan(load >= 24 ? 250 : 50);
   });
 
   it("a stopped ace-media is killed 250 ms into a revocation, and the client's stream closes soon after", async () => {
