@@ -1,15 +1,22 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Interaction, InteractionId, type ThreadId } from "@ace/protocol";
+import {
+  Interaction,
+  InteractionId,
+  type InteractionResolution,
+  type ThreadId,
+} from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 
-// Generated threads of pending and resolved requests, small, large and larger than a page, more
-// than 200 pending among them, read page by page while requests are answered and new ones
-// arrive between reads. Reading every page lists each request that was there when the read
-// began, misses none still pending at the end, and keeps every page within its bound.
+// Generated threads of pending and resolved requests (approvals with large descriptions or
+// commands, large question sets, large form schemas, some larger than any page, more than 200
+// pending among them) read page by page while requests are answered and new ones arrive
+// between reads. Reading every page lists, whole, every request pending both when the read
+// began and when it ended, and every one resolved throughout exactly once; every page holds
+// what was asked, or one request larger than that alone.
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -50,30 +57,83 @@ function size(r: ReturnType<typeof random>) {
   return r.int(130 * kib, 300 * kib);
 }
 
-function requests(store: Store, threadId: ThreadId) {
+/** A request of about `bytes`, its bulk where a generated shape puts it. */
+function request(r: ReturnType<typeof random>, id: string, bytes: number): Interaction["request"] {
+  const bulk = "x".repeat(bytes);
+  switch (r.int(0, 3)) {
+    case 0:
+      return {
+        kind: "approval",
+        title: `Run ${id}`,
+        description: bulk,
+        target: { tool: "Bash", command: `make ${id}`, access: "execute" },
+        options: [{ id: `${id}:allow`, label: "Allow once", kind: "allow_once" }],
+      };
+    case 1: {
+      // A command as long as one may be (32 KiB), the rest in many labelled options.
+      const command = `make ${id} ${"c".repeat(Math.min(bytes, 32_000))}`;
+      const rest = Math.max(0, bytes - 32_000);
+      return {
+        kind: "approval",
+        title: `Run ${id}`,
+        target: { tool: "Bash", command, access: "execute" },
+        options: [
+          { id: `${id}:allow`, label: "Allow once", kind: "allow_once" },
+          ...Array.from({ length: Math.ceil(rest / 4096) }, (_, index) => ({
+            id: `${id}:${index}`,
+            label: "o".repeat(4096),
+            kind: "deny" as const,
+          })),
+        ],
+      };
+    }
+    case 2: {
+      const each = Math.max(1, Math.floor(bytes / 8));
+      return {
+        kind: "question",
+        questions: Array.from({ length: 8 }, (_, index) => ({
+          id: `q${index}`,
+          text: `Which ${index}? ${"y".repeat(each)}`,
+          options: [{ id: "a", label: "A" }],
+          multiSelect: false,
+          allowOther: true,
+          secret: false,
+        })),
+      };
+    }
+    default:
+      return {
+        kind: "elicitation",
+        server: "docs",
+        message: `Fill ${id}`,
+        schema: { type: "object", properties: { field: { type: "string", description: bulk } } },
+      };
+  }
+}
+
+/** An answer that fits the request's kind. */
+function resolutionOf(kind: string | undefined, id: string): InteractionResolution {
+  if (kind === "approval") return { kind: "approval", optionId: `${id}:allow` };
+  if (kind === "question") return { kind: "question", answers: {}, dismissed: true };
+  return { kind: "elicitation", action: "decline" };
+}
+
+function requests(store: Store, threadId: ThreadId, r: ReturnType<typeof random>) {
   let made = 0;
+  const asked = new Map<string, Interaction["request"]>();
   const open = (bytes: number) => {
     const id = `ask-${made++}`;
-    store.appendEvents(threadId, [
-      {
-        type: "interaction.opened",
-        interaction: Interaction.parse({
-          id,
-          threadId,
-          agentId: "root",
-          blocking: true,
-          request: {
-            kind: "approval",
-            title: `Run ${id}`,
-            description: "d".repeat(bytes),
-            target: { tool: "Bash", command: `make ${id}`, access: "execute" },
-            options: [{ id: `${id}:allow`, label: "Allow once", kind: "allow_once" }],
-          },
-          state: "pending",
-          createdAt: 1,
-        }),
-      },
-    ]);
+    const interaction = Interaction.parse({
+      id,
+      threadId,
+      agentId: "root",
+      blocking: true,
+      request: request(r, id, bytes),
+      state: "pending",
+      createdAt: 1,
+    });
+    asked.set(id, interaction.request);
+    store.appendEvents(threadId, [{ type: "interaction.opened", interaction }]);
     return id;
   };
   const resolve = (id: string) =>
@@ -82,21 +142,21 @@ function requests(store: Store, threadId: ThreadId) {
         type: "interaction.closed",
         interactionId: InteractionId.parse(id),
         state: "resolved",
-        resolution: { kind: "approval", optionId: `${id}:allow` },
+        resolution: resolutionOf(asked.get(id)?.kind, id),
         closedAt: 2,
       },
     ]);
-  return { open, resolve };
+  return { open, resolve, asked };
 }
 
 const cases = Array.from({ length: 24 }, (_, seed) => seed + 1);
 
 it.each(cases)(
-  "generated thread %i: every request listed, none pending missed, each page within its bound",
+  "generated thread %i: every request pending throughout listed whole, each page within its bound",
   (seed) => {
     const r = random(seed);
     const { store, threadId } = thread();
-    const { open, resolve } = requests(store, threadId);
+    const { open, resolve, asked } = requests(store, threadId, r);
     const state = new Map<string, "pending" | "resolved">();
     // Some threads hold more pending requests than a page's 200 entries.
     const many = seed % 4 === 0;
@@ -110,7 +170,6 @@ it.each(cases)(
       }
     }
     const atStart = new Map(state);
-    const changed = new Set<string>();
     const limit = r.int(1, 200);
     const maxBytes = r.int(16 * kib, 128 * kib);
     const listed = new Map<string, number>();
@@ -124,8 +183,13 @@ it.each(cases)(
         (sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)),
         0,
       );
-      expect(bytes).toBeLessThanOrEqual(maxBytes);
-      for (const entry of page.entries) listed.set(entry.id, (listed.get(entry.id) ?? 0) + 1);
+      // What was asked, or one request larger than that, alone.
+      if (page.entries.length > 1) expect(bytes).toBeLessThanOrEqual(maxBytes);
+      for (const entry of page.entries) {
+        // Whole: exactly what was asked.
+        expect(entry.request).toEqual(asked.get(entry.id));
+        listed.set(entry.id, (listed.get(entry.id) ?? 0) + 1);
+      }
       if (page.entitiesBefore !== null) expect(page.entitiesBefore).toBeLessThan(before);
       before = page.entitiesBefore;
       // Between reads: some pending ones answered, new ones asked.
@@ -133,17 +197,17 @@ it.each(cases)(
         if (now === "pending" && r.next() < 0.03) {
           resolve(id);
           state.set(id, "resolved");
-          changed.add(id);
         }
       if (r.next() < 0.3) state.set(open(size(r)), "pending");
     }
     for (const [id, then] of atStart) {
-      // Once, unless answered during the read: then once as pending and maybe again as resolved.
-      if (changed.has(id)) expect(listed.get(id) ?? 0).toBeGreaterThanOrEqual(1);
-      else expect([id, listed.get(id)]).toEqual([id, 1]);
-      expect(listed.get(id) ?? 0).toBeLessThanOrEqual(2);
-      if (then === "pending" && state.get(id) === "pending") expect(listed.has(id)).toBe(true);
+      const now = state.get(id);
+      // Pending when the read began and when it ended: listed.
+      if (then === "pending" && now === "pending") expect([id, listed.get(id)]).toEqual([id, 1]);
+      // Resolved throughout: listed once.
+      if (then === "resolved") expect([id, listed.get(id)]).toEqual([id, 1]);
     }
+    // Never more than once in each state.
     for (const times of listed.values()) expect(times).toBeLessThanOrEqual(2);
   },
 );
