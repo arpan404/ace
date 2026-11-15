@@ -743,7 +743,13 @@ fn a_write_handed_to_the_background_takes_its_outcome_from_its_job() {
         "done only once its job succeeded"
     );
     assert_eq!(
-        listed(Some(job_ended("w1", "deploy", true, false, "exit 1: build failed"))),
+        listed(Some(job_ended(
+            "w1",
+            "deploy",
+            true,
+            false,
+            "exit 1: build failed"
+        ))),
         Vec::<String>::new(),
         "a failed job is not carried out"
     );
