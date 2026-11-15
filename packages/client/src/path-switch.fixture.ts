@@ -66,6 +66,8 @@ export class Path {
   up = true;
   /** Whether pongs come back. */
   answers = true;
+  /** When set, how a pong is held back before it arrives (a slow link). */
+  pongAfter: ((deliver: () => void) => void) | undefined;
   /** What the welcome says the hello's grant has left, for an account device. */
   grantTtlMs: number | undefined;
   /** How a socket answers `account.grant.refresh`; unanswered when it returns undefined. */
@@ -127,8 +129,11 @@ export class Path {
                   }),
                 );
             }
-            if (message.type === "ping" && this.answers)
-              queueMicrotask(() => socket.deliver({ type: "pong" }));
+            if (message.type === "ping" && this.answers) {
+              const pong = () => socket.deliver({ type: "pong" });
+              if (this.pongAfter) this.pongAfter(pong);
+              else queueMicrotask(pong);
+            }
           },
           close: () => {
             socket.closed = true;
@@ -167,6 +172,10 @@ export async function connected(
     grant?: ClientOptions["grant"];
     /** False when the first connect isn't expected to be ready at once on `first`. */
     ready?: boolean;
+    /** Whether the app is in front (`MultipathOptions.visible`); always, when absent. */
+    visible?(): boolean;
+    /** The wall clock, when a test moves it apart from the manual time; that time otherwise. */
+    wall?(): number;
   } = {},
 ) {
   const clock = new Clock();
@@ -182,9 +191,12 @@ export async function connected(
   const multipath = new Multipath({
     routes: () => routes,
     scheduler: clock,
-    now: () => clock.now,
+    now: options.wall ?? (() => clock.now),
+    // Every duration runs on the fixture's manual time, whatever the wall clock does.
+    monotonic: () => clock.now,
     lastWinner: first,
     mismatch: (planned) => mismatched.push(planned.kind),
+    ...(options.visible ? { visible: options.visible } : {}),
   });
   const race = multipath.route();
   let id = 0;
@@ -197,6 +209,8 @@ export async function connected(
     random: () => 0.5,
     id: () => `id-${++id}`,
     now: () => clock.now,
+    // The heartbeat's monotonic clock: the fixture's manual time.
+    monotonic: () => clock.now,
     limits: defaultLimits,
     ...(options.expectedHostId ? { expectedHostId: HostId.parse(options.expectedHostId) } : {}),
     ...(options.grant ? { grant: options.grant } : {}),

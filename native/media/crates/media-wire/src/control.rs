@@ -1,3 +1,5 @@
+pub use crate::capability::{Acceleration, Backend, Capability, SourceStep, Step, TrialState};
+pub use crate::link::LinkHint;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Setting {
@@ -84,8 +86,10 @@ impl<'de> Deserialize<'de> for Id {
 pub enum Admission {
     #[serde(rename = "pairing")]
     Pairing {
+        /// The paired credential's generation: an opaque string the daemon gives (a hash), only
+        /// ever compared for equality.
         #[serde(rename = "generation")]
-        generation: Sequence,
+        generation: Id,
     },
     #[serde(rename = "account")]
     Account {
@@ -181,6 +185,38 @@ pub struct Viewport {
     #[serde(rename = "scale")]
     pub scale: Nonnegative,
 }
+/// Who a viewer's pictures are for, in the client's own terms: the ids ace-media writes into each
+/// stream piece's header and reads back from the client's acks (`browser.ack`, `screen.ack`,
+/// `devices.ack`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum ViewerTarget {
+    /// A thread's browser: `browserVideo` and `browserAudio` pieces, acked by `browser.ack`.
+    #[serde(rename = "browser")]
+    Browser {
+        #[serde(rename = "threadId")]
+        thread_id: Id,
+        #[serde(
+            rename = "tabId",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        tab_id: Option<Id>,
+    },
+    /// A computer-use screen session: `screenFrame` pieces, acked by `screen.ack`.
+    #[serde(rename = "screen")]
+    Screen {
+        #[serde(rename = "sessionId")]
+        session_id: Id,
+    },
+    /// A simulator or emulator: `deviceFrame` pieces, acked by `devices.ack`.
+    #[serde(rename = "device")]
+    Device {
+        #[serde(rename = "deviceId")]
+        device_id: Id,
+    },
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EncodeSpec {
@@ -203,26 +239,6 @@ pub struct EncodeSpec {
         skip_serializing_if = "Option::is_none"
     )]
     pub quantizer: Option<u32>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CodecCapability {
-    #[serde(rename = "codec")]
-    pub codec: String,
-    #[serde(rename = "hardware")]
-    pub hardware: bool,
-    #[serde(rename = "backend")]
-    pub backend: String,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Capabilities {
-    #[serde(rename = "encoders")]
-    pub encoders: Vec<CodecCapability>,
-    #[serde(rename = "decoders")]
-    pub decoders: Vec<CodecCapability>,
-    #[serde(rename = "stills")]
-    pub stills: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -395,11 +411,16 @@ pub enum ToMedia {
         seq: Sequence,
         #[serde(rename = "epoch")]
         epoch: u32,
+        /// The previous epoch was private, so reads within 100 ms of applying this one keep it.
+        #[serde(rename = "followsPrivate")]
+        follows_private: bool,
     },
     #[serde(rename = "record.epochs")]
     RecordEpochs {
         #[serde(rename = "source")]
         source: Id,
+        #[serde(rename = "recording")]
+        recording: Id,
         #[serde(rename = "seq")]
         seq: Sequence,
         #[serde(rename = "decided")]
@@ -413,6 +434,33 @@ pub enum ToMedia {
     SourceClose {
         #[serde(rename = "source")]
         source: Id,
+    },
+    /// Whether ace-media sends this source's frames back on the egress lane (G1). Off until
+    /// the daemon turns it on.
+    #[serde(rename = "source.egress")]
+    SourceEgress {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "on")]
+        on: bool,
+    },
+    /// E4: the encodes ace-media runs for a source it encodes itself (`tab-pictures`,
+    /// `user-tab`) while the daemon still plans them (`delivery: legacy`). Replaces the
+    /// previous list; an empty list stops encoding.
+    #[serde(rename = "source.encodes")]
+    SourceEncodes {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "encodes")]
+        encodes: Vec<EncodeSpec>,
+    },
+    /// E4: the next picture of this encode is a keyframe.
+    #[serde(rename = "source.key")]
+    SourceKey {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "encode")]
+        encode: u32,
     },
     #[serde(rename = "media.ticket")]
     MediaTicket {
@@ -437,6 +485,9 @@ pub enum ToMedia {
         issued: Sequence,
         #[serde(rename = "source")]
         source: Id,
+        /// The client's ids for this view (D1).
+        #[serde(rename = "target")]
+        target: ViewerTarget,
         #[serde(rename = "codecs")]
         codecs: Vec<String>,
         #[serde(rename = "viewport")]
@@ -445,6 +496,14 @@ pub enum ToMedia {
         local: bool,
         #[serde(rename = "audio")]
         audio: bool,
+        /// What the client says about its link; it only picks the starting step (K3).
+        #[serde(
+            rename = "link",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        link: Option<LinkHint>,
     },
     #[serde(rename = "viewer.configure")]
     ViewerConfigure {
@@ -459,6 +518,29 @@ pub enum ToMedia {
     ViewerClose {
         #[serde(rename = "viewer")]
         viewer: Id,
+    },
+    /// The client hid or backgrounded the view: nothing is sent to it until `viewer.resume`.
+    #[serde(rename = "viewer.pause")]
+    ViewerPause {
+        #[serde(rename = "viewer")]
+        viewer: Id,
+    },
+    /// The view shows again; its first picture is a keyframe.
+    #[serde(rename = "viewer.resume")]
+    ViewerResume {
+        #[serde(rename = "viewer")]
+        viewer: Id,
+    },
+    /// The main session's link, every 500 ms while it has a media connection: its smoothed
+    /// round trip and the bytes queued to it, so video yields as soon as the session slows.
+    #[serde(rename = "session.link")]
+    SessionLink {
+        #[serde(rename = "session")]
+        session: Id,
+        #[serde(rename = "rttMs")]
+        rtt_ms: u32,
+        #[serde(rename = "backlogBytes")]
+        backlog_bytes: Sequence,
     },
     #[serde(rename = "relay.dial")]
     RelayDial {
@@ -573,6 +655,27 @@ pub enum ToMedia {
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
     },
+    /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
+    /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
+    /// as its payload) or `still.failed` (`private` when the picture's epochs aren't all in
+    /// `clear`, or one was discarded).
+    #[serde(rename = "still.poster")]
+    StillPoster {
+        #[serde(rename = "request")]
+        request: Id,
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "width")]
+        width: u32,
+        #[serde(rename = "height")]
+        height: u32,
+        #[serde(rename = "deadlineMs")]
+        deadline_ms: u32,
+        /// The source's epochs the daemon has decided clear: a poster is made only from a
+        /// picture whose every epoch is in one of these ranges.
+        #[serde(rename = "clear")]
+        clear: Vec<EpochRange>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -587,13 +690,19 @@ pub enum FromMedia {
         #[serde(rename = "pid")]
         pid: u32,
         #[serde(rename = "capabilities")]
-        capabilities: Capabilities,
+        capabilities: Vec<Capability>,
         #[serde(rename = "ingest")]
         ingest: Ingest,
         #[serde(rename = "control")]
         control: Control,
         #[serde(rename = "listen")]
         listen: Listen,
+    },
+    /// The whole list again, after a trial finished late or a backend changed.
+    #[serde(rename = "capabilities.changed")]
+    CapabilitiesChanged {
+        #[serde(rename = "capabilities")]
+        capabilities: Vec<Capability>,
     },
     #[serde(rename = "pong")]
     Pong {
@@ -652,6 +761,13 @@ pub enum FromMedia {
             skip_serializing_if = "Option::is_none"
         )]
         attempts: Option<u32>,
+        #[serde(
+            rename = "acceleration",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        acceleration: Option<Acceleration>,
     },
     #[serde(rename = "source.want")]
     SourceWant {
@@ -775,6 +891,10 @@ pub enum FromMedia {
         width: u32,
         #[serde(rename = "height")]
         height: u32,
+        /// The path the still took: decode (or JPEG decode), scale and JPEG encode, each with
+        /// its backend, whether it ran on hardware, and its picture-sized copies.
+        #[serde(rename = "steps")]
+        steps: Vec<SourceStep>,
     },
     #[serde(rename = "still.failed")]
     StillFailed {
@@ -980,7 +1100,7 @@ impl<'de> Deserialize<'de> for Loopback {
     }
 }
 // Missing fields use serde's default; a present field must deserialize as T, never null.
-fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,

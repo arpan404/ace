@@ -32,6 +32,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services, log } = context;
 
   if (options.handler) {
+    services.startupProbes?.close();
     services.handler = options.handler;
     return;
   }
@@ -48,9 +49,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     limitsForSession: (instanceId?: string) =>
       cursorCheckpointLimitOverride(services.providerConfigurations?.for("cursor", instanceId)),
   };
-  const registry =
+  const discovered =
     engineOptions.registry ??
-    (await discoverAdapters(
+    discoverAdapters(
       configuredDiscovery(context, engineOptions.adapterDiscovery),
       (cli) => daemonClaudeAdapter(context, cli),
       async (adapters) => {
@@ -61,7 +62,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       services.providerConfigurations?.for("cursor").enabled === false
         ? async () => ({ installed: false, supported: false })
         : undefined,
-    ));
+    );
+  // From here on every check observes the CLI afresh: clients connect once the engine is up.
+  const registry = await Promise.resolve(discovered).finally(() => services.startupProbes?.close());
   if (!engineOptions.registry) resources.own(() => registry.close(), "provider registry");
   context.signal.throwIfAborted();
   const capabilities = daemonMcpCapabilities(services);

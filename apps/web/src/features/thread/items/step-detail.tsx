@@ -18,6 +18,7 @@ import type { AceToolView } from "@ace/ui-core/ace-tools";
 import { readOutputText } from "@/lib/output-read.ts";
 import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { WebLink } from "@/components/web-link.tsx";
+import { OmittedRaw } from "./omitted-raw.tsx";
 
 /**
  * The expanded body of a work-log row (IR-7): command output, diffs, the file read, the tool's
@@ -147,11 +148,16 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
         <McpDetails item={props.item} />
       ) : (
         ["browser", "image", "notebook", "custom"].includes(detail.kind) &&
-        raw.length > 0 && (
+        (raw.length > 0 ? (
           <ToolDetails>
             <JsonText label="Raw" value={raw} />
           </ToolDetails>
-        )
+        ) : (
+          props.item.rawOmitted &&
+          props.threadId && (
+            <OmittedRaw key={props.item.id} threadId={props.threadId} item={props.item} />
+          )
+        ))
       )}
     </div>
   );

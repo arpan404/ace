@@ -17,7 +17,7 @@ import { personRefusal } from "./guest-admission.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { nameWorktreeBranch, runWorktreeGit } from "./worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -127,8 +127,8 @@ export class Engine {
     this.waitForProvider = options.waitForProvider;
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
-    const worktreeGit =
-      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
+    // One guard lookup per rename, never reused across renames.
+    const worktreeGit = () => options.worktreeGit ?? worktreeGitScope(executeGit, process.env);
     this.nextThreadId = options.threadId ?? timeOrderedIds();
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
@@ -243,7 +243,7 @@ export class Engine {
       recovery: this.recovery,
       prepareInput: options.prepareInput,
       beforeSend: async (threadId, commandId) => {
-        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit);
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now(), worktreeGit());
         await options.beforeSend?.(threadId, commandId);
       },
       transitions: this.transitions,
@@ -473,6 +473,10 @@ export class Engine {
       this.actors.set(id, actor);
     }
     return actor;
+  }
+  /** Rediscovers a provider with no adapter yet, as a command for it would, before admission. */
+  async ensureProvider(provider: ProviderKind): Promise<void> {
+    await this.waitForProvider?.(provider);
   }
   providerAvailability(provider: ProviderKind) {
     if (!this.registry.has(provider)) return { installed: false, auth: "unknown" as const };
@@ -1194,6 +1198,19 @@ export class Engine {
   }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
+  }
+  /**
+   * Whether account limits must stay fresh: a thread waits on one, or work runs or is about to
+   * (a session opening, an admitted send, queued input, a delegated child working). An idle
+   * session left open after its turn doesn't count.
+   */
+  limitsMatter(): boolean {
+    for (const actor of this.actors.values()) {
+      const live = this.liveness.live(actor.id);
+      if (live.agentsRunning || live.operationsRunning || this.liveness.providerWork(actor.id))
+        return true;
+    }
+    return this.repo.queue.limited().length > 0;
   }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {

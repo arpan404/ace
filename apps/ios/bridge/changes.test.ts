@@ -244,6 +244,35 @@ describe("Changes sheet", () => {
     expect(viewed()).toBe(false);
   });
 
+  test("review progress counts viewed files and holds after the sheet closes and the app relaunches", async () => {
+    const withImage = [
+      ...status,
+      { path: "logo.png", status: "added" as const, additions: 0, deletions: 0, binary: true },
+    ];
+    const first = await openChanges({ turns: false, patch, status: withImage });
+    closers.push(first.close);
+    // A binary file has nothing to review, so it isn't counted.
+    expect(first.sink.read("changes:summary")?.progress).toEqual({ viewed: 0, files: 2 });
+    expect(first.session.viewed("src/small.ts", true)).toBe(true);
+    expect(first.sink.read("changes:summary")?.progress).toEqual({ viewed: 1, files: 2 });
+    await first.kept.flushed();
+    await first.close();
+
+    const again = await openChanges({ turns: false, patch, status: withImage, value: first.value });
+    closers.push(again.close);
+    await until(
+      () =>
+        (again.sink.read("changes:summary")?.progress as { viewed: number } | undefined)?.viewed ===
+        1,
+      "viewed mark read back",
+    );
+    expect(again.sink.read("changes:summary")?.files).toContainEqual(
+      expect.objectContaining({ path: "src/small.ts", viewed: true }),
+    );
+    expect(again.session.viewed("src/small.ts", false)).toBe(true);
+    expect(again.sink.read("changes:summary")?.progress).toEqual({ viewed: 0, files: 2 });
+  });
+
   test("several files stay open at once and expand-all opens every listed file", async () => {
     const { session, sink } = await opened();
     session.open("src/small.ts", true);

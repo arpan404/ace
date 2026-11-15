@@ -155,6 +155,7 @@ struct ChipFlow: Layout {
     /// The rows at `width`, measured only when the width differs from the cached one.
     private func arranged(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
         if cache.width == width, cache.sizes.count == subviews.count { return cache.rows }
+        PerfCounters.bump("chips.measure")
         let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
         cache = Cache(width: width, sizes: sizes, rows: Self.rows(sizes, width: width, spacing: spacing))
         return cache.rows

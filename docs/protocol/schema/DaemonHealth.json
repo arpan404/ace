@@ -9,6 +9,9 @@
     }
   ],
   "properties": {
+    "admission": {
+      "$ref": "https://ace.local/protocol/v1/MaintenanceStatus.json"
+    },
     "ready": {
       "const": true,
       "type": "boolean"

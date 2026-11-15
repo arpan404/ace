@@ -41,6 +41,13 @@ const headroom = 1.3;
 /** A delivered rate is remembered this long as proof of what the link carries. */
 const provenWindowMs = 30_000;
 
+/**
+ * Sends awaiting an ack that are remembered; past this the oldest is forgotten. A viewer's
+ * window holds 60, and even an unwindowed sender on a link that just slowed stays near 300, so
+ * this only bounds memory when acks stop coming.
+ */
+export const outstandingSends = 512;
+
 interface Sent {
   sequence: number;
   bytes: number;
@@ -76,6 +83,7 @@ export class LinkRate {
     return this.#smoothed;
   }
   sent(sequence: number, bytes: number, at: number): void {
+    if (this.#inflight.length >= outstandingSends) this.#inflight.shift();
     this.#inflight.push({ sequence, bytes, at });
   }
   /** The viewer showed every chunk up to `sequence` (acks are cumulative). */

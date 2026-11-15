@@ -20,3 +20,22 @@ test("continuation exposes tabs after the initial twenty", () => {
   expect(continued.tabs.at(-1)?.id).toBe("tab-20");
   expect(continued.moreTabs).toBe(0);
 });
+
+test("the address bar marks a page's connection as web's does", () => {
+  const context = { preview: plainPreview, agentName: () => "Agent", navigation: undefined };
+  const at = (url: string) =>
+    browserViewState(
+      BrowserState.parse({
+        threadId: "web",
+        url,
+        closed: false,
+        activeTabId: "t",
+        tabs: [{ tabId: "t", url, title: "Page" }],
+      }),
+      context,
+    ).connection;
+  expect(at("https://shop.example/")).toEqual({ kind: "secure", label: "Secure connection" });
+  expect(at("http://shop.example/")).toEqual({ kind: "insecure", label: "Not secure" });
+  expect(at("http://localhost:5173/")).toEqual({ kind: "local", label: "Local page" });
+  expect(at("about:blank")).toEqual({ kind: "local", label: "Local page" });
+});

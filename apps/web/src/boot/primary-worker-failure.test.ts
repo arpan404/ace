@@ -111,3 +111,66 @@ test("an asynchronous module error before any welcome recovers instead of failin
   await start;
   expect(client.state).toBe("ready");
 });
+
+test("a worker started ahead of the gate is the one its first client attaches to", async () => {
+  const workers: EventTarget[] = [];
+  class Shared extends EventTarget {
+    port = new Port();
+    constructor() {
+      super();
+      workers.push(this);
+    }
+  }
+  vi.stubGlobal("SharedWorker", Shared);
+  const { createWorkerClient, startClientWorker } = await import("./worker-client.ts");
+  startClientWorker();
+  expect(workers).toHaveLength(1);
+  const client = createWorkerClient(
+    { url: "ws://localhost:4242", token: "a".repeat(64) },
+    "device",
+  );
+  if (!client) throw new Error("Expected worker client");
+  clients.push(client);
+  await client.start();
+  expect(client.state).toBe("ready");
+  expect(workers).toHaveLength(1);
+});
+
+test("a worker started ahead that fails to load before its client attaches still recovers", async () => {
+  const workers: EventTarget[] = [];
+  class Broken extends EventTarget {
+    port = new Port();
+    constructor() {
+      super();
+      workers.push(this);
+      // A module that failed to load never answers.
+      this.port.postMessage = () => {};
+    }
+  }
+  const dedicated: Port[] = [];
+  class Dedicated extends Port {
+    constructor() {
+      super();
+      dedicated.push(this);
+    }
+    terminate(): void {
+      this.close();
+    }
+  }
+  vi.stubGlobal("SharedWorker", Broken);
+  vi.stubGlobal("Worker", Dedicated);
+  vi.stubGlobal("console", { ...console, warn: () => {} });
+  const { createWorkerClient, startClientWorker } = await import("./worker-client.ts");
+  startClientWorker();
+  // Its module failed while the page was still rendering: nobody was listening yet.
+  workers[0]?.dispatchEvent(new Event("error"));
+  const client = createWorkerClient(
+    { url: "ws://localhost:4242", token: "a".repeat(64) },
+    "device",
+  );
+  if (!client) throw new Error("Expected worker client");
+  clients.push(client);
+  await client.start();
+  expect(client.state).toBe("ready");
+  expect(dedicated).toHaveLength(1);
+});

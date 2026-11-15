@@ -34,23 +34,33 @@ export async function requestAsPerson(
   request: PersonRequest,
   /** A fresh directory of the thread's browser where picked files are written. */
   staging: () => Promise<string>,
+  /**
+   * Brings the tab back (shown, running) if it rested, froze or was dropped while idle: every
+   * request but muting goes on in the page, which must run to take it.
+   */
+  wake: () => Promise<void>,
 ): Promise<void> {
   switch (request.kind) {
     case "auth":
       if (!tabs?.answerAuth) throw new BrowserActionError("not_supported");
+      await wake();
       await tabs.answerAuth(request.tabId, request.authId, request.credentials);
       return;
     case "certificate":
       if (!tabs?.proceedCertificate) throw new BrowserActionError("not_supported");
+      await wake();
       await tabs.proceedCertificate(request.tabId, request.url);
       return;
     case "mute":
+      // The tab's sound, set on the view; nothing in the page runs.
       if (!tabs?.mute) throw new BrowserActionError("not_supported");
       await tabs.mute(request.tabId, request.muted);
       return;
     case "files": {
       if (!tabs?.chooseFiles) throw new BrowserActionError("not_supported");
       const paths = request.files.length ? await stage(request.files, await staging()) : [];
+      // Woken once the files are on this machine, right before the page gets them.
+      await wake();
       await tabs.chooseFiles(request.tabId, request.chooserId, paths);
       return;
     }

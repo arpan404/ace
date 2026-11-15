@@ -328,11 +328,12 @@ export class StatusStore {
     return this.invalidated.has(view);
   }
   replaceCache(view: ThreadView, source: ThreadView): void {
-    this.invalidated.delete(view);
     Object.assign(view, source);
     const policy = this.retention.get(source);
     if (policy) this.retention.set(view, policy);
     else this.seedRetention(view);
+    // Only once the view holds the new contents: a failure above leaves it marked stale.
+    this.invalidated.delete(view);
   }
   snapshot(thread: Thread | undefined, seq: number): ThreadView {
     if (!thread) throw new Error("Unknown thread");

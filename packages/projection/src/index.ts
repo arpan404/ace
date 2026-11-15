@@ -8,6 +8,8 @@ export {
   retainedTail,
 } from "./item-order.ts";
 export type { RetainedTail, TailEntry } from "./item-order.ts";
+export { applyItemChange, changedItemId, isItemChange } from "./item-changes.ts";
+export type { ItemChange } from "./item-changes.ts";
 export {
   isRawHistoryItem,
   historyMessageIdentity,
@@ -44,6 +46,7 @@ import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
   applyDelta,
+  deltaChanges,
   holdsTail,
   outputDeltas,
   outputStreamId,

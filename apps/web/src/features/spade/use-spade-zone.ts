@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { agentsKey } from "./use-spade-roster.ts";
 import { oversightKey, setOversight } from "./spade-oversight-api.ts";
 import { personZone } from "./spade-routines-api.ts";
+import { visibleInterval } from "./visible-interval.ts";
 
 /** The zone each machine's Spade was last told this window. */
 const told = new WeakMap<ClientApi, string>();
@@ -14,7 +15,7 @@ const recheckMs = 60_000;
 /**
  * Tells each answering machine's Spade the person's time zone (ADR 0135): a bot's day and
  * month, for its caps and its activity, are counted in it. Told again whenever the zone
- * changes, seen on focus and once a minute, and then what was counted by day is read again
+ * changes, seen on focus, on being shown and once a minute while on screen, and then what was counted by day is read again
  * (spend, caps, activity). A failed attempt is tried again at the next look.
  */
 export function useTellZone(clients: readonly (ClientApi | undefined)[]) {
@@ -42,10 +43,11 @@ export function useTellZone(clients: readonly (ClientApi | undefined)[]) {
       }
     };
     tell();
-    const timer = setInterval(tell, recheckMs);
+    // Not while the window is hidden: looked at again as soon as it is shown (and on focus).
+    const stop = visibleInterval(tell, recheckMs);
     window.addEventListener("focus", tell);
     return () => {
-      clearInterval(timer);
+      stop();
       window.removeEventListener("focus", tell);
     };
   }, [cache, clients]);

@@ -159,14 +159,27 @@ export function fakeBrowserSession(
             // As the daemon's `backendCandidates`: an explicit engine wins, otherwise the
             // fixture's historical default (its embedded stand-in for the desktop's view).
             const preference = options.backendPreference?.(id) ?? "auto";
+            if (preference === "embedded" && !browser.desktop)
+              throw new Error("Desktop browser backend unavailable");
             const backend =
-              preference === "headless" || (preference === "auto" && message.options.background)
+              preference === "headless" ||
+              !browser.desktop ||
+              (preference === "auto" && message.options.background)
                 ? "headless"
                 : "embedded";
             browser.drive(id, { url: "about:blank", backend });
           }
           browser.reopen(id);
-          result = BrowserState.parse(browser.view(id));
+          const opened = BrowserState.parse(browser.view(id));
+          // As the daemon: which engines can open now.
+          result = {
+            ...opened,
+            features: [
+              ...(opened.features ?? []),
+              "engines",
+              ...(browser.desktop ? ["embedded-engine"] : []),
+            ],
+          };
           break;
         }
         case "browser.close":

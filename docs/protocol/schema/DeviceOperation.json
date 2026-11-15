@@ -318,8 +318,17 @@
     },
     {
       "properties": {
+        "codecs": {
+          "$ref": "https://ace.local/protocol/v1/MediaCodecs.json"
+        },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/MediaLinkHint.json"
+        },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
         },
         "op": {
           "const": "subscribe",

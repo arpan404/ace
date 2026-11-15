@@ -16,6 +16,7 @@ import { nextFrame } from "@/lib/next-frame.ts";
 import { later } from "@/lib/later.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
+import { drawPoster } from "@/lib/video/poster.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
 import { Problem } from "./device-problem.tsx";
 import type { DeviceProblem } from "./use-devices.ts";
@@ -180,7 +181,8 @@ export function DeviceScreen(props: {
       );
     };
     const show = (picture: PictureImage, shown: DevicePicture) => {
-      if (disposed) return;
+      // A picture of a subscribe since replaced (a media rebind) is never drawn.
+      if (disposed || !session.client.current(shown)) return;
       const { width, height } = drawUpright(element, context, picture, shown);
       element.dataset["frame"] = String(shown.sequence);
       latestFrame.current?.({
@@ -225,7 +227,11 @@ export function DeviceScreen(props: {
         if (keyframe) latestStream.current?.keyframeAsked(Date.now());
         session.client.ack(picture, keyframe);
       },
-      fallback: cannotDecode,
+      fallback: (picture) => {
+        // HEVC this browser won't decode: only this device asks again, for H.264.
+        if (picture && !disposed && session.client.fallBack(deviceId, picture.codec)) return;
+        cannotDecode();
+      },
       pressure: () => {
         const now = performance.now();
         stableSince = now;
@@ -245,7 +251,18 @@ export function DeviceScreen(props: {
       }
       await renderer.render(next);
     });
+    let poster: ReturnType<typeof session.client.poster>;
     const unwatch = session.client.watch((snapshot) => {
+      // The subscribe's still shows until the first live picture (ADR 0149).
+      const still = session.client.poster(deviceId);
+      if (still && still !== poster)
+        void drawPoster(
+          element,
+          context,
+          still,
+          () => !disposed && session.client.poster(deviceId) === still,
+        );
+      poster = still;
       const state = snapshot.states.find((candidate) => candidate.device.id === deviceId);
       const next: Touch =
         state?.touch ?? (state?.device.platform === "ios" ? "pointer" : "gestures");

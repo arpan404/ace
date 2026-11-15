@@ -1,18 +1,18 @@
 import { afterEach, expect, test } from "vitest";
-import { DatabaseSync } from "node:sqlite";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { createCodexAdapter } from "@ace/adapter-codex";
-import { AccountRegistry, AccountService, createInstance } from "@ace/accounts";
-import { ProviderPayload } from "@ace/provider-kit/payload";
-import type { Frame, SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
-import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
-import { fixture, cleanupRecovery, text, sends } from "./recovery-test-support.ts";
-import { scriptFrames } from "./test-support.ts";
-import { recoveryPorts } from "../services/recovery.ts";
-import { recoverOnFreshReadings } from "../services/limit-recovery.ts";
-import type { RecoveryPorts } from "./recovery.ts";
+import type { ScriptedStep } from "@ace/adapter-testkit";
+import { cleanupRecovery, text, sends } from "./recovery-test-support.ts";
+import {
+  clearedThen,
+  codexThread,
+  frame,
+  minute,
+  snapshot,
+  started,
+  turn,
+  usageLimit,
+} from "./codex-limit-test-support.ts";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 
 /*
  * Usage limits through the real Codex translator and the real accounts service: app-server
@@ -21,122 +21,6 @@ import type { RecoveryPorts } from "./recovery.ts";
  */
 
 afterEach(cleanupRecovery);
-const minute = 60_000;
-let seq = 0;
-const frame = (data: unknown): Frame => {
-  const payload = new ProviderPayload(JSON.stringify(data));
-  return { seq: ++seq, t: seq, dir: "recv", channel: "stdio", data: payload.data, payload };
-};
-const turn = (id: string, status: "completed" | "failed", error?: unknown): Frame[] => [
-  frame({ method: "turn/started", params: { threadId: "native", turn: { id } } }),
-  ...(error
-    ? [frame({ method: "error", params: { threadId: "native", error, willRetry: false } })]
-    : []),
-  frame({
-    method: "turn/completed",
-    params: { threadId: "native", turn: { id, status, ...(error ? { error } : {}) } },
-  }),
-];
-/** Codex's `RateLimitSnapshot` for its 5-hour window. */
-const snapshot = (usedPercent: number, resetsAt: number) => ({
-  method: "account/rateLimits/updated",
-  params: {
-    rateLimits: {
-      limitId: "codex",
-      limitName: null,
-      primary: { usedPercent, windowDurationMins: 300, resetsAt: resetsAt / 1000 },
-      secondary: null,
-      planType: "plus",
-      rateLimitReachedType: usedPercent >= 100 ? "rate_limit_reached" : null,
-    },
-  },
-});
-// Scripted steps clone frames, so re-admit their bytes at the provider boundary.
-function encoded(context: SessionContext): SessionContext {
-  return {
-    ...context,
-    onFrame(input) {
-      const payload = new ProviderPayload(JSON.stringify(input.data));
-      context.onFrame({ ...input, payload, data: payload.data });
-    },
-  };
-}
-
-/** A Codex thread on account "Sa"; each provider session after the first runs `later`. */
-async function codexThread(
-  steps: ScriptedStep[],
-  later: ScriptedStep[] = [],
-  policy: "manual" | "resume_at_reset" = "manual",
-) {
-  const ports: RecoveryPorts = {};
-  const createTranslator = createCodexAdapter().createTranslator;
-  const h = await fixture(steps, scriptFrames(), { recovery: ports, createTranslator });
-  const first = h.registry.get("codex").adapter;
-  const reopened = createScriptedAdapter({
-    provider: "codex",
-    capabilities: h.registry.get("codex").capabilities,
-    nativeSessionId: "native-1",
-    createTranslator,
-    steps: later,
-  });
-  let opened = 0;
-  const providerSends = () => sends(h.adapter).length + sends(reopened).length;
-  const home = join(h.home, "account-a");
-  await mkdir(home);
-  const registry = new AccountRegistry(new DatabaseSync(join(h.home, "accounts.sqlite")));
-  await registry.register(
-    createInstance({ id: "account-a", provider: "codex", label: "Sa", homeDir: home }),
-  );
-  registry.ingest("account-a", {
-    provider: "codex",
-    payload: new ProviderPayload(JSON.stringify({ auth: "logged_in" })),
-    observedAt: h.clock.now(),
-    timeZone: "UTC",
-  });
-  const accounts = new AccountService({ registry, now: h.clock.now, timeZone: "UTC", env: {} });
-  const native = {
-    ...first,
-    openSession: (context: SessionContext) =>
-      (opened++ === 0 ? first : reopened).openSession(encoded(context)),
-  };
-  h.registry.register(
-    accounts.bindAdapter({ ...first, create: () => native }, () => ({
-      instanceId: "account-a",
-      role: "worker",
-      estimatedLoad: 1,
-    })),
-    { installed: true, auth: "logged_in", loginHint: "unused" },
-  );
-  Object.assign(
-    ports,
-    recoveryPorts(
-      { store: h.store, now: h.clock.now, services: { accounts, accountRegistry: registry } },
-      (id) => h.engine.sessionMetadata(id),
-    ),
-    // The person's `threads.limitPolicy` setting.
-    { preferences: async () => ({ followUpBehavior: "queue" as const, limitPolicy: policy }) },
-  );
-  const stop = recoverOnFreshReadings({
-    subscribeQuota: (listener) => registry.subscribeQuota(listener),
-    quota: (id) => registry.get(id)?.quota,
-    recovered: (id) => h.engine.accountRecovered(id),
-    now: h.clock.now,
-  });
-  return {
-    h,
-    registry,
-    providerSends,
-    async close() {
-      stop();
-      registry.close();
-    },
-  };
-}
-const started = frame({ method: "thread/started", params: { thread: { id: "native" } } });
-const usageLimit = {
-  message: "You've hit your usage limit. Try again later.",
-  codexErrorInfo: "usageLimitExceeded",
-};
 
 test("a turn error without a definite limit signal does not hold queued messages", async () => {
   const { h, registry, close } = await codexThread([
@@ -179,17 +63,6 @@ const hitLimit = (reset: number): ScriptedStep[] => [
 const carriesOn: ScriptedStep[] = [
   { on: "send", frames: [started, ...turn("B", "completed")] },
   { on: "send", frames: turn("C", "completed") },
-];
-/** Once the limit has cleared, the open session carries on: nothing closes it. */
-const clearedThen = (reset: number, turns: number): ScriptedStep[] => [
-  {
-    on: "send",
-    frames: [started, frame(snapshot(100, reset)), ...turn("A", "failed", usageLimit)],
-  },
-  ...Array.from({ length: turns }, (_, index) => ({
-    on: "send" as const,
-    frames: turn(`after-${index}`, "completed"),
-  })),
 ];
 const resume = (h: Awaited<ReturnType<typeof codexThread>>["h"], id: ThreadId) =>
   h.command({ type: "thread.resume", threadId: id, expectedRevision: h.engine.queue(id).revision });

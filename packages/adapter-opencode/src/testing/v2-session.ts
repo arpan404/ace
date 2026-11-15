@@ -10,6 +10,7 @@ import { harness } from "../replay.ts";
 import { object } from "../data.ts";
 export const cli = fileURLToPath(new URL("./cli-v2.mjs", import.meta.url));
 const owners: ReturnType<typeof createOpenCodeAdapter>[] = [];
+const startupPaths = new Set(["/api/info", "/openapi.json", "/api/event"]);
 const homes: string[] = [];
 export function deferred<T>() {
   return Promise.withResolvers<T>();
@@ -72,7 +73,7 @@ export async function setup(
       discover: async () => ({
         opencode: {
           installed: true,
-          path: cli,
+          path: extra.discovery?.overrides?.opencode ?? cli,
           version,
           auth: "unknown",
           loginHint: "opencode auth login",
@@ -85,8 +86,11 @@ export async function setup(
         const url = new URL(
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
         );
-        origin = url.origin;
-        authorization = new Headers(init?.headers).get("authorization") ?? "";
+        // Startup requests alone may come from a spare server no session has used yet.
+        if (!startupPaths.has(url.pathname)) {
+          origin = url.origin;
+          authorization = new Headers(init?.headers).get("authorization") ?? "";
+        }
         return network(input, init);
       },
     },

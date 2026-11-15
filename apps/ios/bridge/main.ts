@@ -2,7 +2,7 @@ import { host } from "./polyfills.ts";
 import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
 import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
-import { ClientCore } from "@ace/client";
+import { ClientCore, screenTail } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
@@ -248,6 +248,8 @@ async function start(json: string): Promise<void> {
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),
     limits: { items: config.itemLimit, text: 8192 },
+    // A thread paints from one screenful; the rest of its window pages in behind it.
+    openTail: screenTail,
     transport: () => nativeTransport(trust, early),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
@@ -277,6 +279,8 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    // Liveness deadlines run on the host's monotonic clock, never the wall clock (ADR 0150).
+    monotonic: () => host.monotonicMs(),
     // Every drop and recovery, with its close code and reason, goes to the device log.
     report: (event) =>
       pump.put("connection.event", () => ({
@@ -367,7 +371,15 @@ async function start(json: string): Promise<void> {
     },
   });
   void reads.restore();
-  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
+  compose = new ComposeActions(
+    client,
+    pump,
+    preview,
+    () => host.now(),
+    nativeChunks,
+    reads,
+    dismissed,
+  );
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
@@ -491,6 +503,8 @@ async function start(json: string): Promise<void> {
       Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
     annotations: (threadId) =>
       threadId === visit.threadId ? visit.session?.annotations : undefined,
+    threadState: (threadId) => reading.cachedThreads()?.thread(threadId)?.status.state,
+    observeThreads: (listener) => reading.cachedThreads()?.observe(listener) ?? (() => {}),
     devices: phoneDeviceStorage({
       load: () => call("storage.devices.load"),
       save: async (value) => {

@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, useDaemonReady } from "@/lib/daemon-command.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useThreadSources } from "../sources/index.ts";
 import {
   resendPayload,
@@ -35,8 +36,10 @@ export function useRetryPoint(threadId: string, itemId: string): RetryPoint | un
 function usePiEntry(threadId: string, point: EditPoint): string | undefined {
   const meta = useThreadMeta(threadId);
   const ready = useDaemonReady().ready;
+  // Settled as confirmed: a cached "done" may be working again.
+  const { fresh } = useThreadFreshness(threadId);
   const settled = meta?.status.state === "done" || meta?.status.state === "failed";
-  return meta?.provider === "pi" && settled && ready ? point.piEntry : undefined;
+  return meta?.provider === "pi" && settled && ready && fresh ? point.piEntry : undefined;
 }
 
 /**

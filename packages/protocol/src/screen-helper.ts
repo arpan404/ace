@@ -18,10 +18,27 @@ import {
   ScreenUIActOptions,
   ScreenUIFindOptions,
   ScreenUITreeOptions,
+  ScreenStreamIngest,
 } from "./screen-v2.ts";
 
 import { ScreenMeasurementOptions } from "./interaction-measurement.ts";
 
+/** The helper's answer to `stream.configure`: where video goes now and, after a switch, the
+ * last frame sequence the previous path took (null when it took none). */
+export const ScreenStreamConfigured = z.object({
+  codec: z.enum(["jpeg", "h264"]),
+  ingest: z.enum(["on", "off"]).optional(),
+  switched: z.boolean().optional(),
+  boundary: z.number().int().nonnegative().nullable().optional(),
+});
+export type ScreenStreamConfigured = z.infer<typeof ScreenStreamConfigured>;
+/** The helper's ingest connection failed: video is back on the daemon's socket. */
+export const ScreenStreamIngestEvent = z.object({
+  event: z.literal("stream.ingest"),
+  sessionId: ScreenId,
+  state: z.literal("closed"),
+  boundary: z.number().int().nonnegative().nullable(),
+});
 const HelperEnvelope = z.object({
   version: z.union([z.literal(1), z.literal(2)]),
   id: ScreenId,
@@ -46,7 +63,15 @@ export const ScreenHelperRequest = z.discriminatedUnion("op", [
     bundleId: ScreenBundle,
     allowlist: z.array(ScreenBundle).max(64),
   }),
-  HelperEnvelope.extend({ op: z.literal("stream.configure"), settings: ScreenStreamSettings }),
+  HelperEnvelope.extend({
+    op: z.literal("stream.configure"),
+    settings: ScreenStreamSettings,
+    /** ace-media's ingest socket and the source's single-use token (base64 of 32 bytes); absent
+     * sends video to the daemon's socket. Each request carries the whole state. */
+    ingest: ScreenStreamIngest.optional(),
+    /** The privacy epoch pictures captured from now on carry; the reply acknowledges it. */
+    epoch: z.number().int().nonnegative().max(0xffffffff).optional(),
+  }),
   HelperEnvelope.extend({ op: z.literal("stream.keyframe") }),
   HelperEnvelope.extend({ op: z.literal("stream.image") }),
   HelperEnvelope.extend({ op: z.literal("capture"), enabled: z.boolean() }),

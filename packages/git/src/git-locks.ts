@@ -63,6 +63,17 @@ export const timestampSlackMs = 5000;
 const mayHold = (process: GitProcess, written: Date) =>
   process.startedAt === undefined || process.startedAt <= written.getTime() + timestampSlackMs;
 
+/** Whether `file` is a plain file last written before `before`: a lock that may be stale. */
+async function writtenBefore(file: string, before: Date): Promise<boolean> {
+  try {
+    const info = await lstat(file);
+    return info.isFile() && info.mtime < before;
+  } catch (error) {
+    if (missing(error)) return false;
+    throw error;
+  }
+}
+
 /**
  * Removes `file` only if it is a plain file last written before `before` that none of the live
  * Git processes working where it guards could have written.
@@ -87,6 +98,50 @@ async function removeStale(
 const working = (processes: readonly GitProcess[], roots: readonly string[]) =>
   processes.filter((entry) => touches(entry, roots));
 
+/** The repository's shared metadata directory for `checkout`, canonical; undefined if none. */
+export async function gitCommonDirectory(checkout: string): Promise<string | undefined> {
+  const metadata = await metadataDirectory(checkout).catch(() => undefined);
+  if (!metadata) return;
+  const common = await canonical(metadata);
+  const shared = await text(join(common, "commondir")).catch(() => undefined);
+  return shared ? canonical(resolve(common, shared.replace(/\n$/, ""))) : common;
+}
+
+/** A lock file and the checkouts whose Git processes may hold it. */
+interface Candidate {
+  file: string;
+  roots: readonly string[];
+}
+
+/** Every Git lock file in the repository at `common` that a dead process may have left. */
+async function candidates(common: string, all: readonly Checkout[]): Promise<Candidate[]> {
+  const found: Candidate[] = [];
+  for (const entry of all) {
+    if (!entry.path) continue;
+    const roots = [entry.path];
+    found.push({ file: join(entry.metadata, "index.lock"), roots });
+    found.push({ file: join(entry.metadata, "HEAD.lock"), roots });
+    // A partial commit's temporary index, named after the Git process that wrote it.
+    const names = await readdir(entry.metadata).catch(() => []);
+    for (const name of names.filter((n) => /^next-index-\d+\.lock$/.test(n)))
+      found.push({ file: join(entry.metadata, name), roots });
+  }
+  const everywhere = [common, ...all.flatMap((entry) => (entry.path ? [entry.path] : []))];
+  for (const name of ["packed-refs.lock", "shallow.lock", "config.lock"])
+    found.push({ file: join(common, name), roots: everywhere });
+  const refs: string[] = [];
+  await refLocks(join(common, "refs"), refs);
+  for (const file of refs) found.push({ file, roots: everywhere });
+  for (const entry of all) {
+    if (!entry.linked) continue;
+    // `worktree add` writes "initializing" while it runs; a person's own lock has their reason.
+    const file = join(entry.metadata, "locked");
+    if ((await text(file).catch(() => undefined))?.trim() === "initializing")
+      found.push({ file, roots: everywhere });
+  }
+  return found;
+}
+
 /**
  * Git's own lock files that a killed or crashed Git process left behind in the repository that
  * owns `checkout`: each checkout's `index.lock` and `HEAD.lock`, the shared ref, packed-refs,
@@ -95,48 +150,25 @@ const working = (processes: readonly GitProcess[], roots: readonly string[]) =>
  * A lock is removed only when it was last written before `before` and every live Git process
  * working in what it guards started after that write, so neither a running writer nor a Git
  * command someone starts meanwhile loses its lock. Without a process listing nothing is
- * removed. Returns the removed paths.
+ * removed, and with no lock old enough to remove, no listing is taken. `scan` must list
+ * processes as they are after `before`. Returns the removed paths.
  */
 export async function clearLeftoverLocks(
   checkout: string,
   scan: GitProcessScan,
   before: Date,
 ): Promise<string[]> {
-  const metadata = await metadataDirectory(checkout).catch(() => undefined);
-  if (!metadata) return [];
-  let common = await canonical(metadata);
-  const shared = await text(join(common, "commondir")).catch(() => undefined);
-  if (shared) common = await canonical(resolve(common, shared.replace(/\n$/, "")));
+  const common = await gitCommonDirectory(checkout);
+  if (!common) return [];
+  const all = await checkouts(common);
+  const stale: Candidate[] = [];
+  for (const candidate of await candidates(common, all))
+    if (await writtenBefore(candidate.file, before)) stale.push(candidate);
+  if (!stale.length) return [];
   const processes = await scan();
   if (!processes) return [];
-  const all = await checkouts(common);
   const removed: string[] = [];
-  const clear = async (file: string, holders: readonly GitProcess[]) => {
-    if (await removeStale(file, before, holders)) removed.push(file);
-  };
-  for (const entry of all) {
-    if (!entry.path) continue;
-    const holders = working(processes, [entry.path]);
-    await clear(join(entry.metadata, "index.lock"), holders);
-    await clear(join(entry.metadata, "HEAD.lock"), holders);
-    // A partial commit's temporary index, named after the Git process that wrote it.
-    const names = await readdir(entry.metadata).catch(() => []);
-    for (const name of names.filter((n) => /^next-index-\d+\.lock$/.test(n)))
-      await clear(join(entry.metadata, name), holders);
-  }
-  const everywhere = [common, ...all.flatMap((entry) => (entry.path ? [entry.path] : []))];
-  const holders = working(processes, everywhere);
-  for (const name of ["packed-refs.lock", "shallow.lock", "config.lock"])
-    await clear(join(common, name), holders);
-  const refs: string[] = [];
-  await refLocks(join(common, "refs"), refs);
-  for (const file of refs) await clear(file, holders);
-  for (const entry of all) {
-    if (!entry.linked) continue;
-    // `worktree add` writes "initializing" while it runs; a person's own lock has their reason.
-    const file = join(entry.metadata, "locked");
-    if ((await text(file).catch(() => undefined))?.trim() === "initializing")
-      await clear(file, holders);
-  }
+  for (const { file, roots } of stale)
+    if (await removeStale(file, before, working(processes, roots))) removed.push(file);
   return removed;
 }

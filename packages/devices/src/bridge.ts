@@ -1,3 +1,4 @@
+import { DeviceQueue } from "./device-queue.ts";
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import {
   DeviceAck,
@@ -12,11 +13,22 @@ import {
   PictureChannel,
   pictureLinkLimits,
   type PictureTransport,
+  type PictureView,
 } from "@ace/browser/picture-channel";
 import { framePicture } from "@ace/screen";
+import {
+  mediaSubscribed,
+  viewLink,
+  viewSwap,
+  viewViewport,
+  type HeldView,
+  type MediaDeliveryPort,
+} from "@ace/media/media-viewers";
+import type { MediaOwner } from "@ace/media/media-connections";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
 import { heldPushes } from "./held-pushes.ts";
+import type { MediaAccelerationStore } from "@ace/media/acceleration";
 
 export interface DevicePeer {
   authorize(): boolean;
@@ -31,6 +43,14 @@ export interface DevicePeer {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
+  /**
+   * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
+   * connection is: its session, device and admission (a main session, or a channel of its own).
+   * Without it, or while ace-media doesn't serve devices, they are served here.
+   */
+  delivery?: { owner: () => MediaOwner | undefined; port: () => MediaDeliveryPort | undefined };
+  /** ace-media's reports of what each device's video runs on, for `DeviceState.acceleration`. */
+  acceleration?: Pick<MediaAccelerationStore, "for" | "watch"> | undefined;
 }
 /**
  * A transport owner supplies authenticated identity and revocation checks. The channel speaks
@@ -48,6 +68,41 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
  */
 export function reserveDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const actor: Actor = { kind: "human", owner, guard: () => access() };
+  /** Watched devices ace-media delivers, by their view there. */
+  const delivered = new Map<string, HeldView>();
+  /** Each device's subscribes and unsubscribes, one at a time. */
+  const queue = new DeviceQueue();
+  /**
+   * A subscribe naming a media connection: its viewer there, while ace-media delivers devices.
+   * A connection of another session is refused.
+   */
+  const bindMedia = (
+    deviceId: string,
+    connection: string,
+    operation: { link?: Parameters<typeof viewLink>[0]; codecs?: string[] | undefined },
+  ): string | undefined => {
+    const delivery = peer.delivery;
+    const port = delivery?.port();
+    const requester = delivery?.owner();
+    const kinds = ["simulator", "scrcpy", "emulator-frames"] as const;
+    if (!requester || !port || !kinds.some((kind) => port.serves(kind))) return undefined;
+    const link = viewLink(operation.link);
+    const viewer = port.bind({
+      requester,
+      connection,
+      target: { kind: "device", deviceId },
+      codecs: operation.codecs ?? ["avc1.42E033"],
+      // A phone-sized pane until the viewer's `stream.configure` says its size.
+      viewport: viewViewport({ width: 390, height: 844, devicePixelRatio: 3 }),
+      local: false,
+      audio: false,
+      ...(link ? { link } : {}),
+      shows: (producer) => producer.deviceId === deviceId,
+    });
+    if (viewer === undefined)
+      throw new Error("media-connection: that media connection isn't this session's");
+    return viewer;
+  };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
   const pictures = new PictureChannel(streamKinds.deviceFrame, {
@@ -92,12 +147,22 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     access();
     await pushes.send(message);
   };
-  const stateForPeer = (state: DeviceState): DeviceState => ({
-    ...state,
-    ownedHere: service.ownsControl(state.device.id, owner),
-  });
+  const stateForPeer = (state: DeviceState): DeviceState => {
+    const acceleration = peer.acceleration?.for("deviceId", state.device.id);
+    return {
+      ...state,
+      ownedHere: service.ownsControl(state.device.id, owner),
+      ...(acceleration ? { acceleration } : {}),
+    };
+  };
   const unwatch = service.watch((state) => {
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
+    void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
+  });
+  const unwatchAcceleration = peer.acceleration?.watch((change) => {
+    const id = change.kind === "source" ? change.subject.deviceId : undefined;
+    const state = id === undefined ? undefined : service.states().find((s) => s.device.id === id);
+    if (closed || !state || (state.threadId && !peer.canReadThread(state.threadId))) return;
     void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
   });
   // Admin peers see the whole inventory, as a "list" request would show them.
@@ -121,6 +186,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     unwatch();
     unwatchInventory();
     unwatchEnabled();
+    unwatchAcceleration?.();
     inventoryView?.();
     inventoryView = undefined;
     streams.close();
@@ -171,55 +237,112 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
         pending++;
         try {
           let requestActor = actor;
+          /** A subscribe's answer, made while it was set up. */
+          let subscribed:
+            | { state: DeviceState; media?: ReturnType<typeof mediaSubscribed> }
+            | undefined;
           if (operation.op === "subscribe") {
-            const slot = streams.reserve(operation.deviceId);
-            try {
-              const guard = () => {
-                deviceAccess(operation.deviceId);
+            const deviceId = operation.deviceId;
+            // One at a time per device, the latest winning (`DeviceQueue`): this setup and its
+            // rollback only ever meet the committed subscription. That one keeps delivering
+            // until this one is set up, and a failed resubscribe leaves it as it was, its view
+            // in ace-media included (`viewSwap`).
+            await queue.run(deviceId, "subscribe", async (superseded) => {
+              const slot = streams.reserve(deviceId);
+              const port = peer.delivery?.port();
+              let granted: HeldView | undefined;
+              let stop: (() => void) | undefined;
+              let committed = false;
+              /** The subscription may still see the device. */
+              const live = () => {
+                deviceAccess(deviceId);
                 if (!slot.active()) throw new Error("Device subscription superseded");
               };
-              const deviceId = operation.deviceId;
-              const view = pictures.open(deviceId, {
-                keyframe: () =>
-                  void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
-                guard,
-                link: pictureLinkLimits,
-              });
-              const follow = new LinkFollow({
-                rate: () => view.rate(),
-                apply: (settings) =>
-                  service.request({ op: "stream.configure", deviceId, settings }, actor),
-              });
+              /** Its setup may go on: nothing newer came for the device. */
+              const setup = () => {
+                live();
+                if (superseded()) throw new Error("Device subscription superseded");
+              };
               try {
+                const connection = operation.media?.connection;
+                const viewer =
+                  connection === undefined ? undefined : bindMedia(deviceId, connection, operation);
+                granted =
+                  viewer !== undefined && connection !== undefined
+                    ? { viewer, connection }
+                    : undefined;
+                /** This view's pictures, opened once it is set up (opening replaces the old one's). */
+                let view: PictureView | undefined;
                 // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
-                const stop = await service.subscribeEvery(deviceId, actor, (frame) => {
-                  guard();
-                  // Live views are video only: the JPEG a capture makes for agents while
-                  // nobody watches (until this view's H.264 starts) never reaches one.
-                  if (frame.header.codec !== "h264") return;
-                  view.push(framePicture(frame));
+                stop = await service.subscribeEvery(deviceId, actor, (frame) => {
+                  live();
+                  // Live views are video only: the JPEG a capture makes for agents while nobody
+                  // watches (until this view's H.264 starts) never reaches one. ace-media
+                  // delivers this view on the client's media connection.
+                  if (frame.header.codec !== "h264" || viewer) return;
+                  view?.push(framePicture(frame));
+                });
+                setup();
+                const state = stateForPeer(
+                  DeviceState.parse(await service.request(operation, requestActor)),
+                );
+                setup();
+                const poster = viewer ? await port?.poster(viewer) : undefined;
+                setup();
+                // Set up: the new view replaces the old one.
+                viewSwap(port, delivered.get(deviceId), granted).commit();
+                committed = true;
+                if (granted) delivered.set(deviceId, granted);
+                else delivered.delete(deviceId);
+                const opened = pictures.open(deviceId, {
+                  keyframe: () =>
+                    void service
+                      .request({ op: "stream.keyframe", deviceId }, actor)
+                      .catch(() => {}),
+                  guard: live,
+                  link: pictureLinkLimits,
+                });
+                view = opened;
+                const follow = new LinkFollow({
+                  rate: () => opened.rate(),
+                  apply: (settings) =>
+                    service.request({ op: "stream.configure", deviceId, settings }, actor),
                 });
                 follows.get(deviceId)?.close();
                 follows.set(deviceId, follow);
                 cancelTick ??= later(1000, tick);
+                const held = granted;
+                const ending = stop;
                 slot.attach(() => {
-                  stop();
-                  view.close();
+                  ending();
+                  // Its view in ace-media goes with it, unless a newer subscribe took the device.
+                  if (held && delivered.get(deviceId) === held) {
+                    delivered.delete(deviceId);
+                    port?.unbind(held.viewer);
+                  }
+                  opened.close();
                   follow.close();
                   if (follows.get(deviceId) === follow) follows.delete(deviceId);
                 });
+                subscribed = {
+                  state,
+                  ...(granted ? { media: mediaSubscribed(granted.connection, poster) } : {}),
+                };
               } catch (error) {
-                view.close();
+                stop?.();
+                slot.cancel();
+                // Past the commit only a closing connection throws: it ends every view itself.
+                if (!committed) viewSwap(port, delivered.get(deviceId), granted).abort();
                 throw error;
               }
-            } catch (error) {
-              slot.cancel();
-              throw error;
-            }
+            });
           } else if (operation.op === "unsubscribe") {
-            streams.remove(operation.deviceId);
+            const deviceId = operation.deviceId;
+            await queue.run(deviceId, "unsubscribe", async () => streams.remove(deviceId));
           }
           if (operation.op === "logs.start") {
+            // A new log subscription replaces the old one at once: no batch goes out twice.
+            logs.remove(operation.deviceId);
             const slot = logs.reserve(operation.deviceId);
             const guard = () => {
               deviceAccess(operation.deviceId);
@@ -252,7 +375,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
           const data =
             operation.op === "inventory.watch"
               ? { watching: inventoryView !== undefined }
-              : operation.op === "screenshot"
+              : operation.op === "screenshot" || subscribed
                 ? undefined
                 : follow && operation.op === "stream.configure"
                   ? // The view's request, with its bit rate held to what its link carries.
@@ -260,7 +383,15 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   : await service.request(operation, requestActor);
           access();
           if ("deviceId" in operation) deviceAccess(operation.deviceId);
-          if (operation.op === "screenshot") {
+          if (subscribed) {
+            await send({
+              type: "devices.result",
+              requestId: message.requestId,
+              ok: true,
+              data: subscribed.state,
+              ...(subscribed.media ? { media: subscribed.media } : {}),
+            });
+          } else if (operation.op === "screenshot") {
             // The picture goes first as a still on the media stream; the result names it.
             const picture = framePicture(await service.screenshot(operation.deviceId, actor));
             await pictures.still(operation.deviceId, picture, () =>
@@ -289,7 +420,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                       .map(stateForPeer),
                     enabled: service.isEnabled(),
                   }
-                : ["controller", "start", "stop", "subscribe", "unsubscribe"].includes(operation.op)
+                : ["controller", "start", "stop", "unsubscribe"].includes(operation.op)
                   ? stateForPeer(DeviceState.parse(data))
                   : data;
             await send({

@@ -1,4 +1,4 @@
-import { outsideScenario, seedOutside } from "./outside-scenario.ts";
+import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -16,6 +16,7 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
 import { seedSubagents } from "./subagent-scenario.ts";
+import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -227,6 +228,8 @@ daemon.createThread({
   details: details("perf/shards"),
 });
 seedSubagents(daemon);
+seedElsewhere(daemon, { hostId, name: machineName });
+seedWorktreeStops(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",
@@ -369,7 +372,14 @@ const server = Bun.serve<undefined>({
         })),
       });
     if (path === "/review/outside" && request.method === "POST") {
-      outsideScenario(daemon, z.enum(["ask", "screen", "clear"]).parse(await request.json()));
+      const kinds = [
+        "ask",
+        "screen",
+        "clear",
+        "elsewhere",
+        "home",
+      ] as const satisfies OutsideScenario[];
+      outsideScenario(daemon, z.enum(kinds).parse(await request.json()));
       return Response.json({ ok: true });
     }
     if (path === "/review/many" && request.method === "POST") {

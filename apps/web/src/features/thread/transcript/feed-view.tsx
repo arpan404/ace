@@ -305,12 +305,54 @@ export function FeedView(props: FeedViewProps) {
     if (window) nav.jump.live();
   };
 
+  // The keys and the live pill get the same callbacks for the view's life, calling the newest
+  // `toLive` and `scrollTo`: this view re-renders 10 to 20 times a second while a row streams
+  // and re-measures, and new callbacks would re-render them each time.
+  const latestActions = useRef({ toLive, scrollTo: (_index: number) => {} });
+  useLayoutEffect(() => {
+    latestActions.current = {
+      toLive,
+      scrollTo: (index: number) => {
+        // A key jumps the view: where it lands is no gesture toward history.
+        paging.reset();
+        scroll.jumpTo(index, "start");
+      },
+    };
+  });
+  const [actions] = useState(() => ({
+    toLive: () => latestActions.current.toLive(),
+    scrollTo: (index: number) => latestActions.current.scrollTo(index),
+  }));
+
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
   // The floating controls stay mounted through their exit. There is deliberately
   // no "viewing history" bar at the top: older history is one continuous list,
   // and the live pill alone offers the way back to the live end.
   const livePill = usePresence(scroll.away || detached);
   const fadeTop = useTopFade(viewport);
+  const top = scroll.top;
+  const keysView = useMemo(
+    () =>
+      Keys && (
+        <Keys nav={nav} rows={rows} top={top} scrollTo={actions.scrollTo} toLive={actions.toLive} />
+      ),
+    [Keys, nav, rows, top, actions],
+  );
+  const { count: freshCount, more: freshMore } = props.fresh;
+  const pillView = useMemo(
+    () =>
+      livePill.mounted && (
+        <Suspense fallback={null}>
+          <DeferredLivePill.Component
+            phase={livePill.phase}
+            newItems={freshCount}
+            more={freshMore}
+            onClick={actions.toLive}
+          />
+        </Suspense>
+      ),
+    [livePill.mounted, livePill.phase, freshCount, freshMore, actions],
+  );
   // At most four chat visualizations hold a live page at once (each runs its own scripts).
   const [liveFrames] = useState(() => new LiveFrames(4));
   return (
@@ -405,7 +447,7 @@ export function FeedView(props: FeedViewProps) {
                     lastTurn={lastWindowOrdinal}
                     loading={jump.loading === "newer"}
                     onNewer={() => void nav.jump.newer()}
-                    onLive={toLive}
+                    onLive={actions.toLive}
                   />
                 </Suspense>
               )}
@@ -430,29 +472,8 @@ export function FeedView(props: FeedViewProps) {
             )}
           </div>
         </div>
-        {Keys && (
-          <Keys
-            nav={nav}
-            rows={rows}
-            top={scroll.top}
-            scrollTo={(index) => {
-              // A key jumps the view: where it lands is no gesture toward history.
-              paging.reset();
-              scroll.jumpTo(index, "start");
-            }}
-            toLive={toLive}
-          />
-        )}
-        {livePill.mounted && (
-          <Suspense fallback={null}>
-            <DeferredLivePill.Component
-              phase={livePill.phase}
-              newItems={props.fresh.count}
-              more={props.fresh.more}
-              onClick={toLive}
-            />
-          </Suspense>
-        )}
+        {keysView}
+        {pillView}
         {Pill && <Pill threadId={threadId} raised={livePill.mounted} />}
       </div>
     </LiveFramesContext>

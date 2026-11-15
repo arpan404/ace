@@ -9,8 +9,9 @@ import {
   type Item,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
+import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { digest } from "./child-views.ts";
-import { pairedMachines } from "./machine-test-support.ts";
+import { gatedTransport, pairedMachines } from "./machine-test-support.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 
@@ -198,5 +199,64 @@ it("a remote result refused before refusals were retried still reaches its paren
       JSON.stringify({ commandId: id, ok: false, error: "cancelled" }),
     );
   });
+  await resumedOnce(pair, threadId);
+}, 60_000);
+
+it("a result arriving after its stopped parent was deleted ends once and is never left owed", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const parent = pair.source.caller.threadId;
+  const threadId = await delegated(pair);
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(threadId)).toBeDefined(), {
+    timeout: 15_000,
+  });
+  expect(person(pair, { type: "thread.interrupt", threadId: parent, cascade: true }).ok).toBe(true);
+  await pair.source.daemon.engine?.flush();
+  const engine = pair.source.daemon.engine;
+  if (!engine) throw new Error("Engine unavailable");
+  const lifecycle = new ThreadLifecycle({
+    store: pair.source.daemon.store,
+    engine,
+    handler: engine.handler,
+    port: 0,
+    hostId: "test",
+    token: "unused",
+    now: pair.source.h.clock.now,
+  });
+  const deleted = await lifecycle.delete(
+    Command.parse({
+      id: `person-delete-${parent}`,
+      deviceId: "person",
+      payload: { type: "thread.delete", threadId: parent, force: true },
+    }),
+  );
+  expect(deleted.ok).toBe(true);
+  // The child ends there afterwards: its result has no parent left to reach.
+  await pair.emit(threadId, { type: "turn.ended", agent: "root", outcome: "interrupted" });
+  const owed = () =>
+    pair.source.daemon.store.atomic((db) => ({
+      unsent: db.prepare("SELECT 1 FROM machine_child_outbox WHERE sent=0").all().length,
+      undelivered: db
+        .prepare("SELECT 1 FROM machine_children WHERE id=? AND (settled=0 OR delivered=0)")
+        .all(threadId).length,
+    }));
+  await vi.waitFor(() => expect(owed()).toEqual({ unsent: 0, undelivered: 0 }), {
+    timeout: 20_000,
+  });
+  expect(parentInputs(pair).join("\n")).not.toContain(threadId);
+}, 60_000);
+
+it("a stopped parent's waiting result never makes the poll wake itself through the events it writes on the parent", async () => {
+  const gated = gatedTransport();
+  const pair = await pairedMachines({ access: "operate", sourceTransport: gated.transport });
+  const threadId = await settledUnderStoppedParent(pair);
+  // Each child update there wrote an agent.seen event on the parent here, which reaches the
+  // children as activity on the parent. Settled now, with only its waiting result left, the
+  // poll falls back to the slow re-check pace: 500 ms here, not the 50 ms poll.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const before = gated.statusCalls();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  expect(gated.statusCalls() - before).toBeLessThanOrEqual(6);
+  expect(receipts(pair)).toEqual([]);
+  // And it still arrives, once, when the person sends the parent on.
   await resumedOnce(pair, threadId);
 }, 60_000);

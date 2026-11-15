@@ -8,6 +8,21 @@ import type { Sessions } from "./sessions.ts";
 import { lostWork } from "./lost-work.ts";
 import { runsProviderWork } from "./transition-history.ts";
 import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
+
+/** A thread and every delegated child thread under it on this machine, parents first. */
+export function threadTree(
+  repo: Pick<import("./repository.ts").EngineRepository, "state">,
+  id: ThreadId,
+): ThreadId[] {
+  const ids = new Set<ThreadId>([id]);
+  for (const owner of ids) {
+    const state = repo.state(owner);
+    for (const record of Object.values(state?.agents ?? {}))
+      // A child on another machine lives there; its machine's own tree owns it.
+      if (record.agent.childThreadId && !record.agent.machine) ids.add(record.agent.childThreadId);
+  }
+  return [...ids];
+}
 import { threadAttention } from "@ace/projection";
 
 /** Live engine work in a thread tree; durable records alone never count. */
@@ -54,15 +69,7 @@ export class ThreadLiveness {
    * child count, so this walks the whole tree; each thread is visited once.
    */
   tree(id: ThreadId): ThreadId[] {
-    const ids = new Set<ThreadId>([id]);
-    for (const owner of ids) {
-      const state = this.ports.repo.state(owner);
-      for (const record of Object.values(state?.agents ?? {}))
-        // A child on another machine lives there; its machine's own tree owns it.
-        if (record.agent.childThreadId && !record.agent.machine)
-          ids.add(record.agent.childThreadId);
-    }
-    return [...ids];
+    return threadTree(this.ports.repo, id);
   }
   /** Children first, so a parent sees its children's settled statuses. */
   async reconcileTree(id: ThreadId): Promise<void> {

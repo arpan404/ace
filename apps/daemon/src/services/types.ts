@@ -34,6 +34,8 @@ export interface Services {
   ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
@@ -41,6 +43,8 @@ export interface Services {
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
+  /** Shares provider CLI probes between status and engine discovery until the engine is up. */
+  startupProbes?: import("@ace/provider-kit/discovery").StartupProbes;
   utility?: import("./utility.ts").UtilityService;
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
@@ -78,6 +82,8 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  /** What ace-media runs on (ADR 0148): its probe's list and each source's steps. */
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
   computer?: ComputerClient;
   /** Cowork on the screen (ADR 0143): the person's lease per app, shared by tools and live view. */

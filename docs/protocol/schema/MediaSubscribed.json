@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaSubscribed.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "connection": {
+      "$ref": "https://ace.local/protocol/v1/MediaConnectionId.json"
+    },
+    "poster": {
+      "$ref": "https://ace.local/protocol/v1/MediaPoster.json"
+    }
+  },
+  "required": [
+    "connection"
+  ],
+  "type": "object"
+}

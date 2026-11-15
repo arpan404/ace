@@ -17,6 +17,8 @@ const Entry = z.object({
   kind: z.enum(["result", "notice"]),
   text: z.string(),
 });
+const Paged = Entry.extend({ at: z.number() });
+const PAGE = 64;
 
 /**
  * What the parents of children on other machines are owed, kept until each one has been
@@ -33,26 +35,39 @@ export class ChildOutbox {
         text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0)`),
     );
   }
-  queue(entry: OutboxEntry): void {
-    this.store.atomic((db) =>
+  /** True when the entry is new; the same key queued again changes nothing. */
+  queue(entry: OutboxEntry): boolean {
+    const result = this.store.atomic((db) =>
       db
         .prepare(
           "INSERT OR IGNORE INTO machine_child_outbox (key,child,parent,kind,text) VALUES (?,?,?,?,?)",
         )
         .run(entry.key, entry.child, entry.parent, entry.kind, entry.text),
     );
+    return Number(result.changes) > 0;
   }
-  /** Undelivered entries, oldest first. */
-  unsent(): OutboxEntry[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT key,child,parent,kind,text FROM machine_child_outbox WHERE sent=0 ORDER BY rowid LIMIT 64",
-          )
-          .all(),
-      )
-      .map((row) => Entry.parse(row));
+  /**
+   * Undelivered entries, oldest first, a page at a time: entries that wait (a stopped parent's)
+   * never keep newer ones behind them from being reached.
+   */
+  *unsent(): Generator<OutboxEntry> {
+    let after = 0;
+    for (;;) {
+      const rows = this.store
+        .atomic((db) =>
+          db
+            .prepare(
+              "SELECT rowid AS at,key,child,parent,kind,text FROM machine_child_outbox WHERE sent=0 AND rowid>? ORDER BY rowid LIMIT ?",
+            )
+            .all(after, PAGE),
+        )
+        .map((row) => Paged.parse(row));
+      for (const { at, ...entry } of rows) {
+        after = at;
+        yield entry;
+      }
+      if (rows.length < PAGE) return;
+    }
   }
   /** True once the entry named `key` reached its parent. */
   wasSent(key: string): boolean {

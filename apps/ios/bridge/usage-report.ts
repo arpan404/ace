@@ -71,15 +71,7 @@ export function combineUsage(request: UsageCombineRequest): UsageReportReply {
   );
   const days = span.from ? dayRange(span.from, span.to) : [];
   const before = span.from ? previousSpan(span.from, span.to) : { from: "", to: "" };
-  const modelName = new Map(
-    parts.flatMap((part) =>
-      part.modelNames.map((entry) => [`${entry.provider}\0${entry.model}`, entry.name]),
-    ),
-  );
-  const names = {
-    provider: providerName,
-    model: (provider: string, model: string) => modelName.get(`${provider}\0${model}`) ?? model,
-  };
+  const names = { provider: providerName };
   const report = usageReport(parts, days);
   const previous = usageReport(
     parts.map((part) => ({

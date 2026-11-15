@@ -49,7 +49,7 @@ struct ThreadActionItems: View {
                 Button("Wake", ace: .sun) { organizer.wake(key) }
             } else if !settled, !snoozeOptions.isEmpty {
                 Menu {
-                    ForEach(snoozeOptions) { option in Button(option.label) { organizer.snooze(key, option.id) } }
+                    SnoozeChoiceButtons(choices: SnoozeChoice.list(times: snoozeOptions, row: row)) { organizer.snooze(key, $0) }
                 } label: { Label("Snooze", ace: .bellSimpleZ) }
             }
             ForEach(block("settle"), id: \.self, content: item)
@@ -87,6 +87,23 @@ struct ThreadActionItems: View {
         case "restore": .trayArrowUp
         case "delete": .trash
         default: .dotsThree
+        }
+    }
+}
+
+/// A Snooze menu's choices: an event with what brings the thread back under its label, then
+/// each time. `pick` gets the choice's preset id.
+struct SnoozeChoiceButtons: View {
+    let choices: [SnoozeChoice]
+    let pick: (String) -> Void
+
+    var body: some View {
+        ForEach(choices) { choice in
+            Button { pick(choice.id) } label: {
+                Text(choice.label)
+                if let detail = choice.detail { Text(detail) }
+            }
+            .accessibilityIdentifier("thread.snooze.\(choice.id)")
         }
     }
 }

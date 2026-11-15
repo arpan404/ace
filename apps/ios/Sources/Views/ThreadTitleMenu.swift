@@ -75,8 +75,9 @@ struct ThreadTitleMenu: View, Equatable {
                 label(chevron: false).accessibilityIdentifier("thread.title")
             }
         }
-        // UIKit measures bar items at their ideal size: the toolbar gives the width.
-        .frame(width: width, alignment: alignment)
+        // UIKit measures the title at its ideal size, the width the toolbar gives, and may give
+        // it less where the bar's buttons need the room: it narrows, never pushing them out.
+        .frame(minWidth: 0, idealWidth: width, maxWidth: width, alignment: alignment)
     }
 
     private func label(chevron: Bool) -> some View {
@@ -85,7 +86,7 @@ struct ThreadTitleMenu: View, Equatable {
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             subtitle(chevron: chevron)
         }
-        .frame(width: width, alignment: alignment)
+        .frame(minWidth: 0, idealWidth: width, maxWidth: width, alignment: alignment)
         // The whole heading is the target: both lines and the space between them.
         .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())

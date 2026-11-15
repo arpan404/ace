@@ -37,7 +37,7 @@ export interface VideoFanoutOptions {
   keyframe(encode: string): void;
   /** A viewer started or stopped showing video. */
   playing(id: string, playing: boolean): void;
-  /** A chunk went to a viewer's transport. */
+  /** A viewer's transport took a chunk (refused attempts are not reported). */
   sent?(id: string, sequence: number, bytes: number): void;
   /** A delta didn't fit a viewer's window and was dropped. */
   dropped?(id: string): void;
@@ -202,7 +202,6 @@ export class VideoFanout<C extends VideoPiece> {
       const entry = { sequence: chunk.sequence, bytes: chunk.bytes.length };
       viewer.inflight.push(entry);
       viewer.inflightBytes += entry.bytes;
-      this.options.sent?.(viewer.id, chunk.sequence, entry.bytes);
       let sent = false;
       try {
         sent = viewer.sink.send(chunk);
@@ -217,8 +216,11 @@ export class VideoFanout<C extends VideoPiece> {
           viewer.inflightBytes -= entry.bytes;
         }
         viewer.queue.unshift(chunk);
+        viewer.queuedBytes += entry.bytes;
         return;
       }
+      // Only a chunk the transport took counts as sent: retries of a refused one are not.
+      this.options.sent?.(viewer.id, chunk.sequence, entry.bytes);
       if (chunk.key && !viewer.playing) {
         viewer.playing = true;
         this.options.playing(viewer.id, true);

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
+import { MediaBinding, MediaCodecs, MediaSubscribed } from "./media-connection.ts";
 import { ScreenAgentScope } from "./screen-ui.ts";
 import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
@@ -64,6 +67,8 @@ export const ScreenState = z.object({
   agentPointer: AgentPointer.optional(),
   /** The person used this session's app within the last 3 s; agents' actions wait meanwhile. */
   personActive: z.boolean().optional(),
+  /** What the live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: MediaAcceleration.optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
 const ScreenBounds = z.object({
@@ -147,7 +152,16 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     threadId: ScreenAgentScope.shape.threadId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
-  z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
+  z.object({
+    op: z.literal("subscribe"),
+    sessionId: ScreenId,
+    /** What the client knows of its link (ADR 0149); it only lowers where the stream starts. */
+    link: MediaLinkHint.optional(),
+    /** Deliver the pictures on that media connection (`media.connect`) instead of this socket. */
+    media: MediaBinding.optional(),
+    /** The viewer's decoders, best first (WebCodecs strings); with `media`, ace-media encodes for them. */
+    codecs: MediaCodecs.optional(),
+  }),
   /**
    * A watching view's live stream: H.264 at the size, rate and bit rate it can show, where the
    * Mac's helper encodes it; JPEG otherwise. The last view leaving returns the session to stills.
@@ -198,6 +212,8 @@ export const ScreenServerMessage = z.discriminatedUnion("type", [
     error: z.string().optional(),
     errorCode: ScreenError.shape.code.optional(),
     holder: z.object({ sessionId: ScreenId, owner: z.string().max(1024) }).optional(),
+    /** A `subscribe` that named a media connection: where its pictures go. */
+    media: MediaSubscribed.optional(),
   }),
 ]);
 export type ScreenPermissions = z.infer<typeof ScreenPermissions>;

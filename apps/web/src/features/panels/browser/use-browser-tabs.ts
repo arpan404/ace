@@ -1,4 +1,5 @@
-import { useConnectionState, useThreadMeta } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useConnectionState, useThread } from "@ace/client-react";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { activateTab, shownTab, tabKey, useWorkspaceStore } from "@/lib/workspace/index.ts";
@@ -49,7 +50,7 @@ export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: s
   const live = useLive(source, threadId);
   const toast = useToast();
   const store = useWorkspaceStore();
-  const workspaceId = useThreadMeta(threadId)?.workspaceId;
+  const workspaceId = useThread(threadId, ["thread"], readWorkspaceId);
   const online = useConnectionState() === "ready";
   const tabs: readonly BrowserTabView[] = live?.tabs ?? [];
   const shownId = ownId;
@@ -172,3 +173,6 @@ export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: s
 }
 
 export type BrowserTabs = ReturnType<typeof useBrowserTabs>;
+
+/** One field of the thread's meta: a step elsewhere in the thread doesn't re-render. */
+const readWorkspaceId = (reader: ThreadReader) => reader.thread?.workspaceId;

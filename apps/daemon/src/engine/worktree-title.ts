@@ -31,26 +31,49 @@ async function run(
  * Native process execution belongs to the injected engine boundary. Renaming ace's provisional
  * branch is ace bookkeeping, so the worktree's hooks, filters and fsmonitor never run for it.
  */
-export async function runWorktreeGit(
+export function runWorktreeGit(
   execute: Execute,
   baseEnv: NodeJS.ProcessEnv,
   cwd: string,
   args: string[],
 ): Promise<string | undefined> {
+  return worktreeGitScope(execute, baseEnv)(cwd, args);
+}
+/**
+ * `runWorktreeGit` for one rename: each checkout's hook and filter names are looked up once,
+ * on its first call, and every later call in the scope runs under the same guards. Make a new
+ * scope per rename so a hook added between renames is seen.
+ */
+export function worktreeGitScope(execute: Execute, baseEnv: NodeJS.ProcessEnv): WorktreeGit {
+  const guards = new Map<string, Promise<Record<string, string> | undefined>>();
+  return async (cwd, args) => {
+    let guard = guards.get(cwd);
+    if (!guard) {
+      guard = guardEnv(execute, baseEnv, cwd);
+      guards.set(cwd, guard);
+    }
+    const env = await guard;
+    if (!env) return undefined;
+    return run(execute, { ...baseEnv, ...env }, cwd, ["-c", "protocol.allow=never", ...args]);
+  };
+}
+async function guardEnv(
+  execute: Execute,
+  baseEnv: NodeJS.ProcessEnv,
+  cwd: string,
+): Promise<Record<string, string> | undefined> {
   const keys = await run(execute, { ...baseEnv, ...nonExecutingEnv() }, cwd, [
     "-c",
     "protocol.allow=never",
     ...executionKeyQuery,
   ]);
-  let env: Record<string, string>;
   try {
-    env = nonExecutingEnv(keys ?? "");
+    return nonExecutingEnv(keys ?? "");
   } catch (error) {
     // A hook shadowing a reserved event can't be neutralised; leave the branch alone.
     if (error instanceof GitError) return undefined;
     throw error;
   }
-  return run(execute, { ...baseEnv, ...env }, cwd, ["-c", "protocol.allow=never", ...args]);
 }
 /** A model-generated slug is usable when it is already sanitized and within budget. */
 function validBranchSlug(slug: string): boolean {

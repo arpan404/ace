@@ -10,6 +10,8 @@ import { initialChunk, initialPreloads, windowsEntryGuard } from "./initial-prel
 import { mermaidChunk } from "./mermaid-chunk.ts";
 import { lazyIconChunk } from "./icon-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
+import { routePreloads } from "./route-preloads.ts";
+import { precompress } from "./precompress.ts";
 import { reactPlugins } from "./react-plugins.ts";
 import {
   zodWithoutJsonSchema,
@@ -29,6 +31,16 @@ import { workerJsonZod } from "./worker-json-zod.ts";
 import { pageZod, workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
+const routeComponent = (file: string) =>
+  `${fileURLToPath(new URL(`./src/routes/${file}`, import.meta.url))}?tsr-split=component`;
+/** The first screens a page load opens at, and the route components each loads first. */
+const firstScreens = [
+  {
+    path: "^/t/[^/]+/?$",
+    modules: [routeComponent("_home.tsx"), routeComponent("_home.t.$threadId.tsx")],
+  },
+  { path: "^/?$", modules: [routeComponent("_home.tsx"), routeComponent("_home.index.tsx")] },
+];
 /** Names this build, so data kept by another build (persisted lookups) is never read as ours. */
 const build = Date.now().toString(36);
 
@@ -49,7 +61,10 @@ export default defineConfig(({ mode }) => ({
     preloads.plugin,
     initialBundle(),
     notificationWorker(),
+    // Before the content policy, which hashes the inline script this adds.
+    routePreloads(firstScreens),
     contentPolicy(),
+    precompress(),
     // Windows: fail the build if the page entry ever joins a shared chunk (`initial-preloads.ts`).
     ...(process.platform === "win32"
       ? [windowsEntryGuard(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))]
@@ -81,9 +96,7 @@ export default defineConfig(({ mode }) => ({
           groups: [
             initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
             mermaidChunk(),
-            lazyIconChunk(
-              `${fileURLToPath(new URL("./src/routes/_home.t.$threadId.tsx", import.meta.url))}?tsr-split=component`,
-            ),
+            lazyIconChunk(routeComponent("_home.t.$threadId.tsx")),
           ],
         },
       },

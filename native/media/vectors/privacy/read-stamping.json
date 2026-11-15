@@ -1,0 +1,142 @@
+[
+  {
+    "name": "an epoch after a private one is stamped only from 100 ms after it was applied",
+    "start": 1,
+    "steps": [
+      {
+        "apply": {
+          "epoch": 2,
+          "followsPrivate": false,
+          "at": 0
+        }
+      },
+      {
+        "read": {
+          "at": 1,
+          "expect": 2
+        }
+      },
+      {
+        "apply": {
+          "epoch": 3,
+          "followsPrivate": true,
+          "at": 500
+        }
+      },
+      {
+        "read": {
+          "at": 500,
+          "expect": 2
+        }
+      },
+      {
+        "read": {
+          "at": 599,
+          "expect": 2
+        }
+      },
+      {
+        "read": {
+          "at": 600,
+          "expect": 3
+        }
+      }
+    ]
+  },
+  {
+    "name": "an epoch after a public one is stamped at once",
+    "start": 1,
+    "steps": [
+      {
+        "apply": {
+          "epoch": 2,
+          "followsPrivate": false,
+          "at": 10
+        }
+      },
+      {
+        "read": {
+          "at": 10,
+          "expect": 2
+        }
+      }
+    ]
+  },
+  {
+    "name": "a periodic epoch inside the window doesn't shorten it",
+    "start": 4,
+    "steps": [
+      {
+        "apply": {
+          "epoch": 5,
+          "followsPrivate": true,
+          "at": 0
+        }
+      },
+      {
+        "apply": {
+          "epoch": 6,
+          "followsPrivate": false,
+          "at": 50
+        }
+      },
+      {
+        "read": {
+          "at": 60,
+          "expect": 4
+        }
+      },
+      {
+        "read": {
+          "at": 99,
+          "expect": 4
+        }
+      },
+      {
+        "read": {
+          "at": 100,
+          "expect": 6
+        }
+      }
+    ]
+  },
+  {
+    "name": "a second private interval inside the window extends it with the newest private epoch",
+    "start": 1,
+    "steps": [
+      {
+        "apply": {
+          "epoch": 2,
+          "followsPrivate": true,
+          "at": 0
+        }
+      },
+      {
+        "apply": {
+          "epoch": 3,
+          "followsPrivate": false,
+          "at": 30
+        }
+      },
+      {
+        "apply": {
+          "epoch": 4,
+          "followsPrivate": true,
+          "at": 40
+        }
+      },
+      {
+        "read": {
+          "at": 120,
+          "expect": 3
+        }
+      },
+      {
+        "read": {
+          "at": 140,
+          "expect": 4
+        }
+      }
+    ]
+  }
+]

@@ -99,38 +99,6 @@ export class Digests {
         );
     }
   }
-  readAgent(thread: string, ordinal: number, agent: string): TurnDigest {
-    const counters = Object.fromEntries(
-      this.data
-        .sql(
-          "SELECT key,value FROM long_agent_counts WHERE thread_id=? AND ordinal=? AND agent_id=?",
-        )
-        .all(thread, ordinal, agent)
-        .map((row) => [String(row.key), Number(row.value)]),
-    );
-    const digest = digestFromCounters(counters);
-    const files = this.data
-      .sql(
-        "SELECT path,added,removed,unknown,refs FROM long_agent_files WHERE thread_id=? AND ordinal=? AND agent_id=? ORDER BY path LIMIT 65",
-      )
-      .all(thread, ordinal, agent)
-      .map((row) => FileRow.parse(row));
-    digest.files = files.slice(0, 64).map((row) => ({
-      path: row.path,
-      added: row.unknown ? null : row.added,
-      removed: row.unknown ? null : row.removed,
-    }));
-    const commands = this.data
-      .sql(
-        "SELECT c.data FROM long_commands c JOIN long_items i ON i.thread_id=c.thread_id AND i.item_id=c.item_id WHERE c.thread_id=? AND c.ordinal=? AND i.agent_id=? ORDER BY c.item_id LIMIT 65",
-      )
-      .all(thread, ordinal, agent);
-    digest.commands = commands
-      .slice(0, 64)
-      .map((row) => Command.parse(JSON.parse(String(row.data))));
-    digest.truncated = files.length > 64 || commands.length > 64;
-    return TurnDigest.parse(digest);
-  }
   rangeCounts(thread: string, seq: number): Counters {
     const current = this.counts(thread, 0);
     for (const key of Object.keys(current)) {

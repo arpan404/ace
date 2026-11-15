@@ -283,8 +283,14 @@ import Observation
     /// machine checks its own now instead of at its next heartbeat.
     /// A machine on its account relay checks whether its direct address answers again.
     func wake() {
-        for session in inbox.sessions { session.client.wake() }
+        wakeClients()
         reconsiderRoutes()
+    }
+    /// Wakes every machine's client now. Each wake is answered only by the pong to a ping sent
+    /// at or after it, and a later wake never moves an earlier one's deadline (the shared
+    /// client's heartbeat, ADR 0150), so every change gets its own check, however often they come.
+    private func wakeClients() {
+        for session in inbox.sessions { session.client.wake() }
     }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
@@ -295,11 +301,12 @@ import Observation
         for session in inbox.sessions { session.client.readAheadAllowed = allowed }
     }
     func network(online: Bool, interfaceChanged: Bool) {
-        for session in inbox.sessions {
-            session.client.network(online)
-            // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't.
-            if online && interfaceChanged { session.client.retry() }
-        }
+        for session in inbox.sessions { session.client.network(online) }
+        // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
+        // and a socket still ready on the old one may be dead without having closed: a ready
+        // socket must answer a ping within seconds or is replaced, and a waiting reconnect runs
+        // now (`wake`), instead of waiting for the next heartbeat.
+        if online && interfaceChanged { wakeClients() }
         if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {

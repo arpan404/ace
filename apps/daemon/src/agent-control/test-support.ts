@@ -47,6 +47,13 @@ export function setup(
   steeringMode?: "interrupt-restart",
   /** Engine recovery settings, e.g. a thread's limit policy, read at once or loaded later. */
   recovery?: Pick<import("../engine/index.ts").EngineOptions, "preferences" | "recovery">,
+  /** The provider boundary: rediscovery of a CLI, and what admission refreshes first. */
+  providers: {
+    waitForProvider?: import("../engine/index.ts").EngineOptions["waitForProvider"];
+    refreshProvider?(
+      engine: Engine,
+    ): import("./delegations.ts").DelegationDependencies["refreshProvider"];
+  } = {},
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) scope().homes.push(home);
@@ -229,8 +236,10 @@ export function setup(
     clock,
     idleMs: 100000,
     silenceMs: 100000,
+    ...(providers.waitForProvider ? { waitForProvider: providers.waitForProvider } : {}),
     onError: (error) => errors.push(error),
   });
+  const refreshProvider = providers.refreshProvider?.(engine);
   let service = new DelegationService({
     store,
     engine,
@@ -241,6 +250,7 @@ export function setup(
     ...(accounts ? { accounts } : {}),
     models: models ?? catalog,
     ...(providerEnabled ? { providerEnabled } : {}),
+    ...(refreshProvider ? { refreshProvider } : {}),
     admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
@@ -364,6 +374,7 @@ export function setup(
         ...(accounts ? { accounts } : {}),
         models: models ?? catalog,
         ...(providerEnabled ? { providerEnabled } : {}),
+        ...(refreshProvider ? { refreshProvider } : {}),
         admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });

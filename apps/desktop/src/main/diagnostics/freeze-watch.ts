@@ -10,6 +10,7 @@ import {
 import { Worker } from "node:worker_threads";
 import type { Log } from "../log/desktop-log.ts";
 import { bundledWorkerUrl } from "../bundled-worker.ts";
+import { mainBeatMs } from "./main-beat.ts";
 
 export interface FreezeWatchOptions {
   log: Log;
@@ -21,6 +22,8 @@ export interface FreezeWatchOptions {
   /** Starts the watchdog thread; the packaged app loads it from outside the asar archive. */
   spawn?: StallWatchdogOptions["spawn"];
   timing?: Partial<StallWatchdogTiming>;
+  /** The heartbeat's clock: the app's one main-thread beat (`main-beat.ts`). */
+  clock?: StallWatchdogOptions["clock"];
 }
 
 /**
@@ -46,10 +49,11 @@ export function watchFreezes(options: FreezeWatchOptions): () => Promise<void> {
     return startStallWatchdog({
       directory: options.directory,
       pid: options.pid,
-      clock: systemHeartbeat,
+      clock: options.clock ?? systemHeartbeat,
       operation: options.operation,
-      // Shorter than the daemon's: two seconds of a frozen window is already felt.
-      timing: { thresholdMs: 2_000, ...options.timing },
+      // Shorter than the daemon's: two seconds of a frozen window is already felt. Read every
+      // half second, on the app's one beat, which is plenty for that threshold.
+      timing: { thresholdMs: 2_000, beatMs: mainBeatMs, checkMs: mainBeatMs, ...options.timing },
       ...(options.spawn ? { spawn: options.spawn } : {}),
       onStall: (report) =>
         log(

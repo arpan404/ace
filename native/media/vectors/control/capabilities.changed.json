@@ -1,0 +1,38 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "capabilities.changed",
+    "capabilities": [
+      {
+        "step": "decode",
+        "codec": "hvc1.1.6.L120.B0",
+        "backend": "mf",
+        "hardware": true,
+        "zeroCopy": true,
+        "state": "ok",
+        "maxWidth": 7680,
+        "maxHeight": 4320
+      },
+      {
+        "step": "jpeg-encode",
+        "codec": "jpeg",
+        "backend": "vaapi",
+        "hardware": true,
+        "zeroCopy": false,
+        "state": "ok",
+        "maxWidth": 16384,
+        "maxHeight": 16384
+      },
+      {
+        "step": "encode",
+        "codec": "avc1.42e01f",
+        "backend": "chrome",
+        "hardware": false,
+        "zeroCopy": false,
+        "state": "ok",
+        "maxWidth": 1920,
+        "maxHeight": 1080
+      }
+    ]
+  }
+}

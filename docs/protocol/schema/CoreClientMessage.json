@@ -10,7 +10,8 @@
             "devices",
             "browser",
             "screen",
-            "provider_auth"
+            "provider_auth",
+            "media"
           ],
           "type": "string"
         },
@@ -54,6 +55,13 @@
         },
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "mediaTicket": {
+          "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
+        },
+        "nextTicket": {
+          "const": true,
+          "type": "boolean"
         },
         "protocolVersion": {
           "const": 1,
@@ -102,6 +110,25 @@
         "subscriptionId": {
           "minLength": 1,
           "type": "string"
+        },
+        "tail": {
+          "properties": {
+            "bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "items": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "bytes"
+          ],
+          "type": "object"
         },
         "type": {
           "const": "subscribe",

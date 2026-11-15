@@ -68,6 +68,7 @@ struct BrowserScreen: View {
         .animation(.default, value: annotating)
         .animation(.default, value: splitTab)
         .animation(.default, value: state?.recording)
+        .animation(.default, value: browser.view?.watch)
         .background(AceDesign.Surface.background)
         .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
@@ -206,7 +207,15 @@ struct BrowserScreen: View {
             .disabled(model.approvalSubmissions[help.id] != nil || !model.canOperate)
         }
         // While drawing, the drawing strip is the one sentence; who has the page comes back after.
-        if !annotating, let shown = state?.shown, let tabId = state?.activeTabId {
+        if !annotating, browser.view?.watch?.on == true {
+            BrowserStrip(sentence: state?.shown?.agent.map { "Watching \($0)" } ?? "Watching the agent") {
+                Button("Stop") { model.browserWatch(false) }.accessibilityIdentifier("browser.watch.stop")
+                if model.canOperate, let tabId = state?.activeTabId, state?.shown?.agent != nil {
+                    Button("Take over") { model.browserTakeOver(tabId, true) }.accessibilityIdentifier("browser.takeOver")
+                }
+            }
+            .transition(.opacity)
+        } else if !annotating, let shown = state?.shown, let tabId = state?.activeTabId {
             if shown.private {
                 BrowserStrip(sentence: "Agents are kept out of this page") {
                     if model.canOperate {

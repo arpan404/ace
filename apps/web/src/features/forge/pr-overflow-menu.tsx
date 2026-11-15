@@ -1,7 +1,9 @@
 import { can, forgeDisplayName } from "@ace/ui-core";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useSidebarAll } from "@ace/client-react";
+import { useSidebarAll, useSidebarIndex } from "@ace/client-react";
+import type { SidebarReader } from "@ace/client";
+import type { ThreadListEntry } from "@ace/protocol";
 import { lifecycleLabels } from "@ace/ui-core";
 import { prUrl } from "@ace/forge/pr-reference";
 import {
@@ -50,15 +52,20 @@ const icon = (Glyph: typeof LinkIcon) => <Glyph aria-hidden size={16} />;
 
 /** The tasks of this project, for linking the PR or checking it out in one. */
 function useProjectTasks(workspaceId: string) {
-  return (
-    useSidebarAll((reader) =>
-      reader.ids.flatMap((id) => {
-        const thread = reader.thread(id);
-        return thread?.workspaceId === workspaceId ? [{ id, title: thread.title }] : [];
-      }),
-    ) ?? []
+  // Kept from the changed entries alone, and only a task's id or title changing counts.
+  const pick = useCallback(
+    (entry: ThreadListEntry) =>
+      entry.workspaceId === workspaceId ? { id: entry.id, title: entry.title } : undefined,
+    [workspaceId],
   );
+  return useSidebarIndex(pick, sameTask) ?? noTasks;
 }
+const sameTask = (a: ProjectTask, b: ProjectTask) => a.id === b.id && a.title === b.title;
+interface ProjectTask {
+  id: string;
+  title: string;
+}
+const noTasks: readonly ProjectTask[] = [];
 
 /**
  * Everything the PR panel can do besides its primary control, in five groups: tasks and
@@ -90,7 +97,11 @@ export function PrOverflowMenu(props: {
   const related = detail.relatedThreads;
   const hostId = props.hostThreadId;
   // The panel's own task, when it is one this device knows.
-  const host = useSidebarAll((reader) => (hostId && reader.thread(hostId) ? hostId : undefined));
+  const readHost = useCallback(
+    (reader: SidebarReader) => (hostId && reader.thread(hostId) ? hostId : undefined),
+    [hostId],
+  );
+  const host = useSidebarAll(readHost);
   const hostLinked = host !== undefined && related.some((t) => t.id === host);
   const unlinked = tasks.filter((task) => !related.some((t) => t.id === task.id));
   const writeTask = related.find((t) => t.id === actions.threadId);

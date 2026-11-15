@@ -93,3 +93,39 @@ export function limitDetails(
   lines.push({ label: "Read", value: formatAgo(window.observedAt, now) });
   return lines;
 }
+
+/** What a limit's row says at its right, the words a screen reader hears, and whether it warns. */
+export interface LimitWhen {
+  text: string;
+  spoken: string;
+  /** Out, or running out before its reset at this pace: the row turns red. */
+  runsOut: boolean;
+}
+
+const plain = (text: string, runsOut = false): LimitWhen => ({ text, spoken: text, runsOut });
+
+/**
+ * When a window runs out, is out until, or resets. A run-out before the reset is an estimate, so
+ * the row keeps it to "Out around Sun 9:00 PM" and the spoken words say the sentence in full.
+ */
+export function limitWhen(
+  window: AccountWindow,
+  now: number,
+  timeZone?: string,
+  locale?: string,
+): LimitWhen {
+  const time = (at: number) => limitTime(at, now, timeZone, locale);
+  if (window.stale) return plain("Not used since its reset");
+  if (window.leftPercent <= 0)
+    return plain(
+      window.resetsAt === null ? "Out, reset not reported" : `Out until ${time(window.resetsAt)}`,
+      true,
+    );
+  if (window.runsOutAt !== null) {
+    const at = time(roundEstimate(window.runsOutAt, now));
+    return { text: `Out around ${at}`, spoken: `Runs out around ${at}`, runsOut: true };
+  }
+  if (window.leftPercent >= 100) return plain("Fresh");
+  if (window.resetsAt === null) return plain("Reset not reported");
+  return plain(`Resets ${time(window.resetsAt)}`);
+}

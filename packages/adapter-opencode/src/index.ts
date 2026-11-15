@@ -33,6 +33,7 @@ export function createOpenCodeAdapter(
           },
           lease.server,
         );
+        lease.opened();
         return {
           ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get mcp() {
@@ -41,7 +42,8 @@ export function createOpenCodeAdapter(
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
+          send: (input, delivery, commandId, origin, fence) =>
+            session.send(input, delivery, commandId, origin, fence),
           configure: (selection) => session.configure(selection),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),

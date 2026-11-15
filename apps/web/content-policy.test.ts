@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { hostedPolicy } from "./content-policy.ts";
+import { hostedPolicy, unhashedInlineScripts } from "./content-policy.ts";
+import { withHints } from "./route-preloads.ts";
 
 const directives = (policy: string) =>
   new Map(
@@ -36,4 +37,24 @@ test("the hosted page runs only its own scripts: its inline boot scripts by hash
   const host = readFileSync(join(import.meta.dirname, "public", "_headers"), "utf8");
   expect(host).toContain("Content-Security-Policy: frame-ancestors 'none'");
   expect(host).toContain("X-Content-Type-Options: nosniff");
+});
+
+/** The page as the build writes it: the policy meta prepended to the final HTML. */
+const built = (html: string) =>
+  html.replace(
+    "<head>",
+    `<head><meta http-equiv="Content-Security-Policy" content="${hostedPolicy(html).replaceAll("'", "&#39;")}">`,
+  );
+
+test("a built page with the route preload script allows it by hash, and a script changed after the policy is caught", () => {
+  const source = readFileSync(join(import.meta.dirname, "index.html"), "utf8");
+  const hinted = withHints(
+    source,
+    { initial: ["assets/initial.js"], routes: [{ path: "^/t/", files: ["assets/thread.js"] }] },
+    "/",
+  );
+  const page = built(hinted);
+  expect(unhashedInlineScripts(page)).toEqual([]);
+  const changedLater = page.replace("var routes = ", "var routes = /* later */ ");
+  expect(unhashedInlineScripts(changedLater)).toHaveLength(1);
 });

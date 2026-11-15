@@ -1,3 +1,4 @@
+import { mediaAdmission } from "./services/media-connect.ts";
 import {
   connectHostToRelay,
   type HostChannel,
@@ -116,6 +117,11 @@ export async function startFilesRelay(
           }
           return;
         }
+        // Relay media streams are D2's: until they land, a hello naming `media` is refused.
+        if (hello.channel === "media") {
+          channel.close();
+          return;
+        }
         channel.authorize();
         // An account device shares its id with the same install's pairing (ADR 0115): revoking
         // that pairing closes only what the pairing opened. An empty id matches no revocation.
@@ -132,6 +138,7 @@ export async function startFilesRelay(
             kind: hello.channel ?? "files",
             device: device.id,
             sessionId: randomUUID(),
+            admission: mediaAdmission(admitted.account, device.generation),
             authorize: (scope) => {
               // An account device holds admin, for as long as it stays admitted.
               if (admitted.stillAdmitted) return admitted.stillAdmitted();

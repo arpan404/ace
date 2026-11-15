@@ -1,13 +1,13 @@
 import { commandContext } from "../commands.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 import { requestedBase, requestedBaseKey } from "../worktree-base.ts";
-import { nameWorktreeBranch, runWorktreeGit } from "./worktree-title.ts";
+import { nameWorktreeBranch, worktreeGitScope } from "./worktree-title.ts";
 const exec = promisify(execFile);
 test("fresh worktree branches use deduplicated title slugs instead of random IDs", async () => {
   const frames = scriptFrames();
@@ -130,8 +130,28 @@ async function createWorktreeThread(
 }
 
 function worktreeGit() {
-  return (cwd: string, args: string[]) => runWorktreeGit(exec, process.env, cwd, args);
+  return worktreeGitScope(exec, process.env);
 }
+
+test("the repository's hooks never run while ace renames a branch", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  try {
+    const { repo } = await setupRepo(h.home);
+    const marker = join(h.home, "hook-ran");
+    const hook = join(repo, ".git", "hooks", "reference-transaction");
+    await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`);
+    await chmod(hook, 0o755);
+    const workspace = h.store.createWorkspace(repo, "project");
+    const { id } = await createWorktreeThread(h, repo, workspace, 4);
+    await rm(marker, { force: true });
+    await nameWorktreeBranch(h.store, id, h.clock.now(), worktreeGit(), "fix-reconnect");
+    expect(h.store.getThread(id)?.details?.branch).toBe("ace/fix-reconnect");
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await h.close();
+  }
+});
 
 test("a model slug renames the provisional branch to a concise name", async () => {
   const frames = scriptFrames();

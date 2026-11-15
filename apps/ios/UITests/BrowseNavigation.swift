@@ -43,8 +43,8 @@ extension XCUIApplication {
                       "thread.work": "Work", "thread.attachments": "Attachments",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
                       "thread.turns": "Turns", "thread.logs": "Logs",
-                      "thread.menu.rename": "Rename", "thread.forkLast": "Fork from the last turn",
-                      "thread.merge": "Bring back to parent", "thread.continueOn": "Continue on"]
+                      "thread.menu.rename": "Rename…", "thread.forkLast": "Fork from the last turn",
+                      "thread.merge": "Bring back to parent…", "thread.continueOn": "Continue on"]
         // A menu item with a second line reads both in its label: match its first words.
         let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
                                                 labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch

@@ -65,6 +65,16 @@ export interface SessionOptions {
   storageReads?: () => boolean | Promise<boolean>;
   /** Agents' cursors drawn in the page (ADR 0082); omitted, none (captures still mask secrets). */
   cursor?: SessionCursor;
+  /**
+   * Whether a desktop backend is registered now, so a client can tell "Desktop app only" would
+   * open before moving a browser there. Omitted: the state doesn't say.
+   */
+  embeddedAvailable?: () => boolean;
+  /**
+   * The shown tab's video host as ace-media routes it (E4); omitted, the backend's own. Given
+   * the thread and the captured tab for the source's ids.
+   */
+  mediaVideo?: (host: import("./backend.ts").VideoHost) => import("./backend.ts").VideoHost;
   /** Freeze idle tabs; omitted, tabs stay live. */
   lifecycle?: import("./session-lifecycle.ts").LifecycleSchedule;
 }

@@ -42,6 +42,20 @@ async function choose(title: RegExp, item: string | RegExp) {
   if (ask) await userEvent.click(ask);
 }
 
+/** The row's menu item names, read and closed again. */
+async function menuItems(title: RegExp): Promise<string[]> {
+  const target = card(title);
+  if (!target) throw new Error(`No card for ${title}`);
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  const names = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent ?? "");
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  return names;
+}
+
 /** The thread as the daemon's list has it. */
 function listed(app: App, id: string) {
   const view = app.daemon.snapshot({ kind: "threads" });
@@ -53,18 +67,25 @@ const pinned = (title: RegExp) => {
   return row !== null && /\bPinned\b/.test(row.getAttribute("aria-label") ?? "");
 };
 
-test("offline, Archive hides the thread at once, says it will apply, and applies on reconnect", async () => {
+test("offline, Archive waits for a current list: nothing is hidden or sent, and once back it archives", async () => {
   const app = await openHome();
   app.client.networkOnline(false);
-  await choose(/Backpressure/, "Archive");
-
-  expect(card(/Backpressure/)).toBeNull();
-  const toast = await screen.findByText("Archived · Backpressure on broadcast fan-out");
-  expect(toast.closest("[role]")?.textContent).toContain("Will apply when reconnected");
+  // Archiving stops commands a thread left running: never decided on a list that isn't current.
+  const target = card(/Backpressure/);
+  if (!target) throw new Error("No Backpressure row");
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+  expect(await screen.findByText("Not changed yet")).toBeTruthy();
+  expect(card(/Backpressure/)).toBeTruthy();
   expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
 
   app.client.networkOnline(true);
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  await waitFor(async () => {
+    if (card(/Backpressure/)) await choose(/Backpressure/, "Archive");
+    expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined();
+  });
   expect(card(/Backpressure/)).toBeNull();
 });
 
@@ -96,14 +117,16 @@ test("Mark unread shows at once and a refusal puts the row back as read", async 
   const app = await openHome();
   app.client.networkOnline(false);
   await choose(/Backpressure/, "Mark unread");
-  expect(card(/Backpressure.*, unread/)).toBeTruthy();
+  // Offline the row claims nothing from the old list; the mark the person just made shows in its
+  // menu at once.
+  expect(await menuItems(/Backpressure/)).toContain("Mark read");
 
   app.daemon.refuseCommands("forbidden", "thread.read");
   app.client.networkOnline(true);
   expect(
     await screen.findByRole("heading", { name: "Couldn't mark the thread unread" }),
   ).toBeTruthy();
-  await waitFor(() => expect(card(/Backpressure.*, unread/)).toBeNull());
+  await waitFor(async () => expect(await menuItems(/Backpressure/)).toContain("Mark unread"));
 });
 
 test("a rename the daemon refuses opens the field again with the typed title", async () => {

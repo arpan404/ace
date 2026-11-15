@@ -41,7 +41,7 @@ export class SearchReplay {
   private readonly itemKey;
   private readonly threadPayload;
   private readonly history: HistoryIndex;
-  /** Events from `trust.from` on were written by this build and are read as stored. */
+  /** Which events are read as stored, by their sequence (`isTrusted`). */
   private readonly trust: StoredTrust;
   constructor(db: DatabaseSync, history: HistoryIndex, trust: StoredTrust = untrusted()) {
     this.history = history;
@@ -156,7 +156,7 @@ export class SearchReplay {
       // A stored row is read as `Store.readEvents` reads it: as stored when this build wrote it.
       const read = oversized
         ? this.bounded(row, capacity)
-        : storedEvent({ ...raw, payload: this.payload.get(row.seq)?.payload }, this.trust.from);
+        : storedEvent({ ...raw, payload: this.payload.get(row.seq)?.payload }, this.trust);
       const event = read.event;
       const size = read.bytes + 1;
       if (bytes + size > q.maxBytes) throw new Error("search_replay_page_limit");

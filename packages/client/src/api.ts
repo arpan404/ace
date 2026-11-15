@@ -108,6 +108,13 @@ export interface ClientApi {
   activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
   /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
   usePaths?(paths: import("./multipath.ts").Multipath): void;
+  /**
+   * The one link estimate the client keeps: the active path's smoothed round trip in ms, when
+   * it last took a sample and which path it is for, from the path planner's pings (ADR 0114).
+   * Read it when needed; it changes as pongs arrive. Undefined with a single route, while
+   * connecting, or before the first pong.
+   */
+  linkEstimate?(): import("./multipath.ts").LinkEstimate | undefined;
   intent(id: string): Selection<Intent | undefined>;
   pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
   /** One kept send, as `pendingSends` lists it, read now. */
@@ -136,6 +143,11 @@ export interface ClientApi {
    * it on its first render, before the lease reconciles it. It may be behind (`syncing`).
    */
   cachedThread?(id: string): ThreadSource | undefined;
+  /**
+   * The store of a thread this client still has, leased or cached, without making it the most
+   * recently used: for checks that must not themselves keep a thread cached.
+   */
+  peekThread?(id: string): ThreadReader | undefined;
   /** Likewise for `threads()`. */
   cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {

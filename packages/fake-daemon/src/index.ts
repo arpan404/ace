@@ -37,6 +37,7 @@ export {
   multiDayShape,
   multiDayTurn,
   multiDayPrelude,
+  checkpointAnswer,
 } from "./scenarios/multi-day-thread.ts";
 export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/multi-day-thread.ts";
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
@@ -154,3 +155,4 @@ export type { FakeSpadeNote } from "./spade-notes.ts";
 export type { FakeSpadeSpending } from "./spade-oversight.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

@@ -173,6 +173,39 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received).toEqual([first]);
   });
 
+  it("a refused keyframe keeps its bytes, so retries never widen the room for deltas behind it", () => {
+    const { fanout, keyframes, viewer } = setup({ frames: 4, bytes: 100 });
+    const phone = viewer("phone");
+    phone.refuse(true);
+    fanout.publish("e1", key(100));
+    for (let retry = 0; retry < 100; retry++) fanout.flush();
+    fanout.publish("e1", delta(60));
+    fanout.publish("e1", delta(40));
+    const asked = keyframes.length;
+    // The window's 100 bytes are taken: one more byte is a drop and a keyframe request.
+    fanout.publish("e1", delta(1));
+    expect(keyframes.length).toBe(asked + 1);
+  });
+
+  it("only chunks the transport took are reported as sent", () => {
+    const reported: number[] = [];
+    let accepting = false;
+    const fanout = new VideoFanout<Chunk>({
+      keyframe: () => {},
+      playing: () => {},
+      sent: (_id, chunkSequence) => reported.push(chunkSequence),
+    });
+    fanout.add("phone", { send: () => accepting });
+    fanout.assign("phone", "e1");
+    const first = key();
+    fanout.publish("e1", first);
+    for (let retry = 0; retry < 10; retry++) fanout.flush();
+    expect(reported).toEqual([]);
+    accepting = true;
+    fanout.flush();
+    expect(reported).toEqual([first.sequence]);
+  });
+
   it("a viewer asking for a keyframe drops deltas until it gets one", () => {
     const { fanout, keyframes, viewer } = setup({ frames: 8, bytes: 10_000 });
     const phone = viewer("phone");

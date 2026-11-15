@@ -4,6 +4,8 @@ import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import { MachineFailure } from "./transport.ts";
+import { RetryBackoff } from "./retry-backoff.ts";
+import { QuietBackoff } from "./quiet-backoff.ts";
 
 /** Rows in the calling thread for command jobs on other machines (`machine_jobs`). */
 export const remoteJobPrefix = "ace-machine-job:";
@@ -11,6 +13,13 @@ export const remoteJobPrefix = "ace-machine-job:";
 const graceMs = 10 * 60 * 1000;
 /** Jobs read in one call to their machine. */
 const batch = 16;
+/** At most this long between reads of a machine whose job reads keep failing. */
+const unreachableCapMs = 30_000;
+/**
+ * Jobs that keep running are read at most this many polls apart (5 s at the default 1 s poll):
+ * a job's end shows that much later at worst, and its thread is held until then, never done early.
+ */
+const quietPolls = 5;
 
 export interface RemoteJobsDeps {
   store: Store;
@@ -71,8 +80,16 @@ export class RemoteJobs {
   private cancelTimer: (() => void) | undefined;
   private polling = false;
   private closed = false;
+  /** Machines whose job reads fail: read again later after each failure, never every poll. */
+  private reach: RetryBackoff;
+  /** Every poll at first and after a job ends; slower while every job keeps running. */
+  private pace: QuietBackoff;
+  /** A job ended or its row went during this poll. */
+  private changed = false;
   constructor(deps: RemoteJobsDeps) {
     this.deps = deps;
+    this.reach = new RetryBackoff(deps.pollMs, unreachableCapMs);
+    this.pace = new QuietBackoff(deps.pollMs, deps.pollMs * quietPolls);
     this.arm();
   }
   close(): void {
@@ -110,6 +127,13 @@ export class RemoteJobs {
         title: clip(`${job.command} on ${this.deps.label(job.machine)}`, 200),
       });
     });
+    // A new job is read at the base pace, so one that ends quickly shows at once.
+    this.pace.reset();
+    this.changed = true;
+    if (!this.polling) {
+      this.cancelTimer?.();
+      this.cancelTimer = undefined;
+    }
     this.arm();
   }
   /** The person stopped a row (`ace-machine-job:<machine>/<job>`): the job is stopped there. */
@@ -151,7 +175,7 @@ export class RemoteJobs {
     if (this.closed || this.cancelTimer || this.polling) return;
     const any = this.deps.store.statement("SELECT 1 FROM machine_jobs LIMIT 1").get();
     if (!any) return;
-    this.cancelTimer = this.deps.schedule(this.deps.pollMs, () => {
+    this.cancelTimer = this.deps.schedule(this.pace.waitMs, () => {
       this.cancelTimer = undefined;
       void this.poll();
     });
@@ -159,6 +183,7 @@ export class RemoteJobs {
   private async poll(): Promise<void> {
     if (this.closed) return;
     this.polling = true;
+    this.changed = false;
     try {
       const rows = this.deps.store
         .statement("SELECT * FROM machine_jobs ORDER BY machine, thread_id, job_id")
@@ -175,6 +200,7 @@ export class RemoteJobs {
       this.deps.log("Remote command jobs not read", { error: String(error) });
     } finally {
       this.polling = false;
+      this.pace.next(this.changed);
       this.arm();
     }
   }
@@ -201,7 +227,7 @@ export class RemoteJobs {
     if (live.length === 0) return;
     for (const row of live) if (row.stopping === 1) await this.stopThere(row);
     const asked = live.filter((row) => this.row(row.machine, row.job_id));
-    if (asked.length === 0) return;
+    if (asked.length === 0 || !this.reach.due(first.machine, now)) return;
     let states: MachineCommandJobsResult["jobs"];
     try {
       states = await this.deps.poll(
@@ -209,9 +235,12 @@ export class RemoteJobs {
         ThreadId.parse(first.thread_id),
         asked.map((row) => row.job_id),
       );
+      this.reach.succeeded(first.machine);
     } catch (error) {
       // Commands closed to this machine there end every job it ran (the kill switch).
       if (closedToUs(error)) for (const row of asked) this.settle(row, "stopped");
+      // Held until it answers or the job is long past its timeout; asked again later each time.
+      else this.reach.failed(first.machine, now);
       return;
     }
     for (const row of asked) {
@@ -222,6 +251,7 @@ export class RemoteJobs {
   }
   /** Ends the row and forgets the job. A deleted thread has nowhere to record it. */
   private settle(row: Row, ending: Ending): void {
+    this.changed = true;
     this.deps.store
       .statement("DELETE FROM machine_jobs WHERE machine=? AND job_id=?")
       .run(row.machine, row.job_id);

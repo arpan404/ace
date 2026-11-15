@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaAcceleration.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "degraded": {
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "properties": {
+          "backend": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "hardware": {
+            "type": "boolean"
+          },
+          "readbacks": {
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "uploads": {
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "backend",
+          "hardware",
+          "readbacks",
+          "uploads"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "steps",
+    "degraded"
+  ],
+  "type": "object"
+}

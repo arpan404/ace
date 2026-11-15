@@ -5,23 +5,37 @@
     "protocol": 1,
     "version": "value",
     "pid": 1,
-    "capabilities": {
-      "encoders": [
-        {
-          "codec": "value",
-          "hardware": true,
-          "backend": "value"
-        }
-      ],
-      "decoders": [
-        {
-          "codec": "value",
-          "hardware": true,
-          "backend": "value"
-        }
-      ],
-      "stills": true
-    },
+    "capabilities": [
+      {
+        "step": "encode",
+        "codec": "avc1.640028",
+        "backend": "vt",
+        "hardware": true,
+        "zeroCopy": true,
+        "state": "ok",
+        "maxWidth": 4096,
+        "maxHeight": 2304
+      },
+      {
+        "step": "jpeg-decode",
+        "codec": "jpeg",
+        "backend": "nv",
+        "hardware": false,
+        "zeroCopy": false,
+        "state": "timed-out",
+        "maxWidth": 0,
+        "maxHeight": 0
+      },
+      {
+        "step": "scale",
+        "backend": "cpu",
+        "hardware": false,
+        "zeroCopy": false,
+        "state": "failed",
+        "maxWidth": 0,
+        "maxHeight": 0
+      }
+    ],
     "ingest": {
       "socket": "value",
       "websocketPort": 1

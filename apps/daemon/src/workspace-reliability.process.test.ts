@@ -84,6 +84,26 @@ test("releasing a prepared workspace removes setup dependencies and leaves capac
   await f.creations.close();
 });
 
+test("a missing base fails the creation and leaves no worktree or branch behind", async () => {
+  const f = await creationFixture();
+  const missing = Command.parse({
+    ...f.draft("missing"),
+    payload: { ...f.draft("missing").payload, base: { ref: "no-such-branch" } },
+  });
+  await expect(f.creations.prepare(missing)).rejects.toMatchObject({
+    code: "worktree_base_not_found",
+  });
+  expect(await f.service.listWorktrees(f.project)).toHaveLength(1);
+  const branches = await git("git", ["-C", f.project, "branch", "--list", "ace/*"]);
+  expect(String(branches.stdout).trim()).toBe("");
+  // The next creation still gets a checkout of the base.
+  const next = await f.creations.prepare(f.draft("after-missing"));
+  if (!next) throw new Error("Missing lease");
+  expect(await readFile(join(next.workspace.path, "Procfile"), "utf8")).toContain("setup:");
+  await next.release();
+  await f.creations.close();
+});
+
 test("restart recovery removes setup files and an unrelated cleanup failure does not block new worktrees", async () => {
   const f = await creationFixture();
   const abandoned = await f.creations.prepare(f.draft("abandoned"));

@@ -94,6 +94,6 @@ export class MeasurementStore {
       thread,
       id,
     );
-    return row ? storedItem(Number(row.created_seq), String(row.item), this.trust.from) : undefined;
+    return row ? storedItem(Number(row.created_seq), String(row.item), this.trust) : undefined;
   }
 }

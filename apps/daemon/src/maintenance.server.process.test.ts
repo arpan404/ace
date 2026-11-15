@@ -22,6 +22,10 @@ test("maintenance closes websocket command admission until the local host releas
   expect(
     await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "POST", token }),
   ).toEqual({ draining: true, blockers: 0, waiting: 0, holds: ["user"] });
+  // The host's status carries admission too, so the app's health check needs one request.
+  expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toMatchObject({
+    admission: { draining: true, holds: ["user"] },
+  });
   c.send({
     type: "command",
     command: Command.parse({
@@ -227,4 +231,20 @@ test("the remote HTTPS listener omits the maintenance route even for a paired ad
     waiting: 0,
     holds: [],
   });
+});
+
+test("only the host token reads admission in the daemon's status; a paired admin never does", async () => {
+  const f = await setup();
+  const admin = await f.pair(["admin"]);
+  await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "POST", token });
+  expect(await accessRequest(f.server.httpUrl, "/v1/status", { token })).toMatchObject({
+    admission: { draining: true, holds: ["user"] },
+  });
+  for (const status of [
+    await f.request("/v1/status", { token: admin.token }),
+    await f.remoteRequest("/v1/status", { token: admin.token }),
+  ]) {
+    expect(status).toMatchObject({ running: true });
+    expect(status).not.toHaveProperty("admission");
+  }
 });

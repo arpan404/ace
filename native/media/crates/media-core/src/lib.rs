@@ -5,6 +5,7 @@ pub mod fanout;
 pub mod gate;
 pub mod headers;
 pub mod keyframes;
+pub mod link_follow;
 pub mod link_rate;
 pub mod plan;
 pub mod privacy;

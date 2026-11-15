@@ -11,7 +11,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
-test("cancelled engine publication rolls back history and sequences before a later successful publish", async () => {
+async function importedArchive() {
   const root = await mkdtemp(join(tmpdir(), "ace-history-publication-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "codex"),
@@ -61,6 +61,10 @@ test("cancelled engine publication rolls back history and sequences before a lat
   await history.importSession({ sourceId: source.id, threadId, workspaceId, agentId, at: 123 });
   const reader = openArchiveReader(indexPath, threadId);
   cleanup.unshift(async () => reader.close());
+  return { store, reader, threadId, output, opaque };
+}
+test("cancelled engine publication rolls back history and sequences before a later successful publish", async () => {
+  const { store, reader, threadId, output, opaque } = await importedArchive();
   let checks = 0;
   expect(() => store.installHistory(reader, 123, () => ++checks === 4)).toThrow("cancelled");
   expect(store.getThread(threadId)).toBeUndefined();
@@ -97,4 +101,19 @@ test("cancelled engine publication rolls back history and sequences before a lat
   store.deleteThread(threadId);
   expect(() => store.readOutput(streamId, 0, 1)).toThrow();
   expect(() => store.readHistoryBlob(threadId, raw.blobRef, 0, 1)).toThrow();
+});
+
+test("history installation that SQLite rolls back by itself leaves the store usable", async () => {
+  const { store, reader, threadId } = await importedArchive();
+  // RAISE(ROLLBACK) ends the transaction inside SQLite, as SQLITE_FULL or an I/O error does.
+  store.atomic((db) =>
+    db.exec(
+      "CREATE TRIGGER install_full BEFORE INSERT ON events BEGIN SELECT RAISE(ROLLBACK, 'disk full'); END",
+    ),
+  );
+  expect(() => store.installHistory(reader, 123, () => false)).toThrow("disk full");
+  expect(store.getThread(threadId)).toBeUndefined();
+  store.atomic((db) => db.exec("DROP TRIGGER install_full"));
+  store.installHistory(reader, 123, () => false);
+  expect(store.getThread(threadId)?.imported?.instanceId).toBe("account");
 });

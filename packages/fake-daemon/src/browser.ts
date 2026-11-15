@@ -40,6 +40,8 @@ export interface BrowserView {
   annotation?: { owner: string };
   /** A recording of the person's view runs (`browser.recording.start`). */
   recording?: { by: { kind: "human" | "agent" | "page"; agentId?: string } };
+  /** What its live video runs on (ADR 0148), set by `setAcceleration`. */
+  acceleration?: import("@ace/protocol").MediaAcceleration;
 }
 export interface ScreenFrame {
   sequence: number;
@@ -95,6 +97,8 @@ export class FakeBrowser {
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
+  /** Scripting: whether a desktop app is there to host `embedded` pages, as the daemon reports. */
+  desktop = true;
   /**
    * The daemon's first browser needs Chromium downloaded (ADR 0055 acquisition). While set, the
    * next `browser.open` reports download progress and waits for `finishDownload()`.
@@ -631,6 +635,17 @@ export class FakeBrowser {
     if (!view) return;
     if (on) view.recording = { by: { kind: "human" } };
     else delete view.recording;
+    this.changed();
+  }
+  /** Scripting: what the thread's live video runs on (ADR 0148); `undefined` takes it away. */
+  setAcceleration(
+    threadId: string,
+    acceleration: import("@ace/protocol").MediaAcceleration | undefined,
+  ): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    if (acceleration) view.acceleration = acceleration;
+    else delete view.acceleration;
     this.changed();
   }
   downloadsList(threadId: string): BrowserDownload[] {

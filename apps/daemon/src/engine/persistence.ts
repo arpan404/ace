@@ -3,7 +3,12 @@ import { DeadlineIndex, type AgentRecord, type ThreadState, type Fact } from "@a
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
-import { itemMetadata, keepsItemMetadata } from "./item-metadata.ts";
+import {
+  appendTarget,
+  itemMetadata,
+  keepsItemMetadata,
+  unchangedByTextAppend,
+} from "./item-metadata.ts";
 import { RecordBudget, type RecordTransaction } from "./record-cache.ts";
 import { Records } from "./records.ts";
 import { engineSchemaVersion } from "./schema-version.ts";
@@ -157,13 +162,11 @@ export class Snapshot {
       this.items.hasReplacement(fact.item)
     )
       return () => {};
-    let metadata = this.metadata.values[fact.item];
-    if (!metadata) {
-      const item = this.state.items[fact.item];
-      if (!item) return () => {};
-      metadata = itemMetadata(item);
-    }
-    return this.items.useAppendValue(fact.item, structuredClone(metadata));
+    const metadata = this.metadata.values[fact.item];
+    if (metadata) return this.items.useAppendValue(fact.item, appendTarget(metadata));
+    const item = this.state.items[fact.item];
+    // `itemMetadata` already builds a fresh copy of everything an append changes.
+    return item ? this.items.useAppendValue(fact.item, itemMetadata(item)) : () => {};
   }
   remember(fact: Fact, events: EventPayload[]): void {
     if (
@@ -188,6 +191,8 @@ export class Snapshot {
         if (previous !== undefined) delete this.metadata.values[fact.item];
         return;
       }
+      // The common text delta: the append grew only text, so the metadata is as it was.
+      if (fact.type === "item.delta" && previous && unchangedByTextAppend(previous, item)) return;
       const next = itemMetadata(item);
       if (JSON.stringify(next) !== JSON.stringify(previous)) this.metadata.values[fact.item] = next;
     }

@@ -11,6 +11,13 @@ import { cn } from "@/lib/cn.ts";
 
 const OnRail = createContext(false);
 
+/**
+ * Whether the steps drawn here belong to a thread copy that is current (`useThreadLiveState`),
+ * provided once by `GroupedSteps`. Off by default: a step drawn without it claims nothing in
+ * flight, no running mark, no shimmer.
+ */
+export const StepsLive = createContext(false);
+
 export function StepRail(props: { children: ReactNode; label: string; id?: string | undefined }) {
   return (
     <OnRail value>
@@ -29,7 +36,10 @@ export type RailState = "done" | "running" | "failed";
 
 /** The step's mark on the rail, when it is on one. */
 export function RailMark(props: { state: RailState }) {
+  const live = use(StepsLive);
   if (!use(OnRail)) return null;
+  // A cached step in flight may have ended: it marks neither running nor done.
+  const unsure = props.state === "running" && !live;
   return (
     <span
       aria-hidden
@@ -42,7 +52,7 @@ export function RailMark(props: { state: RailState }) {
         <CheckIcon size={10} weight="bold" />
       ) : props.state === "failed" ? (
         <XIcon size={10} weight="bold" />
-      ) : (
+      ) : unsure ? null : (
         <span className="size-1.5 rounded-full bg-muted-foreground" />
       )}
     </span>
