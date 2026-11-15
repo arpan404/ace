@@ -329,7 +329,10 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     crypto = secured;
     for (const frame of early) accept(secured, frame);
   } catch (failure) {
-    state.destroy();
+    // Every way out before the stream is up (refused before opening, a timeout, a
+    // cancellation, a closed or failed handshake) erases both handshake states.
+    nkState?.destroy();
+    xxState?.destroy();
     close(failure instanceof Error ? failure : new Error("Relay handshake failed"));
     throw failure;
   } finally {
