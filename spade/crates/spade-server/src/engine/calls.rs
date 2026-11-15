@@ -84,6 +84,13 @@ pub(super) async fn handle_calls(
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
+            // A helper may use only what its profile allows (ADR 0152), checked before any tool
+            // the turn loop answers itself: a helper's `ask_user` would wait on a question
+            // nobody can see.
+            Status::New if helper.is_some() && registry.get(&name).is_none() => {
+                let refused = ToolOutput::error(helper_refusal(engine, id, &name));
+                finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+            }
             // `ask_user` (ADR 0128) waits like an approval; the person's next message answers it.
             Status::New if name == context::ASK_USER => match super::memory::question(&arguments) {
                 Err(refused) => finish_tool(engine, id, reply, &pending.call, &name, refused).await,
@@ -363,6 +370,18 @@ pub(super) async fn handle_calls(
         return handled;
     }
     Handled::Continue
+}
+
+/// What a helper is told about a tool its profile leaves out: refused when its bot has it or no
+/// helper may have it, missing otherwise.
+fn helper_refusal(engine: &Engine, id: &str, name: &str) -> String {
+    let barred = spade_core::helper::NEVER.contains(&name)
+        || engine.tools.registry_for(id).get(name).is_some();
+    if barred {
+        format!("Refused: a helper cannot use {name}. Finish the task with your tools and answer.")
+    } else {
+        format!("There is no tool named {name}. Use tool_search to find tools.")
+    }
 }
 
 /// Stores a verdict the rules reached (ADR 0144) unless one is stored for the call already, as
