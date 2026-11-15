@@ -46,6 +46,11 @@ Lost contact is not knowing, and the tree says so.
   it again if it closed (its parent's session ended) and never opens a second one, across
   restarts. A Stop closes it. If the machine is then unpaired, the pairing question replaces it.
 - A child still held `unknown` by an older build takes its hold back when the question opens.
+- Each change to the question commits with the child's state it goes with (opening it with the
+  child's row, a Stop with its closing, the unpaired question replacing it). Behind that, every
+  poll closes any open question its child's state no longer explains (`questionFate` in
+  `machines/child-question.ts`: back in contact, stopping, settled, stopped tracking), so a write
+  that fails partway never leaves a parent held by a question nobody can answer.
 
 Children already settled, and results already delivered, are unaffected; this is only about
 children that were working or waiting when contact was lost.
@@ -66,4 +71,7 @@ real end.
 
 Tests: `machines/remote-child-lost-contact.process.test.ts` (parent held and asked after the
 lease, the question closing when the machine answers, stop tracking, a restart keeping one
-question, a wait, a Stop, then unpairing).
+question, a wait, a Stop, then unpairing, an older build's release repaired after a failed
+write), `machines/child-question.test.ts` (the rule's table) and
+`machines/remote-child-question-faults.process.test.ts` (each write failing in turn during each
+change to the question).
