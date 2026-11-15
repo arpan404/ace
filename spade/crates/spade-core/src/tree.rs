@@ -89,6 +89,10 @@ pub struct Link {
     /// Its first message, delivered when it may start (it waits queued until then).
     #[serde(default)]
     pub brief: String,
+    /// The maker had untrusted content in view when it wrote the brief: the brief reaches the
+    /// worker as another bot's message, which makes its turn untrusted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
 }
 
 /// A worker its parent started (`worker_started`), in the parent's conversation.
@@ -120,7 +124,8 @@ pub enum ReportState {
     /// Its subtree is at its budget, or a cap holds: it waits.
     Parked,
     Failed,
-    /// Stopped by the person or its orchestrator. Stored, but opens no reply.
+    /// Stopped by the person or its orchestrator. Stored, and opens a reply only when the
+    /// orchestrator waits on that worker.
     Stopped,
     #[serde(other)]
     Other,
@@ -152,8 +157,8 @@ impl ReportState {
         }
     }
 
-    /// Whether the report opens a reply in the orchestrator. A stop came from the person or the
-    /// orchestrator itself: nothing to act on.
+    /// Whether the report opens a reply in the orchestrator by itself. A stop came from the
+    /// person or the orchestrator: nothing to act on, unless the orchestrator waits on it.
     pub const fn opens_reply(self) -> bool {
         !matches!(self, Self::Stopped)
     }

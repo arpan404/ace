@@ -62,7 +62,7 @@ thread id or role), or one of its helpers (by job). `wait_for` takes
     answers "There is no tool named …", as for helpers.
 - **The brief** (else the task) is the worker's first message. It carries Spade's context line
   naming its maker, and is marked another bot's message (`from_agent`, untrusted) when the maker
-  had untrusted content in view. `worker_message` follows the same rule. A queued worker can't be
+  had untrusted content in view as it wrote it (`worker_of.untrusted`, fixed then). `worker_message` follows the same rule. A queued worker can't be
   messaged until it starts.
 - **`worker_result`** answers a worker bot's outcome from its events: `verified`, `progress`,
   the goal and criteria, each item with its status, verified mark and evidence (an `output`
@@ -89,8 +89,9 @@ thread id or role), or one of its helpers (by job). `wait_for` takes
   - The delivery stores a worker's report of a state in an epoch once, checked under the record
     lock. Every worker is checked again when Spade opens, so a report owed from before a restart
     arrives once.
-  - A `stopped` report is stored and opens no reply. Deleting a worker stores a quiet `stopped`
-    report with epoch `deleted`.
+  - A `stopped` report is stored and opens no reply, unless the maker waits on that worker
+    (`wait_for` worker), which wakes it. Deleting a worker stores a `stopped` report with epoch
+    `deleted`.
 
   | `state`     | When                                                      | `epoch`          |
   | ----------- | --------------------------------------------------------- | ---------------- |

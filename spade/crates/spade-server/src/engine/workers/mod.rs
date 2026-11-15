@@ -301,18 +301,21 @@ impl Engine {
         tree::narrow(own, level)
     }
 
-    /// Starts checking workers for reports, once: every worker is looked at now (a report owed
-    /// from before a restart is delivered once), then each whose events change.
+    /// Starts checking workers for reports: every worker is looked at now (a report owed from
+    /// before a restart is delivered once), then each whose events change. The loop starts once.
     pub(super) fn start_workers(self: &Arc<Self>) {
-        if self.workers.running.swap(true, Ordering::SeqCst) {
-            return;
-        }
+        // Each time Spade opens for work (after an update's pause too), every worker is looked
+        // at: a queued one may start, an owed report goes out.
         let all: Vec<String> = self
             .tree_index()
             .as_ref()
             .map(|i| i.links.keys().cloned().collect())
             .unwrap_or_default();
         lock(&self.workers.dirty).extend(all);
+        self.workers.kick.notify_one();
+        if self.workers.running.swap(true, Ordering::SeqCst) {
+            return;
+        }
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {

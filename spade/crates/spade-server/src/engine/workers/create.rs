@@ -167,6 +167,8 @@ impl Engine {
         if brief.chars().count() > self.limits.longest_message {
             return Err("The brief is too long.".to_owned());
         }
+        // Fixed now, while the brief is written: a queued one may start much later.
+        let untrusted = !context::untrusted_in_view(&events, &registry).is_empty();
         let id = self.ids.next("a");
         let conversation = self.ids.next("c");
         let avatar = self.avatar(&id, None).map_err(|e| e.to_string())?;
@@ -183,6 +185,7 @@ impl Engine {
             },
             budget_micros,
             brief,
+            untrusted,
         };
         let first = [
             Event::Known(Known::WorkerOf(link)),
@@ -310,11 +313,9 @@ impl Engine {
 
     /// The brief that starts worker `conversation`, as its first message: Spade's words saying
     /// who sent it, and another bot's message (untrusted) when its maker had untrusted content
-    /// in view, as for a helper's task (ADR 0152).
+    /// in view as it wrote it, as for a helper's task (ADR 0152).
     pub(super) fn brief_message(&self, conversation: &str, link: &Link) -> Event {
-        let parent_events = self.load(&link.parent_conversation).unwrap_or_default();
-        let registry = self.registry_for(&link.parent_conversation);
-        let tainted = !context::untrusted_in_view(&parent_events, &registry).is_empty();
+        let tainted = link.untrusted;
         let mut message = Event::user_message(link.brief.clone());
         if let Event::Known(Known::UserMessage {
             context: shown,

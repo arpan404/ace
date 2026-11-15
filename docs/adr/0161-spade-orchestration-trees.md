@@ -95,7 +95,7 @@ comes back up is checked against facts rather than taken at a worker's word.
    - `parked`: at its budget;
    - `failed`;
    - `stopped`, which is stored but opens no reply, since a stop comes from the person or the
-     orchestrator.
+     orchestrator; unless the orchestrator waits on that worker, which then wakes.
 
    `epoch` is the worker's latest reply, so each state of each reply is reported once, checked
    under the record lock and again after a restart. `words` is the worker's last reply, cut to

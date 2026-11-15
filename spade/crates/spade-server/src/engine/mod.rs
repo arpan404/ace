@@ -608,8 +608,8 @@ impl Engine {
                     }
                     false
                 }
-                // Each worker's report once per state it settled in (ADR 0161); a stop opens
-                // nothing.
+                // Each worker's report once per state it settled in (ADR 0161). A stop opens
+                // nothing, unless the maker waits on that worker.
                 Event::Known(Known::WorkerReported(report)) => {
                     if spade_core::tree::reported(
                         &events,
@@ -620,6 +620,7 @@ impl Engine {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     !report.state.opens_reply()
+                        && spade_core::wake::settled_by(&events, event).is_empty()
                 }
                 // Each check-in on a job once, and only while the job runs.
                 Event::Known(Known::JobProgress { job, check, .. }) => {
