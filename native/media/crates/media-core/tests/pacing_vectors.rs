@@ -302,7 +302,7 @@ fn fanout_replays_waiting_keyframes_drops_and_cumulative_ack_events() {
         let event = |e| record(e, &mut log.borrow_mut());
         viewer.publish(1, p, send, event);
         if p.sequence == u(&v["ack"], "after") {
-            viewer.acknowledge(u(&v["ack"], "sequence"), send, event);
+            viewer.acknowledge(u(&v["ack"], "sequence"), None, send, event);
         }
     }
     assert_eq!(Value::Array(log.into_inner()), v["events"]);
@@ -338,7 +338,9 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                 };
                 viewer.publish(1, p, send, event);
             } else if let Some(ack) = op["ack"].as_u64() {
-                viewer.acknowledge(ack, send, event);
+                viewer.acknowledge(ack, op["generation"].as_u64(), send, event);
+            } else if let Some(generation) = op["forget"].as_u64() {
+                viewer.forget(generation, send, event);
             } else if let Some(refuse) = op["refuse"].as_bool() {
                 accepting.set(!refuse);
             } else if op.get("flush").is_some() {

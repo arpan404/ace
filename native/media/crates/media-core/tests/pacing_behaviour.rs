@@ -33,6 +33,7 @@ fn waiting_key_is_replaced_and_its_deltas_follow_cumulative_ack() {
     assert_eq!(sent, [0, 1]);
     v.acknowledge(
         1,
+        None,
         |p| {
             sent.push(p.sequence);
             true
@@ -66,7 +67,7 @@ fn oversized_key_goes_alone_and_a_dropped_delta_requires_a_new_key() {
         |e| events.push(e),
     );
     assert_eq!(events, [Event::Dropped, Event::Keyframe]);
-    v.acknowledge(0, |_| panic!("dropped"), |_| {});
+    v.acknowledge(0, None, |_| panic!("dropped"), |_| {});
     v.publish(1, piece(2, false, 100), |_| panic!("broken chain"), |_| {});
     v.publish(
         1,
@@ -125,7 +126,7 @@ fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
         |_| {},
     );
     assert_eq!(sent, [0]);
-    v.acknowledge(0, |_| panic!("deltas went with the drop"), |_| {});
+    v.acknowledge(0, None, |_| panic!("deltas went with the drop"), |_| {});
     assert!(v.playing());
 }
 #[test]
@@ -153,6 +154,7 @@ fn byte_overflow_discards_queued_deltas_but_retains_the_waiting_key() {
     }
     v.acknowledge(
         0,
+        None,
         |p| {
             sent.push(p.sequence);
             true
@@ -160,7 +162,7 @@ fn byte_overflow_discards_queued_deltas_but_retains_the_waiting_key() {
         |_| {},
     );
     assert_eq!(sent, [0, 1]);
-    v.acknowledge(1, |_| panic!("deltas dropped"), |_| {});
+    v.acknowledge(1, None, |_| panic!("deltas dropped"), |_| {});
     v.publish(
         1,
         piece(4, false, 10),
@@ -200,7 +202,7 @@ fn slow_viewer_never_blocks_fast_viewer_and_switching_encodes_needs_key() {
             },
             |_| {},
         );
-        fast.acknowledge(seq, |_| true, |_| {});
+        fast.acknowledge(seq, None, |_| true, |_| {});
     }
     assert_eq!((slow_sent, fast_sent), (3, 21));
     fast.assign(Some(2), |_| {});
@@ -239,6 +241,7 @@ fn decoder_key_request_keeps_waiting_key_but_discards_its_deltas() {
     let mut sent = Vec::new();
     v.acknowledge(
         1,
+        None,
         |p| {
             sent.push(p.sequence);
             true

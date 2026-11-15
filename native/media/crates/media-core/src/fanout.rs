@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Per-viewer fanout state. Owners index viewers/encodes; payloads stay in their slab.
 //! Pieces are copyable handles, not owned frame buffers. Queue storage is reserved once.
+//!
+//! Matching video-fanout.ts: each change of encode starts a generation (a sequence space of its
+//! own). Chunks on the wire stay in flight across it, the transport's debt, until an ack of
+//! their generation, or of a later one sent after them, releases them, or `forget` does.
 use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
@@ -33,7 +37,9 @@ pub enum Event {
 pub struct Viewer {
     window: Window,
     encode: Option<u64>,
-    inflight: VecDeque<Piece>,
+    generation: u64,
+    /// Chunks on the wire in send order, with the generation that sent each.
+    inflight: VecDeque<(Piece, u64)>,
     inflight_bytes: usize,
     queue: VecDeque<Piece>,
     queued_bytes: usize,
@@ -49,6 +55,7 @@ impl Viewer {
         Self {
             window,
             encode: None,
+            generation: 0,
             inflight: VecDeque::with_capacity(window.frames),
             inflight_bytes: 0,
             queue: VecDeque::with_capacity(window.frames),
@@ -72,10 +79,9 @@ impl Viewer {
             return;
         }
         self.encode = encode;
+        // Another sequence space; what is on the wire stays in flight.
+        self.generation += 1;
         self.clear_queue();
-        // Another encode is another sequence space: its acks can't clear the old one's chunks.
-        self.inflight.clear();
-        self.inflight_bytes = 0;
         self.need_key = true;
         self.dropping = false;
         if encode.is_some() {
@@ -86,6 +92,9 @@ impl Viewer {
         }
     }
     pub fn stop(&mut self, mut event: impl FnMut(Event)) {
+        if self.encode.is_some() {
+            self.generation += 1;
+        }
         self.encode = None;
         self.clear_queue();
         self.need_key = true;
@@ -185,21 +194,49 @@ impl Viewer {
         }
         self.flush(send, event);
     }
+    /// The generation chunks are sent in now: an ack of them names it.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    /// The viewer showed every chunk of `generation` (the current one by default) up to
+    /// `sequence`: it and everything sent before it are off the wire.
     pub fn acknowledge(
         &mut self,
         sequence: u64,
+        generation: Option<u64>,
         send: impl FnMut(Piece) -> bool,
         event: impl FnMut(Event),
     ) {
-        while self
+        let scope = generation.unwrap_or(self.generation);
+        let last = self
             .inflight
-            .front()
-            .is_some_and(|p| p.sequence <= sequence)
-        {
-            if let Some(p) = self.inflight.pop_front() {
+            .iter()
+            .rposition(|(p, g)| *g == scope && p.sequence <= sequence);
+        if let Some(last) = last {
+            for (p, _) in self.inflight.drain(..=last) {
                 self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
             }
         }
+        if self.encode.is_some() {
+            self.flush(send, event);
+        }
+    }
+    /// The transport confirms it dropped `generation`'s chunks: they are off the wire.
+    pub fn forget(
+        &mut self,
+        generation: u64,
+        send: impl FnMut(Piece) -> bool,
+        event: impl FnMut(Event),
+    ) {
+        let mut freed = 0_usize;
+        self.inflight.retain(|(p, g)| {
+            let keep = *g != generation;
+            if !keep {
+                freed = freed.saturating_add(p.bytes);
+            }
+            keep
+        });
+        self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
         if self.encode.is_some() {
             self.flush(send, event);
         }
@@ -213,7 +250,7 @@ impl Viewer {
             }
             self.queue.pop_front();
             self.queued_bytes -= piece.bytes;
-            self.inflight.push_back(piece);
+            self.inflight.push_back((piece, self.generation));
             // `fits` bounded this, or the window was empty.
             self.inflight_bytes += piece.bytes;
             if !send(piece) {

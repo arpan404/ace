@@ -898,7 +898,7 @@
   {
     "name": "sequence reset on a new capture",
     "window": {
-      "frames": 3,
+      "frames": 5,
       "bytes": 1000
     },
     "ops": [
@@ -963,10 +963,8 @@
         }
       },
       {
-        "ack": 101
-      },
-      {
-        "ack": 1
+        "ack": 101,
+        "generation": 1
       },
       {
         "publish": {
@@ -980,6 +978,36 @@
       {
         "publish": {
           "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 2
+      },
+      {
+        "publish": {
+          "sequence": 6,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 7,
           "key": false,
           "bytes": {
             "length": 10
@@ -1053,6 +1081,200 @@
       },
       {
         "counted": 4,
+        "bytes": 10
+      },
+      {
+        "dropped": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 6
+      },
+      {
+        "counted": 6,
+        "bytes": 10
+      },
+      {
+        "offered": 7
+      },
+      {
+        "counted": 7,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "encode switches keep the transport debt",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 100,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 101,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 102,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "restart": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 102,
+        "generation": 1
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "forget": 5
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 100
+      },
+      {
+        "counted": 100,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 101
+      },
+      {
+        "counted": 101,
+        "bytes": 10
+      },
+      {
+        "offered": 102
+      },
+      {
+        "counted": 102,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
         "bytes": 10
       }
     ]

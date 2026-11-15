@@ -3,6 +3,8 @@ import { encodePicture, type PictureChunk, type PictureKind } from "./stream-pic
 import { LinkRate, type LinkRateLimits } from "./link-rate.ts";
 import { VideoFanout, type VideoWindow } from "./video-fanout.ts";
 
+/** Earlier captures whose late acks still free their pictures' place in the window. */
+const recentCaptures = 4;
 /** Forced keyframes for one viewer at most this often (ADR 0088's per-encode gap). */
 export const pictureKeyframeGapMs = 500;
 
@@ -59,6 +61,8 @@ export class PictureViewer {
   readonly #fanout: VideoFanout<Waiting>;
   readonly #link: LinkRate | undefined;
   #stream: string | undefined;
+  /** Recent captures' fanout generations: an ack names its capture, and frees only its own. */
+  readonly #generations = new Map<string, number>();
   #codec: string | undefined;
   #lastKeyframe = -Infinity;
   #cancelKeyframe: (() => void) | undefined;
@@ -79,6 +83,7 @@ export class PictureViewer {
       },
       ...(ports.window ? { window: ports.window } : {}),
     });
+    this.#fanout.add("viewer", { send: (waiting) => this.#send(waiting) });
   }
   /** A picture from the source's capture. */
   push(picture: CapturedPicture): void {
@@ -90,10 +95,16 @@ export class PictureViewer {
       else if (this.#codec && header.streamId === this.#stream) header.codec = this.#codec;
     }
     if (header.streamId !== this.#stream) {
-      // Acks and the window belong to one capture; a new one starts clean, at a keyframe.
+      // A new capture starts at a keyframe, in a sequence space of its own. The old one's
+      // pictures still on the wire keep their place in the window until acked; the link's
+      // estimate doesn't wait on their acks (it reads the new capture's).
       this.#stream = header.streamId;
-      this.#fanout.add("viewer", { send: (waiting) => this.#send(waiting) });
       this.#fanout.assign("viewer", header.streamId);
+      const generation = this.#fanout.generation("viewer");
+      if (generation !== undefined) this.#generations.set(header.streamId, generation);
+      while (this.#generations.size > recentCaptures)
+        this.#generations.delete(this.#generations.keys().next().value ?? "");
+      this.#link?.reset();
     }
     this.#fanout.publish(header.streamId, {
       picture,
@@ -105,7 +116,13 @@ export class PictureViewer {
   }
   /** The viewer showed pictures up to `sequence`; `keyframe`: its decoder needs a fresh start. */
   ack(streamId: string, sequence: number, keyframe = false): void {
-    if (this.#closed || streamId !== this.#stream) return;
+    if (this.#closed) return;
+    if (streamId !== this.#stream) {
+      // An earlier capture's picture shown late: off the wire, nothing more.
+      const generation = this.#generations.get(streamId);
+      if (generation !== undefined) this.#fanout.acknowledge("viewer", sequence, generation);
+      return;
+    }
     if (this.#link) {
       this.#link.acknowledged(sequence, this.#ports.now());
       // What is in flight is bounded by what the link carries in time, not only the window.

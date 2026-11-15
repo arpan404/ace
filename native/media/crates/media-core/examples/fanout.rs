@@ -94,7 +94,12 @@ fn main() {
             };
             if let Some(ack) = ack {
                 rate.acknowledged(ack, at);
-                viewer.acknowledge(ack, |_| accepts, track(rate, at, &mut sent, &mut dropped));
+                viewer.acknowledge(
+                    ack,
+                    None,
+                    |_| accepts,
+                    track(rate, at, &mut sent, &mut dropped),
+                );
             }
             black_box(scale.update(PictureLink {
                 link: rate.rate(),

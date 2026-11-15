@@ -158,7 +158,7 @@ describe("video to each viewer at its own pace", () => {
   });
 
   it("a new capture whose sequences restart isn't held back by the old one's chunks", () => {
-    const { fanout, keyframes, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const { fanout, keyframes, viewer } = setup({ frames: 5, bytes: 10_000 });
     const phone = viewer("phone");
     fanout.publish("e1", numbered(100, true));
     fanout.publish("e1", numbered(101, false));
@@ -168,10 +168,68 @@ describe("video to each viewer at its own pace", () => {
     fanout.assign("phone", "e1");
     fanout.publish("e1", numbered(1, true));
     fanout.publish("e1", numbered(2, false));
+    // The new capture's ack frees its chunks and the old ones sent before them.
     fanout.acknowledge("phone", 2);
-    for (let number = 3; number <= 5; number++) fanout.publish("e1", numbered(number, false));
-    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4, 5]);
+    for (let number = 3; number <= 7; number++) fanout.publish("e1", numbered(number, false));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([
+      100, 101, 102, 1, 2, 3, 4, 5, 6, 7,
+    ]);
     expect(keyframes.filter((encode) => encode === "e1")).toHaveLength(2);
+  });
+
+  it("switching encodes keeps the old chunks' transport debt until they are acked", () => {
+    const { fanout, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", numbered(100, true));
+    fanout.publish("e1", numbered(101, false));
+    fanout.publish("e1", numbered(102, false));
+    const old = fanout.generation("phone");
+    // Repeated switches don't hand the new encode a fresh window: three chunks are still on
+    // the wire.
+    fanout.assign("phone", "e2");
+    fanout.assign("phone", "e1");
+    fanout.publish("e1", numbered(1, true));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102]);
+    // Their own generation's ack releases them, and the waiting keyframe goes.
+    fanout.acknowledge("phone", 102, old);
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1]);
+  });
+
+  it("a late ack from the old capture releases only its own chunks", () => {
+    const { fanout, viewer } = setup({ frames: 5, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", numbered(100, true));
+    fanout.publish("e1", numbered(101, false));
+    fanout.publish("e1", numbered(102, false));
+    const old = fanout.generation("phone");
+    fanout.assign("phone", undefined);
+    fanout.assign("phone", "e1");
+    fanout.publish("e1", numbered(1, true));
+    fanout.publish("e1", numbered(2, false));
+    // A late ack for the old 101 frees 100 and 101, not the new 1 and 2: two slots open.
+    fanout.acknowledge("phone", 101, old);
+    fanout.publish("e1", numbered(3, false));
+    fanout.publish("e1", numbered(4, false));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4]);
+    // The window is full again (102, 1, 2, 3, 4): had the stale ack freed 1 and 2, this would go.
+    fanout.publish("e1", numbered(5, true));
+    expect(phone.received).toHaveLength(7);
+    // The new capture's own ack proves everything sent before it arrived, old 102 included.
+    fanout.acknowledge("phone", 2);
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4, 5]);
+  });
+
+  it("a generation the transport confirms dropped is forgotten", () => {
+    const { fanout, viewer } = setup({ frames: 2, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", numbered(100, true));
+    fanout.publish("e1", numbered(101, false));
+    const old = fanout.generation("phone");
+    fanout.assign("phone", "e2");
+    fanout.publish("e2", numbered(1, true));
+    expect(phone.received).toHaveLength(2);
+    fanout.forget("phone", old);
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 1]);
   });
 
   it("a lone keyframe larger than the byte window still goes, and fills it", () => {

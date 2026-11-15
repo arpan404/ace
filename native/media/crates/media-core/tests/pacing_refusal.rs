@@ -37,6 +37,7 @@ fn a_long_refusal_then_recovery_allocates_nothing_and_credits_only_delivered_byt
         rate.acknowledged(sequence, now + 20.0);
         viewer.acknowledge(
             sequence,
+            None,
             |_| true,
             |e| {
                 if let Event::Sent(p) = e {

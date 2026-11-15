@@ -6,7 +6,8 @@ import { simulate, type SimRun } from "./link-sim.ts";
 /** One step of a fanout scenario, replayed in order by the Rust port. */
 type FanoutOp =
   | { publish: VideoPiece }
-  | { ack: number }
+  | { ack: number; generation?: number }
+  | { forget: number }
   | { refuse: boolean }
   | { flush: true }
   | { assign: true }
@@ -36,7 +37,8 @@ function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
   });
   for (const op of ops) {
     if ("publish" in op) fanout.publish("e", op.publish);
-    else if ("ack" in op) fanout.acknowledge("v", op.ack);
+    else if ("ack" in op) fanout.acknowledge("v", op.ack, op.generation);
+    else if ("forget" in op) fanout.forget("v", op.forget);
     else if ("refuse" in op) accepting = !op.refuse;
     else if ("flush" in op) fanout.flush();
     else if ("bound" in op) fanout.bound("v", op.bound ?? undefined);
@@ -142,8 +144,10 @@ export function fanoutEdges() {
       { ack: 7 },
       piece(8, false, 10),
     ]),
-    // A new capture restarts the sequences: old acks and the old window don't carry over.
-    fanoutScenario("sequence reset on a new capture", { frames: 3, bytes: 1000 }, [
+    // A new capture restarts the sequences (generation 1 → 3). A late ack of the old 101,
+    // naming its generation, frees only the old chunks sent before it; the new capture's own
+    // ack frees everything sent before it, old 102 included.
+    fanoutScenario("sequence reset on a new capture", { frames: 5, bytes: 1000 }, [
       { assign: true },
       piece(100, true, 10),
       piece(101, false, 10),
@@ -152,10 +156,31 @@ export function fanoutEdges() {
       piece(0, false, 10),
       piece(1, true, 10),
       piece(2, false, 10),
-      { ack: 101 },
-      { ack: 1 },
+      { ack: 101, generation: 1 },
       piece(3, false, 10),
       piece(4, false, 10),
+      piece(5, false, 10),
+      { ack: 2 },
+      piece(6, true, 10),
+      piece(7, false, 10),
+    ]),
+    // Switching encodes keeps the transport's debt: the old chunks still hold the window
+    // (each restart is two changes of encode: generations 1, then 3, 5 and 7). Forgetting
+    // generation 5 frees its two chunks; without it the last delta would be dropped.
+    fanoutScenario("encode switches keep the transport debt", { frames: 3, bytes: 1000 }, [
+      { assign: true },
+      piece(100, true, 10),
+      piece(101, false, 10),
+      piece(102, false, 10),
+      { restart: true },
+      { restart: true },
+      piece(1, true, 10),
+      { ack: 102, generation: 1 },
+      piece(2, false, 10),
+      { restart: true },
+      piece(1, true, 10),
+      { forget: 5 },
+      piece(2, false, 10),
     ]),
     fanoutScenario("viewer joining mid-GOP", { frames: 4, bytes: 1000 }, [
       piece(0, true, 10),

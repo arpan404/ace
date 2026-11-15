@@ -162,3 +162,45 @@ describe("a source's pictures on the shared media stream", () => {
     expect(view.received.map((picture) => picture.sequence)).toEqual([1]);
   });
 });
+
+describe("a source whose capture restarts", () => {
+  it("keeps the old capture's pictures in the window until they are acked", () => {
+    const { viewer, received } = setup();
+    // Eight pictures fill the window, none acked yet.
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    // A new capture: its keyframe waits, as the old pictures are still on the wire.
+    viewer.push(frame(1, { key: true, stream: "capture-2" }));
+    expect(received.map((picture) => picture.stream)).toEqual(Array(8).fill("capture-1"));
+    // The old capture's ack, named by its stream, releases them.
+    viewer.ack("capture-1", 8);
+    expect(received.at(-1)).toMatchObject({ stream: "capture-2", sequence: 1, key: true });
+  });
+
+  it("follows the link on the new capture's acks, whatever the old one left unacked", () => {
+    let now = 0;
+    const link = { min: 150_000, max: 20_000_000, initial: 4_000_000 };
+    const viewer = new PictureViewer(streamKinds.deviceFrame, deviceId, {
+      messageId: () => 1,
+      now: () => now,
+      after: () => () => {},
+      keyframe: () => {},
+      link,
+      write: () => true,
+    });
+    for (let sequence = 100; sequence <= 105; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 100, size: 40_000 }));
+    viewer.ack("capture-1", 102);
+    // The new capture starts over at 1. The old one's last pictures are acked by its stream,
+    // which frees the window but says nothing about the link now.
+    viewer.push(frame(1, { key: true, stream: "capture-2", size: 40_000 }));
+    viewer.ack("capture-1", 105);
+    // 40 KB pictures acked as they go, for a second.
+    for (let sequence = 1; sequence <= 60; sequence++) {
+      if (sequence > 1) viewer.push(frame(sequence, { stream: "capture-2", size: 40_000 }));
+      now += 1000 / 60;
+      viewer.ack("capture-2", sequence);
+    }
+    expect(viewer.rate).toBeGreaterThan(link.initial);
+  });
+});

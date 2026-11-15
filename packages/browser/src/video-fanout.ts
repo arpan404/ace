@@ -10,6 +10,18 @@
  * keyframe, and a keyframe is asked for. Keyframes are never dropped: one that doesn't fit
  * waits in the viewer's queue (replacing an older one), and the deltas after it queue behind it,
  * up to the window's frames and bytes.
+ *
+ * Each change of encode starts a new generation: a new sequence space for acks (a new capture
+ * may start its sequences over). The chunks still on the wire keep counting against the window
+ * (they are the transport's debt, whatever encode the viewer moved to) until an ack releases
+ * them. An ack names its generation (the current one by default) and releases every chunk sent
+ * up to the newest of that generation it covers: on an in-order transport, the viewer having
+ * that one proves everything sent before it arrived. A late ack of an old generation releases
+ * only what was sent before it. `forget` drops a generation the transport confirms it dropped.
+ *
+ * The window is also bounded in time (ADR 0149): a viewer's owner may hold its bytes in flight
+ * to what its link carries (`LinkRate.backlogBytes`), so a thin link never builds seconds of
+ * backlog inside a window sized for a fast one.
  */
 
 export interface VideoPiece {
@@ -48,7 +60,10 @@ interface Viewer<C extends VideoPiece> {
   id: string;
   sink: VideoSink<C>;
   encode: string | undefined;
-  inflight: { sequence: number; bytes: number }[];
+  /** Bumped by every change of encode: its sequences are a space of their own. */
+  generation: number;
+  /** Chunks on the wire, in send order, whatever generation sent them. */
+  inflight: { sequence: number; bytes: number; generation: number }[];
   inflightBytes: number;
   /** Starts with a keyframe whenever it isn't empty. */
   queue: C[];
@@ -78,6 +93,7 @@ export class VideoFanout<C extends VideoPiece> {
       id,
       sink,
       encode: undefined,
+      generation: 0,
       inflight: [],
       inflightBytes: 0,
       queue: [],
@@ -110,11 +126,9 @@ export class VideoFanout<C extends VideoPiece> {
     const viewer = this.viewers.get(id);
     if (!viewer || viewer.encode === encode) return;
     viewer.encode = encode;
+    // Another sequence space; what is on the wire stays in flight, the transport's debt.
+    viewer.generation++;
     setQueue(viewer, []);
-    // Another encode is another sequence space: the old one's chunks in flight can't be acked
-    // by the new one's (which may start over), so they stop counting against the window.
-    viewer.inflight = [];
-    viewer.inflightBytes = 0;
     viewer.needKey = true;
     viewer.dropping = false;
     if (encode === undefined) this.stopPlaying(id, viewer);
@@ -123,6 +137,7 @@ export class VideoFanout<C extends VideoPiece> {
   /** Every viewer's encode stopped (the capture moved to another tab, or failed). */
   stopAll(): void {
     for (const [id, viewer] of this.viewers) {
+      if (viewer.encode !== undefined) viewer.generation++;
       viewer.encode = undefined;
       setQueue(viewer, []);
       viewer.needKey = true;
@@ -160,14 +175,35 @@ export class VideoFanout<C extends VideoPiece> {
       this.flushViewer(viewer, encode);
     }
   }
-  /** The viewer showed every chunk up to `sequence`. */
-  acknowledge(id: string, sequence: number): void {
+  /** The generation a viewer's chunks are sent in now: an ack of them names it. */
+  generation(id: string): number | undefined {
+    return this.viewers.get(id)?.generation;
+  }
+  /**
+   * The viewer showed every chunk of `generation` (the current one by default) up to
+   * `sequence`: it and everything sent before it are off the wire.
+   */
+  acknowledge(id: string, sequence: number, generation?: number): void {
     const viewer = this.viewers.get(id);
     if (!viewer) return;
-    let index = 0;
-    while (index < viewer.inflight.length && (viewer.inflight[index]?.sequence ?? 0) <= sequence)
-      viewer.inflightBytes -= viewer.inflight[index++]?.bytes ?? 0;
-    viewer.inflight.splice(0, index);
+    const scope = generation ?? viewer.generation;
+    let last = -1;
+    for (let index = 0; index < viewer.inflight.length; index++) {
+      const entry = viewer.inflight[index];
+      if (entry?.generation === scope && entry.sequence <= sequence) last = index;
+    }
+    for (const entry of viewer.inflight.splice(0, last + 1)) viewer.inflightBytes -= entry.bytes;
+    if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
+  }
+  /** The transport confirms it dropped `generation`'s chunks: they are off the wire. */
+  forget(id: string, generation: number): void {
+    const viewer = this.viewers.get(id);
+    if (!viewer) return;
+    viewer.inflight = viewer.inflight.filter((entry) => {
+      if (entry.generation !== generation) return true;
+      viewer.inflightBytes -= entry.bytes;
+      return false;
+    });
     if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
   }
   /** The viewer's decoder lost its place: deltas wait for the next keyframe. */
@@ -225,7 +261,11 @@ export class VideoFanout<C extends VideoPiece> {
       // and the flush that ack starts never sends it again.
       viewer.queue.shift();
       viewer.queuedBytes -= chunk.bytes.length;
-      const entry = { sequence: chunk.sequence, bytes: chunk.bytes.length };
+      const entry = {
+        sequence: chunk.sequence,
+        bytes: chunk.bytes.length,
+        generation: viewer.generation,
+      };
       viewer.inflight.push(entry);
       viewer.inflightBytes += entry.bytes;
       let sent = false;
