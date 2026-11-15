@@ -2,7 +2,7 @@ import { HelloConfirm, HelloEarly, type DeviceId } from "@ace/protocol";
 import type { HostChannel, NkAccepted, NkHost } from "@ace/relay";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Devices, PairedDevice, SessionActor } from "../devices.ts";
-import { accountHello, mainActor } from "../relay-hello.ts";
+import { mainActor } from "../relay-hello.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import type { NkAdmission, NkSession } from "./admission.ts";
 
@@ -35,7 +35,7 @@ export type NkHostOptions = {
   epoch: string;
   auth: RemoteAuth;
   devices: Devices;
-  account?: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined;
+  account?: Pick<MachineAccount, "admitDeviceCached" | "stillAdmitted"> | undefined;
   serve(entry: EarlyMain): void | Promise<void>;
 };
 
@@ -67,19 +67,21 @@ export function nkHost(options: NkHostOptions): NkHost {
       const actor = mainActor(device, undefined, options);
       return actor ? { actor, paired: device } : undefined;
     }
-    if (early.grant === undefined) return undefined;
-    // No machine code here: a machine that asks for one is answered by refusing NK, and the
-    // client's XX attempt carries the code as today.
-    const admitted = await accountHello({ deviceId: early.deviceId }, early.grant, options.account);
-    if (!admitted.device || !admitted.stillAdmitted) return undefined;
-    const actor = mainActor({ id: early.deviceId }, admitted.stillAdmitted, options);
+    const machine = options.account;
+    if (early.grant === undefined || !machine) return undefined;
+    // Against cached keys only, and without a machine code: nothing here waits on the network,
+    // and a machine that asks for a code is answered by refusing NK (the client's XX attempt
+    // carries the code as today).
+    const admission = await machine.admitDeviceCached({
+      grant: early.grant,
+      deviceId: early.deviceId,
+    });
+    if (!admission.admitted) return undefined;
+    const { account, expiresAt } = admission;
+    const stillAdmitted = () => machine.stillAdmitted(early.deviceId, account);
+    const actor = mainActor({ id: early.deviceId }, stillAdmitted, options);
     if (!actor) return undefined;
-    return {
-      actor,
-      stillAdmitted: admitted.stillAdmitted,
-      ...(admitted.account === undefined ? {} : { account: admitted.account }),
-      ...(admitted.grantExpiresAt === undefined ? {} : { grantExpiresAt: admitted.grantExpiresAt }),
-    };
+    return { actor, stillAdmitted, account, grantExpiresAt: expiresAt };
   }
   /** The confirmation, as the channel's first message; the device's effects run only then. */
   async function confirmation(
@@ -110,7 +112,6 @@ export function nkHost(options: NkHostOptions): NkHost {
   }
   return {
     arrive: () => admission.arrive(),
-    refusalDelay: (arrivedAt) => admission.refusalDelay(arrivedAt),
     async admit(payload, ephemeral): Promise<NkAccepted | undefined> {
       const early = parseEarly(payload);
       if (!early || !admission.claim(early.deviceId)) return undefined;

@@ -23,7 +23,13 @@ import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 import { RelayRefusedError } from "./refusal.ts";
-import { XX_FIRST_MESSAGE, answerNk, type NkAccepted, type NkHost } from "./nk-stream.ts";
+import {
+  XX_FIRST_MESSAGE,
+  answerNk,
+  refusalDeadline,
+  type NkAccepted,
+  type NkHost,
+} from "./nk-stream.ts";
 import type { z } from "zod";
 const noop = () => {};
 /** The `type` of a channel's first message, read without trusting the rest of it. */
@@ -147,7 +153,14 @@ export async function connectHostToRelay(options: {
       } finally {
         handshakeDeadline();
       }
-      // An XX first message is exactly 32 bytes; a longer one is NK, if this daemon takes it.
+      const arrivedAt = clock.now();
+      // An XX first message is exactly 32 bytes; anything else is NK. A daemon that doesn't
+      // take NK refuses it as one that does: closed with nothing sent at the refusal time.
+      if (first.length !== XX_FIRST_MESSAGE && !options.nk) {
+        await refusalDeadline(clock, arrivedAt, signal).reached;
+        socket.terminate();
+        return;
+      }
       let accepted: NkAccepted | undefined;
       let transport: Parameters<typeof hostMessageChannel>[2];
       if (options.nk && first.length !== XX_FIRST_MESSAGE) {
@@ -159,6 +172,7 @@ export async function connectHostToRelay(options: {
             staticKey: options.hostKeys,
             clock,
             signal,
+            arrivedAt,
           });
         } finally {
           nkDeadline();

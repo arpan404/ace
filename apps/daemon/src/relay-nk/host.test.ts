@@ -48,10 +48,15 @@ function setup() {
   const admission = new NkAdmission(clock);
   let grantChecks = 0;
   // The account boundary: every grant checks out, as a stolen or replayed fresh grant would.
+  let keyCached = true;
   const account = {
-    async admitDevice() {
+    // The network check: an NK first message must never wait on it.
+    admitDevice: () => new Promise<never>(() => {}),
+    async admitDeviceCached() {
       grantChecks++;
-      return { admitted: true as const, account: "user_a", expiresAt: now + 300_000 };
+      return keyCached
+        ? { admitted: true as const, account: "user_a", expiresAt: now + 300_000 }
+        : { admitted: false as const, code: "unauthorized" as const, message: "" };
     },
     stillAdmitted: () => true,
     status: () => ({ machineCode: {} }) as never,
@@ -67,7 +72,14 @@ function setup() {
       served.push(entry);
     },
   });
-  return { host, admission, advance, served, grantChecks: () => grantChecks };
+  return {
+    host,
+    admission,
+    advance,
+    served,
+    grantChecks: () => grantChecks,
+    uncache: () => (keyCached = false),
+  };
 }
 
 const early = (device: string) =>
@@ -137,4 +149,11 @@ it("the daemon decrypts at most its burst of first messages before any credentia
   let arrived = 0;
   for (let n = 0; n < 100; n++) if (s.host.arrive()) arrived++;
   expect(arrived).toBe(40);
+});
+
+it("a grant whose key isn't cached is refused at once, without waiting on the network", async () => {
+  const s = setup();
+  s.uncache();
+  expect(await s.host.admit(early("phone"), ephemeral())).toBeUndefined();
+  expect(s.admission.held()).toMatchObject({ sessions: 0, suppressed: 0 });
 });

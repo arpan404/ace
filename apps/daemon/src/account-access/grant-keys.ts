@@ -61,6 +61,17 @@ export function grantKeyCache(options: {
       tried.add(kid);
       return refresh();
     },
+    /**
+     * The keys to verify `token` with, only if already cached, for a check that may not wait on
+     * the network (an NK first message, ADR 0155). A miss starts the same fetch `forGrant` would,
+     * in the background, for the client's next attempt.
+     */
+    cached(token: string): GrantKeySet | undefined {
+      const kid = grantKeyId(token);
+      if (keys && (kid === undefined || keys.keys.some((key) => key.id === kid))) return keys;
+      void this.forGrant(token).catch(() => {});
+      return undefined;
+    },
     /** Forget the keys, for another account origin. */
     reset() {
       keys = undefined;

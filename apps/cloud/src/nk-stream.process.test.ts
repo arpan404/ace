@@ -41,7 +41,6 @@ async function daemon(admit: (early: string) => boolean) {
   const arrived: HostChannel[] = [];
   const nk: NkHost = {
     arrive: () => true,
-    refusalDelay: () => 0,
     async admit(payload) {
       if (!admit(new TextDecoder().decode(payload))) return undefined;
       return {

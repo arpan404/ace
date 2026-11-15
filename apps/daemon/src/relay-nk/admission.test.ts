@@ -156,14 +156,3 @@ it("a session that doesn't confirm in 5 s is closed and gives everything back; o
   expect(admission.held()).toMatchObject({ sessions: 0, bytes: 0 });
   expect(time.pending()).toBe(0);
 });
-
-it("every refusal goes out the same time after its first message arrived", () => {
-  const time = clock();
-  const admission = new NkAdmission(time);
-  const arrived = time.now();
-  expect(admission.refusalDelay(arrived)).toBe(NK_LIMITS.refusalMs);
-  time.advance(40);
-  expect(admission.refusalDelay(arrived)).toBe(NK_LIMITS.refusalMs - 40);
-  time.advance(1_000);
-  expect(admission.refusalDelay(arrived)).toBe(0);
-});

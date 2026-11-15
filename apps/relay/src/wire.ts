@@ -4,6 +4,11 @@
  */
 export const CONTROL_PROLOGUE = new TextEncoder().encode("ace relay registration v1");
 export const STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v1");
+/**
+ * Every refusal of an NK first message closes the stream this long after the message arrived,
+ * whatever the reason and however long the daemon's check takes (ADR 0155, step 2).
+ */
+export const NK_REFUSAL_MS = 150;
 /** The prologue of a stream opened with Noise NK (ADR 0155, step 2). */
 export const NK_STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v2 nk");
 /** The one-byte marker a relay sends a client once its host stream is paired. */

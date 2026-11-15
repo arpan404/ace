@@ -26,8 +26,6 @@ export const NK_LIMITS = {
   sessionEvents: 2_000,
   sessionOutput: 256 * 1024,
   confirmMs: 5_000,
-  /** Every refusal is sent this long after its first message arrived, whatever the reason. */
-  refusalMs: 150,
 };
 export type NkLimits = typeof NK_LIMITS;
 
@@ -168,11 +166,6 @@ export class NkAdmission {
       expire();
     });
     return session;
-  }
-
-  /** When to send a refusal for a first message that arrived at `arrivedAt`. */
-  refusalDelay(arrivedAt: number): number {
-    return Math.max(0, arrivedAt + this.#limits.refusalMs - this.#clock.now());
   }
 
   /** What unconfirmed sessions hold now, for tests and the daemon's own checks. */
