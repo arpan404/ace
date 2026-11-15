@@ -10423,6 +10423,7 @@ Example:
 | databaseId | no | string | {"minLength":1,"maxLength":128} |
 | grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | ticket | no | object | {"properties":{"ticket":{"type":"string","pattern":"^[0-9a-f]{64}$"},"ttlMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ticket","ttlMs"]} |
+| relayHandshakes | no | array | {"maxItems":8,"items":{"type":"string","maxLength":16}} |
 
 Example:
 
@@ -10436,6 +10437,25 @@ Example:
     "ttlMs": 1
   },
   "type": "welcome"
+}
+```
+
+### hello.confirmed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"hello.confirmed"` |  |
+| ticket | no | object | {"properties":{"ticket":{"type":"string","pattern":"^[0-9a-f]{64}$"},"ttlMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ticket","ttlMs"]} |
+
+Example:
+
+```json
+{
+  "ticket": {
+    "ticket": "bf75e413f2bd132ce6670c5ea632a62469715a9b0c84a8b4b6e6c82d6dafd7fa",
+    "ttlMs": 2
+  },
+  "type": "hello.confirmed"
 }
 ```
 
@@ -10454,23 +10474,122 @@ Example:
 
 ```json
 {
-  "seq": 6,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "reads": {},
-    "seq": 6,
-    "threads": {},
-    "window": {
-      "before": {
-        "at": 2,
-        "id": "example"
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "itemSeqs": {},
+    "items": {},
+    "kind": "thread",
+    "partial": {
+      "previews": []
+    },
+    "runs": {},
+    "seq": 9,
+    "thread": {
+      "acpAgentId": "example",
+      "activityAt": 0,
+      "autoSettle": false,
+      "createdAt": 5,
+      "delegatedBy": "example",
+      "delegatedFrom": {
+        "hostId": "example",
+        "hostName": "example",
+        "provider": "example",
+        "threadId": "example"
       },
-      "counts": [],
-      "revision": 7,
-      "total": 2
-    }
+      "deletedAt": 1,
+      "details": {
+        "base": {
+          "fetch": "unreachable",
+          "head": "934c3ba327d5fedb6915c33d401f95b78cd68569e5fa564699a45d754",
+          "ref": "example"
+        },
+        "behind": 2,
+        "continuedOn": {
+          "at": 1,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "head": null,
+        "linkedIssues": [],
+        "worktree": "example",
+        "worktreeMissing": true,
+        "worktreeSetup": {
+          "at": 8,
+          "details": [],
+          "state": "failed"
+        }
+      },
+      "effectiveCapabilities": {
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "partial",
+        "fork": true,
+        "forkMode": "context-handoff",
+        "goals": false,
+        "imageInput": true,
+        "interruptCascades": true,
+        "launchOptions": [],
+        "permissions": {
+          "modes": [],
+          "nativeAutoReview": true,
+          "toolGate": true
+        },
+        "planMode": true,
+        "resume": true,
+        "rewindFiles": false,
+        "steer": true,
+        "steeringMode": "interrupt-restart",
+        "subagentTranscripts": true,
+        "tokenUsage": true
+      },
+      "execution": {
+        "provider": "opencode"
+      },
+      "handoff": {
+        "bytes": 1,
+        "sourceThreadId": "example",
+        "truncated": true
+      },
+      "hasSentMessage": true,
+      "host": "spade-bot",
+      "id": "example",
+      "imported": {
+        "importedAt": 7,
+        "instanceId": "example",
+        "native": {
+          "nativeId": "example",
+          "provider": "cursor"
+        },
+        "sourceId": "example"
+      },
+      "listOrder": 7,
+      "pinned": false,
+      "prSettledKey": "example",
+      "provider": "antigravity",
+      "readAt": 3,
+      "rootAgentId": "example",
+      "settleWhenDone": true,
+      "settledReason": "pr_closed",
+      "snoozeWake": {
+        "on": "needs_you"
+      },
+      "snoozedUntil": 0,
+      "status": {
+        "state": "new"
+      },
+      "title": "example",
+      "unread": true,
+      "updatedAt": 5,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -10491,7 +10610,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 0,
+  "afterSeq": 8,
   "events": [],
   "subscriptionId": "example",
   "throughSeq": 8,
@@ -10514,9 +10633,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
+  "afterSeq": 0,
   "subscriptionId": "example",
-  "throughSeq": 8,
+  "throughSeq": 0,
   "type": "progress"
 }
 ```
@@ -10559,53 +10678,78 @@ Example:
 ```json
 {
   "commandId": "example",
-  "forkThreadId": "example",
+  "commit": "e98385f19262780ec759b86e85a4d42e41350be9075ed",
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
+    },
+    "path": "example"
+  },
   "inboxAction": {
-    "action": "done",
+    "action": "unsubscribe",
     "error": "example",
     "id": "example",
     "state": "uncertain"
   },
   "inspection": {
-    "git": {
-      "branch": "example",
-      "defaultBranch": "example",
-      "remotes": [],
-      "root": "example"
-    },
+    "defaultIcon": "https://example.invalid/icon.png",
+    "git": null,
     "path": "example"
   },
   "issue": {
-    "number": 4,
+    "number": 8,
     "repository": {
-      "forge": "github",
-      "host": "RrKy",
-      "name": "1kDnxSg",
-      "owner": "oB5I/PbJJ02OXb8F/ATPH/DFxHg_tA/aIlvE/NRo/TLiL7dOYbDf"
+      "forge": "gitlab",
+      "host": "koNEN6x9no",
+      "name": "JYnUzzYqz",
+      "owner": "ShLL-"
     }
   },
   "ok": true,
+  "prExisting": true,
+  "publication": {
+    "error": "example",
+    "input": {
+      "account": "jJuoTwPbwDH",
+      "description": "example",
+      "host": "odomo4mhe-tp.t.4-vlp2mf3ygp",
+      "name": ".d6-",
+      "owner": "95JWPr",
+      "visibility": "private"
+    },
+    "phase": "pushed",
+    "remote": {
+      "archived": false,
+      "cloneUrl": "example",
+      "description": "example",
+      "fork": false,
+      "id": 7,
+      "repository": {
+        "forge": "bitbucket",
+        "host": "hVCvX",
+        "name": "d",
+        "owner": "K9ik/bJ-I-nnA/YEk/rF6-R/-LlWoCZJ0V/PNFsyQrOFfu/ZojPr95"
+      },
+      "url": "example",
+      "visibility": "public"
+    },
+    "updatedAt": 4,
+    "workspaceId": "example"
+  },
+  "remoteHead": "f086da48ed77f476e8b8bf81d6da379eaffe328b0e6393ab",
   "review": {
     "comments": [],
-    "session": {
-      "createdAt": 2,
-      "id": "example",
-      "source": {
-        "from": {
-          "id": "example",
-          "kind": "checkpoint"
-        },
-        "to": {
-          "id": "example",
-          "kind": "checkpoint"
-        },
-        "workspaceId": "example"
-      },
-      "status": "approved"
-    }
+    "replies": []
+  },
+  "stackOperation": {
+    "action": "sync",
+    "message": "example",
+    "stage": "rebase",
+    "state": "failed"
   },
   "terminalId": "example",
-  "threadId": "example",
   "type": "commandResult"
 }
 ```
@@ -10628,10 +10772,9 @@ Example:
 ```json
 {
   "code": "example",
+  "commandId": "example",
+  "lockedUntil": 7,
   "message": "example",
-  "requestId": "example",
-  "retryable": true,
-  "subscriptionId": "example",
   "type": "error"
 }
 ```
@@ -10653,9 +10796,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": true,
-  "nextOffset": 4,
-  "offset": 4,
+  "eof": false,
+  "nextOffset": 6,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -10682,10 +10825,10 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 7,
   "omitted": [],
   "requestId": "example",
-  "seq": 6,
+  "seq": 8,
   "threadId": "example",
   "type": "items.page"
 }
@@ -10737,7 +10880,7 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 3,
+    "grantTtlMs": 1,
     "ok": true
   },
   "type": "account.grant.refresh.result"
@@ -12946,6 +13089,31 @@ Example:
 }
 ```
 
+## EarlySubscribe
+
+[JSON Schema](schema/EarlySubscribe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| subscriptionId | yes | string | {"minLength":1,"maxLength":128} |
+| scope | yes | [SubscriptionScope.json](schema/SubscriptionScope.json) |  |
+| paced | no | boolean |  |
+| afterSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| tail | no | object | {"properties":{"items":{"type":"integer","minimum":1,"maximum":200},"bytes":{"type":"integer","minimum":1024,"maximum":1048576}},"required":["items","bytes"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "afterSeq": 8,
+  "paced": true,
+  "scope": {
+    "kind": "threads"
+  },
+  "subscriptionId": "example"
+}
+```
+
 ## EditorLaunch
 
 [JSON Schema](schema/EditorLaunch.json), input validation.
@@ -14649,6 +14817,63 @@ Example:
   "before": 1,
   "limit": 9,
   "sourceThreadId": "example"
+}
+```
+
+## HelloConfirm
+
+[JSON Schema](schema/HelloConfirm.json), input validation.
+
+Semantic rule: Sent once, as the first message after an NK answer.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"hello.confirm"` |  |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
+| link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
+| nextTicket | no | `true` |  |
+| machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
+
+Example:
+
+```json
+{
+  "machineCode": "example",
+  "nextTicket": true,
+  "type": "hello.confirm"
+}
+```
+
+## HelloEarly
+
+[JSON Schema](schema/HelloEarly.json), input validation.
+
+Semantic rule: Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"hello.early"` |  |
+| protocolVersion | yes | `1` |  |
+| deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
+| ticket | no | string | {"pattern":"^[0-9a-f]{64}$"} |
+| grant | no | string | {"minLength":1,"maxLength":2048} |
+| trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
+| framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| subscribes | no | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/EarlySubscribe.json"}} |
+
+Example:
+
+```json
+{
+  "compression": [],
+  "deviceId": "example",
+  "protocolVersion": 1,
+  "subscribes": [],
+  "ticket": "aa17b56148ab2067ac47a6b05091cfea0f552693ab8550db243b7ea4bb63d611",
+  "trims": [],
+  "type": "hello.early"
 }
 ```
 

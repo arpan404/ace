@@ -1416,6 +1416,14 @@
           "const": 1,
           "type": "number"
         },
+        "relayHandshakes": {
+          "items": {
+            "maxLength": 16,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
         "ticket": {
           "properties": {
             "ticket": {
@@ -1444,6 +1452,36 @@
         "hostId",
         "protocolVersion",
         "headSeq"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
+        },
+        "type": {
+          "const": "hello.confirmed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
       ],
       "type": "object"
     },

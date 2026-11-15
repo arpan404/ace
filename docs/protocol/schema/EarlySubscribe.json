@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/EarlySubscribe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "afterSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "paced": {
+      "type": "boolean"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/SubscriptionScope.json"
+    },
+    "subscriptionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "tail": {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "maximum": 1048576,
+          "minimum": 1024,
+          "type": "integer"
+        },
+        "items": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "bytes"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "subscriptionId",
+    "scope"
+  ],
+  "type": "object"
+}
