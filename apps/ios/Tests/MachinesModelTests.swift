@@ -126,46 +126,21 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
     }
 
-    @Test func networkUpdatesUnderFiveSecondsApartNeverPostponeAnOutstandingProbe() async throws {
-        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+    @Test func everyInterfaceChangeWakesEveryMachineAtOnceHoweverOftenTheyCome() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { fixture.cleanUp() }
         await fixture.model.load()
         let wakes = { fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count } }
-        // Wi-Fi and cellular trading places every second: only the first change probes at once,
-        // so that probe's five seconds run out on time.
-        for _ in 0..<4 {
+        // Wi-Fi and cellular trading places every second: the shared client joins wakes close
+        // together into one ping and never moves an earlier deadline, so each change goes
+        // straight through and none waits for another.
+        for step in 1...4 {
             fixture.model.network(online: true, interfaceChanged: true)
+            #expect(wakes() == [step, step])
             fixture.scheduler.advance(1_000)
         }
-        // Coming back from the background inside the same window doesn't restart it either.
         fixture.model.wake()
-        #expect(wakes() == [1])
-        // The changes it held back still get their own check, once the first probe has settled.
-        fixture.scheduler.advance(WakeGate.probeWindow - 4_000 + WakeGate.settle - 1)
-        #expect(wakes() == [1])
-        fixture.scheduler.advance(1)
-        #expect(wakes() == [2])
-        // One check for all of them: nothing more is waiting.
-        fixture.scheduler.advance(WakeGate.bound)
-        #expect(wakes() == [2])
-    }
-
-    @Test func signingOutOfTheAccountDropsACheckStillWaiting() async throws {
-        let studio = String(repeating: "S", count: 52)
-        let account = FakeAccount([AceMachine(hostId: studio, name: "studio", platform: "darwin", lastSeenAt: 1)])
-        let fixture = try Fixture(machines: [machine(studio, device: "phone-1")], account: account)
-        defer { fixture.cleanUp() }
-        await fixture.model.load()
-        fixture.model.network(online: true, interfaceChanged: true)
-        fixture.scheduler.advance(1_000)
-        fixture.model.network(online: true, interfaceChanged: true)
-        let waiting = fixture.scheduler.live
-        account.signOut()
-        await fixture.model.refreshAccount()
-        #expect(fixture.scheduler.live == waiting - 1, "the trailing wake is cancelled, not left to fire")
-        let wakes = fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count }.reduce(0, +)
-        fixture.scheduler.advance(WakeGate.bound)
-        #expect(fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count }.reduce(0, +) == wakes)
+        #expect(wakes() == [5, 5])
     }
 
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {

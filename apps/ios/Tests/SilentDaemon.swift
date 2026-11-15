@@ -5,7 +5,8 @@ import os
 
 /// A loopback WebSocket daemon for liveness tests: it welcomes every hello as host `host` and
 /// answers each ping with a pong, until `silence()`, after which it sends nothing at all and
-/// never closes, as a socket left on an interface that went away.
+/// never closes, as a socket left on an interface that went away. Between `hold()` and
+/// `release()` its pongs are written but stay in transit: they arrive, in order, only then.
 final class SilentDaemon: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "ace.tests.silent-daemon")
@@ -13,6 +14,9 @@ final class SilentDaemon: @unchecked Sendable {
     private var silent = false
     private var connections: [NWConnection] = []
     private var answered = 0
+    private var received = 0
+    private var holding = false
+    private var held: [NWConnection] = []
 
     init() throws { listener = try NWListener(using: .tcp, on: .any) }
 
@@ -39,6 +43,20 @@ final class SilentDaemon: @unchecked Sendable {
     func silence() { lock.withLock { silent = true } }
     /// Pings answered so far.
     var pongs: Int { lock.withLock { answered } }
+    /// Pings received so far, answered or not.
+    var pings: Int { lock.withLock { received } }
+    /// Pongs from now on stay in transit until `release()`.
+    func hold() { lock.withLock { holding = true } }
+    /// The pongs in transit arrive now, in order, even after `silence()`: they left before.
+    func release() {
+        let late = lock.withLock { () -> [NWConnection] in
+            holding = false
+            answered += held.count
+            defer { held.removeAll() }
+            return held
+        }
+        for connection in late { send(#"{"type":"pong"}"#, on: connection) }
+    }
 
     private func accept(_ connection: NWConnection) {
         lock.withLock { connections.append(connection) }
@@ -67,13 +85,19 @@ final class SilentDaemon: @unchecked Sendable {
         var buffer = start
         while let (opcode, payload, used) = Self.frame(Array(buffer)) {
             buffer = Data(buffer.dropFirst(used))
-            guard opcode == 1, !lock.withLock({ silent }) else { continue }
+            guard opcode == 1 else { continue }
             let text = String(decoding: payload, as: UTF8.self)
+            if text.contains(#""type":"ping""#) { lock.withLock { received += 1 } }
+            guard !lock.withLock({ silent }) else { continue }
             if text.contains(#""type":"hello""#) {
                 send(#"{"type":"welcome","hostId":"host","protocolVersion":1,"headSeq":0}"#, on: connection)
             } else if text.contains(#""type":"ping""#) {
-                lock.withLock { answered += 1 }
-                send(#"{"type":"pong"}"#, on: connection)
+                let answer = lock.withLock { () -> Bool in
+                    if holding { held.append(connection); return false }
+                    answered += 1
+                    return true
+                }
+                if answer { send(#"{"type":"pong"}"#, on: connection) }
             }
         }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, complete, error in

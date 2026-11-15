@@ -41,7 +41,6 @@ import Observation
     @ObservationIgnored private let probe: (ConnectionTarget) async -> Bool
     /// Milliseconds, for the route plans' hold and cooldown.
     @ObservationIgnored private let clock: () -> Double
-    @ObservationIgnored private let wakeSchedule: WakeGate.Schedule
     /// Account machines whose daemon said, over the relay, which paired machine it is: account
     /// host id → daemon id.
     @ObservationIgnored private var daemons: [String: String]
@@ -66,13 +65,11 @@ import Observation
          itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
          schedule: @escaping RouteScheduler = RouteRetries.sleeping,
-         wakeSchedule: @escaping WakeGate.Schedule = WakeGate.sleeping,
          moveSends: @escaping SendAdoptions.Move = SendAdoptions.durable,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
         retries = RouteRetries(schedule: schedule)
-        self.wakeSchedule = wakeSchedule
         adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
@@ -139,10 +136,7 @@ import Observation
     private func adopt(account listing: AccountListing) async {
         switch listing {
         case .listed(let listed): accountMachines = listed; accountSignedIn = true
-        case .signedOut:
-            accountMachines = []; accountSignedIn = false
-            // The account's machines go; a check they were owed goes with them.
-            wakes.cancel()
+        case .signedOut: accountMachines = []; accountSignedIn = false
         case .unavailable: break
         }
         await follow(merged())
@@ -292,12 +286,12 @@ import Observation
         wakeClients()
         reconsiderRoutes()
     }
-    /// Wakes every machine's client without ever restarting an outstanding probe (`WakeGate`).
-    @ObservationIgnored private lazy var wakes = WakeGate(now: clock, schedule: wakeSchedule) { [weak self] in
-        guard let self else { return }
-        for session in self.inbox.sessions { session.client.wake() }
+    /// Wakes every machine's client now. Each wake is answered only by the pong to a ping sent
+    /// at or after it, and a later wake never moves an earlier one's deadline (the shared
+    /// client's heartbeat, ADR 0150), so every change gets its own check, however often they come.
+    private func wakeClients() {
+        for session in inbox.sessions { session.client.wake() }
     }
-    private func wakeClients() { wakes.request() }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
     /// Whether the network and power allow reading likely threads ahead, for every machine.
@@ -316,7 +310,6 @@ import Observation
         if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {
-        wakes.cancel()
         for session in inbox.sessions { await session.client.disconnectAndWait() }
     }
     /// An account machine leaves the account's list (it returns if it signs in again); a paired
