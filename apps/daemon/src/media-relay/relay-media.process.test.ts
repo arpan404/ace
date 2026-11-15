@@ -40,6 +40,32 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 
+function hello(
+  credential: { deviceId: string; token: string },
+  extra: Partial<Extract<ClientMessage, { type: "hello" }>>,
+): Extract<ClientMessage, { type: "hello" }> {
+  return {
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse(credential.deviceId),
+    token: credential.token,
+    flowControl: ["credit"],
+    ...extra,
+  };
+}
+
+/** The first browser video chunk a relay client gets: whether it was a keyframe. */
+async function firstChunk(client: ClientChannel): Promise<boolean> {
+  const assembler = new StreamAssembler();
+  for (;;) {
+    const frame = await client.receiveFrame();
+    if (!(frame instanceof Uint8Array)) continue;
+    const envelope = assembler.push(frame);
+    const message = envelope && decodeStreamMessage(envelope);
+    if (message?.kind === "browser.video") return message.chunk.key;
+  }
+}
+
 async function setup() {
   if (!binary) throw new Error("ACE_MEDIA_TEST_BINARY is required");
   const root = await mkdtemp(join(tmpdir(), "ace-d2-"));
@@ -143,19 +169,6 @@ async function setup() {
     cleanups.push(() => client.close());
     return client;
   }
-  function hello(
-    credential: { deviceId: string; token: string },
-    extra: Partial<Extract<ClientMessage, { type: "hello" }>>,
-  ): Extract<ClientMessage, { type: "hello" }> {
-    return {
-      type: "hello",
-      protocolVersion: 1,
-      deviceId: DeviceId.parse(credential.deviceId),
-      token: credential.token,
-      flowControl: ["credit"],
-      ...extra,
-    };
-  }
   /** A media stream through ace-media with the client's hello, then what came back first. */
   async function media(
     credential: { deviceId: string; token: string },
@@ -190,17 +203,6 @@ async function setup() {
         });
       },
     };
-  }
-  /** The first browser video chunk a relay client gets: whether it was a keyframe. */
-  async function firstChunk(client: ClientChannel): Promise<boolean> {
-    const assembler = new StreamAssembler();
-    for (;;) {
-      const frame = await client.receiveFrame();
-      if (!(frame instanceof Uint8Array)) continue;
-      const envelope = assembler.push(frame);
-      const message = envelope && decodeStreamMessage(envelope);
-      if (message?.kind === "browser.video") return message.chunk.key;
-    }
   }
   return {
     tab,

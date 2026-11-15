@@ -30,6 +30,8 @@ const admitAll: AdmitMediaHello = async () => ({
   },
 });
 
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 /** A fake ace-media that records what the daemon sends and plays one scripted client. */
 function harness(options: { accepts?: boolean; available?: boolean } = {}) {
   const sent: { message: ToMedia; payload: Uint8Array }[] = [];
@@ -67,7 +69,6 @@ function harness(options: { accepts?: boolean; available?: boolean } = {}) {
     newId: () => String(next++),
     log: () => {},
   });
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   return {
     streams,
     sent,
@@ -188,12 +189,13 @@ it("a stream offered while ace-media starts is dialed once its lanes are up", as
   expect(streamOf(h)).toMatch(/^rs_/);
 });
 
+const refuse: AdmitMediaHello = async () => ({
+  ok: false,
+  refusal: { type: "error", code: "unauthorized", message: "Valid hello required" },
+});
+
 it("a refused stream stays open just long enough for its refusal to be written first", async () => {
   const h = harness();
-  const refuse: AdmitMediaHello = async () => ({
-    ok: false,
-    refusal: { type: "error", code: "unauthorized", message: "Valid hello required" },
-  });
   h.streams.offer("ws://relay/join?ticket=t", refuse);
   const stream = streamOf(h);
   h.streams.onMessage({ type: "relay.dialed", stream }, new Uint8Array(0));
