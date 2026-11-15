@@ -528,7 +528,7 @@ void main() {
   vec3 col = mix(glass, lensed, wet);
 
   // Light to screen: a soft shoulder, then display values, with a fixed dither against banding.
-  col = 1.0 - exp(-max(col, 0.0) * mix(2.6, 1.55, day));
+  col = 1.0 - exp(-max(col, 0.0) * mix(2.6, 2.3, day));
   col = pow(col, vec3(1.0 / 2.2));
   col += (hash(ip.x + 4096, ip.y + 4096) - 0.5) / 255.0;
   outColor = vec4(col, 1.0);

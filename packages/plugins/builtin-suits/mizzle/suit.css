@@ -59,7 +59,7 @@
     0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -6px rgb(0 0 0 / 0.45),
     0 30px 60px -20px rgb(0 0 0 / 0.62);
   --suit-pane: color-mix(in oklab, var(--color-background) 52%, transparent);
-  --suit-frost: color-mix(in oklab, var(--color-sidebar) 66%, transparent);
+  --suit-frost: color-mix(in oklab, var(--color-sidebar) 74%, transparent);
   --suit-frost-raised: color-mix(in oklab, var(--color-surface-2) 84%, transparent);
   --suit-frost-field: color-mix(in oklab, var(--color-surface-1) 80%, transparent);
   --suit-plate: color-mix(in oklab, var(--color-foreground) 8%, transparent);
@@ -81,8 +81,8 @@
     0 1px 2px rgb(26 29 34 / 0.06), 0 8px 20px -6px rgb(26 29 34 / 0.12),
     0 26px 52px -20px rgb(26 29 34 / 0.24);
   /* Near-white and mostly solid: ace's status colours are tuned for a pale sidebar. */
-  --suit-pane: color-mix(in oklab, var(--color-background) 58%, transparent);
-  --suit-frost: rgb(250 251 252 / 0.84);
+  --suit-pane: color-mix(in oklab, var(--color-background) 72%, transparent);
+  --suit-frost: rgb(250 251 252 / 0.92);
   --suit-frost-raised: rgb(255 255 255 / 0.9);
   --suit-frost-field: rgb(255 255 255 / 0.86);
   --suit-plate: #ffffff;
