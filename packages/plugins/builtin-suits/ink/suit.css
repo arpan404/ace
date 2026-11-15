@@ -69,7 +69,7 @@
 }
 
 [data-part="composer"] {
-  border-color: var(--color-border-strong);
+  border-color: var(--border-strong);
   box-shadow: none;
 }
 
@@ -84,13 +84,13 @@
 
 [data-scheme="dark"]
   :is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
-  border-color: var(--color-border-strong);
+  border-color: var(--border-strong);
   box-shadow: 0 16px 40px -16px rgb(0 0 0 / 0.9);
 }
 
 [data-part="tooltip"] {
   background: var(--color-foreground);
-  color: var(--color-background);
+  color: var(--background);
   border-color: transparent;
 }
 
@@ -127,5 +127,5 @@
 }
 
 [data-part="kbd"] {
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--border-strong);
 }

@@ -12,9 +12,9 @@ const step = 0.35;
 const stillAt = 41000;
 
 const pools = [
-  { colour: [150, 168, 205], alpha: 0.13, size: 0.62, x: 0.22, y: 0.18, ax: 0.14, ay: 0.1, px: 173000, py: 131000, phase: 0.3 },
-  { colour: [118, 150, 168], alpha: 0.09, size: 0.55, x: 0.78, y: 0.72, ax: 0.12, ay: 0.12, px: 211000, py: 157000, phase: 2.1 },
-  { colour: [196, 170, 140], alpha: 0.05, size: 0.48, x: 0.62, y: 0.2, ax: 0.16, ay: 0.08, px: 241000, py: 193000, phase: 4.4 },
+  { colour: [150, 168, 205], alpha: 0.26, size: 0.62, x: 0.6, y: 0.16, ax: 0.16, ay: 0.1, px: 173000, py: 131000, phase: 0.3 },
+  { colour: [118, 150, 168], alpha: 0.18, size: 0.55, x: 0.84, y: 0.8, ax: 0.12, ay: 0.12, px: 211000, py: 157000, phase: 2.1 },
+  { colour: [196, 170, 140], alpha: 0.1, size: 0.5, x: 0.38, y: 0.62, ax: 0.14, ay: 0.08, px: 241000, py: 193000, phase: 4.4 },
 ];
 
 let view = null;

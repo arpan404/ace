@@ -35,7 +35,7 @@
 
 /* The person's words: a quiet marginal rule in umber. */
 [data-part="message-user"] {
-  border-inline-start-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  border-inline-start-color: color-mix(in srgb, var(--accent-theme) 55%, transparent);
   padding-inline-start: 14px;
 }
 
@@ -89,7 +89,7 @@
 
 /* Threads: the open one is a paper slip laid on the desk. */
 [data-part="thread-row"][data-state="active"] {
-  background: var(--color-surface-2);
+  background: var(--surface-2);
   box-shadow:
     0 0 0 1px var(--color-border),
     0 1px 2px rgb(74 52 30 / 0.06);
@@ -155,13 +155,9 @@
 }
 
 [data-part="kbd"] {
-  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
 }
 
 [data-part="panel-tab"][data-state="selected"] {
-  box-shadow: inset 0 -1.5px 0 var(--color-accent);
-}
-
-[data-part="terminal"] {
-  border-radius: 6px;
+  box-shadow: inset 0 -1.5px 0 var(--accent-theme);
 }
