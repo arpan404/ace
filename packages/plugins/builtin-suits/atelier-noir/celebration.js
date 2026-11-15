@@ -225,7 +225,9 @@ function draw(time) {
   // A veil dims the room a little so the seal reads, and lifts with it.
   const veil = clamp(t / dropMs) * fade * (scheme === "dark" ? 0.32 : 0.14);
   ctx.fillStyle =
-    scheme === "dark" ? `rgba(4, 3, 2, ${veil.toFixed(3)})` : `rgba(40, 30, 14, ${veil.toFixed(3)})`;
+    scheme === "dark"
+      ? `rgba(4, 3, 2, ${veil.toFixed(3)})`
+      : `rgba(40, 30, 14, ${veil.toFixed(3)})`;
   ctx.fillRect(0, 0, width, height);
 
   const drop = easeIn(clamp(t / dropMs));

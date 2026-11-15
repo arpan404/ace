@@ -169,7 +169,11 @@ function draw(time) {
   // The sheen eases in and out at the window's edges, so it never pops.
   const edge = Math.sin(phase * Math.PI);
   band(phase * 1.3 - 0.15, t.sheen * edge, spread);
-  band(((phase + 0.5) % 1) * 1.3 - 0.15, t.sheen * 0.45 * Math.sin(((phase + 0.5) % 1) * Math.PI), spread * 0.6);
+  band(
+    ((phase + 0.5) % 1) * 1.3 - 0.15,
+    t.sheen * 0.45 * Math.sin(((phase + 0.5) % 1) * Math.PI),
+    spread * 0.6,
+  );
   const since = time - glintAt;
   if (!still && since >= 0 && since < glintMs) {
     const p = since / glintMs;
