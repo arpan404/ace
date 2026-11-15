@@ -25,13 +25,13 @@ export type {
 export const browserMediaSocket: OpenMediaSocket = (url, events) => {
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
-  socket.onopen = () => events.open();
-  socket.onmessage = (event: MessageEvent<unknown>) => {
+  socket.addEventListener("open", () => events.open());
+  socket.addEventListener("message", (event: MessageEvent<unknown>) => {
     const data = event.data;
     if (typeof data === "string") events.message(data);
     else if (data instanceof ArrayBuffer) events.message(new Uint8Array(data));
-  };
-  socket.onclose = (event) => events.close(event.code);
+  });
+  socket.addEventListener("close", (event) => events.close(event.code));
   return {
     send: (data) => socket.send(data),
     close: (code) => socket.close(code),

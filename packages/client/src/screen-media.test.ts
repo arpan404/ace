@@ -110,7 +110,7 @@ function harness(daemon: Daemon = "binds") {
   const server = (message: ServerMessage | Uint8Array) => events!.message(message);
   server(ServerMessage.parse({ type: "screen.state", state }));
   const drawn: SourcePicture[] = [];
-  client.watchPictures("app", (picture) => void drawn.push(picture));
+  client.watchPictures("app", (shown) => void drawn.push(shown));
   return { client, sent, server, drawn };
 }
 
@@ -181,11 +181,9 @@ describe("screen pictures by the media connection", () => {
     client.retainStream("app");
     media.move(undefined);
     media.move("mc_bbbbbbbbbb");
-    expect(subscribes(sent).map((s) => ("media" in s ? s.media : undefined))).toEqual([
-      { connection: "mc_aaaaaaaaaa" },
-      undefined,
-      { connection: "mc_bbbbbbbbbb" },
-    ]);
+    expect(
+      subscribes(sent).map((operation) => ("media" in operation ? operation.media : undefined)),
+    ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined, { connection: "mc_bbbbbbbbbb" }]);
   });
 
   it("keeps legacy delivery on the channel while the media connection has no binding", async () => {
@@ -224,10 +222,9 @@ describe("screen pictures by the media connection", () => {
     client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
     client.retainStream("app");
     await flush();
-    expect(subscribes(sent).map((s) => ("media" in s ? s.media : undefined))).toEqual([
-      { connection: "mc_aaaaaaaaaa" },
-      undefined,
-    ]);
+    expect(
+      subscribes(sent).map((operation) => ("media" in operation ? operation.media : undefined)),
+    ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
   });
 
   it("keeps the poster a media subscribe brings back", async () => {

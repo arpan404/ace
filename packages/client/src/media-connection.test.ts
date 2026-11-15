@@ -33,7 +33,7 @@ class Clock {
   async advance(ms: number) {
     const until = this.now + ms;
     for (;;) {
-      const next = this.timers.filter((t) => t.at <= until).sort((a, b) => a.at - b.at)[0];
+      const next = this.timers.filter((t) => t.at <= until).toSorted((a, b) => a.at - b.at)[0];
       if (!next) break;
       this.timers = this.timers.filter((t) => t !== next);
       this.now = next.at;
