@@ -363,7 +363,11 @@ const rows = (items: Item[]) =>
 it.each([
   {
     behaviour: "a running command stands apart from the commands that already ran",
-    log: [shell("a", "bun install"), shell("b", "bun run build"), shell("c", "bun run lint", "running")],
+    log: [
+      shell("a", "bun install"),
+      shell("b", "bun run build"),
+      shell("c", "bun run lint", "running"),
+    ],
     rows: ["Ran 2 commands", "running c"],
   },
   {
@@ -388,7 +392,11 @@ it.each([
   },
   {
     behaviour: "a step that finished after one still running joins the group before it",
-    log: [shell("a", "bun install"), shell("b", "bun run lint", "running"), shell("c", "bun run build")],
+    log: [
+      shell("a", "bun install"),
+      shell("b", "bun run lint", "running"),
+      shell("c", "bun run build"),
+    ],
     rows: ["Ran 2 commands", "running b"],
   },
   {
@@ -413,7 +421,12 @@ it.each([
   },
   {
     behaviour: "a subagent launch in flight stands apart from the launches, never in the tools",
-    log: [shell("a", "bun install"), spawn("b"), spawn("c"), pending("d", { kind: "agent.spawn", description: "d" })],
+    log: [
+      shell("a", "bun install"),
+      spawn("b"),
+      spawn("c"),
+      pending("d", { kind: "agent.spawn", description: "d" }),
+    ],
     rows: ["done a", "Started 2 subagents", "running d"],
   },
 ])("$behaviour", (row) => {
@@ -445,10 +458,9 @@ it("a step waiting on approval stands apart like any step in flight", () => {
 });
 
 it("commands left running in the background keep one card, running or not", () => {
-  const steps = facts([
-    shell("a", "bun run dev", "running"),
-    shell("b", "bun run watch"),
-  ]).map(backgroundFact);
+  const steps = facts([shell("a", "bun run dev", "running"), shell("b", "bun run watch")]).map(
+    backgroundFact,
+  );
   const { groups } = groupSteps(steps);
   expect(groups.map((group) => group.ids)).toEqual([["a", "b"]]);
   expect(groups[0]).toMatchObject({ icon: "background", running: true });
