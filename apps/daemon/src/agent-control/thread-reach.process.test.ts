@@ -142,7 +142,8 @@ async function queued() {
     const result = await tools.run(agent, { op: "queue.list", threadId: target.threadId });
     const data = result.data as { entries: { entryId: string; text: string }[] };
     // The agent's own messages open with ace's line naming it; the tests read their words.
-    return data.entries.map((entry) => ({ ...entry, text: words(entry.text) }));
+    for (const entry of data.entries) entry.text = words(entry.text) ?? entry.text;
+    return data.entries;
   };
   const ids = Object.fromEntries((await list()).map((entry) => [entry.text, entry.entryId]));
   return { ...tools, agent, target, list, ids };
