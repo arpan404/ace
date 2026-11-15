@@ -40,6 +40,16 @@ export function readCredit(plain: Uint8Array): number {
   return amount;
 }
 
+/** {@link FlowCredit.exportState}: the key block's flow fields. */
+export type FlowState = {
+  limited: boolean;
+  counting: boolean;
+  window: number;
+  unacked: number;
+  owed: number;
+  uncounted: number;
+};
+
 export class FlowCredit {
   #limited = false;
   #window = 0;
@@ -97,6 +107,22 @@ export class FlowCredit {
     if (!this.#counting) return true;
     this.#unacked += cost;
     return this.#unacked <= FLOW_WINDOW;
+  }
+
+  /**
+   * The accounting a stream's next holder resumes from (the relay key hand-over). Only with
+   * nothing queued for the reader: the next holder never sees fragments this side took.
+   */
+  exportState(): FlowState {
+    if (this.#queued !== 0) throw new Error("Fragments still queued for the reader");
+    return {
+      limited: this.#limited,
+      counting: this.#counting,
+      window: this.#window,
+      unacked: this.#unacked,
+      owed: this.#owed,
+      uncounted: this.#uncounted,
+    };
   }
 
   /** The reader took a data fragment. A credit fragment to send, once enough is owed. */

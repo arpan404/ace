@@ -90,7 +90,7 @@ import XCTest
         app.terminate()
         let relaunched = XCUIApplication()
         relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
-        relaunched.launch()
+        relaunched.launchWithArguments()
         XCTAssertTrue(relaunched.newThreadButton.waitForExistence(timeout: 25))
         relaunched.newThreadButton.tap()
         let restored = relaunched.descendants(matching: .any)["newThread.message"].firstMatch
@@ -101,7 +101,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

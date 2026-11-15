@@ -91,14 +91,17 @@ struct RelayRoute: Sendable {
     let grants: AccountGrants
 
     var isValid: Bool { clientURL != nil && NoiseFingerprint.isHostId(hostId) }
-    /// `/client?hostId=…` on the relay. WSS, or WS on loopback for development.
-    var clientURL: URL? {
+    var clientURL: URL? { clientURL(purpose: nil) }
+    /// `/client?hostId=…` on the relay, with `&purpose=media` for a media connection's stream.
+    /// WSS, or WS on loopback for development.
+    func clientURL(purpose: String?) -> URL? {
         guard var components = URLComponents(url: relayURL, resolvingAgainstBaseURL: false),
               relayURL.user == nil, relayURL.password == nil, relayURL.query == nil, relayURL.fragment == nil else { return nil }
         let loopback = ["localhost", "127.0.0.1", "::1"].contains(components.host ?? "")
         guard components.scheme == "wss" || (components.scheme == "ws" && loopback) else { return nil }
         components.path = "/client"
         components.queryItems = [URLQueryItem(name: "hostId", value: hostId)]
+            + (purpose.map { [URLQueryItem(name: "purpose", value: $0)] } ?? [])
         return components.url
     }
 }

@@ -94,8 +94,23 @@ export type FailedSubscribe = "resubscribe" | "retry" | "ignore";
  * Also the poster each subscribe brought back, and the codecs each source's viewer couldn't
  * decode.
  */
+/**
+ * A source's current delivery, for a viewer whose pictures arrive outside this client (a native
+ * decoder): its generation, the way its pictures come (`channelPath` or a media connection), or
+ * undefined while the subscribe's reply is pending and pictures may come either way, and the
+ * poster accepted for it.
+ */
+export interface DeliveryState {
+  source: string;
+  generation: number;
+  path: string | undefined;
+  /** The still this subscribe's reply brought back, accepted for it, until its first picture. */
+  poster?: MediaPoster;
+}
+
 export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #route: MediaRoute | undefined;
+  #deliveryListeners = new Set<(state: DeliveryState) => void>();
   /** Generations count up across sources and resets, so an old one never matches again. */
   #next = 0;
   #deliveries = new Map<string, Delivery>();
@@ -139,6 +154,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     const asked =
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
     this.#deliveries.set(source, { generation, asked, via: undefined });
+    this.#emit(source);
     if (!binding || !asked) return { generation, fields: {} };
     return {
       generation,
@@ -183,6 +199,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#previous.delete(source);
     this.#attempts.delete(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
+    this.#emit(source);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
     this.#candidates.delete(source);
@@ -202,6 +219,7 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     delivery.via = channelPath;
     this.#previous.delete(source);
     this.#candidates.delete(source);
+    this.#emit(source);
   }
   /**
    * `generation`'s subscribe failed with `error`. Unless a later subscribe superseded it, or a
@@ -225,6 +243,8 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
       (previous?.via !== undefined && previous.via === this.#route?.binding()?.connection);
     if (previous && holds) this.#deliveries.set(source, previous);
     else delivery.via = channelPath;
+    // The delivery it replaced, back again, or the channel: either way, its way is known now.
+    this.#emit(source);
     return "retry";
   }
   /**
@@ -311,6 +331,30 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#candidates.clear();
     this.#refused.clear();
     this.#posters.clear();
+  }
+  /**
+   * Hears each change of a source's delivery: a new subscribe (pending while it named a
+   * connection), the way its reply settled on, the channel when it got none in time, and the
+   * delivery a failed subscribe fell back to (which may be an earlier generation's, again).
+   */
+  watchDeliveries(listener: (state: DeliveryState) => void): () => void {
+    this.#deliveryListeners.add(listener);
+    return () => void this.#deliveryListeners.delete(listener);
+  }
+  #emit(source: string): void {
+    const delivery = this.#deliveries.get(source);
+    if (!delivery) return;
+    // Unsettled only while a named connection's reply is on its way; otherwise its way is known.
+    const pending = delivery.via === undefined && delivery.asked !== undefined;
+    const poster = this.#posters.get(source);
+    const state = {
+      source,
+      generation: delivery.generation,
+      path: pending ? undefined : expected(delivery),
+      ...(poster ? { poster } : {}),
+    };
+    // A copy: a listener may stop listening while it hears this.
+    for (const listener of Array.from(this.#deliveryListeners)) listener(state);
   }
   #current(source: string, generation: number): Delivery | undefined {
     const delivery = this.#deliveries.get(source);

@@ -13,6 +13,7 @@ import {
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
+  type DeliveryState,
   type MediaRoute,
   type Settled,
   type SourcePicture,
@@ -125,6 +126,13 @@ export class DeviceClient {
    * subscribes again whenever the binding changes, acks follow the pictures, and requests and
    * state stay on this channel. `undefined` goes back to the channel alone.
    */
+  /**
+   * Hears each device's delivery as it changes (`MediaSubscriptions.watchDeliveries`): for a
+   * viewer whose pictures arrive outside this client, which stamps and gates them itself.
+   */
+  watchDeliveries(listener: (state: DeliveryState) => void): () => void {
+    return this.media.watchDeliveries(listener);
+  }
   useMedia(route: MediaRoute | undefined): void {
     this.stopMedia?.();
     this.stopMedia = undefined;

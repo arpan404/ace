@@ -59,6 +59,7 @@ import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
 import { OutsideOpenAction, OutsideWatch } from "./outside-clients.ts";
 import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
+import { phoneMedia, type PhoneMedia } from "./phone-media.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { CacheAction, handleCacheAction } from "./chat-cache.ts";
@@ -147,6 +148,7 @@ let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
+let media: PhoneMedia | undefined;
 let transfers: NativeTransfers | undefined;
 let filesActions: FilesActions | undefined;
 let access: ComputerAccess | undefined;
@@ -512,6 +514,17 @@ async function start(json: string): Promise<void> {
       },
     }),
   });
+  // Live pictures by ace-media when the machine offers it (ADR 0147 §4); the main socket otherwise.
+  media?.stop();
+  media = phoneMedia(client, {
+    // An account machine is reached only through the relay: its grants carry no address.
+    relay: account ? { deviceId: config.deviceId, credential } : undefined,
+    schedule: (run, ms) => scheduler.set(ms, run),
+    now: () => host.monotonicMs(),
+  });
+  browser.useMedia(media.route, media.deliver);
+  screen.useMedia(media.route, media.deliver);
+  devices.useMedia(media.route, media.deliver);
   await client.start();
 }
 function action(json: string): void {

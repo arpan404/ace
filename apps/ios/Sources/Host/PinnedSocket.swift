@@ -2,7 +2,8 @@ import Foundation
 import Security
 
 struct ConnectionTarget: Sendable {
-    let endpoint: URL
+    /// The daemon's socket; a media connection's copy points at ace-media's listener (`media(at:)`).
+    private(set) var endpoint: URL
     let hostId: String
     let deviceId: String
     let pin: String?
@@ -66,6 +67,20 @@ struct ConnectionTarget: Sendable {
     }
 }
 
+extension ConnectionTarget {
+    /// The same daemon's media listener at `url`, held to this target's rules: WSS with this
+    /// target's certificate pin (the daemon hands ace-media its own TLS identity), or plain WS on
+    /// loopback in the debug fixture. Nil for any other address, and for a relay target, whose
+    /// media stream goes through the relay instead.
+    func media(at url: URL) -> ConnectionTarget? {
+        guard relay == nil, url.host?.isEmpty == false else { return nil }
+        var media = self
+        media.endpoint = url
+        do { try media.validate() } catch { return nil }
+        return media
+    }
+}
+
 /// The host and device a machine's cache, outbox and notifications are bound to on this phone.
 struct MachineScope: Sendable, Equatable { let hostId: String; let deviceId: String }
 
@@ -98,10 +113,15 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
 
-    init(target: ConnectionTarget, session: PinnedSession? = nil, now: @escaping @Sendable () -> Date = { Date() },
+    /// The way this socket's pictures come (`MediaDelivery`): the channel, or the media
+    /// connection's own socket id.
+    let path: String
+    init(target: ConnectionTarget, session: PinnedSession? = nil, path: String = MediaDelivery.channel,
+         now: @escaping @Sendable () -> Date = { Date() },
          connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
          streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
+        self.path = path
         self.connectTimeout = connectTimeout
         self.event = event
         self.streams = streams
@@ -135,6 +155,14 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
             }
         }
     }
+    /// One binary message: a media connection's hello. Sent in order with the text ones.
+    func send(bytes: Data) {
+        queue.addOperation { [weak self] in
+            self?.task?.send(.data(bytes)) { [weak self] error in
+                if error != nil { self?.queue.addOperation { [weak self] in self?.finish(1006) } }
+            }
+        }
+    }
     func close() {
         queue.addOperation { [weak self] in
             guard let self else { return }
@@ -157,13 +185,13 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                 switch result {
                 case .success(.string(let text)):
                     if !self.welcomed, text.hasPrefix(#"{"type":"welcome""#) { self.welcomed = true; LaunchTrace.mark("socket.welcome") }
-                    self.event("message", .text(text)); self.receive()
+                    self.event("message", .text(self.streams?.text(text) ?? text)); self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break
-                    case .stream(let message): self.streams?.deliver(message)
-                    case .device(let message): self.streams?.deliver(message)
-                    case .screen(let message): self.streams?.deliverScreen(message)
+                    case .stream(let message): self.streams?.deliver(message, path: self.path)
+                    case .device(let message): self.streams?.deliver(message, path: self.path)
+                    case .screen(let message): self.streams?.deliverScreen(message, path: self.path)
                     case .sdk: self.event("binary", .bytes(bytes))
                     case .broken: self.finish(1002); return
                     }

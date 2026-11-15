@@ -277,6 +277,9 @@ export function deviceTransport(options: AuthenticatedChannelOptions): DeviceTra
 export function browserDeviceSocket(address: string, protocols?: string[]): PortableSocket {
   const socket = new WebSocket(address, protocols);
   return {
+    get protocol() {
+      return socket.protocol;
+    },
     get binaryType() {
       return socket.binaryType;
     },

@@ -250,7 +250,7 @@ import XCTest
         app.terminate()
         let relaunched = XCUIApplication()
         relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
-        relaunched.launch()
+        relaunched.launchWithArguments()
         // The relaunch reopens the thread it was killed on, words and all.
         let restored = relaunched.textViews["composer.input"]
         XCTAssertTrue(restored.waitForExistence(timeout: 25))
@@ -341,14 +341,14 @@ import XCTest
         sleep(3)
         app.terminate()
         app.launchArguments.append("--spike-keep-state")
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["work.toggle"].firstMatch.waitForExistence(timeout: 25))
         screenshot("thread-restored")
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         app.terminate()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         sleep(3)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
@@ -360,7 +360,7 @@ import XCTest
         // The fixture's 101st history message (the agent, turn and its run come first).
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--spike-open", "ios-stream", "--spike-focus", "ios-stream.item.103"]
-        app.launch()
+        app.launchWithArguments()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let target = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "History 101.")).firstMatch
@@ -394,7 +394,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", threadId]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
@@ -411,7 +411,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// Scrolls the transcript until `row` sits above the strip and composer at the bottom.

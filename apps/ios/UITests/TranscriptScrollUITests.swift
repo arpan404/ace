@@ -13,7 +13,7 @@ import XCTest
     func testReadingBackOverLoadedHistoryKeepsItsRowsAndHeights() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port, "--spike-open", "ios-reading", "--perf-probe"]
-        app.launch()
+        app.launchWithArguments()
         // A fresh install asks about notifications first.
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 5) { allow.tap() }

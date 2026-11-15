@@ -81,7 +81,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func setAppearance(_ app: XCUIApplication, _ change: () -> Void) {
@@ -107,7 +107,7 @@ import XCTest
     /// Back to the defaults, so other tests see the standard look.
     private func reset(_ app: XCUIApplication) {
         app.terminate()
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("settings.appearance")
         guard app.buttons["appearance.theme.ace"].waitForExistence(timeout: 10) else { return }
         app.buttons["appearance.theme.ace"].tap()

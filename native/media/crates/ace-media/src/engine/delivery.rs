@@ -35,10 +35,6 @@ const KEYFRAME_SPACING_MS: u64 = 200;
 const STATS_MS: u64 = 1_000;
 /// ADR 0149's floor: video's share never plans below this.
 pub const RATE_FLOOR: f64 = 150_000.0;
-/// The round trip assumed before a view's link has measured one.
-const RTT_GUESS_MS: f64 = 100.0;
-/// What the bytes in flight may hold beyond one round trip (ADR 0149 decision 2).
-const SLACK_MS: f64 = 300.0;
 /// ADR 0149's coupled keyframe cap: a keyframe is at most about this long at the view's rate.
 const KEYFRAME_SECONDS: f64 = 0.5;
 /// A keyframe this far over the cap reconfigures its producer; each one within it lets the rate
@@ -369,13 +365,19 @@ impl Delivery {
 
     /// A client presented its ticket: the connection is open, and its views start at a keyframe.
     pub fn socket_open(&mut self, connection: &Id, now_ms: u64, out: &mut Vec<Effect>) {
-        self.sockets.insert(connection.get().to_owned(), ());
         let welcome = ServerMessage::Welcome {
             connection: connection.clone(),
         };
         if let Ok(text) = serde_json::to_string(&welcome) {
             media(out, connection.get(), MediaOut::Text(text));
         }
+        self.attached(connection, now_ms, out);
+    }
+
+    /// A connection's socket is up and welcomed (a relay stream's welcome is the daemon's, in
+    /// the relay channel's own terms): its views start.
+    pub fn attached(&mut self, connection: &Id, now_ms: u64, out: &mut Vec<Effect>) {
+        self.sockets.insert(connection.get().to_owned(), ());
         let sources: Vec<String> = self
             .views
             .values()
@@ -525,7 +527,9 @@ impl Delivery {
         };
         let at = now_ms as f64;
         view.rate.acknowledged(sequence, at);
-        view.fanout.limit_bytes(budget_bytes(view, share));
+        view.fanout.bound(Some(budget_bytes(view, share)));
+        // Chunks sent from now are due by the link's round trip (media-core's deadlines).
+        view.fanout.set_round_trip(view.rate.rtt());
         let mut events = Vec::new();
         let mut sent = 0;
         {
@@ -535,8 +539,10 @@ impl Delivery {
                 connection,
                 ..
             } = view;
-            fanout.acknowledge(
+            // A view's sequences only increase, across encodes: an ack covers everything before.
+            fanout.acknowledge_through(
                 sequence,
+                at,
                 |piece| match send(out, connection, held, piece) {
                     Some(bytes) => {
                         sent += bytes;
@@ -693,6 +699,7 @@ impl Delivery {
                         key: built.key,
                         bytes: built.bytes,
                     },
+                    now_ms as f64,
                     |piece| match send(out, connection, held, piece) {
                         Some(bytes) => {
                             sent += bytes;
@@ -766,6 +773,11 @@ impl Delivery {
                 }
                 Event::Dropped => {
                     view.rate.dropped(at);
+                    view.dropped += 1;
+                }
+                // Chunks unacked past their deadline: a loss, which cuts the rate.
+                Event::Lost => {
+                    view.rate.lost(at);
                     view.dropped += 1;
                 }
                 Event::Keyframe => keyframe = true,
@@ -853,6 +865,7 @@ impl Delivery {
                     codecs: list,
                     link: link * share(&v.session),
                     scale: v.viewport.scale.get().clamp(0.05, 1.0),
+                    fps: 60.0,
                 }
             })
             .collect();
@@ -975,7 +988,7 @@ impl Delivery {
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
-            view.fanout.limit_bytes(budget_bytes(view, share));
+            view.fanout.bound(Some(budget_bytes(view, share)));
             let next = if view.paused || !self.sockets.contains_key(&view.connection) {
                 None
             } else {
@@ -1009,6 +1022,11 @@ impl Delivery {
 
     /// Every 100 ms: `viewer.stats` once a second, and plans that follow the links' rates.
     pub fn tick(&mut self, now_ms: u64, out: &mut Vec<Effect>) {
+        // Chunks past their deadline are let go even when nothing else happens to a view.
+        let keys: Vec<String> = self.views.keys().cloned().collect();
+        for key in keys {
+            self.expire(&key, now_ms, out);
+        }
         if now_ms.saturating_sub(self.last_stats) < STATS_MS {
             return;
         }
@@ -1034,6 +1052,41 @@ impl Delivery {
         sources.dedup();
         for source in sources {
             self.replan(&source, now_ms, out);
+        }
+    }
+}
+
+impl Delivery {
+    /// Lets one view's fanout let go of chunks past their deadline, sending what that frees.
+    fn expire(&mut self, key: &str, now_ms: u64, out: &mut Vec<Effect>) {
+        let Some(view) = self.views.get_mut(key) else {
+            return;
+        };
+        let mut events = Vec::new();
+        let mut sent = 0;
+        {
+            let View {
+                fanout,
+                held,
+                connection,
+                ..
+            } = view;
+            fanout.flush(
+                now_ms as f64,
+                |piece| match send(out, connection, held, piece) {
+                    Some(bytes) => {
+                        sent += bytes;
+                        true
+                    }
+                    None => false,
+                },
+                |e| events.push(e),
+            );
+            held.retain(|(sequence, _)| fanout.queued(*sequence));
+        }
+        self.bytes_out += sent;
+        if !events.is_empty() {
+            self.events(key, events, now_ms, out);
         }
     }
 }
@@ -1137,11 +1190,17 @@ fn carried(view: &View) -> f64 {
     view.hint_bps.map_or(measured, |hint| hint.min(measured))
 }
 
-/// The bytes a view may have in flight: its share of the link over one round trip and the
-/// slack (ADR 0149), so delivery itself holds video to its share, whatever the producer sends.
+/// The bytes a view may have in flight: its share of what its link carries over ADR 0150's time
+/// (the round trip plus max(300 ms, the round trip plus 200 ms), 1 s taken before one is
+/// measured; `LinkRate::backlog_bytes`), so delivery itself holds video to its share, whatever
+/// the producer sends, and one tail-loss stall drops nothing. Applied as the fanout's bound,
+/// within its hard window.
 fn budget_bytes(view: &View, share: f64) -> usize {
-    let rate = carried(view) * share;
-    let rtt = view.rate.rtt().unwrap_or(RTT_GUESS_MS).max(0.0);
-    let bytes = rate / 8.0 * (rtt + SLACK_MS) / 1000.0;
-    (bytes as usize).clamp(MIN_BUDGET, MAX_BUDGET)
+    let measured = view.rate.rate();
+    let part = if measured > 0.0 {
+        carried(view) * share / measured
+    } else {
+        share
+    };
+    ((view.rate.backlog_bytes() as f64 * part) as usize).clamp(MIN_BUDGET, MAX_BUDGET)
 }

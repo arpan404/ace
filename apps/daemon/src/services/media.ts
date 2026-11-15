@@ -20,6 +20,8 @@ import {
   type MediaSettings,
 } from "@ace/media/supervisor";
 import type { ServiceContext } from "./types.ts";
+import type { MediaRelayPort } from "../media-relay/port.ts";
+import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
  * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
@@ -61,6 +63,8 @@ export type DaemonDelivery = MediaDeliveryPort & {
   sessionEnded(session: string): void;
   /** One round trip measured on a main session, with the bytes queued to it. */
   sample(session: string, rttMs: number, backlogBytes: number): void;
+  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets. */
+  relay: MediaRelayPort;
 };
 
 /** The daemon's ace-media as its producers see it. */
@@ -100,6 +104,8 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
+  /** The runtime's relay port (D2): one for the runtime's life. */
+  let relayPort: RuntimeRelayPort | undefined;
   const acceleration = new MediaAccelerationStore();
 
   const start = () =>
@@ -124,7 +130,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         platform: process.platform,
         acceleration,
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
+        onMessage: (message, payload) => relayPort?.message(message, payload),
+        onExit: () => relayPort?.exit(),
       });
+      relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
       for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
       runtime.settingsChanged();
     })().catch((error: unknown) => {
@@ -156,26 +165,9 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
   });
 
-  const delivery = (live: MediaRuntime): DaemonDelivery => ({
-    ...live.delivery(),
-    connect: (owner) =>
-      settings.delivery === "auto"
-        ? live.connections.connect(owner)
-        : Promise.resolve({
-            ok: false,
-            code: "unavailable",
-            message: "ace-media isn't serving viewers.",
-          }),
-    sessionStarted: (session) => live.links.started(session),
-    sessionEnded: (session) => {
-      live.links.ended(session);
-      void live.connections.sessionClosed(session);
-    },
-    sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
-  });
-
   return {
-    delivery: () => (runtime ? delivery(runtime) : undefined),
+    delivery: () =>
+      runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     acceleration,
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
@@ -198,5 +190,34 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         },
       };
     },
+  };
+}
+
+/**
+ * Delivery by a live runtime, as producers and sessions see it. Built on every lookup; `relay`
+ * is the runtime's one port, so lookups never add watchers.
+ */
+export function daemonDelivery(
+  live: MediaRuntime,
+  relay: MediaRelayPort,
+  settings: () => MediaSettings,
+): DaemonDelivery {
+  return {
+    ...live.delivery(),
+    connect: (owner) =>
+      settings().delivery === "auto"
+        ? live.connections.connect(owner)
+        : Promise.resolve({
+            ok: false,
+            code: "unavailable",
+            message: "ace-media isn't serving viewers.",
+          }),
+    sessionStarted: (session) => live.links.started(session),
+    sessionEnded: (session) => {
+      live.links.ended(session);
+      void live.connections.sessionClosed(session);
+    },
+    sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
+    relay,
   };
 }

@@ -1,10 +1,14 @@
 import type { RawPayload } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { pageReplyBytes } from "../reply-bounds.ts";
 
-/** The most raw JSON one `item.raw` reply carries; the rest comes in later pages. */
-export const itemRawReplyBytes = 1024 * 1024;
-/** The most one entry takes in a reply; a larger one has its long fields cut. */
-const entryBytes = 256 * 1024;
+/**
+ * The most one `item.raw` reply may be, as sent: its whole JSON, envelope included. Pages fill to
+ * `pageReplyBytes` of raw JSON; an entry storage keeps (data inline up to 64 KiB) goes whole,
+ * alone when it fills a page, as long as the reply around it stays within this; a larger one has
+ * its long fields cut.
+ */
+export const itemRawReplyBytes = pageReplyBytes + 8 * 1024;
 /** What a cut field keeps of itself. */
 const keptBytes = 4 * 1024;
 
@@ -24,8 +28,17 @@ function cut(text: string): string {
  * `name` and any preview cut, and inline data larger than `keptBytes` replaced by the start of
  * its JSON, cut the same way. The stored entry is never changed.
  */
-function bounded(payload: RawPayload): RawPayload {
+function bounded(payload: RawPayload, entryBytes: number): RawPayload {
   if (json(payload) <= entryBytes) return payload;
+  const cutEntry = cutFields(payload);
+  // Long fields cut to `keptBytes` each fit; if escaping still made it too long, its type and
+  // how long it was are what remain.
+  return json(cutEntry) <= entryBytes
+    ? cutEntry
+    : { type: payload.type.slice(0, 256), data: `[cut: ${json(payload)} bytes]` };
+}
+
+function cutFields(payload: RawPayload): RawPayload {
   const name = payload.name === undefined ? {} : { name: cut(payload.name) };
   if (!("data" in payload))
     return {
@@ -39,17 +52,19 @@ function bounded(payload: RawPayload): RawPayload {
 }
 
 /**
- * The payloads `entries` yields, taken one at a time until `limit` bytes of JSON, each bounded,
- * at least one while any remain; where the next page starts (`from` + taken) if one is left.
- * At most one entry past the page is read: the one that did not fit.
+ * The payloads `entries` yields, taken one at a time until `fill` bytes of JSON (the array's
+ * brackets and commas included), at least one while any remain, and never past `most`; where the
+ * next page starts (`from` + taken) if one is left. At most one entry past the page is read: the
+ * one that did not fit.
  */
-function page(entries: Iterator<RawPayload>, from: number, limit: number) {
+function page(entries: Iterator<RawPayload>, from: number, fill: number, most: number) {
   const kept: RawPayload[] = [];
   let bytes = 2;
   for (let entry = entries.next(); !entry.done; entry = entries.next()) {
-    const sent = bounded(entry.value);
-    bytes += json(sent) + 1;
-    if (kept.length && bytes > limit) {
+    // Alone on its page, an entry may take everything but the brackets.
+    const sent = bounded(entry.value, most - 2);
+    bytes += json(sent) + (kept.length ? 1 : 0);
+    if (kept.length && bytes > Math.min(fill, most)) {
       entries.return?.();
       return { raw: kept, next: from + kept.length };
     }
@@ -99,13 +114,17 @@ export function createItemRawSession(context: SocketContext): SocketService {
         context.send({ ...reply, changed: true, raw: [] });
         return true;
       }
+      // What the reply takes around its payloads, with the longest `next` it could carry: the
+      // payloads get the rest of `itemRawReplyBytes`.
+      const envelope = json({ ...reply, raw: [], next: Number.MAX_SAFE_INTEGER }) - 2;
       let raw: RawPayload[];
       let next: number | undefined;
       try {
         ({ raw, next } = page(
           store.itemRawEntries(message.threadId, message.itemId, message.from),
           message.from,
-          itemRawReplyBytes,
+          pageReplyBytes,
+          itemRawReplyBytes - envelope,
         ));
       } catch {
         context.fail("item_raw_failed", "Could not read the item", false, scope);

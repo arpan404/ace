@@ -37,6 +37,8 @@ async function sidebar(storage: ReadSnapshotStorage = slowDisk().storage) {
   const collection = f.client.threadsCollection();
   const lease = collection.threads();
   await f.start();
+  // The disk has not answered: the list's first subscribe waits its 250 ms for the kept list.
+  f.elapse(250);
   /** The daemon's snapshot of `view`, by default on the latest list subscription. */
   const snapshot = (view: { seq: number }, subscriptionId = f.wire("threads").subscriptionId) =>
     f.deliver({ type: "snapshot", subscriptionId, seq: view.seq, view });

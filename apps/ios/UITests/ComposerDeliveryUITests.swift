@@ -8,7 +8,7 @@ import XCTest
     func testATypedMessageWhileTheAgentWorksShowsSteerOrQueueNotSend() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]

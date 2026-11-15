@@ -9,7 +9,6 @@ import type {
 } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
 import { LinkRate } from "./link-rate.ts";
-import { hintedStart } from "./link-start.ts";
 import { PictureScale } from "./video-scale.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
@@ -56,7 +55,10 @@ const initialBitrate = 1_500_000;
  * on screen for as long as the page stays still. It still falls if the viewer falls behind.
  */
 const localBitrate = maxBitrate;
-/** An encode's bit rate changes in place when it moves this much, at most this often. */
+/**
+ * An encode's bit rate changes in place when it moves this much, at most this often; a new
+ * frame rate goes in place at once.
+ */
 const bitrateChange = 0.1;
 const bitrateEveryMs = 400;
 
@@ -88,8 +90,8 @@ export class LiveVideo {
   private encodes = "";
   /** ace-media's plan for the views it delivers (D1), from the open capture; none yet. */
   private mediaWanted: VideoEncode[] | undefined;
-  /** The bit rate each running encode was last given. */
-  private bitrates = new Map<string, number>();
+  /** The bit and frame rates each running encode was last given. */
+  private bitrates = new Map<string, { bitrate: number; fps: number }>();
   private bitratesAt = -Infinity;
   private owedKeys = new Set<string>();
   private sequence = 0;
@@ -116,7 +118,19 @@ export class LiveVideo {
       keyframe: (encode) => this.owedKeys.add(encode),
       playing: options.playing,
       sent: (id, sequence, bytes) => this.viewers.get(id)?.link.sent(sequence, bytes, this.now()),
-      dropped: (id) => this.viewers.get(id)?.link.dropped(this.now()),
+      dropped: (id) => {
+        const link = this.viewers.get(id)?.link;
+        if (!link) return;
+        link.dropped(this.now());
+        this.fanout.bound(id, link.backlogBytes);
+      },
+      lost: (id) => {
+        const link = this.viewers.get(id)?.link;
+        if (!link) return;
+        link.lost(this.now());
+        this.fanout.bound(id, link.backlogBytes);
+      },
+      now: () => this.now(),
     });
   }
   /**
@@ -129,7 +143,7 @@ export class LiveVideo {
     sink: VideoSink<BrowserVideoChunk>,
     capture: CaptureViewer,
     audio?: AudioSink<BrowserAudioChunk>,
-    local = false,
+    link: { local?: boolean } = {},
   ): void {
     if (!capture.video) return;
     if (!this.fanout.has(id)) this.fanout.add(id, sink);
@@ -140,15 +154,19 @@ export class LiveVideo {
       capture,
       link:
         existing?.link ??
-        new LinkRate({
-          min: minBitrate,
-          max: maxBitrate,
-          initial: local
-            ? localBitrate
-            : hintedStart(capture.viewport.link, initialBitrate, minBitrate),
-        }),
+        new LinkRate(
+          {
+            min: minBitrate,
+            max: maxBitrate,
+            initial: link.local === true ? localBitrate : initialBitrate,
+          },
+          link.local === true ? undefined : capture.viewport.link,
+        ),
       scale: existing?.scale ?? new PictureScale(),
     });
+    // Bounded from the start, before any round trip is measured (ADR 0150 at a 1 s default).
+    const rate = this.viewers.get(id)?.link;
+    if (rate && !existing) this.fanout.bound(id, rate.backlogBytes);
   }
   configure(id: string, capture: CaptureViewer): void {
     const viewer = this.viewers.get(id);
@@ -188,8 +206,16 @@ export class LiveVideo {
     this.capture?.handle.pictures?.push(base64);
   }
   acknowledge(id: string, sequence: number): void {
-    this.viewers.get(id)?.link.acknowledged(sequence, this.now());
-    this.fanout.acknowledge(id, sequence);
+    const link = this.viewers.get(id)?.link;
+    if (link) {
+      link.acknowledged(sequence, this.now());
+      // In flight is bounded by what the link carries in time, not only by the window; chunks
+      // sent from now are due by its round trip.
+      this.fanout.bound(id, link.backlogBytes);
+      this.fanout.roundTrip(id, link.rtt);
+    }
+    // Sequences only increase here, across encodes and pauses: an ack covers everything before.
+    this.fanout.acknowledgeThrough(id, sequence);
   }
   keyframe(id: string): void {
     this.fanout.keyframe(id);
@@ -278,12 +304,21 @@ export class LiveVideo {
       planned.map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
         const link = viewer.link.rate;
+        const step = viewer.scale.update({
+          link,
+          pixels: full.width * full.height,
+          side: Math.max(full.width, full.height),
+          fps: videoFps,
+          now,
+          probing: viewer.link.probing,
+        });
         return {
           id,
           viewport: viewer.capture.viewport,
           codecs: viewer.capture.video?.codecs ?? [],
           link,
-          scale: viewer.scale.update(link, full.width * full.height, videoFps, now),
+          scale: step.scale,
+          fps: step.fps,
         };
       }),
     );
@@ -317,7 +352,9 @@ export class LiveVideo {
     const encodes = plan.encodes.map((encode) => encode.key).join(",");
     if (encodes !== this.encodes || this.bitratesMoved(plan.encodes, now)) {
       this.encodes = encodes;
-      this.bitrates = new Map(plan.encodes.map((encode) => [encode.key, encode.bitrate]));
+      this.bitrates = new Map(
+        plan.encodes.map((encode) => [encode.key, { bitrate: encode.bitrate, fps: encode.fps }]),
+      );
       this.bitratesAt = now;
       open.handle.encodes(plan.encodes);
     }
@@ -330,12 +367,15 @@ export class LiveVideo {
       open.handle.audio?.(this.soundOn);
     }
   }
-  /** Whether a running encode's bit rate should change in place now. */
+  /** Whether a running encode's bit or frame rate should change in place now. */
   private bitratesMoved(encodes: readonly VideoEncode[], now: number): boolean {
-    if (now - this.bitratesAt < bitrateEveryMs) return false;
     return encodes.some((encode) => {
       const given = this.bitrates.get(encode.key);
-      return given === undefined || Math.abs(encode.bitrate - given) > given * bitrateChange;
+      if (given === undefined || given.fps !== encode.fps) return true;
+      return (
+        now - this.bitratesAt >= bitrateEveryMs &&
+        Math.abs(encode.bitrate - given.bitrate) > given.bitrate * bitrateChange
+      );
     });
   }
   private probe(source: LiveVideoSource, now: number): void {

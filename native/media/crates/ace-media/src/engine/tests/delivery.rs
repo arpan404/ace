@@ -379,11 +379,17 @@ fn inflate(engine: &mut Engine) -> Vec<Effect> {
 
 #[test]
 fn delivery_holds_a_view_to_its_share_of_the_link_and_less_while_its_session_inflates() {
-    // A remote view starts at 1.5 Mbit/s: 70 % of it over the round trip and slack is a few
-    // 20 KB units in flight, not the whole 60-unit window.
+    // A remote view starts at 1.5 Mbit/s: 70 % of it over ADR 0150's time (a 1 s round trip
+    // before one is measured, so 2.2 s) is about 290 KB of 20 KB units in flight, not the whole
+    // 60-unit window.
     let mut calm = watched(json!({ "kind": "browser", "threadId": "t1" }));
     let calm_bytes = sent_before_an_ack(&mut calm, 30, 20_000);
-    assert!(calm_bytes < 30 * 20_000 / 3, "{calm_bytes} bytes in flight");
+    let share = 1_500_000.0 * VIDEO_SHARE / 8.0 * 2.2;
+    assert!(
+        calm_bytes as f64 <= share + 20_000.0,
+        "{calm_bytes} bytes in flight"
+    );
+    assert!(calm_bytes < 30 * 20_000 / 2, "{calm_bytes} bytes in flight");
     // The same view while its main session's round trip inflates gets about half that.
     let mut busy = watched(json!({ "kind": "browser", "threadId": "t1" }));
     inflate(&mut busy);
@@ -764,4 +770,74 @@ fn a_keyframe_cuts_its_shared_encode_once_however_many_views_take_it() {
     let one = asked_after_an_oversized_keyframe(1);
     assert_eq!(asked_after_an_oversized_keyframe(2), one);
     assert_eq!(asked_after_an_oversized_keyframe(3), one);
+}
+
+#[test]
+fn a_views_bytes_in_flight_cover_its_round_trip_and_one_tail_loss_stall() {
+    // ADR 0150 on the ace-media path: on a 300 ms path a tail-loss stall holds acks for about
+    // 800 ms, so a view's share of the link over RTT + max(300 ms, RTT + 200 ms) stays in
+    // flight, not over RTT + 300 ms (which would drop the next delta and break the chain).
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let mut acks: std::collections::VecDeque<(u64, u64)> = std::collections::VecDeque::new();
+    let mut now = 1_000;
+    for n in 0..30_u64 {
+        while acks.front().is_some_and(|(due, _)| *due <= now) {
+            let Some((due, sequence)) = acks.pop_front() else {
+                break;
+            };
+            engine.media_message(
+                CONNECTION,
+                &json!({ "type": "browser.ack", "threadId": "t1", "sequence": sequence,
+                         "video": true })
+                .to_string(),
+                at(due),
+            );
+        }
+        let mut unit = h264(n == 0, n as u8, 1, Vec::new());
+        unit.payload.resize(1_000, 0);
+        engine.ingest(1, unit, at(now));
+        acks.push_back((now + 300, n + 1));
+        now += 66;
+    }
+    for (due, sequence) in acks.drain(..) {
+        engine.media_message(
+            CONNECTION,
+            &json!({ "type": "browser.ack", "threadId": "t1", "sequence": sequence, "video": true })
+                .to_string(),
+            at(due),
+        );
+        now = now.max(due);
+    }
+    engine.effects().for_each(drop);
+    engine.tick(at(now));
+    let (rate, rtt) = engine
+        .effects()
+        .find_map(|e| match e {
+            Effect::Normal(FromMedia::ViewerStats { rate, rtt_ms, .. }) => {
+                Some((f64::from(rate), rtt_ms.get()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no stats"));
+    // Now the acks stop: everything the view may have in flight goes out.
+    let mut sent = 0;
+    for n in 0..55_u8 {
+        let mut unit = h264(false, n, 1, Vec::new());
+        unit.payload.resize(2_000, n);
+        sent += binaries(&ingest(&mut engine, 1, unit, at(now)))
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>();
+    }
+    let share = rate * VIDEO_SHARE / 8.0 / 1000.0;
+    let old = share * (rtt + 300.0);
+    let adr_0150 = share * (rtt + (rtt + 200.0).max(300.0));
+    assert!(
+        sent as f64 > old + 2_000.0,
+        "{sent} bytes vs RTT + 300 ms: {old}"
+    );
+    assert!(
+        sent as f64 <= adr_0150 + 4_000.0,
+        "{sent} bytes vs ADR 0150: {adr_0150}"
+    );
 }

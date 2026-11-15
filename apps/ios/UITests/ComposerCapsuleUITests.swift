@@ -172,7 +172,7 @@ import XCTest
     private func launch(into row: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         dismissNotificationsPrompt()
         app.revealRow(row).tap()
         return app

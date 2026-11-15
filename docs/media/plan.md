@@ -320,8 +320,7 @@ table, including timed-out trials and the ranking cache.
     Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
     The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
     `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
-  - **Not built yet, failing at once so the daemon falls back:** `relay.dial` (`relay.failed`
-    `relay-unavailable`, D2), and, on Windows, `record.start` (`record.failed`
+  - **Not built yet, failing at once so the daemon falls back:** on Windows, `record.start` (`record.failed`
     `recorder-unavailable`). F2 built `still.take`; see "F2 notes". A recording's
     frames pass through `media-core::privacy` and `record.epochs` is answered with
     `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped; the
@@ -1085,13 +1084,33 @@ FALSE)`.
 
 These three PRs start now, in parallel. M2b merges after N1, which measures it.
 
-| PR                                              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Tests                                                                                                                                                                                                                                                               | Acceptance                                                                                                                     |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **N1** 3G bench profile                         | `packages/browser/bench/video-link.ts`, `packages/browser/bench/link-model.ts` (new). The 3G profile of `native/media/bench` is a follow-up once M2b's Rust side lands                                                                                                                                                                                                                                                                                                                                                                   | **Profiles:** `3g-400`, `3g-800` and `3g-1600` (`ACE_VIDEO_LINK_PROFILE`): 400k / 800k / 1.6M down and ½ that up, at 300–500 ms round trip with 30 ms jitter. **Loss** is 1–2 %, modelled as TCP does it on each leg: a lost segment stalls its leg for one round trip, and a tail loss for a 200 ms minimum RTO; either loss cuts the window to 0.7, CUBIC's multiplicative decrease (beta 0.7). **Slow start:** both legs start at 10 segments and double per round trip. **A competing flow** shares the down link: a main-session burst every 10 s of 25 % of the link's average over those 10 s (125 KB at 400k, 250 KB at 800k, 500 KB at 1.6M). **Reports:** time to first picture (subscribe → first decoded frame, and → poster once F2 lands), glass-to-glass delay (capture timestamp → decode, p50/p95), and tap-to-picture (input sent → first frame showing it, p50/p95), next to fps and bit rate | the link model is pure, with tables in `link-model.test.ts`: loss stalls, slow start, the competing flow's share                                                                                                                                                    | report-only until M2b lands. It then enforces the "3G targets" below, at 400k and 1.6M                                         |
-| **M2b** 3G pacing, TypeScript and Rust together | TS: `packages/browser/src/{link-rate,video-policy,video-scale,video-fanout,picture-viewer,quantizer-control}.ts`, `packages/devices/src/{stream-profile,stream-control}.ts`. Rust: `media-core/src/{link_rate,plan,scale,fanout,keyframes,quantizer,screen_profile,device_control}.rs`. The vectors, regenerated by the browser and devices exporters                                                                                                                                                                                    | The relay floor drops to about 150 kbit/s (from 500 kbit/s). Frame rate steps 60 → 30 → 15 → 8 → 5 fps before the picture scales down, for screens and browser tabs. Screen and device profiles follow the link, with no 1 Mbit/s floor; the relay device profile is no longer fixed at 1080 × 2160 / 5 Mbit/s. The backlog is bounded in time: bytes in flight ≤ link capacity × (RTT + 300 ms). The estimator is loss-tolerant. Starts low on a K3 hint. The keyframe cap and its coupling with scale (decision 3) go into `keyframes`/`quantizer` and `scale`                                                                                                                                                                                                                                                                                                                                                 | the drift tests and the Rust replay pass on the regenerated vectors. New vector scenarios: a 400 kbit/s link, a 2 % loss link, a stall of one RTO that must not cut, persistent queueing that must cut, a hint-led start, and the step order (fps first, then size) | `video-link.ts` on the 3G profiles meets the "3G targets"; the default 25 Mbit/s profile stays at a 60 fps median and p10 ≥ 59 |
-| **K3** Link hint, pause and the session signal  | `packages/protocol`: `link?` on `BrowserCaptureViewport` and on the device and screen subscribes, and `paused?` on viewport reports. `media-wire::control`: `viewer.open.link`, `viewer.pause` / `viewer.resume`, `session.link {session, rttMs, backlogBytes}`, with fixtures. The daemon's viewer sinks for today's path. The web hint (`apps/web/src/lib/video/link-hint.ts`: `navigator.connection` and `Save-Data`). The iOS hint, through the host contract (`NWPathMonitor` `isExpensive` / `isConstrained`, plus a measured RTT) | **The hint** is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`. It is bounded, untrusted and parsed at the boundary. It only picks the starting step. **Pause and resume:** a hidden or backgrounded client pauses its viewers explicitly; nothing is sent while paused, and a resume gets a keyframe. **The session signal:** the daemon sends the main session's smoothed RTT and backlog every 500 ms while a media connection exists                                                                                                                                                                                                                                                                                                                                                                                                                                         | protocol and fixture round trips; a paused viewer receives no bytes; a hint can lower the start but never raise the rate above what was measured                                                                                                                    | a hidden phone tab costs 0 video bytes                                                                                         |
+| PR                                              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Tests                                                                                                                                                                                                                                                                                             | Acceptance                                                                                                                     |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **N1** 3G bench profile                         | `packages/browser/bench/video-link.ts`, `packages/browser/bench/link-model.ts` (new). The 3G profile of `native/media/bench` is a follow-up once M2b's Rust side lands                                                                                                                                                                                                                                                                                                                                                                   | **Profiles:** `3g-400`, `3g-800` and `3g-1600` (`ACE_VIDEO_LINK_PROFILE`): 400k / 800k / 1.6M down and ½ that up, at 300–500 ms round trip with 30 ms jitter. **Loss** is 1–2 %, modelled as TCP does it on each leg: a lost segment stalls its leg for one round trip, and a tail loss for a 200 ms minimum RTO; either loss cuts the window to 0.7, CUBIC's multiplicative decrease (beta 0.7). **Slow start:** both legs start at 10 segments and double per round trip. **A competing flow** shares the down link: a main-session burst every 10 s of 25 % of the link's average over those 10 s (125 KB at 400k, 250 KB at 800k, 500 KB at 1.6M). **Reports:** time to first picture (subscribe → first decoded frame, and → poster once F2 lands), glass-to-glass delay (capture timestamp → decode, p50/p95), and tap-to-picture (input sent → first frame showing it, p50/p95), next to fps and bit rate | the link model is pure, with tables in `link-model.test.ts`: loss stalls, slow start, the competing flow's share                                                                                                                                                                                  | report-only until M2b lands. It then enforces the "3G targets" below, at 400k and 1.6M                                         |
+| **M2b** 3G pacing, TypeScript and Rust together | TS: `packages/browser/src/{link-rate,video-policy,video-scale,video-fanout,picture-viewer,quantizer-control}.ts`, `packages/devices/src/{stream-profile,stream-control}.ts`. Rust: `media-core/src/{link_rate,plan,scale,fanout,keyframes,quantizer,screen_profile,device_control}.rs`. The vectors, regenerated by the browser and devices exporters                                                                                                                                                                                    | The relay floor drops to about 150 kbit/s (from 500 kbit/s). For screens and browser tabs, frame rate steps 60 → 30 → 15 fps at full size, then the picture shrinks at 15 fps down to readable text (about 1152 px on its longer side), then 8 → 5 fps, then the picture shrinks further (see "The step ladder" below). Screen and device profiles follow the link, with no 1 Mbit/s floor; the relay device profile is no longer fixed at 1080 × 2160 / 5 Mbit/s. The backlog is bounded in time: bytes in flight ≤ link capacity × (RTT + 300 ms), widened by [ADR 0150](../adr/0150-in-flight-bound-covers-a-loss-stall.md) to RTT + max(300 ms, RTT + 200 ms) so one loss stall drops nothing. The estimator is loss-tolerant. Starts low on a K3 hint. The keyframe cap and its coupling with scale (decision 3) go into `keyframes`/`quantizer` and `scale`                                                | the drift tests and the Rust replay pass on the regenerated vectors. New vector scenarios: a 400 kbit/s link, a 2 % loss link, a stall of one RTO that must not cut, persistent queueing that must cut, a hint-led start, and the step order (fps to 15, then size to readable, then 8 and 5 fps) | `video-link.ts` on the 3G profiles meets the "3G targets"; the default 25 Mbit/s profile stays at a 60 fps median and p10 ≥ 59 |
+| **K3** Link hint, pause and the session signal  | `packages/protocol`: `link?` on `BrowserCaptureViewport` and on the device and screen subscribes, and `paused?` on viewport reports. `media-wire::control`: `viewer.open.link`, `viewer.pause` / `viewer.resume`, `session.link {session, rttMs, backlogBytes}`, with fixtures. The daemon's viewer sinks for today's path. The web hint (`apps/web/src/lib/video/link-hint.ts`: `navigator.connection` and `Save-Data`). The iOS hint, through the host contract (`NWPathMonitor` `isExpensive` / `isConstrained`, plus a measured RTT) | **The hint** is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`. It is bounded, untrusted and parsed at the boundary. It only picks the starting step. **Pause and resume:** a hidden or backgrounded client pauses its viewers explicitly; nothing is sent while paused, and a resume gets a keyframe. **The session signal:** the daemon sends the main session's smoothed RTT and backlog every 500 ms while a media connection exists                                                                                                                                                                                                                                                                                                                                                                                                                                         | protocol and fixture round trips; a paused viewer receives no bytes; a hint can lower the start but never raise the rate above what was measured                                                                                                                                                  | a hidden phone tab costs 0 video bytes                                                                                         |
+
+**The step ladder (owner decision, 2026-11-14).** This refines ADR 0149's "frame rate steps before the picture shrinks" for screens and browser tabs:
+
+1. 60 → 30 → 15 fps at full size;
+2. then, still at 15 fps, the picture shrinks in steps of 0.84 per side, no smaller than about 1152 px on its longer side (`readableSide`), where text still reads;
+3. then 8 → 5 fps at that size;
+4. then the picture shrinks further.
+
+Strict frame rate first can't meet the 1.6 Mbit/s target ("about 720p at 15 fps"). On a 2560 × 1600 picture, 15 fps at full size needs about 2.5 Mbit/s, so on 1.6 Mbit/s strict order falls to 5 fps. Fifteen frames a second of readable text serves a person better than five of a full-size picture. While the rate is still probing up from an unhinted start, the picture shrinks first at 60 fps, as before. `video-scale.ts` and `scale.rs` own the ladder; the shared vectors' `scale-steps` area pins it.
 
 **Changes to existing rows:**
+
+- **D1: link-follow for device and screen views in Rust.** M2b ports the cap to `media-core`
+  (`device_control::link_capped`): the bit rate capped to the link, rounded to 250 kbit/s (50 kbit/s
+  below 1 Mbit/s), and the frame rate and size at the link's step. The rest of
+  `packages/browser/src/link-follow.ts` has no Rust counterpart yet:
+  - the 15 % hysteresis before a capture is reconfigured;
+  - re-applying on a step change, with the `PictureScale` it keeps.
+
+  D1 owns both, because it moves device and screen viewers and `source.want` into ace-media and
+  rewires `packages/{screen,devices}/src/bridge.ts`, where `LinkFollow` runs today. D1 ports the
+  rule with `link-follow.test.ts`'s cases as shared vectors.
 
 - **Keyframe cap.** About rate × 0.5 s, coupled with scale, on every encoder.
   - Today's encoders get it now, in M2b's policy and its encoder hooks: the video extension's
@@ -2262,3 +2281,165 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
   4. A window share on GNOME with VA-API: it must say `capture: shared memory` after its first
      cropped buffer and show nothing outside the window; a whole-screen share stays on DMA-BUF.
      With NVENC (`ACE_MEDIA_NV=1`), a window share stays on DMA-BUF and the GL blit crops it.
+
+## D2 notes
+
+- **The relay's `media` purpose** (`apps/relay/src/purpose.ts`, shared with `apps/cloud`).
+  - A client asks with `/client?purpose=media`. A daemon takes media streams by registering
+    with `features=media` (comma-separated beside `http`). Both relays offer
+    `{type: "client", ticket, purpose: "media"}` only to such a host; any other host refuses the
+    client with 1008 "Media unavailable", so an older daemon never sees an offer it doesn't know.
+    An unknown `purpose` is refused with 1008.
+  - `RelayRoutes.register(socket, hostId, media)` and `restore` keep the feature; the Worker
+    keeps it in the host's attachment (`media: true`), so it survives hibernation.
+  - `connectHostToRelay` takes `media.offer(ticket, joinUrl)` (false turns the ticket down);
+    `connectClientViaRelay` takes `purpose`. `channel.ts` and `flow-credit.ts` are untouched.
+- **The daemon's half** (`apps/daemon/src/media-relay/`).
+  - `streams.ts` (`MediaRelayStreams`): `relay.dial` (retried every 50 ms while ace-media is
+    still starting), then the handshake through ace-media, one `relay.pull` per frame. One
+    10 s deadline covers the offer to the keys. A missed deadline, a failed dial or a lost process
+    closes the stream on the priority lane at once. A refusal waits 200 ms first, so the
+    priority-lane close doesn't overtake the refusal on the normal lane. At most 32 streams are
+    pending. A handed-over stream holds ace-media up until its `connection.closed`.
+  - `handover.ts`: the Noise XX responder with the relay host's static key, the hello (one JSON
+    message, at most 64 KiB, credits answered as they come), then the flow start (for a client
+    that asked) and the welcome. It writes the key block straight from the cipher states. An
+    invalid hello is answered `Valid hello required`.
+  - `admit.ts`, in order: `channel: "media"` with `mediaTicket` (the schema already refuses a ticket
+    on any other channel); the device's credential (`relayHello`); a pairing device still current,
+    or an account device still admitted; then the ticket (`MediaConnections.claimRelay`).
+  - `port.ts` binds all this late: the relay connects before ace-media's runtime exists.
+    `DaemonDelivery.relay` (in `services/media.ts`) exists only while `media.delivery` is `auto`
+    and ace-media isn't unavailable; until then every media ticket is turned down.
+  - A media hello on a stream the relay didn't open for media is refused with an error.
+- **Tickets on the relay** (`packages/media/src/media-connections.ts`).
+  - `connect` keeps the SHA-256 of each ticket it mints (never the ticket).
+  - `claimRelay(ticket, {device, admission})` redeems it once, before it expires, for the same
+    device and admission kind, while its session is open and no revocation covers it. Any
+    presentation burns it. A connection already opened directly can't be claimed. The grant
+    carries a fresh `issued`.
+- **`packages/secure-channel`.**
+  - `CipherState.exportInto(block, keyOffset, nonceOffset)` writes the key and the next nonce
+    (u64 BE) into the caller's block and destroys the state. The plan's one `offset` couldn't
+    place the key and the nonce apart, as the block needs.
+  - `FlowCredit.exportState()` gives the flow fields and throws while a fragment is queued.
+  - Frame counts and the CRC are written by `handover.ts`.
+- **ace-media** (`engine/relay.rs`, `shell/relay.rs`, `shell/relay_ws.rs`).
+  - `relay.dial` takes `ws://` and `wss://`. A closed stream id can't be dialed again; dialing
+    and keyed streams together stay within 1,024.
+  - **TLS** (`shell/relay_tls.rs`): rustls on ring (no aws-lc).
+    - Certificates are verified against the OS trust store, loaded once by `rustls-native-certs`
+      into rustls's webpki verifier. Like OpenSSL tools, it honours `SSL_CERT_FILE` and
+      `SSL_CERT_DIR`.
+    - Nothing is pinned, no invalid certificate is accepted, and no switch skips verification.
+      The name checked, and sent as SNI, is the URL's host.
+    - `rustls-platform-verifier` was the first choice, but its wasm32-only dependency
+      `webpki-root-certs` is CDLA-Permissive-2.0. `cargo deny` checks every target, and the
+      allowlist doesn't admit that licence (nor `webpki-roots`, the same licence).
+    - The buffered rustls connection queues a `Vec` per record, so the client drives the
+      unbuffered API instead. It encrypts into one outgoing buffer sized once for a whole frame
+      (80 KiB) and decrypts in place in a 64 KiB incoming buffer. One task owns a TLS stream's
+      socket, so reads and writes take turns there.
+    - A refusal fails the dial with `relay.failed` `tls`. A stream that fails before it was
+      joined rejects its relay ticket (`media.offer`'s `reject`), so the client is turned away at
+      once and stays on legacy delivery, rather than waiting out the ticket.
+  - Before the keys, `relay.out` writes the daemon's frames once the socket is up. Each
+    `relay.pull` answers with one held frame or the next to arrive. Past 64 held frames the stream
+    fails with `backlog`.
+  - `relay.keys` goes through the ledger first, then needs a stream this process dialed, then the
+    connection its `media.ticket` named, still unused. The ticket is consumed there (an expired one
+    is refused as `expired`), so one ticket can't open both a direct and a relay connection. Frames
+    the daemon never pulled are then opened in order.
+  - A keyed stream answers credits itself. Its client messages go to D1's `delivery.client`, like a
+    direct connection's, and anything else closes the connection. Its views start with
+    `delivery.attached`: the relay channel's welcome is the daemon's, so no `media.welcome` is sent.
+  - Delivery's `Effect::Media` for a relay connection is sealed in place among the other effects.
+    A message goes whole or not at all: the client's flow window decides, and a dropped piece is
+    recovered by delivery's acks and keyframe requests.
+  - Sealing writes into pooled 64 KiB buffers that the socket writer returns, masked in place,
+    so a frame costs no allocation once the pool is warm (unit-tested).
+  - The WebSocket client is hand-written for that path. It uses `tungstenite` (already in the
+    tree) only for the upgrade key. cargo-deny's allowlist is unchanged.
+  - Closing a stream (`relay.close`, `connection.close`, `revoke`, a protocol break) aborts both
+    socket tasks before the answer goes out. Video's share of the link (70 %, cut to 35 % on
+    inflation) is D1's delivery, which relay connections use unchanged.
+- **Tests.** `apps/daemon/src/media-relay/relay-media.process.test.ts`, run by `check:media`
+  against the binary it builds, uses the real self-hosted relay, the binary under `MediaRuntime`,
+  `startFilesRelay` with real pairing credentials and tickets from `media.connect`. It covers:
+  - 40 pings sent before the welcome come back once each, answered by ace-media;
+  - the block is zeroed after its write; neither key appears in hex or base64 in either log; the
+    only key log line is `relay.keys {stream}`; a SIGABRT holding keys leaves no core file;
+  - refusals: a hello naming `files`, without a ticket, with a reused ticket, from another
+    device or with a wrong credential, and a media hello on a non-media stream. Only the admitted
+    stream gets keys;
+  - a revocation is answered within 50 ms and the stream closes;
+  - a SIGSTOPped ace-media is killed at 250 ms and the stream closes within 500 ms;
+  - after a SIGKILL the next stream is handed over by the new process, and pictures restart at
+    a keyframe after the client reconnects;
+  - 41 revocations, each behind 8 MiB on the normal lane with a picture-carrying relay stream,
+    p99 50 ms enforced below load 24.
+
+  `relay-media-tls.process.test.ts` covers `wss://`. The relay serves TLS on a second listener
+  (`startRelay({tls})`, `tlsPort`), and ace-media trusts only the fixture CA (`SSL_CERT_FILE`,
+  for that child alone; the keychain is never read or changed).
+  - A valid certificate carries a handed-over stream, with pictures from a keyframe.
+  - A certificate for another host, an expired one and one from an untrusted CA are each refused.
+    No keys go out, the client is turned away within 5 s, and ace-media stays healthy.
+
+  Unit tests cover the routes, the export, the hand-over, the stream driver, the claim and the
+  engine's relay streams. `apps/cloud/src/media.process.test.ts` covers the Worker, hibernation
+  included.
+
+- **Review fixes (#2064).**
+  - The hand-over deadline aborts a signal passed through the hand-over and into admission. On
+    abort the Noise and cipher states are destroyed at once, nothing is sealed, claimed or
+    exported afterwards, and a result that still arrives late is wiped.
+  - One relay port per ace-media runtime (`media-relay/runtime-port.ts`): every delivery lookup
+    returns it, and `watch` returns an unsubscribe, so lookups never add watchers.
+  - `CipherState.exportInto` refuses overlapping key and nonce ranges, writes nothing, and leaves
+    the cipher usable.
+  - Each relay stream has one entry from its dial on (`shell/relay_sockets.rs`). The dial task
+    fills the entry's slot in the same step that spawns the socket's tasks, so a close finds the
+    socket wherever it is: before the dial ends, with its `Dialed` queued, or after.
+  - Closes have a mode (`CloseMode`).
+    - **Graceful** (the daemon's `relay.close`, a session's end, expiry, shutdown): sends what is
+      queued, then the WebSocket close (and TLS's close_notify), turns linger off and sends our
+      FIN, within 100 ms before it is forced.
+    - **Forced** (a revocation, a protocol or transport break, a backlog, failed keys): resets
+      at once. The zero linger is installed right after connect, before anything can fail.
+  - A close stays registered until its socket is gone. A later close joins it, and a forced one
+    (a revocation) escalates a graceful close in progress. The engine keeps closing streams with
+    their owners until the shell reports them closed, so a revocation or a connection close
+    still reaches them.
+  - Each stream's `Finale`, made at dial, holds a second handle on its socket (a duplicated
+    descriptor, or `SOCKET` on Windows; the dial fails without one) and whether a revocation
+    forced the close. An escalation sets it, and the final close decides and closes, under one
+    lock, so a force lands before the close or finds it done.
+  - The final close sets the handle's own linger either way, since on Windows each duplicate
+    keeps its own: zero and on when it resets (forced, or a graceful close that ran out of
+    time), off when a graceful close completed.
+  - The writer's half is released without tokio's shutdown-on-drop, and the graceful finish
+    sends no FIN of its own. Darwin refuses socket options once both directions are shut, and a
+    FIN can't be taken back, so our FIN comes with the final close.
+  - Shutdown (`shell/shutdown.rs`) keeps every phase inside one deadline: relay closes, then
+    both lanes together, and no lane drain once the budget is spent.
+  - A priority gate (`shell/priority_gate.rs`) holds each answer only for the closes its own
+    message made. It is released once every task that owned those sockets has ended, so
+    `revoked` and `closed` say what they mean. An answer with no closes (an epoch ack) goes at
+    once, and one stream's slow socket never holds back another's answer.
+  - The hand-over wipes the ephemeral private key it was given once Noise has its copy, and
+    when the constructor fails.
+  - Tickets follow D1's ownership rule: `relay.keys`' block is the supervisor's from `send` on
+    (the lane wipes it once written, or at once when refused), and the daemon never touches it
+    after. `claimRelay` refuses an all-zero ticket, as ace-media does.
+- **Owed.**
+  - Crossing a rekey on the real stream (2^20 frames) in the process test. The block's frame
+    counts are tested, and media-noise aligns TS frames to the rekey boundary after the hand-over.
+  - With the egress lane full: the revocation p99. The 50 ms p99 on an idle machine (68 ms at
+    load 831).
+  - A main-session burst over video keeping the main session's p95 RTT within 1.5× its idle value
+    (needs a shaped link).
+  - The 10-viewer 16 Mbit/s CPU bench. Re-running `bench/seal` on an idle Mac. The load stayed
+    above 24 throughout.
+  - The diagnostics bundle in the key scan (it isn't wired to ace-media's state yet).
+  - Account-device relay streams are tested through `admit.ts` only; no account relay test yet.

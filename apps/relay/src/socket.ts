@@ -13,18 +13,31 @@ export class FrameReader {
   #holds = 0;
   #pending: { resolve(value: Buffer): void; reject(error: Error): void } | undefined;
   #permit: () => Promise<void> | undefined;
-  #onFrame: () => void;
+  /**
+   * Called with each frame's size as it arrives, before it is queued: false drops it on
+   * arrival, so a frame the relay won't forward is never held.
+   */
+  #onFrame: (bytes: number) => boolean;
+  /** Waiting for the queue to be empty (`whenEmpty`). */
+  #emptied: (() => void)[] = [];
+  /** How the reader closes a socket it refuses a frame from; `socket.close` by default. */
+  #refuse: (code: number) => void;
   constructor(
     socket: WebSocket,
-    options: { permit?: () => Promise<void> | undefined; onFrame?: () => void } = {},
+    options: {
+      permit?: () => Promise<void> | undefined;
+      onFrame?: (bytes: number) => boolean;
+      refuse?: (code: number) => void;
+    } = {},
   ) {
     this.#socket = socket;
+    this.#refuse = options.refuse ?? ((code) => socket.close(code));
     this.#permit = options.permit ?? (() => undefined);
-    this.#onFrame = options.onFrame ?? (() => {});
+    this.#onFrame = options.onFrame ?? (() => true);
     socket.on("message", (data, binary) => {
       if (!binary) {
         this.fail(new Error("Binary frames required"));
-        socket.close(1003);
+        this.#refuse(1003);
         return;
       }
       if (this.#error) return;
@@ -33,14 +46,14 @@ export class FrameReader {
         : data instanceof ArrayBuffer
           ? Buffer.from(data)
           : data;
-      this.#onFrame();
+      if (!this.#onFrame(frame.length)) return;
       if (
         frame.length > FRAME_LIMIT ||
         this.#bytes + frame.length > QUEUE_LIMIT ||
         this.#queue.length >= 256
       ) {
         this.fail(new Error("Frame queue limit"));
-        socket.close(1009);
+        this.#refuse(1009);
         return;
       }
       if (this.#pending) {
@@ -58,6 +71,15 @@ export class FrameReader {
   }
   get bufferedBytes(): number {
     return this.#bytes;
+  }
+  /** Resolves once nothing is queued: every frame taken, or the queue dropped by `fail`. */
+  whenEmpty(): Promise<void> {
+    if (!this.#queue.length) return Promise.resolve();
+    return new Promise((resolve) => this.#emptied.push(resolve));
+  }
+  #empty(): void {
+    if (this.#queue.length) return;
+    for (const resolve of this.#emptied.splice(0)) resolve();
   }
   hold(): () => void {
     this.#holds++;
@@ -80,6 +102,7 @@ export class FrameReader {
     this.#bytes = 0;
     this.#pending?.reject(error);
     this.#pending = undefined;
+    this.#empty();
   }
   #read(): Promise<Buffer> {
     if (this.#error) return Promise.reject(this.#error);
@@ -87,6 +110,7 @@ export class FrameReader {
     if (frame) {
       this.#bytes -= frame.length;
       this.#resume();
+      this.#empty();
       return Promise.resolve(frame);
     }
     if (this.#pending) return Promise.reject(new Error("Concurrent receive is unsupported"));

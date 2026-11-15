@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { createServer as createSecureServer } from "node:https";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import type { Socket } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
@@ -17,6 +20,9 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
+import { EARLY_FRAME } from "./early-frame.ts";
+import { PAIRED_MARKER } from "./wire.ts";
+import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
 const noop = () => {};
 export type RelayOptions = {
@@ -30,6 +36,12 @@ export type RelayOptions = {
   createConnectionId?: () => string;
   onBackpressure?: (bytes: number) => void;
   onThrottle?: () => void;
+  /**
+   * Also serve the same relay over TLS on a second listener (`tlsUrl`), with this certificate
+   * chain and key in PEM. Production relays terminate TLS in front of the relay; this lets a
+   * test reach the relay itself over `wss://`.
+   */
+  tls?: { cert: string; key: string };
 };
 type Connection = {
   socket: WebSocket;
@@ -37,7 +49,21 @@ type Connection = {
   abort: AbortController;
   lastActivity: number;
   control?: Transport;
+  /** The readiness marker this client gets when paired. */
+  marker: number;
+  /** A `/client` socket, and whether it was paired. */
+  client: boolean;
+  paired: boolean;
+  /** Its early frame is held: reading it is paused until pairing (ADR 0155). */
+  earlyHold?: (() => void) | undefined;
+  /** It is being turned away (`turnAway`): closed, and cut at the deadline. */
+  cutting?: boolean;
 };
+/**
+ * A client the relay closes before it is paired gets this long to finish the close; then its
+ * socket is cut, whether or not it answered, so withholding the answer holds nothing.
+ */
+const UNPAIRED_CLOSE_MS = 1000;
 /** Thin socket shell: registration proof, actions, forwarding and owned deadlines. */
 export async function startRelay(options: RelayOptions = {}) {
   const limits = LimitsSchema.parse(options.limits ?? {});
@@ -74,17 +100,34 @@ export async function startRelay(options: RelayOptions = {}) {
     maxFragments: 256,
     maxBufferedChunks: 256,
     // A self-hosted relay stays anonymous: an offered grant (ADR 0111) is echoed, never checked,
-    // so daemons and clients signed in to an ace account work here too. Nothing else is chosen.
-    handleProtocols: (protocols) =>
-      [...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ?? false,
+    // so daemons and clients signed in to an ace account work here too. A client whose early
+    // frame has room reserved is answered with the early subprotocol instead (ADR 0155): one
+    // subprotocol is echoed, so that answer is the client's permission to send at once.
+    handleProtocols: (protocols, request) =>
+      earlyUpgrades.has(request)
+        ? EARLY_FRAME.subprotocol
+        : ([...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ??
+          (protocols.has(EARLY_FRAME.neutral) ? EARLY_FRAME.neutral : false)),
   });
+  /** Upgrades whose early frame has room reserved, until `ws` answers them. */
+  const earlyUpgrades = new WeakSet<IncomingMessage>();
   async function apply(actions: RouteAction[]): Promise<void> {
     for (const action of actions) {
       if (action.type === "pair") {
         const client = connections.get(action.client),
           host = connections.get(action.host);
-        if (client && host) pairStreams(client, host, limits, stats, options.onBackpressure);
-        else {
+        // A held early frame is still the first frame in the client's reader: pairing forwards
+        // it to this host, right after the marker, before anything sent later. Its room is
+        // given back once it has left the reader, not before.
+        if (client && host) {
+          client.paired = true;
+          client.earlyHold?.();
+          client.earlyHold = undefined;
+          const id = action.client;
+          if (action.early) void client.reader.whenEmpty().then(() => routing.releaseEarly(id));
+          else routing.releaseEarly(id);
+          pairStreams(client, host, limits, stats, options.onBackpressure, client.marker);
+        } else {
           client?.socket.terminate();
           host?.socket.terminate();
         }
@@ -93,6 +136,10 @@ export async function startRelay(options: RelayOptions = {}) {
       const connection = connections.get(action.socket);
       if (!connection) continue;
       if (action.type === "close") {
+        if (connection.client && !connection.paired) {
+          turnAway(connection, action.code, action.reason);
+          continue;
+        }
         connection.socket.close(action.code, action.reason);
         if (action.code === 4001) connection.socket.terminate();
         continue;
@@ -109,12 +156,36 @@ export async function startRelay(options: RelayOptions = {}) {
             JSON.stringify(
               action.type === "registered"
                 ? { type: "registered", hostId: action.hostId }
-                : { type: "client", ticket: action.ticket },
+                : {
+                    type: "client",
+                    ticket: action.ticket,
+                    ...(action.purpose ? { purpose: action.purpose } : {}),
+                  },
             ),
           ),
         ),
       );
     }
+  }
+  /**
+   * Every way a client is turned away before it is paired ends here (ADR 0155): its queued
+   * frames go now, it is read no more, and its socket is cut after a short deadline whatever it
+   * does, so withholding the close answer holds nothing. Its early-frame reservation comes back
+   * when the socket is gone (`routing.close`).
+   */
+  function turnAway(connection: Connection, code: number, reason: string): void {
+    if (connection.cutting) return;
+    connection.cutting = true;
+    connection.reader.fail(new Error("Closed by the relay"));
+    connection.socket.pause();
+    try {
+      connection.socket.close(code, reason);
+    } catch {
+      connection.socket.terminate();
+      return;
+    }
+    const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => connection.socket.terminate());
+    connection.socket.once("close", cut);
   }
   async function route(id: string, url: URL, connection: Connection): Promise<void> {
     if (url.pathname === "/host") {
@@ -128,7 +199,9 @@ export async function startRelay(options: RelayOptions = {}) {
         control.destroy();
         return;
       }
-      await apply(routing.register(id, hostId(control.remoteStatic)));
+      await apply(
+        routing.register(id, hostId(control.remoteStatic), hostFeatures(url).has(MEDIA_FEATURE)),
+      );
       while (connection.socket.readyState === WebSocket.OPEN) {
         const input: unknown = JSON.parse(
           new TextDecoder().decode(control.receive.decrypt(await connection.reader.next())),
@@ -136,11 +209,20 @@ export async function startRelay(options: RelayOptions = {}) {
         const message = HostControlMessage.parse(input);
         await apply(routing.reject(id, message.ticket));
       }
-    } else if (url.pathname === "/client")
-      await apply(
-        routing.request(id, url.searchParams.get("hostId") ?? "", createTicket(), clock.now()),
-      );
-    else if (url.pathname === "/join")
+    } else if (url.pathname === "/client") {
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") turnAway(connection, 1008, "Unknown purpose");
+      else
+        await apply(
+          routing.request(
+            id,
+            url.searchParams.get("hostId") ?? "",
+            createTicket(),
+            clock.now(),
+            purpose,
+          ),
+        );
+    } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
   }
@@ -150,7 +232,7 @@ export async function startRelay(options: RelayOptions = {}) {
     sockets.delete(socket);
     peerBudget.release(clock.now());
   }
-  http.on("connection", (socket) => {
+  const admit = (socket: Socket) => {
     const ip = socket.remoteAddress;
     if (!ip) {
       socket.destroy();
@@ -169,8 +251,9 @@ export async function startRelay(options: RelayOptions = {}) {
       releaseSocket(socket);
     });
     socket.once("close", () => releaseSocket(socket));
-  });
-  http.on("upgrade", (request, socket, head) => {
+  };
+  http.on("connection", admit);
+  const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     let url: URL;
     try {
       url = new URL(request.url ?? "/", "http://relay");
@@ -184,8 +267,24 @@ export async function startRelay(options: RelayOptions = {}) {
       return;
     }
     const peerBudget = admittedBudget;
+    const id = z.string().min(1).parse(createId());
+    // Room for an early frame is reserved before the upgrade is accepted, never after: a client
+    // is told it may send early only once the relay can hold what it sends (ADR 0155).
+    const offered = (request.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((protocol) => protocol.trim());
+    if (
+      url.pathname === "/client" &&
+      clientPurpose(url) !== "invalid" &&
+      offered.includes(EARLY_FRAME.subprotocol) &&
+      !connections.has(id) &&
+      routing.reserveEarly(id, url.searchParams.get("hostId") ?? "")
+    ) {
+      earlyUpgrades.add(request);
+      // An upgrade that never completes gives the room back; a waiting client keeps it.
+      socket.once("close", () => routing.releaseEarly(id));
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
-      const id = z.string().min(1).parse(createId());
       if (connections.has(id)) {
         ws.terminate();
         return;
@@ -194,17 +293,51 @@ export async function startRelay(options: RelayOptions = {}) {
       const connection: Connection = {
         socket: ws,
         abort,
+        // A new client asked (`early=1`): its marker also says this relay holds early frames.
+        marker:
+          url.searchParams.get(EARLY_FRAME.query) === "1"
+            ? EARLY_FRAME.capableMarker
+            : PAIRED_MARKER,
         lastActivity: clock.now(),
+        client: url.pathname === "/client",
+        paired: false,
         reader: new FrameReader(ws, {
           permit: () => throttle.wait(peerBudget, abort.signal),
-          onFrame: () => {
+          // A frame the reader refuses (text, over its queue) from a client not yet paired
+          // turns it away like any other refusal; anything else closes as before.
+          refuse: (code) =>
+            connection.client && !connection.paired
+              ? turnAway(connection, code, "")
+              : ws.close(code),
+          onFrame: (bytes) => {
             connection.lastActivity = clock.now();
-            void apply(routing.premature(id)).catch(() => ws.terminate());
+            // Before pairing, a client may send one frame it reserved room for; any other is
+            // dropped on arrival and closes it.
+            const before = routing.earlyState(id);
+            const actions = routing.early(id, bytes);
+            if (actions.length) {
+              void apply(actions).catch(() => ws.terminate());
+              return false;
+            }
+            // The early frame is held: read nothing more from this client until it is paired,
+            // so no second frame can be buffered for it in the meantime.
+            if (before === "reserved" && routing.earlyState(id) === "held")
+              connection.earlyHold = connection.reader.hold();
+            return true;
           },
         }),
       };
       connections.set(id, connection);
-      ws.on("error", () => {});
+      // The socket library closes on a protocol error it finds itself (a message over the
+      // frame size, a bad frame) and then waits for the answer: a client not yet paired is cut
+      // at the deadline instead.
+      ws.on("error", () => {
+        if (!connection.client || connection.paired || connection.cutting) return;
+        connection.cutting = true;
+        connection.reader.fail(new Error("Socket error"));
+        const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => ws.terminate());
+        ws.once("close", cut);
+      });
       let controlQueue: Promise<void> = Promise.resolve();
       let controls = 0;
       function acceptControl(data: Buffer, reply: () => void): void {
@@ -238,7 +371,11 @@ export async function startRelay(options: RelayOptions = {}) {
       });
       void route(id, url, connection).catch(() => ws.terminate());
     });
-  });
+  };
+  http.on("upgrade", upgrade);
+  const secure = options.tls ? createSecureServer(options.tls) : undefined;
+  secure?.on("secureConnection", admit);
+  secure?.on("upgrade", upgrade);
   function sweep(): void {
     void apply(routing.sweep(clock.now())).catch(() => {});
     for (const connection of connections.values())
@@ -260,6 +397,11 @@ export async function startRelay(options: RelayOptions = {}) {
       http.once("error", reject);
       http.listen(options.port ?? 0, options.bind ?? "127.0.0.1", resolve);
     });
+    if (secure)
+      await new Promise<void>((resolve, reject) => {
+        secure.once("error", reject);
+        secure.listen(0, options.bind ?? "127.0.0.1", resolve);
+      });
   } catch (error) {
     throttle.close();
     throw error;
@@ -267,12 +409,25 @@ export async function startRelay(options: RelayOptions = {}) {
   cancelSweep = clock.schedule(Math.min(10000, limits.idleTimeoutMs / 2), probe);
   const address = http.address();
   if (!address || typeof address === "string") throw new Error("No relay address");
+  const secureAddress = secure?.address();
   let closing: Promise<void> | undefined;
   return {
     url: `ws://${options.bind ?? "127.0.0.1"}:${address.port}`,
+    /** With `tls`: the TLS listener's port (the certificate decides which host name fits). */
+    tlsPort: secureAddress && typeof secureAddress !== "string" ? secureAddress.port : undefined,
     port: address.port,
     stats,
     sweep,
+    /**
+     * Early frames held for clients not yet paired (ADR 0155): what the routing policy has
+     * reserved and counted, and the bytes actually queued in those clients' readers.
+     */
+    earlyHeld() {
+      let queuedBytes = 0;
+      for (const [id, connection] of connections)
+        if (routing.earlyState(id) !== undefined) queuedBytes += connection.reader.bufferedBytes;
+      return { ...routing.earlyHeld(), queuedBytes };
+    },
     close(): Promise<void> {
       if (closing) return closing;
       cancelled = true;
@@ -285,6 +440,7 @@ export async function startRelay(options: RelayOptions = {}) {
         new Promise<void>((resolve, reject) =>
           http.close((error) => (error ? reject(error) : resolve())),
         ),
+        new Promise<void>((resolve) => (secure ? secure.close(() => resolve()) : resolve())),
       ]).then(() => {});
       return closing;
     },

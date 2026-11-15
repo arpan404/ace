@@ -47,9 +47,12 @@ const scheduler = {
 export class FileSnapshots implements ReadSnapshotStorage {
   readonly records = new Map<string, unknown>();
   readonly file: string;
+  /** How long each read of a record takes: a cold store, as at an app's launch. */
+  readonly readMs: number;
   host: string | null = null;
-  constructor(file: string) {
+  constructor(file: string, readMs = 0) {
     this.file = file;
+    this.readMs = readMs;
   }
   async load(): Promise<void> {
     const text = await readFile(this.file, "utf8").catch(() => "{}");
@@ -68,6 +71,7 @@ export class FileSnapshots implements ReadSnapshotStorage {
     return text.length;
   }
   async get(key: string) {
+    if (this.readMs) await new Promise((resolve) => setTimeout(resolve, this.readMs));
     return structuredClone(this.records.get(key));
   }
   async set(key: string, value: unknown) {

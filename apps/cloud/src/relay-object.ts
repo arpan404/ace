@@ -3,8 +3,12 @@ import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
+  EARLY_FRAME,
   HTTP_FEATURE,
   HostId,
+  MEDIA_FEATURE,
+  clientPurpose,
+  hostFeatures,
   LimitsSchema,
   PAIRED_MARKER,
   RelayRoutes,
@@ -41,6 +45,8 @@ type Handshake = {
   platform: string;
   /** It serves forwarded HTTP (`features=http`, ADR 0122). */
   http: boolean;
+  /** It takes media streams (`features=media`, ADR 0147 §5.2). */
+  media: boolean;
 };
 
 /**
@@ -54,6 +60,11 @@ export class RelayObject extends DurableObject<Env> {
   #sockets = new Map<string, WebSocket>();
   #attachments = new WeakMap<WebSocket, Attachment | undefined>();
   #budget = new FrameBudget({ perSecond: limits.messagesPerSecond, burst: limits.messageBurst });
+  /**
+   * Early frames held for waiting clients, by client socket (ADR 0155). Memory only: an
+   * eviction loses them, and the attachment's `early: "held"` then closes that client.
+   */
+  #held = new Map<string, Uint8Array>();
   #http = new HttpGateway();
 
   override async fetch(request: Request): Promise<Response> {
@@ -94,7 +105,8 @@ export class RelayObject extends DurableObject<Env> {
         ),
         name: url.searchParams.get("name") ?? "",
         platform: url.searchParams.get("platform") ?? "",
-        http: (url.searchParams.get("features") ?? "").split(",").includes(HTTP_FEATURE),
+        http: hostFeatures(url).has(HTTP_FEATURE),
+        media: hostFeatures(url).has(MEDIA_FEATURE),
       });
       return upgraded(server.client, protocol);
     }
@@ -103,8 +115,16 @@ export class RelayObject extends DurableObject<Env> {
       const owner = hostAccount(this.#allAttachments(), hostId);
       if (owner !== undefined && owner !== account)
         return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") return refuseUpgrade(1008, "Unknown purpose", protocol);
+      const offered = (request.headers.get("Sec-WebSocket-Protocol") ?? "")
+        .split(",")
+        .map((entry) => entry.trim());
+      // Room for an early frame is reserved in this same turn, before the 101 is answered: a
+      // client hears it may send early only once the object can hold what it sends.
+      const early = offered.includes(EARLY_FRAME.subprotocol) && routes.reserveEarly(id, hostId);
       const ticket = randomTicket();
-      const actions = routes.request(id, hostId, ticket, now);
+      const actions = routes.request(id, hostId, ticket, now, purpose);
       const refusal = this.#refusal(actions, id, protocol);
       if (refusal) return refusal;
       const server = this.#accept(id);
@@ -116,10 +136,13 @@ export class RelayObject extends DurableObject<Env> {
           ticket,
           owner: offer.socket,
           expires: now + limits.ticketTimeoutMs,
+          ...(early ? { early: "reserved" } : {}),
+          ...(url.searchParams.get(EARLY_FRAME.query) === "1" ? { capable: true } : {}),
         });
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
-      return upgraded(server.client, protocol);
+      // One subprotocol is echoed: the early one is the client's permission to send at once.
+      return upgraded(server.client, early ? EARLY_FRAME.subprotocol : protocol);
     }
     if (url.pathname === "/join") {
       const actions = routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now);
@@ -162,8 +185,18 @@ export class RelayObject extends DurableObject<Env> {
         peer.send(frame);
         return;
       }
-      case "waiting":
-        return this.#apply(this.#routing().premature(attachment.id));
+      case "waiting": {
+        // A frame the relay won't forward is never stored: closing the client frees its held
+        // frame and its reservation in one step (`#release`), and anything it sends after that
+        // finds no attachment and is dropped.
+        const actions = this.#routing().early(attachment.id, frame.length);
+        if (actions.length) return this.#apply(actions);
+        // Held for the daemon's join: in memory, and marked in the attachment, so an eviction
+        // before the join is noticed rather than forwarding nothing.
+        this.#held.set(attachment.id, frame);
+        this.#save(ws, { ...attachment, early: "held" });
+        return;
+      }
       case "handshake":
         return this.#handshake(ws, attachment, frame);
       case "host": {
@@ -235,6 +268,7 @@ export class RelayObject extends DurableObject<Env> {
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
         ...(pending.http ? { http: true } : {}),
+        ...(pending.media ? { media: true } : {}),
       };
     } finally {
       transport.destroy();
@@ -259,7 +293,7 @@ export class RelayObject extends DurableObject<Env> {
     // The daemon closed while the entry was written.
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);
-    this.#apply(this.#routing().register(attachment.id, host.hostId));
+    this.#apply(this.#routing().register(attachment.id, host.hostId, pending.media));
   }
 
   /** The caller of forwarded request `exchange` left (the Worker saw it): cancel it. */
@@ -308,9 +342,18 @@ export class RelayObject extends DurableObject<Env> {
           if (host) this.#close(host, 1011, "Peer missing");
           continue;
         }
+        const waiting = this.#read(client);
+        const capable = waiting?.kind === "waiting" && waiting.capable === true;
+        const held = this.#held.get(action.client);
+        this.#held.delete(action.client);
         this.#save(client, { kind: "stream", id: action.client, peer: action.host });
         this.#save(host, { kind: "stream", id: action.host, peer: action.client });
-        client.send(new Uint8Array([PAIRED_MARKER]));
+        client.send(new Uint8Array([capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER]));
+        // The client's early frame is the first thing the joining daemon reads. Sent, it is no
+        // longer held here, so its room comes back now.
+        if (action.early && held) host.send(held);
+        else if (action.early) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        this.#routing().releaseEarly(action.client);
         continue;
       }
       const ws = this.#socket(action.socket);
@@ -328,7 +371,11 @@ export class RelayObject extends DurableObject<Env> {
         host.send,
         action.type === "registered"
           ? { type: "registered", hostId: action.hostId }
-          : { type: "client", ticket: action.ticket },
+          : {
+              type: "client",
+              ticket: action.ticket,
+              ...(action.purpose ? { purpose: action.purpose } : {}),
+            },
       );
       this.#save(ws, { ...host, send: sealed.next });
       ws.send(sealed.frame);
@@ -400,6 +447,7 @@ export class RelayObject extends DurableObject<Env> {
     }
     this.#attachments.set(ws, undefined);
     this.#sockets.delete(attachment.id);
+    this.#held.delete(attachment.id);
     this.#budget.forget(attachment.id);
     const handshake = this.#handshakes.get(attachment.id);
     if (handshake) {
