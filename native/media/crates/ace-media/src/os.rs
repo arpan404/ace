@@ -201,11 +201,21 @@ impl SocketHandle {
     /// The final close resets the connection (`SO_LINGER` on, zero seconds): nothing the kernel
     /// still holds for the peer is sent. False when the option couldn't be set.
     pub fn reset_on_close(&self) -> bool {
+        self.set_linger(true)
+    }
+
+    /// The final close is an ordinary one (`SO_LINGER` off): what the kernel holds is delivered.
+    /// Set on this handle itself, since on Windows each duplicate keeps its own linger.
+    pub fn linger_off(&self) -> bool {
+        self.set_linger(false)
+    }
+
+    fn set_linger(&self, reset: bool) -> bool {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
             let linger = libc::linger {
-                l_onoff: 1,
+                l_onoff: libc::c_int::from(reset),
                 l_linger: 0,
             };
             // SAFETY: a valid descriptor and a linger struct of the size given.
@@ -227,7 +237,7 @@ impl SocketHandle {
                 LINGER, SO_LINGER, SOCKET, SOL_SOCKET, setsockopt,
             };
             let linger = LINGER {
-                l_onoff: 1,
+                l_onoff: u16::from(reset),
                 l_linger: 0,
             };
             // SAFETY: a valid SOCKET and a LINGER struct of the size given.
@@ -244,6 +254,7 @@ impl SocketHandle {
         }
         #[cfg(not(any(unix, windows)))]
         {
+            let _ = reset;
             false
         }
     }

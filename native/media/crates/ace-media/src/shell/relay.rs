@@ -171,8 +171,11 @@ impl Socket {
         // force that came at any moment until now is seen.
         let mut last = finale(&last);
         if let Some(handle) = last.handle.take() {
+            // Set on this handle either way: on Windows each duplicate keeps its own linger.
             if !finished || last.forced {
                 handle.reset_on_close();
+            } else {
+                handle.linger_off();
             }
             drop(handle);
         }
