@@ -1820,9 +1820,31 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
   `stream.keyframe` and `stream.image`. `ScreenStreamIngest` moves to `screen-v2.ts` unchanged.
   Video runs at up to 60 fps while watched as video and JPEG stills stay at up to 30. On the
   daemon's pipe, video is ordered (`mailbox.rs`: never coalesced, deltas dropped up to a keyframe
-  past 4 MiB) while stills stay latest-only. Each picture carries the epoch held when WGC
-  delivered it. A still or keyframe asked for on a screen that doesn't change re-uses the last
-  ring texture.
+  past 4 MiB) while stills stay latest-only. A still or keyframe asked for on a screen that
+  doesn't change re-uses the last ring texture.
+- **Epochs by capture time.** `stream.configure` records each epoch with when it was applied on
+  the capture clock (QPC); a picture takes the epoch in force at its own `SystemRelativeTime`
+  (its arrival time when it has none), never the one current when it is dequeued, so a private
+  picture delivered after a clear epoch was installed stays private. The choice stays with the
+  picture through coalescing, the ring and refreshes.
+- **Late encoder output.** `src/media/pump.rs` keeps each picture's metadata by its timestamp
+  until its unit comes out. While units are owed the capture loop services the encoder every
+  10 ms (`MfEncoder::service`: collect late output, then the stall watchdog), so a hardware MFT
+  that finishes a keyframe after `encode` returned, on a desktop that sends no further picture,
+  still delivers it, with its own capture time, scale and epoch.
+- **Cuts are final** (`src/media/connection.rs`). A cut drops the connection's queue, refuses
+  later writes, and cancels a write in progress; since a cancel (`CancelIoEx`) only ends a write
+  already started, the shell's ticker cancels again until the pump has let go, and the pump
+  checks the cut under the lock it takes each write under. A finish (its end frame handed over)
+  still waiting on its reader after 2 s is cut the same way.
+- **The ingest pipe's server is checked.** The daemon passes the ace-media process it started
+  with each ingest address (`IngestAddress.pid`, `ScreenStreamIngest.pid`). The Windows helper
+  requires it and compares `GetNamedPipeServerProcessId` before writing the hello, so a squatting
+  instance of the name gets nothing. Not done: the daemon's lane clients make no such check
+  (Node's and Bun's pipe sockets don't expose the handle), and the pipes' DACL still grants
+  `FILE_CREATE_PIPE_INSTANCE`, which ace-media itself needs for each further instance it creates
+  (checked on the VM: without it, ace-media's second instance is refused). See the PR for the
+  options.
 - **One shared writer and route: `media-ingest`** (`native/media/crates/media-ingest`). It is
   sans-IO and table-tested, and the Linux helper (E2) takes it too: MediaFrame framing with the
   producer stamp, one connection's writer (`open` → `finishing` → `ended` | `cut`, the rules of
