@@ -165,7 +165,7 @@ const reasoning = (item: string, complete: boolean) => ({
 const shell = (item: string, command: string) =>
   facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
 
-test("a thought with no words between calls leaves the step's row in place and titles the group", async () => {
+test("a thought with no words between calls leaves the step's row in place and stands apart from the group", async () => {
   const app = harness();
   app.daemon.createThread({ id: "thinks", workspaceId: "ace", title: "Thinks", provider: "codex" });
   app.daemon.apply("thinks", [
@@ -182,6 +182,7 @@ test("a thought with no words between calls leaves the step's row in place and t
   // The same row, not a group of one step and a thought that is drawn and taken away again.
   expect(within(feed).getByRole("button", { name: /bun run lint/ })).toBe(step);
   expect(within(feed).queryByRole("button", { name: /Thinking/ })).toBeNull();
+  expect(await within(feed).findByText("Thinking…")).toBeTruthy();
 
   act(() =>
     app.daemon.apply("thinks", [
@@ -191,8 +192,10 @@ test("a thought with no words between calls leaves the step's row in place and t
       reasoning("second", false),
     ]),
   );
-  // Thinking titles the group; the thought is no step of it.
-  expect(await within(feed).findByRole("button", { name: /Thinking.*2 steps/ })).toBeTruthy();
+  // The group keeps what ran; the thought in flight is its own row after it.
+  expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+  expect(await within(feed).findByText("Thinking…")).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /Thinking/ })).toBeNull();
   act(() => app.daemon.apply("thinks", [reasoning("second", true)]));
   expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
 });
