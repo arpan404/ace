@@ -1,60 +1,61 @@
-# Autonomy: access levels, the auto-review, tasks that keep going
+# Autonomy: the auto-review, tasks that keep going
 
-Date: 2026-11-13. As built for [ADR 0144](../../docs/adr/0144-spade-autonomous-bots.md). Extends
+Date: 2026-11-13, amended 2026-11-15. As built for
+[ADR 0144](../../docs/adr/0144-spade-autonomous-bots.md) and
+[ADR 0163](../../docs/adr/0163-spade-auto-review-only.md) (one level). Extends
 [harness.md](harness.md), [workspace.md](workspace.md), [oversight.md](oversight.md) and
 [agents.md](agents.md). The pure rules are `spade_core::autonomy` and `spade_core::task`; the
 engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.rs`.
 
-## Access levels
+## One level: the auto-review
 
-| Level         | A call the rule gate would ask about                            |
-| ------------- | --------------------------------------------------------------- |
-| `ask`         | asks the person (unchanged; the ADR 0135 review still applies)  |
-| `auto_review` | goes to the reviewer, unless it is one that always asks (below) |
-| `full_access` | runs                                                            |
+Every bot is on the auto-review (ADR 0163). A call the rule gate would ask about goes to the
+reviewer; calls the rule gate runs (reads, notes in a clean turn, writes allowed always) run,
+and the ADR 0135 review still checks those when it is switched on.
 
-Calls the rule gate runs (reads, notes in a clean turn, writes allowed always) run on every level.
-On `auto_review` the ADR 0135 review still checks those when it is switched on.
+- Old `{"type":"access_changed","level"}` events read as `auto_review`, whatever level they name.
+  Once, on its first start, this build appends an `access_changed` to `auto_review` to each
+  conversation whose latest stored level is `ask` or `full_access` (`Store::latest_field`), then
+  stores the setting `access_levels_retired` and removes `access_levels_pinned`.
+- Nothing else stores a level: creating or changing a bot never writes one.
 
-- Stored as `{"type":"access_changed","level"}` in the bot's conversation; the latest holds. No
-  event means the new-bot level (`auto_review`). The first start of this build stores `ask` for
-  every conversation it finds (setting `access_levels_pinned`).
-- Read for each call as it is gated (kept in memory once folded, updated when the person changes
-  it): a change made while a step's calls are decided applies from the next call.
-- `POST /v1/agents` with `access` stores the bot and its `access_changed` in one write, template
-  bots included.
+### What the reviewer is told
 
-### Always the person
+Kinds that used to always go to the person are reviewed, with the rule's line in `<concern>`
+(`Sensitive::reason`, e.g. "It could spend money."):
 
-On `auto_review` these never reach the reviewer; `call_reviewed` is stored with `model: ""` and
-the bubble's `reviewer_reason` names the rule:
+| Kind            | How it is recognised                                                                                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| payment         | `pay`, `purchase`, `buy`, `checkout`, `charge`, `order`, `transfer`…                                                                                                       |
+| credentials     | `password`, `token`, `key`, `permission`, `role`, `invite`, `access`…                                                                                                      |
+| message as you  | `send`, `reply`, `forward`, `email`, `message`, `dm`, `chat`…                                                                                                              |
+| publish         | `post`, `publish`, `share`, `comment`, `deploy`, `merge`, `upload`…                                                                                                        |
+| delete outside  | `delete`, `remove`, `trash`…, or `destructiveHint` / destructive risk                                                                                                      |
+| unknown         | a tool of Spade's not in its table, or an app tool with no annotations                                                                                                     |
+| mislabelled     | an app tool marked read-only whose name, or its description's first word, acts (`send`, `post`, `delete`, `create`, `transfer`…); reviewed though the rule gate runs reads |
+| tainted outward | an ace or app tool that matches nothing above, while untrusted content is in view                                                                                          |
+| tainted routine | `routine_save` / `routine_delete` while untrusted content is in view, reviewed even when allowed always                                                                    |
+| shell           | what the shell classifier below finds                                                                                                                                      |
 
-| Kind            | How it is recognised                                                                                                                                                                         |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| payment         | `pay`, `purchase`, `buy`, `checkout`, `charge`, `order`, `transfer`…                                                                                                                         |
-| credentials     | `password`, `token`, `key`, `permission`, `role`, `invite`, `access`…                                                                                                                        |
-| message as you  | `send`, `reply`, `forward`, `email`, `message`, `dm`, `chat`…                                                                                                                                |
-| publish         | `post`, `publish`, `share`, `comment`, `deploy`, `merge`, `upload`…                                                                                                                          |
-| delete outside  | `delete`, `remove`, `trash`…, or `destructiveHint` / destructive risk                                                                                                                        |
-| unknown         | a tool of Spade's not in its table, or an app tool with no annotations                                                                                                                       |
-| mislabelled     | an app tool marked read-only whose name, or its description's first word, acts (`send`, `post`, `delete`, `create`, `transfer`…); a read-only one that names credentials asks as credentials |
-| tainted routine | `routine_save` / `routine_delete` while untrusted content is in view, on every level, `full_access` included                                                                                 |
-| too long        | arguments over 32,000 characters of JSON: the reviewer must read the whole call                                                                                                              |
-| shell           | what the shell classifier below finds                                                                                                                                                        |
+Two kinds go to the person without a review, since the reviewer can't read them whole; their
+`call_reviewed` is stored with `model: ""` and the bubble's `reviewer_reason` says why:
+
+- **too long:** arguments over 32,000 characters of JSON, or shown files over 48,000;
+- **unseen script:** a script outside the folder, unreadable or too long to show.
 
 Words come from the tool's name (split on `_`, `-`, `.` and camelCase), then the first three
 words of an app tool's description. An app's annotations are hints from a server Spade doesn't
 control: the name and description checks run before a read-only claim counts. Spade's tools that
 stay inside the bot (`workspace_*`, `memory_*`, `todo`, `task_status`, `skill_*`, `routine_*`,
 `image_generate`, `share_file`) and those that reach another bot (`bot_message`, `group_ask`) go
-to the reviewer. ace's tools and app tools that match nothing go to the reviewer, except while
-untrusted content is in view, when they ask.
+to the reviewer. ace's tools and app tools that match nothing go to the reviewer, told when
+untrusted content is in view.
 
 ### The shell classifier
 
 **What it is, and what it isn't.** The classifier is a best-effort layer in front of the reviewer.
-It catches common ways a command reaches outside the workspace and sends them to the person
-before any model judges them. It is not a containment guarantee: a shell can do more than any
+It catches common ways a command reaches outside the workspace and names them to the reviewer as
+its concern. It is not a containment guarantee: a shell can do more than any
 reading of its words can follow, and a command it lets through can still reach the network or
 write outside the workspace. Containment will come from an OS sandbox in a later change: no
 network, and writes only in the workspace and temp folders, unless the reviewer or the person
@@ -88,8 +89,7 @@ command gets both the credential and the effect checks. A command with no `comma
 unclear. Anything it passes still goes to the reviewer.
 
 Inline code (`python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`, an awk program) is in the
-call, so the reviewer reads it and its `outward_or_irreversible` decides, unless the markers above
-send it to the person first.
+call, so the reviewer reads it, told of any marker above as its concern.
 
 **Scripts.** A command that runs a file is judged by the file: `./x.sh`, `bin/x`, `sh x.sh`,
 `source x` and `. x` (any name), `sh < x` and `bash -s < x`, `python x.py` (and `python < x`),
@@ -97,8 +97,8 @@ send it to the person first.
 (`npm|pnpm run|run-script|rum|test|t|tst|start…`, `yarn <script>`, `bun run`: the `pre`, main and
 `post` entries of `package.json`), the repository's git hooks for a git command that runs them
 (`commit`, `merge`, `pull`, `push`, `rebase`, `am`, `checkout`, `switch`, `cherry-pick`…: every
-hook not ending in `.sample`), `make` and `just`. On `auto_review` the reviewer is shown each file
-whole in `<runs>`. Shell scripts (by `#!` line, or with none), recipe lines, package scripts and
+hook not ending in `.sample`), `make` and `just`. The reviewer is shown each file whole in
+`<runs>`. Shell scripts (by `#!` line, or with none), recipe lines, package scripts and
 hooks are also checked like commands, and what they find counts. Another kind of script that
 starts programs or builds code (`subprocess`, `child_process`, `os.system`, `eval(`…) is
 unclear, since what it runs isn't shown. A file that names a credential place is refused.
@@ -121,7 +121,7 @@ everywhere else, and recipes that don't expand are checked as written.
 
 **Precedence.** Everything a command reaches is read before deciding: a credential read found
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
-(`sudo sh keys.sh` is refused on `full_access`). Of the rest, the first named kind is the reason,
+(`sudo sh keys.sh` is refused even when allowed always). Of the rest, the first named kind is the reason,
 over "unclear" or "unseen script". The approval is bound to the SHA-256 of what was shown
 (`call_reviewed.bound`): if any file differs when the call is about to start, it isn't run and
 the bot gets `Not run: A file it runs changed after it was reviewed.` Paths are resolved against
@@ -139,26 +139,43 @@ run.
 `review_model` from `/v1/oversight`, else the fast model, else the bot's own. Typed output:
 
 ```json
-{ "verdict": "approve" | "refuse" | "escalate", "reason": "one sentence",
-  "outward_or_irreversible": false }
+{ "verdict": "approve" | "refuse", "reason": "one sentence", "retries_refused": false }
 ```
 
-- `outward_or_irreversible` is required: an answer without it doesn't parse and escalates.
-- `approve` runs; with `outward_or_irreversible` it escalates instead for `shell`, and for any
-  call while untrusted content is in view.
+- `approve` runs the call.
+- `refuse` returns `Not run: <reason> Don't work around this. …` to the bot as the call's
+  result, not an error, unless the bot is trying a refused step again (below).
+- `retries_refused` (optional, default `false`): the step tries again what a step in
+  `<refused_before>` tried. The reviewer is shown up to five steps refused since the person's
+  latest message, each with its arguments (cut to 1,000 characters) and reason.
 - It reads the call's arguments whole, never cut; a call too long for that goes to the person.
 - It is told of every untrusted source still in the model's view: this turn's, an earlier
   turn's since the last compaction, or a summary drawn from one.
 - Its cost counts toward the caps even when the provider sends no usage (a timeout, Stop, an
   error that may have billed): Spade settles an estimate from the prompt.
-- `refuse`: the call's result is `Not run: <reason> Don't try the same call again; …`, not an
-  error.
-- Failure, a 60 s timeout, unparseable output or a cap: escalates with the reason.
+- Failure, a 60 s timeout, unparseable output (an `escalate` verdict included) or a cap: the person
+  is asked, with the reason. An unreviewed call never runs.
 - Status line while it reads: `Checking a step`.
+
+### When the person is asked
+
+A refusal goes to the person instead of the bot (`call_reviewed` verdict `escalate`,
+`reviewer_reason` `Refused again: <reason>`) when, since the person's latest message
+(`spade_core::autonomy::refusals`):
+
+- a refused call had the same tool and arguments;
+- the reviewer says `retries_refused` and something was refused; or
+- it is the third refusal in a row (`IN_A_ROW`), with no call started, approved or answered
+  between them.
+
+Credential refusals are the rules' own (`model: ""`) and never count. Otherwise the person is
+asked only when the review can't run or can't read the call whole (above). Their Allow, Always
+allow or Decline answers the request as before; Always allow lets later calls of that tool and
+scope run unreviewed.
 
 ### Credentials
 
-On every level, `ask` included, and for every call, reads included, a call is refused when any
+For every call, reads included and whatever the person allowed always, a call is refused when any
 string in its arguments names a place where sign-ins live (`~/.codex`, `~/.claude`,
 `~/.claude.json`, `~/.config/gh/hosts.yml`, `~/.aws`, `~/.ssh`, `.netrc`, `~/.docker/config.json`,
 `.npmrc`, `.pypirc`, `.git-credentials`, `~/.gnupg`, the keychain folders, `~/.kube/config`,
@@ -170,15 +187,15 @@ or the tool itself says it hands back a secret: its name or its description's fi
 names a token, secret, password, credential, passphrase, keychain, API key or private key, it
 reads (read-only, or a verb like `get`, `read`, `fetch`, `show`, `export`, `return`), and no verb
 says it changes them. A tool that changes sign-ins or access (`rotate`, `set`, `revoke`,
-`create`…) goes to the person instead:
+`create`…) goes to the reviewer instead, as a credentials concern:
 `Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` This is a
 list of known places and tools, so it misses what it doesn't know; it is a guard rail in front of
 the reviewer and the person, not a sandbox.
 
 ### Routines
 
-A routine saved or changed by a bot while untrusted content is in view asks the person first
-(above) and is marked `untrusted` for good (the `routines.untrusted` column). Routines that
+A routine saved or changed by a bot while untrusted content is in view is reviewed with that
+concern (above) and is marked `untrusted` for good (the `routines.untrusted` column). Routines that
 existed before this column are untrusted unless the person made them (`created_by` is
 `person`). Its firings carry
 `from_routine.untrusted: true`, so the turn they start is tainted.
@@ -301,13 +318,13 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
     after a restart, no check-ins while parked) and runs its call again at the wake, a
     `delegate` or `wait` by reattaching to ace's children. Cancelling the wake ends the job;
   - the check of done: parked on `{kind: park, reason: check}` (above).
-  A `{kind: retry}` with no `job` was stored by an earlier build for a closed reply; it still
-  fires once and opens a reply with its note.
+    A `{kind: retry}` with no `job` was stored by an earlier build for a closed reply; it still
+    fires once and opens a reply with its note.
 - While a background job runs, `job_progress {job, name, check, minutes, tail}` is delivered at
   15, 30, 60 and 120 minutes, then every two hours; `tail` is a shell job's terminal output.
 - `service_start {name, command, cwd?, keep?}` (gated like `shell`), `service_status`,
   `service_logs {name, lines?, after?}`, `service_stop`, all deferred. Events `service_started
-  {service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
+{service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
   (`exited`, `stopped`, `lost`, `failed`). Stop and deleting the bot stop its services; after a
   restart `keep` ones start again and the rest are `lost`. A running service does not make the
   bot read as working.
@@ -315,21 +332,21 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## API
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
-  attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
+attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
   `parked` the park's reason (`cap`, `check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
   when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
 - `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
-  restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
-  next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
+restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
+next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
 - Every agent shows `wake` (the soonest open wake, as above, or `null`) and `services` (how many
   run).
-- `POST /v1/agents` and `PATCH /v1/agents/{id}` take `access`: `ask`, `auto_review` or
-  `full_access` (anything else is `400`).
-- Every agent shows `access`, `task_state` (`{"status","note"?}` or `null`) and `continuing`
+- `POST /v1/agents` and `PATCH /v1/agents/{id}` accept `access` only as `auto_review`, which
+  changes nothing; anything else is `400` (`access must be auto_review: …`).
+- Every agent shows `access` (always `auto_review`), `task_state` (`{"status","note"?}` or `null`) and `continuing`
   (`true` while a step Spade started runs or one waits to start).
-- `approval_requested` events carry `reviewer_reason` when the auto-review sent the call to the
+- `approval_requested` events carry `reviewer_reason`: why the auto-review sent the call to the
   person.
-- `GET /v1/agents/{id}/activity`: kinds `access` (name is the level) and `task` (`continued`,
+- `GET /v1/agents/{id}/activity`: kinds `access` (name is the level, `auto_review`) and `task` (`continued`,
   `paused`); `review` entries' outcome is `allowed`, `escalated` or `refused`.
 - `GET /v1/agents/{id}/task` answers `{"task": {goal, items, verdict, checkpoint, progress}}` or
   `{"task": null}`. `PUT /v1/agents/{id}/task/goal` with `{title, criteria, text?, verifier?}`
