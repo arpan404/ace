@@ -7,6 +7,7 @@ import {
   fragmentCost,
   readCredit,
   type KeyPair,
+  type SessionKeys,
   type Transport,
 } from "@ace/secure-channel";
 import { crc32c } from "@ace/media/key-block";
@@ -21,6 +22,31 @@ import { STREAM_PROLOGUE } from "@ace/relay/wire";
  */
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
+
+/**
+ * The 120-byte key block from a finished handshake's cipher states, whichever Noise pattern made
+ * them (XX or NK split the same way, ADR 0155): keys and next nonces, frame counts, flow state,
+ * CRC. Spends both cipher states.
+ */
+export function writeKeyBlock(
+  keys: SessionKeys,
+  frames: { sent: bigint; received: bigint },
+  flow: FlowCredit,
+  block: Uint8Array,
+): void {
+  const state = flow.exportState();
+  const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+  keys.send.exportInto(block, 0, 64);
+  keys.receive.exportInto(block, 32, 72);
+  view.setBigUint64(80, frames.sent);
+  view.setBigUint64(88, frames.received);
+  view.setUint8(96, (state.limited ? 1 : 0) | (state.counting ? 2 : 0));
+  view.setUint32(100, state.window);
+  view.setUint32(104, state.unacked);
+  view.setUint32(108, state.owed);
+  view.setUint32(112, state.uncounted);
+  view.setUint32(116, crc32c(block.subarray(0, 116)));
+}
 
 /** One relay stream's frames, carried by ace-media (`relay.out`, `relay.pull` → `relay.in`). */
 export type StreamPipe = {
@@ -121,18 +147,7 @@ class Sealed {
   }
   /** Writes the key block and spends both cipher states (docs/media/plan.md, "Key hand-over"). */
   exportInto(block: Uint8Array): void {
-    const state = this.flow.exportState();
-    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-    this.#transport.send.exportInto(block, 0, 64);
-    this.#transport.receive.exportInto(block, 32, 72);
-    view.setBigUint64(80, this.sent);
-    view.setBigUint64(88, this.received);
-    view.setUint8(96, (state.limited ? 1 : 0) | (state.counting ? 2 : 0));
-    view.setUint32(100, state.window);
-    view.setUint32(104, state.unacked);
-    view.setUint32(108, state.owed);
-    view.setUint32(112, state.uncounted);
-    view.setUint32(116, crc32c(block.subarray(0, 116)));
+    writeKeyBlock(this.#transport, { sent: this.sent, received: this.received }, this.flow, block);
   }
   destroy(): void {
     this.#transport.destroy();
