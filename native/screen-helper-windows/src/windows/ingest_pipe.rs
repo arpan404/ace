@@ -123,7 +123,10 @@ mod tests {
         match unsafe { ReadFile(server, Some(&mut buffer), Some(&mut read), None) } {
             Ok(()) => read as usize,
             Err(error) => {
-                assert_eq!(error.code(), windows::core::HRESULT::from_win32(ERROR_BROKEN_PIPE.0));
+                assert_eq!(
+                    error.code(),
+                    windows::core::HRESULT::from_win32(ERROR_BROKEN_PIPE.0)
+                );
                 0
             }
         }
@@ -135,7 +138,10 @@ mod tests {
         let squatter = serve(&name);
         // The daemon says ace-media is pid 4, the System process: this server is not it.
         let refused = dial(&name, Some(4));
-        assert!(refused.is_err(), "connected to a server that is not ace-media");
+        assert!(
+            refused.is_err(),
+            "connected to a server that is not ace-media"
+        );
         assert_eq!(received(squatter), 0);
         unsafe {
             let _ = CloseHandle(squatter);

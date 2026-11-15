@@ -31,12 +31,18 @@ pub struct StreamSettings {
 struct WireIngest {
     socket: String,
     token: String,
+    /// The ace-media process the daemon started: the only server the pipe may have.
+    pid: Option<u32>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Configure {
     pub settings: StreamSettings,
     pub ingest: Option<Address>,
+    /// ace-media's process id, with `ingest`: a pipe served by any other process is refused
+    /// before the token or a frame is sent (another instance of the name can be created by
+    /// any process of this user).
+    pub server: Option<u32>,
     pub epoch: Option<u32>,
 }
 
@@ -52,8 +58,8 @@ pub fn parse(request: &Request) -> Result<Configure> {
     {
         return Err(Error::new(Code::Bounds, "Invalid stream settings"));
     }
-    let ingest = match request.fields.get("ingest") {
-        None => None,
+    let (ingest, server) = match request.fields.get("ingest") {
+        None => (None, None),
         Some(_) => {
             let wire: WireIngest = request.get("ingest")?;
             if !wire.socket.starts_with(PIPE_PREFIX)
@@ -67,10 +73,17 @@ pub fn parse(request: &Request) -> Result<Configure> {
             }
             let token = decode_token(&wire.token)
                 .ok_or_else(|| Error::new(Code::Bounds, "Ingest token must be 32 bytes"))?;
-            Some(Address {
-                socket: wire.socket,
-                token,
-            })
+            let pid = wire
+                .pid
+                .filter(|pid| *pid != 0)
+                .ok_or_else(|| Error::new(Code::Bounds, "Ingest needs ace-media's process id"))?;
+            (
+                Some(Address {
+                    socket: wire.socket,
+                    token,
+                }),
+                Some(pid),
+            )
         }
     };
     let epoch = match request.fields.get("epoch") {
@@ -80,6 +93,7 @@ pub fn parse(request: &Request) -> Result<Configure> {
     Ok(Configure {
         settings,
         ingest,
+        server,
         epoch,
     })
 }
@@ -154,8 +168,9 @@ mod tests {
     #[test]
     fn a_request_with_ingest_and_epoch_names_the_pipe_token_and_epoch() {
         let parsed = parse(&request(json!({"settings":settings(),"epoch":3,
-            "ingest":{"socket":r"\\.\pipe\ace-media-1-i","token":TOKEN}})))
+            "ingest":{"socket":r"\\.\pipe\ace-media-1-i","token":TOKEN,"pid":4242}})))
         .unwrap();
+        assert_eq!(parsed.server, Some(4242));
         let ingest = parsed.ingest.unwrap();
         assert_eq!(ingest.socket, r"\\.\pipe\ace-media-1-i");
         assert_eq!(*ingest.token, std::array::from_fn::<u8, 32, _>(|i| i as u8));
@@ -168,13 +183,15 @@ mod tests {
     #[test]
     fn no_ingest_means_the_daemon_pipe() {
         let parsed = parse(&request(json!({"settings":settings()}))).unwrap();
-        assert_eq!((parsed.ingest, parsed.epoch), (None, None));
+        assert_eq!(
+            (parsed.ingest, parsed.server, parsed.epoch),
+            (None, None, None)
+        );
     }
 
     #[test]
     fn bad_requests_are_refused() {
-        let bad_pipe =
-            |socket: &str| json!({"settings":settings(),"ingest":{"socket":socket,"token":TOKEN}});
+        let bad_pipe = |socket: &str| json!({"settings":settings(),"ingest":{"socket":socket,"token":TOKEN,"pid":7}});
         for fields in [
             json!({"settings":{"codec":"h264","maxWidth":1920,"maxHeight":1080,"fps":61,"bitrate":8000000}}),
             json!({"settings":{"codec":"vp9","maxWidth":1920,"maxHeight":1080,"fps":30,"bitrate":8000000}}),
@@ -182,7 +199,10 @@ mod tests {
             bad_pipe(r"\\server\pipe\x"),
             bad_pipe(r"\\.\pipe\a\b"),
             json!({"settings":settings(),"ingest":{"socket":r"\\.\pipe\x","token":"short"}}),
-            json!({"settings":settings(),"ingest":{"socket":r"\\.\pipe\x","token":TOKEN.replace('A', "!")}}),
+            json!({"settings":settings(),"ingest":{"socket":r"\\.\pipe\x","token":TOKEN.replace('A', "!"),"pid":7}}),
+            // Without ace-media's pid the client could not tell a squatting server from it.
+            json!({"settings":settings(),"ingest":{"socket":r"\\.\pipe\x","token":TOKEN}}),
+            json!({"settings":settings(),"ingest":{"socket":r"\\.\pipe\x","token":TOKEN,"pid":0}}),
             json!({"settings":settings(),"epoch":-1}),
             json!({"settings":settings(),"epoch":null}),
         ] {

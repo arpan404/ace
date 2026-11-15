@@ -281,7 +281,7 @@ impl DesktopHost {
             .to_string();
         let start = std::time::Instant::now();
         IngestShell::new(
-            Box::new(|socket, server| ingest_pipe::dial(socket, server)),
+            Box::new(ingest_pipe::dial),
             Sinks {
                 legacy: Box::new(move |unit| {
                     let (packet, generation) = {
@@ -337,12 +337,14 @@ impl DesktopHost {
             .shell
             .clone()
             .ok_or_else(|| Error::new(Code::TargetGone, "No active stream"))?;
-        let routed = shell.configure(configure.ingest).map_err(|error| {
-            Error::new(
-                Code::TargetGone,
-                format!("Cannot connect to ace-media's ingest: {error}"),
-            )
-        })?;
+        let routed = shell
+            .configure(configure.ingest, configure.server)
+            .map_err(|error| {
+                Error::new(
+                    Code::TargetGone,
+                    format!("Cannot connect to ace-media's ingest: {error}"),
+                )
+            })?;
         if routed.switched {
             // Each path starts at a keyframe, as on the Mac: a viewer never waits for one.
             stream
