@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ThreadStatus } from "@ace/protocol/thread-status";
 import { QueueState } from "@ace/protocol/queue";
 import { stoppedByPerson } from "@ace/projection";
+import { sentSummarized } from "@ace/projection/interaction-summary";
 import { InteractionId } from "@ace/protocol/ids";
 import { Notification } from "@ace/protocol/notifications";
 import type { Event, Interaction } from "@ace/protocol";
@@ -46,7 +47,9 @@ export function interactionLink(interaction: Interaction): z.infer<typeof Intera
     const deny = interaction.request.options.find(
       (option) => option.kind === "deny" && option.id.length <= 200,
     );
-    if (allow && allow.id.length <= 200) actions.push({ action: "approve", optionId: allow.id });
+    // A request clients get summarized is approved only once shown whole (ADR 0156).
+    if (allow && allow.id.length <= 200 && !sentSummarized(interaction))
+      actions.push({ action: "approve", optionId: allow.id });
     if (deny && deny.id.length <= 200) actions.push({ action: "deny", optionId: deny.id });
   }
   return InteractionLink.parse({ id: interaction.id, actions });
