@@ -214,7 +214,11 @@ it("a socket that can't even be constructed (a browser SecurityError) erases bot
     schedule: () => () => {},
     early: true,
     inUpgrade: true,
-    nk: { hostKey: keyPair().publicKey, early: new Uint8Array(200).fill(97), confirm: new Uint8Array(2) },
+    nk: {
+      hostKey: keyPair().publicKey,
+      early: new Uint8Array(200).fill(97),
+      confirm: new Uint8Array(2),
+    },
   }).catch(() => undefined);
   expect(w.written.size).toBe(2);
   expect(w.leaked()).toEqual([]);
@@ -234,7 +238,11 @@ it("keys that fail for the second state erase the first", async () => {
     schedule: () => () => {},
     early: true,
     inUpgrade: true,
-    nk: { hostKey: keyPair().publicKey, early: new Uint8Array(200).fill(97), confirm: new Uint8Array(2) },
+    nk: {
+      hostKey: keyPair().publicKey,
+      early: new Uint8Array(200).fill(97),
+      confirm: new Uint8Array(2),
+    },
   }).catch(() => undefined);
   expect(w.written.size).toBe(1);
   expect(w.leaked()).toEqual([]);

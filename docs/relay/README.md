@@ -120,6 +120,7 @@ Unlike the XX entry, this one is ciphertext with no forward secrecy. It carries 
   - an unknown purpose, where it was never handed over.
 
   The frame reader zero-fills everything else it drops as well: frames refused on arrival, oversized ones, and step 1's early frames sent as frames.
+
 - **Hosted relay:**
   - forwarded, right after `send`, which copies the bytes into the outgoing message;
   - released with its socket (expired, rejected, replaced, disconnected);
