@@ -108,7 +108,8 @@ enum TerminalBudget {
     /// How many times slower than a dev Mac this machine may be. CI's simulator runs 3 to 4 times
     /// slower, so the iOS workflow passes `TEST_RUNNER_ACE_PERF_SLACK=4`; elsewhere it is 1.
     static let slack: Double = {
-        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""), value >= 1 else { return 1 }
+        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""),
+              value.isFinite, value >= 1 else { return 1 }
         return value
     }()
     static let logMegabytesPerSecond = 2.0
