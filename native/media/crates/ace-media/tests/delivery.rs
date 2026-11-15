@@ -450,3 +450,41 @@ fn a_zero_ticket_is_refused_on_the_listener() {
     assert_eq!(connect(&media, 0).err(), Some(close::REFUSED));
     assert!(connect(&media, 3).is_ok(), "the real client is admitted");
 }
+
+/// A unit of `size` bytes: a few of these fill any socket's buffers.
+fn big_unit(key: bool, n: u8, size: usize) -> Vec<u8> {
+    let mut frame = match MediaFrame::decode(&unit(key, n)) {
+        Ok(frame) => frame,
+        Err(_) => panic!("unit did not decode"),
+    };
+    frame.payload.resize(size, n);
+    match frame.encode() {
+        Ok(bytes) => bytes,
+        Err(_) => panic!("unit did not encode"),
+    }
+}
+
+#[test]
+fn a_client_that_stops_reading_is_still_cut_off_within_250_ms_of_its_revocation() {
+    let (_media, mut lanes, mut client, mut producer) = watching("stalled");
+    // The client reads nothing more; ace-media sends until the socket's buffers are full and its
+    // write blocks.
+    let _ = producer.write_all(&big_unit(true, 0, 500_000));
+    for n in 1..15 {
+        let _ = producer.write_all(&big_unit(false, n, 500_000));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    revoke(&mut lanes, 9, "phone", Some(pairing(1)));
+    std::thread::sleep(Duration::from_millis(250));
+    // ace-media dropped the socket: writing to it now fails (reset), however full it is.
+    let cut = (0..20).any(|_| {
+        std::thread::sleep(Duration::from_millis(10));
+        client
+            .send(Message::Text(json!({ "type": "ping" }).to_string().into()))
+            .is_err()
+    });
+    assert!(
+        cut,
+        "the stalled client's connection was still open after its revocation"
+    );
+}
