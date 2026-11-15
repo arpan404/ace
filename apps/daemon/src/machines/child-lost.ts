@@ -11,7 +11,7 @@ import { childAgentKey } from "../engine/remote-child-status.ts";
 import type { Engine } from "../engine/index.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
-import { abandonedView, lostLine } from "./child-views.ts";
+import { abandonedView, lostLine, silentAbandonedView } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
 
 /** The answer that stops tracking a lost child. */
@@ -36,6 +36,40 @@ function lostRequest(row: ChildRow, name: string): InteractionRequest {
     kind: "approval",
     title: `${lostLine(name)}.`,
     description: `Pair ${name} again to keep tracking ${row.role}, or stop tracking it here.`,
+    options: [
+      {
+        id: STOP_TRACKING,
+        label: `Stop tracking; its work on ${name} may still be running`,
+        kind: "cancel",
+      },
+    ],
+  };
+}
+
+/** "3:42 PM", or with its day once it isn't today: when the machine was last heard from. */
+function clockWords(at: number, now: number): string {
+  const sameDay = new Date(at).toDateString() === new Date(now).toDateString();
+  return new Intl.DateTimeFormat(undefined, {
+    ...(sameDay ? {} : { month: "short", day: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(at);
+}
+
+/**
+ * What the parent's approval asks about a child whose machine stopped answering: nothing to do
+ * by default, since it closes itself when the machine answers; or stop tracking it.
+ */
+function silentRequest(
+  row: ChildRow,
+  name: string,
+  since: number,
+  now: number,
+): InteractionRequest {
+  return {
+    kind: "approval",
+    title: `Lost contact with ${name} since ${clockWords(since, now)}, so ace can't tell whether ${row.role} is still working there.`,
+    description: `ace keeps waiting and asking; this closes by itself when ${name} answers. Or stop tracking ${row.role} here.`,
     options: [
       {
         id: STOP_TRACKING,
@@ -84,6 +118,8 @@ export class LostChildren {
   keep(row: ChildRow): void {
     const name = this.deps.label(row.machine);
     if (row.lost_at === null) {
+      // A question about lost contact gives way to the one about its pairing.
+      this.close(row, { state: "expired" });
       // Requests it had open there can't be answered from here any more.
       this.deps.mirror.release(`child:${row.id}`);
       // The person's approval about it opens first, on its row, so the row counts it once.
@@ -126,6 +162,29 @@ export class LostChildren {
     });
     this.deps.emit([row.id]);
   }
+  /**
+   * The child's machine stopped answering for a lease (ADR 0153): it is lost contact, which is
+   * not knowing, so its parent keeps holding it and asks the person. Called when its lease runs
+   * out and on every poll after, so a question that closed (its parent's session ended) opens
+   * again and is never opened twice; its row is written only when the question opens.
+   */
+  silent(row: ChildRow, since: number): void {
+    if (this.pending(row)) return;
+    const name = this.deps.label(row.machine);
+    const now = this.deps.now();
+    // The question opens first, on its row, so the row counts it once.
+    if (!this.ask(row, name, silentRequest(row, name, since, now))) return;
+    this.deps.store.atomic(() =>
+      this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you", null, "lost"),
+    );
+    this.deps.emit([row.id]);
+  }
+  /** Its machine answered again, or a stop began: the question about lost contact closes. */
+  heard(row: ChildRow): void {
+    if (row.lost_at !== null || !row.lost_ask) return;
+    this.close(row, { state: "expired" });
+    this.deps.ledger.clearLost(row.id);
+  }
   /** The person's answer to a lost child's approval; undefined for any other interaction. */
   resolve(command: Command): CommandResult | undefined {
     if (command.payload.type !== "interaction.resolve") return undefined;
@@ -143,12 +202,16 @@ export class LostChildren {
       this.deps.emit([row.id]);
       return { commandId: command.id, ok: true, threadId: row.parent_thread };
     }
-    if (row.settled !== 0 || row.lost_at === null)
+    const silent = row.lost_at === null && row.silent_since !== null;
+    if (row.settled !== 0 || (row.lost_at === null && !silent))
       return { commandId: command.id, ok: false, error: "already_resolved" };
     const name = this.deps.label(row.machine);
-    const view = abandonedView(row, name, this.deps.now());
+    const now = this.deps.now();
+    const view = silent ? silentAbandonedView(row, name, now) : abandonedView(row, name, now);
     this.deps.store.atomic(() => {
       this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
+      // Stopped tracking for good, as a child whose pairing went: no late report revives it.
+      if (silent) this.deps.ledger.markLost(row.id, now);
       this.deps.ledger.markAbandoned(row.id, JSON.stringify(view));
       this.launchRow(row, name, view.status, view.state, {
         threadId: row.id,
@@ -162,17 +225,23 @@ export class LostChildren {
     this.deps.emit([row.id]);
     return { commandId: command.id, ok: true, threadId: row.parent_thread };
   }
-  /** Opens the parent's approval about the child, unless one is open already. */
-  private ask(row: ChildRow, name: string, request = lostRequest(row, name)): void {
+  /** Whether the parent's approval about the child is open. */
+  private pending(row: ChildRow): boolean {
+    return (
+      row.lost_ask !== null &&
+      this.deps.store.getInteraction(InteractionId.parse(row.lost_ask))?.state === "pending"
+    );
+  }
+  /**
+   * Opens the parent's approval about the child, unless one is open already. True when one is
+   * open now.
+   */
+  private ask(row: ChildRow, name: string, request = lostRequest(row, name)): boolean {
     const { store } = this.deps;
-    if (
-      row.lost_ask &&
-      store.getInteraction(InteractionId.parse(row.lost_ask))?.state === "pending"
-    )
-      return;
+    if (this.pending(row)) return true;
     const parent = store.getThread(row.parent_thread);
     const engine = this.deps.engine();
-    if (!engine || !parent || parent.deletedAt !== undefined) return;
+    if (!engine || !parent || parent.deletedAt !== undefined) return false;
     const key = `machine-lost:${row.id}:${this.deps.now()}:${++this.asks}`;
     try {
       store.atomic(() => {
@@ -187,8 +256,10 @@ export class LostChildren {
         this.deps.ledger.setLostAsk(row.id, key, ask);
       });
       this.deps.emit([row.id]);
+      return true;
     } catch (error) {
       this.deps.log("Lost child not shown to the person yet", { id: row.id, error: String(error) });
+      return false;
     }
   }
   private close(row: ChildRow, result: Parameters<Engine["resolveHostApproval"]>[2]): void {
@@ -197,13 +268,18 @@ export class LostChildren {
       return;
     this.deps.engine()?.resolveHostApproval(row.parent_thread, row.lost_key, result);
   }
-  /** The child's row in its parent, with `status`; an outcome ends the parent's hold on it. */
+  /**
+   * The child's row in its parent, with `status`; an outcome ends the parent's hold on it. A
+   * child that lost contact keeps (or, held by an older build that let it go, takes again) its
+   * hold: not knowing whether it ended is never ended.
+   */
   private launchRow(
     row: ChildRow,
     name: string,
     status: MachineThreadView["status"],
     state: MachineThreadView["state"],
     outcome: Parameters<Engine["machineChild"]>[0]["outcome"] = null,
+    contact?: "lost",
   ): void {
     this.deps.engine()?.machineChild(
       {
@@ -220,8 +296,9 @@ export class LostChildren {
         status,
         state,
         outcome,
+        contact,
       },
-      outcome ? "end" : undefined,
+      outcome ? "end" : contact ? "start" : undefined,
     );
   }
 }

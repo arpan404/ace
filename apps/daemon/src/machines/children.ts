@@ -171,6 +171,8 @@ export class MachineChildren implements RemoteChildren {
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
+      silent: (row, since) => this.lost.silent(row, since),
+      heard: (row) => this.lost.heard(row),
       unanswered: this.unanswered,
       readSince: (id, at) => (this.readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= at,
       emit: (ids) => this.emit(ids),
@@ -583,6 +585,9 @@ export class MachineChildren implements RemoteChildren {
         continue;
       }
       if (row.lost_at !== null) this.lost.found(row);
+      // Lost contact and still tracked: its question stays open, opened again if it closed.
+      else if (row.silent_since !== null && row.stop_started_at === null)
+        this.lost.silent(row, row.silent_since);
       add(row);
     }
     for (const row of this.ledger.recheckRows(machine)) add(row);

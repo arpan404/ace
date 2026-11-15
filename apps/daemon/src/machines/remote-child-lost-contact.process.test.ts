@@ -50,7 +50,11 @@ async function silentChild(leaseMs?: number) {
   const { f, parent, rijan, at } = fixture;
   const [id] = ids;
   if (!id) throw new Error("no child");
-  rijan.views.set(id, { ...notSent(id), state: "working", status: { state: "working", agents: 1 } });
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
   await at(f.clock.now() + 1_000);
   // The parent's own turn ends: only its child keeps it open.
   await f.complete(parent.threadId, "Delegated the review.");
@@ -162,7 +166,11 @@ it("a wait on a child whose machine goes silent returns once it loses contact, n
   const { f, parent, rijan, ledger, at } = await parentWithChildren(1, lease);
   const [id] = ids;
   if (!id) throw new Error("no child");
-  rijan.views.set(id, { ...notSent(id), state: "working", status: { state: "working", agents: 1 } });
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
   await at(f.clock.now() + 1_000);
   f.service.monitor.attachRemote(ledger);
   const caller = { sessionId: "s", threadId: parent.threadId, agentId: parent.agentId };
