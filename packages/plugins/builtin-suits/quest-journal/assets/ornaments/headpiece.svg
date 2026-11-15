@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="420" height="36" viewBox="0 0 420 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-<g opacity="0.45" stroke-width="1">
-<path d="M30 18 H 180"/><path d="M240 18 H 390"/>
-<path d="M60 22 H 176" stroke-width="0.5"/><path d="M244 22 H 360" stroke-width="0.5"/>
-<path d="M30 18 c -8 0 -12 -6 -8 -10 c 4 -4 10 0 7 4"/>
-<path d="M390 18 c 8 0 12 -6 8 -10 c -4 -4 -10 0 -7 4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="34" viewBox="0 0 820 34" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+<g opacity="0.4" stroke-width="1">
+<path d="M150 17 H 380"/><path d="M440 17 H 670"/>
+<path d="M210 21 H 376" stroke-width="0.5"/><path d="M444 21 H 610" stroke-width="0.5"/>
+<path d="M150 17 c -8 0 -12 -6 -8 -10 c 4 -4 10 0 7 4"/>
+<path d="M670 17 c 8 0 12 -6 8 -10 c -4 -4 -10 0 -7 4"/>
 </g>
-<g stroke-width="1.1" opacity="0.8">
-<path d="M210 6 l 12 12 l -12 12 l -12 -12 z"/>
-<path d="M210 11 l 7 7 l -7 7 l -7 -7 z" fill="currentColor" fill-opacity="0.3"/>
-<path d="M198 18 c -6 -6 -12 -6 -18 0 c 6 6 12 6 18 0"/>
-<path d="M222 18 c 6 -6 12 -6 18 0 c -6 6 -12 6 -18 0"/>
+<g stroke-width="1.1" opacity="0.75">
+<path d="M410 5 l 12 12 l -12 12 l -12 -12 z"/>
+<path d="M410 10 l 7 7 l -7 7 l -7 -7 z" fill="currentColor" fill-opacity="0.3"/>
+<path d="M398 17 c -6 -6 -12 -6 -18 0 c 6 6 12 6 18 0"/>
+<path d="M422 17 c 6 -6 12 -6 18 0 c -6 6 -12 6 -18 0"/>
 </g>
 </svg>

@@ -21,13 +21,13 @@ const looks = {
     moteAlpha: 0.5,
   },
   light: {
-    paper: "#f2e7cf",
-    edge: "rgba(120,86,40,0.16)",
-    fibre: [120, 90, 50],
-    fibreAlpha: 0.05,
-    blotch: [196, 160, 104],
-    light: [255, 250, 232],
-    lightAlpha: 0.42,
+    paper: "#f5ebd4",
+    edge: "rgba(150,108,52,0.1)",
+    fibre: [140, 104, 60],
+    fibreAlpha: 0.045,
+    blotch: [214, 176, 112],
+    light: [255, 252, 238],
+    lightAlpha: 0.55,
     mote: [150, 112, 60],
     moteAlpha: 0.32,
   },
@@ -98,7 +98,7 @@ function paintLayer() {
     const x = random() * width;
     const y = random() * height;
     const r = 80 + random() * 260;
-    const a = (scheme === "dark" ? 0.1 : 0.13) * (0.4 + random() * 0.6);
+    const a = (scheme === "dark" ? 0.1 : 0.08) * (0.4 + random() * 0.6);
     const stain = g.createRadialGradient(x, y, 0, x, y, r);
     stain.addColorStop(0, `rgba(${br},${bg},${bb},${a})`);
     stain.addColorStop(1, `rgba(${br},${bg},${bb},0)`);
