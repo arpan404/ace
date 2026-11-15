@@ -200,9 +200,15 @@ export const suitRegions = [
 export const SuitRegion = z.enum(suitRegions);
 export type SuitRegion = z.infer<typeof SuitRegion>;
 
-/** Regions a scene may run in. */
+/**
+ * Regions a scene may run in. `celebration` is special: a full-window layer ABOVE the UI that
+ * ace mounts only for a moment after `done` or `pr-merged` (at most 4 s, pointer-events none,
+ * never over approvals or the Working line, skipped under reduce motion). Its scene gets the
+ * signal that woke it, plays once and fades; the host unmounts it.
+ */
 export const SuitSceneRegion = z.enum([
   "app",
+  "celebration",
   "sidebar",
   "header",
   "composer",
