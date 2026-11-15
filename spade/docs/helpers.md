@@ -8,7 +8,7 @@ Date: 2026-11-14. As built for [ADR 0152](../../docs/adr/0152-spade-helpers.md).
 
 ## The tool
 
-`helper {task, profile?}` is a background tool (harness.md), offered to every bot on an
+`helper {task, profile?, model?, escalate?}` is a background tool (harness.md), offered to every bot on an
 endpoint model. Risk read: starting one asks nothing, and each call the helper makes goes
 through the gate itself. Its output is not marked untrusted as a tool; each result says itself
 whether it is (below).
@@ -17,6 +17,9 @@ whether it is (below).
   `<job_result>`, cut to 20,000 characters like any result.
 - `task` is 1 to 20,000 characters. `profile` defaults to `general`; an unknown one is refused
   with the list of profiles.
+- `model` is a role or a model the person configured, else the profile's, else the `helper`
+  role's (the fast model by default); `escalate` reruns a failed helper once on the bot's model
+  ([ADR 0162](../../docs/adr/0162-spade-model-routing.md), agents.md "Models per role").
 - Bots on CLI brains (ADR 0133) are not offered `helper` (`brain_tools` leaves it out), and a
   call that reaches it anyway is refused: their CLI splits work its own way.
 
@@ -165,8 +168,9 @@ the bot had read the page itself.
 
 ## API added
 
-`GET /v1/conversations/{id}/helpers` → `{"helpers": [{"job", "conversation", "profile", "task",
-"state", "cost_micros"}]}`, oldest first. `state` is `queued`, `working`, `waiting` (on the
+`GET /v1/conversations/{id}/helpers` → `{"helpers": [{"job", "conversation", "profile", "model",
+"attempt", "task", "state", "cost_micros"}]}`, oldest first; `attempt` is 2 for a rerun on the bot's
+model. `state` is `queued`, `working`, `waiting` (on the
 person) or `ended`. `404` for an unknown conversation.
 
 ## What the person sees (web)

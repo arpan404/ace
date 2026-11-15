@@ -313,20 +313,10 @@ impl Engine {
         own.unwrap_or_else(|| self.oversight().is_ok_and(|g| g.review_default))
     }
 
-    /// The model that reviews for the conversation: the person's review model, else the fast
-    /// model, else the bot's own.
+    /// The model that reviews for the conversation: its `review` role (ADR 0162): the bot's
+    /// choice, else the person's review model, else the fast model, else the bot's own.
     pub(crate) fn review_model(&self, conversation: &str) -> String {
-        if let Ok(Global {
-            review_model: Some(model),
-            ..
-        }) = self.oversight()
-        {
-            return model;
-        }
-        match self.fast_model() {
-            Ok(Some(model)) => model,
-            _ => self.reply_model(conversation),
-        }
+        self.role_model(conversation, spade_core::routing::Role::Review)
     }
 
     /// The agent's activity, newest first, filtered. The history is read a window at a time

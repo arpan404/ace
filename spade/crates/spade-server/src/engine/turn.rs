@@ -648,8 +648,8 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     Ok(true)
 }
 
-/// Names the conversation after its first reply, with the person's fast model (else the agent's
-/// own), else after its first message.
+/// Names the conversation after its first reply, with its `title` role's model (ADR 0162), else
+/// after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     // Never for an agent being deleted: nothing is spent on a conversation about to go.
     if engine.deleting(id) || engine.may_spend(id).is_err() {
@@ -663,14 +663,12 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let Some(first) = transcript.first_message().map(str::to_owned) else {
         return;
     };
-    let fast = match engine.fast_model() {
-        Ok(Some(model)) => model,
-        _ => engine.reply_model(id),
-    };
+    let fast = engine.role_model(id, spade_core::routing::Role::Title);
     let prompt = title::prompt(&first).session(id);
     let admitted = engine
         .admit_waiting(id, &fast, &prompt, super::ledger::Hint::default())
-        .await;
+        .await
+        .map(|a| a.for_role(spade_core::routing::Role::Title));
     let suggested = match admitted {
         // At a cap the title comes from the first message, at no cost.
         Err(_) => None,

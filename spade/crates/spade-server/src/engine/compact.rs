@@ -1,5 +1,6 @@
 //! Compaction in the engine: automatic before a model call once the prompt passes the high mark,
-//! or on request. The summary comes from the conversation's own model on its cached prompt.
+//! or on request. The summary comes from the conversation's own model on its cached prompt, or
+//! from the `compact` role's model when that fits and costs less (ADR 0162).
 
 use std::sync::Arc;
 
@@ -105,9 +106,12 @@ async fn run(
     // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
     // It waits while only calls still running stand in the way.
     let hint = super::ledger::turn_hint(events);
+    // The `compact` role's model when it fits and costs less (ADR 0162).
+    let model = &engine.compact_model(id, model, &prompt, hint);
     let Ok(admitted) = engine.admit_waiting(id, model, &prompt, hint).await else {
         return false;
     };
+    let admitted = admitted.for_role(spade_core::routing::Role::Compact);
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
             admitted.settle(&reply.usage);

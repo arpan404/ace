@@ -60,13 +60,24 @@ pub(crate) struct Admission {
     conversation: String,
     model: String,
     reserved: u64,
+    /// What the call is for (ADR 0162); `None` is the conversation's own turn or helper.
+    role: Option<spade_core::routing::Role>,
 }
 
 impl Admission {
+    /// Records this call's cost under `role`.
+    pub(crate) fn for_role(mut self, role: spade_core::routing::Role) -> Self {
+        self.role = Some(role);
+        self
+    }
+
     /// Records what the call cost against its conversation, then releases the estimate. Returns
     /// the cost.
     pub(crate) fn settle(self, usage: &Usage) -> u64 {
-        self.engine.pay(&self.conversation, &self.model, usage)
+        let cost = spending::cost_micros(self.engine.models.price(&self.model), usage);
+        self.engine
+            .record_cost_as(&self.conversation, &self.model, self.role, cost);
+        cost
     }
 
     /// Records what a call with the endpoint's own web search cost: its tokens and each search
@@ -75,7 +86,7 @@ impl Admission {
         let cost =
             spending::search_cost_micros(self.engine.models.price(&self.model), usage, searches);
         self.engine
-            .record_cost(&self.conversation, &self.model, cost);
+            .record_cost_as(&self.conversation, &self.model, self.role, cost);
         cost
     }
 
@@ -237,6 +248,8 @@ impl Engine {
             conversation: conversation.to_owned(),
             model: model.to_owned(),
             reserved,
+            // Paid under the bot, but spent as a helper (ADR 0162).
+            role: owner.is_some().then_some(spade_core::routing::Role::Helper),
         })
     }
 

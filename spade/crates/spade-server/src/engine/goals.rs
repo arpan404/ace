@@ -97,11 +97,12 @@ impl Engine {
             .goal
             .verifier
             .clone()
-            .unwrap_or_else(|| self.review_model(id));
+            .unwrap_or_else(|| self.role_model(id, spade_core::routing::Role::Verify));
         let prompt = verify::prompt(&events, &task).session(id);
         let admission = self
             .admit_waiting(id, &model, &prompt, super::ledger::Hint::default())
-            .await;
+            .await
+            .map(|a| a.for_role(spade_core::routing::Role::Verify));
         let verdict = match admission {
             // At a cap the check waits for the reset, like a step (ADR 0158).
             Err(_) if let Some((until_ms, why)) = self.cap_park(id) => {

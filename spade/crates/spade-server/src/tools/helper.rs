@@ -1,6 +1,6 @@
 //! `helper` (ADR 0152): a bot hands part of its work to a helper. A background tool: the call
 //! answers at once and the helper's final message arrives later as a `<job_result>`. The engine
-//! does the work (`engine/helpers.rs`).
+//! does the work (`engine/helpers.rs`); `model` and `escalate` are ADR 0162's.
 
 use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
@@ -23,13 +23,18 @@ impl Tool for HelperTool {
                               side (at most 4 run at once; more wait their turn). Profiles: \
                               explore reads only and never needs the person; general (the \
                               default) has your tools. Its own calls are checked like yours. \
-                              Put everything it needs in the task: it sees nothing else."
+                              Put everything it needs in the task: it sees nothing else. It \
+                              runs on your helper model, usually a cheaper one; for work that \
+                              needs your judgement pass model main, or another role or model \
+                              the person set up for you."
                     .to_owned(),
                 schema: json!({
                     "type": "object",
                     "properties": {
                         "task": { "type": "string", "description": "What the helper should do and report back, in full." },
-                        "profile": { "type": "string", "description": "explore or general (the default)." }
+                        "profile": { "type": "string", "description": "explore or general (the default)." },
+                        "model": { "type": "string", "description": "A role (helper, the default; main, your own model; verify, review, compact, title) or an endpoint/model the person set up for you." },
+                        "escalate": { "type": "boolean", "description": "If it fails on a cheaper model, run it once more on your own. Defaults to your setting." }
                     },
                     "required": ["task"]
                 }),

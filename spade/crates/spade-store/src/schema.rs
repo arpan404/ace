@@ -159,6 +159,11 @@ const MIGRATIONS: &[Migration] = &[
               ALTER TABLE groups ADD COLUMN pinned_ms INTEGER;",
         backfill: None,
     },
+    Migration {
+        // ADR 0162: what each call was for, so spend shows by role.
+        sql: crate::spend::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

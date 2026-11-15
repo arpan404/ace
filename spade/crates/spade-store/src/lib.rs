@@ -12,6 +12,7 @@ mod routines;
 mod schema;
 mod seen;
 mod skills;
+mod spend;
 mod teams;
 
 pub use agents::{Agent, NewAgent};
@@ -21,6 +22,7 @@ pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 pub use skills::{SkillOrigin, SkillUse, StoredSkill};
+pub use spend::{MODEL_ROLES, roles_key};
 pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, StoredMember};
 
 use std::path::Path;
