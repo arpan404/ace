@@ -9,6 +9,15 @@ use media_codec::{Codec, CodecError, CpuJpegCodec, JpegCodec, Size};
 use media_wire::capability::{Backend, Capability};
 use std::sync::{Arc, Mutex};
 
+/// The hardware encoders `Platform::encoder` constructs, one per arm of its match. Only these
+/// backends' probe entries choose an encoder or turn the last-resort encoder off; a backend
+/// probed but missing here (VA-API, Media Foundation and NVENC are not wired into the JPEG
+/// encoder yet) leaves the fallback on.
+pub const BUILT_ENCODERS: &[Backend] = &[
+    #[cfg(target_os = "macos")]
+    Backend::Vt,
+];
+
 /// The capability list as the probe last reported it; late trials replace their entries.
 pub type SharedCapabilities = Arc<Mutex<Vec<Capability>>>;
 
@@ -52,7 +61,7 @@ impl Platform {
 impl Backends for Platform {
     fn encoder(&mut self, codec: Codec) -> Result<Chosen, CodecError> {
         let capabilities = self.capabilities();
-        match encoder_for(&capabilities, codec) {
+        match encoder_for(&capabilities, codec, BUILT_ENCODERS) {
             #[cfg(target_os = "macos")]
             Some((Backend::Vt, hardware)) => Ok(Chosen {
                 encoder: Box::new(media_vt::VtEncoder::new()),

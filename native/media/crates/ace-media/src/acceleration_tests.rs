@@ -51,7 +51,8 @@ fn machine(backend: Option<Backend>) -> Vec<Capability> {
 /// The steps a "Use my Chrome" source runs on `probed`, as the JPEG encoder chooses them
 /// (`encode::select`): JPEG decode, then the H.264 encode.
 fn picture_steps(probed: &[Capability]) -> Vec<SourceStep> {
-    let Some((encoder, hardware)) = encoder_for(probed, Codec::H264) else {
+    let built = [Backend::Vt, Backend::Mf, Backend::Vaapi, Backend::Nv];
+    let Some((encoder, hardware)) = encoder_for(probed, Codec::H264, &built) else {
         return Vec::new();
     };
     let decode_hardware = jpeg_decode_hardware(probed, encoder);

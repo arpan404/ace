@@ -140,7 +140,7 @@ fn a_backend_that_lists_a_codec_but_fails_its_trial_frame_counts_as_no_hardware(
     assert!(!entry.hardware && !entry.zero_copy);
     assert_eq!((entry.max_width, entry.max_height), (0, 0));
     assert_eq!(
-        crate::encode::select::encoder_for(&list, media_codec::Codec::H264),
+        crate::encode::select::encoder_for(&list, media_codec::Codec::H264, &[Backend::Vaapi]),
         None
     );
 }
