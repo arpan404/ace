@@ -2,7 +2,9 @@
 //! Carrying out the engine's effects, in order.
 use super::pictures::Pictures;
 use super::readers::Readers;
+use super::viewers::Outboxes;
 use super::writer::Writer;
+use crate::engine::delivery::MediaOut;
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, EncodeEffect, Engine};
 use crate::framing::{encode, encode_with};
@@ -28,6 +30,8 @@ pub struct Outputs<'a> {
     pub lag: &'a Mutex<VecDeque<Instant>>,
     pub pictures: &'a mut Pictures,
     pub readers: &'a mut Readers,
+    /// Clients' media connections.
+    pub media: &'a mut Outboxes,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
     pub now_ms: u64,
 }
@@ -118,6 +122,14 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
                         readers.close(token, now_ms)
                     }
                     EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
+                }
+                Ok(())
+            }
+            Effect::Media { connection, out } => {
+                match out {
+                    MediaOut::Binary(bytes) => outputs.media.binary(&connection, bytes),
+                    MediaOut::Text(text) => outputs.media.text(&connection, text),
+                    MediaOut::Close(code) => outputs.media.close(&connection, code),
                 }
                 Ok(())
             }

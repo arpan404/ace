@@ -3,9 +3,11 @@
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
 pub mod base64;
+pub mod delivery;
 pub mod egress;
 pub mod grants;
 pub mod ledger;
+pub mod pieces;
 pub mod recorder;
 pub mod sources;
 pub mod stills;
@@ -13,6 +15,7 @@ pub mod stills;
 mod tests;
 
 use crate::secret::Vault;
+use delivery::{Delivery, MediaOut, Open};
 use egress::EgressSink;
 use grants::{Grant, Grants};
 use media_core::privacy::Decision;
@@ -32,6 +35,11 @@ pub enum Effect {
     NormalWith(FromMedia, Vec<u8>),
     /// Send on the priority lane.
     Priority(FromMedia),
+    /// Send on, or close, a client's media connection (D1).
+    Media {
+        connection: String,
+        out: MediaOut,
+    },
     /// Answer a `ping`: the shell adds what only the OS knows.
     Pong(Id),
     CloseIngest(IngestId),
@@ -155,6 +163,7 @@ pub struct Engine {
     recorders: Box<dyn Recorders>,
     egress: Box<dyn EgressSink>,
     stills: Stills,
+    delivery: Delivery,
     bytes_out: u64,
     out: Vec<Effect>,
 }
@@ -168,6 +177,7 @@ impl Engine {
             recorders,
             egress,
             stills: Stills::new(Box::new(NoStills)),
+            delivery: Delivery::default(),
             bytes_out: 0,
             out: Vec::new(),
         }
@@ -197,15 +207,28 @@ impl Engine {
     pub fn counts(&self) -> Counts {
         Counts {
             sources: self.sources.len() as u64,
-            viewers: self.grants.viewers() as u64,
+            viewers: self.delivery.views() as u64,
             connections: self.grants.connections() as u64,
-            bytes_out: self.bytes_out,
+            bytes_out: self.bytes_out + self.delivery.bytes_out(),
         }
     }
 
     /// One control message from either lane. Its payload is wiped when this returns, unless it
     /// was handed on (pictures).
     pub fn control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
+        self.apply_control(message, payload, now);
+        self.closed_connections(now);
+    }
+
+    /// Connections the grants dropped: delivery ends their views and closes their sockets.
+    fn closed_connections(&mut self, now: Now) {
+        for (connection, reason) in self.grants.take_closed() {
+            self.delivery
+                .connection_closed(&connection, &reason, now.mono_ms, &mut self.out);
+        }
+    }
+
+    fn apply_control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
         let out = &mut self.out;
         let vault = &mut self.vault;
         match message {
@@ -237,7 +260,16 @@ impl Engine {
                     None => self.stills.close(source.get(), out),
                 }
             }
-            ToMedia::SourcePage { .. } | ToMedia::SourceCodecs { .. } => {}
+            ToMedia::SourcePage {
+                source,
+                width,
+                height,
+                scale,
+            } => self.delivery.page(source.get(), width, height, scale.get()),
+            ToMedia::SourceCodecs { source, codecs } => {
+                self.delivery
+                    .codecs(source.get(), &codecs, now.mono_ms, out)
+            }
             ToMedia::SourcePicture {
                 source,
                 epoch,
@@ -292,6 +324,7 @@ impl Engine {
                     out,
                 );
                 self.stills.close(source.get(), out);
+                self.delivery.source_closed(source.get());
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::SourceEncodes { source, encodes } => {
@@ -322,9 +355,15 @@ impl Engine {
                 connection,
                 owner,
                 issued,
-                ..
+                source,
+                target,
+                codecs,
+                viewport,
+                local,
+                audio,
+                link,
             } => {
-                self.grants.viewer(
+                let granted = self.grants.viewer(
                     Grant {
                         kind: "viewer.open",
                         id: &viewer,
@@ -334,13 +373,48 @@ impl Engine {
                     },
                     out,
                 );
+                if granted {
+                    let hint_bps = link
+                        .and_then(|l| l.downlink_kbps)
+                        .map(|kbps| f64::from(kbps) * 1000.0);
+                    self.delivery.open(
+                        Open {
+                            viewer,
+                            connection: connection.get().to_owned(),
+                            session: owner.session.get().to_owned(),
+                            source: source.get().to_owned(),
+                            target,
+                            codecs,
+                            viewport,
+                            audio,
+                            local,
+                            hint_bps,
+                        },
+                        now.mono_ms,
+                        out,
+                    );
+                }
             }
-            // Delivery to viewers lands with D1; until then these change nothing here.
-            ToMedia::ViewerConfigure { .. }
-            | ToMedia::ViewerPause { .. }
-            | ToMedia::ViewerResume { .. }
-            | ToMedia::SessionLink { .. } => {}
-            ToMedia::ViewerClose { viewer } => self.grants.viewer_close(viewer.get()),
+            ToMedia::ViewerConfigure {
+                viewer,
+                viewport,
+                audio,
+            } => self
+                .delivery
+                .configure(viewer.get(), viewport, audio, now.mono_ms, out),
+            ToMedia::ViewerPause { viewer } => self.delivery.pause(viewer.get(), now.mono_ms, out),
+            ToMedia::ViewerResume { viewer } => {
+                self.delivery.resume(viewer.get(), now.mono_ms, out)
+            }
+            ToMedia::SessionLink {
+                session, rtt_ms, ..
+            } => self
+                .delivery
+                .session_link(session.get(), rtt_ms, now.mono_ms, out),
+            ToMedia::ViewerClose { viewer } => {
+                self.grants.viewer_close(viewer.get());
+                self.delivery.close_view(viewer.get(), now.mono_ms, out);
+            }
             ToMedia::RelayDial { stream, .. } => normal(
                 out,
                 FromMedia::RelayFailed {
@@ -467,6 +541,8 @@ impl Engine {
     pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
         if let Some(source) = self.sources.bound(conn) {
             self.stills.frame(source, &frame, &mut self.out);
+            self.delivery
+                .unit(source, &frame, now.mono_ms, now.wall_ms, &mut self.out);
         }
         self.sources
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
@@ -474,6 +550,10 @@ impl Engine {
 
     /// A unit a JPEG source's encoder thread finished.
     pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
+        if self.sources.encoder_is(source, token) {
+            self.delivery
+                .unit(source, &frame, now.mono_ms, now.wall_ms, &mut self.out);
+        }
         self.sources.encoded(
             source,
             token,
@@ -520,8 +600,46 @@ impl Engine {
 
     /// A client presented a ticket on the direct listener (D1).
     pub fn claim_ticket(&mut self, presented: &[u8], now: Now) -> Option<Id> {
+        let claimed = self
+            .grants
+            .claim(presented, &mut self.vault, now.wall_ms, &mut self.out);
+        if let Some(connection) = &claimed {
+            self.delivery
+                .socket_open(connection, now.mono_ms, &mut self.out);
+        }
+        self.closed_connections(now);
+        claimed
+    }
+
+    /// A text message on an open media connection. A message a media connection doesn't take
+    /// closes it (`4400`), and the daemon hears `connection.closed`.
+    pub fn media_message(&mut self, connection: &str, text: &str, now: Now) {
+        let accepted = media_wire::media_link::ClientMessage::parse(text).is_some_and(|message| {
+            self.delivery
+                .client(connection, message, now.mono_ms, &mut self.out)
+        });
+        if !accepted {
+            log(
+                &mut self.out,
+                Level::Warn,
+                "media connection closed: a message it doesn't take",
+                &id_of(connection),
+            );
+            self.out.push(Effect::Media {
+                connection: connection.to_owned(),
+                out: MediaOut::Close(media_wire::media_link::close::PROTOCOL),
+            });
+            self.grants
+                .close(connection, "protocol", &mut self.vault, &mut self.out);
+            self.closed_connections(now);
+        }
+    }
+
+    /// A client's media connection closed: the connection ends for good.
+    pub fn media_closed(&mut self, connection: &str, now: Now) {
         self.grants
-            .claim(presented, &mut self.vault, now.wall_ms, &mut self.out)
+            .close(connection, "client-closed", &mut self.vault, &mut self.out);
+        self.closed_connections(now);
     }
 
     /// Periodic: barrier hold bounds and ticket expiry.
@@ -531,6 +649,8 @@ impl Engine {
         self.stills.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);
+        self.closed_connections(now);
+        self.delivery.tick(now.mono_ms, &mut self.out);
     }
 
     /// Shutdown or stdin closing: close every recording and connection.
@@ -539,7 +659,17 @@ impl Engine {
         self.stills.finish(&mut self.out);
         self.grants
             .close_all("shutdown", &mut self.vault, &mut self.out);
+        let now = Now {
+            mono_ms: 0,
+            mono_us: 0,
+            wall_ms: 0,
+        };
+        self.closed_connections(now);
     }
+}
+
+fn id_of(value: &str) -> Id {
+    Id::new(value.chars().take(64).collect()).unwrap_or_else(|_| unreachable!())
 }
 
 fn id(value: &str) -> Id {

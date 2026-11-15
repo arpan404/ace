@@ -86,6 +86,11 @@ export type IngestSourcesOptions = {
   id: () => string;
   schedule: (callback: () => void, milliseconds: number) => () => void;
   log?: (message: string, fields: Record<string, unknown>) => void;
+  /**
+   * A producer's open in ace-media changed: its id there now, or none. Viewers delivered by
+   * ace-media follow it (D1).
+   */
+  onLive?: (producer: IngestProducer, path: string | undefined) => void;
 };
 
 /** Reconnects after the producer's connection ended, before the source stays on the daemon. */
@@ -236,7 +241,7 @@ export class IngestSources {
   exited(): void {
     for (const entry of this.#entries) {
       const live = entry.live;
-      entry.live = undefined;
+      this.#live(entry, undefined);
       entry.generation++;
       const was = entry.state;
       entry.state = "daemon";
@@ -245,6 +250,20 @@ export class IngestSources {
     }
     // Deleting while iterating a Map is safe: finished paths aren't visited again.
     for (const path of this.#paths.values()) this.#finish(path, true, false);
+  }
+
+  #live(entry: Entry, path: Path | undefined): void {
+    if (entry.live === path) return;
+    entry.live = path;
+    this.#options.onLive?.(entry.producer, path?.id);
+  }
+
+  /** The producers streaming into ace-media now, with their ids there. */
+  live(): { producer: IngestProducer; path: string }[] {
+    const out: { producer: IngestProducer; path: string }[] = [];
+    for (const entry of this.#entries)
+      if (entry.live && !entry.closed) out.push({ producer: entry.producer, path: entry.live.id });
+    return out;
   }
 
   /** The supervisor's `onMessage`. */
@@ -347,7 +366,7 @@ export class IngestSources {
       reported: false,
     };
     this.#paths.set(id, path);
-    entry.live = path;
+    this.#live(entry, path);
     entry.state = "opening";
     if (route.egress) this.#send({ type: "source.egress", source: id, on: true });
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
@@ -387,7 +406,7 @@ export class IngestSources {
   /** Points the producer back at the daemon; its path drains until its marker. */
   #leave(entry: Entry): void {
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.generation++;
     const was = entry.state;
     entry.state = "daemon";
@@ -402,7 +421,7 @@ export class IngestSources {
   #reconnect(entry: Entry): void {
     if (entry.closed || entry.state === "daemon") return;
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.state = "daemon";
     entry.generation++;
     if (live) this.#retire(live);
@@ -469,7 +488,7 @@ export class IngestSources {
     entry.generation++;
     this.#entries.delete(entry);
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.state = "daemon";
     // The capture is gone: nothing is left to deliver to.
     if (live) this.#finish(live, true, true);

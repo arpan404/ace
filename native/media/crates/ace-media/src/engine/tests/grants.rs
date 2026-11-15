@@ -10,7 +10,8 @@ fn viewer(engine: &mut Engine, connection: &str, who: Value, issued: u64) -> Vec
     send(
         engine,
         json!({ "type": "viewer.open", "viewer": "v", "connection": connection, "owner": who,
-                "issued": issued, "source": "s1", "codecs": ["avc1.640028"],
+                "issued": issued, "source": "s1", "target": { "kind": "browser", "threadId": "t1" },
+                "codecs": ["avc1.640028"],
                 "viewport": { "width": 800, "height": 600, "dpr": 2, "scale": 1 },
                 "local": true, "audio": false }),
         &[],
@@ -238,9 +239,16 @@ fn a_ticket_opens_its_connection_once_and_only_before_it_expires() {
     ticket(&mut engine, "c1", owner("d1", pairing(1)), 1, 1);
     let claimed = engine.claim_ticket(&[1; 32], NOW);
     assert_eq!(claimed.as_ref().map(|c| c.get()), Some("c1"));
+    // The daemon hears the connection opened; the client hears its welcome.
     assert!(matches!(
         engine.effects().collect::<Vec<_>>().as_slice(),
-        [Effect::Normal(FromMedia::ConnectionOpen { .. })]
+        [
+            Effect::Normal(FromMedia::ConnectionOpen { .. }),
+            Effect::Media {
+                out: crate::engine::delivery::MediaOut::Text(_),
+                ..
+            }
+        ]
     ));
     assert!(engine.claim_ticket(&[1; 32], NOW).is_none(), "reused");
     assert!(engine.claim_ticket(&[2; 32], NOW).is_none(), "never issued");

@@ -152,6 +152,11 @@ export class MediaSupervisor {
     return this.#accepting() ? this.#run?.ready?.ingest : undefined;
   }
 
+  /** ace-media's direct listener for clients (D1), while it takes grants. */
+  listening(): Ready["listen"] | undefined {
+    return this.#accepting() ? this.#run?.ready?.listen : undefined;
+  }
+
   snapshot(): MediaSnapshot {
     const run = this.#run;
     const phase = this.#phase();

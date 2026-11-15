@@ -14,6 +14,12 @@ import {
   type PictureTransport,
 } from "@ace/browser/picture-channel";
 import { framePicture } from "@ace/screen";
+import {
+  mediaSubscribed,
+  viewLink,
+  viewViewport,
+  type MediaDeliveryPort,
+} from "@ace/media/media-viewers";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
 import { heldPushes } from "./held-pushes.ts";
@@ -31,6 +37,11 @@ export interface DevicePeer {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
+  /**
+   * Delivery by ace-media (D1) for subscribes that name a media connection, with this main
+   * session's id. Without it, or while ace-media doesn't serve devices, they are served here.
+   */
+  delivery?: { session: string; port: () => MediaDeliveryPort | undefined };
 }
 /**
  * A transport owner supplies authenticated identity and revocation checks. The channel speaks
@@ -48,6 +59,39 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
  */
 export function reserveDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const actor: Actor = { kind: "human", owner, guard: () => access() };
+  /** Subscribes ace-media delivers, by request, until their reply goes. */
+  const mediaSubscribes = new Map<string, string>();
+  /**
+   * A subscribe naming a media connection: its viewer there, while ace-media delivers devices.
+   * A connection of another session is refused.
+   */
+  const bindMedia = (
+    deviceId: string,
+    connection: string,
+    operation: { link?: Parameters<typeof viewLink>[0]; codecs?: string[] | undefined },
+  ): string | undefined => {
+    const delivery = peer.delivery;
+    const port = delivery?.port();
+    const kinds = ["simulator", "scrcpy", "emulator-frames"] as const;
+    if (!delivery || !port || !kinds.some((kind) => port.serves(kind))) return undefined;
+    const viewer = `${delivery.session}/${deviceId}`.slice(0, 64);
+    const link = viewLink(operation.link);
+    const bound = port.bind({
+      viewer,
+      session: delivery.session,
+      connection,
+      target: { kind: "device", deviceId },
+      codecs: operation.codecs ?? ["avc1.42E033"],
+      // A phone-sized pane until the viewer's `stream.configure` says its size.
+      viewport: viewViewport({ width: 390, height: 844, devicePixelRatio: 3 }),
+      local: false,
+      audio: false,
+      ...(link ? { link } : {}),
+      shows: (producer) => producer.deviceId === deviceId,
+    });
+    if (!bound) throw new Error("media-connection: that media connection isn't this session's");
+    return viewer;
+  };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
   const pictures = new PictureChannel(streamKinds.deviceFrame, {
@@ -179,6 +223,10 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 if (!slot.active()) throw new Error("Device subscription superseded");
               };
               const deviceId = operation.deviceId;
+              const viewer = operation.media
+                ? bindMedia(deviceId, operation.media.connection, operation)
+                : undefined;
+              if (viewer) mediaSubscribes.set(message.requestId, viewer);
               const view = pictures.open(deviceId, {
                 keyframe: () =>
                   void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
@@ -196,7 +244,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                   guard();
                   // Live views are video only: the JPEG a capture makes for agents while
                   // nobody watches (until this view's H.264 starts) never reaches one.
-                  if (frame.header.codec !== "h264") return;
+                  // ace-media delivers this view on the client's media connection.
+                  if (frame.header.codec !== "h264" || viewer) return;
                   view.push(framePicture(frame));
                 });
                 follows.get(deviceId)?.close();
@@ -204,6 +253,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 cancelTick ??= later(1000, tick);
                 slot.attach(() => {
                   stop();
+                  if (viewer) peer.delivery?.port()?.unbind(viewer);
                   view.close();
                   follow.close();
                   if (follows.get(deviceId) === follow) follows.delete(deviceId);
@@ -292,11 +342,17 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 : ["controller", "start", "stop", "subscribe", "unsubscribe"].includes(operation.op)
                   ? stateForPeer(DeviceState.parse(data))
                   : data;
+            const viewer = mediaSubscribes.get(message.requestId);
+            mediaSubscribes.delete(message.requestId);
+            const poster = viewer ? await peer.delivery?.port()?.poster(viewer) : undefined;
             await send({
               type: "devices.result",
               requestId: message.requestId,
               ok: true,
               data: result,
+              ...(viewer && operation.op === "subscribe" && operation.media
+                ? { media: mediaSubscribed(operation.media.connection, poster) }
+                : {}),
             });
           }
         } finally {
