@@ -1,5 +1,7 @@
 import type { SceneSignal } from "@ace/protocol/suits";
 import { act, render } from "@testing-library/react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { expect, test, vi } from "vitest";
 import { SceneBackdrop, type SceneBackdropProps, type SignalFeed } from "./scene-backdrop.tsx";
 
@@ -172,4 +174,28 @@ test("the app's scene is told where ace's glass sits over it, and told again whe
     document.documentElement.style.removeProperty("--glass-blur");
     vi.restoreAllMocks();
   }
+});
+
+test("a scene page that loads before the host's effects run still gets its init", () => {
+  const { signals } = feed();
+  const container = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(container);
+  const sent: unknown[] = [];
+  act(() => {
+    // Commit the frame without running passive effects, then let its (cached) page finish
+    // loading first, as a browser may.
+    flushSync(() =>
+      root.render(
+        <SceneBackdrop sceneUrl={sceneUrl} scheme="dark" reduceMotion={false} signals={signals} />,
+      ),
+    );
+    const frame = container.querySelector("iframe");
+    const target = frame?.contentWindow;
+    if (target)
+      vi.spyOn(target, "postMessage").mockImplementation((message) => void sent.push(message));
+    frame?.dispatchEvent(new Event("load"));
+  });
+  expect(sent[0]).toMatchObject({ type: "init", scheme: "dark" });
+  act(() => root.unmount());
+  container.remove();
 });

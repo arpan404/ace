@@ -73,3 +73,15 @@ test("without a font loader (no FontFace) a Suit shows at once", () => {
   rerender({ detail: pixel });
   expect(result.current).toBe(pixel);
 });
+
+test("the same Suit at new URLs (a new daemon run) shows at once: its faces are already on the page", () => {
+  const { loader, asked } = heldLoader();
+  const before = withFont("pixel", "http://127.0.0.1:4242/v1/suits/pixel/h/grant-a/a.woff2");
+  const after = withFont("pixel", "http://127.0.0.1:4242/v1/suits/pixel/h/grant-b/a.woff2");
+  const { result, rerender } = renderHook(({ detail }) => useSuitFontsReady(detail, loader), {
+    initialProps: { detail: before },
+  });
+  rerender({ detail: after });
+  expect(result.current).toBe(after);
+  expect(asked).toEqual([]);
+});

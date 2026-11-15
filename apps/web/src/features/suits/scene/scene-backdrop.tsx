@@ -126,6 +126,10 @@ function SceneFrame(props: {
   stopped: (stop: SceneStop) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
+  // The page's load, heard from the moment the frame exists: a cached page can finish loading
+  // before the effect below runs, and a listener added there would never hear it.
+  const loadedEarly = useRef(false);
+  const onPageLoad = useRef<(() => void) | undefined>(undefined);
   const controller = useRef<SceneController>(undefined);
   const latest = useRef(props);
   useEffect(() => {
@@ -171,6 +175,8 @@ function SceneFrame(props: {
       },
     );
     controller.current = scene;
+    onPageLoad.current = onLoad;
+    if (loadedEarly.current) onLoad();
     const onMessage = (event: MessageEvent) => {
       const message = messageFromScene(event, element.contentWindow);
       if (message) scene.receive(message);
@@ -183,7 +189,6 @@ function SceneFrame(props: {
         ? new ResizeObserver(onResize)
         : undefined;
     regionSize?.observe(element);
-    element.addEventListener("load", onLoad);
     window.addEventListener("message", onMessage);
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
@@ -199,7 +204,7 @@ function SceneFrame(props: {
       unwatchGlass?.();
       scene.dispose();
       controller.current = undefined;
-      element.removeEventListener("load", onLoad);
+      onPageLoad.current = undefined;
       window.removeEventListener("message", onMessage);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
@@ -219,6 +224,10 @@ function SceneFrame(props: {
     <iframe
       ref={frame}
       src={props.sceneUrl}
+      onLoad={() => {
+        if (onPageLoad.current) onPageLoad.current();
+        else loadedEarly.current = true;
+      }}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       title="Suit scene"

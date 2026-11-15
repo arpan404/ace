@@ -61,8 +61,18 @@ export function useSuitFontsReady(
   const [shown, setShown] = useState(detail);
   const [first] = useState(detail);
   const sources = detail ? suitFontSources(detail) : [];
+  // The same version of the Suit with new URLs (a new daemon run) draws the same faces, which
+  // the page already has under their family names: nothing to wait for.
+  const sameLook =
+    detail !== null &&
+    shown !== null &&
+    detail.summary.id === shown.summary.id &&
+    detail.summary.contentHash === shown.summary.contentHash;
   const ready =
-    loader === undefined || detail === first || sources.every((source) => settled.has(source.url));
+    loader === undefined ||
+    detail === first ||
+    sameLook ||
+    sources.every((source) => settled.has(source.url));
   if (ready && shown !== detail) setShown(detail);
 
   const missing = ready ? "" : sources.map((source) => source.url).join("\n");
