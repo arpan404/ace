@@ -139,7 +139,18 @@ it("a job its machine no longer has (it restarted) lets go of the calling thread
   await endTurn(pair);
   expect(state(pair)?.state).toBe("waiting");
   await pair.restartTarget();
-  await vi.waitFor(() => expect(state(pair)?.state).toBe("done"), { timeout: 20_000 });
+  // Reads failed while it was down, and a machine failing them is read again only once its
+  // backoff has passed by this daemon's clock: a manual one here, moved a second per check as
+  // time passes. The row ends as completed (the job is unknown there), never by its deadline.
+  const { clock } = pair.source.h;
+  await vi.waitFor(
+    () => {
+      clock.advance(clock.now() + 1_000);
+      expect(state(pair)?.state).toBe("done");
+    },
+    { timeout: 20_000 },
+  );
+  expect(rows(pair).map((row) => row.status)).toEqual(["completed"]);
 }, 60_000);
 
 it("a calling machine that restarts keeps holding its thread for a job still running there", async () => {
