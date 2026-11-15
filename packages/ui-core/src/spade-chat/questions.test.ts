@@ -9,6 +9,7 @@ import {
   spadeCardQuestions,
   spadeForLaterWords,
   spadePickCount,
+  spadeRefusedQuestion,
   spadeView,
   type SpadeQuestion,
 } from "./index.ts";
@@ -107,14 +108,15 @@ describe("a card of questions", () => {
     const c = conversation();
     asks(c);
     c.stored({ type: "question_deferred", call_id: "q1" });
-    expect(c.view()).toMatchObject({ asking: false, forLater: ["q1"] });
+    // One card of two questions: two questions for later.
+    expect(c.view()).toMatchObject({ asking: false, forLater: ["q1"], questionsForLater: 2 });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     expect(c.said()).toEqual(["bot: Found two flights.", "card q1 deferred"]);
     expect(c.view().busy).toBe(false);
 
     c.stored({ type: "question_answered", call_id: "q1", answers: ["Window", 2], late: true });
     expect(c.said()).toEqual(["bot: Found two flights.", "card q1 answered"]);
-    expect(c.view().forLater).toEqual([]);
+    expect(c.view()).toMatchObject({ forLater: [], questionsForLater: 0 });
   });
 
   test("asked without waiting, it is for later from the start", () => {
@@ -186,6 +188,14 @@ describe("reading a card", () => {
     expect(spadeAnswerWords(seat, ["Tea", "Coffee"])).toBe("Tea, Coffee");
     expect(spadeForLaterWords(1)).toBe("1 question for later");
     expect(spadeForLaterWords(3)).toBe("3 questions for later");
+  });
+});
+
+describe("a refusal from Spade", () => {
+  test("turns the card to the question it names, and only to one the card has", () => {
+    expect(spadeRefusedQuestion("Question 2: pick 1 to 2; this picks 3.", 2)).toBe(1);
+    expect(spadeRefusedQuestion("Question 3: it has no answer.", 2)).toBeUndefined();
+    expect(spadeRefusedQuestion("This question isn't open anymore.", 2)).toBeUndefined();
   });
 });
 

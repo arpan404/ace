@@ -181,7 +181,7 @@ test("in a bot's own chat a group's message reads as a label, not as the person"
   );
   if (input) foldSpade(state, input);
   expect(spadeBubbles(spadeView(state))).toEqual([
-    { kind: "group", key: "s1", group: "Trips", text: "Find flights", agent: undefined },
+    { kind: "group", key: "s1", group: "Trips", text: "Find flights", agent: undefined, at: 1 },
   ]);
 });
 

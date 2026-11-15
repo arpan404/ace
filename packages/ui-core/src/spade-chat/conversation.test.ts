@@ -360,7 +360,10 @@ describe("the Spade API's later details", () => {
       text: "",
       images: [{ sha256: hash("a"), media_type: "image/png", bytes: 120 }, { sha256: "bad" }],
     });
-    expect(c.view().entries).toEqual([{ kind: "user", key: "s1", text: "", images: [image] }]);
+    // The stored copy carries when Spade stored it.
+    expect(c.view().entries).toEqual([
+      { kind: "user", key: "s1", text: "", images: [image], at: 1000 },
+    ]);
   });
 
   test("a sent message isn't taken for a stored one with other images", () => {

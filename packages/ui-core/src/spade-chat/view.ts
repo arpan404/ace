@@ -31,6 +31,8 @@ export interface SpadeView {
   asking: boolean;
   /** Cards left for later, by call id, oldest first (ADR 0154). */
   forLater: readonly string[];
+  /** How many questions those cards hold, for "2 questions for later". */
+  questionsForLater: number;
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -67,7 +69,22 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     approvals,
     asking: state.question !== undefined,
     forLater: [...state.forLater],
+    questionsForLater: questionsIn(state.entries, state.forLater),
   };
+}
+
+/** The questions of the cards `callIds` names, wherever each card stands in the chat. */
+function questionsIn(entries: readonly SpadeEntry[], callIds: ReadonlySet<string>): number {
+  if (!callIds.size) return 0;
+  let count = 0;
+  const add = (card: { callId: string; questions: readonly unknown[] }) => {
+    if (callIds.has(card.callId)) count += card.questions.length;
+  };
+  for (const entry of entries)
+    if (entry.kind === "question") add(entry);
+    else if (entry.kind === "reply")
+      for (const part of entry.parts) if (part.kind === "question") add(part);
+  return count;
 }
 
 function working(

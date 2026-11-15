@@ -110,6 +110,8 @@ export type SpadeEntry =
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
       fromGroup?: { id: string; name: string };
+      /** When Spade stored it; a message not stored yet has none. */
+      at?: number;
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -136,16 +138,17 @@ export type SpadeEntry =
       task: string;
       outcome: SpadeJobOutcome | undefined;
       result: string;
+      at?: number;
     }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
-  | ({ kind: "question"; key: string } & SpadeQuestionCard)
+  | ({ kind: "question"; key: string; at?: number } & SpadeQuestionCard)
   /**
    * A request asked outside the open reply (a helper's, or one asked after its reply ended):
    * where it arrived, read below the bot's words so far.
    */
-  | ({ kind: "request"; key: string } & SpadeRequest);
+  | ({ kind: "request"; key: string; at?: number } & SpadeRequest);
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -356,6 +359,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_group
           ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
+        ...stamp(stored),
       });
       return true;
     }
@@ -435,7 +439,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
             parts: [...entry.parts, request],
           }))
         )
-          steer(state, request);
+          steer(state, { ...request, ...stamp(stored) });
       }
       // A helper's call is the helper's, not one of the reply's.
       if (!event.helper) setCall(state, event.reply, event.call_id, event.name, "waiting");
@@ -497,7 +501,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (state.open?.reply === event.reply) {
         state.question = { reply: event.reply, callId: event.call_id };
         updateOpen(state, event.reply, (entry) => ({ ...entry, parts: [...entry.parts, card] }));
-      } else steer(state, { ...card, standing: "closed" });
+      } else steer(state, { ...card, standing: "closed", ...stamp(stored) });
       return true;
     }
     case "question_deferred": {
@@ -533,6 +537,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           task: spadeHelperTask(state.calls.get(event.job)?.arguments),
           outcome: undefined,
           result: "",
+          ...stamp(stored),
         });
       state.jobs.set(event.job, {
         name: event.name,
@@ -674,6 +679,9 @@ function helperEntry(state: SpadeConversationState, job: string) {
   const line = state.entries.find((entry) => entry.kind === "helper" && entry.job === job);
   return line?.kind === "helper" ? line : undefined;
 }
+
+/** When Spade stored an event, for the entry it makes; nothing when the event had no time. */
+const stamp = (stored: SpadeStored): { at?: number } => (stored.at > 0 ? { at: stored.at } : {});
 
 function steer(state: SpadeConversationState, message: SpadeEntry) {
   const open = state.open;

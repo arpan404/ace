@@ -8,6 +8,7 @@ import {
   type Scheme,
   glassText,
 } from "@ace/themes";
+import { chatSurfaces } from "./chat-surfaces.ts";
 import { dangerFill } from "./danger.ts";
 import { defaultTranslucency, glassVariables } from "./translucency.ts";
 
@@ -107,6 +108,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--popover": p.s2,
     "--card": p.s1,
     "--bubble": p.s1,
+    ...chatSurfaces(p, scheme),
     "--code": p.code,
     "--fill": fill,
     "--fill-strong": fillStrong,

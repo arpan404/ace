@@ -24,7 +24,7 @@ const rgb = (value: string | undefined) => {
 };
 const ratio = (a: string | undefined, b: string | undefined) => contrastRatio(rgb(a), rgb(b));
 
-/** Page, sidebar, cards, floating layers, hover, active and code: where text is drawn. */
+/** Page, sidebar, cards, floating layers, hover, active, code and the chat's surfaces: where text is drawn. */
 const surfaces = [
   "--background",
   "--sidebar",
@@ -33,6 +33,10 @@ const surfaces = [
   "--hover",
   "--active",
   "--code",
+  "--chat-bubble",
+  "--chat-mine",
+  "--chat-raised",
+  "--chat-well",
 ];
 const text = ["--foreground", "--muted-foreground", "--subtle-foreground", "--ring-text"];
 const statusWords = [

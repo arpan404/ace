@@ -246,6 +246,16 @@ export function spadeCardAnswers(
   return { answers };
 }
 
+/**
+ * The question a refusal from Spade names ("Question 2: pick 1 to 2; this picks 3."), by its
+ * place in the card, so the card can turn to it; undefined when it names none on the card.
+ */
+export function spadeRefusedQuestion(refusal: string, count: number): number | undefined {
+  const named = /^Question (\d+):/.exec(refusal.trim());
+  const at = named ? Number(named[1]) - 1 : -1;
+  return at >= 0 && at < count ? at : undefined;
+}
+
 /** "1 question for later", "3 questions for later". */
 export function spadeForLaterWords(count: number): string {
   return `${count} ${count === 1 ? "question" : "questions"} for later`;

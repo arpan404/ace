@@ -17,9 +17,13 @@ import { spadeHelperLine } from "./helper-words.ts";
  * bot works. Tool calls, background jobs and compaction stay with the bot; an approval arrives
  * as a bubble of the bot's that the person answers, in place after the step that asked, and
  * stays once answered; a question as the bot's bubble (ADR 0128), and a note the bot saved as
- * one quiet line between its bubbles.
+ * one quiet line between its bubbles. Each carries when it was said, where that is known: a
+ * message when Spade stored it, the bot's words when their reply began (`spadeChatRows` lays the
+ * chat out by them).
  */
-export type SpadeBubble =
+export type SpadeBubble = SpadeBubbleOf & { at?: number };
+
+type SpadeBubbleOf =
   | { kind: "task-paused"; key: string; text: string }
   | {
       kind: "person";
@@ -142,13 +146,13 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   let onlyBeats = true;
   const open = new Map(view.approvals.map((approval) => [approval.callId, approval]));
   const shown = new Set<string>();
-  const ask = (request: SpadeRequest, key: string) => {
+  const ask = (request: SpadeRequest, key: string, at: number | undefined) => {
     shown.add(request.callId);
-    bubbles.push(askBubble(request, key, open.get(request.callId)));
+    bubbles.push({ ...askBubble(request, key, open.get(request.callId)), ...stamp(at) });
   };
   for (const entry of view.entries) {
     if (entry.kind === "request") {
-      ask(entry, entry.key);
+      ask(entry, entry.key, entry.at);
       continue;
     }
     if (entry.kind === "question") {
@@ -188,6 +192,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         job: entry.job,
         text: spadeHelperLine(entry, waiting),
         open: entry.outcome === undefined,
+        ...stamp(entry.at),
       });
       continue;
     }
@@ -213,6 +218,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
             key: entry.key,
             name: entry.fromRoutine.name,
             label: entry.fromRoutine.label,
+            ...stamp(entry.at),
           });
         continue;
       }
@@ -223,12 +229,19 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
           group: entry.fromGroup.name,
           text: entry.text,
           agent: entry.fromAgent,
+          ...stamp(entry.at),
         });
         continue;
       }
       bubbles.push(
         entry.fromAgent
-          ? { kind: "other", key: entry.key, agent: entry.fromAgent, text: entry.text }
+          ? {
+              kind: "other",
+              key: entry.key,
+              agent: entry.fromAgent,
+              text: entry.text,
+              ...stamp(entry.at),
+            }
           : {
               kind: "person",
               key: entry.key,
@@ -237,6 +250,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
               documents: entry.documents ?? [],
               voice: entry.voice,
               sending: entry.pending === true,
+              ...stamp(entry.at),
             },
       );
       continue;
@@ -275,6 +289,9 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   return bubbles;
 }
 
+/** `at` as a bubble carries it: absent when unknown. */
+const stamp = (at: number | undefined): { at?: number } => (at === undefined ? {} : { at });
+
 /** A request's bubble: open while Spade still waits on it, with the newest reason it has. */
 function askBubble(
   request: SpadeRequest,
@@ -303,8 +320,9 @@ function replyBubbles(
   entry: SpadeReplyEntry,
   bubbles: SpadeBubble[],
   held: Held,
-  ask: (request: SpadeRequest, key: string) => void,
+  ask: (request: SpadeRequest, key: string, at: number | undefined) => void,
 ) {
+  const at = stamp(entry.startedAt);
   let words: string[] = [];
   let images: SpadeImageRef[] = [];
   let documents: SpadeDocumentRef[] = [];
@@ -326,6 +344,7 @@ function replyBubbles(
       end: undefined,
       failure: undefined,
       ...take(),
+      ...at,
     });
   };
   for (const part of entry.parts) {
@@ -338,13 +357,13 @@ function replyBubbles(
       bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
     } else if (part.kind === "question") {
       flush();
-      bubbles.push({ ...part, key: `${entry.key}:${part.key}` });
+      bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...at });
     } else if (part.kind === "files") {
       flush();
       hold(held, part.key, part.paths);
     } else if (part.kind === "request") {
       flush();
-      ask(part, `${entry.key}:${part.key}`);
+      ask(part, `${entry.key}:${part.key}`, entry.startedAt);
     }
   }
   if (entry.live) words.push(entry.live);
@@ -367,6 +386,7 @@ function replyBubbles(
             }
           : undefined,
       ...take(),
+      ...at,
     });
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
@@ -389,7 +409,7 @@ function hold(held: Held, key: string, paths: readonly string[]) {
 function pushBot(
   bubbles: SpadeBubble[],
   held: Held,
-  bubble: Omit<Extract<SpadeBubble, { kind: "bot" }>, "kind" | "files">,
+  bubble: Omit<Extract<SpadeBubble, { kind: "bot" }>, "kind" | "files" | "at"> & { at?: number },
 ) {
   const files = held.paths.length ? { files: held.paths.slice() } : {};
   held.paths.length = 0;
