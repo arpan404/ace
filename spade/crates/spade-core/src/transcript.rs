@@ -242,6 +242,7 @@ impl Transcript {
             }
             Known::SkillsIndexed { .. }
             | Known::PluginsStarted { .. }
+            | Known::PluginsChanged {}
             | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }

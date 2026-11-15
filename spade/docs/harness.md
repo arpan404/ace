@@ -8,8 +8,9 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | Type                             | Fields                                                                   | Meaning                                                                                                                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `user_message`                   | `text`, `context?`                                                       | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                           |
-| `skills_indexed`                 | `text`                                                                   | The skill index, fixed at the first turn                                                                                                                                            |
-| `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, fixed at the first turn ([plugins.md](plugins.md))                                                                                  |
+| `skills_indexed`                 | `text`                                                                   | The skill index, stored before the first model call and again after each compaction; the latest is in effect                                                                       |
+| `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, stored like the skill index and after `plugins_changed`; the latest is in effect ([plugins.md](plugins.md))                       |
+| `plugins_changed`                |                                                                          | The person changed which plugins the bot may use; its rules are stored again before the next model call                                                                             |
 | `hook_ran`                       | `hook`, `target`, `outcomes[]`                                           | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                        |
 | `memory_indexed`                 | `text`                                                                   | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                         |
 | `question_asked`                 | `reply`, `call_id`, `question`, `questions`                              | `ask_user` asked a card; the turn waits unless a `question_deferred` follows ([questions.md](questions.md))                                                                         |
@@ -34,7 +35,7 @@ turn's total.
 `spade_core::turn::next_step(events)` decides, from stored events only:
 
 - **Call the model** when the last step's calls all have results (or there is no step yet). The
-  prompt is `context::prompt`: Spade's rules and the frozen skill index, the offered tools (core
+  prompt is `context::prompt`: Spade's rules and the skill index (fixed between compactions), the offered tools (core
   tools in name order, plus `tool_search` and `call_tool` when any tool is deferred), then the
   conversation. It only ever grows at the end.
 - **Handle calls** otherwise: each open call is new (to the gate), awaiting, allowed, declined or
@@ -113,10 +114,12 @@ The person's plugins ([plugins.md](plugins.md)) add rules to the standing instru
 at six points of a turn, and their local MCP servers' tools, offered like connectors': deferred,
 named `<plugin>__<tool>`, output untrusted, only to bots the person allowed the plugin.
 
-Each conversation gets a skill index frozen into its instructions before its first model call:
-the 40 skills its bot loaded most, then by name, manual ones left out. The bytes are fixed when
-the conversation starts; skills added later are found with `skill_search`, which ranks by text
-and then by the bot's use (workspace.md, "Ranking"). `skill_load` puts a skill's other files in
+Each conversation gets a skill index in its instructions before its first model call: the 40
+skills its bot loaded most, then by name, manual ones left out. It is stored again after each
+compaction, the one point where the prompt's top changes anyway, so a skill installed weeks into a
+bot's one conversation reaches its instructions; in between the bytes are fixed, and skills added
+meanwhile are found with `skill_search`, which ranks by text and then by the bot's use
+(workspace.md, "Ranking"). `skill_load` puts a skill's other files in
 the bot's workspace at `skills/<name>/`.
 
 ## Compaction

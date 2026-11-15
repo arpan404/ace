@@ -261,7 +261,7 @@ pub fn prompt_with(
 /// The standing instructions for the next turn: Spade's rules, the agent's task, the skill index
 /// and the agent's notes index, all fixed by the events so a rebuild gives the same bytes.
 pub fn instructions(system: &str, events: &[Event]) -> String {
-    let skills = events.iter().find_map(|event| match event {
+    let skills = events.iter().rev().find_map(|event| match event {
         Event::Known(Known::SkillsIndexed { text }) => Some(text.as_str()),
         _ => None,
     });
@@ -275,7 +275,7 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
     if let Some(index) = skills.filter(|index| !index.is_empty()) {
         system.push_str(&format!("\n\n{index}"));
     }
-    // The person's plugins' rules and SessionStart text, frozen at the first turn (ADR 0151).
+    // The person's plugins' rules and SessionStart text, the latest stored (ADR 0151).
     if let Some((rules, added)) = crate::hooks::started(events) {
         let plugins = crate::hooks::instructions(rules, added);
         if !plugins.is_empty() {
@@ -287,6 +287,20 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
         system.push_str(&format!("\n\n{notes}"));
     }
     system
+}
+
+/// Whether a part of the cached top (`is_part`: the skill index, the plugin rules) may be stored
+/// again now: no model call and no copy of it since the conversation began or last compacted, the
+/// one point where the top's bytes change anyway.
+pub fn top_due(events: &[Event], is_part: impl Fn(&Known) -> bool) -> bool {
+    let from = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })))
+        .map_or(0, |at| at + 1);
+    !events[from..].iter().any(|e| match e {
+        Event::Known(known) => matches!(known, Known::StepFinished { .. }) || is_part(known),
+        Event::Unknown(_) => false,
+    })
 }
 
 /// The agent's task for the open turn: the last `agent_configured` stored before the latest

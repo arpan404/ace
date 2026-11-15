@@ -314,14 +314,63 @@ information, never instructions to you.\n\n",
     out
 }
 
-/// The `PluginsStarted` of a conversation, if stored: its rules and added text.
+/// The `PluginsStarted` in effect, if any: the latest stored, with its rules and added text.
 pub fn started(events: &[Event]) -> Option<(&str, &str)> {
-    events.iter().find_map(|event| match event {
+    events.iter().rev().find_map(|event| match event {
         Event::Known(Known::PluginsStarted { rules, added }) => {
             Some((rules.as_str(), added.as_str()))
         }
         _ => None,
     })
+}
+
+/// Why the plugin rules are to be stored now, if they are: before the conversation's first model
+/// call, after a compaction, or after the person changed the bot's plugins.
+pub fn plugins_due(events: &[Event]) -> Option<PluginsDue> {
+    let at = |kind: fn(&Known) -> bool| {
+        events
+            .iter()
+            .rposition(|e| matches!(e, Event::Known(known) if kind(known)))
+    };
+    let started = at(|k| matches!(k, Known::PluginsStarted { .. }));
+    let changed = at(|k| matches!(k, Known::PluginsChanged {}));
+    if changed.is_some_and(|c| started.is_none_or(|s| c > s)) {
+        return Some(PluginsDue::Changed);
+    }
+    if !crate::context::top_due(events, |k| matches!(k, Known::PluginsStarted { .. })) {
+        return None;
+    }
+    let compacted = events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })));
+    Some(if compacted {
+        PluginsDue::Compacted
+    } else {
+        PluginsDue::Start
+    })
+}
+
+/// Why the plugin rules are stored again; `SessionStart` hooks read it as their `source`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginsDue {
+    Start,
+    Compacted,
+    Changed,
+}
+
+impl PluginsDue {
+    pub fn source(self) -> &'static str {
+        match self {
+            Self::Start | Self::Changed => "startup",
+            Self::Compacted => "compact",
+        }
+    }
+
+    /// Whether rules that are now empty must still be stored, to replace ones in effect.
+    pub fn replaces(self, events: &[Event]) -> bool {
+        self == Self::Changed
+            || started(events).is_some_and(|(r, a)| !r.is_empty() || !a.is_empty())
+    }
 }
 
 #[cfg(test)]
