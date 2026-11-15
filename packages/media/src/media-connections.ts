@@ -154,9 +154,10 @@ export class MediaConnections {
         issued: this.#options.issue.next(),
         expiresAt,
       },
+      // The supervisor owns these bytes from here: its lane wipes them once written or dropped
+      // (a refused send wipes them at once). Wiping them here would hand ace-media zeros.
       ticket,
     );
-    ticket.fill(0);
     if (!sent) {
       release();
       return unavailable;

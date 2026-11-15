@@ -2,7 +2,7 @@
 //! Driving the real binary: spawning it in a private runtime directory, its control frames,
 //! lanes, ingest frames and a hand-made WebSocket client.
 #![allow(dead_code)]
-use media_wire::control::{ControlFrame, FromMedia, Lane, Status, ToMedia};
+use media_wire::control::{Capability, ControlFrame, FromMedia, Lane, Status, ToMedia};
 use media_wire::frame::MediaFrame;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -13,6 +13,10 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
+
+#[cfg(target_os = "macos")]
+#[path = "probed.rs"]
+pub mod probed;
 
 pub const SECRET: [u8; 32] = [7; 32];
 
@@ -30,6 +34,19 @@ pub fn frame(value: Value, payload: &[u8], lane: Lane) -> Vec<u8> {
     };
     bytes.extend_from_slice(payload);
     bytes
+}
+
+/// The next frame, or none once the stream ends.
+pub fn try_read_frame(reader: &mut impl Read, lane: Lane) -> Option<FromMedia> {
+    let mut prefix = [0u8; 4];
+    reader.read_exact(&mut prefix).ok()?;
+    let mut bytes = prefix.to_vec();
+    bytes.resize(4 + u32::from_be_bytes(prefix) as usize, 0);
+    reader.read_exact(&mut bytes[4..]).ok()?;
+    match ControlFrame::<FromMedia>::decode(&bytes, lane) {
+        Ok(frame) => Some(frame.message),
+        Err(_) => panic!("invalid frame from ace-media"),
+    }
 }
 
 pub fn read_frame(reader: &mut impl Read, lane: Lane) -> FromMedia {
@@ -55,6 +72,8 @@ pub struct Media {
     pub dir: PathBuf,
     /// The direct listener's loopback port, from `ready`.
     pub listen_port: u32,
+    /// The binary's capability list: `ready`'s, replaced by each `capabilities.changed`.
+    pub capabilities: Vec<Capability>,
 }
 
 impl Drop for Media {
@@ -90,6 +109,7 @@ impl Media {
             stdout,
             dir,
             listen_port: 0,
+            capabilities: Vec::new(),
         }
     }
 
@@ -106,8 +126,94 @@ impl Media {
         self.write(&frame(value, payload, Lane::Normal));
     }
 
+    /// The next message, after applying any `capabilities.changed` before it: one may arrive
+    /// at any time after `ready` (a trial that finished late), between any two others.
     pub fn read(&mut self) -> FromMedia {
-        read_frame(&mut self.stdout, Lane::Normal)
+        loop {
+            match read_frame(&mut self.stdout, Lane::Normal) {
+                FromMedia::CapabilitiesChanged { capabilities } => self.capabilities = capabilities,
+                message => {
+                    if let FromMedia::Ready { capabilities, .. } = &message {
+                        self.capabilities = capabilities.clone();
+                    }
+                    return message;
+                }
+            }
+        }
+    }
+
+    /// Waits, after `ready` and before any source opens, until the binary holds what this Mac's
+    /// VideoToolbox trial finally finds: every step that trial found working is reported the
+    /// same way. On a busy machine some arrive only as `capabilities.changed`; a test that
+    /// decides from `ready` alone reads them too early. Bounded: a child that never reports
+    /// them fails the test, naming what's missing.
+    #[cfg(target_os = "macos")]
+    pub fn settle_probe(&mut self) {
+        let expected: Vec<Capability> = probed::probed()
+            .into_iter()
+            .filter(|c| c.state == media_wire::control::TrialState::Ok)
+            .collect();
+        let within = probed::settle_within();
+        if let Err(missing) = self.try_settle_probe(&expected, within) {
+            panic!("ace-media never reported, within {within:?}:\n{missing}");
+        }
+    }
+
+    /// `settle_probe` against `expected`, failing after `within` with the expected entries the
+    /// child still hasn't reported. A child that stays silent is killed at the bound, so the
+    /// blocked read ends.
+    #[cfg(target_os = "macos")]
+    pub fn try_settle_probe(
+        &mut self,
+        expected: &[Capability],
+        within: Duration,
+    ) -> Result<(), String> {
+        let family = |c: &Capability| {
+            let codec = c.codec.as_deref().unwrap_or("");
+            (c.step, codec.get(..4).unwrap_or(codec).to_owned())
+        };
+        let missing = |held: &[Capability]| -> Vec<Capability> {
+            expected
+                .iter()
+                .filter(|want| {
+                    !held.iter().any(|c| {
+                        c.backend == want.backend
+                            && family(c) == family(want)
+                            && c.state == want.state
+                            && c.hardware == want.hardware
+                    })
+                })
+                .cloned()
+                .collect()
+        };
+        let (settled, watching) = std::sync::mpsc::channel::<()>();
+        let pid = self.child.id().to_string();
+        std::thread::spawn(move || {
+            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = watching.recv_timeout(within) {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        });
+        loop {
+            let left = missing(&self.capabilities);
+            if left.is_empty() {
+                let _ = settled.send(());
+                return Ok(());
+            }
+            let Some(message) = try_read_frame(&mut self.stdout, Lane::Normal) else {
+                let left: Vec<&Capability> = left.iter().collect();
+                return Err(probed::describe(&left));
+            };
+            match message {
+                FromMedia::CapabilitiesChanged { capabilities } => self.capabilities = capabilities,
+                FromMedia::Log { .. } => {}
+                other => {
+                    let _ = settled.send(());
+                    return Err(format!(
+                        "expected capabilities.changed while the probe settles, got {other:?}"
+                    ));
+                }
+            }
+        }
     }
 
     /// Sends `init` and returns the control socket, the ingest socket and the WebSocket port.

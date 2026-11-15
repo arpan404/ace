@@ -4,6 +4,7 @@ import type {
   BrowserTab,
   BrowserTabActor,
   BrowserVideoStatus,
+  MediaAcceleration,
 } from "@ace/protocol";
 import type { SessionOptions } from "./session-options.ts";
 
@@ -25,6 +26,7 @@ export function browserState(
     annotation?: string | undefined;
     recording?: BrowserTabActor | undefined;
     video?: BrowserVideoStatus | undefined;
+    acceleration?: MediaAcceleration | undefined;
   },
 ): BrowserState {
   const tabs = options.backend.tabs;
@@ -51,6 +53,7 @@ export function browserState(
     ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),
     ...(lifecycle.video ? { video: lifecycle.video } : {}),
+    ...(lifecycle.acceleration ? { acceleration: lifecycle.acceleration } : {}),
     ...(tabs
       ? {
           ...(lifecycle.activeTabId ? { activeTabId: lifecycle.activeTabId } : {}),

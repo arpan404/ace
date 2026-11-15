@@ -174,11 +174,12 @@ describe("live video routed through ace-media", () => {
       { url: "ws://127.0.0.1:9/ingest", token: Buffer.alloc(32, 7).toString("base64"), epoch: 3 },
     ]);
     handle.encodes([spec("avc1/640"), spec("avc1/320")]);
-    expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([1, 2]);
+    // The daemon's own encodes take ids above ace-media's, which start at 0 (D1).
+    expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([2 ** 20, 2 ** 20 + 1]);
     // The producer moved: its last word on the daemon's path lets ace-media's units through.
     captures[0]?.events.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(2, true, 9)));
-    producer?.consumers.deliver(unit("m1", frame(2, false, 10)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, true, 9)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, false, 10)));
     producer?.consumers.deliver(unit("m1", frame(77, false, 11)));
     expect(e.chunks).toEqual([
       expect.objectContaining({
@@ -207,14 +208,14 @@ describe("live video routed through ace-media", () => {
     daemon?.chunk(daemonChunk("avc1/640", true, 1));
     await producer?.point(address("m1"));
     daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(1, true, 2)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 2)));
     // Back to the daemon: the encoder's fresh keyframe overtakes ace-media's last deltas.
     await producer?.point(undefined);
     expect(captures[0]?.targets.at(-1)).toBeUndefined();
     daemon?.moved?.("daemon");
     daemon?.chunk(daemonChunk("avc1/640", true, 5));
-    producer?.consumers.deliver(unit("m1", frame(1, false, 3)));
-    producer?.consumers.deliver(unit("m1", frame(1, false, 4)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 3)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 4)));
     expect(marks(e.chunks)).toEqual([1, 2, 3, 4]);
     producer?.pathEnded?.("m1", false);
     daemon?.chunk(daemonChunk("avc1/640", false, 6));
@@ -231,12 +232,12 @@ describe("live video routed through ace-media", () => {
     const daemon = captures[0]?.events;
     await producer?.point(address("m1"));
     daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(1, true, 1)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
     await producer?.point(undefined);
     daemon?.chunk(daemonChunk("avc1/640", false, 2));
     daemon?.chunk(daemonChunk("avc1/640", true, 3));
     producer?.pathEnded?.("m1", true);
-    producer?.consumers.deliver(unit("m1", frame(1, false, 9)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 9)));
     expect(marks(e.chunks)).toEqual([1, 3]);
   });
 
@@ -254,11 +255,11 @@ describe("live video routed through ace-media", () => {
     handle.pictures?.push("aGVsbG8=");
     handle.keyframe("avc1/640");
     expect(added[0]?.encodes).toEqual([
-      [{ id: 1, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
+      [{ id: 2 ** 20, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
     ]);
     expect(added[0]?.pictures).toEqual(["aGVsbG8="]);
-    expect(added[0]?.keys).toEqual([1]);
-    added[0]?.producer.consumers.deliver(unit("m1", frame(1, true, 1)));
+    expect(added[0]?.keys).toEqual([2 ** 20]);
+    added[0]?.producer.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
     expect(e.chunks.map((c) => c.encode)).toEqual(["avc1/640"]);
   });
 
@@ -314,4 +315,27 @@ describe("live video routed through ace-media", () => {
     };
     expect(mediaVideoHost(plain, media, () => ({}))).toBe(plain);
   });
+});
+
+it("ace-media's plan becomes the capture's, under ace-media's own ids", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const wants: VideoEncode[][] = [];
+  const e = events();
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+    ...e.sink,
+    want: (encodes) => void wants.push(encodes),
+  });
+  const producer = added[0]?.producer;
+  producer?.want?.([
+    { id: 0, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ]);
+  const wanted = wants[0]?.[0];
+  expect(wanted).toMatchObject({ codec: "avc1.42E033", width: 320, height: 200, fps: 15 });
+  if (!wanted) return;
+  // When the capture runs it beside the daemon's own, it is stamped with ace-media's id 0.
+  handle.encodes([spec("avc1/640"), wanted]);
+  const ids = captures[0]?.encodes[0]?.map((s) => s.id);
+  expect(ids?.[1]).toBe(0);
+  expect(ids?.[0]).not.toBe(0);
 });

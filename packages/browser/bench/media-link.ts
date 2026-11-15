@@ -123,7 +123,7 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
   const owner = {
     session: id,
     device: "bench-phone",
-    admission: { kind: "pairing", generation: 1 },
+    admission: { kind: "pairing", generation: "bench-credential" },
   } as const;
   const take = (piece: Uint8Array, ack: (sequence: number) => void) => {
     const at = clock();

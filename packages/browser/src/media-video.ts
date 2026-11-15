@@ -1,5 +1,6 @@
 import type { EgressUnit } from "@ace/media/egress";
 import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import { PathMerge } from "@ace/media/path-merge";
 import type {
   CaptureEvents,
@@ -41,6 +42,33 @@ export interface BrowserMedia {
   pictureCodecs(): readonly string[];
   /** ace-media's ingest WebSocket now, while it runs. */
   endpoint(): string | undefined;
+  /** ace-media's reports of what each source runs on (ADR 0148). */
+  acceleration?: Pick<MediaAccelerationStore, "of" | "watch"> | undefined;
+}
+
+/**
+ * The capture's ace-media report: `acceleration()` reads it, and `events.accelerated` hears each
+ * change, until the capture closes.
+ */
+function reported(
+  handle: VideoCaptureHandle,
+  media: BrowserMedia,
+  source: string,
+  events: CaptureEvents,
+): VideoCaptureHandle {
+  const store = media.acceleration;
+  if (!store) return handle;
+  const unwatch = store.watch((change) => {
+    if (change.kind === "source" && change.source === source) events.accelerated?.();
+  });
+  return {
+    ...handle,
+    acceleration: () => store.of(source),
+    close: () => {
+      unwatch();
+      handle.close();
+    },
+  };
 }
 
 type Ids = { threadId?: string; tabId?: string };
@@ -49,11 +77,24 @@ type Ids = { threadId?: string; tabId?: string };
 const holdMs = 1_000;
 let captures = 0;
 
-/** An encode's id in ace-media's frames, per capture, from 1. */
+/**
+ * The daemon's own encodes' ids start here, above ace-media's (from 0, D1), so the two plans can
+ * run side by side in one capture.
+ */
+const daemonIds = 2 ** 20;
+/** The key prefix of an encode ace-media planned, which keeps ace-media's own id. */
+const mediaKey = "media/";
+
+/** An encode's id in ace-media's frames, per capture: the daemon's from `daemonIds`. */
 class EncodeIds {
   readonly #ids = new Map<string, number>();
   readonly #keys = new Map<number, string>();
-  #next = 1;
+  #next = daemonIds;
+  /** An encode ace-media planned: its key keeps ace-media's id. */
+  pin(key: string, id: number): void {
+    this.#ids.set(key, id);
+    this.#keys.set(id, key);
+  }
   id(key: string): number {
     let id = this.#ids.get(key);
     if (id === undefined) {
@@ -209,8 +250,9 @@ async function streamed(
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) return handle;
   const encodeIds = new EncodeIds();
+  const name = `capture-${++captures}`;
   const source = media.add({
-    source: `capture-${++captures}`,
+    source: name,
     kind,
     origin: { kind },
     ...ids,
@@ -231,9 +273,25 @@ async function streamed(
       if (key !== undefined) handle.keyframe(key);
     },
     pathEnded: (path, interrupted) => merge.ended(path, interrupted),
+    // ace-media's plan for the views it delivers: the capture runs it, under ace-media's ids.
+    want: (encodes) => {
+      const planned: VideoEncode[] = encodes.map((encode) => {
+        const key = `${mediaKey}${encode.id}/${encode.codec}/${encode.width}x${encode.height}`;
+        encodeIds.pin(key, encode.id);
+        return {
+          key,
+          codec: encode.codec,
+          width: encode.width,
+          height: encode.height,
+          fps: encode.fps,
+          bitrate: encode.bitrate,
+        };
+      });
+      events.want?.(planned);
+    },
   });
   if (!source) return handle;
-  return {
+  const routed: VideoCaptureHandle = {
     encodes: (specs) => handle.encodes(encodeIds.stamp(specs)),
     keyframe: (key) => handle.keyframe(key),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
@@ -243,6 +301,7 @@ async function streamed(
       handle.close();
     },
   };
+  return reported(routed, media, name, events);
 }
 
 /**
@@ -362,8 +421,9 @@ function pictureCapture(options: {
     source?.close();
     events.ended(reason);
   };
+  const name = `capture-${++captures}`;
   source = options.media.add({
-    source: `capture-${++captures}`,
+    source: name,
     kind: options.kind,
     origin: { kind: options.kind },
     ...options.ids,
@@ -389,7 +449,7 @@ function pictureCapture(options: {
   });
   const opened = source;
   if (!opened) return undefined;
-  return {
+  const handle: VideoCaptureHandle = {
     encodes: (specs) => {
       if (!open) return;
       if (!options.canEncode(specs.map((spec) => spec.codec))) {
@@ -422,4 +482,5 @@ function pictureCapture(options: {
       opened.close();
     },
   };
+  return reported(handle, options.media, name, events);
 }

@@ -23,6 +23,7 @@ import type { MediaOwner } from "@ace/media/media-connections";
 import { framePicture } from "./frame-picture.ts";
 import type { Frame } from "./frames.ts";
 import type { VideoHost } from "@ace/browser";
+import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
@@ -46,6 +47,8 @@ export type ScreenPeer = {
    * Without it, or while ace-media doesn't serve screens, they are served here.
    */
   delivery?: { owner: () => MediaOwner | undefined; port: () => MediaDeliveryPort | undefined };
+  /** ace-media's reports of what each session's video runs on, for `ScreenState.acceleration`. */
+  acceleration?: Pick<MediaAccelerationStore, "for" | "watch"> | undefined;
 };
 /**
  * Attach only after the host transport authenticates a human device. A subscribed session's
@@ -91,8 +94,23 @@ export function screenConnection(
       peer.failed?.(error);
     },
   });
+  const accelerated = (state: ScreenState): ScreenState => {
+    const acceleration = peer.acceleration?.for("sessionId", state.sessionId);
+    return acceleration ? { ...state, acceleration } : state;
+  };
   const unwatch = manager.watch((state) => {
-    if (!closed) peer.send({ type: "screen.state", state });
+    if (!closed) peer.send({ type: "screen.state", state: accelerated(state) });
+  });
+  const unwatchAcceleration = peer.acceleration?.watch((change) => {
+    const id = change.kind === "source" ? change.subject.sessionId : undefined;
+    if (closed || id === undefined) return;
+    let state: ScreenState;
+    try {
+      state = ScreenState.parse(manager.state(id));
+    } catch {
+      return; // The session is gone; its last state said so.
+    }
+    peer.send({ type: "screen.state", state: accelerated(state) });
   });
   const unwatchEnabled = manager.watchEnabled((enabled) => {
     if (!closed) peer.send({ type: "screen.enabled", enabled });
@@ -311,7 +329,7 @@ export function screenConnection(
             }
             peer.send({
               type: "screen.state",
-              state: ScreenState.parse(manager.state(operation.sessionId)),
+              state: accelerated(ScreenState.parse(manager.state(operation.sessionId))),
             });
             if (viewer && operation.media) {
               const poster = await peer.delivery?.port()?.poster(viewer);
@@ -386,6 +404,7 @@ export function screenConnection(
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       unwatch();
+      unwatchAcceleration?.();
       unwatchEnabled();
       manager.releaseController(owner);
     },

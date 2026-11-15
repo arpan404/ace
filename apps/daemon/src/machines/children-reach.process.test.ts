@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { AgentId, ThreadId } from "@ace/protocol";
-import { STATUS_CALLS_PER_POLL, STATUS_IDS_PER_CALL } from "./child-paging.ts";
+import { defaultScheduleConfig } from "./child-schedule.ts";
 import { done, machine, message, parent, working } from "./children-test-support.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -9,6 +9,7 @@ const caller = (threadId: ThreadId) => ({
   threadId,
   agentId: AgentId.parse("agent"),
 });
+const { callsPerTurn, idsPerCall } = defaultScheduleConfig(1000, 0);
 const range = (count: number, name: (index: number) => string) =>
   Array.from({ length: count }, (_, index) => name(index));
 
@@ -31,9 +32,9 @@ it("with more than 64 children on several machines and the oldest never settling
   for (let poll = 0; poll < 4; poll++) {
     h.asked.length = 0;
     await h.fire();
-    // Each poll stays within its status calls, however many children wait.
-    expect(h.asked.length).toBeLessThanOrEqual(STATUS_CALLS_PER_POLL);
-    expect(h.asked.every((ids) => ids.length <= STATUS_IDS_PER_CALL)).toBe(true);
+    // Each poll stays within its status calls per machine, however many children wait.
+    expect(h.asked.length).toBeLessThanOrEqual(2 * callsPerTurn);
+    expect(h.asked.every((ids) => ids.length <= idsPerCall)).toBe(true);
   }
   for (const id of late) {
     expect(h.state(id), id).toBe("done");
@@ -58,7 +59,7 @@ it("five machines kept full of children, with more arriving on four, still all g
     fresh++;
     h.asked.length = 0;
     await h.fire();
-    expect(h.asked.length).toBeLessThanOrEqual(STATUS_CALLS_PER_POLL);
+    expect(h.asked.length).toBeLessThanOrEqual(5 * callsPerTurn);
   }
   expect(h.state(late)).toBe("done");
   expect(h.delivered.join("\n")).toContain("Finished on the fifth machine.");

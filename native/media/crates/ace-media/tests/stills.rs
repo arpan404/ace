@@ -27,7 +27,10 @@ fn answer(media: &mut Media) -> (FromMedia, Vec<u8>) {
             panic!("invalid frame from ace-media");
         };
         match frame.message {
-            FromMedia::SourceStatus { .. } | FromMedia::Log { .. } => continue,
+            // A trial that finished late may report at any time after `ready`.
+            FromMedia::SourceStatus { .. }
+            | FromMedia::Log { .. }
+            | FromMedia::CapabilitiesChanged { .. } => continue,
             message => return (message, frame.payload.to_vec()),
         }
     }
@@ -96,6 +99,8 @@ fn picture(width: u32, height: u32) -> Vec<u8> {
 fn a_still_of_a_jpeg_source_comes_back_as_the_payload_at_the_requested_box() {
     let mut media = Media::spawn("stills-jpeg");
     media.start();
+    #[cfg(target_os = "macos")]
+    media.settle_probe();
     open_source(&mut media, "s1", 1, 3);
     // As the daemon forwards a screencast frame: Chrome's base64 JPEG text, as received.
     media.send(
@@ -159,6 +164,7 @@ fn a_still_of_an_h264_stream_is_decoded_and_encoded_by_videotoolbox() {
 
     let mut media = Media::spawn("stills-h264");
     let (_, ingest, _) = media.start();
+    media.settle_probe();
     open_source(&mut media, "s1", 1, 3);
     let mut producer = match UnixStream::connect(&ingest) {
         Ok(socket) => socket,
@@ -232,7 +238,7 @@ fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
     );
     media.send(
         json!({ "type": "still.poster", "request": "p1", "source": "s1", "width": 390,
-                "height": 844, "deadlineMs": 2_000 }),
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
         &[],
     );
     let (size, _, jpeg) = done(&mut media);
@@ -242,7 +248,7 @@ fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
 
     media.send(
         json!({ "type": "still.poster", "request": "p2", "source": "nobody", "width": 390,
-                "height": 844, "deadlineMs": 2_000 }),
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
         &[],
     );
     match answer(&mut media) {

@@ -46,11 +46,19 @@ pub enum MediaEvent {
     Closed(String),
 }
 
+/// How long one write may take before the client counts as gone.
+pub const WRITE_LIMIT: Duration = Duration::from_secs(5);
+/// After a close from the engine, how long the close frame has before the socket is cut anyway:
+/// a client that stopped reading never holds a revocation up (250 ms, ADR 0147 §5.6).
+pub const CLOSE_GRACE: Duration = Duration::from_millis(100);
+
 /// What goes out on one client's socket.
 #[derive(Clone)]
 pub struct Outbox {
     tx: mpsc::UnboundedSender<Message>,
     queued: Arc<AtomicUsize>,
+    /// Cuts the connection whatever its writes are doing.
+    shut: Arc<tokio::sync::Notify>,
 }
 
 impl Outbox {
@@ -63,12 +71,18 @@ impl Outbox {
         self.tx.send(message).is_ok()
     }
 
+    /// Sends the close frame, and cuts the connection once it went or `CLOSE_GRACE` passed.
     pub fn close(&self, code: u16) {
         let frame = CloseFrame {
             code: CloseCode::from(code),
             reason: Utf8Bytes::from_static(""),
         };
         let _ = self.tx.send(Message::Close(Some(frame)));
+        let shut = self.shut.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(CLOSE_GRACE).await;
+            shut.notify_one();
+        });
     }
 }
 
@@ -195,10 +209,13 @@ async fn connection(
     };
     let (tx, mut rx) = mpsc::unbounded_channel();
     let queued = Arc::new(AtomicUsize::new(0));
+    let shut = Arc::new(tokio::sync::Notify::new());
     let outbox = Outbox {
         tx,
         queued: queued.clone(),
+        shut: shut.clone(),
     };
+    let own = outbox.clone();
     let (answer, answered) = oneshot::channel();
     let asked = MediaEvent::Hello {
         ticket,
@@ -215,32 +232,46 @@ async fn connection(
     socket.get_mut().lift();
     drop(waiting);
     let (mut sink, mut source) = socket.split();
-    loop {
-        tokio::select! {
-            outgoing = rx.recv() => {
-                let Some(message) = outgoing else { break };
-                let closing = matches!(message, Message::Close(_));
-                queued.fetch_sub(message.len().min(queued.load(Ordering::Acquire)), Ordering::AcqRel);
-                if sink.send(message).await.is_err() || closing {
-                    break;
-                }
+    // Writes run on their own, each bounded: a client that stops reading only ever blocks its
+    // writer, never the reader below, a close or a revocation.
+    let mut writer = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            let closing = matches!(message, Message::Close(_));
+            queued.fetch_sub(
+                message.len().min(queued.load(Ordering::Acquire)),
+                Ordering::AcqRel,
+            );
+            let sent = tokio::time::timeout(WRITE_LIMIT, sink.send(message)).await;
+            if !matches!(sent, Ok(Ok(()))) || closing {
+                return;
             }
+        }
+    });
+    let refused = loop {
+        tokio::select! {
+            _ = shut.notified() => break false,
+            _ = &mut writer => break false,
             incoming = source.next() => match incoming {
                 Some(Ok(Message::Text(text))) => {
                     if events.send(MediaEvent::Text(id.clone(), text.to_string())).await.is_err() {
-                        return;
+                        break false;
                     }
                 }
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
-                Some(Ok(Message::Binary(_))) => {
-                    // Binary after the hello is nothing a media connection takes.
-                    let _ = sink.send(refuse(close::PROTOCOL)).await;
-                    break;
-                }
-                _ => break,
+                // Binary after the hello is nothing a media connection takes.
+                Some(Ok(Message::Binary(_))) => break true,
+                _ => break false,
             },
         }
+    };
+    if refused {
+        // The writer still owns the sink: the close frame goes through it, within its grace.
+        own.close(close::PROTOCOL);
+        let _ = tokio::time::timeout(CLOSE_GRACE, &mut writer).await;
     }
+    // Every way out ends the socket (the writer's half with it) and tells the engine.
+    writer.abort();
+    drop(source);
     let _ = events.send(MediaEvent::Closed(id)).await;
 }
 

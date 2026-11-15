@@ -113,6 +113,14 @@ impl Pictures {
         self.threads.get(&token)
     }
 
+    /// The probe's findings changed: every encoder thread looks again between its commands,
+    /// and moves what a newly found hardware path improves onto it.
+    pub fn capabilities_changed(&mut self) {
+        for handle in self.threads.values() {
+            let _ = handle.commands.send(Command::Capabilities);
+        }
+    }
+
     /// The encoder's encodes; an empty list stops it, as a close does.
     pub fn configure(
         &mut self,

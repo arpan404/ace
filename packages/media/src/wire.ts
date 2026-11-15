@@ -14,7 +14,8 @@ const wellFormedJson = z.unknown().refine(wellFormed);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("pairing"), generation: sequence }),
+  /** The paired credential's generation: an opaque string (a hash), compared for equality only. */
+  z.strictObject({ kind: z.literal("pairing"), generation: id }),
   z.strictObject({ kind: z.literal("account"), account: id }),
 ]);
 const Origin = z.discriminatedUnion("kind", [
@@ -295,6 +296,8 @@ export const ToMedia = z.discriminatedUnion("type", [
     width: u32,
     height: u32,
     deadlineMs: u32,
+    /** The epochs decided clear: a poster comes only from a picture whose every epoch is in one. */
+    clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
 ]);
 export type ToMedia = z.infer<typeof ToMedia>;

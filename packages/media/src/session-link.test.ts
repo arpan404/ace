@@ -5,7 +5,7 @@ import { ToMedia, type FromMedia } from "@ace/media/wire";
 const owner = (session: string) => ({
   session,
   device: `device-${session}`,
-  admission: { kind: "pairing" as const, generation: 1 },
+  admission: { kind: "pairing" as const, generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
 });
 const opened = (connection: string, session: string): FromMedia => ({
   type: "connection.open",
