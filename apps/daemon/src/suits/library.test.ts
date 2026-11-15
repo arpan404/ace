@@ -170,6 +170,7 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "arcade-cabinet",
     "atelier-noir",
     "field-journal",
+    "field-manual",
     "glasshouse",
     "quest-journal",
     "starship-bridge",
@@ -204,6 +205,11 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   expect(Object.keys(field.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
   expect(field.css).toContain('[data-suit="field-journal"]');
   expect(Object.keys(field.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
+  // Field Manual has no backdrop, only its stamp above the UI and its empty-state drawing.
+  const manual = detail(await library.read("field-manual"));
+  expect(Object.keys(manual.sceneUrls)).toEqual(["celebration"]);
+  expect(manual.css).toContain('[data-suit="field-manual"]');
+  expect(Object.keys(manual.ornaments)).toEqual(["empty-state"]);
   // Starship Bridge serves its backdrop and its celebration, each on its own sandbox page.
   const bridge = detail(await library.read("starship-bridge"));
   expect(bridge.sceneUrls.app).toMatch(/scene\.html$/);

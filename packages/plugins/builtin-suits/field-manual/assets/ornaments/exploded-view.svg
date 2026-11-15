@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="120" viewBox="0 0 220 120" fill="none" stroke="currentColor" stroke-linejoin="round">
+  <!-- An exploded view of a fastener set: bolt, washer and nut on one centre line, with leaders and a dimension. -->
+  <path d="M8 56h204" stroke-width="0.8" stroke-dasharray="10 3 2 3" opacity="0.45"/>
+  <g stroke-width="1.4" opacity="0.8">
+    <path d="M18 40h16v32H18z"/>
+    <path d="M18 48h16M18 64h16" stroke-width="0.9"/>
+    <path d="M34 47h58v18H34z"/>
+    <path d="M58 47l4 18M64 47l4 18M70 47l4 18M76 47l4 18M82 47l4 18M88 47l4 18" stroke-width="0.7" opacity="0.7"/>
+    <path d="M118 36h5v40h-5z"/>
+    <path d="M150 42h20v28h-20z"/>
+    <path d="M150 50h20M150 62h20" stroke-width="0.9"/>
+    <path d="M150 47h-4v18h4M170 47h4v18h-4" stroke-width="0.8" opacity="0.6"/>
+  </g>
+  <g stroke-width="0.8" opacity="0.55">
+    <path d="M26 40V22l-10-8"/>
+    <path d="M120.5 36V20l10-8"/>
+    <path d="M160 42V26l10-8"/>
+    <circle cx="13" cy="11" r="5"/>
+    <circle cx="134" cy="9" r="5"/>
+    <circle cx="173" cy="15" r="5"/>
+    <path d="M34 92v-18M92 92v-18M34 88h58" />
+    <path d="M34 88l6-2.5v5zM92 88l-6-2.5v5z" fill="currentColor"/>
+    <path d="M100 56h10M178 56h10" stroke-dasharray="2 3"/>
+  </g>
+  <path d="M8 108h204" stroke-width="0.8" opacity="0.35"/>
+  <path d="M8 104v8M212 104v8" stroke-width="0.8" opacity="0.35"/>
+</svg>

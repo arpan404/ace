@@ -297,6 +297,7 @@ test.each([
   "atelier-noir/celebration",
   "field-journal",
   "field-journal/celebration",
+  "field-manual/celebration",
   "glasshouse",
   "glasshouse/celebration",
   "quest-journal",
@@ -345,6 +346,8 @@ test.each([
   ["arcade-cabinet/stage-clear", "pr-merged"],
   ["atelier-noir/celebration", "pr-merged"],
   ["field-journal/celebration", "done"],
+  ["field-manual/celebration", "done"],
+  ["field-manual/celebration", "pr-merged"],
   ["quest-journal/celebration", "done"],
 ])(
   "the shipped %s celebration plays once on %s, then says it's done well before ace's 4 s cut",

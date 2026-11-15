@@ -21,6 +21,7 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     "arcade-cabinet",
     "atelier-noir",
     "field-journal",
+    "field-manual",
     "glasshouse",
     "quest-journal",
     "starship-bridge",
@@ -51,6 +52,11 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
   expect(await readFile(join(field, "celebration.js"), "utf8")).toContain("ace.scene(");
   expect(await readdir(join(field, "assets", "fonts"))).toEqual(
     expect.arrayContaining(["Caveat-OFL.txt", "Alegreya-OFL.txt", "AlegreyaSans-OFL.txt"]),
+  );
+  const manual = join(library, "field-manual");
+  expect(await readFile(join(manual, "celebration.js"), "utf8")).toContain("ace.finish()");
+  expect(await readdir(join(manual, "assets", "fonts"))).toEqual(
+    expect.arrayContaining(["Barlow-OFL.txt", "BarlowCondensed-OFL.txt", "IBMPlexMono-OFL.txt"]),
   );
   const bridge = join(library, "starship-bridge");
   expect(await readFile(join(bridge, "celebration.js"), "utf8")).toContain("ace.finish()");
