@@ -3,6 +3,7 @@ import type { Toolkit } from "./toolkits.ts";
 import { coreTools } from "./toolsets.ts";
 import { bareToolName } from "./tool-names.ts";
 import { guideDelivery } from "./tool-delivery.ts";
+import { PublicToolError } from "./public-error.ts";
 
 /** One on-demand guide: a shipped ace skill, read whole only when a task needs it. */
 export interface AceGuide {
@@ -12,6 +13,8 @@ export interface AceGuide {
   readonly description: string;
   /** The skill body, without its frontmatter. */
   readonly body: string;
+  /** Reference files the body points to, by their path in the skill (`references/x.md`). */
+  readonly files?: Readonly<Record<string, string>>;
 }
 
 const InlineTool = z.object({
@@ -35,7 +38,8 @@ const GuideResult = z.strictObject({
  * skills (OpenCode, Cursor, Pi, ACP). Claude Code and Codex also receive them as native skills;
  * this tool returns the same text, so the always-on guidance stays short everywhere. Reading a
  * guide also adds its family's tools to a core-mode session's list, whose reload brings their
- * schemas; clients whose list never grows, and Codex, get the schemas inline instead.
+ * schemas; clients whose list never grows, and Codex, get the schemas inline instead. `file`
+ * reads one of a guide's reference files, which native skills find beside SKILL.md.
  */
 export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
   return {
@@ -49,21 +53,37 @@ export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
         riskClass: "read-only",
         description:
           "Read ace's how-to for a topic and get the names of its family's other ace tools, which join your tool list.",
-        input: z.strictObject({ topic: z.enum([first, ...rest]) }),
+        input: z.strictObject({
+          topic: z.enum([first, ...rest]),
+          file: z.string().max(120).optional(),
+        }),
         output: GuideResult,
         capability: null,
         timeoutMs: 10_000,
-        async run({ topic }, context) {
+        async run({ topic, file }, context) {
           context.signal.throwIfAborted();
           const guide = byName.get(topic);
           if (!guide) throw new Error("Guide missing");
+          const text = file === undefined ? guide.body : guide.files?.[file];
+          if (text === undefined) {
+            const named = Object.keys(guide.files ?? {});
+            throw new PublicToolError(
+              "invalid_arguments",
+              undefined,
+              undefined,
+              undefined,
+              named.length
+                ? `${topic}'s files are ${named.join(", ")}.`
+                : `${topic} has no files; call guide with the topic alone.`,
+            );
+          }
           const family = registry
             .describe(topic, context)
             .filter((tool) => !coreTools.has(bareToolName(tool.name)));
           const delivery = guideDelivery(context.listing, context.client);
           return {
             topic,
-            guide: guide.body,
+            guide: text,
             tools: family.map((tool) => tool.name),
             ...(delivery.how ? { how: delivery.how } : {}),
             ...(delivery.schemas
