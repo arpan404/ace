@@ -35,7 +35,7 @@ async function runningThread(appearance: Record<string, unknown> = {}) {
   ]);
   await app.open(`/t/${id}`);
   await waitFor(() => expect(root.getAttribute("data-suit")).toBe("party"));
-  const place = await screen.findByRole("navigation", { name: "Threads" });
+  const place = await screen.findByRole("navigation", { name: "Projects" });
   await within(place).findByRole("link", { name: /^Ship it/ });
   return {
     app,

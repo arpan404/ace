@@ -44,7 +44,7 @@ async function open(path: string) {
 
 test("the open thread's row is the one active thread row, and it moves with the thread", async () => {
   const { go } = await open("/t/thread-retry-budget");
-  const list = await screen.findByRole("list", { name: "Threads" });
+  const list = await screen.findByRole("list", { name: "Projects" });
   await waitFor(() => expect(inState("thread-row", "active", list)).toHaveLength(1));
   const first = list.querySelector('[data-part="thread-row"][data-state="active"]');
   expect(first?.getAttribute("href")).toContain("thread-retry-budget");

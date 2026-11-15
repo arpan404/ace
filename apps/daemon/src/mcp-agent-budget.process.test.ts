@@ -58,7 +58,8 @@ const reloading = new Set<ProviderKind>(["opencode", "pi"]);
  */
 const budgets: Record<ProviderKind, number> = {
   // Lowered from 2_650 when schemas were compacted and Claude preloaded only context and delegate.
-  claude: 1_550,
+  // Raised from 1_550 (measured 1_575): the make-a-suit skill line and suit_apply's deferred name.
+  claude: 1_600,
   codex: 1_150,
   // Raised from 2_650 (measured 2_661 with the wording trimmed): html_render says what its 360 px
   // layout check refuses, wait names the usage-limit hold, delegate takes another machine's
@@ -345,7 +346,7 @@ it(`a Codex session without tool search pays at most ${codexWithoutToolSearchCap
   await codex.close();
 });
 
-it("Claude's per-request ace context stays under 1,550 tokens", async () => {
+it("Claude's per-request ace context stays under 1,600 tokens", async () => {
   const agents = await session();
   const text = guidance("claude", agents.facts);
   // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.

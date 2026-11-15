@@ -224,7 +224,7 @@ test("a thread row's menu names the menu and its items", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("answered");
   await app.open("/t/thread-replay-cursor");
-  const list = await screen.findByRole("list", { name: "Threads" });
+  const list = await screen.findByRole("list", { name: "Projects" });
   fireEvent.contextMenu(within(list).getAllByRole("link")[0] as HTMLElement);
   await screen.findByRole("menu");
   await waitFor(() => expect(missing(menuScreen)).toEqual([]));

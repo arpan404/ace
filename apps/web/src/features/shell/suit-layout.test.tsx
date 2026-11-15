@@ -85,7 +85,7 @@ async function openWith(layout: Record<string, unknown>) {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-refund-tax");
   const message = await screen.findByRole("combobox", { name: "Message" });
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   await within(threads).findAllByRole("link");
   await waitFor(() => expect(document.documentElement.getAttribute("data-suit")).toBe("moved"));
   return { message, threads };
