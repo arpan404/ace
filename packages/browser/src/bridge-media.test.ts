@@ -3,25 +3,48 @@ import { expect, test } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { idleThread } from "./idle-test-support.ts";
 
-/** A delivery that serves every kind and holds the views it granted, by the id it gave. */
+/**
+ * A delivery that serves every kind and holds the views it granted, by the id it gave. `live` is
+ * what ace-media delivers: as there, a view opened for a target its connection already shows
+ * replaces that view, and a regrant opens a held view again.
+ */
 function delivery() {
   const views = new Map<string, Omit<ViewIntent, "viewer">>();
+  const live = new Set<string>();
   let ids = 0;
+  const open = (viewer: string) => {
+    const intent = views.get(viewer);
+    if (!intent) return;
+    for (const other of live) {
+      const shown = views.get(other);
+      if (shown?.connection === intent.connection && sameTarget(shown.target, intent.target))
+        live.delete(other);
+    }
+    live.add(viewer);
+  };
   const port: MediaDeliveryPort = {
     serves: () => true,
     bind: (intent) => {
       const viewer = `view-${++ids}`;
       views.set(viewer, intent);
+      open(viewer);
       return viewer;
     },
     granted: () => true,
     poster: () => Promise.resolve(undefined),
     configure: () => {},
     pause: () => {},
-    unbind: (viewer) => void views.delete(viewer),
+    regrant: open,
+    unbind: (viewer) => {
+      views.delete(viewer);
+      live.delete(viewer);
+    },
   };
-  return { port, views };
+  return { port, views, live };
 }
+
+const sameTarget = (a: ViewIntent["target"], b: ViewIntent["target"]) =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 const owner = {
   session: "main-0d8c7a3e-4b1f-4e2a-9c5d-6f7a8b9c0d1e",
@@ -130,5 +153,21 @@ test("a subscribe that fails partway leaves the thread's subscription as it was"
   // `b` was never added: once `a` and `c` leave, nothing is left.
   await client.handle(unsubscribe(a));
   await client.handle(unsubscribe("c"));
+  expect(views.size).toBe(0);
+});
+
+test("a resubscribe on the same connection that fails keeps delivering on the view it had", async () => {
+  const { bridge: client, views, live, failing } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  const [first] = live;
+  // Its new view replaced the old one in ace-media before the setup failed.
+  failing.state = true;
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  failing.state = false;
+  expect([...live]).toEqual([first]);
+  expect(views.size).toBe(1);
+  // The subscription still holds that view: leaving closes it.
+  await client.handle(unsubscribe(a));
+  expect(live.size).toBe(0);
   expect(views.size).toBe(0);
 });

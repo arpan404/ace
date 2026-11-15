@@ -543,6 +543,44 @@ fn a_late_ack_from_a_replaced_view_releases_nothing_of_its_successor() {
     );
 }
 
+/// A `viewer.open` of the browser tab `t1` on the test connection, as the daemon sends it.
+fn open_view(engine: &mut Engine, viewer: &str, issued: u64) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "viewer.open", "viewer": viewer, "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": issued, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false }),
+        &[],
+        NOW,
+    )
+}
+
+#[test]
+fn a_view_its_successor_replaced_opens_again_under_its_id_and_delivers_from_a_keyframe() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    assert!(!binaries(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW)).is_empty());
+    // A resubscribe's view replaces v1, then its setup fails in the daemon: it closes, and the
+    // daemon regrants v1.
+    open_view(&mut engine, "v2", 3);
+    send(
+        &mut engine,
+        json!({ "type": "viewer.close", "viewer": "v2" }),
+        &[],
+        NOW,
+    );
+    let reopened = open_view(&mut engine, "v1", 4);
+    assert_eq!(
+        keyframes(&reopened),
+        1,
+        "the regranted view asks for a keyframe"
+    );
+    // It waits for that keyframe, then delivers.
+    assert!(binaries(&ingest(&mut engine, 1, h264(false, 1, 1, Vec::new()), NOW)).is_empty());
+    assert!(!binaries(&ingest(&mut engine, 1, h264(true, 2, 1, Vec::new()), NOW)).is_empty());
+}
+
 #[test]
 fn a_new_encode_never_takes_an_id_whose_units_may_still_be_on_the_way() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));

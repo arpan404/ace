@@ -474,7 +474,17 @@ export function connectBrowser(
             } catch (error) {
               // Undo it all: the view granted for this subscribe, a subscription it installed,
               // and the thread's subscription as it was, capture settings included.
-              if (joined?.created) options.media?.delivery()?.unbind(joined.viewer);
+              const delivery = options.media?.delivery();
+              if (joined?.created) {
+                delivery?.unbind(joined.viewer);
+                // On the connection the subscriber had, its new view replaced the old one in
+                // ace-media: the old one opens again, so the restored subscription delivers.
+                if (
+                  left !== undefined &&
+                  before?.media.get(subscriber) === message.media?.connection
+                )
+                  delivery?.regrant(left);
+              }
               if (existing && before) {
                 Object.assign(existing, before);
                 if (before.shown)

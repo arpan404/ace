@@ -117,6 +117,15 @@ export class MediaViewers {
     if (held.path) this.#options.send({ type: "viewer.configure", viewer, viewport, audio });
   }
 
+  /**
+   * Opens a held view in ace-media again, under its id and its current intent: a subscribe that
+   * failed after its new view replaced this one there puts this one back.
+   */
+  regrant(viewer: string): void {
+    const held = this.#held.get(viewer);
+    if (held?.path !== undefined && held.producer) this.#grant(held, held.path, held.producer);
+  }
+
   pause(viewer: string, paused: boolean): void {
     if (this.#held.get(viewer)?.path)
       this.#options.send({ type: paused ? "viewer.pause" : "viewer.resume", viewer });
@@ -225,6 +234,8 @@ export type MediaDeliveryPort = {
   poster(viewer: string): Promise<MediaPosterBytes | undefined>;
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void;
   pause(viewer: string, paused: boolean): void;
+  /** Opens a held view again in ace-media, where a newer view of its target replaced it. */
+  regrant(viewer: string): void;
   unbind(viewer: string): void;
 };
 
