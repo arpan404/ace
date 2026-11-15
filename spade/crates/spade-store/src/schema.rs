@@ -148,6 +148,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::helpers::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // How far the person has read each conversation, for "finished, not seen".
+        sql: crate::seen::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

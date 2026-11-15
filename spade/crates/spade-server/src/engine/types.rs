@@ -105,6 +105,11 @@ pub enum Frame {
         /// In a group's stream, the member that waits for the person (ADR 0132).
         waiting_member: Option<spade_core::event::GroupBot>,
     },
+    /// The person marked the conversation seen up to `seq`, here or on another device. Not
+    /// stored as an event.
+    Seen {
+        seq: i64,
+    },
 }
 
 /// The open reply's text so far, for a subscriber joining mid-reply.
@@ -132,6 +137,8 @@ pub struct AgentView {
     pub state: State,
     pub status: Option<String>,
     pub last_message: Option<LastMessage>,
+    /// How far the person has seen its conversation (`None` before they first marked it).
+    pub seen: Option<i64>,
     /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
     pub waiting_for: Option<&'static str>,
     /// Question cards its conversation leaves for later (ADR 0154).

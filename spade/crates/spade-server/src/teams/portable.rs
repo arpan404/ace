@@ -183,7 +183,7 @@ pub fn import(
         Some(a) if a["kind"] == "generated" => Some(AvatarInput::Generated),
         _ => None,
     };
-    let default = engine.default_model();
+    let default = engine.new_bot_default();
     let wanted = file.model.clone().unwrap_or_else(|| default.clone());
     let input = |model: String| AgentInput {
         name: file.name.clone(),
@@ -398,5 +398,5 @@ pub fn template_model(engine: &Arc<Engine>, template: &str) -> Option<String> {
     {
         return Some(fast);
     }
-    Some(engine.default_model())
+    Some(engine.new_bot_default())
 }

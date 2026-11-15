@@ -327,8 +327,10 @@ impl Engine {
                     .into(),
             );
         }
+        let seen = self.store.seen(&agent.conversation)?;
         Ok(AgentView {
             oversight,
+            seen,
             state: activity.state,
             status,
             last_message: activity.last_message,

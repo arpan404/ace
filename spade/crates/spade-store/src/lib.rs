@@ -10,6 +10,7 @@ mod notes;
 mod oversight;
 mod routines;
 mod schema;
+mod seen;
 mod skills;
 mod teams;
 

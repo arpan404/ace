@@ -474,14 +474,14 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
             [&picture],
         )?;
         // Back to before the faces migration; the ones after it (routines' `untrusted`, the
-        // skill store, helpers) are undone so they can run again.
+        // skill store, helpers, seen cursors) are undone so they can run again.
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
-        connection.execute_batch("DROP TABLE skill_uses; DROP TABLE skills;")?;
+        connection.execute_batch("DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 4,
+            crate::schema::current_version() as i64 - 5,
         )?;
     }
     let store = Store::open(&path)?;

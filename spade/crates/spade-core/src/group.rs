@@ -4,6 +4,8 @@
 
 use crate::event::{Event, FromGroup, GroupBot, Known};
 
+pub mod files;
+
 /// Asks one run allows, the person's own included.
 pub const MOST_ASKS: usize = 8;
 /// The deepest chain in a run: person to lead (1), lead to member (2), member to member (3).
