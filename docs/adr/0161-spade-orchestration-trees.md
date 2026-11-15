@@ -44,7 +44,8 @@ comes back up is checked against facts rather than taken at a worker's word.
 2. **`bot_create {name, task, brief?, model?, tools?, connectors?, plugins?,
    budget_usd?}`** creates a bot and answers at once with its id. `task` becomes the worker's
    standing task (the cached prompt top, ADR 0126); `brief` (else `task`) is its first message,
-   which starts it. The model defaults to the orchestrator's. A call that runs again (a restart)
+   which starts it. The model defaults to the orchestrator's; a named one is chosen by routing's rules (ADR 0162
+   decision 3). A call that runs again (a restart)
    finds the bot it made, by the call's key. The orchestrator stores
    `worker_started {worker, kind: bot, conversation, name, call, budget_micros?}`; the worker's
    conversation begins with `worker_of {parent, parent_conversation, call, grants,
@@ -106,9 +107,11 @@ comes back up is checked against facts rather than taken at a worker's word.
 7. **Coordination tools.** They are offered deferred (found with `tool_search`), so a bot that
    never orchestrates pays no tokens for them:
    - `worker_message {worker, text}`: a bot worker gets it as a message (steering its open turn
-     or starting one); an ace child through ace's `agent_message`. A message written while the
-     orchestrator has untrusted content in view reaches the worker as another bot's
-     (`from_agent`), which makes the worker's turn untrusted, as for helpers' tasks.
+     or starting one); an ace child through ace's `agent_message`. Every message and brief from
+     a maker reaches the worker as another bot's (`from_agent`), never as the person's: the
+     worker's reviewer (ADR 0163) reads the person's words from the person's own messages up
+     the tree, root first, and a maker's message never starts a new run of refusals, so a bot
+     can't hand a refused step to a worker and have it read as the person's request.
    - `worker_status {worker?}`: the subtree as the API shows it (8), for one worker or all.
    - `worker_result {worker}`: the worker's verified outcome from its events: goal, criteria,
      items with their evidence and each evidence call's stored result, and the latest verdict.
@@ -130,7 +133,14 @@ comes back up is checked against facts rather than taken at a worker's word.
 
 9. **Lifecycle.** Stop on an orchestrator stops its whole subtree: its bot workers'
    replies, their helpers, wakes and queued briefs, and its ace children through
-   `agent_cancel`. Stop on a worker stops only that worker and what is under it.
+   `agent_cancel`. Stop on a worker stops only that worker and what is under it. `bot_create`
+   is admitted under the record lock Stop stores its marker under, and refused for stopped
+   work; Stop sweeps the subtree again after its marker. An ace child being cancelled stores
+   `worker_reported {state: stopping}` first and reads `stopping`, counted as running, while
+   Spade retries `agent_cancel` (also after a restart) until ace answers without an error;
+   only then is it stored `stopped`. A call approved before a tool was taken from the worker or
+   any bot above it is refused where it would run. Rollup counts every ace child that may still
+   run (working or stopping) as working.
 
 10. **Concurrency is a setting, not a rule.** Any number of workers can exist. At most
     `SPADE_WORKERS_AT_ONCE` (default 32) of one orchestrator's bot workers work at once. A
@@ -139,7 +149,7 @@ comes back up is checked against facts rather than taken at a worker's word.
 
 11. **Deleting a bot with workers asks.** `DELETE /v1/agents/{id}` answers `409 {"error",
     "workers": n}` while the bot has workers. `?workers=stop` stops its subtree and keeps the
-    stopped workers as top-level bots. `?workers=keep` keeps them working as top-level bots.
+    stopped workers as top-level bots. `?workers=keep` keeps them working as top-level bots; a queued one starts on its brief then.
     Either way each worker stores `worker_detached {by}`, its subtree budget ends, and its
     grants are no longer capped by a parent. Nothing the person made is deleted without being
     named.

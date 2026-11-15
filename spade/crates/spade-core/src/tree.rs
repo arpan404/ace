@@ -84,8 +84,8 @@ pub struct Link {
     /// Its first message, delivered when it may start (it waits queued until then).
     #[serde(default)]
     pub brief: String,
-    /// The maker had untrusted content in view when it wrote the brief: the brief reaches the
-    /// worker as another bot's message, which makes its turn untrusted.
+    /// The maker had untrusted content in view when it wrote the brief. Kept as a record: every
+    /// brief reaches the worker as its maker's message, which makes its turn untrusted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
 }
