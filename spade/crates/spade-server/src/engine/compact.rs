@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use spade_core::Event;
 use spade_core::compaction::{self, Plan};
-use spade_core::context::{self, SYSTEM};
+use spade_core::context;
 use spade_core::event::Known;
 use spade_models::Message;
 
@@ -87,14 +87,14 @@ async fn run(
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let images = engine.images_for(model);
+    let system = engine.system_for(id);
     let mut prompt =
-        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
-            .session(id);
+        context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
         images: Vec::new(),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry_for(id));
+    let carried = compaction::carried_out(events, plan.keep_from, &engine.registry_for(id));
     // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
     // It waits while only calls still running stand in the way.
     let hint = super::ledger::turn_hint(events);
@@ -117,7 +117,7 @@ async fn run(
         }
     };
     // Facts drawn from untrusted text are only suggested to the person, never kept straight.
-    let untrusted = spade_core::memory::untrusted_span(events, &engine.tools.registry_for(id));
+    let untrusted = spade_core::memory::untrusted_span(events, &engine.registry_for(id));
     if let Some(summary) = &written {
         super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
     }

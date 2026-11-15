@@ -85,6 +85,8 @@ impl Engine {
         // Only what the stop names: another worker may have closed the reply and started a new
         // one, with jobs of its own, since the stop was stored.
         let stopped_jobs = jobs::stop_named(self, id, reply.as_deref(), &jobs);
+        // The helpers those jobs ran stop too, and no queued one starts (ADR 0152).
+        self.stop_helpers(id, reply.as_deref(), &jobs);
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
         if !turn && reply.is_some() && stored.is_ok() {
             self.spawn_turn(id);
@@ -148,7 +150,15 @@ impl Engine {
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let transcript = Transcript::fold(&self.load(id)?);
+        let events = self.load(id)?;
+        let transcript = Transcript::fold(&events);
+        if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
+            // A helper's call (ADR 0152): the answer reaches the helper.
+            self.answer_for_helper(id, &events, call_id, allowed, always)?;
+            drop(_order);
+            self.announce(id);
+            return Ok(());
+        }
         if !transcript.awaiting.iter().any(|c| c == call_id) {
             return Err(AnswerError::NotAwaiting);
         }

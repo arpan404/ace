@@ -200,6 +200,9 @@ impl Engine {
         prompt: &Prompt,
         hint: Hint,
     ) -> Result<Admission, Refusal> {
+        // A helper's calls are its bot's (ADR 0152): held and paid for under the bot.
+        let owner = self.helper_of(conversation).map(|h| h.parent);
+        let conversation = owner.as_deref().unwrap_or(conversation);
         let reserved = estimate(self.models.price(model), prompt, hint);
         // Held across the check and the reservation, so two calls cannot both see room.
         let mut flight = self.in_flight.lock().unwrap_or_else(|p| p.into_inner());

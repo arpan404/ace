@@ -17,9 +17,17 @@ pub const MAX_STEPS: u32 = 30;
 pub const MAX_COST_MICROS: u64 = 1_000_000;
 
 /// Why a helper stopped at its step limit.
-pub const OVER_STEPS: &str = "the helper reached its limit of 30 steps";
+pub fn over_steps(steps: u32) -> String {
+    format!("the helper reached its limit of {steps} steps")
+}
+
 /// Why a helper stopped at its spending limit.
-pub const OVER_COST: &str = "the helper reached its spending limit of $1.00";
+pub fn over_cost(micros: u64) -> String {
+    format!(
+        "the helper reached its spending limit of {}",
+        crate::oversight::dollars(micros)
+    )
+}
 
 /// The profile used when the call names none.
 pub const DEFAULT_PROFILE: &str = "general";
@@ -227,6 +235,36 @@ fn with_partial(said: &str, text: &str) -> String {
     }
 }
 
+/// What the helpers whose results the open turn read spent, in micros: those delivered since the
+/// previous reply closed (one that opened this turn included).
+pub fn cost_in_turn(events: &[Event]) -> u64 {
+    let start = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .unwrap_or(0);
+    let from = events[..start]
+        .iter()
+        .rposition(|e| {
+            matches!(
+                e,
+                Event::Known(
+                    Known::ReplyFinished { .. }
+                        | Known::ReplyStopped { .. }
+                        | Known::ReplyFailed { .. }
+                        | Known::ReplyInterrupted { .. }
+                )
+            )
+        })
+        .map_or(0, |at| at + 1);
+    events[from..]
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::JobFinished { cost_micros, .. }) => *cost_micros,
+            _ => None,
+        })
+        .sum()
+}
+
 /// What the helper spent on its steps, in micros.
 pub fn spent(events: &[Event]) -> u64 {
     events
@@ -348,14 +386,18 @@ mod tests {
             Event::Known(Known::ReplyFailed {
                 reply: "r1".into(),
                 text: "Half way".into(),
-                error: OVER_COST.into(),
+                error: over_cost(MAX_COST_MICROS),
                 kind: crate::event::FailureKind::Cap,
                 endpoint: None,
             }),
         ];
         let end = ended(&failed).expect("ended");
         assert!(end.is_error);
-        assert!(end.content.contains(OVER_COST), "{}", end.content);
+        assert!(
+            end.content.contains("spending limit of $1.00"),
+            "{}",
+            end.content
+        );
         assert!(end.content.contains("Half way"), "{}", end.content);
         let stopped = vec![
             Event::reply_started("r1", "m"),

@@ -73,6 +73,26 @@ pub(super) fn start(
     if !engine.record_unless_stopped(id, reply, &started)? {
         return Ok(Started::Stopped);
     }
+    let handle = spawn(engine, id, reply, job, name, arguments);
+    jobs.insert(
+        job.to_owned(),
+        Job::Running {
+            reply: reply.to_owned(),
+            handle,
+        },
+    );
+    Ok(Started::Running)
+}
+
+/// Runs the job's tool and stores its end, as a task; the caller puts it in the live map.
+fn spawn(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    arguments: Value,
+) -> tokio::task::AbortHandle {
     let task = {
         let (engine, id, job, name, reply) = (
             engine.clone(),
@@ -108,6 +128,12 @@ pub(super) fn start(
                 keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
             let content = super::calls::trim(&output.content, engine.limits.result_chars);
+            // A helper's spend shows with the turn that reads its result (ADR 0152).
+            let cost_micros = if name == spade_core::helper::TOOL {
+                engine.helper_cost(&id, &job)
+            } else {
+                None
+            };
             let finished = Event::Known(Known::JobFinished {
                 job: job.clone(),
                 name,
@@ -115,8 +141,8 @@ pub(super) fn start(
                 is_error: output.is_error,
                 uncertain: output.uncertain,
                 files: output.files.to_vec(),
-                untrusted: false,
-                cost_micros: None,
+                untrusted: output.untrusted,
+                cost_micros,
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
@@ -128,14 +154,7 @@ pub(super) fn start(
             engine.announce(&id);
         })
     };
-    jobs.insert(
-        job.to_owned(),
-        Job::Running {
-            reply: reply.to_owned(),
-            handle: task.abort_handle(),
-        },
-    );
-    Ok(Started::Running)
+    task.abort_handle()
 }
 
 /// Cancels every job of a conversation whose agent is being deleted. Nothing is stored: the
@@ -155,6 +174,10 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
     let reads_only = tool.def().risk == Risk::Read;
+    // A helper keeps to its own step and spending limits (ADR 0152), and may wait on the person.
+    if name == spade_core::helper::TOOL {
+        return tool.run(key, arguments).await;
+    }
     match tokio::time::timeout(engine.limits.job_timeout, tool.run(key, arguments)).await {
         Ok(output) => output,
         Err(_) => {
@@ -268,6 +291,11 @@ fn take_named(
 pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
     let events = engine.load(id)?;
     for job in Transcript::fold(&events).jobs {
+        // A helper's work is all in its events: its job runs again and waits for it (ADR 0152).
+        if engine.store.helper_for_job(id, &job)?.is_some() {
+            reattach(engine, id, &events, &job);
+            continue;
+        }
         let finished = Event::Known(Known::JobFinished {
             name: job_name(&events, &job),
             job,
@@ -281,6 +309,29 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
         engine.deliver(id, &finished)?;
     }
     Ok(())
+}
+
+/// Runs a helper's job again after a restart: it finds its helper and waits for its end.
+fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str) {
+    let reply = events.iter().find_map(|event| match event {
+        Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => Some(reply.clone()),
+        _ => None,
+    });
+    let arguments = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
+            _ => None,
+        })
+        .flatten()
+        .find(|call| call.id == job)
+        .map(|call| call.arguments.clone())
+        .unwrap_or(Value::Null);
+    let reply = reply.unwrap_or_default();
+    let live = engine.live(id);
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    let handle = spawn(engine, id, &reply, job, spade_core::helper::TOOL, arguments);
+    jobs.insert(job.to_owned(), Job::Running { reply, handle });
 }
 
 fn job_name(events: &[Event], job: &str) -> String {
