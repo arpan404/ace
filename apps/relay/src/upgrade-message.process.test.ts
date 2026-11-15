@@ -94,6 +94,14 @@ it("with every early reservation taken, the entry is left unread and the client 
 it.each([
   ["an entry over 4 KiB", () => UPGRADE_MESSAGE.prefix + "A".repeat(UPGRADE_MESSAGE.entryBytes)],
   ["an entry that isn't canonical base64url", () => `${UPGRADE_MESSAGE.prefix}A`],
+  ["a 1-byte entry", () => entry(new Uint8Array(1))],
+  ["a 31-byte entry", () => entry(new Uint8Array(31))],
+  ["a 33-byte entry", () => entry(new Uint8Array(33))],
+  [
+    "a non-canonical 32-byte encoding",
+    () => `${entry(first).slice(0, -1)}${entry(first).endsWith("B") ? "C" : "B"}`,
+  ],
+  ["an empty entry", () => UPGRADE_MESSAGE.prefix],
   ["two entries", () => `${entry(first)}, ${entry(new Uint8Array(32).fill(5))}`],
 ])("%s isn't taken: the client may send early, as step 1 lets it", async (_name, bad) => {
   const h = await relayWithHost();

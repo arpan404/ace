@@ -128,3 +128,21 @@ it("an older client that offers no upgrade message gets step 1 as before", async
   const client = await host.client();
   expect(client.socket.protocol).toBe(EARLY_FRAME.subprotocol);
 }, 15_000);
+
+it.each([
+  ["1 byte", new Uint8Array(1)],
+  ["31 bytes", new Uint8Array(31)],
+  ["33 bytes", new Uint8Array(33)],
+])(
+  "an entry of %s isn't taken: the client may send early, as step 1 lets it",
+  async (_name, bytes) => {
+    const host = await rawDaemon();
+    const client = await host.client(bytes);
+    expect(client.socket.protocol).toBe(EARLY_FRAME.subprotocol);
+    // Nothing was held for it: a frame it sends is its early frame.
+    await client.send(new Uint8Array([5]));
+    const joined = await host.join(await host.offer());
+    expect([...(await joined.next())]).toEqual([5]);
+  },
+  15_000,
+);

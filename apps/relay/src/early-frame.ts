@@ -40,6 +40,10 @@ export const EARLY_FRAME = {
 export const UPGRADE_MESSAGE = {
   subprotocol: "ace.v2",
   prefix: "ace.x1.",
+  /** The XX first message: the client's ephemeral public key, with no payload. */
+  messageBytes: 32,
+  /** Its canonical unpadded base64url length. */
+  messageCharacters: 43,
   /** The longest entry, prefix included. */
   entryBytes: 4096,
   /** The longest `Sec-WebSocket-Protocol` header a relay takes the entry from. */
@@ -48,9 +52,10 @@ export const UPGRADE_MESSAGE = {
 
 /**
  * The first message an upgrade carries for the relay to take, or undefined: only when it offers
- * `UPGRADE_MESSAGE.subprotocol` and exactly one entry within the size limits that decodes as
- * unpadded base64url. Called only after room is reserved, so an upgrade without room never has
- * its entry decoded.
+ * `UPGRADE_MESSAGE.subprotocol` and exactly one entry that can be an XX first message, 32 bytes
+ * in canonical unpadded base64url (43 characters). Anything else is as if no entry were offered:
+ * no `ace.v2`, nothing kept or forwarded. Called only after room is reserved, so an upgrade
+ * without room never has its entry decoded.
  */
 export function upgradeMessage(header: string): Uint8Array | undefined {
   if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
@@ -60,9 +65,14 @@ export function upgradeMessage(header: string): Uint8Array | undefined {
   const [entry] = entries;
   if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
   const encoded = entry.slice(UPGRADE_MESSAGE.prefix.length);
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length % 4 === 1) return undefined;
+  if (encoded.length !== UPGRADE_MESSAGE.messageCharacters || !/^[A-Za-z0-9_-]+$/.test(encoded))
+    return undefined;
   const bytes = Uint8Array.from(Buffer.from(encoded, "base64url"));
-  // Canonical only: the bytes must encode back to the same text.
-  if (!bytes.length || Buffer.from(bytes).toString("base64url") !== encoded) return undefined;
+  // Canonical only: exactly the first message's length, encoding back to the same text.
+  if (
+    bytes.length !== UPGRADE_MESSAGE.messageBytes ||
+    Buffer.from(bytes).toString("base64url") !== encoded
+  )
+    return undefined;
   return bytes;
 }
