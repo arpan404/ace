@@ -1,5 +1,6 @@
 import type { ForgePrDetail, ForgeStackLayer } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrSection } from "./pr-section.tsx";
 import { PrStackChip } from "./pr-stack-chip.tsx";
 import { usePrStackQuery } from "./pr-stack-query.ts";
@@ -63,12 +64,12 @@ export function PrStackSummary(props: {
       {query.error ? (
         <p className="text-ui text-muted-foreground">{readFailureText(query.error)}</p>
       ) : layers?.length ? (
-        <ol className="relative">
+        <ol {...part("list", undefined, "stack")} className="relative">
           <span aria-hidden className="absolute top-3 bottom-3 left-2.5 w-px bg-border" />
           {layers.map((layer) => {
             const current = layer.number === ref.number;
             return (
-              <li key={layer.number}>
+              <li key={layer.number} {...part("list-row", current && "active")}>
                 <button
                   type="button"
                   aria-current={current ? "page" : undefined}

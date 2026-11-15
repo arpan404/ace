@@ -69,18 +69,26 @@ function SidebarProvider(
 
 /**
  * shadcn's desktop offcanvas gap and panel; mobile remains the app's lazy Sheet. While shown,
- * `edge` (a resize handle) takes the rail's place on the right edge; hidden, the rail brings it back.
+ * `edge` (a resize handle) takes the rail's place on the inner edge; hidden, the rail brings it
+ * back. `side` is the window edge it sits on (a Suit may put it on the right); the wrapper lays
+ * the gap out in that order, and the DOM order (so focus order) never changes.
  */
-function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: string | undefined }) {
+function Sidebar(props: {
+  children: ReactNode;
+  edge?: ReactNode;
+  side?: "left" | "right" | undefined;
+  className?: string | undefined;
+}) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
+  const right = props.side === "right";
   return (
     <div
       className="group/sidebar peer text-sidebar-foreground"
       data-state={state}
       data-collapsible={collapsed ? "offcanvas" : ""}
       data-variant="sidebar"
-      data-side="left"
+      data-side={right ? "right" : "left"}
       data-slot="sidebar"
     >
       <div
@@ -93,7 +101,10 @@ function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: str
           // No edge of its own: the canvas beside it draws the one hairline where they meet.
           // Hiding and showing move the panel on transform alone: the gap beside it changes width
           // once, so the main column lays out one time instead of on every frame.
-          "absolute inset-y-0 left-0 z-10 flex w-(--sidebar-width) transition-transform duration-(--motion-base) ease-sheet group-data-[collapsible=offcanvas]/sidebar:-translate-x-full motion-reduce:transition-none",
+          "absolute inset-y-0 z-10 flex w-(--sidebar-width) transition-transform duration-(--motion-base) ease-sheet motion-reduce:transition-none",
+          right
+            ? "right-0 group-data-[collapsible=offcanvas]/sidebar:translate-x-full"
+            : "left-0 group-data-[collapsible=offcanvas]/sidebar:-translate-x-full",
           props.className,
         )}
       >
@@ -102,11 +113,13 @@ function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: str
           data-sidebar="sidebar"
           aria-hidden={collapsed || undefined}
           inert={collapsed}
-          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar"
+          // Under a Suit's scene the frame's own veil (applied-backdrop.tsx) already sits behind the
+          // rail at the Suit's reveal, so this panel lets it through instead of hiding the scene.
+          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar [[data-suit-scene]_&]:bg-transparent"
         >
           {props.children}
         </div>
-        {collapsed || !props.edge ? <SidebarRail /> : props.edge}
+        {collapsed || !props.edge ? <SidebarRail side={props.side} /> : props.edge}
       </div>
     </div>
   );
@@ -131,8 +144,9 @@ function SidebarTrigger(
 }
 
 /** Canonical rail: pointer toggle; the normal-sized trigger handles keyboard navigation. */
-function SidebarRail() {
+function SidebarRail(props: { side?: "left" | "right" | undefined }) {
   const { toggleSidebar } = useSidebar();
+  const right = props.side === "right";
   return (
     <button
       type="button"
@@ -142,7 +156,12 @@ function SidebarRail() {
       tabIndex={-1}
       onClick={toggleSidebar}
       title="Toggle Sidebar"
-      className="absolute inset-y-0 -right-4 z-20 hidden w-4 -translate-x-1/2 cursor-w-resize after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 hover:after:bg-sidebar-border md:flex group-data-[collapsible=offcanvas]/sidebar:-right-2 group-data-[collapsible=offcanvas]/sidebar:translate-x-0 group-data-[collapsible=offcanvas]/sidebar:cursor-e-resize group-data-[collapsible=offcanvas]/sidebar:after:left-full hover:group-data-[collapsible=offcanvas]/sidebar:bg-sidebar [-webkit-app-region:no-drag]"
+      className={cn(
+        "absolute inset-y-0 z-20 hidden w-4 after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 hover:after:bg-sidebar-border md:flex hover:group-data-[collapsible=offcanvas]/sidebar:bg-sidebar [-webkit-app-region:no-drag]",
+        right
+          ? "-left-4 translate-x-1/2 cursor-e-resize group-data-[collapsible=offcanvas]/sidebar:-left-2 group-data-[collapsible=offcanvas]/sidebar:translate-x-0 group-data-[collapsible=offcanvas]/sidebar:cursor-w-resize group-data-[collapsible=offcanvas]/sidebar:after:left-0"
+          : "-right-4 -translate-x-1/2 cursor-w-resize group-data-[collapsible=offcanvas]/sidebar:-right-2 group-data-[collapsible=offcanvas]/sidebar:translate-x-0 group-data-[collapsible=offcanvas]/sidebar:cursor-e-resize group-data-[collapsible=offcanvas]/sidebar:after:left-full",
+      )}
     />
   );
 }

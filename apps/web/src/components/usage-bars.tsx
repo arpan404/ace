@@ -66,6 +66,8 @@ export function UsageLink(props: { current: boolean }) {
       to="/usage"
       aria-label="Usage"
       aria-current={props.current ? "page" : undefined}
+      data-state={props.current ? "active" : undefined}
+      data-part="rail-item"
       className={railPlaceClass}
       data-slot="rail-usage"
     >

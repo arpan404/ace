@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Tone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import type { SuitPartState } from "@/lib/suit-part.ts";
 import { glyphTones, type GlyphState } from "@ace/ui-core";
 
 /*
@@ -135,6 +136,20 @@ function Drawing(props: { state: GlyphState }) {
 
 const liveStates = new Set<GlyphState>(["working", "background", "subagents"]);
 
+/** Each glyph's Suit state (docs/design/suit-parts.md); none for a stop or an idle dot. */
+const suitStates: Record<GlyphState, SuitPartState | undefined> = {
+  working: "working",
+  background: "working",
+  subagents: "working",
+  "needs-you": "waiting",
+  queued: "waiting",
+  paused: "waiting",
+  done: "done",
+  failed: "failed",
+  stopped: undefined,
+  idle: undefined,
+};
+
 /**
  * A status glyph in its tone's colour (`data-tone`; the state's own tone unless `tone` names
  * another). `still` holds a live state (the work waits, or its facts are stale): it keeps its
@@ -154,7 +169,9 @@ export function StatusGlyph(props: {
   return (
     <span
       data-slot="status-glyph"
-      data-state={props.state}
+      data-glyph={props.state}
+      data-part="status-icon"
+      data-state={suitStates[props.state]}
       data-tone={props.tone ?? glyphTones[props.state]}
       {...(live && !props.still ? { "data-live": "" } : {})}
       {...(props.label ? { role: "img", "aria-label": props.label } : { "aria-hidden": true })}

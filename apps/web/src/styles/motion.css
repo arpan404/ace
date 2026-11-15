@@ -15,10 +15,11 @@
  * live state is shown by still marks. `bun run check:ui` refuses any other `infinite` animation.
  */
 :root {
-  --motion-fast: 120ms;
-  --motion-base: 200ms;
-  --motion-slow: 320ms;
-  --motion-exit: 140ms;
+  /* A Suit scales every duration by `--motion-scale` (theme/suits/suit-css.ts). */
+  --motion-fast: calc(120ms * var(--motion-scale, 1));
+  --motion-base: calc(200ms * var(--motion-scale, 1));
+  --motion-slow: calc(320ms * var(--motion-scale, 1));
+  --motion-exit: calc(140ms * var(--motion-scale, 1));
 
   /* Calm deceleration for colour and layout-ish moves. */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);

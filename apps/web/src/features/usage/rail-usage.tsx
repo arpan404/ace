@@ -54,6 +54,8 @@ export function UsagePlace(props: { current: boolean }) {
             to="/usage"
             aria-label={usage.rail.label}
             aria-current={props.current ? "page" : undefined}
+            data-state={props.current ? "active" : undefined}
+            data-part="rail-item"
             className={railPlaceClass}
             data-slot="rail-usage"
           />

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { toolchainRow, toolWords } from "@ace/ui-core";
 import { toolchainNames, useToolchains } from "@/features/diagnostics/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 type ToolId = Toolchain["id"];
 
@@ -77,6 +78,7 @@ function ToolRow(props: { tool: Toolchain; fix: ReactNode }) {
                   href={installer.href}
                   target="_blank"
                   rel="noreferrer"
+                  {...part("link")}
                   className="text-link focus-ring hover:underline"
                 >
                   {installer.label}

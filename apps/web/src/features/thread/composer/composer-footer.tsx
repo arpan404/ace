@@ -38,6 +38,7 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
     // Clicking the footer's empty space writes in the message, as the input's own area does.
     <div
       data-slot="composer-footer"
+      data-part="composer-toolbar"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target !== event.currentTarget) return;

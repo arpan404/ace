@@ -73,7 +73,9 @@ test("a working row shows its time beside its blue working icon and no animated 
   // The grey icon beside the elapsed time.
   expect(mark.querySelector("[data-icon]")?.getAttribute("data-tone")).toBe("working");
   expect(within(mark).getByText(/^\d+[smh]( \d+m)?$/)).toBeTruthy();
-  expect(row.querySelector("[data-live], .fx-live-dot, [data-state], .spin-ring")).toBeNull();
+  expect(
+    row.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph], .spin-ring"),
+  ).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Working");
 });
 

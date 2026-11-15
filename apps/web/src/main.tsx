@@ -4,6 +4,7 @@ import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
 import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { suitsOffForSession } from "./theme/suits/suits-off.ts";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import {
@@ -69,6 +70,7 @@ const environment = {
   }),
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
+  suitsOff: suitsOffForSession(location.search, session),
 };
 // Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`),
 // asked before the first render so a reload after a Windows switch starts in the right scheme.

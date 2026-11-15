@@ -318,7 +318,7 @@ export function PullRequestsPage(props: {
     </>
   );
   return (
-    <Screen title="Pull requests" namedByPanel>
+    <Screen title="Pull requests" namedByPanel page="pulls">
       <ListFrame
         kind="pulls"
         address={listAddress}

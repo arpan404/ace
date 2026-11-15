@@ -64,7 +64,7 @@ export function OpenFolderScreen(props: { folder: string }) {
 
   const name = folderName(props.folder);
   return (
-    <Screen title="New thread" subtitle={name}>
+    <Screen page="new-thread" title="New thread" subtitle={name}>
       {failure ? (
         <EmptyState
           icon={failure.denied ? LockSimpleIcon : FolderSimpleIcon}

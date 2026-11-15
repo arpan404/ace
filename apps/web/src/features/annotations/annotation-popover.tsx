@@ -5,6 +5,7 @@ import type { ImageSource } from "@/components/attachment-format.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { useOpenAfterMount } from "@/lib/pending-open.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { changeSummary } from "./annotation-words.ts";
 import type { AnnotationItem, DraftAnnotationsState } from "./draft-annotations.ts";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
@@ -52,7 +53,11 @@ export function AnnotationList(props: {
           align="start"
           className="w-[min(22rem,calc(100vw-2rem))] p-1"
         >
-          <ul aria-label="Annotations" className="max-h-80 overflow-y-auto">
+          <ul
+            {...part("list", undefined, "annotations")}
+            aria-label="Annotations"
+            className="max-h-80 overflow-y-auto"
+          >
             {annotations.items.map((item) => (
               <Row
                 key={item.annotation.id}
@@ -87,7 +92,7 @@ function Row(props: {
       ? "Open its page in the Browser to edit it"
       : undefined;
   return (
-    <li className="flex items-start gap-2.5 rounded-md p-2">
+    <li {...part("list-row")} className="flex items-start gap-2.5 rounded-md p-2">
       <Thumbnail item={props.item} threadId={props.threadId} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">

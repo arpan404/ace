@@ -152,6 +152,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       toggleFullScreen: () => call("window.action", "fullscreen"),
       close: () => call("window.action", "close"),
       state: () => call("window.state"),
+      /** This window's page as a JPEG, for a Suit's live check. */
+      capture: (request: RequestOf<"window.capture">) => call("window.capture", request),
       onChange: (listener: (value: EventOf<"window.changed">) => void) =>
         subscribe("window.changed", listener),
     },

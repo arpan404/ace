@@ -111,7 +111,7 @@ test.each([
     expect(row.querySelector(`[data-icon="${icon}"]`)?.getAttribute("data-tone")).toBe(
       icon === "agents" ? "waiting" : icon,
     );
-    expect(row.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+    expect(row.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]")).toBeNull();
     // The short status word is gone; the time takes its place beside the icon.
     for (const gone of ["Waiting", "Background · 1", "Working"])
       expect(within(row).queryByText(gone, { exact: true })).toBeNull();

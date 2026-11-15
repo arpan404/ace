@@ -37,6 +37,10 @@ export function TabContent(props: {
         id={tabDomId(tab.key, "panel")}
         aria-labelledby={tabDomId(tab.key, "tab")}
         hidden={!active}
+        // The tab's content in the Suit contract; its kind ("changes", "terminal", …) as the variant.
+        data-part="panel-body"
+        data-state={active ? "active" : undefined}
+        data-variant={tab.kind}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
         <Activity mode={active ? "visible" : "hidden"}>

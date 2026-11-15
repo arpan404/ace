@@ -129,6 +129,25 @@
           sheet.textContent = boot.css;
           document.head.append(sheet);
           root.setAttribute("data-theme", String(boot.theme));
+          // The Suit applied last (src/theme/suits): its rules in boot.css match data-suit.
+          // `?suit=off` turns Suits off for the session (src/theme/suits/suits-off.ts).
+          const suitId = boot.suit && boot.suit.summary && boot.suit.summary.id;
+          let suitsOff = false;
+          try {
+            const asked = new URLSearchParams(location.search).get("suit");
+            if (asked === "off") sessionStorage.setItem("ace.suits-off", "1");
+            else if (asked === "on") sessionStorage.removeItem("ace.suits-off");
+            suitsOff = sessionStorage.getItem("ace.suits-off") === "1" || asked === "off";
+          } catch {
+            suitsOff = new URLSearchParams(location.search).get("suit") === "off";
+          }
+          const suitOn = typeof suitId === "string" && !suitsOff;
+          if (suitOn) {
+            root.setAttribute("data-suit", suitId);
+            // A Suit with one scheme runs only in it; its own density wins over the device's.
+            if (boot.suitScheme) boot.mode = boot.suitScheme;
+            if (boot.suitDensity) boot.density = boot.suitDensity;
+          }
           if (boot.density) root.setAttribute("data-density", String(boot.density));
           if (typeof boot.transcriptPx === "number")
             root.style.setProperty("--transcript-size", boot.transcriptPx + "px");

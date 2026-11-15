@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { WorkHeading } from "@/components/work-heading.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { useBackLabel } from "@/components/back-label.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
@@ -28,7 +29,7 @@ export function PrPageHeader(props: {
   const backLabel = useBackLabel("Pull requests");
   const blocking = useBlockingItems(detail);
   return (
-    <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4">
+    <header {...part("pr-header")} className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4">
       <WorkHeading
         back={props.onBack && { label: backLabel, onBack: props.onBack }}
         title={<PrTitle actions={actions} condensed={false} page />}

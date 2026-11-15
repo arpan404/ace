@@ -59,9 +59,11 @@ function ThreadPlace(props: {
         search={last.search}
         aria-label={`${props.label}${asks.replace(" ·", ",")}`}
         aria-current={props.current ? "page" : undefined}
+        data-state={props.current ? "active" : undefined}
         // The link marks itself current when it points at the open page: only an exact match,
         // so Threads' last New thread never claims New chat's.
         activeOptions={exactMatch}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <Icon icon={props.icon} size={20} active={props.current} />
@@ -85,7 +87,10 @@ export function AppRail(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
   /** Spade's place, which knows when an approval waits; where it goes is the rail's. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
+  /** A Suit merged the rail into the sidebar: its places run as a row along the panel's top. */
+  merged?: boolean | undefined;
 }) {
+  const merged = props.merged === true;
   const current = useRailPlace();
   const signals = usePlaceSignals();
   const threads = useLastPlace(current === "home", "/new");
@@ -97,9 +102,15 @@ export function AppRail(props: {
     <nav
       aria-label="App"
       data-slot="rail"
-      className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
+      data-part="rail"
+      data-variant={merged ? "merged" : undefined}
+      className={
+        merged
+          ? "no-scrollbar flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-2"
+          : "flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
+      }
     >
-      <TooltipSide value="right">
+      <TooltipSide value={merged ? "bottom" : "right"}>
         <ThreadPlace
           label="Projects"
           icon={FolderSimpleIcon}
@@ -123,7 +134,12 @@ export function AppRail(props: {
         ) : (
           <SpadeComingSoon />
         )}
-        <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
+        <span
+          aria-hidden
+          className={
+            merged ? "mx-1.5 h-5 w-px shrink-0 bg-border" : "my-1.5 h-px w-5 shrink-0 bg-border"
+          }
+        />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
           <Tip key={view.id} label={view.label} {...(view.shortcut && { shortcut: view.shortcut })}>
@@ -131,6 +147,8 @@ export function AppRail(props: {
               to={view.to}
               aria-label={view.label}
               aria-current={current === view.id ? "page" : undefined}
+              data-state={current === view.id ? "active" : undefined}
+              data-part="rail-item"
               className={railPlaceClass}
             >
               <Icon icon={view.icon} size={20} active={current === view.id} />
@@ -145,6 +163,8 @@ export function AppRail(props: {
             to="/settings"
             aria-label="Settings"
             aria-current={current === "settings" ? "page" : undefined}
+            data-state={current === "settings" ? "active" : undefined}
+            data-part="rail-item"
             className={railPlaceClass}
           >
             <Icon icon={GearSixIcon} size={20} active={current === "settings"} />
@@ -163,6 +183,7 @@ export function SpadeComingSoon() {
       <span
         role="img"
         aria-label="Spade, coming soon"
+        data-part="rail-item"
         className={`${railPlaceClass} cursor-default`}
       >
         <SpadeMark size={20} />
@@ -183,6 +204,8 @@ export function SpadePlace(props: { current: boolean; last: Pick<Place, "to" | "
         search={props.last.search}
         aria-label="Spade"
         aria-current={props.current ? "page" : undefined}
+        data-state={props.current ? "active" : undefined}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <SpadeMark size={20} />

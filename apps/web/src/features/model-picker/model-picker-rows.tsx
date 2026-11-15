@@ -16,6 +16,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SignInButton } from "@/features/sign-in/index.ts";
 
 /*
@@ -115,6 +116,11 @@ export function ModelRow(props: {
         <div
           role="option"
           id={props.id}
+          {...part(
+            "menu-item",
+            model.unavailable ? "disabled" : props.current && "checked",
+            "option",
+          )}
           aria-selected={props.current}
           aria-disabled={model.unavailable ? true : undefined}
           data-disabled={model.unavailable ? "" : undefined}
@@ -198,6 +204,7 @@ export function LegacyToggle(props: {
     <div
       role="option"
       id={props.id}
+      {...part("menu-item", props.expanded ? "open" : "closed", "submenu")}
       aria-selected={false}
       aria-expanded={props.expanded}
       aria-controls={props.controls}
@@ -297,6 +304,7 @@ export function PickerEmpty(props: { query: string; favorites: boolean }) {
   return (
     <div
       role="status"
+      {...part("empty-state", undefined, "inline")}
       className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center"
     >
       {props.favorites && !props.query.trim() ? (

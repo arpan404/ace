@@ -13,6 +13,7 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SessionCard } from "./session-card.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
@@ -73,6 +74,7 @@ export function LiveSessions(props: {
     return <p className="py-2 text-sm text-muted-foreground">No live sessions.</p>;
   return (
     <ul
+      {...part("list", undefined, "sessions")}
       aria-label="Live sessions"
       className={
         props.compact
@@ -141,6 +143,7 @@ export function Permissions(props: { use: ComputerUse }) {
   const recheck = (
     <button
       type="button"
+      {...part("link", use.pending && "disabled")}
       className="text-link focus-ring rounded-xs hover:underline disabled:opacity-40"
       disabled={use.pending}
       onClick={() => void use.refreshPermissions()}

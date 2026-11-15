@@ -130,6 +130,7 @@ export function TabStrip(props: {
         ref={scroller}
         role="tablist"
         aria-label={props.label}
+        data-part="tabs"
         style={{
           maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 24px" : "black, black 0px"}, ${edges.right ? "black calc(100% - 24px), transparent" : "black 100%, black"})`,
         }}

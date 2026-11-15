@@ -19,6 +19,10 @@ export interface InboxRowTarget {
   back: string;
 }
 
+/** The notification's subject as a Suit variant: `pull-request`, `issue`, `check-suite`. */
+const subjectVariant = (type: string) =>
+  type.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase() || undefined;
+
 /** GitHub's reason as it says it in the list: "review requested", "ci activity". */
 const reasonWords = (reason: string) => reason.replace(/[_-]+/g, " ").toLowerCase();
 
@@ -74,6 +78,9 @@ export function InboxRow(props: {
       forge={row.repository.forge}
       last={props.last}
       selected={props.selected}
+      part="list-row"
+      state={row.unread ? "unread" : undefined}
+      variant={subjectVariant(row.type)}
       menu={
         <>
           {row.unread && <MenuItem onClick={() => props.onWrite("read")}>Mark as read</MenuItem>}

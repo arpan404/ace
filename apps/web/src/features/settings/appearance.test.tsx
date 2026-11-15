@@ -119,7 +119,7 @@ test("the mode cards preview whichever theme is on, System in both schemes", asy
 test("only the active theme is a checked radio, and choosing another moves it", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
-  const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const group = screen.getByRole("radiogroup", { name: "Look" });
   const checked = () =>
     within(group)
       .getAllByRole("radio")
@@ -155,7 +155,7 @@ test("ace is the default theme, and its accent is the ink: Send and focus take t
 
 test("Settings offers the six themes with ace first, each previewed in its own tokens", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
-  const group = await screen.findByRole("radiogroup", { name: "Theme" });
+  const group = await screen.findByRole("radiogroup", { name: "Look" });
   const radios = within(group).getAllByRole("radio");
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "ace",
@@ -181,7 +181,7 @@ test("Settings offers the six themes with ace first, each previewed in its own t
 test("theme cards preview the scheme on screen and redraw when the mode changes", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
-  const group = screen.getByRole("radiogroup", { name: "Theme" });
+  const group = screen.getByRole("radiogroup", { name: "Look" });
   const drawn = () =>
     within(group)
       .getAllByRole("radio")

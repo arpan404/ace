@@ -25,6 +25,7 @@ import { normalizeDaemonKey } from "@/features/automation-data/index.ts";
 import { describeWhen, localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useAutomationControls } from "./use-automation-controls.ts";
 import { useAutomation } from "@/features/automation-data/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** The message it sends, as the thread shows the person's: a tailless bubble. */
 const promptBubble =
@@ -42,7 +43,7 @@ export function AutomationScreen(props: { id: string }) {
   const daemonKey = normalizeDaemonKey(url);
   if (!entry)
     return (
-      <Screen title="Automation" namedByPanel>
+      <Screen page="automation" title="Automation" namedByPanel>
         {pending ? (
           <div className={cn(readingColumn, "pt-6")}>
             <LoadingRegion label="automation" className="flex flex-col gap-3">
@@ -112,6 +113,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
   const scroller = useScrollToEnd();
   return (
     <Screen
+      page="automation"
       title={automation.title}
       namedByPanel
       menu={
@@ -148,11 +150,16 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
     >
       <div className="flex h-full min-h-0 flex-col">
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto pb-8">
-          <div className={readingColumn}>
+          <div {...part("page-body")} className={readingColumn}>
             {/* The app header already names it; one pinned line says when it runs next, with the switch. */}
-            <header className="sticky top-0 z-10 bg-background pt-4 pb-2">
-              <h2 className="sr-only">{automation.title}</h2>
-              <div className="flex min-h-10 items-center gap-3 rounded-lg border border-border px-3 py-1.5 text-ui text-muted-foreground">
+            <header {...part("page-header")} className="sticky top-0 z-10 bg-background pt-4 pb-2">
+              <h2 {...part("page-title")} className="sr-only">
+                {automation.title}
+              </h2>
+              <div
+                {...part("card", undefined, "schedule")}
+                className="flex min-h-10 items-center gap-3 rounded-lg border border-border px-3 py-1.5 text-ui text-muted-foreground"
+              >
                 <p className="min-w-0 flex-1 truncate">
                   {describeWhen(automation.trigger, localTimeZone())} ·{" "}
                   <span className="text-foreground">
@@ -175,7 +182,12 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
               </div>
             </header>
             <div className="mt-6 flex justify-end">
-              <div aria-label="Prompt" role="group" className={promptBubble}>
+              <div
+                aria-label="Prompt"
+                role="group"
+                {...part("card", undefined, "prompt")}
+                className={promptBubble}
+              >
                 {automation.prompt}
               </div>
             </div>
