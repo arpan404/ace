@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { CatalogMenu } from "./catalog-menu.tsx";
 import { controllerOf } from "./controller-label.tsx";
@@ -36,7 +37,7 @@ const platforms: readonly { value: PlatformFilter; label: string }[] = [
 
 function Section(props: { label: string; count?: number; children: ReactNode }) {
   return (
-    <section aria-label={props.label} className="flex flex-col gap-1.5">
+    <section aria-label={props.label} {...part("page-section")} className="flex flex-col gap-1.5">
       <h3 className="flex items-baseline gap-1.5 px-2 text-ui font-medium text-muted-foreground">
         {props.label}
         {props.count !== undefined && (
@@ -111,7 +112,10 @@ export function DevicesTab(props: { threadId: string }) {
   const searching = query.trim() !== "" || platform !== "all";
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className={cn("flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-2", toolbarEdge)}>
+      <div
+        {...part("filter-bar")}
+        className={cn("flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-2", toolbarEdge)}
+      >
         <div ref={search} className="min-w-0 flex-1">
           <SearchField
             label="Search devices"
