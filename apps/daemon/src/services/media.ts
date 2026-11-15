@@ -7,8 +7,8 @@ import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
 import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
-import type { MediaPosterBytes, ViewIntent, ViewViewport } from "@ace/media/media-viewers";
-import { platformRouteCapabilities, type SourceKind } from "@ace/media/routes";
+import type { MediaDeliveryPort } from "@ace/media/media-viewers";
+import { platformRouteCapabilities } from "@ace/media/routes";
 import { MediaRuntime } from "@ace/media/runtime";
 import {
   legacyMediaSettings,
@@ -54,20 +54,12 @@ function findBinary(): string | undefined {
  * `media.delivery` is `auto`. Every call answers at once, so a subscribe never waits on
  * ace-media longer than its poster's deadline.
  */
-export type DaemonDelivery = {
-  /** Whether ace-media delivers this kind's viewers now (setting, health and route). */
-  serves(kind: SourceKind): boolean;
-  connect(owner: MediaOwner): MediaConnectGrant;
+export type DaemonDelivery = MediaDeliveryPort & {
+  connect(owner: MediaOwner): Promise<MediaConnectGrant>;
   sessionStarted(session: string): void;
   sessionEnded(session: string): void;
   /** One round trip measured on a main session, with the bytes queued to it. */
   sample(session: string, rttMs: number, backlogBytes: number): void;
-  bind(intent: ViewIntent): boolean;
-  granted(viewer: string): boolean;
-  poster(viewer: string): Promise<MediaPosterBytes | undefined>;
-  configure(viewer: string, viewport: ViewViewport, audio: boolean): void;
-  pause(viewer: string, paused: boolean): void;
-  unbind(viewer: string): void;
 };
 
 /** The daemon's ace-media as its producers see it. */
@@ -158,27 +150,21 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   });
 
   const delivery = (live: MediaRuntime): DaemonDelivery => ({
-    // Frames must be in ace-media for it to deliver them: the producer streams there.
-    serves: (kind) => {
-      const route = live.routes.routes()[kind];
-      return route.deliverer === "ace-media" && route.producer === "ace-media";
-    },
+    ...live.delivery(),
     connect: (owner) =>
       settings.delivery === "auto"
         ? live.connections.connect(owner)
-        : { ok: false, code: "unavailable", message: "ace-media isn't serving viewers." },
+        : Promise.resolve({
+            ok: false,
+            code: "unavailable",
+            message: "ace-media isn't serving viewers.",
+          }),
     sessionStarted: (session) => live.links.started(session),
     sessionEnded: (session) => {
       live.links.ended(session);
       void live.connections.sessionClosed(session);
     },
     sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
-    bind: (intent) => live.viewers.bind(intent),
-    granted: (viewer) => live.viewers.granted(viewer),
-    poster: (viewer) => live.viewers.poster(viewer),
-    configure: (viewer, viewport, audio) => live.viewers.configure(viewer, viewport, audio),
-    pause: (viewer, paused) => live.viewers.pause(viewer, paused),
-    unbind: (viewer) => live.viewers.unbind(viewer),
   });
 
   return {

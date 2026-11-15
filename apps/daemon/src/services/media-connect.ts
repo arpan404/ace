@@ -70,12 +70,12 @@ export function createMediaConnectSession(context: SocketContext): SocketService
         delivery.sessionStarted(context.sessionId);
         started = true;
       }
-      reply({
-        type: "media.connect.result",
-        requestId: request.requestId,
-        result: delivery.connect(owner),
+      return delivery.connect(owner).then((result) => {
+        if (context.connected())
+          reply({ type: "media.connect.result", requestId: request.requestId, result });
+        else if (result.ok) void delivery.sessionEnded(context.sessionId);
+        return true;
       });
-      return true;
     },
     close() {
       context.options.mediaDelivery?.()?.sessionEnded(context.sessionId);

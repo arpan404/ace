@@ -27,6 +27,8 @@ function harness(port = 41_000) {
         return Promise.resolve("answered");
       },
       directPort: () => port,
+      need: () => () => {},
+      sleep: () => Promise.resolve(),
     },
     issue: new MediaIssue(),
     now: () => now,
@@ -52,36 +54,36 @@ const laptop: MediaOwner = {
   admission: { kind: "pairing", generation: 1 },
 };
 
-function granted(result: ReturnType<MediaConnections["connect"]>) {
+function granted(result: Awaited<ReturnType<MediaConnections["connect"]>>) {
   if (!result.ok) throw new Error(`refused: ${result.code}`);
   return result;
 }
 
-test("a connection's ticket goes to ace-media as the grant's payload, single use and 30 s long", () => {
+test("a connection's ticket goes to ace-media as the grant's payload, single use and 30 s long", async () => {
   const { connections, sent } = harness();
-  const grant = granted(connections.connect(phone("a")));
+  const grant = granted(await connections.connect(phone("a")));
   expect(grant.url).toBe("ws://127.0.0.1:41000/media");
   expect(grant.expiresAt).toBe(1_000_000 + 30_000);
   const [ticket] = sent;
   expect(ticket?.message).toMatchObject({ type: "media.ticket", connection: grant.connection });
   expect(Buffer.from(ticket?.payload ?? []).toString("base64url")).toBe(grant.ticket);
   // Every connection gets its own id and ticket.
-  const other = granted(connections.connect(phone("a")));
+  const other = granted(await connections.connect(phone("a")));
   expect(other.connection).not.toBe(grant.connection);
   expect(other.ticket).not.toBe(grant.ticket);
 });
 
-test("no connection is made while ace-media isn't serving viewers", () => {
-  expect(harness(0).connections.connect(phone("a"))).toMatchObject({
+test("no connection is made while ace-media isn't serving viewers", async () => {
+  expect(await harness(0).connections.connect(phone("a"))).toMatchObject({
     ok: false,
     code: "unavailable",
   });
 });
 
-test("a subscribe binds only a connection of its own session", () => {
+test("a subscribe binds only a connection of its own session", async () => {
   const { connections, sent } = harness();
-  const mine = granted(connections.connect(phone("a")));
-  const theirs = granted(connections.connect(laptop));
+  const mine = granted(await connections.connect(phone("a")));
+  const theirs = granted(await connections.connect(laptop));
   const view = {
     viewer: "v",
     source: "path-1",
@@ -101,9 +103,9 @@ test("a subscribe binds only a connection of its own session", () => {
   expect(open).toMatchObject({ connection: mine.connection, owner: phone("a") });
 });
 
-test("every grant and revocation carries the next number of one issue sequence", () => {
+test("every grant and revocation carries the next number of one issue sequence", async () => {
   const { connections, sent, revoked } = harness();
-  const grant = granted(connections.connect(phone("a")));
+  const grant = granted(await connections.connect(phone("a")));
   connections.view("a", grant.connection, {
     viewer: "v",
     source: "p",
@@ -123,8 +125,8 @@ test("every grant and revocation carries the next number of one issue sequence",
 
 test("a closed session closes its connections on the priority lane, and only its own", async () => {
   const { connections, revoked } = harness();
-  const a = granted(connections.connect(phone("a")));
-  granted(connections.connect(phone("b")));
+  const a = granted(await connections.connect(phone("a")));
+  granted(await connections.connect(phone("b")));
   await connections.sessionClosed("a");
   expect(revoked).toEqual([
     { type: "connection.close", id: "id-1", connection: a.connection, reason: "session-closed" },
@@ -133,19 +135,19 @@ test("a closed session closes its connections on the priority lane, and only its
   expect([...connections.sessions()]).toEqual(["b"]);
 });
 
-test("after a revocation nothing more is minted for its owner, and a pairing's stays", () => {
+test("after a revocation nothing more is minted for its owner, and a pairing's stays", async () => {
   const { connections, advance } = harness();
-  const held = granted(connections.connect(phone("a")));
+  const held = granted(await connections.connect(phone("a")));
   void connections.revoke("phone", { kind: "pairing", generation: 1 });
   expect(connections.owned("a", held.connection)).toBeUndefined();
-  expect(connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
+  expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
   advance(60_000);
-  expect(connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
+  expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
   // The device paired again: a new generation is a new credential.
-  expect(connections.connect(phone("c", 2)).ok).toBe(true);
+  expect((await connections.connect(phone("c", 2))).ok).toBe(true);
 });
 
-test("a lapsed account admission blocks only until its sessions have closed", () => {
+test("a lapsed account admission blocks only until its sessions have closed", async () => {
   const { connections, advance } = harness();
   const account: MediaOwner = {
     session: "a",
@@ -153,11 +155,11 @@ test("a lapsed account admission blocks only until its sessions have closed", ()
     admission: { kind: "account", account: "acct" },
   };
   void connections.revoke("phone", { kind: "account", account: "acct" });
-  expect(connections.connect(account).ok).toBe(false);
+  expect((await connections.connect(account)).ok).toBe(false);
   // The pairing of the same device was never the account's.
-  expect(connections.connect(phone("p")).ok).toBe(true);
+  expect((await connections.connect(phone("p"))).ok).toBe(true);
   advance(accountBlockMs + 1);
-  expect(connections.connect({ ...account, session: "later" }).ok).toBe(true);
+  expect((await connections.connect({ ...account, session: "later" })).ok).toBe(true);
 });
 
 const producer = (threadId: string): IngestProducer => ({
@@ -171,7 +173,7 @@ const producer = (threadId: string): IngestProducer => ({
   keyframe: () => {},
 });
 
-test("a view follows its producer to each new id in ace-media and goes with its connection", () => {
+test("a view follows its producer to each new id in ace-media and goes with its connection", async () => {
   const h = harness();
   const live: { producer: IngestProducer; path: string }[] = [];
   const viewers = new MediaViewers({
@@ -184,7 +186,7 @@ test("a view follows its producer to each new id in ace-media and goes with its 
     id: () => "poster-1",
     schedule: () => () => {},
   });
-  const grant = granted(h.connections.connect(phone("a")));
+  const grant = granted(await h.connections.connect(phone("a")));
   const tab = producer("t1");
   const intent: ViewIntent = {
     viewer: "v1",
@@ -211,4 +213,39 @@ test("a view follows its producer to each new id in ace-media and goes with its 
   );
   viewers.live(tab, "path-3");
   expect(h.sent.filter((s) => s.message.type === "viewer.open")).toHaveLength(2);
+});
+
+test("a connect starts ace-media, waits for its listener, and keeps it running while held", async () => {
+  let needs = 0;
+  let port: number | undefined;
+  const connections = new MediaConnections({
+    port: {
+      send: () => true,
+      revoke: () => Promise.resolve("answered"),
+      directPort: () => port,
+      need: () => {
+        needs++;
+        return () => void needs--;
+      },
+      // ace-media's listener comes up while the connect waits.
+      sleep: () => {
+        port = 41_001;
+        return Promise.resolve();
+      },
+    },
+    issue: new MediaIssue(),
+    now: () => 0,
+    randomBytes: (length) => new Uint8Array(length).fill(1),
+    id: () => "id",
+  });
+  const grant = await connections.connect(phone("a"));
+  expect(grant).toMatchObject({ ok: true, url: "ws://127.0.0.1:41001/media" });
+  expect(needs).toBe(1);
+  if (!grant.ok) return;
+  connections.received({
+    type: "connection.closed",
+    connection: grant.connection,
+    reason: "client-closed",
+  });
+  expect(needs).toBe(0);
 });
