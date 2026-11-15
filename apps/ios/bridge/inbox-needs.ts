@@ -29,9 +29,7 @@ import { RequestAnswer, requestResolution } from "./thread-requests.ts";
 /** Rows and the needs-you run show this many requests per thread; the count says the rest. */
 export const shownPerThread = 8;
 /** Interaction pages read per thread before giving up on finding every pending request. */
-// Pages hold at most 64 KiB of entries (the daemon's reply bound), so eight cover what four
-// 128 KiB pages did.
-const pageBudget = 8;
+const pageBudget = 4;
 const pageSize = 50;
 /** Newest first: everything before the end of time. */
 const newest = Number.MAX_SAFE_INTEGER;

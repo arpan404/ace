@@ -1,7 +1,6 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
 import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
-import { pageReplyBytes } from "./reply-bounds.ts";
 
 const active = `CASE
  WHEN collection='agents' THEN json_extract(value,'$.origin')='root' OR json_extract(value,'$.status.state') IN ('starting','working','blocked','unresponsive')
@@ -141,11 +140,7 @@ export class EntityWindow {
         return { ...page, collection, ...this.entries(thread, collection, before, limit) };
     }
   }
-  /**
-   * At most 200 entries, the most a page holds, and at most `pageReplyBytes` of them unless one
-   * entry alone is more: a page never holds an urgent message up for long (`reply-bounds.ts`).
-   * Readers go on from `entitiesBefore`.
-   */
+  /** At most 200 entries, the most a page holds, and at most 128 KiB unless one entry is more. */
   private entries<C extends EntityCollection>(
     thread: Pick<Thread, "id">,
     collection: C,
@@ -166,7 +161,7 @@ export class EntityWindow {
       most + 1,
     )) {
       const size = Buffer.byteLength(String(row.value));
-      if (entries.length >= most || (entries.length && bytes + size > pageReplyBytes)) {
+      if (entries.length >= most || (entries.length && bytes + size > 131072)) {
         more = true;
         break;
       }

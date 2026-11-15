@@ -13,7 +13,7 @@ import XCTest
     func testContinueOnCarriesTheThreadToTheOtherMachineAndOpensItThere() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.joined(separator: ",")]
-        app.launch()
+        app.launchWithArguments()
         let source = "ios-spike-host-\(ports[0])", target = "ios-spike-host-\(ports[1])", name = "studio-\(ports[1])"
         let row = "thread.\(source).ios-done"
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))

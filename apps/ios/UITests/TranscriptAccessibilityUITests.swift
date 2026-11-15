@@ -12,7 +12,7 @@ import XCTest
     func testScrollingUpALongTranscriptStaysResponsiveAndReturnsToItsEnd() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         let row = app.buttons["thread.ios-reading"]
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
             .waitForExistence(timeout: 25))
@@ -52,7 +52,7 @@ import XCTest
         // totals to this test, attached below.
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--perf-probe", "--perf-log"]
-        app.launch()
+        app.launchWithArguments()
         // Attached however the test ends, a hang or a failed wait included.
         addTeardownBlock { @MainActor in
             let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")

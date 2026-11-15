@@ -148,7 +148,7 @@ windows, turn steps, the snapshot window (1 MiB each) and entity pages are not b
 yet: a page smaller than an item would show it reduced, so they need the same reading on and a
 whole-item read first.
 
-### Whole-reply bound and entity pages (2026-11-15)
+### Whole-reply bound (2026-11-15)
 
 - An `item.raw` reply's ceiling (`itemRawReplyBytes`, 72 KiB) is on the whole reply as sent,
-  envelope included; entity pages hold at most 64 KiB of entries unless one entry alone is more.
+  envelope included.
