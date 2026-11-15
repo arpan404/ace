@@ -61,7 +61,7 @@ async function homeWithLinkedPrs() {
     facts.message("root", "ask", "user", "Ship it"),
   ]);
   await app.open("/new");
-  const place = await screen.findByRole("navigation", { name: "Threads" });
+  const place = await screen.findByRole("navigation", { name: "Projects" });
   const row = await within(place).findByRole("link", { name: /^Linked pull requests/ });
   return { history, row };
 }

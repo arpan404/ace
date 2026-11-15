@@ -1,5 +1,5 @@
 import type { Automation } from "@ace/protocol";
-import { ClockIcon, TrashIcon } from "@phosphor-icons/react";
+import { ClockIcon, TrashIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useThreadMeta } from "@ace/client-react";
 import { useLayoutEffect, useRef, useState } from "react";

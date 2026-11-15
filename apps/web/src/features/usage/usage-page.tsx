@@ -1,4 +1,4 @@
-import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon } from "@ace/icons";
 import {
   catalogModelIds,
   catalogModelNames,

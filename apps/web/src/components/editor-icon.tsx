@@ -1,4 +1,4 @@
-import { FileCodeIcon } from "@phosphor-icons/react";
+import { FileCodeIcon } from "@ace/icons";
 import { useState, type ReactNode } from "react";
 import { useEditorAppIcon } from "@/lib/editors.ts";
 import { cn } from "@/lib/cn.ts";

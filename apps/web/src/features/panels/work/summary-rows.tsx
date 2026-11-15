@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core";
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import type { BackgroundTask, Interaction, ProviderKind } from "@ace/protocol";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import type { KeyboardEvent, ReactNode } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";

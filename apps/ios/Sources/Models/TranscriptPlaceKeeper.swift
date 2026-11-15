@@ -10,6 +10,9 @@ import CoreGraphics
 ///   row appearing elsewhere never freezes a stale place.
 /// - A turn-key jump holds the turn it asked for, refreshed to where it lands, until the next
 ///   scroll or a displacement.
+/// - A focused open's row (`TranscriptFocusLanding`) owns the place while it lands: nothing is
+///   captured, refreshed or put back meanwhile. Once shown, it is held where it landed, like a
+///   landed jump.
 /// - A held row displaced while the feed is still is put back. While a scroll runs the
 ///   correction is owed, not dropped, and runs once the scroll ends; an animation that never
 ///   reports its end counts as ended after `animationLimit`. A new gesture drops what's owed.
@@ -20,6 +23,8 @@ struct TranscriptPlaceKeeper: Sendable {
         var held: TranscriptHeldAnchor?
         /// The header's height over the viewport's top.
         var inset: CGFloat
+        /// A focus is landing and owns the place until its row has been shown.
+        var focusLanding = false
         /// Reading away from the end with no jump re-aiming and no session restore pending.
         var mayCapture: Bool
         /// Correction budget left, no VoiceOver, not following, no session restore pending.
@@ -44,6 +49,8 @@ struct TranscriptPlaceKeeper: Sendable {
         case phase(Phase)
         /// The feed is scrolling, with an animation, to put this row at the top.
         case jumped(String)
+        /// A focused open's row has been shown: hold it where it is.
+        case focusLanded(String)
         /// The feed put the held row back itself (rows changed under it): check where it lands.
         case placedHeldRow
         /// Time passed with nothing else to report: the fallback for an animation that never ends.
@@ -99,6 +106,10 @@ struct TranscriptPlaceKeeper: Sendable {
             owed = false
             follow = .jump(id, landed: false)
             step.hold(id, top: 0)
+        case .focusLanded(let id):
+            owed = false
+            follow = .jump(id, landed: true)
+            if let top = frames.top(id, inset: step.facts.inset) { step.hold(id, top: top) }
         case .placedHeldRow:
             follow = nil
             owed = true
@@ -132,6 +143,7 @@ struct TranscriptPlaceKeeper: Sendable {
 
     /// The held anchor follows the settled place it tracks.
     private func refresh(_ step: inout Step) {
+        guard !step.facts.focusLanding else { return }
         switch follow {
         case .drag:
             guard step.facts.mayCapture, let id = frames.topRow(inset: step.facts.inset),
@@ -151,7 +163,7 @@ struct TranscriptPlaceKeeper: Sendable {
         guard let held = step.held, let top = frames.top(held.rowID, inset: step.facts.inset),
             TranscriptRowPlacement.drift(top: top, target: held.top) != nil else { owed = false; return }
         guard phase == .idle else { owed = true; return }
-        guard step.facts.mayCorrect else { owed = false; return }
+        guard step.facts.mayCorrect, !step.facts.focusLanding else { owed = false; return }
         step.actions.append(.place(rowID: held.rowID, top: held.top))
         // Check again where the correction lands.
         owed = true

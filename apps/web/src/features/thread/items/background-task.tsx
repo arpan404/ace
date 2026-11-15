@@ -1,5 +1,5 @@
 import { useClient, useIntentSender, useItem, useTask } from "@ace/client-react";
-import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
+import { StopIcon, TerminalIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";

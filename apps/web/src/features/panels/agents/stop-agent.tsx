@@ -2,7 +2,7 @@ import { useClient, useThreadStore } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
 import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning, type StopFence } from "@ace/ui-core";
-import { StopIcon } from "@phosphor-icons/react";
+import { StopIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";

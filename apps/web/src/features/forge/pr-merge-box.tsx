@@ -6,7 +6,7 @@ import {
   HourglassMediumIcon,
   XIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import {
   can,
   formatAgo,

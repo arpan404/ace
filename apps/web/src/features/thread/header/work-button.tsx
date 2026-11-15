@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { CirclesThreeIcon } from "@phosphor-icons/react";
+import { CirclesThreeIcon } from "@ace/icons";
 import { Suspense, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";

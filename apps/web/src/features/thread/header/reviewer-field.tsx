@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { parseReviewers } from "@ace/ui-core";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 

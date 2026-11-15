@@ -9,7 +9,7 @@ import {
   MagnifyingGlassIcon,
   StarIcon,
   WarningCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";

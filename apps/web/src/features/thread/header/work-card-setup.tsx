@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { InfoIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { InfoIcon, WarningCircleIcon } from "@ace/icons";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";

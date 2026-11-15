@@ -161,7 +161,7 @@ struct ReadingHold: Sendable {
             guard let row else { return 200 }
             return 300 + row.text.utf8.count + (row.detail?.utf8.count ?? 0)
         case .itemText(_, _, _, let edit, let row):
-            return 300 + edit.append.utf8.count + row.text.utf8.count
+            return 300 + edit.append.utf8.count + (row?.text.utf8.count ?? 0)
         case .block(_, _, _, let row):
             guard let row else { return 200 }
             return 500 + row.items.count * 50

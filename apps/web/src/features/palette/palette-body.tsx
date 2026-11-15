@@ -6,7 +6,7 @@ import {
   LightningIcon,
   MagnifyingGlassIcon,
   PaletteIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useParams } from "@tanstack/react-router";
 import { useClient } from "@ace/client-react";
 import { matchRanges } from "@ace/ui-core/command-rank";

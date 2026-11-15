@@ -6,7 +6,7 @@ import {
   splitSpadeModel,
   type SpadeEndpoint,
 } from "@ace/ui-core/spade-chat";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { useState } from "react";
 import { Input } from "@/components/ui/input.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";

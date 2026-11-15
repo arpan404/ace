@@ -4,7 +4,7 @@ import {
   SpeakerHighIcon,
   SpeakerSlashIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { readJson, writeJson } from "@ace/ui-core";
 import * as z from "zod/mini";
 import { useEffect, useRef, useState, type PointerEvent } from "react";

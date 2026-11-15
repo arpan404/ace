@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
-const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
+const threadList = () => screen.queryByRole("complementary", { name: "Projects" });
 /** A button at the left of the window's top bar, where back, forward and the sidebar toggle sit. */
 const inTopBar = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
 
@@ -99,7 +99,7 @@ test("⌘\\ hides the sidebar and the header offers to bring it back", async () 
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/");
-  await screen.findByRole("complementary", { name: "Threads" });
+  await screen.findByRole("complementary", { name: "Projects" });
   expect(screen.queryByRole("button", { name: "Show sidebar" })).toBeNull();
 
   await userEvent.keyboard("{Meta>}\\{/Meta}");

@@ -1,4 +1,4 @@
-import { KeyIcon } from "@phosphor-icons/react";
+import { KeyIcon } from "@ace/icons";
 import { Tip } from "@/components/ui/tooltip.tsx";
 
 /** The CLI owns the key; ace shows only the reported sign-in method. */

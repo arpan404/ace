@@ -1,7 +1,7 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { CaretDownIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, FunnelSimpleIcon } from "@ace/icons";
 import { useMemo } from "react";
 import {
   Menu,

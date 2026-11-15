@@ -10,7 +10,7 @@ import {
   MoonIcon,
   PauseIcon,
   WarningIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { limitContext, modelName, queueNotice, type QueueNotice as Notice } from "@ace/ui-core";
 import { Dot } from "@/components/ui/dot.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

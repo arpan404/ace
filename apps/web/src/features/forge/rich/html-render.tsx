@@ -1,5 +1,5 @@
 // oxlint-disable react/no-array-index-key -- HTML nodes have no identity; position is it.
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { createElement, useContext, type ReactNode } from "react";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import { blockRhythm } from "@/components/markdown/rhythm.ts";

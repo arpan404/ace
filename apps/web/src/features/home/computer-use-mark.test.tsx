@@ -11,7 +11,7 @@ test("a thread's row names the Mac apps its agent is using, and the mark goes wh
   const scenario = coldStartReplay();
   app.play(scenario).step();
   await app.open("/");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = await screen.findByRole("navigation", { name: "Projects" });
   const row = await within(nav).findByRole("link", { name: new RegExp(scenario.thread.title) });
   expect(within(row).queryByRole("img", { name: /An agent is using/ })).toBeNull();
 

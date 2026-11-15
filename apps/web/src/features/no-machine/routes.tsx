@@ -25,10 +25,10 @@ function SettingsFrame(props: { children: ReactNode }) {
 }
 
 const root = createRootRoute({ component: NoMachineShell });
-/** Threads, as the app's Threads view frames it. */
+/** Projects, as the app's Projects view frames it. */
 function ThreadsPlace() {
   return (
-    <ViewFrame label="Threads" place="threads">
+    <ViewFrame label="Projects" place="threads">
       <NoMachineThreads />
     </ViewFrame>
   );
@@ -80,7 +80,7 @@ const routeTree = root.addChildren([
 
 /**
  * The app's places with no machine. Any other address (a thread, a machine's settings page)
- * lands on Threads, which says to add a machine.
+ * lands on Projects, which says to add a machine.
  */
 export function createNoMachineRouter(history?: RouterHistory) {
   return createRouter({

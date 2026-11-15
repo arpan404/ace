@@ -1,5 +1,5 @@
 import { forwardRef, useId, type SVGProps } from "react";
-import { SidebarSimpleIcon, type IconProps } from "@phosphor-icons/react";
+import { SidebarSimpleIcon, type IconProps } from "@ace/icons";
 import {
   agentCursorOutline,
   agentCursorPath,

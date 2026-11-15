@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 export async function openProfileView(name: "Automations" | "Skills" | "Usage") {
   if (!screen.queryByRole("navigation", { name: "App" })) {
     await userEvent.click(
-      await screen.findByRole("button", { name: /^(Back to threads|Show sidebar)$/ }),
+      await screen.findByRole("button", { name: /^(Back to projects|Show sidebar)$/ }),
     );
   }
   const rail = await screen.findByRole("navigation", { name: "App" });
@@ -16,7 +16,7 @@ export async function openProfileView(name: "Automations" | "Skills" | "Usage") 
 /** Go back to Threads from the sidebar's rail: the thread (or New thread) the person left. */
 export async function openThreads() {
   const rail = await screen.findByRole("navigation", { name: "App" });
-  await userEvent.click(within(rail).getByRole("link", { name: /^Threads/ }));
+  await userEvent.click(within(rail).getByRole("link", { name: /^Projects/ }));
 }
 
 /** Wait for the popup's entrance before trying to select an item. */

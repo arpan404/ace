@@ -17,8 +17,8 @@ import {
   RobotIcon,
   TerminalIcon,
   WrenchIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { AceToolIcon, BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -31,7 +31,7 @@ import { useToolIcon } from "@/lib/tool-icons.ts";
  * step's glyph takes the failure tone; an image icon can't, so it fades.
  */
 
-const glyphIcons: Record<StepGlyphKind, PhosphorIcon> = {
+const glyphIcons: Record<StepGlyphKind, GlyphIcon> = {
   device: DeviceMobileIcon,
   computer: ComputerUseIcon,
   browser: BrowserUseIcon,
@@ -53,7 +53,7 @@ const glyphIcons: Record<StepGlyphKind, PhosphorIcon> = {
 };
 
 /** The glyph for what an item did. */
-export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon {
+export function stepGlyph(item: Item | undefined, mark?: ToolMark): GlyphIcon {
   return glyphIcons[stepGlyphKind(item, mark)];
 }
 

@@ -11,7 +11,7 @@ import {
   LinkSimpleIcon,
   UserPlusIcon,
   UploadSimpleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";

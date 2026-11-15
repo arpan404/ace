@@ -10,7 +10,7 @@ import {
   subagentEnded,
   subagentPhase,
 } from "@ace/ui-core";
-import { ArrowBendDownRightIcon, GitForkIcon } from "@phosphor-icons/react";
+import { ArrowBendDownRightIcon, GitForkIcon } from "@ace/icons";
 import { useCallback, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

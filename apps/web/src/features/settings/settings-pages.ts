@@ -1,9 +1,10 @@
 import {
   BellSimpleIcon,
-  ChatsCircleIcon,
+  RobotIcon,
   DatabaseIcon,
   DeviceMobileIcon,
   DevicesIcon,
+  FlaskIcon,
   GearSixIcon,
   GitBranchIcon,
   GlobeSimpleIcon,
@@ -13,7 +14,7 @@ import {
   TerminalWindowIcon,
   UserCircleIcon,
   WrenchIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { ComputerUseIcon, SpadeIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
@@ -33,6 +34,7 @@ export type SettingsPath =
   | "/settings/simulators"
   | "/settings/keyboard"
   | "/settings/advanced"
+  | "/settings/beta"
   | "/settings/storage";
 
 /**
@@ -59,7 +61,7 @@ export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
 
 export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/profile", title: "Profile", icon: UserCircleIcon, group: "profile" },
-  { to: "/settings/agents", title: "Agents", icon: ChatsCircleIcon, group: "machine" },
+  { to: "/settings/agents", title: "Agents", icon: RobotIcon, group: "machine" },
   { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
   { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },
   {
@@ -74,6 +76,7 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/simulators", title: "Simulators", icon: DeviceMobileIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
+  { to: "/settings/beta", title: "Beta", icon: FlaskIcon, group: "machine" },
   { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
   { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },

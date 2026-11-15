@@ -7,7 +7,7 @@ import {
   WarningCircleIcon,
   WarningIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { buttonVariants } from "./button.tsx";
 import { Spinner } from "./spinner.tsx";

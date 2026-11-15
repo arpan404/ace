@@ -1,4 +1,4 @@
-import { FolderPlusIcon } from "@phosphor-icons/react";
+import { FolderPlusIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { folderName, projectProblem } from "@ace/ui-core";
 import { Icon } from "@/components/icon.tsx";

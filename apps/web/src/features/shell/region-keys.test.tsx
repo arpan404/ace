@@ -35,7 +35,7 @@ async function openThread() {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-refund-tax");
   const message = await screen.findByRole("combobox", { name: "Message" });
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   await within(threads).findAllByRole("link");
   return { app, message, threads };
 }
@@ -75,7 +75,7 @@ test("⌘Z outside a text field takes back the latest archive; inside one it is 
     const view = app.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-pdf-locale"]?.archivedAt : undefined;
   };
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   const row = () => within(threads).queryByRole("link", { name: /^Invoice PDF locale fallback/ });
   const target = await within(threads).findByRole("link", { name: /^Invoice PDF locale fallback/ });
   await userEvent.pointer({ keys: "[MouseRight]", target });

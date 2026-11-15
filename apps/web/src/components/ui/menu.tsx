@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, CheckIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";

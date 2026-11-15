@@ -1,4 +1,4 @@
-import { BrowserIcon, BrowsersIcon, StopIcon } from "@phosphor-icons/react";
+import { BrowserIcon, BrowsersIcon, StopIcon } from "@ace/icons";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";

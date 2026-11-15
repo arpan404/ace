@@ -7,7 +7,7 @@ import { createIdleTask } from "@/test/tasks.ts";
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const titles = ["Oldest task", "Middle task", "Newest task"];
 const card = (title: string) => within(threads()).getByRole("link", { name: new RegExp(title) });
 /** Thread titles in the order the project lists them. */
@@ -30,7 +30,7 @@ async function openHome(sortBy: "activity" | "created" | "manual") {
     });
   app.daemon.apply("task-0", [facts.turn("root")]);
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 

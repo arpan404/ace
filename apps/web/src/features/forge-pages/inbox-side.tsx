@@ -7,7 +7,7 @@ import {
   UserIcon,
   UsersIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import type { InboxSearch } from "./inbox-model.ts";
 

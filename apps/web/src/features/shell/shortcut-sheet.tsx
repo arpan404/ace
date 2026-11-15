@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useRef, useState } from "react";
 import { Dialog, DialogBody, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

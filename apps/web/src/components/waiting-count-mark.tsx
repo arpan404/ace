@@ -1,4 +1,4 @@
-import { CircleDashedIcon } from "@phosphor-icons/react";
+import { CircleDashedIcon } from "@ace/icons";
 
 /**
  * Waiting on agents: the working mark's dashed circle (Phosphor `CircleDashed`, bold) holding how

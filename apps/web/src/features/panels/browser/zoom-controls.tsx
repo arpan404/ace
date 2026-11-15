@@ -1,4 +1,4 @@
-import { MagnifyingGlassPlusIcon, MinusIcon, PlusIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassPlusIcon, MinusIcon, PlusIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

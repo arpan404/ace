@@ -3,7 +3,7 @@ import {
   ArrowsOutSimpleIcon,
   SquareSplitHorizontalIcon,
   SquareSplitVerticalIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Fragment, type ReactNode } from "react";
 import type { KeymapId } from "@/lib/keymap.ts";
 import type { IconGlyph } from "@/components/icon.tsx";

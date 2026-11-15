@@ -42,6 +42,8 @@ export interface RelayRouteOptions {
    * opened. An attempt whose upgrade succeeded resets the count, however it ends after.
    */
   grantRefused?(grant: string): boolean;
+  /** Carry the first handshake message in the upgrade request (ADR 0155, step 3); default on. */
+  inUpgrade?: boolean | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -71,6 +73,12 @@ export function relayRoute(options: RelayRouteOptions): {
    * offer to send early: memory only, for this route's life.
    */
   let earlyKnown = false;
+  /**
+   * An upgrade carrying the first message failed before it opened and the same dial without it
+   * opened (a relay or proxy that won't take the larger header): this route no longer carries it
+   * there, for its life (ADR 0155).
+   */
+  let upgradeRefused = false;
   /** The grant the last attempt offered, when the relay failed before opening for it. */
   let unopened: string | undefined;
   /** An attempt offering `grant` failed before its WebSocket opened: twice in a row names it. */
@@ -139,7 +147,7 @@ export function relayRoute(options: RelayRouteOptions): {
             // Offer to send early only where any relay answers something offered: with a grant
             // (an older relay echoes it), or to a relay that said it is new.
             const early = grant !== undefined || earlyKnown;
-            const dial = (sendEarly: boolean) =>
+            const dial = (sendEarly: boolean, inUpgrade = false) =>
               connectPortableRelay({
                 relayUrl: options.relayUrl,
                 pinnedFingerprint: options.hostId,
@@ -156,17 +164,36 @@ export function relayRoute(options: RelayRouteOptions): {
                 schedule: options.schedule,
                 signal,
                 early: sendEarly,
+                inUpgrade,
               });
             let opened: PortableRelay;
             try {
+              // The first message rides in the upgrade wherever early sending is offered: with a
+              // grant, or to a relay that said it is new. Both answer something offered whether
+              // or not they know ace.v2, so the offer can't fail an upgrade they would accept.
+              const inUpgrade = early && !upgradeRefused && options.inUpgrade !== false;
               try {
-                opened = await dial(early);
+                opened = await dial(early, inUpgrade);
               } catch (error) {
+                if (stamp !== epoch) throw error;
                 const lost =
                   error instanceof RelayClosedError && error.code === RELAY_EARLY.lostClose;
-                if (!early || !lost || stamp !== epoch) throw error;
-                // The hosted relay lost the held frame: once more at once, after the marker.
-                opened = await dial(false);
+                if (inUpgrade && !upgraded) {
+                  // Refused before it opened, maybe for its header: once more at once without
+                  // the message in it, and not again on this route. This failure doesn't count
+                  // toward naming the grant refused; the retry's does.
+                  upgradeRefused = true;
+                  try {
+                    opened = await dial(early);
+                  } catch (retried) {
+                    // Refused without it too: the header wasn't why. Offer it again next time.
+                    if (!upgraded) upgradeRefused = false;
+                    throw retried;
+                  }
+                } else if (early && lost)
+                  // The hosted relay lost the held frame: once more at once, after the marker.
+                  opened = await dial(false);
+                else throw error;
               }
             } catch (error) {
               // Only an upgrade that failed may be the relay refusing the grant; a failure of

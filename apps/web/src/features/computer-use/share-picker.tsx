@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { appName, chooserFailure, chooserWaitingCopy } from "@ace/ui-core/computer-use";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";

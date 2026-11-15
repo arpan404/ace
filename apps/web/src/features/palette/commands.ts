@@ -20,7 +20,7 @@ import {
   PushPinSlashIcon,
   TerminalIcon,
   XSquareIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { windowsHelpActions } from "@/boot/help-actions.ts";

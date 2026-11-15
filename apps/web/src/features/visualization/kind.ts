@@ -1,4 +1,4 @@
-import { ShapesIcon } from "@phosphor-icons/react";
+import { ShapesIcon } from "@ace/icons";
 import { defineTabKind } from "@/lib/workspace/index.ts";
 import { visualizationTabData, visualizationTabKind } from "./visualization-tab.ts";
 
