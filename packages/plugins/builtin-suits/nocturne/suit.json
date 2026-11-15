@@ -1,0 +1,70 @@
+{
+  "format": 1,
+  "id": "nocturne",
+  "name": "Nocturne",
+  "description": "Near-black and soft glass, with pale light drifting slowly behind it. Dark only.",
+  "version": "1",
+  "base": "midnight",
+  "dark": {
+    "canvas": "#0B0C0F",
+    "sidebar": "#08090B",
+    "surface": "#0F1013",
+    "raised": "#141519",
+    "hover": "#121317",
+    "active": "#1A1B20",
+    "border": "#1E2025",
+    "borderStrong": "#2C2E34",
+    "faint": "#60636B",
+    "subtle": "#8B8E96",
+    "muted": "#AAADB4",
+    "text": "#E6E7EA",
+    "code": "#0F1013",
+    "accent": "#D6DCE6",
+    "accentHover": "#E4E9F0",
+    "accentFg": "#111317",
+    "accentText": "#D6DCE6",
+    "syntax": {
+      "kw": "#B9C3D6",
+      "fn": "#E6E7EA",
+      "str": "#B7CDB4",
+      "num": "#DCC3A2",
+      "type": "#A8C8D4",
+      "com": "#7C8089",
+      "punc": "#8B8E96"
+    },
+    "glass": { "blur": 32, "saturate": 130 }
+  },
+  "shape": { "radius": 1.15, "border": 1, "density": "comfortable" },
+  "motion": { "speed": 1.15 },
+  "terminal": {
+    "dark": {
+      "background": "#08090B",
+      "foreground": "#DADCE0",
+      "cursor": "#D6DCE6",
+      "cursorAccent": "#08090B",
+      "selection": "#2C2E34B3",
+      "ansi": {
+        "black": "#1A1B20",
+        "red": "#E28B8B",
+        "green": "#A9CBA5",
+        "yellow": "#DCC3A2",
+        "blue": "#9FB4D8",
+        "magenta": "#C6A9D6",
+        "cyan": "#A8C8D4",
+        "white": "#AAADB4",
+        "brightBlack": "#60636B",
+        "brightRed": "#EDA3A3",
+        "brightGreen": "#BED9BB",
+        "brightYellow": "#E8D3B8",
+        "brightBlue": "#B6C7E4",
+        "brightMagenta": "#D6BEE3",
+        "brightCyan": "#BCD8E2",
+        "brightWhite": "#F1F2F4"
+      }
+    },
+    "fontSize": 13,
+    "lineHeight": 1.4,
+    "cursorStyle": "bar",
+    "cursorBlink": false
+  }
+}

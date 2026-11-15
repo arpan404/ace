@@ -1,0 +1,89 @@
+{
+  "format": 1,
+  "id": "ink",
+  "name": "Ink",
+  "description": "Black on white, white on black. No tint, no ornament: hairlines, type and the work.",
+  "version": "1",
+  "base": "ace",
+  "light": {
+    "canvas": "#FFFFFF",
+    "sidebar": "#F7F7F7",
+    "surface": "#FAFAFA",
+    "raised": "#FFFFFF",
+    "hover": "#F1F1F1",
+    "active": "#E9E9E9",
+    "border": "#E3E3E3",
+    "borderStrong": "#C4C4C4",
+    "faint": "#7D7D7D",
+    "subtle": "#5A5A5A",
+    "muted": "#3B3B3B",
+    "text": "#0A0A0A",
+    "code": "#F6F6F6",
+    "accent": "#0A0A0A",
+    "accentHover": "#2B2B2B",
+    "accentFg": "#FFFFFF",
+    "accentText": "#0A0A0A",
+    "syntax": {
+      "kw": "#0A0A0A",
+      "fn": "#0A0A0A",
+      "str": "#4A4A4A",
+      "num": "#3B3B3B",
+      "type": "#2B2B2B",
+      "com": "#7D7D7D",
+      "punc": "#5A5A5A"
+    },
+    "glass": null
+  },
+  "dark": {
+    "canvas": "#050505",
+    "sidebar": "#000000",
+    "surface": "#0B0B0B",
+    "raised": "#111111",
+    "hover": "#121212",
+    "active": "#1B1B1B",
+    "border": "#222222",
+    "borderStrong": "#383838",
+    "faint": "#6E6E6E",
+    "subtle": "#9C9C9C",
+    "muted": "#C6C6C6",
+    "text": "#F7F7F7",
+    "code": "#0B0B0B",
+    "accent": "#F7F7F7",
+    "accentHover": "#FFFFFF",
+    "accentFg": "#000000",
+    "accentText": "#F7F7F7",
+    "syntax": {
+      "kw": "#FFFFFF",
+      "fn": "#F7F7F7",
+      "str": "#B8B8B8",
+      "num": "#D6D6D6",
+      "type": "#E4E4E4",
+      "com": "#808080",
+      "punc": "#9C9C9C"
+    },
+    "glass": null
+  },
+  "shape": { "radius": 0.35, "border": 1, "density": "compact" },
+  "motion": { "speed": 0.75 },
+  "layout": { "messages": "flat", "header": "minimal" },
+  "terminal": {
+    "light": {
+      "background": "#FFFFFF",
+      "foreground": "#0A0A0A",
+      "cursor": "#0A0A0A",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#0A0A0A26"
+    },
+    "dark": {
+      "background": "#000000",
+      "foreground": "#F2F2F2",
+      "cursor": "#F7F7F7",
+      "cursorAccent": "#000000",
+      "selection": "#FFFFFF33"
+    },
+    "fontSize": 13,
+    "lineHeight": 1.35,
+    "cursorStyle": "block",
+    "cursorBlink": false
+  }
+}

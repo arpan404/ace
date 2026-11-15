@@ -1,0 +1,131 @@
+/*
+ * Atelier: a drafting studio in cool slate. Crisp hairlines, tight radii, labels set small and
+ * spaced, and verdigris only where something acts or is chosen.
+ */
+
+[data-part="header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+[data-part="header-title"],
+[data-part="page-title"] {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+[data-part="page-title"] {
+  letter-spacing: -0.022em;
+}
+
+/* Small, spaced labels: section heads, group bands, the work log's count. */
+[data-part="list-group"],
+[data-part="settings-nav"] [data-part="list-group"] {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* Threads: the open one carries a verdigris mark at its edge. */
+[data-part="thread-row"][data-state="active"] {
+  box-shadow:
+    inset 2px 0 0 var(--color-accent),
+    0 0 0 1px var(--color-border);
+}
+
+[data-part="nav-item"][data-state="active"] {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+/* Cards: the agent's on white with a hairline; the person's on the studio's grey. */
+[data-part="message-agent"] {
+  box-shadow: 0 1px 2px rgb(20 33 45 / 0.04);
+}
+
+[data-part="message-user"] {
+  background: var(--color-surface-1);
+  border-color: transparent;
+}
+
+[data-scheme="dark"] [data-part="message-agent"] {
+  box-shadow: none;
+}
+
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"],
+[data-part="diff-file"] {
+  border: 1px solid var(--color-border);
+}
+
+[data-part="tool-row"] {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-part="composer"] {
+  border-color: var(--color-border-strong);
+  box-shadow:
+    0 1px 0 rgb(20 33 45 / 0.03),
+    0 6px 16px -8px rgb(20 33 45 / 0.18);
+}
+
+[data-scheme="dark"] [data-part="composer"] {
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.3),
+    0 10px 24px -10px rgb(0 0 0 / 0.6);
+}
+
+[data-part="composer"]:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border-strong));
+}
+
+:is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  border: 1px solid var(--color-border-strong);
+  box-shadow:
+    0 2px 4px rgb(20 33 45 / 0.06),
+    0 16px 36px -12px rgb(20 33 45 / 0.28);
+}
+
+[data-scheme="dark"]
+  :is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    0 2px 4px rgb(0 0 0 / 0.4),
+    0 18px 40px -12px rgb(0 0 0 / 0.75);
+}
+
+/* Pages: drawn boxes, ruled rows, the selected one marked at the edge. */
+[data-part="card"],
+[data-part="stat"] {
+  border-color: var(--color-border);
+  box-shadow: 0 1px 2px rgb(20 33 45 / 0.04);
+}
+
+[data-scheme="dark"] :is([data-part="card"], [data-part="stat"]) {
+  box-shadow: none;
+}
+
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"],
+[data-part="table-row"][data-state="selected"],
+[data-part="pr-row"][data-state="selected"] {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+[data-part="tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="selected"] {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+[data-part="badge"],
+[data-part="label-chip"] {
+  letter-spacing: 0.01em;
+}
+
+[data-part="kbd"] {
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 1px 0 var(--color-border-strong);
+}
+
+[data-part="right-panel"] {
+  box-shadow: inset 1px 0 0 var(--color-border);
+}

@@ -1,0 +1,97 @@
+/*
+ * Gloaming: dusk light under soft glass. Plum surfaces, a peach accent used sparingly, and a
+ * faint warmth along the edges that face the horizon.
+ */
+
+[data-part="header-title"],
+[data-part="page-title"] {
+  font-weight: 520;
+  letter-spacing: -0.012em;
+}
+
+[data-part="page-title"] {
+  letter-spacing: -0.02em;
+}
+
+/* Threads: the open one is lit from its edge, as if by the last of the sun. */
+[data-part="thread-row"][data-state="active"] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-accent) 16%, var(--color-sidebar)) 0%,
+    color-mix(in srgb, var(--color-accent) 5%, var(--color-sidebar)) 100%
+  );
+}
+
+[data-part="nav-item"][data-state="active"] {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-sidebar));
+}
+
+[data-part="message-user"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-accent) 10%, var(--color-surface-2)),
+    color-mix(in srgb, var(--color-accent) 6%, var(--color-surface-2))
+  );
+}
+
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+[data-part="composer"] {
+  border-color: var(--color-border);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 8%, transparent),
+    0 18px 44px -20px color-mix(in srgb, var(--color-accent) 45%, transparent),
+    0 4px 12px -6px rgb(30 16 28 / 0.25);
+}
+
+[data-scheme="dark"] [data-part="composer"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 20px 50px -22px color-mix(in srgb, var(--color-accent) 30%, transparent),
+    0 4px 14px -6px rgb(0 0 0 / 0.6);
+}
+
+:is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-border-strong) 70%, transparent),
+    0 24px 60px -24px rgb(60 30 50 / 0.4);
+}
+
+[data-scheme="dark"]
+  :is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 0 0 1px var(--color-border-strong),
+    0 28px 70px -24px rgb(0 0 0 / 0.85);
+}
+
+[data-part="button"][data-variant="primary"],
+[data-part="composer-send"] {
+  box-shadow: 0 2px 10px -3px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+/* Pages: soft panes; the selected row warms. */
+[data-part="card"],
+[data-part="stat"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 85%, transparent);
+}
+
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"],
+[data-part="table-row"][data-state="selected"],
+[data-part="pr-row"][data-state="selected"] {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+[data-part="tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="selected"] {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+
+[data-part="right-panel"] {
+  box-shadow: inset 1px 0 0 var(--color-border);
+}

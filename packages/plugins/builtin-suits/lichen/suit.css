@@ -1,0 +1,118 @@
+/*
+ * Lichen: stone and sage. Soft corners, tonal fills instead of lines, and light that falls a
+ * little warmer at the top of each region, like daylight on a stone wall.
+ */
+
+[data-part="app"] {
+  --suit-sidebar-background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-sidebar) 92%, white) 0%,
+    var(--color-sidebar) 40%
+  );
+}
+
+[data-scheme="dark"] [data-part="app"] {
+  --suit-sidebar-background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-sidebar) 94%, #c8d6b8) 0%,
+    var(--color-sidebar) 45%
+  );
+}
+
+[data-part="header-title"],
+[data-part="page-title"] {
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+
+/* Threads: the open one is a smooth pebble of sage. */
+[data-part="thread-row"] {
+  border-radius: 12px;
+}
+
+[data-part="thread-row"][data-state="active"] {
+  background: color-mix(in srgb, var(--color-accent) 11%, var(--color-sidebar));
+}
+
+[data-scheme="dark"] [data-part="thread-row"][data-state="active"] {
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-sidebar));
+}
+
+[data-part="nav-item"][data-state="active"] {
+  background: color-mix(in srgb, var(--color-accent) 11%, var(--color-sidebar));
+}
+
+[data-part="message-user"] {
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-surface-1));
+}
+
+[data-scheme="dark"] [data-part="message-user"] {
+  background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface-1));
+}
+
+/* Code sits on a tonal fill with no rule around it. */
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-color: transparent;
+  border-radius: 12px;
+}
+
+[data-part="composer"] {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-border) 80%, transparent),
+    0 10px 30px -14px rgb(40 52 30 / 0.28);
+}
+
+[data-scheme="dark"] [data-part="composer"] {
+  box-shadow:
+    0 0 0 1px var(--color-border),
+    0 12px 32px -14px rgb(0 0 0 / 0.7);
+}
+
+:is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-border-strong) 60%, transparent),
+    0 20px 50px -18px rgb(40 52 30 / 0.35);
+}
+
+[data-scheme="dark"]
+  :is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    0 0 0 1px var(--color-border-strong),
+    0 24px 56px -18px rgb(0 0 0 / 0.8);
+}
+
+[data-part="menu-item"],
+[data-part="button"],
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 10px;
+}
+
+/* Pages: fills, not boxes. */
+[data-part="card"],
+[data-part="stat"] {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"],
+[data-part="table-row"][data-state="selected"] {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+[data-part="tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="selected"] {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+[data-part="badge"],
+[data-part="label-chip"],
+[data-part="branch-chip"] {
+  border-radius: 999px;
+}

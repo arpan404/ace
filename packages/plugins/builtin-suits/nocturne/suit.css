@@ -1,0 +1,109 @@
+/*
+ * Nocturne: dark glass over slow light. Surfaces stay near-black; edges are a single lit
+ * hairline along the top, as glass catches light, and depth comes from long, soft shadow.
+ */
+
+[data-part="header"] {
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.04);
+}
+
+[data-part="sidebar"] {
+  box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.035);
+}
+
+[data-part="header-title"],
+[data-part="page-title"] {
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+
+[data-part="page-title"] {
+  letter-spacing: -0.02em;
+}
+
+/* Threads: the open one is a pane of glass catching the light. */
+[data-part="thread-row"][data-state="active"] {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.035));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+[data-part="thread-row"]:hover {
+  background: rgb(255 255 255 / 0.03);
+}
+
+[data-part="message-user"] {
+  background: linear-gradient(180deg, #17181d, #131418);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 0 0 1px rgb(255 255 255 / 0.035);
+}
+
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 0 0 1px rgb(255 255 255 / 0.05);
+}
+
+[data-part="composer"] {
+  border-color: rgb(255 255 255 / 0.07);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 24px 60px -24px rgb(0 0 0 / 0.9),
+    0 2px 8px -2px rgb(0 0 0 / 0.5);
+}
+
+[data-part="composer"]:focus-within {
+  border-color: rgb(214 220 230 / 0.2);
+}
+
+:is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 30px 80px -24px rgb(0 0 0 / 0.95),
+    0 4px 14px -4px rgb(0 0 0 / 0.6);
+}
+
+[data-part="tooltip"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 8px 24px -8px rgb(0 0 0 / 0.8);
+}
+
+[data-part="button"][data-variant="primary"],
+[data-part="composer-send"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    0 1px 2px rgb(0 0 0 / 0.5);
+}
+
+/* Pages: glass panes on the night, each lit along its top edge. */
+[data-part="card"],
+[data-part="stat"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 0 0 1px rgb(255 255 255 / 0.045);
+}
+
+[data-part="list-group"] {
+  letter-spacing: 0.02em;
+}
+
+[data-part="tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="selected"] {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+[data-part="kbd"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 1px 0 rgb(0 0 0 / 0.6);
+}
+
+[data-part="right-panel"] {
+  box-shadow: inset 1px 0 0 rgb(255 255 255 / 0.035);
+}

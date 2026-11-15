@@ -1,0 +1,167 @@
+/*
+ * Vellum: a well-set book page. Answers in Newsreader (SIL OFL 1.1, assets/fonts/OFL.txt), the
+ * interface in the system sans, umber for the few things that act. Paper shows through the
+ * frame from the scene; everything else is hairlines and soft, warm shadow.
+ */
+
+@font-face {
+  font-family: "Vellum Newsreader";
+  src: url(assets/fonts/newsreader.woff2) format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Vellum Newsreader";
+  src: url(assets/fonts/newsreader-italic.woff2) format("woff2");
+  font-weight: 200 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* The page: book type, generous leading, old-style figures in running text. */
+[data-part="message-agent"],
+[data-part="spade-message"][data-variant="spade"],
+[data-part="review-comment"] {
+  /* Newsreader sets small on the body; a touch larger reads at the size the sans did. */
+  font-size: calc(var(--transcript-size, 15px) * 1.07);
+  line-height: 1.6;
+  font-optical-sizing: auto;
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  font-kerning: normal;
+  hanging-punctuation: first;
+}
+
+/* The person's words: a quiet marginal rule in umber. */
+[data-part="message-user"] {
+  border-inline-start-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  padding-inline-start: 14px;
+}
+
+[data-part="page-title"],
+[data-part="header-title"] {
+  font-family: "Vellum Newsreader", "Iowan Old Style", Charter, Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+[data-part="page-title"] {
+  font-size: 1.6em;
+  line-height: 1.2;
+}
+
+[data-part="sidebar-header"] {
+  letter-spacing: -0.01em;
+}
+
+/* Work log: plain lines, numerals tabular so counts line up. */
+[data-part="tool-row"],
+[data-part="thread-meta"],
+[data-part="stat"],
+[data-part="badge"] {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-part="turn-divider"] {
+  font-family: "Vellum Newsreader", "Iowan Old Style", Georgia, serif;
+  font-style: italic;
+}
+
+/* Code: a tinted inset on the page, ruled once. */
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+[data-part="inline-code"] {
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+[data-part="link"] {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+/* Threads: the open one is a paper slip laid on the desk. */
+[data-part="thread-row"][data-state="active"] {
+  background: var(--color-surface-2);
+  box-shadow:
+    0 0 0 1px var(--color-border),
+    0 1px 2px rgb(74 52 30 / 0.06);
+}
+
+[data-scheme="dark"] [data-part="thread-row"][data-state="active"] {
+  box-shadow:
+    0 0 0 1px var(--color-border),
+    0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+[data-part="composer"] {
+  box-shadow:
+    0 1px 2px rgb(74 52 30 / 0.06),
+    0 8px 24px -10px rgb(74 52 30 / 0.22);
+}
+
+[data-scheme="dark"] [data-part="composer"] {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 10px 28px -12px rgb(0 0 0 / 0.55);
+}
+
+:is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    0 1px 2px rgb(74 52 30 / 0.08),
+    0 18px 48px -16px rgb(74 52 30 / 0.32);
+}
+
+[data-scheme="dark"]
+  :is([data-part="menu"], [data-part="popover"], [data-part="command-palette"], [data-part="dialog"]) {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 22px 56px -18px rgb(0 0 0 / 0.7);
+}
+
+[data-part="tooltip"] {
+  font-family: "Vellum Newsreader", "Iowan Old Style", Georgia, serif;
+  font-size: 13px;
+}
+
+/* Pages: section heads in small caps, cards as paper slips. */
+[data-part="list-group"] {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+}
+
+[data-part="card"][data-variant="settings-group"],
+[data-part="card"][data-variant="description"],
+[data-part="card"][data-variant="changes"] {
+  box-shadow:
+    0 0 0 1px var(--color-border),
+    0 1px 2px rgb(74 52 30 / 0.05);
+}
+
+[data-scheme="dark"]
+  :is(
+    [data-part="card"][data-variant="settings-group"],
+    [data-part="card"][data-variant="description"],
+    [data-part="card"][data-variant="changes"]
+  ) {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+[data-part="kbd"] {
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+
+[data-part="panel-tab"][data-state="selected"] {
+  box-shadow: inset 0 -1.5px 0 var(--color-accent);
+}
+
+[data-part="terminal"] {
+  border-radius: 6px;
+}

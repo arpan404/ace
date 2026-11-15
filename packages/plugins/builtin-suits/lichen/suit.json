@@ -1,0 +1,127 @@
+{
+  "format": 1,
+  "id": "lichen",
+  "name": "Lichen",
+  "description": "Stone and sage: warm green-greys, soft corners and a muted moss accent.",
+  "version": "1",
+  "base": "grove",
+  "light": {
+    "canvas": "#F4F3ED",
+    "sidebar": "#EBEBE2",
+    "surface": "#F0EFE8",
+    "raised": "#FBFAF6",
+    "hover": "#E7E7DD",
+    "active": "#DFDFD4",
+    "border": "#D6D6CA",
+    "borderStrong": "#BFC0B1",
+    "faint": "#858A7C",
+    "subtle": "#5C6255",
+    "muted": "#474D41",
+    "text": "#1F241C",
+    "code": "#ECEBE3",
+    "accent": "#56683A",
+    "accentHover": "#4A5A31",
+    "accentFg": "#FFFFFF",
+    "accentText": "#52633A",
+    "syntax": {
+      "kw": "#52633A",
+      "fn": "#232A20",
+      "str": "#6A5A2E",
+      "num": "#8A5B2B",
+      "type": "#3C6463",
+      "com": "#737868",
+      "punc": "#5C6255"
+    }
+  },
+  "dark": {
+    "canvas": "#151714",
+    "sidebar": "#111310",
+    "surface": "#191B18",
+    "raised": "#1E211C",
+    "hover": "#1C1F1A",
+    "active": "#242821",
+    "border": "#292D26",
+    "borderStrong": "#383D33",
+    "faint": "#6B7165",
+    "subtle": "#949A8C",
+    "muted": "#B3B9AB",
+    "text": "#E4E7DE",
+    "code": "#181A16",
+    "accent": "#CCE3C7",
+    "accentHover": "#DAEDD5",
+    "accentFg": "#162012",
+    "accentText": "#CCE3C7",
+    "syntax": {
+      "kw": "#BDCA95",
+      "fn": "#E4E7DE",
+      "str": "#D9C795",
+      "num": "#E0B38C",
+      "type": "#9CC4BF",
+      "com": "#858B7E",
+      "punc": "#949A8C"
+    }
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"SF Pro Rounded\", -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif"
+    }
+  },
+  "shape": { "radius": 1.3, "border": 1, "density": "comfortable" },
+  "motion": { "speed": 1.1 },
+  "terminal": {
+    "light": {
+      "background": "#EBEBE2",
+      "foreground": "#232A20",
+      "cursor": "#56683A",
+      "cursorAccent": "#FBFAF6",
+      "selection": "#BFC0B199",
+      "ansi": {
+        "black": "#1F241C",
+        "red": "#9E3F33",
+        "green": "#4A6B33",
+        "yellow": "#7E6420",
+        "blue": "#3A5C7E",
+        "magenta": "#7A4F72",
+        "cyan": "#3C6463",
+        "white": "#5C6255",
+        "brightBlack": "#737868",
+        "brightRed": "#AE4E40",
+        "brightGreen": "#587A40",
+        "brightYellow": "#8D722C",
+        "brightBlue": "#476A8D",
+        "brightMagenta": "#8A5E82",
+        "brightCyan": "#4A7372",
+        "brightWhite": "#1F241C"
+      }
+    },
+    "dark": {
+      "background": "#111310",
+      "foreground": "#DDE1D6",
+      "cursor": "#B9C78E",
+      "cursorAccent": "#111310",
+      "selection": "#383D33B3",
+      "ansi": {
+        "black": "#242821",
+        "red": "#E3978A",
+        "green": "#B9C78E",
+        "yellow": "#D9C795",
+        "blue": "#9DB8D2",
+        "magenta": "#CFAAC6",
+        "cyan": "#9CC4BF",
+        "white": "#B3B9AB",
+        "brightBlack": "#6B7165",
+        "brightRed": "#EDAEA3",
+        "brightGreen": "#CAD6A6",
+        "brightYellow": "#E5D6AD",
+        "brightBlue": "#B4C9DE",
+        "brightMagenta": "#DEC0D7",
+        "brightCyan": "#B3D4D0",
+        "brightWhite": "#F0F2EC"
+      }
+    },
+    "fontSize": 13,
+    "lineHeight": 1.4,
+    "cursorStyle": "bar",
+    "cursorBlink": false
+  }
+}
