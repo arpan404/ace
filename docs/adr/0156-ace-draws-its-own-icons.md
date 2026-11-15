@@ -45,7 +45,9 @@ consistent, rather than the old designs adapted.
   `@ace/icons` modules instead.
 - New icons are added as glyph modules, checked with the package's zoom and contact sheets
   (`sheet/`), then `bun run --filter @ace/icons index`.
-- The iPhone keeps SF Symbols for now. The geometry is platform-neutral, so native assets can be
-  generated from it later.
+- The iPhone draws Phosphor through assets generated from the npm package
+  (`apps/ios/scripts/generate-icons.ts`). It moves to ace's set as a follow-up, by generating those
+  assets from `@ace/icons` instead; the geometry is platform-neutral. Until then the iPhone and the
+  web draw different icons.
 - Fixing the drifted meanings (one drawing per idea where it matters) is follow-up work, done
   screen by screen once the set is in.
