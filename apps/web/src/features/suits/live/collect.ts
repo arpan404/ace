@@ -73,6 +73,16 @@ function layerOf(element: Element, read: Read): PaintLayer | "image" {
   };
 }
 
+/**
+ * A veil is the host's child under its content, not an ancestor of the text: its opacity fades
+ * only its own paint, so it counts as colour alpha rather than as an opacity over the text.
+ */
+const underContent = (layer: PaintLayer): PaintLayer => ({
+  color: [layer.color[0], layer.color[1], layer.color[2], layer.color[3] * layer.opacity],
+  stops: layer.stops.map((stop) => [stop[0], stop[1], stop[2], stop[3] * layer.opacity]),
+  opacity: 1,
+});
+
 const opaque = (layer: PaintLayer) =>
   layer.color[3] >= 1 && layer.opacity >= 1 && layer.stops.every((stop) => stop[3] >= 1);
 
@@ -112,7 +122,7 @@ function background(
     if (scene && at === scene.host) {
       for (const veil of scene.veils.toReversed()) {
         const layer = layerOf(veil, read);
-        if (layer !== "image") layers.unshift(layer);
+        if (layer !== "image") layers.unshift(underContent(layer));
       }
       if (!scene.grid) return undefined;
       const backdrop = cellsUnder(scene.grid, box, solidBelow(scene.host, read));
