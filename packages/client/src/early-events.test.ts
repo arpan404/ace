@@ -125,7 +125,12 @@ test("after early events the subscription may answer with a snapshot, and the cl
     events: [titled(2, "Early")],
     early: true,
   });
-  h.deliver({ type: "snapshot", subscriptionId: h.subscriptionId, seq: 9, view: view(9, "Snapshot") });
+  h.deliver({
+    type: "snapshot",
+    subscriptionId: h.subscriptionId,
+    seq: 9,
+    view: view(9, "Snapshot"),
+  });
   expect(h.lease.store.thread?.title).toBe("Snapshot");
   expect(h.lease.store.cursor).toBe(9);
   expect(h.lease.store.syncing).toBe(false);

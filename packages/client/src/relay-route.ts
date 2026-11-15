@@ -194,7 +194,9 @@ export function relayRoute(options: RelayRouteOptions): {
               typeof credential === "string" ||
               (typeof credential === "object" && "token" in credential);
             const plan =
-              options.nk !== false && (token || grant !== undefined) ? nk.attempt(grant) : undefined;
+              options.nk !== false && (token || grant !== undefined)
+                ? nk.attempt(grant)
+                : undefined;
             /** The NK attempt's first flight, sent after its confirmation or over XX instead. */
             let flight: string[] | undefined;
             let opened: PortableRelay;
