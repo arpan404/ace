@@ -2,7 +2,9 @@ import { nativeVideoCodecs } from "./video-codecs.ts";
 import { ScreenClientError, ScreenStreamClient } from "@ace/client/screen-stream";
 import { ScreenAck, ScreenOperation, ScreenState } from "@ace/protocol";
 import { z } from "zod";
+import type { MediaRoute } from "@ace/browser/live-view";
 import { scheduler } from "./host.ts";
+import { MediaViews } from "./media-views.ts";
 import { phoneScreenSessions, type ScreenAgentLabel } from "./screen-view.ts";
 import {
   nativeFeatureChannel,
@@ -37,6 +39,11 @@ export function screenFailure(error: unknown): { message: string; code?: string 
 /** A dedicated screen channel. Native video bypasses JavaScript and input is never replayed. */
 export class NativeScreen {
   #h264Only = new Set<string>();
+  /** Which apps' pictures come by the media connection, and where their acks go. */
+  readonly #views = new MediaViews((sessionId) => {
+    if (!this.client.getSnapshot().connected) return;
+    void this.client.request(this.#subscribe({ sessionId })).catch(() => {});
+  });
   readonly client: ScreenStreamClient;
   readonly connection: NativeFeatureConnection;
   #ack: ((value: z.infer<typeof ScreenAck>) => Promise<void>) | undefined;
@@ -65,18 +72,24 @@ export class NativeScreen {
       },
     });
   }
+  /** Take the apps' pictures by this media connection while it has a binding (ADR 0147 §4). */
+  useMedia(route: MediaRoute | undefined): void {
+    this.#views.use(route);
+  }
+  /** A watching view's subscribe: this phone's decoders, and the media connection if open. */
+  #subscribe<T extends { sessionId: string }>(operation: T) {
+    return {
+      ...operation,
+      op: "subscribe" as const,
+      codecs: this.#h264Only.has(operation.sessionId) ? ["avc1.42E033"] : nativeVideoCodecs(),
+      ...this.#views.subscribe(operation.sessionId),
+    };
+  }
   async request(raw: z.infer<typeof NativeScreenRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
     if (raw.type === "screen.request") {
       const operation =
-        raw.operation.op === "subscribe"
-          ? {
-              ...raw.operation,
-              codecs: this.#h264Only.has(raw.operation.sessionId)
-                ? ["avc1.42E033"]
-                : nativeVideoCodecs(),
-            }
-          : raw.operation;
+        raw.operation.op === "subscribe" ? this.#subscribe(raw.operation) : raw.operation;
       return this.client.request(operation, { signal });
     }
     const states = z
@@ -89,19 +102,17 @@ export class NativeScreen {
     if (action.type === "native.screen.close") {
       this.connection.close();
       this.#ack = undefined;
+      this.#views.reset();
     } else if (action.type === "screen.ack") {
       const { fallback, ...wire } = action;
-      void this.#ack?.(wire).catch(() => {});
+      if (!this.#views.ack(action.sessionId, wire)) void this.#ack?.(wire).catch(() => {});
       if (fallback && !this.#h264Only.has(action.sessionId)) {
         this.#h264Only.add(action.sessionId);
-        const operation = {
-          op: "subscribe" as const,
-          sessionId: action.sessionId,
-          codecs: ["avc1.42E033"],
-        };
+        const operation = this.#subscribe({ sessionId: action.sessionId });
         void this.client.request(operation).catch(() => {});
       }
     } else if (this.client.getSnapshot().connected) {
+      if (action.type === "native.screen.unwatch") this.#views.forget(action.sessionId);
       const operation =
         action.type === "native.screen.unwatch"
           ? { op: "unsubscribe" as const, sessionId: action.sessionId }

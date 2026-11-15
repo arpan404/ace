@@ -1,5 +1,6 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
+import { MediaSubscriptions, type MediaRoute } from "@ace/browser/live-view";
 import {
   BrowserCaptureViewport,
   BrowserInput,
@@ -144,6 +145,9 @@ interface Watch {
 
 export class BrowserLive {
   #h264Only = false;
+  /** Whether the view's pictures come by the media connection, and so where its acks go. */
+  readonly #media = new MediaSubscriptions();
+  #stopMedia: (() => void) | undefined;
   #owner: BrowserOwner;
   #sink: PatchSink;
   #preview: Preview;
@@ -271,7 +275,23 @@ export class BrowserLive {
       }),
     );
   }
+  /**
+   * Take the view's pictures by this media connection while it has a binding (ADR 0147 §4):
+   * whenever the binding changes, the view subscribes again and Swift starts a new decoder.
+   */
+  useMedia(route: MediaRoute | undefined): void {
+    this.#stopMedia?.();
+    this.#media.use(route);
+    this.#stopMedia = route?.watch(() => {
+      const watch = this.#watch;
+      if (!watch || !watch.subscribed) return;
+      watch.subscribed = false;
+      this.#restart(watch);
+      this.#subscribe(watch);
+    });
+  }
   dispose(): void {
+    this.#stopMedia?.();
     this.close();
     this.#endFollowing();
     for (const stop of this.#stops.splice(0)) stop();
@@ -441,19 +461,21 @@ export class BrowserLive {
           .catch(() => {});
         return true;
       }
-      case "ack":
-        try {
-          this.#owner.send({
-            type: "browser.ack",
-            requestId: this.#requestId(),
-            threadId: watch.threadId,
-            sequence: action.sequence,
-            video: true,
-            ...(action.keyframe ? { keyframe: true } : {}),
-          });
-        } catch {
-          // Offline: the subscription ended with the connection.
-        }
+      case "ack": {
+        const ack = {
+          type: "browser.ack" as const,
+          threadId: watch.threadId,
+          sequence: action.sequence,
+          video: true as const,
+          ...(action.keyframe ? { keyframe: true as const } : {}),
+        };
+        // Pictures that came by the media connection are acknowledged on it.
+        if (!this.#media.ack(watch.threadId, ack))
+          try {
+            this.#owner.send({ ...ack, requestId: this.#requestId() });
+          } catch {
+            // Offline: the subscription ended with the connection.
+          }
         if (action.fallback && !this.#h264Only) {
           this.#h264Only = true;
           watch.subscribed = false;
@@ -461,6 +483,7 @@ export class BrowserLive {
           this.#subscribe(watch);
         }
         return true;
+      }
     }
   }
   /** Stop watching: the daemon stops this viewer's pictures. */
@@ -469,6 +492,7 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    this.#media.forget(watch.threadId);
     this.#endFollowing();
     this.#annotate.close();
     this.#tools.close();
@@ -496,6 +520,7 @@ export class BrowserLive {
     watch.subscribing = true;
     const generation = watch.generation;
     const h264Only = this.#h264Only;
+    const { media } = this.#media.fields(watch.threadId);
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -504,6 +529,7 @@ export class BrowserLive {
         binaryFrames: true,
         viewport: captureFor(watch),
         video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
+        ...(media ? { media } : {}),
       })
       .then(
         (reply) => {
@@ -526,7 +552,9 @@ export class BrowserLive {
       )
       .finally(() => {
         watch.subscribing = false;
-        if (h264Only !== this.#h264Only) {
+        // The binding moved while this subscribe was on its way: name the new one.
+        const moved = media?.connection !== this.#media.route?.binding()?.connection;
+        if (h264Only !== this.#h264Only || (moved && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
         }
