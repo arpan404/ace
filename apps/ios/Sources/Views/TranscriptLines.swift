@@ -121,33 +121,50 @@ struct ChangedFilesRow: View {
     }
 }
 
-/// Lays chips out in rows, wrapping to the next row when one runs out of width.
+/// Lays chips out in rows, wrapping to the next row when one runs out of width. Each chip is
+/// measured once per width and the rows are kept in the layout's cache, so a transcript laying a
+/// row out again (as the lazy feed does while it scrolls) never measures its chips again.
 struct ChipFlow: Layout {
     var spacing: CGFloat
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
+    struct Row: Equatable { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+    /// The chips' sizes and their rows, for the width they were measured at; cleared when the chips change.
+    struct Cache { var width: CGFloat?; var sizes: [CGSize] = []; var rows: [Row] = [] }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache = Cache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        let rows = arranged(width: proposal.width ?? .infinity, subviews: subviews, cache: &cache)
         let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
         let width = rows.map(\.width).max() ?? 0
         return CGSize(width: min(width, proposal.width ?? width), height: height)
     }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let rows = arranged(width: bounds.width, subviews: subviews, cache: &cache)
         var y = bounds.minY
-        for row in arrange(width: bounds.width, subviews: subviews) {
+        for row in rows {
             var x = bounds.minX
             for index in row.indexes {
-                let size = subviews[index].sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
-                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
-                x += min(size.width, bounds.width) + spacing
+                let size = cache.sizes[index]
+                let width = min(size.width, bounds.width)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(width: width, height: size.height))
+                x += width + spacing
             }
             y += row.height + spacing
         }
     }
-    private struct Row { var indexes: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
-    private func arrange(width: CGFloat, subviews: Subviews) -> [Row] {
+    /// The rows at `width`, measured only when the width differs from the cached one.
+    private func arranged(width: CGFloat, subviews: Subviews, cache: inout Cache) -> [Row] {
+        if cache.width == width, cache.sizes.count == subviews.count { return cache.rows }
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
+        cache = Cache(width: width, sizes: sizes, rows: Self.rows(sizes, width: width, spacing: spacing))
+        return cache.rows
+    }
+    /// Chips of `sizes` in rows of at most `width`: a chip wider than the row takes one of its own,
+    /// at the row's width. Pure.
+    static func rows(_ sizes: [CGSize], width: CGFloat, spacing: CGFloat) -> [Row] {
         var rows: [Row] = []
         var row = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil))
+        for (index, size) in sizes.enumerated() {
             let item = min(size.width, width)
             if !row.indexes.isEmpty, row.width + spacing + item > width {
                 rows.append(row)
