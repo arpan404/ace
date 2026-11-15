@@ -3,4 +3,5 @@ pub mod capability;
 pub mod control;
 pub mod frame;
 pub mod keys;
+pub mod lane;
 pub mod link;

@@ -6,6 +6,7 @@ pub mod auth;
 pub mod encode;
 pub mod engine;
 pub mod framing;
+pub mod lane_cipher;
 pub mod os;
 pub mod probe;
 pub mod rank;

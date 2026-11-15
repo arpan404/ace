@@ -13,6 +13,7 @@ mod pictures;
 #[cfg(windows)]
 mod pipe;
 mod readers;
+mod sealed;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
 mod writer;
@@ -295,7 +296,7 @@ async fn serve(
             up = &mut lanes, if lanes_pending => {
                 lanes_pending = false;
                 let Ok(up) = up else { break fail("lane authentication") };
-                let (mut read, write) = listener::split(up.priority);
+                let (mut read, write) = tokio::io::split(up.priority);
                 let mut writer = Writer::spawn(write, PRIORITY_LIMIT);
                 priority_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
                 priority_out = Some(writer);
@@ -314,7 +315,7 @@ async fn serve(
                 });
                 let (closed_tx, closed_rx) = oneshot::channel();
                 egress_closed = Some(closed_rx);
-                let (mut egress_read, egress_write) = listener::split(up.egress);
+                let (mut egress_read, egress_write) = tokio::io::split(up.egress);
                 let mut writer = Writer::spawn(egress_write, EGRESS_LIMIT);
                 egress_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
                 egress_lane.connect(writer);
