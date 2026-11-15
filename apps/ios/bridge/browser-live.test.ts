@@ -28,7 +28,7 @@ describe("Live browser view", () => {
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
-    view.action({ kind: "ack", sequence: 1, keyframe: true, fallback: true });
+    view.action({ kind: "ack", sequence: 1, keyframe: true, fallback: true, generation: 0 });
     await until(
       () =>
         requested.filter((value) => (value as { type: string }).type === "browser.subscribe")
@@ -106,8 +106,10 @@ describe("Live browser view", () => {
     const { sink, view, sent } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
-    view.action({ kind: "ack", sequence: 4 });
-    view.action({ kind: "ack", sequence: 9, keyframe: true });
+    // As Swift does: each ack names the view generation its decoder runs at.
+    const generation = Number(sink.read("browser:view")?.generation ?? 0);
+    view.action({ kind: "ack", sequence: 4, generation });
+    view.action({ kind: "ack", sequence: 9, keyframe: true, generation });
     expect(sent).toEqual([
       expect.objectContaining({ type: "browser.ack", threadId: "web", sequence: 4, video: true }),
       expect.objectContaining({

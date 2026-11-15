@@ -15,6 +15,9 @@ struct BrowserPicture: @unchecked Sendable {
 /// A cumulative video acknowledgement (`browser.ack` with `video`, ADR 0088).
 struct BrowserAck: Equatable, Sendable {
     let sequence: Int
+    /// The view generation the decoder was started for (`browser.view`'s `generation`), so the
+    /// bridge sends it by the delivery that generation's pictures came by, or not at all.
+    var generation = 0
     /// The decoder lost its place: the daemon sends a keyframe.
     var keyframe = false
     var fallback = false
@@ -34,6 +37,8 @@ final class BrowserRenderer: @unchecked Sendable {
     private var closed = false
     /// The tab the stream shows, from its keyframes (deltas don't repeat it).
     private var tabId: String?
+    /// The view generation chunks are decoded for now; set on this queue, in order with them.
+    private var generation = 0
 
     init(threadId: String, present: @escaping @Sendable (BrowserPicture) -> Void, ack: @escaping @Sendable (BrowserAck) -> Void) {
         self.threadId = threadId
@@ -45,8 +50,10 @@ final class BrowserRenderer: @unchecked Sendable {
         guard chunk.threadId == threadId else { return }
         queue.async { [self] in handle(chunk) }
     }
-    /// The daemon starts this viewer's video again (a new subscription or tab).
-    func reset() { queue.async { [self] in forget() } }
+    /// The daemon starts this viewer's video again (a new subscription or tab), as `generation`.
+    func reset(generation: Int) { queue.async { [self] in forget(); self.generation = generation } }
+    /// The view's first generation, before any chunk: nothing to forget.
+    func start(generation: Int) { queue.async { [self] in self.generation = generation } }
     func close() { queue.async { [self] in closed = true; forget() } }
 
     private func forget() {
@@ -58,7 +65,7 @@ final class BrowserRenderer: @unchecked Sendable {
         guard !closed else { return }
         switch gate.admit(chunk) {
         case .skip:
-            ack(BrowserAck(sequence: chunk.sequence))
+            ack(BrowserAck(sequence: chunk.sequence, generation: generation))
         case .decode(let configure):
             if let configure {
                 decoder = nil
@@ -67,12 +74,12 @@ final class BrowserRenderer: @unchecked Sendable {
             if chunk.key { tabId = chunk.tabId }
             guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed(codec: chunk.codec) }
             present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height), tabId: tabId))
-            ack(BrowserAck(sequence: chunk.sequence))
+            ack(BrowserAck(sequence: chunk.sequence, generation: generation))
         }
     }
     private func failed(codec: String) {
         decoder = nil
-        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, keyframe: true, fallback: VideoCapabilities.isHEVC(codec))) }
+        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, generation: generation, keyframe: true, fallback: VideoCapabilities.isHEVC(codec))) }
     }
 }
 

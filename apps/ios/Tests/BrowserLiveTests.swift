@@ -327,6 +327,34 @@ import Testing
         #expect(log.count == 0)
     }
 
+    @Test func anAckOwedFromAnEarlierDecoderIsReplacedNotMergedWithANewerOnes() {
+        let log = AckLog()
+        let acks = BrowserAcks(visible: false, send: { log.record($0) })
+        acks.acknowledge(BrowserAck(sequence: 40, generation: 1, keyframe: true))
+        // The view's video started again (a new subscribe): its sequences start over.
+        acks.acknowledge(BrowserAck(sequence: 2, generation: 2))
+        acks.setVisible(true)
+        #expect(log.values == [BrowserAck(sequence: 2, generation: 2)])
+    }
+
+    @Test func eachAckNamesTheViewGenerationItsDecoderWasStartedFor() async throws {
+        let (description, encoded) = try H264DecodeTests.encode(width: 320, height: 240, frames: 2)
+        let log = AckLog()
+        let renderer = BrowserRenderer(threadId: "thread", present: { _ in }, ack: { log.record($0) })
+        defer { renderer.close() }
+        let send = { (sequence: Int) in
+            renderer.receive(BrowserVideoChunk(threadId: "thread", sequence: sequence, timestamp: 0, width: 320, height: 240,
+                                               codedWidth: 320, codedHeight: 240, codec: "avc1.42E033", key: true,
+                                               description: description, tabId: "tab", bytes: encoded[0]))
+        }
+        renderer.start(generation: 3)
+        send(1)
+        renderer.reset(generation: 4)
+        send(1)
+        for _ in 0..<400 where log.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(log.values.map(\.generation) == [3, 4])
+    }
+
     @Test func aKeyframeRequestOwedFromTheBackgroundIsStillMadeOnReturn() {
         let log = AckLog()
         let acks = BrowserAcks(visible: false, send: { log.record($0) })

@@ -69,6 +69,8 @@ const BrowserAction = z.discriminatedUnion("kind", [
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
     fallback: z.boolean().optional(),
+    /** The view generation the decoder was started for (`browser.view`'s `generation`). */
+    generation: z.number().int().nonnegative().optional(),
   }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserAction>;
@@ -135,6 +137,8 @@ interface Watch {
   picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
+  /** The latest subscribe: the view generation it began at, and its media delivery's generation. */
+  delivery?: { view: number; media: number };
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -469,8 +473,15 @@ export class BrowserLive {
           video: true as const,
           ...(action.keyframe ? { keyframe: true as const } : {}),
         };
-        // Pictures that came by the media connection are acknowledged on it.
-        if (!this.#media.ack(watch.threadId, ack))
+        // Each ack goes the way its decoder's pictures came: the media connection, the main
+        // socket, or nowhere when they came for a subscribe that has been replaced since.
+        const delivery = watch.delivery;
+        const way =
+          delivery && action.generation !== undefined && action.generation >= delivery.view
+            ? this.#media.way(watch.threadId, delivery.media)
+            : "stale";
+        if (way === "media") this.#media.route?.ack(ack);
+        else if (way === "channel")
           try {
             this.#owner.send({ ...ack, requestId: this.#requestId() });
           } catch {
@@ -521,7 +532,10 @@ export class BrowserLive {
     const generation = watch.generation;
     const h264Only = this.#h264Only;
     const binding = this.#media.route?.binding()?.connection;
-    const { media } = this.#media.fields(watch.threadId);
+    const begun = this.#media.begin(watch.threadId);
+    const { media } = begun.fields;
+    // Swift's decoders from this view generation on show this subscribe's pictures.
+    watch.delivery = { view: watch.generation, media: begun.generation };
     let refused = false;
     void this.#owner
       .request({
@@ -538,7 +552,8 @@ export class BrowserLive {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
             // A connection the daemon won't bind for this view: it goes on the main socket.
-            if (this.#media.refused(watch.threadId, new Error(reply.error ?? ""))) {
+            const error = new Error(reply.error ?? "");
+            if (this.#media.refused(watch.threadId, begun.generation, error)) {
               refused = true;
               return;
             }
@@ -549,7 +564,7 @@ export class BrowserLive {
           watch.error = undefined;
           watch.subscribed = true;
           // Delivery by the media connection only when the daemon's answer says so.
-          this.#media.subscribed(watch.threadId, reply.media);
+          this.#media.subscribed(watch.threadId, begun.generation, reply.media);
           // The menu's note names the machine's default; read again on each new subscription.
           void this.#engine.readDefault();
           watch.retry?.();

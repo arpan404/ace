@@ -41,6 +41,10 @@ function connection() {
   };
 }
 
+/** The view generation Swift's decoder runs at: the latest `browser.view` patch's. */
+const shown = (sink: { read(key: string): Record<string, unknown> | undefined }) =>
+  Number(sink.read("browser:view")?.generation ?? 0);
+
 type Subscribe = { type: string; media?: { connection: string } };
 const subscribes = (requested: unknown[]) =>
   (requested as Subscribe[]).filter((value) => value.type === "browser.subscribe");
@@ -63,10 +67,10 @@ async function opened(
 }
 
 test("the view subscribes on the open media connection and acknowledges its pictures there", async () => {
-  const { requested, sent, view, media } = await opened("mc_aaaaaaaa");
+  const { requested, sent, view, media, sink } = await opened("mc_aaaaaaaa");
   expect(subscribes(requested)[0]?.media).toEqual({ connection: "mc_aaaaaaaa" });
 
-  view.action({ kind: "ack", sequence: 7, keyframe: true });
+  view.action({ kind: "ack", sequence: 7, keyframe: true, generation: shown(sink) });
   expect(media.carried).toEqual([
     { type: "browser.ack", threadId: "web", sequence: 7, video: true, keyframe: true },
   ]);
@@ -85,18 +89,18 @@ test("a new media connection subscribes the view again on it and starts a fresh 
     "a new decoder generation",
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  view.action({ kind: "ack", sequence: 1 });
+  view.action({ kind: "ack", sequence: 1, generation: shown(sink) });
   expect(media.carried.at(-1)).toMatchObject({ sequence: 1 });
 });
 
 test("losing the media connection moves the view and its acks back to the main socket", async () => {
-  const { requested, sent, view, media } = await opened("mc_aaaaaaaa");
+  const { requested, sent, view, media, sink } = await opened("mc_aaaaaaaa");
   media.bind(undefined);
   await until(() => subscribes(requested).length === 2, "resubscribe");
   expect(subscribes(requested)[1]?.media).toBeUndefined();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  view.action({ kind: "ack", sequence: 3 });
+  view.action({ kind: "ack", sequence: 3, generation: shown(sink) });
   expect(media.carried).toEqual([]);
   expect(sent).toEqual([
     expect.objectContaining({ type: "browser.ack", threadId: "web", sequence: 3, video: true }),
@@ -104,27 +108,40 @@ test("losing the media connection moves the view and its acks back to the main s
 });
 
 test("without a media connection the view is delivered and acknowledged on the main socket", async () => {
-  const { requested, sent, view, media } = await opened(undefined);
+  const { requested, sent, view, media, sink } = await opened(undefined);
   expect(subscribes(requested)[0]?.media).toBeUndefined();
-  view.action({ kind: "ack", sequence: 2 });
+  view.action({ kind: "ack", sequence: 2, generation: shown(sink) });
   expect(media.carried).toEqual([]);
   expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 2 })]);
 });
 
 test("a daemon that serves the view on its main socket keeps its acks there", async () => {
-  const { requested, sent, view, media } = await opened("mc_aaaaaaaa", "serves");
+  const { requested, sent, view, media, sink } = await opened("mc_aaaaaaaa", "serves");
   expect(subscribes(requested)[0]?.media).toEqual({ connection: "mc_aaaaaaaa" });
-  view.action({ kind: "ack", sequence: 6 });
+  view.action({ kind: "ack", sequence: 6, generation: shown(sink) });
   expect(media.carried).toEqual([]);
   expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 6 })]);
 });
 
 test("a refused media connection subscribes the view again on the main socket", async () => {
-  const { requested, sent, view, media } = await opened("mc_aaaaaaaa", "refuses");
+  const { requested, sent, view, media, sink } = await opened("mc_aaaaaaaa", "refuses");
   await until(() => subscribes(requested).length === 2, "subscribe without the connection");
   expect(subscribes(requested)[1]?.media).toBeUndefined();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  view.action({ kind: "ack", sequence: 8 });
+  view.action({ kind: "ack", sequence: 8, generation: shown(sink) });
   expect(media.carried).toEqual([]);
   expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 8 })]);
+});
+
+test("an ack from a decoder older than the view's latest subscribe goes nowhere", async () => {
+  const { requested, sent, view, media, sink } = await opened("mc_aaaaaaaa");
+  const before = shown(sink);
+  media.bind("mc_bbbbbbbb");
+  await until(() => subscribes(requested).length === 2, "resubscribe");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  view.action({ kind: "ack", sequence: 40, generation: before });
+  expect(media.carried).toEqual([]);
+  expect(sent).toEqual([]);
+  view.action({ kind: "ack", sequence: 1, generation: shown(sink) });
+  expect(media.carried).toEqual([expect.objectContaining({ sequence: 1 })]);
 });

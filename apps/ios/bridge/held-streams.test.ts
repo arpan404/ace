@@ -19,7 +19,7 @@ const state = ScreenState.parse({
   permissions: { screenRecording: true, accessibility: true },
 });
 
-function phone(bound: string | undefined) {
+function phone(bound: string | undefined, binds = false) {
   let connection = bound;
   const watchers = new Set<() => void>();
   const carried: MediaStreamClientMessage[] = [];
@@ -54,7 +54,9 @@ function phone(bound: string | undefined) {
             type: "screen.result",
             requestId,
             ok: true,
-            ...(media ? { media } : {}),
+            // As D1 serves screens today: the subscribe may name the connection, and the daemon
+            // answers without `media`, keeping the pictures on the channel.
+            ...(media && binds ? { media } : {}),
           }),
         ),
       );
@@ -82,7 +84,7 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-test("a held app subscribes on the media connection and its decoded pictures are acked there", async () => {
+test("a held app names the media connection; served on the channel, its pictures are acked there", async () => {
   const app = phone("mc_aaaaaaaa");
   app.streams.hold("app");
   await settle();
@@ -95,10 +97,10 @@ test("a held app subscribes on the media connection and its decoded pictures are
     },
   ]);
   app.streams.ack("app", "capture-1", 5, true);
-  expect(app.carried).toEqual([
+  expect(app.channelAcks()).toEqual([
     { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 5, keyframe: true },
   ]);
-  expect(app.channelAcks()).toEqual([]);
+  expect(app.carried).toEqual([]);
 });
 
 test("without a media connection the app is subscribed and acked on its channel", async () => {

@@ -149,7 +149,9 @@ import UIKit
             guard threadId == self.threadId else { return }
             if let generation, generation != info.generation {
                 // The daemon starts this viewer's video again: the last picture stays until its next keyframe.
-                renderer?.reset()
+                renderer?.reset(generation: info.generation)
+            } else if generation == nil {
+                renderer?.start(generation: info.generation)
             }
             generation = info.generation
             if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
