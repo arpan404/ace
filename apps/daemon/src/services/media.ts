@@ -100,6 +100,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
         id,
         capabilities: platformRouteCapabilities(process.platform),
+        platform: process.platform,
         acceleration,
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
       });

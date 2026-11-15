@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 /// The hardware encoders `Platform::encoder` constructs, one per arm of its match. Only these
 /// backends' probe entries choose an encoder or turn the last-resort encoder off; a backend
 /// probed but missing here (VA-API, Media Foundation and NVENC are not wired into the JPEG
-/// encoder yet) leaves the fallback on.
+/// encoder yet) leaves the fallback on. The daemon offers picture codecs from the same table,
+/// `packages/media/src/picture-encoders.json`; a test keeps the two equal.
 pub const BUILT_ENCODERS: &[Backend] = &[
     #[cfg(target_os = "macos")]
     Backend::Vt,
@@ -118,5 +119,31 @@ impl Backends for Platform {
 
     fn probed(&self) -> Vec<Capability> {
         self.capabilities()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The daemon offers picture codecs from `picture-encoders.json`; it must name exactly the
+    /// encoders this build constructs, or the daemon would ask for encodes ace-media refuses.
+    #[test]
+    fn the_daemons_picture_encoder_table_names_what_this_build_constructs() {
+        let text = include_str!("../../../../../../packages/media/src/picture-encoders.json");
+        let table: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+        let platform = match std::env::consts::OS {
+            "macos" => "darwin",
+            "windows" => "win32",
+            other => other,
+        };
+        let listed: Vec<Backend> = table
+            .get(platform)
+            .and_then(|list| serde_json::from_value(list.clone()).ok())
+            .unwrap_or_default();
+        assert_eq!(
+            listed, BUILT_ENCODERS,
+            "{platform} in picture-encoders.json"
+        );
     }
 }

@@ -1718,7 +1718,11 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort
   encoder off (`select::encoder_for`, `select::last_resort_needed`). Today that is VideoToolbox
   on macOS only: a Linux machine whose VA-API trial works still gets the Chrome trial and the
-  Chrome encoder for H.264 until VA-API is wired into the JPEG encoder and added there.
+  Chrome encoder for H.264 until VA-API is wired into the JPEG encoder and added there. The
+  daemon offers picture codecs (`MediaRuntime.pictureCodecs`, `packages/media/src/
+picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.json` per
+  platform, which a test in `platform.rs` holds equal to `BUILT_ENCODERS`: it never offers HEVC
+  (or H.264) from a backend ace-media can't build there.
 - **Ranking** (`rank.rs`). `Ranker` runs each candidate for at most 10 s, 20 s in all, only
   while no source is open (`sources(n)`), and a source opening cancels it at once. One owner
   thread takes the source counts and each run's result as events in order; a run's result is
