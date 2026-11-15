@@ -347,23 +347,25 @@ import QuartzCore
     }
     /// `patches` with each streaming text edit for the open thread turned into its whole row, or
     /// nil when one was made against text other than the row it will show, held frames included.
+    /// An edit without a row keeps every other field of the row it edits.
     private func resolveTextEdits(_ patches: [BridgePatch]) -> [BridgePatch]? {
         let mark = batch.mark()
         var resolved: [BridgePatch] = []
         resolved.reserveCapacity(patches.count)
         for patch in patches {
-            guard case .itemText(let id, let epoch, let itemId, let edit, var row) = patch else {
+            guard case .itemText(let id, let epoch, let itemId, let edit, let fields) = patch else {
                 batch.note(patch)
                 resolved.append(patch)
                 continue
             }
             // Another thread's or an older generation's edit is dropped like its whole row would be.
             guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-            guard let shown = batch.text(id, epoch, itemId, shown: { (thread.refresh ?? thread).items[itemId]?.row.text }),
-                  let text = edit.applied(to: shown) else {
+            guard let shown = batch.row(id, epoch, itemId, shown: { (thread.refresh ?? thread).items[itemId]?.row }),
+                  let text = edit.applied(to: shown.text) else {
                 batch.restore(mark)
                 return nil
             }
+            var row = fields ?? shown
             row.text = text
             let whole = BridgePatch.item(id, epoch, itemId, row, nil)
             batch.note(whole)

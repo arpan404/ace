@@ -337,7 +337,7 @@ enum BridgePatch: Decodable, Sendable {
     case item(String, Int, String, TranscriptRow?, ItemRemoval?)
     /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
-    case itemText(String, Int, String, TextEdit, TranscriptRow)
+    case itemText(String, Int, String, TextEdit, TranscriptRow?)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
@@ -458,7 +458,7 @@ enum BridgePatch: Decodable, Sendable {
             let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
                                 append: try box.decode(String.self, forKey: .append))
             guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
-            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()

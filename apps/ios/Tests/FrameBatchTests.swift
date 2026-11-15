@@ -36,6 +36,21 @@ import Testing
         #expect(model.thread?.order == ["a", "b"])
     }
 
+    @Test func anEditWithoutARowBuildsOnTheWholeHeldRow() throws {
+        let model = ClientModel(now: { 0 }, frames: .immediate)
+        model.open("thread")
+        let epoch = try #require(model.thread?.epoch)
+        var held = item(epoch, "a", "Hello", index: 0)
+        held["row"] = row("a", "Hello", index: 0).merging(["detail": "Held detail"]) { $1 }
+        var bare = edit(epoch, "a", base: 5, append: " world")
+        bare["row"] = nil
+        #expect(model.hold(try patches([held]), bytes: 0))
+        #expect(model.hold(try patches([bare]), bytes: 0))
+        model.flushFrames()
+        #expect(model.thread?.items["a"]?.row.text == "Hello world")
+        #expect(model.thread?.items["a"]?.row.detail == "Held detail")
+    }
+
     @Test func anEditAgainstOtherTextIsTurnedDownWhileTheHeldFramesBeforeItStillApply() throws {
         let model = ClientModel(now: { 0 }, frames: .immediate)
         model.open("thread")
