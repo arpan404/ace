@@ -11,6 +11,9 @@ import {
   type DeviceTransport,
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import type { MediaRoute } from "@ace/browser/live-view";
+import { useOptionalClient } from "@ace/client-react";
+import { mediaFor } from "@/lib/video/media.ts";
 import type { ChannelEndpoint } from "@/boot/main-machine.ts";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
@@ -117,8 +120,10 @@ export interface DeviceSession {
   close(): void;
 }
 
-function openSession(endpoint: ChannelEndpoint): DeviceSession {
+function openSession(endpoint: ChannelEndpoint, media?: MediaRoute): DeviceSession {
   const client = new DeviceClient({ id: () => crypto.randomUUID(), schedule });
+  // Live pictures come by the daemon connection's media connection when it has one.
+  client.useMedia(media);
   const listeners = new Set<() => void>();
   let connection: DeviceConnection =
     endpoint.kind === "fake" || loopback(endpoint.target.url) ? "local" : "remote";
@@ -177,6 +182,7 @@ function openSession(endpoint: ChannelEndpoint): DeviceSession {
     close() {
       retry.dispose();
       stop();
+      client.useMedia(undefined);
       client.disconnect();
     },
   };
@@ -199,15 +205,16 @@ const none = () => () => {};
  */
 interface Shared {
   session: DeviceSession;
+  media: MediaRoute | undefined;
   users: number;
   listeners: Set<() => void>;
 }
 const shared = new WeakMap<ChannelEndpoint, Shared>();
 
-function acquire(endpoint: ChannelEndpoint): Shared {
+function acquire(endpoint: ChannelEndpoint, media: MediaRoute | undefined): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    entry = { session: openSession(endpoint), users: 0, listeners: new Set() };
+    entry = { session: openSession(endpoint, media), media, users: 0, listeners: new Set() };
     shared.set(endpoint, entry);
   }
   entry.users++;
@@ -225,7 +232,7 @@ function reopen(endpoint: ChannelEndpoint) {
   const entry = shared.get(endpoint);
   if (!entry) return;
   entry.session.close();
-  entry.session = openSession(endpoint);
+  entry.session = openSession(endpoint, entry.media);
   for (const listener of entry.listeners) listener();
 }
 
@@ -235,9 +242,11 @@ function reopen(endpoint: ChannelEndpoint) {
  */
 export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   const [session, setSession] = useState<DeviceSession | undefined>();
+  const daemon = useOptionalClient();
   useEffect(() => {
     if (!endpoint) return;
-    const entry = acquire(endpoint);
+    const media = endpoint.kind === "fake" || !daemon ? undefined : mediaFor(daemon).route;
+    const entry = acquire(endpoint, media);
     const follow = () => setSession(entry.session);
     entry.listeners.add(follow);
     follow();
@@ -246,7 +255,7 @@ export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
       release(endpoint, entry);
       setSession(undefined);
     };
-  }, [endpoint]);
+  }, [endpoint, daemon]);
   const snapshot = useSyncExternalStore(
     session?.subscribe ?? none,
     session?.get ?? (() => offline),

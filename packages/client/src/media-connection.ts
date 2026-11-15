@@ -30,7 +30,7 @@ export interface MediaSocketEvents {
 }
 
 export interface MediaSocket {
-  send(data: string | Uint8Array): void;
+  send(data: string | Uint8Array<ArrayBuffer>): void;
   close(code?: number): void;
 }
 
@@ -64,7 +64,7 @@ export const mediaWelcomeMs = 5_000;
 export const mediaPingMs = 5_000;
 
 /** The 37-byte hello: `"ACEC"`, the version, the ticket's 32 bytes. */
-export function mediaHello(ticket: string): Uint8Array {
+export function mediaHello(ticket: string): Uint8Array<ArrayBuffer> {
   const base64 = ticket.replaceAll("-", "+").replaceAll("_", "/") + "=";
   const bytes = decodeBase64(base64, 32);
   const hello = new Uint8Array(mediaHelloBytes);
@@ -178,7 +178,7 @@ export class MediaConnection {
     // Only the relay reaches this client: relay media streams aren't wired for it yet.
     if (!result.url) return this.#legacy("relay");
     const granted = result.connection;
-    let hello: Uint8Array;
+    let hello: Uint8Array<ArrayBuffer>;
     try {
       hello = mediaHello(result.ticket);
     } catch {
