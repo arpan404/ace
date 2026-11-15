@@ -22,7 +22,7 @@ final class MediaConnectionUITests: XCTestCase {
     @MainActor func testTheLiveBrowserRunsOnTheMediaConnectionAndKeepsGoing() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         let row = app.buttons["thread.ios-browser"]
         app.bringToMiddle(row)
         row.tap()

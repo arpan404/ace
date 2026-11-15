@@ -8,7 +8,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9895", "-ace.appearance", "dark"]
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("library.providers")
         return app
     }

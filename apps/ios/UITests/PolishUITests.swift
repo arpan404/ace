@@ -285,7 +285,7 @@ import XCTest
         if let size = ProcessInfo.processInfo.environment["ACE_IOS_TEXT_SIZE"] {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
         }
-        app.launch()
+        app.launchWithArguments()
         // At accessibility text sizes the first rows can already fill the screen.
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         return app

@@ -10,7 +10,7 @@ import XCTest
     func testAClashingShortcutWaitsAndASavedOneShowsUntilResetAll() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         app.openBrowseDestination("settings.keyboard")
         let search = app.buttons["keyboard.shortcut.searchThreads"]
@@ -55,7 +55,7 @@ import XCTest
     func testThePhonesCategoriesAndQuietHoursShowUnderNotifications() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         app.openBrowseDestination("settings.notifications")
@@ -86,7 +86,7 @@ import XCTest
     func testEachMachineOpensItsPushWhenTheAppIsClosedSwitch() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         app.openBrowseDestination("settings.notifications")
         let machine = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch

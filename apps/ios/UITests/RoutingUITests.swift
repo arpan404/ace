@@ -83,7 +83,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.joined(separator: ",")]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
 
