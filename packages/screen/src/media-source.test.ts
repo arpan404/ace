@@ -233,8 +233,9 @@ it("a flip back to the helper socket while ace-media still has the old path's un
   expect(s.source.stale).toBe(0);
 });
 
+const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
+
 it("a helper streams its own video only where it encodes H.264: the Mac, and Windows with a Media Foundation encoder", () => {
-  const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
   expect(helperEncodesVideo(helper("macos", ["jpeg", "h264"]))).toBe(true);
   expect(helperEncodesVideo(helper("windows", ["jpeg", "h264"]))).toBe(true);
   // No MFT: JPEG only, so the daemon's last-resort encoder makes the video.
