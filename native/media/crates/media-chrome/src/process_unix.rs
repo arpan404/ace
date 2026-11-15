@@ -2,8 +2,8 @@
 //! Unix: Chrome in a process group of its own, with its debugging pipe on fds 3 and 4.
 //!
 //! - **Whole tree.** `kill_tree` signals the group, so Chrome's helpers go with it.
-//! - **Parent death.** Chrome exits by itself when its pipe's read end reaches end of file,
-//!   which happens when this process dies and the kernel closes the write end. On Linux the
+//! - **Parent death.** An independent guard waits for owner-pipe EOF, then kills the
+//!   group, including helpers Chrome can abandon during pipe-EOF shutdown. On Linux the
 //!   child also gets `PR_SET_PDEATHSIG`. That signal fires when the *thread* that forked dies,
 //!   so the fork happens on a reaper thread that lives exactly as long as Chrome does.
 
@@ -24,6 +24,7 @@ pub type Spawned = (Browser, Box<dyn Write + Send>, Box<dyn Read + Send>);
 pub struct Browser {
     pid: u32,
     exited: Arc<(Mutex<bool>, Condvar)>,
+    _owner_pipe: std::io::PipeWriter,
 }
 
 fn backend(error: impl std::fmt::Display) -> CodecError {
@@ -76,20 +77,62 @@ pub fn spawn(executable: &Path, args: Vec<String>) -> Result<Spawned, CodecError
             };
             // The child's pipe ends close here, so Chrome exiting reads as end of file.
             drop(command);
-            let _ = started.send(Ok(child.id()));
+            // A separate process survives an abrupt owner death. Chrome's own EOF
+            // handling can leave utility helpers behind, so it cannot own tree cleanup.
+            let (owner_reads, owner_writes) = match std::io::pipe() {
+                Ok(pipe) => pipe,
+                Err(error) => {
+                    let _ = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
+                    let _ = child.wait();
+                    let _ = started.send(Err(backend(error)));
+                    return;
+                }
+            };
+            let guard = std::process::Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    "if ! IFS= read -r done; then /bin/kill -KILL -$1; fi",
+                    "media-chrome-guard",
+                    &child.id().to_string(),
+                ])
+                .stdin(Stdio::from(owner_reads))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+            let mut guard = match guard {
+                Ok(guard) => guard,
+                Err(error) => {
+                    let _ = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
+                    let _ = child.wait();
+                    let _ = started.send(Err(backend(error)));
+                    return;
+                }
+            };
+            let caller_pipe = owner_writes.try_clone().map_err(backend);
+            let _ = started.send(caller_pipe.map(|pipe| (child.id(), pipe)));
             let _ = child.wait();
+            // Clean up helpers on spontaneous browser death too. Disarm the guard
+            // so an idle encoder cannot later signal a reused process group.
+            let _ = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
+            let mut owner_writes = owner_writes;
+            let _ = owner_writes.write_all(b"done\n");
             let (lock, changed) = &*reaper_exited;
             if let Ok(mut done) = lock.lock() {
                 *done = true;
             }
             changed.notify_all();
+            let _ = guard.wait();
         })
         .map_err(backend)?;
-    let pid = pid
+    let (pid, owner_pipe) = pid
         .recv()
         .map_err(|_| CodecError::Backend("Chrome's launcher thread ended".into()))??;
     Ok((
-        Browser { pid, exited },
+        Browser {
+            pid,
+            exited,
+            _owner_pipe: owner_pipe,
+        },
         Box::new(ours_writes),
         Box::new(ours_reads),
     ))
