@@ -13,6 +13,7 @@ import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
+import { bubbleWidth } from "./spade-bubble-style.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
@@ -162,8 +163,10 @@ export function BubbleFrame(props: {
     <div
       ref={frame}
       className={cn(
+        // The frame takes the side's width limit; the bubble inside fills it (`framed`).
         "group/bubble relative flex min-w-0 flex-col",
         props.side === "bot" ? "items-start" : "items-end",
+        bubbleWidth[props.side],
         held && "select-none",
       )}
       onPointerDown={(event) => {

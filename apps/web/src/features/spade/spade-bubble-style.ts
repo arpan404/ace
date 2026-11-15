@@ -7,8 +7,17 @@
 const shape =
   "min-w-0 rounded-(--chat-bubble-radius) px-(--chat-bubble-x) py-(--chat-bubble-y) font-prose text-prose leading-6 wrap-anywhere";
 
+/** How wide each side's bubble may grow, against the conversation's column. */
+export const bubbleWidth = {
+  bot: "max-w-[min(100%,64ch)]",
+  mine: "max-w-[min(85%,56ch)]",
+} as const;
+
 /** The bot's words. */
-export const chatBubble = `${shape} max-w-[min(100%,64ch)] bg-chat-bubble text-foreground`;
+export const chatBubble = `${shape} ${bubbleWidth.bot} bg-chat-bubble text-foreground`;
 
 /** The person's words, in the accent. */
-export const mineBubble = `${shape} max-w-[min(85%,56ch)] bg-chat-mine text-chat-mine-foreground`;
+export const mineBubble = `${shape} ${bubbleWidth.mine} bg-chat-mine text-chat-mine-foreground`;
+
+/** A bubble inside `BubbleFrame`, which holds its width limit: it may fill the frame. */
+export const framed = "max-w-full";

@@ -20,7 +20,7 @@ import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import { chatBubble, mineBubble } from "./spade-bubble-style.ts";
+import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import {
   BubbleFrame,
   Failure,
@@ -297,7 +297,7 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
             >
-              <div className={chatBubble}>
+              <div className={cn(chatBubble, framed)}>
                 {item.text && <SpadeBubbleText text={item.text} />}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -338,7 +338,7 @@ function RunItem(props: {
           copy={spadePlainText(item.text)}
           speak={item.text}
         >
-          <div className={chatBubble}>
+          <div className={cn(chatBubble, framed)}>
             <SpadeBubbleText text={item.text} />
           </div>
         </BubbleFrame>
@@ -409,7 +409,7 @@ function Single(props: {
               copy={spadePlainText(item.text)}
               speak={undefined}
             >
-              <div className={mineBubble}>
+              <div className={cn(mineBubble, framed)}>
                 <SpadeBubbleText text={item.text} side="mine" />
                 {/* A voice message: its transcript, and the recording to play. */}
                 {item.voice && (
