@@ -235,6 +235,8 @@ export function relayRoute(options: RelayRouteOptions): {
                 : undefined;
             /** The NK attempt's first flight, sent after its confirmation or over XX instead. */
             let flight: string[] | undefined;
+            /** Everything the connection sent first, for an XX attempt after an NK one. */
+            let gathered: string[] | undefined;
             let opened: PortableRelay;
             let viaNk = false;
             try {
@@ -243,17 +245,18 @@ export function relayRoute(options: RelayRouteOptions): {
                 // first message, so the welcome needs one round trip.
                 pending = credential;
                 own = credential;
-                const gathered: string[] = [];
-                collecting = gathered;
+                const first: string[] = [];
+                gathered = first;
+                collecting = first;
                 events.open();
                 await new Promise<void>((resolve) => options.schedule(resolve, 0));
                 collecting = undefined;
                 if (stamp !== epoch) return;
                 const converted = earlyFlight(
-                  gathered,
+                  first,
                   plan.ticket !== undefined ? { ticket: plan.ticket } : grant ? { grant } : {},
                 );
-                flight = gathered;
+                flight = first;
                 if (converted) {
                   try {
                     opened = await dialOnce({
@@ -282,78 +285,97 @@ export function relayRoute(options: RelayRouteOptions): {
               if (stamp === epoch && !upgraded && grant === undefined) earlyKnown = false;
               throw error;
             }
-            earlyKnown = opened.earlyCapable === true;
-            unopened = undefined;
-            if (stamp !== epoch) {
-              opened.close();
-              return;
-            }
-            relay = opened;
-            nkUnwelcomed = viaNk;
-            askTicket = token && !viaNk;
-            if (flight) {
-              // What the connection already sent: over XX all of it, after NK what didn't go early.
-              const [hello, ...rest] = flight;
-              const queued = viaNk
-                ? flight
-                : hello === undefined
-                  ? rest
-                  : [askNextTicket(hello), ...rest];
-              for (const text of queued)
-                void opened.sendText(text, 16 * 1024 * 1024).catch(() => {});
-            } else {
-              pending = credential;
-              own = credential;
-              events.open();
-            }
-            let welcomed = false;
-            const current = () => stamp === epoch;
-            while (current()) {
-              const frame = await opened.receiveRaw();
-              if (!current()) return;
-              if (typeof frame !== "string") {
-                events.binary?.(frame);
-                continue;
-              }
-              // The daemon writes `type` first; only these frames are looked at here.
-              if (frame.startsWith('{"type":"channel.close"')) {
-                const goodbye = ChannelClose.parse(JSON.parse(frame));
-                ended(goodbye.code, goodbye.reason);
+            /** Runs an open stream: what the connection sent goes out, then frames come in. */
+            const serve = async (
+              stream: PortableRelay,
+              nkStream: boolean,
+              sending: string[] | undefined,
+            ): Promise<void> => {
+              earlyKnown = stream.earlyCapable === true;
+              unopened = undefined;
+              if (stamp !== epoch) {
+                stream.close();
                 return;
               }
-              // The daemon's own answer to an NK confirmation: its next ticket, for this route.
-              if (frame.startsWith('{"type":"hello.confirmed"')) {
-                nk.handed(handedTicket(frame));
-                continue;
+              relay = stream;
+              nkUnwelcomed = nkStream;
+              askTicket = token && !nkStream;
+              if (sending) {
+                // What the connection already sent: over XX all of it, after NK what didn't go early.
+                const [hello, ...rest] = sending;
+                const queued = nkStream
+                  ? sending
+                  : hello === undefined
+                    ? rest
+                    : [askNextTicket(hello), ...rest];
+                for (const text of queued)
+                  void stream.sendText(text, 16 * 1024 * 1024).catch(() => {});
+              } else {
+                pending = credential;
+                own = credential;
+                events.open();
               }
-              if (!welcomed) {
-                if (frame.startsWith('{"type":"welcome"')) {
-                  welcomed = true;
-                  const welcome = welcomeFacts(frame);
-                  // Kept with the key this stream was keyed to, and only if it is the pinned one.
-                  nk.welcomed(opened.hostKey, welcome.relayHandshakes);
-                  nk.handed(welcome.ticket);
-                  if (viaNk) nk.succeeded();
-                  nkUnwelcomed = false;
-                  options.welcomed?.();
-                  // The ticket is this route's, for NK: the connection never sees it.
-                  if (welcome.ticket) {
-                    events.message(welcome.without);
-                    continue;
-                  }
-                } else if (frame.startsWith('{"type":"error"')) {
-                  const refusal = machineCodeRefusal(frame);
-                  if (refusal) {
-                    options.refused?.(refusal.reason, refusal.message, refusal.lockedUntil);
-                    ended(MACHINE_CODE_CLOSE, refusal.reason);
-                    return;
+              let welcomed = false;
+              const current = () => stamp === epoch;
+              while (current()) {
+                const frame = await stream.receiveRaw();
+                if (!current()) return;
+                if (typeof frame !== "string") {
+                  events.binary?.(frame);
+                  continue;
+                }
+                // The daemon writes `type` first; only these frames are looked at here.
+                if (frame.startsWith('{"type":"channel.close"')) {
+                  // An NK stream the daemon ends before its welcome is an NK failure: XX follows.
+                  if (nkStream && !welcomed) throw new Error("NK stream ended before its welcome");
+                  const goodbye = ChannelClose.parse(JSON.parse(frame));
+                  ended(goodbye.code, goodbye.reason);
+                  return;
+                }
+                // The daemon's own answer to an NK confirmation: its next ticket, for this route.
+                if (frame.startsWith('{"type":"hello.confirmed"')) {
+                  nk.handed(handedTicket(frame));
+                  continue;
+                }
+                if (!welcomed) {
+                  if (frame.startsWith('{"type":"welcome"')) {
+                    welcomed = true;
+                    const welcome = welcomeFacts(frame);
+                    // Kept with the key this stream was keyed to, and only if it is the pinned one.
+                    nk.welcomed(stream.hostKey, welcome.relayHandshakes);
+                    nk.handed(welcome.ticket);
+                    if (nkStream) nk.succeeded();
+                    nkUnwelcomed = false;
+                    options.welcomed?.();
+                    // The ticket is this route's, for NK: the connection never sees it.
+                    if (welcome.ticket) {
+                      events.message(welcome.without);
+                      continue;
+                    }
+                  } else if (frame.startsWith('{"type":"error"')) {
+                    const refusal = machineCodeRefusal(frame);
+                    if (refusal) {
+                      options.refused?.(refusal.reason, refusal.message, refusal.lockedUntil);
+                      ended(MACHINE_CODE_CLOSE, refusal.reason);
+                      return;
+                    }
                   }
                 }
+                events.message(frame);
               }
-              events.message(frame);
+            };
+            try {
+              await serve(opened, viaNk, flight);
+            } catch (error) {
+              if (stamp !== epoch || !nkUnwelcomed) throw error;
+              // An NK stream that ended before its welcome (dropped, or closed by the daemon) is
+              // an NK failure like a refusal: one immediate XX attempt with the whole flight.
+              nkUnwelcomed = false;
+              nk.failed();
+              opened.close();
+              await serve(await dialXx(), false, gathered);
             }
           })().catch((error: unknown) => {
-            if (stamp === epoch && nkUnwelcomed) nk.failed();
             return (
               // The relay's own "not your machine" is final; anything else is a drop to retry.
               error instanceof RelayClosedError && error.code === NOT_YOUR_MACHINE_CLOSE

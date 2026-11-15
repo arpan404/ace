@@ -142,7 +142,13 @@ it("a daemon that announced NK but no longer takes it costs one refused NK first
  * any stream whose first frame is NK-sized (longer than XX's last message). It echoes what the
  * relay behind chose, as a relay must.
  */
-async function hostileFront(target: string, strip: (entry: string) => boolean, dropNk = true) {
+async function hostileFront(
+  target: string,
+  strip: (entry: string) => boolean,
+  dropNk = true,
+  /** For a stream the relay behind took NK for: cut it after this many frames to the client. */
+  cutNkAfter?: number,
+) {
   const chosen = new WeakMap<IncomingMessage, string>();
   const wss = new WebSocketServer({
     noServer: true,
@@ -169,7 +175,13 @@ async function hostileFront(target: string, strip: (entry: string) => boolean, d
           }
           upstream.send(data);
         });
-        upstream.on("message", (data: Buffer) => incoming.send(data));
+        let toClient = 0;
+        upstream.on("message", (data: Buffer) => {
+          if (cutNkAfter !== undefined && upstream.protocol === "ace.v3" && toClient >= cutNkAfter)
+            return incoming.terminate();
+          toClient++;
+          incoming.send(data);
+        });
         upstream.on("close", () => incoming.close());
         incoming.on("close", () => upstream.close());
         incoming.on("error", () => upstream.terminate());
@@ -225,4 +237,25 @@ it("a relay that knows step 1 but not the upgrade entries gets the NK first mess
   await again;
   expect(sockets.patterns()).toEqual(["xx", "nk"]);
   expect(sockets.dials[1]?.protocol).toBe("ace.early.1");
+});
+
+it("an NK stream cut after the daemon's answer and before its welcome is followed at once by XX, in the same attempt", async () => {
+  const h = await newDaemon();
+  // The marker and the NK answer get through; the stream is cut before the welcome.
+  const front = await hostileFront(h.url, () => false, false, 2);
+  const sockets = recordedSockets();
+  let attempts = 0;
+  const client = openClient(cleanup, front, h.hostId, h.device, sockets.socket, () => attempts++);
+  const first = ready(client, 0, () => sockets.dials.length);
+  await client.start();
+  await first;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const before = attempts;
+  const again = ready(client, 2, () => sockets.dials.length);
+  sockets.drop();
+  await again;
+  expect(sockets.patterns()).toEqual(["xx", "nk", "xx"]);
+  // One new attempt after the drop: the XX dial followed the cut NK stream inside it, not after
+  // the connection reported a disconnect and started another.
+  expect(attempts - before).toBe(1);
 });

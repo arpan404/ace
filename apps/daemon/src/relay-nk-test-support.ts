@@ -74,6 +74,8 @@ export function newClient(
   hostId: string,
   device: { id: string; token: string },
   socket: (url: string, protocols?: string[]) => PortableSocket,
+  /** Called each time the connection asks the route for a new transport (a new attempt). */
+  onAttempt?: () => void,
 ) {
   const route = relayRoute({
     relayUrl,
@@ -109,7 +111,10 @@ export function newClient(
     random: () => 0.5,
     id: randomUUID,
     now: Date.now,
-    transport: route.transport,
+    transport: () => {
+      onAttempt?.();
+      return route.transport();
+    },
     credential: route.credential,
   });
   cleanup.push(() => client.close());
