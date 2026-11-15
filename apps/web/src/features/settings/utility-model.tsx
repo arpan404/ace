@@ -81,7 +81,7 @@ function UtilityModelRow() {
             <button
               type="button"
               aria-pressed={!choice}
-              {...part("menu-item", !choice && "selected")}
+              {...part("menu-item", !choice && "checked")}
               className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
               onClick={() => pick(null)}
             >

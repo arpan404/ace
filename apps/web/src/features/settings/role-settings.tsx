@@ -113,7 +113,7 @@ function RoleRow(props: { role: RunRole }) {
               <button
                 type="button"
                 aria-pressed={!provider}
-                {...part("menu-item", !provider && "selected")}
+                {...part("menu-item", !provider && "checked")}
                 className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
                 onClick={() => pick(null)}
               >

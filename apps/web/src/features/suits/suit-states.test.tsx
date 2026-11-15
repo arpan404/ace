@@ -19,11 +19,16 @@ configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
 /** The text of every element that is `part` in `state`. */
-function inState(part: string, state: string, within: ParentNode = document): string[] {
-  return [...within.querySelectorAll(`[data-part="${part}"][data-state="${state}"]`)].map(
+function inState(part: string, state: string, root: ParentNode = document): string[] {
+  return [...root.querySelectorAll(`[data-part="${part}"][data-state="${state}"]`)].map(
     (element) => element.getAttribute("aria-label") ?? element.textContent?.trim() ?? "",
   );
 }
+
+/** Skills' rows in the sidebar. */
+const skillRows = () => [
+  ...document.querySelectorAll<HTMLElement>('[data-part="nav-item"][href^="/skills/"]'),
+];
 
 /** The design's daemon at `path`, with a history the test moves. */
 async function open(path: string) {
@@ -68,16 +73,13 @@ test("an open automation and an open skill are the active nav item in their list
   );
   go("/skills");
   await screen.findByRole("navigation", { name: "Skills catalog" });
-  const rows = () => [
-    ...document.querySelectorAll<HTMLElement>('[data-part="nav-item"][href^="/skills/"]'),
-  ];
-  await waitFor(() => expect(rows().length).toBeGreaterThan(1));
-  const row = rows().find((each) => each.getAttribute("data-state") === null);
+  await waitFor(() => expect(skillRows().length).toBeGreaterThan(1));
+  const row = skillRows().find((each) => each.getAttribute("data-state") === null);
   if (!row) throw new Error("Every skill row is active");
   await userEvent.click(row);
   await waitFor(() => expect(row.getAttribute("data-state")).toBe("active"));
   // Only the open skill's row: the one open before is no longer active.
-  expect(rows().filter((each) => each.getAttribute("data-state") === "active")).toEqual([row]);
+  expect(skillRows().filter((each) => each.getAttribute("data-state") === "active")).toEqual([row]);
 });
 
 test("the current place in the rail is its one active item", async () => {
@@ -98,8 +100,8 @@ test("Fleet's open view is its selected tab", async () => {
 
 function Picks() {
   const [tab, setTab] = useState("changes");
-  const [mode, setMode] = useState<"light" | "dark">("light");
-  const [view, setView] = useState<"open" | "closed">("open");
+  const [mode, setMode] = useState("light");
+  const [view, setView] = useState("open");
   return (
     <>
       <Tabs value={tab} onValueChange={(next: string) => setTab(next)}>

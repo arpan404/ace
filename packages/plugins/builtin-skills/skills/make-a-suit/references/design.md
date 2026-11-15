@@ -51,6 +51,8 @@ Before keeping, every line is true:
 - [ ] Type: at most two families plus mono, each chosen for the material.
 - [ ] Corner radii in suit.css agree with `shape.radius`.
 - [ ] Hover, active, selected, focus and disabled states look intentional on thread rows, buttons, menu items and tabs.
+- [ ] Settings' controls match the rest: buttons and links, switches and their thumbs, sliders, segmented controls and their selected segment.
+- [ ] The work log's group headers and step icons, and the composer's strip with a queued message, belong to the Suit.
 - [ ] Menus, dialogs, toasts and the composer look like the same material as the sidebar.
 - [ ] Code blocks, diffs and the terminal belong to the palette.
 - [ ] Settings, Usage and a pull request page look as finished as a thread (open them in the screenshot or in ace's browser).
