@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { Revocation, RevocationResult } from "./grants.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
@@ -63,7 +64,33 @@ export type MediaConnectGrant =
   | { ok: true; connection: string; url?: string; ticket: string; expiresAt: number }
   | { ok: false; code: "unavailable" | "limit" | "refused"; message: string };
 
-type Held = { owner: MediaOwner; open: boolean; release: () => void };
+type Held = {
+  owner: MediaOwner;
+  open: boolean;
+  release: () => void;
+  /**
+   * The SHA-256 of the unused ticket, for a relay stream's hello (D2), which the daemon checks
+   * itself; gone once any hello presents it. The ticket itself is only ace-media's.
+   */
+  ticket?: Uint8Array | undefined;
+  expiresAt: number;
+};
+
+/** Who presents a ticket on a relay stream: the device, and how this machine admitted it. */
+export type MediaRelayClaimant = { device: string; admission: MediaAdmission["kind"] };
+/** What a relay stream's keys are granted for. */
+export type MediaRelayGrant = { connection: string; owner: MediaOwner; issued: number };
+
+function digest(ticket: Uint8Array): Uint8Array {
+  return new Uint8Array(createHash("sha256").update(ticket).digest());
+}
+
+/** A base64url ticket's bytes, or undefined for anything but 32 of them. */
+function ticketBytes(text: string): Uint8Array | undefined {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(text)) return undefined;
+  const bytes = new Uint8Array(Buffer.from(text, "base64url"));
+  return bytes.length === 32 ? bytes : undefined;
+}
 
 /** How long `media.connect` waits for ace-media to start. */
 export const startWaitMs = 5_000;
@@ -143,6 +170,7 @@ export class MediaConnections {
     const ticket = this.#options.randomBytes(32);
     const ticketText = base64url(ticket);
     const expiresAt = this.#options.now() + ticketTtlMs;
+    const hashed = digest(ticket);
     const sent = this.#options.port.send(
       {
         type: "media.ticket",
@@ -158,7 +186,7 @@ export class MediaConnections {
       release();
       return unavailable;
     }
-    this.#held.set(connection, { owner, open: false, release });
+    this.#held.set(connection, { owner, open: false, release, ticket: hashed, expiresAt });
     return {
       ok: true,
       connection,
@@ -166,6 +194,33 @@ export class MediaConnections {
       ticket: ticketText,
       expiresAt,
     };
+  }
+
+  /**
+   * A relay stream's hello presents a ticket (D2): the grant for its keys, once, before it
+   * expires, for its own device and admission kind, while its main session is open and no
+   * revocation covers it. Any presentation burns the ticket, so a wrong device can't retry.
+   */
+  claimRelay(ticket: string, claimant: MediaRelayClaimant): MediaRelayGrant | undefined {
+    const bytes = ticketBytes(ticket);
+    if (!bytes) return undefined;
+    const presented = digest(bytes);
+    bytes.fill(0);
+    for (const [connection, held] of this.#held) {
+      if (!held.ticket || !timingSafeEqual(held.ticket, presented)) continue;
+      held.ticket = undefined;
+      const owner = held.owner;
+      if (
+        held.open ||
+        held.expiresAt <= this.#options.now() ||
+        owner.device !== claimant.device ||
+        owner.admission.kind !== claimant.admission ||
+        this.#isRevoked(owner)
+      )
+        return undefined;
+      return { connection, owner, issued: this.#options.issue.next() };
+    }
+    return undefined;
   }
 
   /** The connection's owner, when `session` holds it. */
@@ -243,7 +298,10 @@ export class MediaConnections {
   received(message: FromMedia): void {
     if (message.type === "connection.open") {
       const held = this.#held.get(message.connection);
-      if (held) held.open = true;
+      if (held) {
+        held.open = true;
+        held.ticket = undefined;
+      }
     } else if (message.type === "connection.closed") {
       this.#drop(message.connection);
     }

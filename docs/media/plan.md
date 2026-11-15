@@ -299,8 +299,7 @@ table, including timed-out trials and the ranking cache.
     Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
     The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
     `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
-  - **Not built yet, failing at once so the daemon falls back:** `relay.dial` (`relay.failed`
-    `relay-unavailable`, D2), and, on Windows, `record.start` (`record.failed`
+  - **Not built yet, failing at once so the daemon falls back:** on Windows, `record.start` (`record.failed`
     `recorder-unavailable`). F2 built `still.take`; see "F2 notes". A recording's
     frames pass through `media-core::privacy` and `record.epochs` is answered with
     `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped; the
@@ -1360,9 +1359,10 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   sandbox, web security, the debugging transport and the profile can't be changed from outside.
 - **Lifetime.** A guard owns Chrome and its profile from the moment it exists, on every path.
   Chrome runs in its own process group (Unix) or a kill-on-close job (Windows), and cleanup ends
-  the whole tree. If ace-media dies, Chrome exits because its debugging pipe closes (checked on
-  macOS and Windows); Linux also sets `PR_SET_PDEATHSIG`, from a reaper thread that lives as
-  long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
+  the whole tree. On Unix an independent guard blocks on an owner pipe and kills Chrome’s
+  process group at EOF: Chrome’s own debugging-pipe shutdown can abandon utility helpers.
+  On Windows the kill-on-close job ends the tree when ace-media dies. Linux also sets
+  `PR_SET_PDEATHSIG`, from a reaper thread that lives as long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
   `SingletonLock` holder gone) are reclaimed at start.
 - **Bounds.** The page's request head is read under an absolute deadline (one second per
   client), and the token is compared in constant time. Unread replies from the pipe (16), page
@@ -1782,3 +1782,123 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     pictures (egress skips the legacy deliverer); X3's "update" status is the plan for them.
   - The ticket in the main session's welcome, and the main ping's `rttMs` (networking work).
   - The 3G poster time and the bench numbers on a quiet machine.
+
+## D2 notes
+
+- **The relay's `media` purpose** (`apps/relay/src/purpose.ts`, shared with `apps/cloud`).
+  - A client asks with `/client?purpose=media`. A daemon takes media streams by registering
+    with `features=media` (comma-separated beside `http`). Both relays offer
+    `{type: "client", ticket, purpose: "media"}` only to such a host; any other host refuses the
+    client with 1008 "Media unavailable", so an older daemon never sees an offer it doesn't know.
+    An unknown `purpose` is refused with 1008.
+  - `RelayRoutes.register(socket, hostId, media)` and `restore` keep the feature; the Worker
+    keeps it in the host's attachment (`media: true`), so it survives hibernation.
+  - `connectHostToRelay` takes `media.offer(ticket, joinUrl)` (false turns the ticket down);
+    `connectClientViaRelay` takes `purpose`. `channel.ts` and `flow-credit.ts` are untouched.
+- **The daemon's half** (`apps/daemon/src/media-relay/`).
+  - `streams.ts` (`MediaRelayStreams`): `relay.dial` (retried every 50 ms while ace-media is
+    still starting), then the handshake through ace-media, one `relay.pull` per frame. One
+    10 s deadline covers the offer to the keys. A missed deadline, a failed dial or a lost process
+    closes the stream on the priority lane at once. A refusal waits 200 ms first, so the
+    priority-lane close doesn't overtake the refusal on the normal lane. At most 32 streams are
+    pending. A handed-over stream holds ace-media up until its `connection.closed`.
+  - `handover.ts`: the Noise XX responder with the relay host's static key, the hello (one JSON
+    message, at most 64 KiB, credits answered as they come), then the flow start (for a client
+    that asked) and the welcome. It writes the key block straight from the cipher states. An
+    invalid hello is answered `Valid hello required`.
+  - `admit.ts`, in order: `channel: "media"` with `mediaTicket` (the schema already refuses a ticket
+    on any other channel); the device's credential (`relayHello`); a pairing device still current,
+    or an account device still admitted; then the ticket (`MediaConnections.claimRelay`).
+  - `port.ts` binds all this late: the relay connects before ace-media's runtime exists.
+    `DaemonDelivery.relay` (in `services/media.ts`) exists only while `media.delivery` is `auto`
+    and ace-media isn't unavailable; until then every media ticket is turned down.
+  - A media hello on a stream the relay didn't open for media is refused with an error.
+- **Tickets on the relay** (`packages/media/src/media-connections.ts`).
+  - `connect` keeps the SHA-256 of each ticket it mints (never the ticket).
+  - `claimRelay(ticket, {device, admission})` redeems it once, before it expires, for the same
+    device and admission kind, while its session is open and no revocation covers it. Any
+    presentation burns it. A connection already opened directly can't be claimed. The grant
+    carries a fresh `issued`.
+- **`packages/secure-channel`.**
+  - `CipherState.exportInto(block, keyOffset, nonceOffset)` writes the key and the next nonce
+    (u64 BE) into the caller's block and destroys the state. The plan's one `offset` couldn't
+    place the key and the nonce apart, as the block needs.
+  - `FlowCredit.exportState()` gives the flow fields and throws while a fragment is queued.
+  - Frame counts and the CRC are written by `handover.ts`.
+- **ace-media** (`engine/relay.rs`, `shell/relay.rs`, `shell/relay_ws.rs`).
+  - `relay.dial` takes `ws://` and `wss://`. A closed stream id can't be dialed again; dialing
+    and keyed streams together stay within 1,024.
+  - **TLS** (`shell/relay_tls.rs`): rustls on ring (no aws-lc).
+    - Certificates are verified against the OS trust store, loaded once by `rustls-native-certs`
+      into rustls's webpki verifier. Like OpenSSL tools, it honours `SSL_CERT_FILE` and
+      `SSL_CERT_DIR`.
+    - Nothing is pinned, no invalid certificate is accepted, and no switch skips verification.
+      The name checked, and sent as SNI, is the URL's host.
+    - `rustls-platform-verifier` was the first choice, but its wasm32-only dependency
+      `webpki-root-certs` is CDLA-Permissive-2.0. `cargo deny` checks every target, and the
+      allowlist doesn't admit that licence (nor `webpki-roots`, the same licence).
+    - The buffered rustls connection queues a `Vec` per record, so the client drives the
+      unbuffered API instead. It encrypts into one outgoing buffer sized once for a whole frame
+      (80 KiB) and decrypts in place in a 64 KiB incoming buffer. One task owns a TLS stream's
+      socket, so reads and writes take turns there.
+    - A refusal fails the dial with `relay.failed` `tls`. A stream that fails before it was
+      joined rejects its relay ticket (`media.offer`'s `reject`), so the client is turned away at
+      once and stays on legacy delivery, rather than waiting out the ticket.
+  - Before the keys, `relay.out` writes the daemon's frames once the socket is up. Each
+    `relay.pull` answers with one held frame or the next to arrive. Past 64 held frames the stream
+    fails with `backlog`.
+  - `relay.keys` goes through the ledger first, then needs a stream this process dialed, then the
+    connection its `media.ticket` named, still unused. The ticket is consumed there (an expired one
+    is refused as `expired`), so one ticket can't open both a direct and a relay connection. Frames
+    the daemon never pulled are then opened in order.
+  - A keyed stream answers credits itself. Its client messages go to D1's `delivery.client`, like a
+    direct connection's, and anything else closes the connection. Its views start with
+    `delivery.attached`: the relay channel's welcome is the daemon's, so no `media.welcome` is sent.
+  - Delivery's `Effect::Media` for a relay connection is sealed in place among the other effects.
+    A message goes whole or not at all: the client's flow window decides, and a dropped piece is
+    recovered by delivery's acks and keyframe requests.
+  - Sealing writes into pooled 64 KiB buffers that the socket writer returns, masked in place,
+    so a frame costs no allocation once the pool is warm (unit-tested).
+  - The WebSocket client is hand-written for that path. It uses `tungstenite` (already in the
+    tree) only for the upgrade key. cargo-deny's allowlist is unchanged.
+  - Closing a stream (`relay.close`, `connection.close`, `revoke`, a protocol break) aborts both
+    socket tasks before the answer goes out. Video's share of the link (70 %, cut to 35 % on
+    inflation) is D1's delivery, which relay connections use unchanged.
+- **Tests.** `apps/daemon/src/media-relay/relay-media.process.test.ts`, run by `check:media`
+  against the binary it builds, uses the real self-hosted relay, the binary under `MediaRuntime`,
+  `startFilesRelay` with real pairing credentials and tickets from `media.connect`. It covers:
+  - 40 pings sent before the welcome come back once each, answered by ace-media;
+  - the block is zeroed after its write; neither key appears in hex or base64 in either log; the
+    only key log line is `relay.keys {stream}`; a SIGABRT holding keys leaves no core file;
+  - refusals: a hello naming `files`, without a ticket, with a reused ticket, from another
+    device or with a wrong credential, and a media hello on a non-media stream. Only the admitted
+    stream gets keys;
+  - a revocation is answered within 50 ms and the stream closes;
+  - a SIGSTOPped ace-media is killed at 250 ms and the stream closes within 500 ms;
+  - after a SIGKILL the next stream is handed over by the new process, and pictures restart at
+    a keyframe after the client reconnects;
+  - 41 revocations, each behind 8 MiB on the normal lane with a picture-carrying relay stream,
+    p99 50 ms enforced below load 24.
+
+  `relay-media-tls.process.test.ts` covers `wss://`. The relay serves TLS on a second listener
+  (`startRelay({tls})`, `tlsPort`), and ace-media trusts only the fixture CA (`SSL_CERT_FILE`,
+  for that child alone; the keychain is never read or changed).
+  - A valid certificate carries a handed-over stream, with pictures from a keyframe.
+  - A certificate for another host, an expired one and one from an untrusted CA are each refused.
+    No keys go out, the client is turned away within 5 s, and ace-media stays healthy.
+
+  Unit tests cover the routes, the export, the hand-over, the stream driver, the claim and the
+  engine's relay streams. `apps/cloud/src/media.process.test.ts` covers the Worker, hibernation
+  included.
+
+- **Owed.**
+  - Crossing a rekey on the real stream (2^20 frames) in the process test. The block's frame
+    counts are tested, and media-noise aligns TS frames to the rekey boundary after the hand-over.
+  - With the egress lane full: the revocation p99. The 50 ms p99 on an idle machine (68 ms at
+    load 831).
+  - A main-session burst over video keeping the main session's p95 RTT within 1.5× its idle value
+    (needs a shaped link).
+  - The 10-viewer 16 Mbit/s CPU bench. Re-running `bench/seal` on an idle Mac. The load stayed
+    above 24 throughout.
+  - The diagnostics bundle in the key scan (it isn't wired to ace-media's state yet).
+  - Account-device relay streams are tested through `admit.ts` only; no account relay test yet.

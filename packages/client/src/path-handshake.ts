@@ -27,6 +27,12 @@ export interface WelcomedPath {
   take(events: PathEvents): void;
   /** Frames heard before it was taken: a standby's pong proves it alive. */
   readonly heard: number;
+  /**
+   * Pings sent on it before it was taken whose pongs haven't come yet. The daemon answers a
+   * socket's pings in order, so whoever takes the path must let that many pongs go by before
+   * the next one answers a ping of its own.
+   */
+  readonly unanswered: number;
   /** Send raw text on the path before it is taken (the standby's ping). */
   send(text: string): void;
   close(): void;
@@ -68,6 +74,7 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
     let closed: [number, string] | undefined;
     let welcomed: WelcomedPath | undefined;
     let heard = 0;
+    let unanswered = 0;
     const fail = (error: ClientError) => {
       if (settled) return;
       settled = true;
@@ -93,6 +100,9 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
         // pushes the active path also carried: they only prove it alive. Delivering them on
         // promotion would repeat them; what changed meanwhile is read again once it is taken.
         heard++;
+        if (typeof value === "string")
+          for (const line of value.split("\n"))
+            if (line.startsWith('{"type":"pong"')) unanswered = Math.max(0, unanswered - 1);
         options.untaken?.(transport, value);
         return;
       }
@@ -125,11 +135,19 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
         get heard() {
           return heard;
         },
+        get unanswered() {
+          return unanswered;
+        },
         take(events) {
           taken = events;
           if (closed) events.close(...closed);
         },
-        send: (text) => transport.send(text),
+        send: (text) => {
+          transport.send(text);
+          if (!taken)
+            for (const line of text.split("\n"))
+              if (line.startsWith('{"type":"ping"')) unanswered++;
+        },
         close() {
           closed ??= [1000, "Path closed"];
           try {

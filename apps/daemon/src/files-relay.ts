@@ -16,6 +16,8 @@ import { accountDeviceActor, relayHello } from "./relay-hello.ts";
 import type { RelayedMain } from "./relay-socket.ts";
 import { AccessError } from "./remote-auth.ts";
 import type { ClientMessage, PairResult } from "@ace/protocol";
+import type { MediaRelayStreams } from "./media-relay/streams.ts";
+import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
 export async function startFilesRelay(
@@ -39,8 +41,23 @@ export async function startFilesRelay(
     relayMain?: ((entry: RelayedMain) => void) | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
+    /**
+     * Relay media streams (ADR 0147 §5.2): registers with the `media` feature and hands each
+     * `purpose=media` ticket to ace-media, admitting its hello with `claim`.
+     */
+    media?: { streams: MediaRelayStreams; claim: MediaTicketClaim } | undefined;
   },
 ) {
+  const media = options.media;
+  const admitMedia = media
+    ? mediaHelloAdmission({
+        auth: options.auth,
+        devices: options.devices,
+        account: options.account,
+        hostId: options.hostId,
+        claim: media.claim,
+      })
+    : undefined;
   const clients = new Map<HostChannel, string>();
   // Main channels close on revocation in the main-socket handler, with its close code.
   const mains = new Set<HostChannel>();
@@ -68,6 +85,14 @@ export async function startFilesRelay(
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       ...(options.http ? { http: options.http } : {}),
+      ...(media && admitMedia
+        ? {
+            media: {
+              offer: (_ticket: string, url: string, reject: () => void) =>
+                media.streams.offer(url, admitMedia, reject),
+            },
+          }
+        : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {
@@ -116,8 +141,12 @@ export async function startFilesRelay(
           }
           return;
         }
-        // Relay media streams are D2's: until they land, a hello naming `media` is refused.
+        // A media hello comes only on a `purpose=media` stream, which ace-media holds; on any
+        // other it is refused before anything is served.
         if (hello.channel === "media") {
+          await channel
+            .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+            .catch(() => {});
           channel.close();
           return;
         }

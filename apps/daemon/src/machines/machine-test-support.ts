@@ -51,13 +51,15 @@ export async function pairedMachines(
     /** Each machine's computer use: its switch and the engine its agents drive. */
     targetScreen?: ComputerUse;
     sourceScreen?: ComputerUse;
+    /** Both daemons' poll interval; short by default so tests run quickly. */
+    pollMs?: number;
   } = {},
 ) {
   const target = await daemonFixture(
     undefined,
     {
       browser: browser(),
-      machines: { pollMs: 50 },
+      machines: { pollMs: options.pollMs ?? 50 },
       ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
       ...(options.targetDevices ? { devices: options.targetDevices } : {}),
       ...options.targetScreen,
@@ -71,7 +73,7 @@ export async function pairedMachines(
       browser: browser(),
       ...options.sourceScreen,
       machines: {
-        pollMs: 50,
+        pollMs: options.pollMs ?? 50,
         ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
         ...(options.sourceStopPlan ? { stopPlan: options.sourceStopPlan } : {}),
       },
@@ -220,7 +222,17 @@ export async function pairedMachines(
   async function restartSource() {
     source.daemon = await source.restart();
   }
+  /** Points the source's saved machine at another address, such as a proxy in front of it. */
+  function route(origin: string) {
+    const saved = new Profiles(join(source.h.home, "daemon"));
+    try {
+      saved.replace("studio", { ...profile(remoteUrl ?? "", fingerprint ?? ""), origin });
+    } finally {
+      saved.close();
+    }
+  }
   return {
+    route,
     restartSource,
     source,
     target,

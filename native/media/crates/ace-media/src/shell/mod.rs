@@ -10,6 +10,9 @@ mod ingest;
 mod lanes;
 mod pictures;
 mod readers;
+mod relay;
+mod relay_tls;
+mod relay_ws;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
 mod viewers;
@@ -276,6 +279,8 @@ async fn serve(
     if let Ok(threads) = threads {
         engine = engine.with_stills(Box::new(threads));
     }
+    let (relay_tx, mut relay_rx) = mpsc::channel(256);
+    let mut relays = relay::RelaySockets::new(relay_tx, engine.relay_pool());
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
@@ -348,6 +353,7 @@ async fn serve(
                         lag: &lag,
                         pictures: &mut pictures,
                         readers: &mut readers,
+                        relays: &mut relays,
                         media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
@@ -392,6 +398,20 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            Some(event) = relay_rx.recv() => match event {
+                relay::RelayEvent::Dialed { stream, socket } => {
+                    if engine.relay_dialed(&stream) {
+                        relays.adopt(&stream, socket);
+                    }
+                }
+                relay::RelayEvent::Frame { stream, frame } => {
+                    engine.relay_frame(&stream, frame, clock.now())
+                }
+                relay::RelayEvent::Ended { stream, reason } => {
+                    relays.close(stream.get());
+                    engine.relay_ended(&stream, reason, clock.now());
+                }
+            },
             Some(event) = media_rx.recv() => match event {
                 viewers::MediaEvent::Hello { ticket, outbox, admit } => {
                     let now = clock.now();
@@ -425,6 +445,7 @@ async fn serve(
             lag: &lag,
             pictures: &mut pictures,
             readers: &mut readers,
+            relays: &mut relays,
             media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };

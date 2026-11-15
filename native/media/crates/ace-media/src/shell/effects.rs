@@ -2,9 +2,11 @@
 //! Carrying out the engine's effects, in order.
 use super::pictures::Pictures;
 use super::readers::Readers;
+use super::relay::RelaySockets;
 use super::viewers::Outboxes;
 use super::writer::Writer;
 use crate::engine::delivery::MediaOut;
+use crate::engine::relay::RelayEffect;
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, EncodeEffect, Engine};
 use crate::framing::{encode, encode_with};
@@ -30,6 +32,7 @@ pub struct Outputs<'a> {
     pub lag: &'a Mutex<VecDeque<Instant>>,
     pub pictures: &'a mut Pictures,
     pub readers: &'a mut Readers,
+    pub relays: &'a mut RelaySockets,
     /// Clients' media connections.
     pub media: &'a mut Outboxes,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
@@ -48,8 +51,39 @@ fn send(writer: &Writer, message: FromMedia, lane: Lane) -> Result<(), &'static 
 }
 
 pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
-    let counts = engine.counts();
     let mut step = Step::Continue;
+    // A relay socket that is backed up ends its stream, which makes more effects (its
+    // connection's close); those are carried out here too, not left for the next event.
+    loop {
+        let mut backed_up = Vec::new();
+        if let Some(exit) = apply_once(engine, outputs, &mut step, &mut backed_up) {
+            return exit;
+        }
+        for stream in backed_up {
+            outputs.relays.close(&stream);
+            if let Ok(id) = media_wire::control::Id::new(stream) {
+                // Only the monotonic clock matters for a close.
+                let now = crate::engine::Now {
+                    mono_ms: outputs.now_ms,
+                    mono_us: outputs.now_ms.saturating_mul(1_000),
+                    wall_ms: 0,
+                };
+                engine.relay_ended(&id, "backlog", now);
+            }
+        }
+        if !engine.has_effects() {
+            return step;
+        }
+    }
+}
+
+fn apply_once(
+    engine: &mut Engine,
+    outputs: &mut Outputs<'_>,
+    step: &mut Step,
+    backed_up: &mut Vec<String>,
+) -> Option<Step> {
+    let counts = engine.counts();
     let effects: Vec<Effect> = engine.effects().collect();
     for effect in effects {
         let sent = match effect {
@@ -89,7 +123,21 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
                 Ok(())
             }
             Effect::Shutdown { grace_ms } => {
-                step = Step::Shutdown(Duration::from_millis(u64::from(grace_ms)));
+                *step = Step::Shutdown(Duration::from_millis(u64::from(grace_ms)));
+                Ok(())
+            }
+            Effect::Relay(RelayEffect::Dial { stream, url }) => {
+                outputs.relays.dial(stream, url);
+                Ok(())
+            }
+            Effect::Relay(RelayEffect::Send { stream, frame }) => {
+                if !outputs.relays.send(&stream, frame) && !backed_up.contains(&stream) {
+                    backed_up.push(stream);
+                }
+                Ok(())
+            }
+            Effect::Relay(RelayEffect::Close { stream }) => {
+                outputs.relays.close(&stream);
                 Ok(())
             }
             Effect::Encode(command) => {
@@ -136,8 +184,8 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
             Effect::Fatal(reason) => Err(reason),
         };
         if let Err(reason) = sent {
-            return Step::Exit(reason);
+            return Some(Step::Exit(reason));
         }
     }
-    step
+    None
 }

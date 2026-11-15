@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { maxMessageBytes, maxSpadeRequestBytes, type Device } from "@ace/protocol";
 import type { MachineTarget } from "./target.ts";
+import { keepTrusted } from "../sni-listener.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
 /**
@@ -27,7 +28,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
  * revoked device or a turned-off opt-in stops the next call.
  */
 export function machineCallsHttp(
-  target: () => MachineTarget | undefined,
+  target: () => Pick<MachineTarget, "handle"> | undefined,
   authenticate: (token: string) => Device | undefined,
   next: Listener,
 ): Listener {
@@ -56,6 +57,8 @@ export function machineCallsHttp(
       reply(401, { error: "unauthorized" });
       return;
     }
+    // An authenticated paired machine keeps its connection open for its next call.
+    keepTrusted(request, response);
     if (!owner) {
       request.resume();
       reply(503, { error: "unavailable" });

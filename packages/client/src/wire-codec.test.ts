@@ -102,3 +102,43 @@ test("imported thread provenance is decoded and validated before history service
   });
   expect(() => codec.decode(value({ ...imported, sourceId: "" }))).toThrow();
 });
+
+test("a short-deltas events frame decodes to the same deltas as the whole frame", () => {
+  const whole = {
+    type: "events",
+    subscriptionId: "s",
+    afterSeq: 4,
+    throughSeq: 6,
+    events: [
+      {
+        id: "stored-5",
+        seq: 5,
+        at: 77,
+        threadId: "t",
+        payload: { type: "thread.updated", title: "Renamed" },
+      },
+      {
+        id: "stored-6",
+        seq: 6,
+        at: 78,
+        threadId: "t",
+        payload: { type: "item.delta", itemId: "m", agentId: "a", field: "text", append: "é\n" },
+      },
+    ],
+  };
+  const [titled] = whole.events;
+  const short = {
+    ...whole,
+    threadId: "t",
+    events: [titled, { seq: 6, at: 78, d: ["m", "a", "text", "é\n"] }],
+  };
+  const codec = new WireCodec();
+  const decoded = codec.decode(JSON.parse(JSON.stringify(short)));
+  const expected = codec.decode(whole);
+  if (decoded?.type !== "events" || expected?.type !== "events") throw new Error("shape");
+  // Only the delta's event id, which no reader uses, differs.
+  expect(decoded.events[0]).toEqual(expected.events[0]);
+  const { id: _short, ...delta } = decoded.events[1] ?? {};
+  const { id: _whole, ...stored } = expected.events[1] ?? {};
+  expect(delta).toEqual(stored);
+});
