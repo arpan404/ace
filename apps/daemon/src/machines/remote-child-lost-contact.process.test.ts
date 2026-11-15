@@ -245,3 +245,54 @@ it("a child that lost contact whose machine is then unpaired asks only about the
   expect(open[0]?.request).toMatchObject({ title: expect.stringContaining("no longer paired") });
   expect(parentView(f, parent).status.state).toBe("needs_you");
 });
+
+it("a child an older build let go as unknown has its hold and row repaired even when the first repair fails", async () => {
+  const fixture = await parentWithChildren(1);
+  const { f, parent, rijan, ledger, at } = fixture;
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  rijan.views.set(id, { ...notSent(id), state: "working", status: { state: "working", agents: 1 } });
+  await at(f.clock.now() + 1_000);
+  await f.complete(parent.threadId, "Delegated the review.");
+  ledger.close();
+
+  // An older build lost contact with it: its hold ended unknown and its row read done.
+  rijan.silent = true;
+  f.store.atomic((db) =>
+    db.prepare("UPDATE machine_children SET silent_since=? WHERE id=?").run(f.clock.now(), id),
+  );
+  await f.emit(
+    parent.threadId,
+    { type: "background.ended", task: `ace-machine:${id}`, status: "unknown" },
+    { type: "agent.external", agent: `ace-child:${id}`, threadId: id, status: { state: "done" } },
+  );
+  expect(parentView(f, parent).holds.map((hold) => hold.status)).toEqual(["unknown"]);
+
+  // This build asks the person, but writing the child's row fails once (a busy store).
+  let failures = 1;
+  const flaky = new Proxy(f.engine, {
+    get(target, key) {
+      if (key === "machineChild" && failures > 0)
+        return () => {
+          failures--;
+          throw new Error("database is locked");
+        };
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const upgraded = children(f, rijan, undefined, () => flaky);
+  await at(f.clock.now() + 1_000, upgraded);
+  expect(failures).toBe(0);
+  await at(f.clock.now() + 30_000, upgraded);
+
+  // The next poll repairs both: one question, the hold running, the row needing the person.
+  const view = parentView(f, parent);
+  expect(asks(f, parent)).toHaveLength(1);
+  expect(view.holds.map((hold) => hold.status)).toEqual(["running"]);
+  const row = view.rows[0];
+  expect(row?.live).toBe(true);
+  expect(row?.kind === "agent" ? row.agent.status.state : undefined).not.toBe("done");
+  expect(view.status.state).toBe("needs_you");
+  upgraded.close();
+});

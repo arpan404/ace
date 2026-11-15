@@ -1,6 +1,7 @@
 import { ThreadId, type MachineThreadView, type McpAttribution } from "@ace/protocol";
 import { agentForest, type ThreadWork } from "@ace/ui-core";
 import { setup } from "../agent-control/test-support.ts";
+import type { Engine } from "../engine/index.ts";
 import { MachineChildren } from "./children.ts";
 import { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
@@ -28,11 +29,16 @@ export interface Rijan {
   paired: boolean;
 }
 
-export function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: number) {
+export function children(
+  f: Awaited<ReturnType<typeof setup>>,
+  rijan: Rijan,
+  leaseMs?: number,
+  engine: () => Engine = () => f.engine,
+) {
   return new MachineChildren({
     ...(leaseMs ? { leaseMs } : {}),
     store: f.store,
-    engine: () => f.engine,
+    engine,
     now: f.clock.now,
     schedule: (ms, run) => f.clock.setTimer(run, ms),
     pollMs: 1_000,
