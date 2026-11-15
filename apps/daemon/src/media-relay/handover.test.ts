@@ -168,19 +168,19 @@ it("a hand-over cancelled while admission is pending exports no keys and sends n
   const link = wire();
   const cancel = new AbortController();
   const admission = Promise.withResolvers<MediaAdmission<string>>();
-  let seen: AbortSignal | undefined;
+  const asked = Promise.withResolvers<AbortSignal>();
   const done = handOverMediaStream(link.daemon, {
     hostKeys: host,
     ephemeralKey: keyPair(),
     signal: cancel.signal,
     admit: (_hello, signal) => {
-      seen = signal;
+      asked.resolve(signal);
       return admission.promise;
     },
   });
   const client = await clientHandshake(link);
   link.client.send(client.send.encrypt(jsonFragment(hello({ flowControl: ["credit"] }))));
-  while (!seen) await new Promise((resolve) => setTimeout(resolve, 0));
+  const seen = await asked.promise;
   cancel.abort();
   // Admission is told, and its late answer changes nothing.
   expect(seen.aborted).toBe(true);
