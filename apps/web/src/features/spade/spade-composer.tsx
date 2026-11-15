@@ -7,15 +7,16 @@ import {
   type Draft,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
-import { MicButton, useSpadeVoice, VoiceStrip } from "./spade-mic.tsx";
+import { MicButton, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
 import { useSpadeModels } from "./use-spade-models.ts";
 
 /** A bot's composer has no project or commands of its own: the person's words and files. */
 const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const;
 
 /**
- * The thread composer as ace's capsule, sending to Spade: +, the field, and one button at its
- * end: the mic while it is empty, Send once there are words, Stop while the bot works and the
+ * The thread composer as ace's capsule, sending to Spade, its controls round at the Spade size:
+ * +, the field, the mic for dictation, and one filled button at its end: voice while the field is
+ * empty (off until voice ships), Send once there are words, Stop while the bot works and the
  * draft is empty. A message always sends: while a reply runs it steers it. Files attach as they
  * do in a thread: images go as images, anything else as a document Spade reads (ADR 0134). The
  * mic records a voice message whose words land here to be checked. Until Spade runs, sending
@@ -73,56 +74,59 @@ export function SpadeComposer(props: {
   };
   return (
     <ComposerDock>
-      {props.blocked && (
-        <p id={reason} className="sr-only">
-          {props.blocked}
-        </p>
-      )}
-      <Composer
-        ref={composer}
-        thread={spadeThread}
-        draftKey={props.draftKey}
-        busy={props.answering}
-        sendsNow
-        onStop={props.onStop}
-        stopping={props.stopping}
-        stopInStrip={!props.onStop}
-        capsule
-        followUp="steer"
-        // Spade reads the files from this window; with no thread they never upload to the daemon.
-        sendsWhileUploading
-        filesOnly
-        mentionNames={props.mentionNames}
-        autoFocus
-        typeToFocus
-        label={`Message ${props.name}`}
-        placeholder={props.placeholder}
-        shortPlaceholder={`Message ${props.name}`}
-        sendBlocked={props.blocked ? { reason: props.blocked, describedBy: reason } : undefined}
-        idleAction={<MicButton voice={voice} />}
-        attached={
-          <>
-            {props.chips && props.chips.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5 px-1">
-                {props.chips.map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    onClick={() => composer.current?.insertText(chip.text)}
-                    className="flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-ui text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
-                  >
-                    {chip.face}
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {props.attached}
-            <VoiceStrip voice={voice} />
-          </>
-        }
-        onSubmit={submit}
-      />
+      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13">
+        {props.blocked && (
+          <p id={reason} className="sr-only">
+            {props.blocked}
+          </p>
+        )}
+        <Composer
+          ref={composer}
+          thread={spadeThread}
+          draftKey={props.draftKey}
+          busy={props.answering}
+          sendsNow
+          onStop={props.onStop}
+          stopping={props.stopping}
+          stopInStrip={!props.onStop}
+          capsule
+          followUp="steer"
+          // Spade reads the files from this window; with no thread they never upload to the daemon.
+          sendsWhileUploading
+          filesOnly
+          mentionNames={props.mentionNames}
+          autoFocus
+          typeToFocus
+          label={`Message ${props.name}`}
+          placeholder={props.placeholder}
+          shortPlaceholder={`Message ${props.name}`}
+          sendBlocked={props.blocked ? { reason: props.blocked, describedBy: reason } : undefined}
+          trailing={<MicButton voice={voice} />}
+          idleAction={<VoiceButton name={props.name} />}
+          attached={
+            <>
+              {props.chips && props.chips.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+                  {props.chips.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => composer.current?.insertText(chip.text)}
+                      className="flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-ui text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
+                    >
+                      {chip.face}
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {props.attached}
+              <VoiceStrip voice={voice} />
+            </>
+          }
+          onSubmit={submit}
+        />
+      </div>
     </ComposerDock>
   );
 }

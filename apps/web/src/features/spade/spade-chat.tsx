@@ -12,9 +12,7 @@ import {
   type SpadeProposal,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { Link } from "@tanstack/react-router";
 import { memo, useMemo } from "react";
-import { buttonVariants } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
@@ -49,8 +47,8 @@ export interface ChatBot {
  * jobs, compaction or the notes it saves (they are in its Memory dialog, ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
- * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set
- * up as one quiet line that opens Settings › Spade › Web search, and a skill the bot offers as a
+ * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
+ * Spade › Web search is where it is set up); and a skill the bot offers as a
  * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch while it uses its computer
  * and the right panel is closed. A bot carrying on with its task by itself keeps that line between replies ("Flights is
@@ -460,20 +458,6 @@ function Single(props: {
         </div>
       );
     }
-    case "search-setup":
-      // Web search had nothing to search with: one quiet line and the way to set it up.
-      return (
-        <div className={cn("flex items-center gap-1 pl-9 text-xs text-muted-foreground", space)}>
-          <span>Web search isn't set up.</span>
-          <Link
-            to="/settings/spade"
-            hash="web-search"
-            className={buttonVariants({ size: "xs", variant: "ghost" })}
-          >
-            Set up web search
-          </Link>
-        </div>
-      );
     default:
       return null;
   }
