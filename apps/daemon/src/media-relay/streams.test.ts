@@ -16,7 +16,7 @@ import {
 const host = keyPair();
 const grant = {
   connection: "mc_relayed01",
-  owner: { session: "s1", device: "phone", admission: { kind: "pairing", generation: 1 } },
+  owner: { session: "s1", device: "phone", admission: { kind: "pairing", generation: "g1" } },
   issued: 7,
 } as const;
 const granted: Awaited<ReturnType<AdmitMediaHello>> = {

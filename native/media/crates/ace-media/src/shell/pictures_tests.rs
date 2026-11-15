@@ -71,8 +71,8 @@ impl Backends for Hanging {
             uploads: 0,
         })
     }
-    fn jpeg_hardware_expected(&self) -> bool {
-        false
+    fn probed(&self) -> Vec<media_wire::capability::Capability> {
+        Vec::new()
     }
 }
 

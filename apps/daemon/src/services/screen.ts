@@ -208,6 +208,7 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
           owner: () => mediaOwner(context),
           port: () => context.options.mediaDelivery?.(),
         },
+        acceleration: context.options.mediaAcceleration,
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>

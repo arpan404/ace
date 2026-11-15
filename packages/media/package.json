@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./wire": "./src/wire.ts",
+    "./acceleration": "./src/acceleration.ts",
     "./frame": "./src/frame.ts",
     "./key-block": "./src/key-block.ts",
     "./lanes": "./src/lanes.ts",

@@ -69,6 +69,11 @@ fn refuse(out: &mut Vec<Effect>, grant: &Grant<'_>, reason: Refusal) {
     );
 }
 
+/// Every byte zero (or nothing at all): a wiped buffer, never a ticket.
+fn is_zero(bytes: &[u8]) -> bool {
+    bytes.iter().all(|byte| *byte == 0)
+}
+
 fn full(out: &mut Vec<Effect>, result: Result<(), Full>) {
     if result.is_err() {
         out.push(Effect::Fatal("closed-id bookkeeping is full"));
@@ -123,6 +128,22 @@ impl Grants {
         if expires_at <= now {
             return refuse(out, &grant, Refusal::Expired);
         }
+        // A wiped buffer is never a ticket: storing it would let anyone present zeros.
+        if is_zero(ticket) {
+            log(
+                out,
+                Level::Warn,
+                "media.ticket refused: an all-zero ticket",
+                grant.connection,
+            );
+            return normal(
+                out,
+                FromMedia::ConnectionClosed {
+                    connection: grant.connection.clone(),
+                    reason: "invalid-ticket".into(),
+                },
+            );
+        }
         let key = grant.connection.get().to_owned();
         self.remove(&key, "replaced", vault, out);
         let stored = (self.connections.len() < MAX_CONNECTIONS)
@@ -164,6 +185,9 @@ impl Grants {
         now: u64,
         out: &mut Vec<Effect>,
     ) -> Option<Id> {
+        if is_zero(presented) {
+            return None;
+        }
         let pending = self
             .connections
             .iter()

@@ -162,7 +162,7 @@ function start() {
 const owner: MediaOwner = {
   session: "main-1",
   device: "phone",
-  admission: { kind: "pairing", generation: 1 },
+  admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
 };
 
 function intents(connection: string): ViewIntent[] {

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { AccountLimits, AccountWindow, ProviderLimits, UsageLimits } from "./usage-limits.ts";
-import { formatCountdown } from "./time.ts";
 
 /*
  * How much room each provider has, for the rail's Usage bars and its hover card. Every figure is
@@ -281,13 +280,6 @@ export function approximately(ms: number): string {
 const readable = (headroom: readonly PooledHeadroom[]) =>
   headroom.filter((entry) => entry.currentLeft !== null || entry.sessionLeft !== null);
 
-/** Providers with no account that can take work, soonest back first. */
-function outProviders(headroom: readonly PooledHeadroom[]): PooledHeadroom[] {
-  return headroom
-    .filter((entry) => entry.sessionLeft === 0)
-    .toSorted((a, b) => (a.backAt ?? Infinity) - (b.backAt ?? Infinity));
-}
-
 /** The provider whose account for new threads has the least session left. */
 export function tightestProvider(headroom: readonly PooledHeadroom[]): PooledHeadroom | undefined {
   return readable(headroom).toSorted(
@@ -295,25 +287,4 @@ export function tightestProvider(headroom: readonly PooledHeadroom[]): PooledHea
       (a.currentLeft ?? a.sessionLeft ?? 100) - (b.currentLeft ?? b.sessionLeft ?? 100) ||
       (a.session?.runsOutAt ?? Infinity) - (b.session?.runsOutAt ?? Infinity),
   )[0];
-}
-
-function backIn(entry: PooledHeadroom, now: number): string {
-  return entry.backAt === null ? "" : formatCountdown(entry.backAt - now);
-}
-
-/**
- * The one thing the card's rows can't say: a provider whose every account is out, and when the
- * first comes back. A window that runs out says so in its own row. Undefined otherwise.
- */
-export function headroomAlert(
-  headroom: readonly PooledHeadroom[],
-  now: number,
-): { text: string; tone: "out" } | undefined {
-  const [first] = outProviders(headroom);
-  if (!first) return undefined;
-  const back = backIn(first, now);
-  return {
-    text: `${first.providerLabel} is out${back ? `; it's back in ${back}` : ""}.`,
-    tone: "out",
-  };
 }

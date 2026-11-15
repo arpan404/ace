@@ -82,6 +82,8 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  /** What ace-media runs on (ADR 0148): its probe's list and each source's steps. */
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
   computer?: ComputerClient;
   /** Cowork on the screen (ADR 0143): the person's lease per app, shared by tools and live view. */

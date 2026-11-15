@@ -304,3 +304,113 @@ fn a_piece_carries_the_units_capture_time_on_the_wall_clock() {
         Some(NOW.wall_ms as f64 - 20.0)
     );
 }
+
+#[test]
+fn a_keyframe_queued_behind_a_full_window_keeps_its_bytes_however_many_deltas_follow() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let video = |effects: &[Effect]| {
+        let mut assembler = Assembler::new();
+        binaries(effects)
+            .iter()
+            .filter_map(|p| {
+                let envelope = assembler.push(p).ok().flatten()?;
+                let v = media_core::headers::decode_video(envelope.meta, envelope.payload).ok()?;
+                Some((v.sequence as u64, v.key, envelope.payload[5]))
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..60 {
+        first.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let sent = video(&first);
+    assert_eq!(sent.len(), 60, "the window is full");
+    // A keyframe now waits in the queue, then far more deltas than any fixed holding area.
+    let mut later = ingest(&mut engine, 1, h264(true, 100, 1, Vec::new()), NOW);
+    for n in 101..200u8 {
+        later.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    assert!(video(&later).is_empty(), "nothing fits until an ack");
+    let last = sent.last().map_or(0, |s| s.0);
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": last, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let after = video(&engine.effects().collect::<Vec<_>>());
+    // The first thing sent is the queued keyframe, with its own bytes.
+    assert_eq!(
+        after.first().map(|s| (s.1, s.2)),
+        Some((true, 100)),
+        "{after:?}"
+    );
+}
+
+/// Bytes a view gets of `units` deltas of `size` bytes after a keyframe, with no ack.
+fn sent_before_an_ack(engine: &mut Engine, units: u8, size: usize) -> usize {
+    let mut key = h264(true, 0, 1, Vec::new());
+    key.payload.resize(size, 0);
+    let mut effects = ingest(engine, 1, key, NOW);
+    for n in 1..units {
+        let mut delta = h264(false, n, 1, Vec::new());
+        delta.payload.resize(size, n);
+        effects.extend(ingest(engine, 1, delta, NOW));
+    }
+    binaries(&effects).iter().map(Vec::len).sum()
+}
+
+fn inflate(engine: &mut Engine) -> Vec<Effect> {
+    for (n, rtt) in [(0, 300), (1, 300)] {
+        send(
+            engine,
+            json!({ "type": "session.link", "session": "s1", "rttMs": rtt, "backlogBytes": 0 }),
+            &[],
+            at(2_000 + n * 500),
+        );
+    }
+    send(
+        engine,
+        json!({ "type": "session.link", "session": "s1", "rttMs": 900, "backlogBytes": 400_000 }),
+        &[],
+        at(3_000),
+    )
+}
+
+#[test]
+fn delivery_holds_a_view_to_its_share_of_the_link_and_less_while_its_session_inflates() {
+    // A remote view starts at 1.5 Mbit/s: 70 % of it over the round trip and slack is a few
+    // 20 KB units in flight, not the whole 60-unit window.
+    let mut calm = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let calm_bytes = sent_before_an_ack(&mut calm, 30, 20_000);
+    assert!(calm_bytes < 30 * 20_000 / 3, "{calm_bytes} bytes in flight");
+    // The same view while its main session's round trip inflates gets about half that.
+    let mut busy = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    inflate(&mut busy);
+    let busy_bytes = sent_before_an_ack(&mut busy, 30, 20_000);
+    assert!(busy_bytes < calm_bytes, "{busy_bytes} vs {calm_bytes}");
+}
+
+#[test]
+fn the_wanted_bit_rate_follows_the_share_below_the_planners_floor_down_to_150_kbits() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A 3G hint: 400 kbit/s, so 70 % of it is 280 kbit/s, under the planner's 500 kbit/s.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(plan) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    assert_eq!(plan[0].bitrate, 280_000);
+    let cut = wants(&inflate(&mut engine)).pop();
+    // 35 % of 400 kbit/s is 140 kbit/s: held at the 150 kbit/s floor.
+    assert_eq!(cut.map(|w| w[0].bitrate), Some(150_000));
+}

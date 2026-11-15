@@ -26,7 +26,7 @@ function harness() {
 const phone: MediaOwner = {
   session: "phone-session",
   device: "phone",
-  admission: { kind: "pairing", generation: 1 },
+  admission: { kind: "pairing", generation: "g1" },
 };
 
 async function ticket(connections: MediaConnections, owner = phone) {

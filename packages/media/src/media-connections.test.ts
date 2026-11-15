@@ -8,7 +8,8 @@ import {
 } from "./media-connections.ts";
 import { MediaViewers, type ViewIntent } from "./media-viewers.ts";
 import type { Revocation } from "./grants.ts";
-import type { ToMedia } from "./wire.ts";
+import { decodeToMedia, type FromMedia as FromMediaMessage, type ToMedia } from "./wire.ts";
+import { LaneWriter } from "./lanes.ts";
 
 function harness(port = 41_000) {
   const sent: { message: ToMedia; payload: Uint8Array }[] = [];
@@ -43,15 +44,17 @@ function harness(port = 41_000) {
   };
 }
 
+/** A paired credential's generation as the daemon gives it: a hash, here of `n`. */
+const credential = (n: number) => n.toString(16).padStart(32, "0");
 const phone = (session: string, generation = 1): MediaOwner => ({
   session,
   device: "phone",
-  admission: { kind: "pairing", generation },
+  admission: { kind: "pairing", generation: credential(generation) },
 });
 const laptop: MediaOwner = {
   session: "laptop-session",
   device: "laptop",
-  admission: { kind: "pairing", generation: 1 },
+  admission: { kind: "pairing", generation: credential(1) },
 };
 
 function granted(result: Awaited<ReturnType<MediaConnections["connect"]>>) {
@@ -154,7 +157,7 @@ test("a closed session closes its connections on the priority lane, and only its
 test("after a revocation nothing more is minted for its owner, and a pairing's stays", async () => {
   const { connections, advance } = harness();
   const held = granted(await connections.connect(phone("a")));
-  void connections.revoke("phone", { kind: "pairing", generation: 1 });
+  void connections.revoke("phone", { kind: "pairing", generation: credential(1) });
   expect(connections.owned(phone("a"), held.connection)).toBeUndefined();
   expect(await connections.connect(phone("a"))).toMatchObject({ ok: false, code: "refused" });
   advance(60_000);
@@ -265,4 +268,140 @@ test("a connect starts ace-media, waits for its listener, and keeps it running w
     reason: "client-closed",
   });
   expect(needs).toBe(0);
+});
+
+test("a ticket held behind backpressure reaches ace-media intact: the lane owns and wipes it", async () => {
+  // The real lane writer, on a sink that is backpressured until after `connect` returns.
+  const written: Uint8Array[] = [];
+  const callbacks: (() => void)[] = [];
+  let drain: (() => void) | undefined;
+  let open = false;
+  const sink = {
+    write(chunk: Uint8Array, done: (error?: Error | null) => void) {
+      written.push(chunk.slice());
+      callbacks.push(() => done());
+      return open;
+    },
+    onDrain(listener: () => void) {
+      drain = listener;
+    },
+  };
+  const lane = new LaneWriter("normal", sink, () => {});
+  // Something big ahead of the ticket fills the sink.
+  lane.send({ type: "ping", id: "first" });
+  let payload: Uint8Array | undefined;
+  const connections = new MediaConnections({
+    port: {
+      send: (message, bytes = new Uint8Array(0)) => {
+        payload = bytes;
+        lane.send(message, bytes);
+        return true;
+      },
+      revoke: () => Promise.resolve("answered"),
+      directPort: () => 41_000,
+      need: () => () => {},
+      sleep: () => Promise.resolve(),
+    },
+    issue: new MediaIssue(),
+    now: () => 0,
+    randomBytes: (length) => new Uint8Array(length).map((_, i) => i + 1),
+    id: () => "id",
+  });
+  const grant = granted(await connections.connect(phone("a")));
+  expect(written).toHaveLength(1); // only the ping: the ticket waits behind it
+  open = true;
+  drain?.();
+  for (const callback of callbacks.splice(0)) callback();
+  const frame = new Uint8Array(written.slice(1).reduce((n, chunk) => n + chunk.length, 0));
+  let at = 0;
+  for (const chunk of written.slice(1)) frame.set(chunk, (at += chunk.length) - chunk.length);
+  const decoded = decodeToMedia(frame, "normal");
+  expect(decoded.message.type).toBe("media.ticket");
+  expect(Buffer.from(decoded.payload).toString("base64url")).toBe(grant.ticket);
+  // Once written, the lane wipes its copy.
+  expect(payload?.every((byte) => byte === 0)).toBe(true);
+});
+
+test("a poster asks only for the epochs its producer vouches were clear, and a private answer is no poster", async () => {
+  const h = harness();
+  const live: { producer: IngestProducer; path: string }[] = [];
+  const asked: ToMedia[] = [];
+  let answer: ((message: FromMediaMessage) => void) | undefined;
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => live,
+    send: (message) => {
+      asked.push(message);
+      if (message.type === "still.poster")
+        queueMicrotask(() =>
+          answer?.({ type: "still.failed", request: message.request, reason: "private" }),
+        );
+      return true;
+    },
+    id: () => "poster-1",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  answer = (message) => viewers.received(message, new Uint8Array(0));
+  const grant = granted(await h.connections.connect(phone("a")));
+  const vouching = { ...producer("t1"), clearEpochs: () => [[0, 4]] as [number, number][] };
+  live.push({ producer: vouching, path: "path-1" });
+  const intent: ViewIntent = {
+    viewer: "v1",
+    requester: phone("a"),
+    connection: grant.connection,
+    target: { kind: "browser", threadId: "t1" },
+    codecs: ["avc1.42E033"],
+    viewport: { width: 400, height: 300, dpr: 2, scale: 1 },
+    local: true,
+    audio: false,
+    shows: (p) => p.threadId === "t1",
+  };
+  expect(viewers.bind(intent)).toBe(true);
+  expect(await viewers.poster("v1")).toBeUndefined();
+  expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [[0, 4]] });
+  // A producer that says nothing about its epochs vouches for none.
+  asked.length = 0;
+  live[0] = { producer: producer("t1"), path: "path-2" };
+  viewers.live(live[0].producer, "path-2");
+  await viewers.poster("v1");
+  expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [] });
+});
+
+test("a view's grant is closed when its producer leaves ace-media, and again on unbind only if open", async () => {
+  const h = harness();
+  const live: { producer: IngestProducer; path: string }[] = [];
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => live,
+    send: (message) => {
+      h.sent.push({ message, payload: new Uint8Array(0) });
+      return true;
+    },
+    id: () => "poster-1",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const tab = producer("t1");
+  live.push({ producer: tab, path: "path-1" });
+  viewers.bind({
+    viewer: "v1",
+    requester: phone("a"),
+    connection: grant.connection,
+    target: { kind: "browser", threadId: "t1" },
+    codecs: ["avc1.42E033"],
+    viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+    local: true,
+    audio: false,
+    shows: (p) => p.threadId === "t1",
+  });
+  const closes = () => h.sent.filter((s) => s.message.type === "viewer.close").length;
+  // The route moved the producer back to the daemon: ace-media's view must go with it.
+  viewers.live(tab, undefined);
+  expect(closes()).toBe(1);
+  expect(viewers.granted("v1")).toBe(false);
+  // Unbinding now closes nothing more: that grant is already gone.
+  viewers.unbind("v1");
+  expect(closes()).toBe(1);
 });

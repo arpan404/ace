@@ -15,19 +15,16 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 /**
  * How a device was admitted, as ace-media compares it: its ace account, or its paired
- * credential's generation. Main sessions and their channels both use this, so the same device
- * admitted the same way yields the same admission.
+ * credential's generation, carried as the opaque string it is (a hash, `devices.ts`). Main
+ * sessions and their channels both use this, so the same credential yields the same admission
+ * and every other credential another one. No generation (the host's own token) is "".
  */
 export function mediaAdmission(
   account: string | undefined,
   generation: string | undefined,
 ): MediaAdmission {
   if (account) return { kind: "account", account };
-  const number = Number(generation ?? 0);
-  return {
-    kind: "pairing",
-    generation: Number.isSafeInteger(number) && number >= 0 ? number : 0,
-  };
+  return { kind: "pairing", generation: generation ?? "" };
 }
 
 /** Who this session is to ace-media: its device and how that device was admitted. */

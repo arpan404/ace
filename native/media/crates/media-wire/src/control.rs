@@ -86,8 +86,10 @@ impl<'de> Deserialize<'de> for Id {
 pub enum Admission {
     #[serde(rename = "pairing")]
     Pairing {
+        /// The paired credential's generation: an opaque string the daemon gives (a hash), only
+        /// ever compared for equality.
         #[serde(rename = "generation")]
-        generation: Sequence,
+        generation: Id,
     },
     #[serde(rename = "account")]
     Account {
@@ -655,7 +657,8 @@ pub enum ToMedia {
     },
     /// A poster for a subscribe reply (ADR 0149, D1): the source's current picture fitted to
     /// `width` × `height` at 10–20 KB. Answered like `still.take`, with `still.done` (the JPEG
-    /// as its payload) or `still.failed`.
+    /// as its payload) or `still.failed` (`private` when the picture's epochs aren't all in
+    /// `clear`, or one was discarded).
     #[serde(rename = "still.poster")]
     StillPoster {
         #[serde(rename = "request")]
@@ -668,6 +671,10 @@ pub enum ToMedia {
         height: u32,
         #[serde(rename = "deadlineMs")]
         deadline_ms: u32,
+        /// The source's epochs the daemon has decided clear: a poster is made only from a
+        /// picture whose every epoch is in one of these ranges.
+        #[serde(rename = "clear")]
+        clear: Vec<EpochRange>,
     },
 }
 

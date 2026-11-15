@@ -171,7 +171,7 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     const granted = await runtime.connections.connect({
       session,
       device,
-      admission: { kind: "pairing", generation: 1 },
+      admission: { kind: "pairing", generation: "g1" },
     });
     if (!granted.ok) throw new Error(granted.code);
     return granted.ticket;
@@ -213,7 +213,7 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
           requester: {
             session: "s1",
             device: phone.deviceId,
-            admission: { kind: "pairing", generation: 1 },
+            admission: { kind: "pairing", generation: "g1" },
           },
           connection,
           target: { kind: "browser", threadId: "t1" },

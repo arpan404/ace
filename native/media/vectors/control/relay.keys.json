@@ -9,7 +9,7 @@
       "device": "source-1",
       "admission": {
         "kind": "pairing",
-        "generation": 1
+        "generation": "9b31f2658274bab6c01149e5fcb699b5"
       }
     },
     "issued": 1

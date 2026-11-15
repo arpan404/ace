@@ -24,9 +24,15 @@ const outcomes: Record<AccountResetOutcome, string> = {
 export function BankedResetAction(props: {
   entry: AccountLimits;
   redeem?: RedeemReset | undefined;
+  /** Its confirmation opening or closing, for a hover card that must stay open under it. */
+  onDialogChange?: ((open: boolean) => void) | undefined;
 }) {
-  const { entry, redeem } = props;
-  const [open, setOpen] = useState(false);
+  const { entry, redeem, onDialogChange } = props;
+  const [open, setDialog] = useState(false);
+  const setOpen = (next: boolean) => {
+    setDialog(next);
+    onDialogChange?.(next);
+  };
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState<string>();
   const [notice, setNotice] = useState<string>();

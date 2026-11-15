@@ -97,7 +97,7 @@ test("limits say what is left, from the share the provider reports used", async 
   // A window with nothing left says when it is back.
   const work = await accountBlock("Claude Code", "Work");
   expect(work.textContent).toContain("0% left");
-  expect(work.textContent).toMatch(new RegExp(`Out until ${clock}`));
+  expect(work.textContent).toMatch(new RegExp(`Out now\\s*back ${clock}`));
   expect(document.body.textContent).not.toMatch(/\d+% used/);
 });
 
@@ -136,7 +136,7 @@ test("each account is listed once, with each of its windows beneath it", async (
   ]);
 });
 
-test("a window used faster than it runs is red with when it runs out; one that lasts marks where its pace leaves it", async () => {
+test("a window used faster than it runs says when it runs out and when it's back; one that lasts marks where its pace leaves it", async () => {
   const app = harness();
   // Half of five hours used in its first hour: out in another hour, three before it resets.
   report(app.daemon, "codex-personal", {
@@ -147,21 +147,64 @@ test("a window used faster than it runs is red with when it runs out; one that l
   report(app.daemon, "codex-team", { five_hour: [10, 4 * hour, 300] });
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
-  // The row stays one line: a short "Out around <time>", with the full sentence for screen readers.
-  expect(personal.textContent).toMatch(new RegExp(`Out around ${clock}`));
+  // The run-out never hides the reset: the row says both, and so do the spoken words.
+  expect(personal.textContent).toMatch(new RegExp(`Out ~${clock}\\s*back ${clock}`));
   expect(
-    within(personal).getByRole("group", { name: new RegExp(`Runs out around ${clock}`) }),
+    within(personal).getByRole("group", {
+      name: new RegExp(`Runs out around ${clock}, back ${clock}`),
+    }),
   ).toBeTruthy();
+  // Nothing is left at the reset, so none of the bar is solid.
   const session = await meter("Codex", "Personal", "Session (5h)");
-  expect(session.querySelector("[data-runs-out]")).not.toBeNull();
-  // The week, barely touched, lasts: no red, and its pace still uses some of what is left.
+  expect(session.querySelector("[data-keep]")).toBeNull();
+  expect(session.querySelector("[data-pace]")).not.toBeNull();
+  // The week, barely touched, lasts: solid for what its pace leaves at the reset.
   const week = await meter("Codex", "Personal", "Weekly");
-  expect(week.querySelector("[data-runs-out]")).toBeNull();
+  expect(week.querySelector("[data-keep]")).not.toBeNull();
+  // 90% left now, 50% left at the reset: solid to 50, faint to 90.
   const team = await meter("Codex", "Team", "Session (5h)");
-  expect(team.querySelector("[data-runs-out]")).toBeNull();
-  // 90% left now, 50% left at the reset: the pace part is the 40 between them.
-  expect(team.querySelector<HTMLElement>("[data-pace]")?.style.width).toBe("40%");
+  expect(team.querySelector<HTMLElement>("[data-keep]")?.style.width).toBe("50%");
+  expect(team.querySelector<HTMLElement>("[data-pace]")?.style.width).toBe("90%");
   expect((await accountBlock("Codex", "Team")).textContent).toMatch(new RegExp(`Resets ${clock}`));
+});
+
+/** Every account with no limits read, so a test sets just the windows it's about. */
+const quiet = (daemon: FakeDaemon) => {
+  for (const account of daemon.services.accounts) account.quota.windows = {};
+};
+
+test("Coming up lists windows running out or coming back, soonest first, with the account's banked resets", async () => {
+  const app = harness();
+  quiet(app.daemon);
+  // Out now, back in 87 minutes, with one banked reset.
+  report(app.daemon, "codex-team", { five_hour: [100, 87 * minute, 300] }, 1);
+  // Half of five hours gone in the first: out in about an hour, back in four.
+  report(app.daemon, "codex-personal", { five_hour: [50, 4 * hour, 300] });
+  // Lasts to its reset: not listed.
+  report(app.daemon, "claude-personal", { five_hour: [10, 4 * hour, 300] });
+  await app.open("/usage");
+  const list = await screen.findByRole("list", { name: "Coming up" });
+  const items = within(list).getAllByRole("listitem");
+  expect(items.map((item) => item.textContent)).toEqual([
+    // Out in about an hour comes before back in 87 minutes.
+    expect.stringMatching(
+      new RegExp(`^~${clock}Codex · Personal session runs out\\s*back ${clock}$`),
+    ),
+    expect.stringMatching(
+      new RegExp(
+        `^${clock}Codex · Team session is back\\s*in 1h 27m1 banked reset availableUse one`,
+      ),
+    ),
+  ]);
+});
+
+test("Coming up stays away while every window lasts to its reset", async () => {
+  const app = harness();
+  quiet(app.daemon);
+  report(app.daemon, "codex-team", { five_hour: [10, 4 * hour, 300] });
+  await app.open("/usage");
+  await accountBlock("Codex", "Team");
+  expect(screen.queryByRole("list", { name: "Coming up" })).toBeNull();
 });
 
 test("hovering a limit opens its details: what is left and used, where its pace leads, when it resets", async () => {

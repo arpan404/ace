@@ -31,8 +31,9 @@ fn owner(device: &str, admission: Value) -> Value {
     json!({ "session": format!("session-{device}"), "device": device, "admission": admission })
 }
 
+/// A pairing admission: generations are opaque strings (credential hashes) the daemon gives.
 fn pairing(generation: u64) -> Value {
-    json!({ "kind": "pairing", "generation": generation })
+    json!({ "kind": "pairing", "generation": format!("{generation:032x}") })
 }
 
 fn ticket(media: &mut Media, connection: &str, owner: &Value, issued: u64, ms: u64, bytes: u8) {
@@ -422,4 +423,95 @@ fn a_hello_that_comes_before_its_ticket_waits_for_it() {
         early.join().unwrap_or(false),
         "the hello was refused before its ticket came"
     );
+}
+
+#[test]
+fn a_zero_ticket_is_refused_on_the_listener() {
+    let mut media = Media::spawn("zero");
+    let (control, _, _) = media.start();
+    let _lanes = lanes(&control);
+    ticket(
+        &mut media,
+        "mc_zero",
+        &owner("phone", pairing(1)),
+        1,
+        30_000,
+        0,
+    );
+    ticket(
+        &mut media,
+        "mc_real",
+        &owner("phone", pairing(1)),
+        2,
+        30_000,
+        3,
+    );
+    settle(&mut media, "ticketed");
+    assert_eq!(connect(&media, 0).err(), Some(close::REFUSED));
+    assert!(connect(&media, 3).is_ok(), "the real client is admitted");
+}
+
+/// A unit of `size` bytes: a few of these fill any socket's buffers.
+fn big_unit(key: bool, n: u8, size: usize) -> Vec<u8> {
+    let mut frame = match MediaFrame::decode(&unit(key, n)) {
+        Ok(frame) => frame,
+        Err(_) => panic!("unit did not decode"),
+    };
+    frame.payload.resize(size, n);
+    match frame.encode() {
+        Ok(bytes) => bytes,
+        Err(_) => panic!("unit did not encode"),
+    }
+}
+
+#[test]
+fn a_client_that_stops_reading_is_still_cut_off_within_250_ms_of_its_revocation() {
+    let (_media, mut lanes, mut client, mut producer) = watching("stalled");
+    // The client reads nothing more; ace-media sends until the socket's buffers are full and its
+    // write blocks.
+    let _ = producer.write_all(&big_unit(true, 0, 500_000));
+    for n in 1..15 {
+        let _ = producer.write_all(&big_unit(false, n, 500_000));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    revoke(&mut lanes, 9, "phone", Some(pairing(1)));
+    std::thread::sleep(Duration::from_millis(250));
+    // ace-media dropped the socket: writing to it now fails (reset), however full it is.
+    let cut = (0..20).any(|_| {
+        std::thread::sleep(Duration::from_millis(10));
+        client
+            .send(Message::Text(json!({ "type": "ping" }).to_string().into()))
+            .is_err()
+    });
+    assert!(
+        cut,
+        "the stalled client's connection was still open after its revocation"
+    );
+}
+
+#[test]
+fn the_direct_listener_stays_on_loopback_whatever_listen_names_until_tls_lands() {
+    let mut media = Media::spawn("loopback");
+    media.start();
+    // A port nobody holds, named as the remote listener's, with a certificate and key.
+    let port = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
+        Ok(probe) => probe.local_addr().map_or(0, |a| a.port()),
+        Err(error) => panic!("probe: {error}"),
+    };
+    let pem = b"-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n";
+    let key = b"-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----\n";
+    let mut payload = pem.to_vec();
+    payload.extend_from_slice(key);
+    media.send(
+        json!({ "type": "listen", "loopback": true, "remote": { "addresses": ["0.0.0.0"],
+                "port": port, "certificateBytes": pem.len(), "keyBytes": key.len() } }),
+        &payload,
+    );
+    settle(&mut media, "listened");
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "a remote listener opened before TLS"
+    );
+    // The loopback listener is the only one, and it is on 127.0.0.1.
+    assert!(TcpStream::connect(("127.0.0.1", media.listen_port as u16)).is_ok());
 }

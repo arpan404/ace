@@ -1774,6 +1774,34 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
 - **Bench.** `packages/browser/bench/media-link.ts` in `check:perf`, enforced below a load
   average of 24. A 5 s run at load about 1,000 (debug build): median 58 fps, p10 55, daemon video
   bytes 0, local hop +11 ms at p95. The numbers are owed on a quiet machine with a release build.
+- **Review fixes (at `7c8cac7d02`).**
+  - **The ticket** is the lane's from `send` on: it wipes the buffer once written or dropped.
+    ace-media refuses an all-zero ticket outright, both granted (`connection.closed`
+    `invalid-ticket`) and presented.
+  - **Posters and privacy.** `still.poster` carries `clear`, the epochs the daemon decided clear
+    for the source. A poster comes only from a picture whose every epoch (a JPEG's, or every unit
+    of its video group since the keyframe) is in them and none was discarded; `record.epochs`
+    discards reach the stills at once, and a poster job whose epochs are discarded while it is
+    made fails `private`. The daemon asks with what the producer vouches for
+    (`IngestProducer.clearEpochs`); none vouches yet, so no poster is made anywhere until a
+    producer can state its source's privacy history (owed).
+  - **Generations** are the daemon's opaque strings (credential hashes) end to end; the wire's
+    `Admission.pairing.generation` is a string, compared for equality only.
+  - **Video's share is enforced in delivery**: a view's bytes in flight are held to its share of
+    its link over one round trip and 300 ms (`fanout::Viewer::limit_bytes`), and the wanted bit
+    rate follows the share below the planner's 500 kbit/s, to the 150 kbit/s floor.
+  - **`source.want` reaches the browser's capture** (`IngestProducer.want`,
+    `CaptureEvents.want`): views ace-media delivers (`CaptureViewer.delivered`) leave the
+    daemon's plan once ace-media has one, and the capture runs ace-media's encodes under
+    ace-media's ids (the daemon's own start at 2^20). Screens and devices don't apply it yet.
+  - **Bridges** hold one view per subscriber; a resubscribe retires the old one first.
+  - **Held bytes** live exactly as long as the fanout queues their unit; a send whose bytes are
+    missing is never reported accepted.
+  - **A stalled client** never strands its close: writes run on their own task, bounded by 5 s,
+    and a close cuts the socket 100 ms after its frame; a revocation lands within 250 ms.
+  - **Route loss** closes the view's grant in ace-media.
+  - **Loopback only.** The direct listener binds 127.0.0.1 alone, and a test pins that `listen`'s
+    remote part opens nothing, until the TLS listener lands; remote clients use D2's relay.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
@@ -1787,16 +1815,104 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     `main`, which holds the TypeScript `LinkFollow` and the Rust step scale.
   - The TLS listener from `listen` (LAN and Tailscale clients); `media.connect` gives only a
     loopback URL today.
-  - `live-video.ts` as a thin driver: applying `source.want` to producers (`aceVideo.encodes`,
-    the helper's `stream.configure`, scrcpy) and dropping the daemon's own plan for views
-    ace-media delivers. Until then the daemon plans its capture for the bound view, and a view
-    ace-media delivers on 3G is paced there but encoded at the daemon's rate.
+  - Applying `source.want` to screen and device producers (the helper's `stream.configure`,
+    scrcpy, the emulator encoder), as the browser's capture now does.
+  - A producer that vouches for its clear epochs (`IngestProducer.clearEpochs`), so posters can
+    be made: the browser's tabs need their privacy history plumbed to the media producer.
   - The tee (encode `legacy` with delivery `auto`): such subscribes are served on the main
     socket.
   - With `media.delivery: auto`, main-socket viewers of a source ace-media delivers get no
     pictures (egress skips the legacy deliverer); X3's "update" status is the plan for them.
   - The ticket in the main session's welcome, and the main ping's `rttMs` (networking work).
   - The 3G poster time and the bench numbers on a quiet machine.
+
+## A1 notes
+
+- **The degraded rule** (`crates/ace-media/src/acceleration.rs`, pure) is the one place a
+  source's `source.status.acceleration` is built: the JPEG encoder (`encode/worker.rs`) and the
+  Simulator transcode (`shell/sim_transcode.rs`) both call `assess(probed, steps)`. A source is
+  degraded when its encode isn't on hardware, or when a step runs on the CPU that a hardware
+  backend listed: an entry whose trial worked on hardware, or one whose trial failed or timed
+  out. A step no hardware backend lists at all (JPEG on NVIDIA, JPEG encode on most AMD) is the
+  machine's path and not degraded. The sentence names the step; the encode's wins.
+- **The probe** (`probe.rs`, extending F2's). Each trial gets a stop flag that ace-media sets
+  when it stops (`Cancel`; the Chrome trial shares it), so an abandoned trial closes its
+  sessions at its next step. `ready` waits at most 3 s (`READY_DEADLINE`) and each trial 2 s;
+  the probe returns as soon as every trial is done. An entry whose trial didn't succeed is
+  never hardware, never zero-copy, and has no size, whatever the backend listed. On Linux the
+  probe now runs B3's VA-API trial and B5's NVENC/NVDEC trial (`probe_linux.rs`); NVENC is
+  still gated off (B5 notes), so it lists nothing and NVIDIA machines take the last-resort
+  encoder. Media Foundation joins when ace-media runs on Windows (no lanes there yet).
+- **Late results always come.** `media-vt`'s worker used to close its gate at the callers'
+  deadline, so on a busy machine every step after the one in flight (decode, after both
+  encodes) was never tried, its `late` channel closed, and VideoToolbox stayed reported absent.
+  Now the deadline bounds only how long `probe` waits: the worker keeps going until
+  cancelled, or `media_vt::LATE_LIMIT` (30 s) past the latest caller's deadline for a driver
+  that hangs, and each late step reaches ace-media as `capabilities.changed`. The still tests
+  and the still bench compare against that final list (`tests/support/probed.rs`), not
+  `ready`'s.
+- **Open sources move to hardware at one cut** (`encode/cutover.rs`). A `capabilities.changed`
+  that brings a hardware path reaches every JPEG source's encoder thread (`Command::Capabilities`,
+  between its commands, as F2's still threads swap backends between jobs). For an encode on the
+  fallback whose codec a hardware encoder now covers, the fallback is flushed on that thread
+  and everything it made goes out: every picture before the cut. A failed flush drops what it
+  still held, and that fallback is never used again. The hardware encoder takes the next
+  picture as a forced keyframe, so the output is fallback pictures before the cut, a hardware
+  keyframe, then hardware deltas, with one keyframe and at most a one-picture gap, once.
+  Until its keyframe is out, the flushed fallback waits idle beside it. A hardware encoder that
+  fails (configure, first picture, first result, no keyframe within 2 s, or any failure after)
+  sends the source back to the fallback, the kept one or a new one, at a keyframe. The source
+  is degraded again and tries hardware again only on the next `capabilities.changed`. It never
+  ends for this unless no fallback can be made. A drain mid cut-over flushes the current
+  encoder and says `Drained` after its units; a rate change reaches the current encoder. A
+  VideoToolbox JPEG decoder built without hardware is built again. The next steps report the
+  new path, so `degraded` and its sentence clear.
+  Nothing ever moves off hardware this way. Every caller sharing `media-vt`'s probe worker
+  cancels only itself, and cancelled callers are let go of at once; the worker stops once none
+  is left. The tests' waits for the final
+  probe answer are bounded (trial deadline + `LATE_LIMIT` + 5 s) and fail naming what's missing.
+- **Usable is what this build constructs.** The probe reports what each backend can do, but
+  only backends in `encode::platform::BUILT_ENCODERS`, the table beside the match in
+  `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort
+  encoder off (`select::encoder_for`, `select::last_resort_needed`). Today that is VideoToolbox
+  on macOS only: a Linux machine whose VA-API trial works still gets the Chrome trial and the
+  Chrome encoder for H.264 until VA-API is wired into the JPEG encoder and added there. The
+  daemon offers picture codecs (`MediaRuntime.pictureCodecs`, `packages/media/src/
+picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.json` per
+  platform, which a test in `platform.rs` holds equal to `BUILT_ENCODERS`: it never offers HEVC
+  (or H.264) from a backend ace-media can't build there.
+- **Ranking** (`rank.rs`). `Ranker` runs each candidate for at most 10 s, 20 s in all, only
+  while no source is open (`sources(n)`), and a source opening cancels it at once. One owner
+  thread takes the source counts and each run's result as events in order; a run's result is
+  only a proposal, kept (cache and `results`) only if that run's generation was never
+  cancelled and no source is open when it arrives. Whenever nothing is open and nothing runs,
+  the next run starts, so a source that closes before a cancelled run returns doesn't leave it
+  stopped. A kept winner suppresses ranking only if it is one of the current candidates. The winner
+  goes to `<dataDir>/media/encoder-rank.json` under adapter (PCI vendor, device, LUID), driver
+  and settings (codec family, size bucket), read leniently, written whole through a rename.
+  Without a result, `choice` is the first candidate in the caller's order (the MFT on Windows,
+  NVENC on Linux NVIDIA). It needs two hardware encoders on one GPU, which today means Windows,
+  so the shell doesn't construct a `Ranker` yet; that wiring comes with ace-media on Windows.
+- **Doctor.** `ace-media --probe [--data-dir <dir>]` runs the start probe alone (not the Chrome
+  trial) and prints `{probeMs, capabilities, ranking}`. `ace doctor`'s `media.capabilities`
+  and `media.ranking` (`apps/daemon/src/doctor/media.ts`) run it themselves, so they work with
+  the daemon down: the whole table, timed-out and failed trials included, warning when a
+  hardware trial fell back or the probe took over 3 s.
+- **The daemon side** (`packages/media/src/acceleration.ts`). `MediaAccelerationStore` keeps
+  the latest capability list (`ready`, then each `capabilities.changed`) and each source's
+  report under the daemon's name for it and the tab, screen session or device it shows
+  (`IngestSources` hands it on, and clears it when that path ends). Everything goes when
+  ace-media exits. The daemon has one store (`startMedia`), published as
+  `services.mediaAcceleration`. The screen and device bridges add their subject's report to
+  `ScreenState.acceleration` and `DeviceState.acceleration`, and send the state again when it
+  changes; the browser's capture handles read theirs (`VideoCaptureHandle.acceleration`), and
+  `LiveVideo.acceleration()` puts it on `BrowserState.acceleration`. Local sockets and the
+  relay both carry it.
+- **Not built or measured yet.** The probe's times (≤ 3 s at worst, ≤ 500 ms warm) and the
+  ranking's 20 s were not benched: the shared Mac's load stayed far above 24. A debug build
+  under load 100 took 1.1 s cold and 0.6–0.7 s warm. The Linux trial module is type-checked
+  against the real crates but not run on Linux. The live view's sentence for a degraded source
+  is the clients' to show.
 
 ## D2 notes
 

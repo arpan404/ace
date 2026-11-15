@@ -325,7 +325,7 @@ impl Engine {
             } => {
                 let mut payload = payload;
                 let bytes = std::mem::take(&mut *payload);
-                self.stills.picture(source.get(), &bytes);
+                self.stills.picture(source.get(), &bytes, epoch);
                 self.sources.picture(
                     source.get(),
                     epoch,
@@ -354,11 +354,15 @@ impl Engine {
             } => {
                 let ranges =
                     |r: Vec<EpochRange>| r.iter().map(|r| (r.get()[0], r.get()[1])).collect();
+                let discard: Vec<(u32, u32)> = ranges(discard);
+                // A discarded epoch is a fact about the source: posters stop showing it at
+                // once, whatever order the recording applies its decisions in.
+                self.stills.discard(source.get(), &discard);
                 let decision = Decision {
                     seq: seq.get(),
                     decided,
                     clear: ranges(clear),
-                    discard: ranges(discard),
+                    discard,
                 };
                 self.sources
                     .decide(&source, &recording, decision, now.mono_ms, out);
@@ -608,11 +612,13 @@ impl Engine {
                 width,
                 height,
                 deadline_ms,
+                clear,
             } => self.stills.poster(
                 request,
                 &source,
                 media_codec::Size { width, height },
                 deadline_ms,
+                clear.iter().map(|r| (r.get()[0], r.get()[1])).collect(),
                 now.mono_ms,
                 out,
             ),
