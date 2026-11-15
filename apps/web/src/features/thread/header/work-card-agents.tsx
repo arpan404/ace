@@ -1,16 +1,17 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useSidebarThread, useThread, useThreadMeta } from "@ace/client-react";
-import { agentName, threadRowStatus } from "@ace/ui-core";
+import { agentName } from "@ace/ui-core";
 import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTreeWork } from "@/features/panels/index.ts";
-import { syncingLabel, useLiveConnection, useLiveList } from "@/lib/live-connection.ts";
+import { useLive, useLiveList } from "@/lib/live-connection.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useSubagentFocus } from "../subagent/focus.ts";
-import { AgentListSection, agentWords } from "./work-card-agent-list.tsx";
+import { AgentListSection } from "./work-card-agent-list.tsx";
+import { agentWords, parentThreadWords } from "./live-words.ts";
 import { RowButton, RowLabel, RowSub, rowIcon } from "./work-card-parts.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useVisibleParent } from "@/lib/spade-host.ts";
@@ -46,14 +47,12 @@ function ThreadFamily(props: { threadId: string; onClose: Close }) {
 function ParentThreadRow(props: { threadId: string; onClose: Close }) {
   const parent = useSidebarThread(props.threadId);
   // The parent's status is its list entry: only a confirmed list may say it.
-  const listed = useLiveList();
-  const connection = useLiveConnection();
+  const list = useLive(useLiveList());
   const now = useNow();
   const navigate = useNavigate();
   const machine = useMachineSearch();
   const title = parent?.title ?? "Parent thread";
-  const status =
-    parent && (listed ? threadRowStatus(parent, now) : (connection.staleLabel ?? syncingLabel));
+  const status = parent && parentThreadWords(list, parent, now);
   return (
     <RowButton
       aria-label={`Open parent ${title}${status ? `, ${status}` : ""}`}
@@ -122,7 +121,7 @@ function AgentFamily(props: { threadId: string; agentId: string; onClose: Close 
   const live = useThreadLiveState(props.threadId);
   const open = useOpenSubagent();
   if (!agent || !parent) return null;
-  const status = agentWords(parent, work, live);
+  const status = agentWords(live.live, parent, work);
   const parentRow =
     parent.origin === "root" ? (
       <ParentThreadRow threadId={props.threadId} onClose={props.onClose} />

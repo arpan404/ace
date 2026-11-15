@@ -1,11 +1,12 @@
 import type { ThreadReader } from "@ace/client";
 import { arrayEqual, useAgent, useThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { agentName, agentTally, agentTallyParts, agentWorkState } from "@ace/ui-core";
+import { agentName } from "@ace/ui-core";
 import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
+import { agentListLine, agentWords } from "./live-words.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { RowButton, RowCaret, RowLabel, RowStatic, RowSub, Section } from "./work-card-parts.tsx";
 
@@ -37,22 +38,14 @@ export function AgentListSection(props: {
   const { work, agents } = useTreeWork(props.threadId);
   const live = useThreadLiveState(props.threadId);
   const byId = new Map<string, Agent>(agents.map((agent) => [agent.id, agent]));
-  const running: Agent[] = [];
-  const settled: Agent[] = [];
-  for (const id of ids) {
-    const agent = byId.get(id);
-    if (!agent) continue;
-    const state = agentWorkState(agent, work, { fresh: live.fresh });
-    if (state.running || state.needsYou) running.push(agent);
-    else settled.push(agent);
-  }
+  const listed = ids.flatMap((id) => byId.get(id) ?? []);
+  const { running, settled, toggle } = agentListLine(live.live, listed, work);
   const [opened, setOpen] = useState<boolean>();
   // A settled agent on screen keeps its row in view: its toggle starts open around it.
   const open = opened ?? settled.some((agent) => agent.id === props.self);
   const [allRunning, setAllRunning] = useState(false);
   const [allSettled, setAllSettled] = useState(false);
   if (running.length + settled.length === 0 && !props.children) return null;
-  const tally = agentTallyParts(agentTally([...running, ...settled], work, { fresh: live.fresh }));
   const shownRunning = allRunning ? running : running.slice(0, page);
   const shownSettled = allSettled ? settled : settled.slice(0, page);
   return (
@@ -76,15 +69,16 @@ export function AgentListSection(props: {
       {settled.length > 0 && (
         <RowButton aria-expanded={open} onClick={() => setOpen(!open)}>
           <RowLabel>
-            {live.staleLabel ??
-              tally.map((part, index) => (
-                <Fragment key={part.text}>
-                  {index > 0 && " · "}
-                  <span className={part.quiet ? "text-subtle-foreground" : undefined}>
-                    {part.text}
-                  </span>
-                </Fragment>
-              ))}
+            {typeof toggle === "string"
+              ? toggle
+              : toggle.map((part, index) => (
+                  <Fragment key={part.text}>
+                    {index > 0 && " · "}
+                    <span className={part.quiet ? "text-subtle-foreground" : undefined}>
+                      {part.text}
+                    </span>
+                  </Fragment>
+                ))}
           </RowLabel>
           <RowCaret className={open ? "rotate-180" : undefined} />
         </RowButton>
@@ -121,7 +115,7 @@ function SiblingRow(props: {
   const open = useOpenSubagent();
   if (!agent) return null;
   const name = agentName(agent);
-  const status = agentWords(agent, props.work, live);
+  const status = agentWords(live.live, agent, props.work);
   const words = (
     <>
       <ProviderIcon
@@ -154,18 +148,4 @@ function SiblingRow(props: {
       {words}
     </RowButton>
   );
-}
-
-/**
- * An agent's status with everything under it: never "Done" while its branch still runs, and
- * only the stale wording while the thread's copy isn't confirmed.
- */
-export function agentWords(
-  agent: Agent,
-  work: Work,
-  live: { fresh: boolean; staleLabel: string | undefined },
-): string {
-  if (!live.fresh && live.staleLabel) return live.staleLabel;
-  const state = agentWorkState(agent, work, { fresh: live.fresh });
-  return !state.running && agent.status.state === "idle" ? "Done" : state.label;
 }
