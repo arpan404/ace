@@ -2,7 +2,7 @@
   "format": 1,
   "id": "field-journal",
   "name": "Field Journal",
-  "description": "A naturalist's notebook: ruled paper, walnut ink and watercolour, specimen labels for threads, observation entries for every step, and dappled light drifting through leaves.",
+  "description": "A naturalist's notebook: gridded field paper, walnut ink and watercolour, specimen labels for threads, observation entries for every step, and dappled light drifting through leaves.",
   "version": "1",
   "base": "paper",
   "light": {
@@ -72,41 +72,59 @@
     "glass": null
   },
   "fonts": {
-    "ui": { "asset": "assets/fonts/AlegreyaSans-Regular.ttf", "family": "Journal Sans" },
-    "prose": { "asset": "assets/fonts/Alegreya.ttf", "family": "Journal Serif" },
+    "ui": {
+      "asset": "assets/fonts/AlegreyaSans-Regular.ttf",
+      "family": "Journal Sans"
+    },
+    "prose": {
+      "asset": "assets/fonts/Alegreya.ttf",
+      "family": "Journal Serif"
+    },
     "mono": {
       "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
     }
   },
-  "shape": { "radius": 0.5, "border": 1, "density": "comfortable" },
-  "motion": { "speed": 1.2 },
+  "shape": {
+    "radius": 0.5,
+    "border": 1,
+    "density": "comfortable"
+  },
+  "motion": {
+    "speed": 1.2
+  },
   "layout": {
     "messages": "flat",
     "toolRows": "detailed",
     "sidebarWidth": 300
   },
   "labels": {
-    "composer-placeholder": "New observation…",
+    "composer-placeholder": "Jot down what to look into…",
     "empty-transcript": "A blank page. What shall we look into?",
     "empty-sidebar": "No entries yet. Begin a new page.",
     "working-word": "Observing",
     "send": "Note it"
   },
   "ornaments": [
-    { "slot": "sidebar-header", "asset": "assets/ornaments/journal-plate.svg" },
-    { "slot": "empty-state", "asset": "assets/ornaments/hand-lens.svg" },
-    { "slot": "corner-top-right", "asset": "assets/ornaments/fern.svg" },
-    { "slot": "corner-bottom-left", "asset": "assets/ornaments/oak-leaf.svg" },
-    { "slot": "corner-bottom-right", "asset": "assets/ornaments/compass-rose.svg" }
+    {
+      "slot": "sidebar-header",
+      "asset": "assets/ornaments/journal-plate.svg"
+    },
+    {
+      "slot": "empty-state",
+      "asset": "assets/ornaments/hand-lens.svg"
+    }
   ],
-  "scenes": { "app": "scene.js", "celebration": "celebration.js" },
+  "scenes": {
+    "app": "scene.js",
+    "celebration": "celebration.js"
+  },
   "reveal": {
-    "app": 0.85,
+    "app": 0.9,
     "rail": 0.5,
-    "header": 0.45,
-    "transcript": 0.3,
-    "page": 0.25,
-    "sidebar": 0.2
+    "header": 0.55,
+    "transcript": 0.4,
+    "page": 0.35,
+    "sidebar": 0.25
   },
   "terminal": {
     "light": {

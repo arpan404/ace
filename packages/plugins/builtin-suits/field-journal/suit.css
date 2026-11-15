@@ -68,6 +68,7 @@
   --suit-icon-note: url("assets/icons/note-light.svg");
   --suit-leaf: url("assets/icons/pressed-leaf-light.svg");
   --suit-pencil: url("assets/icons/pencil-light.svg");
+  --suit-pencil-ink: url("assets/icons/pencil-ink-light.svg");
 }
 
 [data-scheme="dark"] [data-part="app"],
@@ -97,6 +98,7 @@
   --suit-icon-note: url("assets/icons/note-dark.svg");
   --suit-leaf: url("assets/icons/pressed-leaf-dark.svg");
   --suit-pencil: url("assets/icons/pencil-dark.svg");
+  --suit-pencil-ink: url("assets/icons/pencil-ink-dark.svg");
 }
 
 [data-part="app"] {
@@ -104,13 +106,41 @@
   --suit-field-grid:
     linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px,
     linear-gradient(90deg, var(--suit-grid) 1px, transparent 1px) 0 0 / 24px 24px;
-  --suit-transcript-background: var(--suit-field-grid), var(--color-background);
-  --suit-page-background: var(--suit-field-grid), var(--color-background);
-  /* The sidebar is the catalogue's card stock, darker toward the spine. */
+  /*
+   * Paper lets the dappled light through by the region's own reveal (ace's readability ceiling
+   * already holds it), so the scene reads as sun on the page, never under the words alone.
+   */
+  --suit-paper-transcript: color-mix(
+    in oklab,
+    var(--color-background) calc(100% - var(--suit-transcript-reveal, 0.3) * 100%),
+    transparent
+  );
+  --suit-paper-page: color-mix(
+    in oklab,
+    var(--color-background) calc(100% - var(--suit-page-reveal, 0.3) * 100%),
+    transparent
+  );
+  --suit-transcript-background: var(--suit-field-grid), var(--suit-paper-transcript);
+  --suit-page-background: var(--suit-field-grid), var(--suit-paper-page);
+  /*
+   * The sidebar is the catalogue's card stock, darker toward the spine. The fern, the oak leaf and
+   * the compass rose are pressed into the page by the scene, under every region's paper.
+   */
   --suit-sidebar-background: linear-gradient(
     90deg,
-    var(--color-sidebar) 0%,
-    color-mix(in oklab, var(--color-sidebar) 70%, var(--color-background)) 100%
+    color-mix(
+        in oklab,
+        var(--color-sidebar) calc(100% - var(--suit-sidebar-reveal, 0) * 100%),
+        transparent
+      )
+      0%,
+    color-mix(
+        in oklab,
+        color-mix(in oklab, var(--color-sidebar) 70%, var(--color-background))
+          calc(100% - var(--suit-sidebar-reveal, 0) * 100%),
+        transparent
+      )
+      100%
   );
   --suit-sidebar-shadow: inset -10px 0 14px -12px var(--suit-paper-edge);
   --suit-rail-background: color-mix(in oklab, var(--color-sidebar) 88%, #000 4%);
@@ -123,9 +153,7 @@
 /* ------------------------------------------------------------------ type */
 
 [data-part="header-title"],
-[data-part="page-title"],
-[data-part="settings-section"],
-[data-part="empty-state"] {
+[data-part="page-title"] {
   font-family: var(--suit-hand);
   font-weight: 600;
   letter-spacing: 0.005em;
@@ -202,7 +230,7 @@
   margin-block: 3px;
   padding-left: 46px;
   border-radius: 3px 8px 8px 3px;
-  background: color-mix(in oklab, var(--color-surface-1) 55%, transparent);
+  background: color-mix(in oklab, var(--color-surface-1) 88%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 45%, transparent);
   transition:
     background-color 140ms ease,
@@ -256,14 +284,14 @@
     var(--suit-lift);
 }
 [data-part="thread-row"][data-state="active"]::before {
-  left: 4px;
-  width: 16px;
-  height: 22px;
-  margin-top: -11px;
+  left: 1px;
+  width: 20px;
+  height: 28px;
+  margin-top: -15px;
   border-radius: 0;
-  background: var(--suit-leaf) no-repeat center / 16px 22px;
+  background: var(--suit-leaf) no-repeat center / 20px 28px;
   box-shadow: none;
-  transform: rotate(-18deg);
+  transform: rotate(-22deg);
 }
 [data-part="thread-row"][data-state="active"]::after {
   color: var(--color-link);
@@ -407,6 +435,22 @@
 [data-part="message-meta"] {
   font-family: var(--font-sans);
 }
+/* The entry's time sits on its heading line, like the date of a field note. */
+[data-part="message-agent"] > [data-part="message-meta"] {
+  top: 0;
+  right: 0;
+  left: auto;
+  height: 20px;
+  opacity: 1;
+}
+[data-part="message-agent"] > [data-part="message-meta"] [data-part="icon-button"] {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+[data-part="message-agent"]:hover > [data-part="message-meta"] [data-part="icon-button"],
+[data-part="message-agent"]:focus-within > [data-part="message-meta"] [data-part="icon-button"] {
+  opacity: 1;
+}
 
 [data-part="turn-divider"] {
   font-family: var(--suit-hand);
@@ -426,19 +470,25 @@
   box-shadow: inset 3px 0 0 color-mix(in oklab, var(--color-tint) 35%, transparent);
 }
 
-/* Steps are observations: a drawn field icon for the kind, then the note in the reading face. */
+/*
+ * Steps are observations. Each kind gets a small drawn field mark (a hand lens for a search, a
+ * field book for a read, a quill for an edit…) stamped on a paper disc over the step's own glyph.
+ */
 [data-part="tool-row"] {
+  --suit-disc: var(--color-background);
   position: relative;
-  padding-left: 32px;
+  padding-left: 8px;
   border-radius: 4px;
   font-family: var(--font-sans);
   font-size: 14px;
   transition: background-color 140ms ease;
 }
 [data-part="tool-row"]:hover {
+  --suit-disc: color-mix(in oklab, var(--color-hover) 60%, var(--color-background));
   background: color-mix(in oklab, var(--color-hover) 60%, transparent);
 }
 [data-part="tool-row"][data-state="open"] {
+  --suit-disc: color-mix(in oklab, var(--color-surface-1) 70%, var(--color-background));
   background: color-mix(in oklab, var(--color-surface-1) 70%, transparent);
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
@@ -447,10 +497,15 @@
   position: absolute;
   left: 4px;
   top: 50%;
-  width: 20px;
-  height: 20px;
-  margin-top: -10px;
-  background: var(--suit-icon-tool) no-repeat center / 20px 20px;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  border-radius: 50%;
+  background:
+    var(--suit-icon-tool) no-repeat center / 19px 19px,
+    var(--suit-disc);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 60%, transparent);
+  pointer-events: none;
 }
 [data-part="tool-row"][data-variant="read"]::before {
   background-image: var(--suit-icon-read);
@@ -486,10 +541,10 @@
   font-family: var(--font-mono);
 }
 
-/* The Working line keeps ace's words and colour; the Suit only sets it in the hand. */
+/* The Working line keeps ace's words, size and colour; the Suit sets it as an italic margin note. */
 [data-part="working-line"] {
-  font-family: var(--suit-hand);
-  font-weight: 600;
+  font-family: var(--font-prose);
+  font-style: italic;
   padding-inline: 2px 8px;
   border-bottom: 1px dotted currentColor;
   border-radius: 0;
@@ -568,9 +623,10 @@
   inset: 0;
   background: var(--suit-pencil) no-repeat center / 17px 17px;
 }
+/* With nothing written yet the pencil rests, drawn in faint ink. */
 [data-part="composer-send"][data-variant="send"][data-state="disabled"]::after {
-  opacity: 0.45;
-  filter: grayscale(1);
+  background-image: var(--suit-pencil-ink);
+  opacity: 0.6;
 }
 
 [data-part="model-picker"] {
@@ -597,6 +653,11 @@
 
 [data-part="icon-button"] {
   border-radius: 6px;
+}
+/* A disabled glyph is faint ink at full strength, never a see-through one. */
+[data-part="icon-button"][data-state="disabled"] {
+  opacity: 1;
+  color: var(--color-faint-foreground);
 }
 
 [data-part="input"],
@@ -720,9 +781,6 @@
     inset 0 0 0 1px var(--color-border-strong),
     inset 3px 0 0 var(--color-tint);
 }
-[data-part="settings-section"] {
-  font-size: 20px;
-}
 [data-part="card"][data-variant="settings-group"] {
   border-radius: 4px;
   background:
@@ -733,35 +791,83 @@
   border-top: 1px dashed var(--color-border);
 }
 
-/* The pull request list is a specimen catalogue: numbered labels in a drawer. */
+/* The pull request list is a specimen catalogue: labelled specimens in a drawer. */
 [data-page="pulls"] [data-part="page-title"]::before,
 [data-page="issues"] [data-part="page-title"]::before {
   content: "Catalogue · ";
   color: var(--color-link);
   font-weight: 500;
 }
-[data-page="pulls"] [data-part="list"],
-[data-page="issues"] [data-part="list"] {
-  counter-reset: catalogue;
+/* The list's box is the catalogue drawer, with its paper label on the front edge. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"],
+[data-page="inbox"] [data-part="card"] {
+  position: relative;
+  overflow: visible;
+  margin-top: 14px;
 }
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before,
+[data-page="inbox"] [data-part="card"]::before {
+  content: "Specimen catalogue";
+  position: absolute;
+  top: -13px;
+  left: 18px;
+  z-index: 1;
+  padding: 3px 12px 2px;
+  font-family: var(--suit-hand);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-link);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  box-shadow: 0 1px 2px var(--suit-paper-edge);
+}
+[data-page="issues"] [data-part="card"]::before {
+  content: "Field queries";
+}
+[data-page="inbox"] [data-part="card"]::before {
+  content: "Letters from the field";
+}
+/*
+ * Each pull request is a specimen label: its state written in the catalogue's hand at the left,
+ * in the journal's words (open is observed, a draft a sketch, merged collected, closed released).
+ */
 [data-part="pr-row"],
 [data-part="issue-row"] {
-  counter-increment: catalogue;
   position: relative;
-  padding-left: 52px;
+  padding-left: 84px;
   transition: background-color 140ms ease;
 }
 [data-part="pr-row"]::before,
 [data-part="issue-row"]::before {
-  content: "No. " counter(catalogue, decimal-leading-zero);
+  content: "Observed";
   position: absolute;
-  left: 10px;
+  left: 12px;
   top: 50%;
+  width: 64px;
   transform: translateY(-50%) rotate(-4deg);
   font-family: var(--suit-hand);
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1;
   color: var(--color-subtle-foreground);
+}
+[data-part="pr-row"][data-variant="draft"]::before {
+  content: "Sketch";
+}
+[data-part="pr-row"][data-variant="merged"]::before {
+  content: "Collected";
+  color: var(--color-link);
+}
+[data-part="pr-row"][data-variant="closed"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  content: "Released";
+}
+[data-part="issue-row"][data-variant="open"]::before {
+  content: "Query";
 }
 [data-part="pr-row"] + [data-part="pr-row"],
 [data-part="issue-row"] + [data-part="issue-row"] {
@@ -844,6 +950,8 @@
 
 /* ------------------------------------------------------------------ empty states */
 
+/* An empty view is a margin note in the book face's italic, under its sketch. */
 [data-part="empty-state"] {
-  font-size: 19px;
+  font-family: var(--font-prose);
+  font-style: italic;
 }

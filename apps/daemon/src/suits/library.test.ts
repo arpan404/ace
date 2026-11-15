@@ -183,18 +183,12 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "empty-state",
     "sidebar-header",
   ]);
-  // Field Journal brings its app scene, its celebration and its corner ornaments.
+  // Field Journal brings its app scene, its celebration, its title plate and empty-state art.
   const journal = detail(await library.read("field-journal"));
   expect(journal.sceneUrl).toMatch(/scene\.html$/);
   expect(Object.keys(journal.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
   expect(journal.css).toContain('[data-suit="field-journal"]');
-  expect(Object.keys(journal.ornaments).toSorted()).toEqual([
-    "corner-bottom-left",
-    "corner-bottom-right",
-    "corner-top-right",
-    "empty-state",
-    "sidebar-header",
-  ]);
+  expect(Object.keys(journal.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {
