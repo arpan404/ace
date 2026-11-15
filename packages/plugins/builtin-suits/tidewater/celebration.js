@@ -66,9 +66,16 @@ function build(view) {
   seed = 9;
   sparkles.length = 0;
   for (let i = 0; i < 40; i++)
-    sparkles.push({ x: random(), y: random(), s: 11 + random() * 15, p: random() * 6.28, big: random() < 0.6 });
+    sparkles.push({
+      x: random(),
+      y: random(),
+      s: 11 + random() * 15,
+      p: random() * 6.28,
+      big: random() < 0.6,
+    });
   bubbles.length = 0;
-  for (let i = 0; i < 70; i++) bubbles.push({ x: random(), o: random() * 18, r: 1 + random() * 3.2 });
+  for (let i = 0; i < 70; i++)
+    bubbles.push({ x: random(), o: random() * 18, r: 1 + random() * 3.2 });
 }
 
 const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);

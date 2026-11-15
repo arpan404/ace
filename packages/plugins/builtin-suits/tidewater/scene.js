@@ -212,7 +212,11 @@ ace.scene({
   },
   frame(time, view) {
     now = time;
-    if (view.width !== width || view.height !== height || (view.scheme === "dark") !== (scheme === "dark"))
+    if (
+      view.width !== width ||
+      view.height !== height ||
+      (view.scheme === "dark") !== (scheme === "dark")
+    )
       build(view);
     // The water moves slowly; every third tick is enough, and a still frame under Reduce motion.
     tick++;

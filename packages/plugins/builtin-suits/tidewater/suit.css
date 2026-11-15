@@ -622,7 +622,11 @@
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--suit-sea) 45%, var(--color-border-strong));
   background:
-    radial-gradient(circle, transparent 62%, color-mix(in oklab, var(--suit-sea) 10%, transparent) 64%),
+    radial-gradient(
+      circle,
+      transparent 62%,
+      color-mix(in oklab, var(--suit-sea) 10%, transparent) 64%
+    ),
     var(--color-surface-2);
   box-shadow: 0 0 0 3px var(--color-background);
 }
@@ -816,8 +820,7 @@
 }
 /* A primary action is a brass plate, an engraved line inside its edge. */
 [data-part="button"][data-variant="primary"] {
-  background:
-    linear-gradient(180deg, rgb(255 240 210 / 0.22), transparent 60%), var(--color-tint);
+  background: linear-gradient(180deg, rgb(255 240 210 / 0.08), transparent 60%), var(--color-tint);
   color: var(--color-tint-foreground);
   box-shadow:
     inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 70%, black),
@@ -825,7 +828,7 @@
 }
 [data-part="button"][data-variant="primary"]:hover {
   background:
-    linear-gradient(180deg, rgb(255 240 210 / 0.26), transparent 60%), var(--color-tint-hover);
+    linear-gradient(180deg, rgb(255 240 210 / 0.08), transparent 60%), var(--color-tint-hover);
 }
 [data-part="button"][data-variant="secondary"],
 [data-part="button"]:not([data-variant]) {
@@ -883,7 +886,9 @@
 [data-part="switch"] {
   border-radius: 999px;
   background: color-mix(in oklab, var(--suit-sea) 16%, var(--color-surface-1));
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px var(--color-border-strong);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.16),
+    inset 0 0 0 1px var(--color-border-strong);
 }
 [data-part="switch"][data-state="checked"] {
   background: linear-gradient(
@@ -960,6 +965,27 @@
   font-weight: 600;
   letter-spacing: 0.04em;
 }
+/* A state pill is a painted flag: its tone deepened a step so its words read on it. */
+[data-part="badge"]:is(
+  [data-variant="open"],
+  [data-variant="draft"],
+  [data-variant="merged"],
+  [data-variant="closed"]
+) {
+  background-image: linear-gradient(rgb(0 0 0 / 0.24), rgb(0 0 0 / 0.24));
+  color: #fdfbf6;
+}
+/* At night the tones are lighter: dark words on them read, as ace draws them. */
+[data-scheme="dark"]
+  [data-part="badge"]:is(
+    [data-variant="open"],
+    [data-variant="draft"],
+    [data-variant="merged"],
+    [data-variant="closed"]
+  ) {
+  background-image: none;
+  color: var(--color-background);
+}
 [data-part="kbd"] {
   border-radius: 3px;
   border: 1px solid var(--color-border-strong);
@@ -980,7 +1006,13 @@
 
 /* A divider is a hairline of chart ink with a sounding dot at its middle. */
 [data-part="divider"] {
-  background: linear-gradient(90deg, transparent, var(--suit-hairline) 20%, var(--suit-hairline) 80%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--suit-hairline) 20%,
+    var(--suit-hairline) 80%,
+    transparent
+  );
   border-color: transparent;
 }
 
@@ -1403,12 +1435,8 @@
   background:
     radial-gradient(circle at 0 36px, var(--color-background) 6px, transparent 6.5px),
     radial-gradient(circle at 100% 36px, var(--color-background) 6px, transparent 6.5px),
-    repeating-linear-gradient(
-        90deg,
-        var(--color-border-strong) 0 5px,
-        transparent 5px 9px
-      )
-      10px 36px / calc(100% - 20px) 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--color-border-strong) 0 5px, transparent 5px 9px) 10px
+      36px / calc(100% - 20px) 1px no-repeat,
     var(--color-surface-2);
   box-shadow: var(--suit-shadow);
 }
@@ -1622,8 +1650,8 @@
       no-repeat,
     radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) right 4px top 4px / 8px
       8px no-repeat,
-    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) left 4px bottom 4px /
-      8px 8px no-repeat,
+    radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) left 4px bottom 4px / 8px
+      8px no-repeat,
     radial-gradient(circle, #d8b57a 0 2px, #7c5a2a 2.6px, transparent 3px) right 4px bottom 4px /
       8px 8px no-repeat,
     #f7f4ec;
@@ -1638,8 +1666,8 @@
       no-repeat,
     radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) right 4px top 4px / 8px
       8px no-repeat,
-    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) left 4px bottom 4px /
-      8px 8px no-repeat,
+    radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) left 4px bottom 4px / 8px
+      8px no-repeat,
     radial-gradient(circle, #c9a26a 0 2px, #5e431f 2.6px, transparent 3px) right 4px bottom 4px /
       8px 8px no-repeat,
     #08121a;

@@ -173,6 +173,7 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "glasshouse",
     "quest-journal",
     "starship-bridge",
+    "tidewater",
   ]);
   for (const id of seeded) {
     const checked = await library.validate(id);

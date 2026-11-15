@@ -24,6 +24,7 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     "glasshouse",
     "quest-journal",
     "starship-bridge",
+    "tidewater",
   ]);
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(

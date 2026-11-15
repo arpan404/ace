@@ -303,6 +303,8 @@ test.each([
   "quest-journal/celebration",
   "starship-bridge",
   "starship-bridge/celebration",
+  "tidewater",
+  "tidewater/celebration",
 ])(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
