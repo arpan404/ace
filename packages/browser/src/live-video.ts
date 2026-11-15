@@ -8,6 +8,7 @@ import type {
   VideoHost,
 } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
+import { mediaKey } from "./encode-ids.ts";
 import { LinkRate } from "./link-rate.ts";
 import { PictureScale } from "./video-scale.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
@@ -36,6 +37,11 @@ export interface LiveVideoSource {
   page: BrowserCdp;
 }
 
+/** The codec of an encode key: `codec/WxH`, or ace-media's `media/<id>/codec/WxH`. */
+function encodeCodec(key: string): string | undefined {
+  const parts = key.split("/");
+  return key.startsWith(mediaKey) ? parts[2] : parts[0];
+}
 /** Codecs asked of the encoder, whatever viewers prefer; a viewer's order picks among them. */
 const knownCodecs = ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp09.00.41.08", "vp8"];
 /** A capture size change waits for the pane to stop moving. */
@@ -83,6 +89,8 @@ export class LiveVideo {
   private page = { width: 1280, height: 720, scale: 1 };
   private codecs: string[] | undefined;
   private failedCodecs = new Set<string>();
+  /** The codecs last told to the open capture (`VideoCaptureHandle.codecs`), joined. */
+  private told = "";
   private capture: Capture | undefined;
   private opening = false;
   private retryAt = -Infinity;
@@ -299,7 +307,7 @@ export class LiveVideo {
     const daemonPlan = planVideo(
       {
         ...this.page,
-        codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
+        codecs: this.runnable(),
       },
       planned.map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
@@ -349,6 +357,11 @@ export class LiveVideo {
     for (const [id, viewer] of this.viewers)
       this.fanout.assign(id, open && !viewer.capture.delivered ? plan.viewers.get(id) : undefined);
     if (!open) return;
+    const runnable = this.runnable();
+    if (runnable.join(",") !== this.told) {
+      this.told = runnable.join(",");
+      open.handle.codecs?.(runnable);
+    }
     const encodes = plan.encodes.map((encode) => encode.key).join(",");
     if (encodes !== this.encodes || this.bitratesMoved(plan.encodes, now)) {
       this.encodes = encodes;
@@ -366,6 +379,10 @@ export class LiveVideo {
       this.soundOn = this.sound.wanted;
       open.handle.audio?.(this.soundOn);
     }
+  }
+  /** The codecs the encoder supports here, less those that failed. */
+  private runnable(): string[] {
+    return (this.codecs ?? []).filter((codec) => !this.failedCodecs.has(codec));
   }
   /** Whether a running encode's bit or frame rate should change in place now. */
   private bitratesMoved(encodes: readonly VideoEncode[], now: number): boolean {
@@ -418,7 +435,7 @@ export class LiveVideo {
           if (generation === this.generation) this.publishSound(chunk, tabId);
         },
         failed: (encode) => {
-          const codec = encode.split("/")[0];
+          const codec = encodeCodec(encode);
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
         },
         want: (encodes) => {
@@ -442,6 +459,7 @@ export class LiveVideo {
           if (generation !== this.generation) return handle.close();
           this.capture = { handle, ...size };
           this.encodes = "";
+          this.told = "";
           this.soundOn = false;
         },
         (error: unknown) => {
