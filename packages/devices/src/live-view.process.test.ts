@@ -661,55 +661,20 @@ it("a Simulator streams to a person and is handed to an agent while computer use
 });
 
 it("a resubscribe on the same media connection that fails keeps delivering on the view it had", async () => {
-  const f = await fixture();
-  await writeFile(f.state, "booted");
-  const d = fakeDelivery();
-  const failing = { on: false };
-  const sent: DeviceServerMessage[] = [];
-  const channel = reserveDevices(f.service, "browser-1", {
-    authorize: () => true,
-    canReadThread: () => true,
-    agentExists: () => true,
-    async send(message) {
-      sent.push(message);
-    },
-    media: { bufferedBytes: () => 0, async write() {} },
-    delivery: {
-      owner: () => phoneOwner,
-      // The view's first picture for the answer: failing here fails the subscribe after its
-      // view was granted.
-      port: () => ({
-        ...d.port,
-        poster: () =>
-          failing.on ? Promise.reject(new Error("poster gone")) : Promise.resolve(undefined),
-      }),
-    },
-  });
-  onTestFinished(() => channel.close());
-  channel.activate();
-  const request = async (requestId: string, operation: Record<string, unknown>) => {
-    await channel.request({ type: "devices.request", requestId, operation });
-    const result = sent.findLast((m) => m.type === "devices.result" && m.requestId === requestId);
-    if (!result) throw new Error(`no answer to ${requestId}`);
-    return result;
-  };
-  await request("enable", { op: "enable", enabled: true });
-  await request("list", { op: "list" });
-  await request("start", { op: "start", deviceId, fps: 10 });
-  const media = { connection: "mc_aaaaaaaaaaaa" };
-  expect(await request("first", { op: "subscribe", deviceId, media })).toMatchObject({ ok: true });
-  const [first] = d.live;
+  const m = await mediaChannel(["ok", "fail"]);
+  await m.subscribe("first", "mc_aaaaaaaaaaaa");
+  expect(m.answer("first")).toMatchObject({ ok: true });
+  const [first] = m.d.live;
   expect(first).toBeDefined();
-  failing.on = true;
-  expect(await request("again", { op: "subscribe", deviceId, media })).toMatchObject({ ok: false });
-  failing.on = false;
+  await m.subscribe("again", "mc_aaaaaaaaaaaa");
+  expect(m.answer("again")).toMatchObject({ ok: false });
   // Its new view replaced the old one in ace-media, then was undone: the old one delivers again.
-  expect([...d.live]).toEqual([first]);
-  expect(d.views.size).toBe(1);
+  expect([...m.d.live]).toEqual([first]);
+  expect(m.d.views.size).toBe(1);
   // The subscription still holds it: leaving closes it.
-  await request("leave", { op: "unsubscribe", deviceId });
-  expect(d.live.size).toBe(0);
-  expect(d.views.size).toBe(0);
+  await m.request("leave", { op: "unsubscribe", deviceId });
+  expect(m.d.live.size).toBe(0);
+  expect(m.d.views.size).toBe(0);
 });
 
 it("a media resubscribe that fails leaves the legacy view its stream and its pictures", async () => {
@@ -753,11 +718,35 @@ it("a media resubscribe that fails leaves the legacy view its stream and its pic
 });
 
 it("a subscribe superseded while it is set up never takes its successor's view", async () => {
+  const m = await mediaChannel(["ok", "wait", "wait"]);
+  await m.subscribe("o", "mc_aaaaaaaaaaaa");
+  // A is granted its view and waits; B, on the same connection, supersedes it.
+  const a = m.subscribe("a", "mc_aaaaaaaaaaaa");
+  await waitFor(() => expect(m.waiting).toHaveLength(1));
+  const b = m.subscribe("b", "mc_aaaaaaaaaaaa");
+  // A goes on, finds itself superseded and rolls back; only then is B set up.
+  m.waiting[0]?.();
+  await a;
+  expect(m.answer("a")).toMatchObject({ ok: false });
+  await waitFor(() => expect(m.waiting).toHaveLength(2));
+  m.waiting[1]?.();
+  await b;
+  expect(m.answer("b")).toMatchObject({ ok: true });
+  // B's view is the one ace-media delivers, and the only one held.
+  expect(m.d.views.size).toBe(1);
+  expect([...m.d.live]).toEqual([...m.d.views.keys()]);
+});
+
+/**
+ * A booted simulator streaming, watched over a channel whose media connections ace-media
+ * serves. Each subscribe's poster does what `posters` says in turn: come at once, fail, or wait
+ * until the test lets it go (`release`).
+ */
+async function mediaChannel(posters: ("ok" | "fail" | "wait")[]) {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const d = fakeDelivery();
-  // The first subscribe's poster comes at once; later ones wait until the test lets them go.
-  const posters: (() => void)[] = [];
+  const waiting: (() => void)[] = [];
   const sent: DeviceServerMessage[] = [];
   const channel = reserveDevices(f.service, "browser-1", {
     authorize: () => true,
@@ -771,39 +760,62 @@ it("a subscribe superseded while it is set up never takes its successor's view",
       owner: () => phoneOwner,
       port: () => ({
         ...d.port,
-        poster: () =>
-          d.views.size <= 1
-            ? Promise.resolve(undefined)
-            : new Promise((resolve) => posters.push(() => resolve(undefined))),
+        poster: () => {
+          const next = posters.shift() ?? "ok";
+          if (next === "fail") return Promise.reject(new Error("poster gone"));
+          if (next === "ok") return Promise.resolve(undefined);
+          return new Promise((resolve) => waiting.push(() => resolve(undefined)));
+        },
       }),
     },
   });
   onTestFinished(() => channel.close());
   channel.activate();
-  const answer = (requestId: string) =>
-    sent.find((m) => m.type === "devices.result" && m.requestId === requestId);
   const request = (requestId: string, operation: Record<string, unknown>) =>
     channel.request({ type: "devices.request", requestId, operation });
   await request("enable", { op: "enable", enabled: true });
   await request("list", { op: "list" });
   await request("start", { op: "start", deviceId, fps: 10 });
-  const media = { connection: "mc_aaaaaaaaaaaa" };
-  await request("first", { op: "subscribe", deviceId, media });
-  expect(d.live.size).toBe(1);
-  // A is granted its view and waits; B supersedes it, is granted its own, and waits too.
-  const a = request("a", { op: "subscribe", deviceId, media });
-  await waitFor(() => expect(posters).toHaveLength(1));
-  const b = request("b", { op: "subscribe", deviceId, media });
-  await waitFor(() => expect(posters).toHaveLength(2));
-  const [ofB] = d.live;
-  // A goes on, finds itself superseded and fails; then B is set up.
-  posters[0]?.();
-  await a;
-  expect(answer("a")).toMatchObject({ ok: false });
-  posters[1]?.();
-  await b;
-  expect(answer("b")).toMatchObject({ ok: true });
-  // B's view is the one ace-media delivers, and the only one held.
-  expect([...d.live]).toEqual([ofB]);
-  expect([...d.views.keys()]).toEqual([ofB]);
+  return {
+    d,
+    waiting,
+    request,
+    subscribe: (requestId: string, connection: string) =>
+      request(requestId, { op: "subscribe", deviceId, media: { connection } }),
+    answer: (requestId: string) =>
+      sent.find((m) => m.type === "devices.result" && m.requestId === requestId),
+  };
+}
+
+it("two resubscribes on other connections that both fail leave the first view delivering", async () => {
+  const m = await mediaChannel(["ok", "wait", "fail"]);
+  await m.subscribe("o", "mc_aaaaaaaaaaaa");
+  const [o] = m.d.live;
+  // A takes O's connection, so its view displaces O's in ace-media, and waits.
+  const a = m.subscribe("a", "mc_aaaaaaaaaaaa");
+  await waitFor(() => expect(m.waiting).toHaveLength(1));
+  // B, on another connection, supersedes A and fails.
+  const b = m.subscribe("b", "mc_bbbbbbbbbbbb");
+  m.waiting[0]?.();
+  await Promise.all([a, b]);
+  expect(m.answer("a")).toMatchObject({ ok: false });
+  expect(m.answer("b")).toMatchObject({ ok: false });
+  expect([...m.d.live]).toEqual([o]);
+  expect([...m.d.views.keys()]).toEqual([o]);
+});
+
+it("of resubscribes in quick succession the last one wins, and only its view is held", async () => {
+  const m = await mediaChannel(["ok", "wait"]);
+  await m.subscribe("o", "mc_aaaaaaaaaaaa");
+  const a = m.subscribe("a", "mc_aaaaaaaaaaaa");
+  await waitFor(() => expect(m.waiting).toHaveLength(1));
+  const b = m.subscribe("b", "mc_bbbbbbbbbbbb");
+  const c = m.subscribe("c", "mc_aaaaaaaaaaaa");
+  m.waiting[0]?.();
+  await Promise.all([a, b, c]);
+  expect(m.answer("a")).toMatchObject({ ok: false });
+  expect(m.answer("b")).toMatchObject({ ok: false });
+  expect(m.answer("c")).toMatchObject({ ok: true });
+  expect(m.d.views.size).toBe(1);
+  expect([...m.d.live]).toEqual([...m.d.views.keys()]);
 });
