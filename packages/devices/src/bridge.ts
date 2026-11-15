@@ -18,7 +18,7 @@ import { framePicture } from "@ace/screen";
 import {
   mediaSubscribed,
   viewLink,
-  viewSwap,
+  PendingSwaps,
   viewViewport,
   type HeldView,
   type MediaDeliveryPort,
@@ -69,6 +69,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
   const actor: Actor = { kind: "human", owner, guard: () => access() };
   /** Watched devices ace-media delivers, by their view there. */
   const delivered = new Map<string, HeldView>();
+  /** Each device's subscribe being set up: only the latest one swaps views. */
+  const swaps = new PendingSwaps();
   /**
    * A subscribe naming a media connection: its viewer there, while ace-media delivers devices.
    * A connection of another session is refused.
@@ -241,12 +243,14 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
           if (operation.op === "subscribe") {
             const deviceId = operation.deviceId;
             // Staged: the device's current view keeps delivering until this one is set up, and
-            // a failed resubscribe leaves it as it was (its view in ace-media too, `viewSwap`).
+            // a failed resubscribe leaves it as it was (its view in ace-media too,
+            // `PendingSwaps`). A subscribe superseded meanwhile only ever closes its own view.
             const slot = streams.reserve(deviceId);
             const port = peer.delivery?.port();
             let granted: HeldView | undefined;
             let stop: (() => void) | undefined;
             let committed = false;
+            let swap: ReturnType<PendingSwaps["begin"]> | undefined;
             try {
               const guard = () => {
                 deviceAccess(deviceId);
@@ -259,6 +263,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
                 viewer !== undefined && connection !== undefined
                   ? { viewer, connection }
                   : undefined;
+              swap = swaps.begin(port, deviceId, delivered.get(deviceId), granted);
               /** This view's pictures, opened once it is set up (opening replaces the old one's). */
               let view: PictureView | undefined;
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
@@ -276,7 +281,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               const poster = viewer ? await port?.poster(viewer) : undefined;
               guard();
               // Set up: the new view replaces the old one.
-              viewSwap(port, delivered.get(deviceId), granted).commit();
+              if (!swap.commit()) throw new Error("Device subscription superseded");
               committed = true;
               if (granted) delivered.set(deviceId, granted);
               else delivered.delete(deviceId);
@@ -316,7 +321,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               stop?.();
               slot.cancel();
               // Past the commit only a closing connection throws: it ends every view itself.
-              if (!committed) viewSwap(port, delivered.get(deviceId), granted).abort();
+              if (!committed) swap?.abort();
               throw error;
             }
           } else if (operation.op === "unsubscribe") {
