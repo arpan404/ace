@@ -44,6 +44,17 @@ client needs an app change.
 (`hello.compression`) gets allowlisted JSON messages of 1 KiB or more deflated alone, before
 encryption, as a separate fragment kind; inflation is capped at the logical message limit.
 
+**Machine calls: never compressed.** `POST /v1/machine-calls` between daemons (ADR 0078) sends
+every body as it is. Free text an agent writes (a thread's title, step, last line and result, a
+failure message, a notice) can't be declared free of secrets: one child may report a callback URL
+with a token in it while another child in the same status answer carries text an attacker wrote,
+and both would share one compression context. Every status answer carries such text, and every
+describe answer carries names the person chose (the machine's and its projects'), which are not
+fixed vocabulary or ids; nothing left was worth compressing. Compressing status answers of 1 KiB
+or more (a busy parent's sixteen children shrank more than fourfold in tests) was built and given up for this
+rule. A future body of only fixed vocabulary and ids may be compressed if it is described by a
+strict shape whose every string is one of those.
+
 **HTTP: br/gzip for renderer text files.** `.html`, `.js`, `.css` and `.svg` files of at least 1 KiB
 are compressed once per file version and kept in memory (32 MiB, least recently used out), on both
 listeners; the cost is paid once, not per request. Attachments, icons and images are already
