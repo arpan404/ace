@@ -151,10 +151,10 @@ vec3 haze(vec2 p, vec2 c, vec3 colour, float e, float reach) {
 
 // The light a lamp throws on the wet road: a column under it, fading downward.
 vec3 streak(vec2 p, float x, float top, vec3 colour, float e) {
-  if (p.y > top) return vec3(0.0);
+  if (p.y > top + soft) return vec3(0.0);
   float w = max(R * 0.55, 0.004);
   float across = exp(-pow((p.x - x) / w, 2.0));
-  float down = exp(-(top - p.y) / 0.07);
+  float down = exp(-max(top - p.y, 0.0) / 0.07) * (1.0 - smoothstep(top - soft, top + soft, p.y));
   return colour * e * 0.16 * across * down;
 }
 
@@ -241,7 +241,7 @@ void main() {
   }
 
   // The near buildings across the street, open where the cross street runs.
-  float near = buildings(p, 0.23, 0.52, 0.86, 23) * (1.0 - gap(p.x)) * step(0.12, p.y);
+  float near = buildings(p, 0.23, 0.52, 0.86, 23) * (1.0 - gap(p.x)) * smoothstep(0.12 - soft, 0.12 + soft, p.y);
   float facadeGlow = vnoise(p * vec2(9.0, 12.0) + 11.0);
   vec3 nearNight = vec3(0.0065, 0.0068, 0.0085) + WARMLED * facadeGlow * facadeGlow * 0.012;
   vec3 nearDay = vec3(0.30, 0.32, 0.35) + vec3(0.035) * (facadeGlow - 0.5);
@@ -312,7 +312,7 @@ void main() {
   }
 
   // The street below: wet asphalt, lamps along the near side, and their light on the road.
-  float road = 1.0 - smoothstep(0.13, 0.145, p.y);
+  float road = 1.0 - smoothstep(0.137 - soft, 0.137 + soft, p.y);
   vec3 asphaltNight = vec3(0.0055, 0.0055, 0.0065);
   vec3 asphaltDay = vec3(0.24, 0.255, 0.275);
   col = mix(col, mix(asphaltNight, asphaltDay, day), road);
@@ -501,10 +501,11 @@ void main() {
   float thick = 0.62 + 0.3 * vnoise(uv * vec2(3.0, 2.2) + 7.0) + 0.12 * (1.0 - uv.y);
   float clear = texture(cleared, uv).r;
   // Mist forms back unevenly, from tiny points, so a fading trail's edge is ragged.
-  float grain = vnoise(gl_FragCoord.xy * 0.22) * 0.6 + vnoise(gl_FragCoord.xy * 0.07) * 0.4;
-  float from = 0.08 + 0.45 * grain;
+  vec2 at = mat2(0.8, -0.6, 0.6, 0.8) * gl_FragCoord.xy;
+  float grain = vnoise(at * 0.11) * 0.6 + vnoise(at.yx * 0.043 + 3.0) * 0.4;
+  float from = 0.06 + 0.4 * grain;
   // A cleared trail keeps a thin film of water, so it is never quite as clear as dry glass.
-  float fog = clamp(thick * mix(1.0, 0.94, day), 0.0, 1.0) * (1.0 - 0.82 * smoothstep(from, from + 0.18, clear));
+  float fog = clamp(thick * mix(1.0, 0.94, day), 0.0, 1.0) * (1.0 - 0.82 * smoothstep(from, from + 0.3, clear));
   vec3 fogged = mix(misty, veil, 0.4) * mix(0.8, 0.9, day) + mix(vec3(0.0035, 0.0035, 0.0045), vec3(0.09, 0.092, 0.097), day);
   vec3 glass = mix(through, fogged, fog);
 
@@ -514,8 +515,8 @@ void main() {
   lensed = lensed * mix(1.3, 1.0, day) + mix(vec3(0.002), vec3(0.03), day);
   float steep = length(slope);
   // The rim: light bent past the eye at the drop's steep edge, so it reads dark.
-  float rim = smoothstep(0.68, 1.0, steep / EDGE);
-  lensed *= 1.0 - mix(0.82, 0.7, day) * rim;
+  float rim = smoothstep(0.74, 1.02, steep / EDGE);
+  lensed *= 1.0 - mix(0.62, 0.55, day) * rim;
   // A small highlight from a light above and to the left, and a soft one under it.
   vec3 normal = normalize(vec3(-slope * 1.9, 1.0));
   vec3 halfway = normalize(vec3(-0.28, 0.42, 1.0) + vec3(0.0, 0.0, 1.0));
@@ -967,7 +968,7 @@ void main() {
       city: target(...part(2), floatTargets, false),
       sharp: target(...part(3), floatTargets, true),
       mist: target(...part(8), floatTargets, true),
-      cleared: target(...part(4), false, false),
+      cleared: target(...part(2), false, false),
       water: target(width, height, floatTargets, false),
     };
     gl.bindFramebuffer(gl.FRAMEBUFFER, targets.cleared.framebuffer);
