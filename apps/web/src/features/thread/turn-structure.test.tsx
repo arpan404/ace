@@ -331,18 +331,18 @@ const resumeAfterLimit = [
   { type: "limit.cleared", agent: "root" } as const,
   { type: "turn.started", agent: "root", nativeTurnId: "resume", trigger: "limit_resume" } as const,
   {
-    type: "item.upsert",
+    type: "item.upsert" as const,
     agent: "root",
     item: "resume-input",
     draft: {
-      type: "message",
-      role: "user",
+      type: "message" as const,
+      role: "user" as const,
       complete: true,
       synthetic: true,
-      origin: { kind: "limit_resume" },
-      parts: [{ type: "text", text: "Continue where you left off." }],
+      origin: { kind: "limit_resume" as const },
+      parts: [{ type: "text" as const, text: "Continue where you left off." }],
     },
-  } as const,
+  },
   message("root", "resumed", "assistant", "Picking the flag removal back up."),
 ];
 

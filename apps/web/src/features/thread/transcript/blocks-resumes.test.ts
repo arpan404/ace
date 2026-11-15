@@ -96,7 +96,7 @@ const resumed = (state: RunFacts["state"]): RunFacts => ({
 
 /** A thread whose turn ends as its newest run does, as the client's turn tree says. */
 function thread(items: Item[], runs: Record<string, RunFacts>, extra: Partial<BlockSource> = {}) {
-  const byId = new Map(items.map((item) => [item.id, item]));
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
   const newest = Object.keys(runs).at(-1) ?? "";
   return buildBlocks({
     order: items.map((item) => item.id),
