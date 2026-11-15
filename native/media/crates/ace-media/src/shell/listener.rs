@@ -3,7 +3,6 @@
 //! socket share their accept and hello code: a Unix socket in the runtime directory, or on
 //! Windows a named pipe only the current user may open ([`super::pipe`]).
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Which of ace-media's two sockets: the control lanes or producers' ingest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,21 +84,16 @@ impl Home {
     }
 }
 
-/// Splits an accepted connection into its reading and writing halves.
+/// Splits an accepted pipe connection into its reading and writing halves (the pipe tests; the
+/// shell's lanes split their sealed duplex instead).
+#[cfg(all(test, windows))]
 pub fn split(
     stream: Stream,
 ) -> (
-    impl AsyncRead + Unpin + Send,
-    impl AsyncWrite + Unpin + Send,
+    impl tokio::io::AsyncRead + Unpin + Send,
+    impl tokio::io::AsyncWrite + Unpin + Send,
 ) {
-    #[cfg(unix)]
-    {
-        stream.into_split()
-    }
-    #[cfg(windows)]
-    {
-        tokio::io::split(stream)
-    }
+    tokio::io::split(stream)
 }
 
 #[cfg(windows)]

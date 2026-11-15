@@ -10,7 +10,6 @@ use media_wire::control::{FromMedia, Status};
 use media_wire::frame::Egress;
 use serde_json::json;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 use support::*;
 
