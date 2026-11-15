@@ -1924,6 +1924,14 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     new view, and regrants the old one where the new one had replaced it in ace-media. The
     three bridges share one swap, `viewSwap` in `media-viewers`. `DeviceSubscriptions` stages
     a new slot beside the current one, and log subscriptions still replace theirs at once.
+- **Review fixes (round 5, at `fb3389132a`).**
+  - **A superseded device setup never takes its successor's view.** Device subscribes wait
+    while they are set up, so a later one can supersede one that was already granted a view.
+    `PendingSwaps` keeps the latest pending swap of each device. Only that one commits or
+    regrants; a superseded setup's abort closes its own view and nothing else.
+  - **A failed resubscribe leaves the old view its stream request.** `DeviceStreamOwners`
+    counts an owner's overlapping views of a device, and the owner's stream request goes only
+    when the last of them ends.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:

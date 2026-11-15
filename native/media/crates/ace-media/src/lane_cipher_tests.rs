@@ -12,8 +12,6 @@ fn hex(text: &str) -> Vec<u8> {
 
 struct Vector {
     secret: Vec<u8>,
-    client: [u8; 32],
-    server: [u8; 32],
     cases: Vec<serde_json::Value>,
 }
 
@@ -22,12 +20,6 @@ fn vector() -> Vector {
         serde_json::from_str(include_str!("../../../vectors/lane/proofs.json")).unwrap();
     Vector {
         secret: hex(doc["secret"].as_str().unwrap()),
-        client: hex(doc["clientNonce"].as_str().unwrap())
-            .try_into()
-            .unwrap(),
-        server: hex(doc["serverNonce"].as_str().unwrap())
-            .try_into()
-            .unwrap(),
         cases: doc["cases"].as_array().unwrap().clone(),
     }
 }
