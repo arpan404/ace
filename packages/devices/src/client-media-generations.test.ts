@@ -104,6 +104,8 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     mediaAcks,
     drawn,
     reply,
+    /** Timers waiting on the injected clock (request deadlines, retries). */
+    pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
     timeOut() {
       for (const run of Array.from(deadlines)) {
@@ -208,5 +210,15 @@ describe("device pictures across a media rebind", () => {
     view.timeOut();
     await flush();
     expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("a closed channel leaves no retry waiting on the clock", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.client.disconnect();
+    expect(view.pendingTimers()).toBe(0);
   });
 });

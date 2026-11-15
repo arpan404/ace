@@ -6,7 +6,7 @@ import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import { mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
+import { mediaRetryDelaysMs, mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -82,6 +82,7 @@ type Daemon =
   | "serves here"
   | "replays here"
   | "replays, answers later"
+  | "fails"
   | "refuses";
 
 function withMediaReplies(
@@ -98,6 +99,11 @@ function withMediaReplies(
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
           const named =
             input.type === "browser.subscribe" && "media" in input ? input.media : undefined;
+          if (named && daemon === "fails") {
+            // It reaches the daemon (and the record), which answers that it is too busy.
+            await target.request(input, options);
+            return { type: "browser.result", requestId: "r", ok: false, error: "busy" };
+          }
           if (named && daemon === "refuses") {
             refused.push(input);
             return {
@@ -217,6 +223,8 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** How many timers of this delay are waiting. */
+    pending: (ms: number) => Array.from(timers).filter((timer) => timer.ms === ms).length,
     /** Every timer of this delay runs. */
     fire(ms: number) {
       for (const timer of Array.from(timers))
@@ -388,4 +396,46 @@ test("a poster still decoding when the view rebinds is never drawn", async () =>
   decodes[1]!.resolve({ sequence: -200, draw() {}, close: () => void closed.push(-200) });
   await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(-200));
   expect(closed).toContain(-100);
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+const named = (request: { media?: unknown }) =>
+  typeof request.media === "object" && request.media !== null && "connection" in request.media
+    ? request.media.connection
+    : undefined;
+
+test("a failing subscribe is retried on the shared ladder, then the view settles on the socket", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  expect(view.subscribes().map(named)).toEqual(["mc_aaaaaaaaaa"]);
+  for (const [index, delay] of mediaRetryDelaysMs.entries()) {
+    view.fire(delay);
+    await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
+  }
+  expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
+  // The ladder is spent: the next try is the socket's, and it is served there.
+  view.fire(5_000);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  expect(named(view.subscribes()[5]!)).toBeUndefined();
+});
+
+test("a rebind cancels the retry still waiting for the old connection", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  view.link.move(undefined);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(2));
+  expect(named(view.subscribes()[1]!)).toBeUndefined();
+  // The retry scheduled for connection A never goes out.
+  view.fire(mediaRetryDelaysMs[0]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(view.subscribes()).toHaveLength(2);
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+test("a rebind subscribes at once even while the old subscribe is still open", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "answers later");
+  // Connection A goes away before its subscribe is answered; the answer never comes.
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(view.subscribes().map(named)).toContain("mc_bbbbbbbbbb"));
 });

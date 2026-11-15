@@ -119,6 +119,8 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const watcher of watchers) watcher();
     },
     onChannel,
+    /** Timers waiting on the injected clock (request deadlines, retries). */
+    pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
     timeOut() {
       for (const run of Array.from(deadlines)) {
@@ -354,5 +356,23 @@ describe("screen pictures across a media rebind", () => {
     expect(view.drawn.map((picture) => picture.sequence)).toEqual([2]);
     view.client.ack(view.drawn[0]!);
     expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
+  });
+
+  it("a released stream or a closed channel leaves no retry waiting on the clock", async () => {
+    const view = harness();
+    const release = view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    release();
+    expect(view.pendingTimers()).toBe(1); // the unsubscribe's own deadline
+    view.timeOut();
+    await flush();
+    const again = harness();
+    again.client.retainStream("app");
+    again.reply(again.subscribes[0]!, "fails");
+    await flush();
+    again.client.disconnect();
+    expect(again.pendingTimers()).toBe(0);
   });
 });

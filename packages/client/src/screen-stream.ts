@@ -170,6 +170,8 @@ export class ScreenStreamClient {
     this.states.clear();
     this.streams.reset();
     this.media.reset();
+    for (const cancel of this.retries.values()) cancel();
+    this.retries.clear();
     this.pictures.discard();
     for (const request of this.pending.values()) {
       request.cancel();
@@ -302,12 +304,23 @@ export class ScreenStreamClient {
     if (delay === undefined) return;
     const epoch = this.epoch;
     const generation = this.media.generation(sessionId);
-    this.options.schedule(() => {
+    this.cancelRetry(sessionId);
+    const cancel = this.options.schedule(() => {
+      this.retries.delete(sessionId);
       if (this.epoch !== epoch || this.media.generation(sessionId) !== generation) return;
       if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
     }, delay);
+    this.retries.set(sessionId, cancel);
+  }
+  /** Retries waiting on the clock, by source: cancelled when they no longer apply. */
+  private readonly retries = new Map<string, () => void>();
+  private cancelRetry(sessionId: string): void {
+    this.retries.get(sessionId)?.();
+    this.retries.delete(sessionId);
   }
   private subscribe(sessionId: string): void {
+    // This subscribe supersedes any retry still waiting.
+    this.cancelRetry(sessionId);
     const { generation, fields } = this.media.begin(sessionId);
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(sessionId);
@@ -330,6 +343,7 @@ export class ScreenStreamClient {
       () => this.subscribe(sessionId),
       () => {
         this.media.forget(sessionId);
+        this.cancelRetry(sessionId);
         void this.request({ op: "unsubscribe", sessionId }).catch(() => {});
       },
     );

@@ -221,6 +221,14 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     else delivery.via = channelPath;
     return "retry";
   }
+  /**
+   * Its retries are spent: the connection bound now isn't named for `source` again until the
+   * binding changes, so its next subscribe is the channel's.
+   */
+  giveUp(source: string): void {
+    const connection = this.#route?.binding()?.connection;
+    if (connection) this.#refused.set(source, connection);
+  }
   /** How long until a failed source is tried again; undefined once the retries are spent. */
   retryDelay(source: string): number | undefined {
     const attempt = this.#attempts.get(source) ?? 0;

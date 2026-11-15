@@ -180,9 +180,16 @@ interface Watch {
   generation: number;
   count: number;
   subscribed: boolean;
-  subscribing: boolean;
+  /**
+   * The generation whose subscribe is in flight and gates the next one. Released when that
+   * generation ends (an invalidation) or its deadline passes, though its request stays open for
+   * a late reply.
+   */
+  subscribing: number | undefined;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
+  /** Cancels the retry of a failed subscribe waiting on the ladder (`mediaRetryDelaysMs`). */
+  retry: (() => void) | undefined;
 }
 
 export interface PreviewOptions {
@@ -377,6 +384,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const endDelivery = (threadId: string) => deliveries.end(threadId);
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
+    watch.retry?.();
+    watch.retry = undefined;
     endDelivery(threadId);
     videos.reset(threadId);
     sounds.reset(threadId);
@@ -404,7 +413,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * known, what it shows. A client that decodes none still subscribes, for the tabs and the
    * page's state; it shows no picture.
    */
-  const subscribe = async (threadId: string): Promise<unknown> => {
+  const subscribe = async (threadId: string, deadline?: () => void): Promise<unknown> => {
     if (disposed) throw new Error("preview_disposed");
     const codecs = await videos.codecs();
     if (disposed) throw new Error("preview_disposed");
@@ -418,7 +427,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const binding = fields.media;
     // No answer in time: the thread's video is the socket's until its reply comes, if it does.
     const cancelDeadline = binding
-      ? later(() => deliveries.abandon(threadId, generation), mediaSubscribeDeadlineMs)
+      ? later(() => {
+          deliveries.abandon(threadId, generation);
+          if (deliveries.generation(threadId) === generation) deadline?.();
+        }, mediaSubscribeDeadlineMs)
       : undefined;
     let reply: Awaited<
       ReturnType<typeof request<{ type: "browser.subscribe"; threadId: ThreadId }>>
@@ -446,7 +458,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       // A connection the daemon won't bind for this session: subscribe on the socket instead.
       // Any other failure keeps (or falls back to) a delivery, and the poll tries again.
       if (deliveries.failed(threadId, generation, error) === "resubscribe")
-        return subscribe(threadId);
+        return subscribe(threadId, deadline);
       throw error;
     }
     if (deliveries.generation(threadId) !== generation) return reply.result;
@@ -531,15 +543,49 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }).catch(() => {});
   };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
+  /**
+   * A subscribe failed: try again on the shared ladder. Once it is spent, the connection isn't
+   * named any more and the regular poll subscribes on the socket.
+   */
+  const retryLater = (threadId: string, watch: Watch) => {
+    watch.retry?.();
+    watch.retry = undefined;
+    const delay = deliveries.retryDelay(threadId);
+    if (delay === undefined) return deliveries.giveUp(threadId);
+    watch.retry = later(() => {
+      watch.retry = undefined;
+      if (watches.get(threadId) === watch) poll(threadId);
+    }, delay);
+  };
+  /**
+   * Something changed that a subscribe may now succeed on (an agent opened the browser, the page
+   * opened or switched engine, the page shows again): a retry waiting on the ladder goes at once.
+   */
+  const pollNow = (threadId: string, watch: Watch) => {
+    watch.retry?.();
+    watch.retry = undefined;
+    watch.cancel?.();
+    poll(threadId);
+  };
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
     if (disposed || !watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
-    if (!watch.subscribed && !watch.subscribing) {
-      watch.subscribing = true;
+    if (!watch.subscribed && watch.subscribing !== watch.generation && !watch.retry) {
       const generation = watch.generation;
+      watch.subscribing = generation;
       const reported = captures.get(threadId);
-      void subscribe(threadId)
+      const ours = () => watches.get(threadId) === watch && watch.generation === generation;
+      const ungate = () => {
+        if (watch.subscribing === generation) watch.subscribing = undefined;
+      };
+      // No answer in time: the thread's video is the socket's, and the poll isn't held up by a
+      // request still open for its late reply.
+      const deadline = () => {
+        if (ours()) watch.subscribed = true;
+        ungate();
+      };
+      void subscribe(threadId, deadline)
         .then(
           () => {
             // A view that left and came back meanwhile (a tab replaced by another, a remount)
@@ -553,10 +599,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
             } else if (!current && !disposed)
               void call("browser.unsubscribe", threadId).catch(() => {});
           },
-          () => {},
+          () => {
+            if (!ours()) return;
+            watch.subscribed = false;
+            retryLater(threadId, watch);
+          },
         )
         .finally(() => {
-          watch.subscribing = false;
+          ungate();
           // State can follow the initial frame. Replay resets that viewer's backpressure
           // without acknowledging a decode from a previous lifetime.
           if (watches.get(threadId) === watch && watch.generation !== generation) poll(threadId);
@@ -750,8 +800,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!visibility.visible()) return;
         for (const [threadId, watch] of watches) {
           if (seen(threadId)) videos.settle(threadId);
-          watch.cancel?.();
-          poll(threadId);
+          pollNow(threadId, watch);
         }
       }),
     );
@@ -763,9 +812,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         browsing = threads;
         for (const threadId of started) {
           const watch = watches.get(threadId);
-          if (!watch || watch.subscribed || watch.subscribing) continue;
-          watch.cancel?.();
-          poll(threadId);
+          if (!watch || watch.subscribed || watch.subscribing === watch.generation) continue;
+          pollNow(threadId, watch);
         }
       }),
     );
@@ -800,7 +848,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       disposed = true;
       lifetime.abort();
       for (const stop of stops) stop();
-      for (const watch of watches.values()) watch.cancel?.();
+      for (const watch of watches.values()) {
+        watch.cancel?.();
+        watch.retry?.();
+      }
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       videos.dispose();
@@ -832,7 +883,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           generation: 0,
           count: 1,
           subscribed: false,
-          subscribing: false,
+          subscribing: undefined,
+          retry: undefined,
           cancel: undefined,
         };
         watches.set(threadId, watch);
@@ -851,6 +903,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       };
       function stop() {
         endDelivery(threadId);
+        current.retry?.();
+        current.retry = undefined;
         watches.delete(threadId);
         current.cancel?.();
         // The subscription ends: a later view's stream starts from its own keyframe, and a
@@ -907,8 +961,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           views.set(threadId, view(state.data));
           changed(threadId);
         }
-        watch.cancel?.();
-        poll(threadId);
+        pollNow(threadId, watch);
       }
       return state.success ? view(state.data) : undefined;
     },
@@ -1021,8 +1074,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!watch) return;
         views.set(threadId, view(state));
         changed(threadId);
-        watch.cancel?.();
-        poll(threadId);
+        pollNow(threadId, watch);
       });
     },
     annotate,
