@@ -92,8 +92,8 @@ pub fn dial(name: &str, server: Option<u32>) -> io::Result<(Box<dyn Link>, Arc<d
 mod tests {
     use super::*;
     use windows::Win32::{
-        Foundation::{CloseHandle, ERROR_BROKEN_PIPE},
-        Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND},
+        Foundation::{CloseHandle, ERROR_BROKEN_PIPE, ERROR_PIPE_LISTENING},
+        Storage::FileSystem::{ReadFile, PIPE_ACCESS_DUPLEX},
         System::Pipes::{CreateNamedPipeW, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
     };
 
@@ -103,7 +103,7 @@ mod tests {
         let handle = unsafe {
             CreateNamedPipeW(
                 PCWSTR(wide.as_ptr()),
-                PIPE_ACCESS_INBOUND,
+                PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_BYTE | PIPE_WAIT,
                 PIPE_UNLIMITED_INSTANCES,
                 0,
