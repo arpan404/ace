@@ -34,6 +34,8 @@ tokio = { version = "1.47", features = [
   "macros",
 ] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# The relay stream client uses its upgrade-key helpers only (shell/relay_ws.rs).
+tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 media-vt = { path = "../media-vt" }

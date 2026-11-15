@@ -12,7 +12,8 @@ fn viewer(engine: &mut Engine, connection: &str, who: Value, issued: u64) -> Vec
         json!({ "type": "viewer.open", "viewer": "v", "connection": connection, "owner": who,
                 "issued": issued, "source": "s1", "codecs": ["avc1.640028"],
                 "viewport": { "width": 800, "height": 600, "dpr": 2, "scale": 1 },
-                "local": true, "audio": false }),
+                "local": true, "audio": false,
+                "target": { "kind": "browser", "threadId": "t1" } }),
         &[],
         NOW,
     )
@@ -292,7 +293,23 @@ fn key_block() -> Vec<u8> {
     }
 }
 
+/// A relay stream this process dialed, its socket up: only those take keys.
+pub(super) fn dialed(engine: &mut Engine, stream: &str) {
+    send(
+        engine,
+        json!({ "type": "relay.dial", "stream": stream, "url": "ws://127.0.0.1:1/join?ticket=t" }),
+        &[],
+        NOW,
+    );
+    let Ok(id) = Id::new(stream.to_owned()) else {
+        panic!("bad stream id")
+    };
+    assert!(engine.relay_dialed(&id));
+    engine.effects().for_each(drop);
+}
+
 fn keys(engine: &mut Engine, stream: &str, who: Value, issued: u64, payload: &[u8]) -> Vec<Effect> {
+    dialed(engine, stream);
     send(
         engine,
         json!({ "type": "relay.keys", "stream": stream, "connection": "rc", "owner": who, "issued": issued }),
@@ -314,9 +331,13 @@ fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
     let mut bad = key_block();
     bad[0] ^= 1;
     let corrupt = keys(&mut engine, "st3", owner("d1", pairing(1)), 4, &bad);
+    // Corrupt keys fail the stream, and its socket is shut.
     assert!(matches!(
         corrupt.as_slice(),
-        [Effect::Normal(FromMedia::RelayFailed { .. })]
+        [
+            Effect::Normal(FromMedia::RelayFailed { .. }),
+            Effect::Relay(relay::RelayEffect::Close { .. })
+        ]
     ));
 
     revoke(&mut engine, "r", 5, "d1", None);
@@ -330,9 +351,13 @@ fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
         &[],
         NOW,
     );
+    // The answer follows the socket's shutdown.
     assert!(matches!(
         closed.as_slice(),
-        [Effect::Priority(FromMedia::Closed { .. })]
+        [
+            Effect::Relay(relay::RelayEffect::Close { .. }),
+            Effect::Priority(FromMedia::Closed { .. })
+        ]
     ));
 }
 
