@@ -34,11 +34,16 @@ private struct WorktreeStartPage: View {
     let back: (NewThreadDraft) -> Void
     private var client: ClientModel? { inbox.client(key.machineId) }
     private var read: WorktreeStartRead? { client?.compose.worktrees[key.id] }
+    /// Back is on its way: the card waits for both the phone and the daemon to take it.
+    @State private var backing = false
+    /// Why Back didn't happen; the card and its Unsent row stay.
+    @State private var backProblem = ""
     var body: some View {
         NavigationStack {
             Group {
                 if let card = read?.card {
-                    WorktreeStartView(card: card, act: act, back: card.canReturn == true ? { goBack(card) } : nil)
+                    WorktreeStartView(card: card, act: act, back: card.canReturn == true ? { goBack(card) } : nil,
+                                      backing: backing, backProblem: backProblem)
                 } else {
                     // Made, or refused for the message's own reason: the sheet goes either way.
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,18 +72,25 @@ private struct WorktreeStartPage: View {
                 if Task.isCancelled { return }
             }
         }
-        .onChange(of: read?.card == nil && read?.made == nil) { _, gone in
+        // Taken back, the card goes once Back has handed the words over (`goBack`).
+        .onChange(of: read?.card == nil && read?.made == nil && read?.returned != true) { _, gone in
             if gone { inbox.startCard = nil }
         }
     }
     private func act(_ action: String) {
         client?.composeAction(["kind": "worktree", "commandId": key.id, "action": action])
     }
+    /// The words go back to New thread only once this phone has saved that the start's Unsent
+    /// row is dealt with and the daemon has forgotten the start; otherwise the card says why.
     private func goBack(_ card: WorktreeStartCard) {
-        guard let client else { return }
-        act("dismiss")
-        let id = key.id
-        Task { _ = await client.dismissSend(id) }
-        back(card.returnedDraft(machineId: key.machineId))
+        guard let client, !backing else { return }
+        backing = true
+        backProblem = ""
+        let draft = card.returnedDraft(machineId: key.machineId)
+        Task {
+            let refused = await client.worktreeBack(key.id)
+            backing = false
+            if let refused { backProblem = refused } else { back(draft) }
+        }
     }
 }

@@ -367,7 +367,15 @@ async function start(json: string): Promise<void> {
     },
   });
   void reads.restore();
-  compose = new ComposeActions(client, pump, preview, () => host.now(), nativeChunks, reads);
+  compose = new ComposeActions(
+    client,
+    pump,
+    preview,
+    () => host.now(),
+    nativeChunks,
+    reads,
+    dismissed,
+  );
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,

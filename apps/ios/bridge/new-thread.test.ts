@@ -9,6 +9,7 @@ import { ComposeActions } from "./compose-actions.ts";
 import { threadRow } from "./presentation.ts";
 import { NativeReads } from "./native-reads.ts";
 import type { NewThreadMemory } from "./new-thread.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -38,6 +39,7 @@ async function connect(
   daemon: FakeDaemon,
   chunks?: ChunkReader,
   memory?: (owner: ClientCore) => NewThreadMemory,
+  dismissed?: DismissedSends,
 ): Promise<ComposeActions> {
   let saved: string | null = null;
   const owner = new ClientCore({
@@ -84,6 +86,7 @@ async function connect(
     () => Date.now(),
     chunks,
     memory?.(owner),
+    dismissed,
   );
 }
 
@@ -714,15 +717,25 @@ test("a worktree start still in the outbox is followed again by a New thread tha
 
 test("Back to New thread forgets the stopped start on the daemon and its card goes", async () => {
   const daemon = fixture();
-  const compose = await connect(daemon);
+  const kept = new Set<string>();
+  const compose = await connect(daemon, undefined, undefined, {
+    has: (id) => kept.has(id),
+    dismiss: async (id) => !!kept.add(id),
+    restore: async (id) => kept.delete(id),
+    loaded: async () => {},
+    observe: () => () => {},
+  });
   await startInWorktree(compose, "draft-tree-0005");
   await until(() => worktreeCard("draft-tree-0005")?.running);
   // While it is being made there is nothing to go back with: Cancel comes first.
   expect(worktreeCard("draft-tree-0005")?.canReturn).toBe(false);
   compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "cancel" });
   await until(() => worktreeCard("draft-tree-0005")?.canReturn);
-  compose.compose({ kind: "worktree", commandId: "draft-tree-0005", action: "dismiss" });
+  compose.compose({ kind: "worktreeBack", commandId: "draft-tree-0005", requestId: "back-0005" });
+  expect(await until(() => latest("receipt", "back-0005"))).toMatchObject({ ok: true });
   await until(() => worktreeCard("draft-tree-0005") === null);
+  // Its Unsent row is dealt with on this phone too.
+  expect(kept.has("draft-tree-0005")).toBe(true);
   // Taken back, not refused: New thread's wait ends without saying the thread didn't start.
   expect(latest("compose.worktree", "draft-tree-0005")?.returned).toBe(true);
   const asked = sent.filter((text) => text.includes('"action":"dismiss"'));

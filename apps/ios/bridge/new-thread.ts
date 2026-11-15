@@ -28,6 +28,7 @@ import { agentsPatch, type Stars } from "./new-thread-agents.ts";
 import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
 import { WorktreeStarts } from "./worktree-starts.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 
 /*
  * The New thread sheet on one machine. Reads (projects, coding agents, a project's branches,
@@ -141,6 +142,7 @@ export class NewThread {
     now: () => number,
     files: NewThreadFiles,
     memory?: NewThreadMemory,
+    dismissed?: DismissedSends,
   ) {
     this.#owner = owner;
     this.#sink = sink;
@@ -150,7 +152,7 @@ export class NewThread {
     this.#memory = memory;
     this.#access = new NewThreadAccessReader(owner, sink);
     this.#favorites = new ModelFavorites(owner);
-    this.worktrees = new WorktreeStarts(owner, sink, preview);
+    this.worktrees = new WorktreeStarts(owner, sink, preview, dismissed);
   }
 
   /** Read the machine's projects, coding agents and default access for a sheet that opened. */

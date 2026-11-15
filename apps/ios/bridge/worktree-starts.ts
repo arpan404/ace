@@ -14,6 +14,7 @@ import {
   worktreeStepRows,
 } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 
 /*
  * A new thread's worktree as it is made, for the phone (the web's `WorktreeCreationCard`): one
@@ -25,8 +26,9 @@ import type { PatchSink, Preview } from "./agents.ts";
  *
  * Every worktree start the SDK's outbox still holds is followed, not only the ones sent since
  * launch, so a card the person swiped away (or a start a relaunch interrupted) can always be
- * opened again from its Unsent row. Once it stopped, Back to New thread takes the message back
- * (`message`) and `dismiss` forgets the start on the daemon; its card then goes.
+ * opened again from its Unsent row. Once it stopped, Back to New thread (`giveBack`) takes the
+ * message back: only once this phone has saved that its Unsent row is dealt with and the daemon
+ * has forgotten the start does its card go. Either failing leaves the card and its row.
  */
 
 export type WorktreeOwner = Pick<
@@ -55,6 +57,9 @@ function startWords(send: PendingSend): { message: string; workspaceId: string }
 const isWorktreeStart = (send: PendingSend) =>
   send.payload.type === "thread.create" && send.payload.mode === "worktree";
 
+const gone = "That start has already finished.";
+const unsaved = "Couldn't save that on this phone. Your message is still here.";
+
 /** The newest lines of the daemon's log the phone keeps on the card. */
 const detailLines = 200;
 
@@ -72,11 +77,14 @@ export class WorktreeStarts {
   /** Each start followed: the refusal its receipt gave, its words, whether it was taken back. */
   readonly #followed = new Map<string, Entry>();
   readonly #stopOutbox: () => void;
+  /** Where the phone keeps the failed sends the person dealt with: Back's Unsent row. */
+  readonly #kept: DismissedSends | undefined;
 
-  constructor(owner: WorktreeOwner, sink: PatchSink, preview: Preview) {
+  constructor(owner: WorktreeOwner, sink: PatchSink, preview: Preview, kept?: DismissedSends) {
     this.#store = new WorktreeCreations(owner);
     this.#sink = sink;
     this.#preview = preview;
+    this.#kept = kept;
     const sends = owner.pendingSends();
     const read = () => {
       for (const send of sends.getSnapshot())
@@ -112,16 +120,40 @@ export class WorktreeStarts {
     this.#emit(commandId, this.#store.state(commandId).getSnapshot());
   }
 
-  /** A card's action; `dismiss` forgets a stopped start on the daemon, and its card goes. */
-  act(commandId: string, action: WorktreeAction): void {
+  /** A card's action: Cancel, Don't use worktree, Retry or Continue. */
+  act(commandId: string, action: Exclude<WorktreeAction, "dismiss">): void {
+    if (this.#followed.has(commandId)) void this.#store.act(commandId, action);
+  }
+
+  /**
+   * Back to New thread on a stopped start, answered on `receipt:<requestId>`. Its Unsent row is
+   * set aside on this phone first (saved), then the daemon forgets the start; only then is it
+   * taken back and its card goes. A refusal puts the row back, and nothing is sent while another
+   * action on the start is still on its way.
+   */
+  async giveBack(commandId: string, requestId: string): Promise<void> {
+    const answer = (message: string) =>
+      this.#sink.put(`receipt:${requestId}`, () => ({
+        type: "receipt",
+        id: requestId,
+        ok: !message,
+        message,
+      }));
     const entry = this.#followed.get(commandId);
-    if (!entry) return;
-    void this.#store.act(commandId, action).then(() => {
-      const state = this.#store.state(commandId).getSnapshot();
-      if (action !== "dismiss" || state.refused) return;
-      entry.returned = true;
-      this.#emit(commandId, state);
-    });
+    const state = this.#store.state(commandId).getSnapshot();
+    const progress = state.progress;
+    const stopped = progress?.state === "cancelled" || progress?.state === "failed";
+    if (!entry || entry.returned || !stopped) return answer(gone);
+    if (state.sending) return answer(worktreeRefusalWords.busy);
+    if (!this.#kept || !(await this.#kept.dismiss(commandId))) return answer(unsaved);
+    const result = await this.#store.act(commandId, "dismiss");
+    if (result !== "accepted") {
+      await this.#kept.restore(commandId);
+      return answer(worktreeRefusalWords[result]);
+    }
+    entry.returned = true;
+    this.#emit(commandId, this.#store.state(commandId).getSnapshot());
+    answer("");
   }
 
   close(): void {

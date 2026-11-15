@@ -10,6 +10,10 @@ struct WorktreeStartView: View {
     let act: (String) -> Void
     /// Back to New thread with the words, once the start stopped; nil while it can't.
     var back: (() -> Void)? = nil
+    /// Back is on its way to the phone's store and the daemon.
+    var backing = false
+    /// Why the last Back didn't happen; empty when it hasn't failed.
+    var backProblem = ""
     @State private var details: Bool?
     var body: some View {
         // A failed setup script's output is what the person needs: it opens with the card.
@@ -73,8 +77,10 @@ struct WorktreeStartView: View {
                         }
                         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     }
+                    if !backProblem.isEmpty { words(backProblem, tone: AceTheme.Status.failed) }
                     if let back {
-                        Button("Back to New thread", action: back)
+                        Button(backing ? "Going back…" : "Back to New thread", action: back)
+                            .disabled(backing)
                             .buttonStyle(.borderless)
                             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                             .frame(minHeight: AceDesign.Size.tap)
