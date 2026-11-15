@@ -174,7 +174,7 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
 func capabilities() -> [String: Any] {
     ["version": 2, "platform": "macos", "background": true, "permissionEvents": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true, "windowContent": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
-     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": EncodeTrial.hevc ? ["jpeg", "h264", "hevc"] : ["jpeg", "h264"],
+     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": EncodeTrial.codecs(EncodeTrial.report),
      "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"],
      "encoders": EncodeTrial.report]
 }
