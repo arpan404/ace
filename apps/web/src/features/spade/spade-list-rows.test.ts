@@ -37,6 +37,9 @@ function group(fields: Record<string, unknown>): RosterGroup {
   return { ...parsed, machine: here, host: "h", away: false, unavailable: false };
 }
 
+const row = (fields: Record<string, unknown>, place?: Partial<RosterBot>) =>
+  spadeBotRow(bot({ id: "b", name: "B", ...fields }, place));
+
 const said = (text: string, from = "agent") => ({ from, text, at: 1, from_agent: null });
 
 test("the list leaves Spade to the head and orders needs you, working, failed, unseen, then the rest by latest", () => {
@@ -58,8 +61,6 @@ test("the list leaves Spade to the head and orders needs you, working, failed, u
 });
 
 test("each row's state and line follow the row-state table", () => {
-  const row = (fields: Record<string, unknown>, place?: Partial<RosterBot>) =>
-    spadeBotRow(bot({ id: "b", name: "B", ...fields }, place));
   expect(row({ state: "waiting", waiting_for: "question" })).toEqual({
     state: "needs-you",
     line: "Asked you a question",

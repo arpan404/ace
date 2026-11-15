@@ -64,9 +64,7 @@ test("a bot whose Spade stops while its machine stays online reads as unavailabl
   if (!studio || !others.get("studio")) throw new Error("no studio");
   studio.spade.status = { state: "off" };
   await waitFor(async () =>
-    expect((await botRow("Research")).textContent).toContain(
-      "Off on Studio Mac",
-    ),
+    expect((await botRow("Research")).textContent).toContain("Off on Studio Mac"),
   );
   expect((await botRow("Research")).querySelector("svg.bot-face")?.getAttribute("data-state")).toBe(
     "idle",

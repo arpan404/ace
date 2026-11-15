@@ -36,6 +36,10 @@ const studio = {
   },
 };
 
+/** The dot on a row's face: needs-you, failed or off. */
+const dot = async (name: string) =>
+  (await botRow(name)).querySelector("[data-face-dot]")?.getAttribute("data-face-dot");
+
 const names = async () =>
   (await roster())
     .queryAllByRole("link")
@@ -46,8 +50,6 @@ test("Spade heads the list, then what needs the person, what works and what fail
   await waitFor(async () =>
     expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden", "Research"]),
   );
-  const dot = async (name: string) =>
-    (await botRow(name)).querySelector("[data-face-dot]")?.getAttribute("data-face-dot");
   expect(await dot("Inbox")).toBe("needs-you");
   expect(await dot("Garden")).toBe("failed");
   // Working shows in the face moving, never a dot.

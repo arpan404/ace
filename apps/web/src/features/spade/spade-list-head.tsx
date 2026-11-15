@@ -29,7 +29,7 @@ import type { RosterBot, SpadeHost } from "./use-spade-roster.ts";
 
 /** A round 32px button, as Spade's list draws them: on the hover wash, `--active` on hover. */
 const roundButton =
-  "size-(--spade-round-button) rounded-full bg-hover hover:bg-active aria-expanded:bg-active aria-pressed:bg-active";
+  "size-(--spade-round-button) rounded-full bg-hover hover:bg-active aria-expanded:bg-active";
 
 /** The head's dot: amber while Spade needs the person, red when it failed, grey while it is off. */
 function headDot(main: RosterBot | undefined, ready: boolean): FaceDot | undefined {
@@ -92,7 +92,7 @@ export function SpadeListHead(props: {
           label="Search conversations"
           tip="Search"
           size="panel"
-          pressed={props.searching}
+          aria-expanded={props.searching}
           onClick={props.onSearch}
           className={roundButton}
         />
@@ -116,7 +116,7 @@ export function SpadeListSearch(props: {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus({ preventScroll: true }), []);
   return (
-    <div className="mx-2 mb-1.5 flex h-(--spade-pill-button) shrink-0 items-center gap-2 rounded-full bg-hover pr-1 pl-3 shadow-[inset_0_0_0_1px_var(--border)] focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
+    <div className="mx-2 mb-1.5 flex h-(--spade-pill-button) shrink-0 items-center gap-2 rounded-full bg-hover pr-1 pl-3 shadow-[inset_0_0_0_1px_var(--border-strong)]">
       <Icon icon={MagnifyingGlassIcon} size={16} className="shrink-0 text-subtle-foreground" />
       <input
         ref={input}
