@@ -1,7 +1,7 @@
 import { failedActionTitle, failureReason, retainedFailure } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { InputRejected } from "@ace/engine-api";
+import { InputRejected, SteerTargetLost } from "@ace/engine-api";
 import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
@@ -134,7 +134,9 @@ export class IntentDelivery {
         // the queue as the next message, and the queue says so; a refused queued send would be
         // refused again at once, so it waits for the person, as unsent input.
         const message = error.message || "The provider refused the message";
-        if (steered) this.requeue(intent, message);
+        // A fenced steer whose run was lost goes back as the next message even when that run had
+        // already ended at the claim (so it never joined a running turn).
+        if (steered || error instanceof SteerTargetLost) this.requeue(intent, message);
         else this.retainInput(intent, message, false);
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.

@@ -39,6 +39,8 @@ export function LiveHead(props: { threadId: string }) {
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
   const plans = useShownPlans(props.threadId);
+  // A lost connection is the header's to say: no live line here. A copy catching up or read
+  // from disk shows its live line, which then says "Syncing…" (`useTurnActivity`), not a turn.
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);

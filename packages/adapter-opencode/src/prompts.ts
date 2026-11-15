@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { ContentPart } from "@ace/protocol";
-import { InputRejected, type SessionContext } from "@ace/engine-api";
+import {
+  assertSteerTarget,
+  InputRejected,
+  type SessionContext,
+  type SteerFence,
+} from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import type { Observe } from "./observation.ts";
@@ -37,12 +42,19 @@ export class SessionPrompts {
     if (dir !== "recv" || typeof data.status !== "number") return;
     if (data.status >= 400 && data.status < 500) this.refused = true;
   }
-  async send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
+  async send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    fence?: SteerFence,
+  ): Promise<void> {
     if (commandId !== undefined) z.string().min(1).max(512).parse(commandId);
     const p = this.ports,
       release = await this.admission.acquire(p.signal);
     try {
       await p.barrier();
+      // After the last await, before the prompt request: a fenced steer whose turn ended stops.
+      assertSteerTarget(delivery, fence);
       this.started = this.refused = false;
       const id = messageId(p.runtime.wallTime(), ++this.sequence, p.runtime.entropy(16));
       let admitted = false;

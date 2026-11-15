@@ -3,6 +3,7 @@ import { z } from "zod";
 import { useSidebarAll } from "@ace/client-react";
 import { fixingNow, liveFixMarks, threadCard, type FixMark } from "@ace/ui-core";
 import { useNow } from "@/lib/time.ts";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { usePrDetail, usePrIdentity, type PrIdentity } from "./pr-review-context.tsx";
 
 /*
@@ -69,8 +70,12 @@ export function recordFixMark(
 
 const busyTones = new Set(["working", "waiting", "background"]);
 
-/** Whether the agent asked to fix `subject` is working on it now. */
+/**
+ * Whether the agent asked to fix `subject` is working on it now. Never while the thread list
+ * isn't confirmed: its saved status can't say the agent still works.
+ */
 export function useFixingNow(subject: string): boolean {
+  const live = useLiveList();
   const identity = usePrIdentity();
   const detail = usePrDetail();
   const now = useNow();
@@ -94,7 +99,7 @@ export function useFixingNow(subject: string): boolean {
         .map((m) => m.agentThreadId)
         .join("\n"),
     ) ?? "";
-  if (!detail || !mine.length) return false;
+  if (!live || !detail || !mine.length) return false;
   const working = new Set(busy.split("\n"));
   return fixingNow(subject, mine, detail.status, (id) => working.has(id), now);
 }

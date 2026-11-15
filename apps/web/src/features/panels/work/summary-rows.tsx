@@ -1,31 +1,28 @@
 import {
-  agentOutcome,
-  agentStep,
-  askWords,
   backgroundCommand,
   foldWords,
   formatSpan,
   holdStoppable,
   isRunning,
-  pluralCount,
-  remoteContactStep,
   type AgentForestNode,
   type CommandForestNode,
 } from "@ace/ui-core";
-import { useItem, useThreadMeta } from "@ace/client-react";
+import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import type { BackgroundTask, Interaction, ProviderKind } from "@ace/protocol";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useLiveConnection, useThreadFreshness } from "@/lib/live-connection.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { agentRowWords } from "./live-words.ts";
 import { useAgentDetails } from "../agents/agent-details.ts";
 import { useAgentIdentity } from "../agents/agent-identity.ts";
 import { StopAgent } from "../agents/stop-agent.tsx";
+import { stopTask } from "@/lib/live-actions.ts";
 import { useStopIntent } from "../agents/use-stop-intent.ts";
 
 /** Each level of the tree steps in this far. */
@@ -192,44 +189,18 @@ export function AgentLine(
   const openSubagent = useOpenSubagent();
   const now = useNow();
   const root = agent.origin === "root" && node.threadId === props.viewed;
-  const asks = props.request ? askWords(props.request.request) : undefined;
   const own = isRunning(doer);
   const below = node.tally;
-  const asking =
-    props.request !== undefined || (status.state === "blocked" && status.on === "human");
-  const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
-  // A child on another machine that lost contact or didn't confirm its stop says so (ADR 0052).
-  const contact = node.live ? undefined : remoteContactStep(agent);
-  const current = contact
-    ? contact
-    : props.request
-      ? asks
-        ? `asks: ${asks}`
-        : agentStep({ status, interaction: props.request })
-      : status.state === "failed"
-        ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
-          "couldn't finish"
-        : own && node.live
-          ? agentStep({ status, item: tool })
-          : node.live
-            ? below.working || below.commands
-              ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
-              : agentStep({ status, item: tool })
-            : (agentOutcome(identity.spawn) ?? "finished");
-  const fresh = useLiveConnection().fresh;
   // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
   // when last seen, and never "finished" for a branch that may be working again.
-  const stale = !fresh || node.stale;
-  // Settled-looking while something under it isn't confirmed or couldn't load: it may still be
-  // working, so it reads neither finished nor done. A failure or a request is known for sure.
-  const uncertain =
-    !node.live && node.unconfirmed && !stale && status.state !== "failed" && !props.request;
-  const unsure = node.live ? `last seen ${current}` : "syncing";
-  // An unloaded delegate says only "not loaded": that is why it isn't sure.
-  const seen = stale ? unsure : !uncertain ? current : node.notLoaded ? "" : "syncing";
-  const step = node.notLoaded ? (seen ? `${seen} · not loaded` : "not loaded") : seen;
-  // A settled-looking row that isn't sure already says so; its fold adds nothing to that.
-  const settledLook = !node.live && (stale || uncertain);
+  const { live } = useThreadFreshness(node.threadId);
+  const words = agentRowWords(live, node, {
+    request: props.request,
+    tool,
+    spawn: identity.spawn,
+  });
+  const { step, tone, done, settledLook } = words;
+  const stale = !live.current || node.stale;
   const folded = props.expanded === false && !settledLook ? foldWords(below) : "";
   const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
   const time =
@@ -244,7 +215,6 @@ export function AgentLine(
           childThreadId: agent.machine ? undefined : agent.childThreadId,
         });
   const name = identity.name;
-  const done = !node.live && !stale && !uncertain;
   return (
     <RowFrame
       {...props}
@@ -256,7 +226,7 @@ export function AgentLine(
         // A child on another machine stops through the work its parent holds for it.
         agent.machine ? (
           node.hold && holdStoppable(node.hold) ? (
-            <TaskStop task={node.hold} />
+            <TaskStop task={node.hold} threadId={node.threadId} stale={stale} />
           ) : undefined
         ) : own && !root ? (
           <StopAgent
@@ -278,7 +248,7 @@ export function AgentLine(
         instance={details.instance}
         live={node.live}
         done={done}
-        stale={stale || uncertain}
+        stale={words.unsure}
       />
       <span
         className={cn(
@@ -306,9 +276,16 @@ export function AgentLine(
   );
 }
 
-/** Stop for a running task, shown on hover, with a line under the row when it was refused. */
-function TaskStop(props: { task: BackgroundTask }) {
+/**
+ * Stop for a running task, shown on hover, with a line under the row when it was refused. It
+ * waits while the owning thread's copy isn't confirmed (`stale`, or not fresh): the task the row
+ * says was last seen running may have ended.
+ */
+function TaskStop(props: { task: BackgroundTask; threadId: string; stale: boolean }) {
   const stop = useStopIntent();
+  const client = useClient();
+  const live = useThreadFreshness(props.threadId);
+  const held = props.stale || !live.fresh;
   return (
     <>
       {stop.failed && (
@@ -326,9 +303,14 @@ function TaskStop(props: { task: BackgroundTask }) {
         type="button"
         tabIndex={-1}
         data-stop=""
-        disabled={stop.busy}
+        disabled={stop.busy || held}
         onKeyDown={backToRow}
-        onClick={() => void stop.send({ type: "background_task.stop", taskId: props.task.id })}
+        onClick={() => {
+          if (props.stale) return;
+          stopTask(client, { threadId: props.threadId }, props.task.id, (payload) =>
+            stop.send(payload),
+          );
+        }}
         className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
       >
         {stop.busy ? "Stopping…" : "Stop"}
@@ -344,7 +326,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
   const workspace = useWorkspaceActions(props.viewed);
   const now = useNow();
   const command = backgroundCommand(task, item);
-  const fresh = useLiveConnection().fresh && !props.node.unconfirmed;
+  const fresh = useThreadFreshness(props.node.threadId).fresh && !props.node.unconfirmed;
   const end = Math.max(now, task.startedAt);
   // Its output opens in this thread's terminal; a delegated thread's opens there.
   const show =
@@ -358,7 +340,11 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       label={`$ ${command}: ${fresh ? "running" : "last seen running"}`}
       title={command}
       onOpen={show}
-      actions={task.stoppable ? <TaskStop task={task} /> : undefined}
+      actions={
+        task.stoppable ? (
+          <TaskStop task={task} threadId={props.node.threadId} stale={!fresh} />
+        ) : undefined
+      }
     >
       <span
         aria-hidden

@@ -1,13 +1,16 @@
 import { useItem } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { describeActivity, type SubagentPhase, type TurnActivity } from "@ace/ui-core";
+import type { SubagentPhase, TurnActivity } from "@ace/ui-core";
+import type { Live } from "@/lib/live-connection.ts";
+import { subagentStep } from "./live-words.ts";
 import { useMemo } from "react";
 import { ActivityLine } from "../items/live-head.tsx";
 
 /**
  * The live line heading a running subagent's work, as a thread's turn has: "Working for
  * 1m 12s · Running bun test", that it waits on the person, or that it has gone silent. Nothing
- * once it has ended.
+ * once it has ended. While the thread's copy isn't confirmed it says only that (`live`), as a
+ * thread's own live line does: no "Working", no timer, no "Waiting on you".
  */
 export function SubagentLiveLine(props: {
   threadId: string;
@@ -15,6 +18,8 @@ export function SubagentLiveLine(props: {
   phase: SubagentPhase;
   /** Subagents of its own still running. */
   subagents: number;
+  /** Whether the copy is current; if not, its phase may be stale and only its words show. */
+  live: Live;
 }) {
   const { agent, phase } = props;
   const status = agent.status;
@@ -23,11 +28,11 @@ export function SubagentLiveLine(props: {
     status.state === "working" && status.itemId ? status.itemId : "",
   );
   // Its own turn over, it has no step of its own: what still runs is under it.
-  const step =
-    status.state === "idle"
-      ? undefined
-      : describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
+  const { live } = props;
+  const step = subagentStep(live, status, tool?.type === "tool_call" ? tool.call.title : undefined);
   const activity = useMemo<TurnActivity | undefined>(() => {
+    if (!live.current)
+      return { label: live.word, tone: "held", elapsedFrom: undefined, current: undefined };
     if (phase === "human")
       return {
         label: "Waiting on you",
@@ -46,7 +51,7 @@ export function SubagentLiveLine(props: {
       current: undefined,
       subagents: props.subagents || undefined,
     };
-  }, [phase, agent.createdAt, props.subagents]);
+  }, [live, phase, agent.createdAt, props.subagents]);
   if (!activity) return null;
   return (
     <div className="py-2">
