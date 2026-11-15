@@ -49,18 +49,26 @@ const helper = (key: string): SpadeChatItem => ({
   open: false,
 });
 
-/** The rows as short lines: "day Today", "run 9:00 AM a b", "item you". */
+const routine = (key: string, name: string, when?: string): SpadeChatItem => ({
+  kind: "routine",
+  key,
+  name,
+  label: "9:00",
+  ...(when ? { at: at(when) } : {}),
+});
+
+/** The rows as short lines: "time Today 9:00 AM", "run a b", "item you". */
 const read = (rows: SpadeChatRow[]) =>
   rows.map((row) =>
-    row.kind === "day"
-      ? `day ${row.label}`
+    row.kind === "time"
+      ? `time ${row.routine ? `${row.routine} · ` : ""}${row.label}`
       : row.kind === "run"
-        ? `run ${row.time ?? "-"} ${row.items.map((item) => item.key).join(" ")}`
+        ? `run ${row.items.map((item) => item.key).join(" ")}`
         : `item ${row.item.key}`,
   );
 
 describe("the chat's rows", () => {
-  test("the bot's bubbles in a row are one run, timed when it began; a helper line ends a run", () => {
+  test("the bot's bubbles in a row are one run; a helper line ends a run", () => {
     const rows = spadeChatRows(
       [
         person("ask", "2026-11-15T09:00:00Z"),
@@ -71,51 +79,74 @@ describe("the chat's rows", () => {
       ],
       { now, ...zone },
     );
-    expect(read(rows)).toEqual([
-      "day Today",
-      "item ask",
-      "run 9:01 AM a b",
-      "item h",
-      "run 9:03 AM c",
-    ]);
+    expect(read(rows)).toEqual(["time Today 9:00 AM", "item ask", "run a b", "item h", "run c"]);
   });
 
-  test("a day line comes before the first thing said each day, in the reader's words", () => {
+  test("a time line shows only after a 30-minute gap or on a new day", () => {
     const rows = spadeChatRows(
       [
-        person("old", "2025-12-30T18:00:00Z"),
-        person("week", "2026-11-03T18:00:00Z"),
-        person("monday", "2026-11-09T18:00:00Z"),
-        person("yesterday", "2026-11-14T18:12:00Z"),
-        bot("reply", "2026-11-14T18:13:00Z"),
-        bot("morning", "2026-11-15T09:00:00Z"),
+        person("first", "2026-11-14T23:10:00Z"),
+        bot("soon", "2026-11-14T23:39:00Z"),
+        person("midnight", "2026-11-15T00:01:00Z"),
+        bot("later", "2026-11-15T00:31:00Z"),
       ],
       { now, ...zone },
     );
     expect(read(rows)).toEqual([
-      "day Dec 30, 2025",
-      "item old",
-      "day Tue, Nov 3",
-      "item week",
-      "day Monday",
-      "item monday",
-      "day Yesterday",
-      "item yesterday",
-      "run 6:13 PM reply",
-      "day Today",
-      "run 9:00 AM morning",
+      "time Yesterday 11:10 PM",
+      "item first",
+      "run soon",
+      "time Today 12:01 AM",
+      "item midnight",
+      "time Today 12:31 AM",
+      "run later",
     ]);
+  });
+
+  test("a time line names the day in the reader's words", () => {
+    const lines = (when: string) =>
+      read(spadeChatRows([person("x", when)], { now, ...zone }))[0];
+    expect(lines("2025-12-30T18:00:00Z")).toBe("time Dec 30, 2025 6:00 PM");
+    expect(lines("2026-11-03T18:00:00Z")).toBe("time Nov 3 6:00 PM");
+    expect(lines("2026-11-13T03:11:00Z")).toBe("time Fri 3:11 AM");
+    expect(lines("2026-11-14T23:31:00Z")).toBe("time Yesterday 11:31 PM");
+  });
+
+  test("a routine's run names itself in its time line, even a minute after the last words", () => {
+    const rows = spadeChatRows(
+      [
+        person("ask", "2026-11-15T08:59:00Z"),
+        routine("fired", "Morning check", "2026-11-15T09:00:00Z"),
+        bot("brief", "2026-11-15T09:00:30Z"),
+      ],
+      { now, ...zone },
+    );
+    expect(read(rows)).toEqual([
+      "time Today 8:59 AM",
+      "item ask",
+      "time Morning check · Today 9:00 AM",
+      "run brief",
+    ]);
+  });
+
+  test("every bubble keeps its exact time for hover, though only the line shows one", () => {
+    const rows = spadeChatRows(
+      [bot("a", "2026-11-15T09:01:00Z"), bot("b", "2026-11-15T09:12:00Z"), bot("live")],
+      { now, ...zone },
+    );
+    const run = rows.find((row) => row.kind === "run");
+    expect(run?.kind === "run" && run.whens).toEqual(["Today 9:01 AM", "Today 9:12 AM", undefined]);
   });
 
   test("days follow the reader's time zone", () => {
     const late = [person("late", "2026-11-15T02:00:00Z")];
-    expect(read(spadeChatRows(late, { now, ...zone }))[0]).toBe("day Today");
+    expect(read(spadeChatRows(late, { now, ...zone }))[0]).toBe("time Today 2:00 AM");
     expect(
       read(spadeChatRows(late, { now, locale: "en-US", timeZone: "America/Los_Angeles" }))[0],
-    ).toBe("day Yesterday");
+    ).toBe("time Yesterday 6:00 PM");
   });
 
-  test("a bubble stamped before what came above it never goes back a day, and an untimed one joins its run", () => {
+  test("a bubble stamped before what came above it never goes back in time, and an untimed one joins its run", () => {
     const rows = spadeChatRows(
       [
         person("steer", "2026-11-15T09:04:00Z"),
@@ -127,12 +158,14 @@ describe("the chat's rows", () => {
       { now, ...zone },
     );
     expect(read(rows)).toEqual([
-      "day Today",
+      "time Today 9:04 AM",
       "item steer",
-      "run 9:04 AM went-on",
+      "run went-on",
       "item sending",
-      "run - live",
+      "run live",
     ]);
+    const run = rows.find((row) => row.kind === "run");
+    expect(run?.kind === "run" && run.whens).toEqual(["Today 9:04 AM"]);
   });
 
   test("another bot's bubbles run under its own name, apart from the bot's", () => {
@@ -164,10 +197,10 @@ describe("a conversation's times", () => {
     stored("2026-11-15T09:00:00Z", { type: "user_message", text: "Anything new?" });
     const rows = spadeChatRows(spadeBubbles(spadeView(state)), { now, ...zone });
     expect(read(rows)).toEqual([
-      "day Yesterday",
+      "time Yesterday 6:12 PM",
       "item s1",
-      "run 6:12 PM r1",
-      "day Today",
+      "run r1",
+      "time Today 9:00 AM",
       "item s4",
     ]);
   });
