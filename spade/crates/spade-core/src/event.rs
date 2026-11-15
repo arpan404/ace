@@ -444,6 +444,72 @@ pub enum Known {
     GroupStopped {
         run: String,
     },
+    /// The bot will be woken (ADR 0160): at `due_ms`, when `condition` happens, or both (a wait
+    /// with a timeout). Open until a `wake_fired` or `wake_cancelled` names it.
+    WakeSet {
+        wake: String,
+        /// The reply that set it; empty for a retry Spade parked after a reply closed.
+        #[serde(default)]
+        reply: String,
+        purpose: crate::wake::Purpose,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        due_ms: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        condition: Option<crate::wake::Condition>,
+        #[serde(default)]
+        reason: String,
+    },
+    /// A wake fired, once. With a `note` the model reads it like a job's result, so it steers
+    /// an open turn or opens a reply; `data` is untrusted text that came with it (a service's
+    /// line, a thread's title). Without one (a job's end or a message settled it, or a parked
+    /// job runs again) the model reads nothing more.
+    WakeFired {
+        wake: String,
+        cause: crate::wake::Cause,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data: Vec<String>,
+    },
+    /// A wake was called off before it fired.
+    WakeCancelled {
+        wake: String,
+        by: crate::wake::CancelledBy,
+    },
+    /// A check-in on a background job still running (ADR 0160): the model reads it like a job's
+    /// result. `tail` is the job's latest output, untrusted.
+    JobProgress {
+        job: String,
+        name: String,
+        check: u32,
+        minutes: u32,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        tail: String,
+    },
+    /// The bot started an owned service (ADR 0160), or Spade started a `keep` one again after a
+    /// restart (`restarts` counts those).
+    ServiceStarted {
+        service: String,
+        name: String,
+        command: String,
+        #[serde(default)]
+        cwd: String,
+        #[serde(default)]
+        keep: bool,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        restarts: u32,
+    },
+    /// An owned service ended.
+    ServiceEnded {
+        service: String,
+        cause: crate::service::Ended,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<i32>,
+    },
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Which of a bot's caps (ADR 0135).

@@ -255,6 +255,10 @@ async fn run() -> Result<(), Failure> {
         bots.clone(),
         spade_server::computer::shell_commands(&terminals, Shell::system()),
     ));
+    // Bots' owned services (ADR 0160), through the same shell rules as `shell`.
+    let services =
+        spade_server::services::Services::new(workspaces.clone(), Shell::system(), bots.clone());
+    core.extend(spade_server::tools::service_tools(&services));
     core.extend(spade_server::media::tools::all(
         workspaces.clone(),
         bots.clone(),
@@ -379,6 +383,7 @@ async fn run() -> Result<(), Failure> {
     }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
+    engine.set_services(services.clone());
     if let Some(link) = &ace {
         let agents = engine
             .agents()
@@ -448,6 +453,8 @@ async fn run() -> Result<(), Failure> {
             .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
             .await;
         terminals.end_all();
+        // A `keep` service starts again with Spade; the others are reported lost then.
+        services.stop_everything();
         if let Some(plugins) = &plugins {
             plugins.stop_all();
         }

@@ -38,6 +38,8 @@ pub struct Transcript {
     pub awaiting: Vec<String>,
     /// Background jobs still running, by job id. They outlive the turn that started them.
     pub jobs: Vec<String>,
+    /// Wakes still open (ADR 0160): the bot sleeps or waits on them, so it is not idle.
+    pub wakes: Vec<String>,
     /// The person pressed Stop while the open reply ran; it ends as stopped.
     pub stopping: bool,
     /// The open reply was paused for a planned restart and nothing of it has run since. It is
@@ -231,6 +233,14 @@ impl Transcript {
                 // A helper that ended asks nothing more.
                 self.helper_awaiting.retain(|(_, j)| j != job);
             }
+            Known::WakeSet { wake, .. } => {
+                if !self.wakes.contains(wake) {
+                    self.wakes.push(wake.clone());
+                }
+            }
+            Known::WakeFired { wake, .. } | Known::WakeCancelled { wake, .. } => {
+                self.wakes.retain(|w| w != wake);
+            }
             Known::StopRequested { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.clone());
                 if open.is_some() && open == *reply {
@@ -263,7 +273,10 @@ impl Transcript {
             | Known::PlanChanged { .. }
             | Known::PlanCheckpoint { .. }
             | Known::TaskVerified { .. }
-            | Known::PersonActivity { .. } => {}
+            | Known::PersonActivity { .. }
+            | Known::JobProgress { .. }
+            | Known::ServiceStarted { .. }
+            | Known::ServiceEnded { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

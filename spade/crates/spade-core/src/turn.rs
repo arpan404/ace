@@ -207,7 +207,7 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
     events.iter().skip(from).any(|event| match event {
         Event::Known(Known::UserMessage { .. }) => true,
         Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
-        Event::Known(known) => crate::question::is_late(known),
+        Event::Known(known) => crate::question::is_late(known) || crate::wake::is_note(known),
         _ => false,
     })
 }
@@ -224,7 +224,7 @@ pub fn needs_reply(events: &[Event]) -> bool {
         None => events.iter().any(|event| match event {
             Event::Known(Known::UserMessage { .. }) => true,
             Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
-            Event::Known(known) => crate::question::is_late(known),
+            Event::Known(known) => crate::question::is_late(known) || crate::wake::is_note(known),
             _ => false,
         }),
         Some(_) if open_reply(events).is_some() => false,

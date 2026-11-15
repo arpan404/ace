@@ -35,6 +35,8 @@ pub enum State {
     Working,
     /// Needs the person: an approval is pending.
     Waiting,
+    /// Sleeps or waits on a wake (ADR 0160): not idle, not done.
+    Sleeping,
 }
 
 impl State {
@@ -43,6 +45,7 @@ impl State {
             Self::Idle => "idle",
             Self::Working => "working",
             Self::Waiting => "waiting",
+            Self::Sleeping => "sleeping",
         }
     }
 
@@ -54,6 +57,8 @@ impl State {
             Self::Waiting
         } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
             Self::Working
+        } else if !transcript.wakes.is_empty() {
+            Self::Sleeping
         } else {
             Self::Idle
         }

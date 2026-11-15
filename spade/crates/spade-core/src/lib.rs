@@ -22,6 +22,7 @@ pub mod redact;
 pub mod research;
 pub mod review;
 pub mod routine;
+pub mod service;
 pub mod skills;
 pub mod spending;
 pub mod task;
@@ -29,6 +30,7 @@ pub mod title;
 pub mod tools;
 pub mod transcript;
 pub mod turn;
+pub mod wake;
 
 pub use event::{Event, FailureKind, ReplyEnd};
 pub use transcript::{Message, Outcome, Speaker, Transcript, TurnState};

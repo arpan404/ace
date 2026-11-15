@@ -415,6 +415,57 @@ impl Log {
                 };
                 self.push(stored, Kind::Task, Fields::named(verdict.name(), &words));
             }
+            // Wakes, check-ins and services (ADR 0160), with the bot's reason.
+            Known::WakeSet {
+                wake,
+                purpose,
+                due_ms,
+                condition,
+                reason,
+                ..
+            } => {
+                let open = crate::wake::Open {
+                    wake: wake.clone(),
+                    reply: String::new(),
+                    purpose: purpose.clone(),
+                    due_ms: *due_ms,
+                    condition: condition.clone(),
+                    reason: reason.clone(),
+                };
+                let words = crate::wake::words(&open, |ms| ms.to_string());
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("wake_set", &redact::one_line(&words)),
+                );
+            }
+            Known::WakeFired { cause, .. } => {
+                let words = format!("woke ({})", cause.name());
+                self.push(stored, Kind::Task, Fields::named("woke", &words));
+            }
+            Known::WakeCancelled { .. } => {
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("wake_cancelled", "a wake was cancelled"),
+                );
+            }
+            Known::JobProgress { name, minutes, .. } => {
+                let words = format!("checked in on {name} after {minutes} minutes");
+                self.push(stored, Kind::Task, Fields::named("job_progress", &words));
+            }
+            Known::ServiceStarted { name, command, .. } => {
+                let words = format!("started service {name}: {command}");
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("service_started", &redact::one_line(&words)),
+                );
+            }
+            Known::ServiceEnded { service, cause, .. } => {
+                let words = format!("service {service} {}", cause.name());
+                self.push(stored, Kind::Task, Fields::named("service_ended", &words));
+            }
             Known::CapReached {
                 scope, cap_micros, ..
             } => {
