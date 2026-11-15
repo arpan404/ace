@@ -46,8 +46,8 @@ Lost contact is not knowing, and the tree says so.
   it again if it closed (its parent's session ended) and never opens a second one, across
   restarts. A Stop closes it. If the machine is then unpaired, the pairing question replaces it.
 - A child still held `unknown` by an older build takes its hold back when the question opens.
-- Each change to the question commits with the child's state it goes with (opening it with the
-  child's row, a Stop with its closing, the unpaired question replacing it). Behind that, every
+- Each change to the question commits with the child's state it goes with (marking the child
+  silent with opening it and the child's row, a Stop with its closing, the unpaired question replacing it). Behind that, every
   poll closes any open question its child's state no longer explains (`questionFate` in
   `machines/child-question.ts`: back in contact, stopping, settled, stopped tracking), so a write
   that fails partway never leaves a parent held by a question nobody can answer.
