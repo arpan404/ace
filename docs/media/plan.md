@@ -1704,3 +1704,65 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   marker for that path is clean and a planned switch hands over without a forced keyframe.
   Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
   without one.
+
+## E1 notes
+
+- **Built: the Windows screen.** `native/screen-helper-windows` encodes with Media Foundation
+  through media-mf, as a path dependency, never a second copy: WGC capture frames are copied on
+  the GPU into a three-texture BGRA ring on media-mf's shared device (video support,
+  multithread protected), which frees WGC's buffer at once. The video processor turns that
+  texture into NV12 at the encode size in one blit, and the H.264 MFT takes it. On a hardware
+  MFT the texture goes in through `MFCreateDXGISurfaceBuffer` with no staging readback; the
+  software MFT costs one counted readback. The helper logs both counts once per encoder. media-mf
+  gained `MfDevice::raw_device` and `MfSurface::from_raw_texture` so a caller on another
+  `windows` crate version shares the device. NVENC is not wired in: the plan makes the NVIDIA MFT
+  the deterministic choice until the ranking benchmark (A1) measures `media-nv` better.
+- **Hello.** `codecs` and `encoders` (K2 capability entries for `scale` and `encode`, backend
+  `mf`) come from a trial at helper start: one BGRA texture through the same device, video
+  processor and MFT, bounded to 2 s (`timed-out` past it). No MFT means `state: "failed"`,
+  `maxWidth: 0`, `codecs: ["jpeg"]` and a stderr line saying live view uses the last-resort
+  encoder; the daemon then keeps encoding the helper's stills in the encoder Chrome.
+  `ACE_SCREEN_HELPER_NO_MFT=1` hides Media Foundation for that test. On the VM the hello says
+  scale on the GPU (VMware SVGA 3D's video processor) and encode `hardware: false`,
+  `zeroCopy: false`, `avc1.64001F`.
+- **Protocol.** `ScreenHelperRequestV2` gains `stream.configure` (`settings`, `ingest?`,
+  `epoch?`; the reply as on the Mac: `codec`, `ingest`, `switched`, `boundary`),
+  `stream.keyframe` and `stream.image`. `ScreenStreamIngest` moves to `screen-v2.ts` unchanged.
+  Video runs at up to 60 fps while watched as video and JPEG stills stay at up to 30. On the
+  daemon's pipe, video is ordered (`mailbox.rs`: never coalesced, deltas dropped up to a keyframe
+  past 4 MiB) while stills stay latest-only. Each picture carries the epoch held when WGC
+  delivered it. A still or keyframe asked for on a screen that doesn't change re-uses the last
+  ring texture.
+- **One shared writer and route: `media-ingest`** (`native/media/crates/media-ingest`). It is
+  sans-IO and table-tested, and the Linux helper (E2) takes it too: MediaFrame framing with the
+  producer stamp, one connection's writer (`open` → `finishing` → `ended` | `cut`, the rules of
+  `ingest-writer.ts`), and the route with generation tokens, at most 4 retired writers or 16 MiB,
+  and the 2 s finish deadline. A switch's boundary is the last video unit only: stills never
+  move it. The helper's I/O shell (`src/media/shell.rs`) runs a pump thread per connection, a
+  100 ms ticker and a liveness poll (`PeekNamedPipe`). It is generic over the connection, so
+  its host tests run on Unix sockets. Every switch, and a cut connection, asks for a keyframe:
+  the MFT's GOP is infinite. Before that, the first flip to the daemon's path delivered nothing
+  within 15 s on the VM; with it, each handover takes about 20 ms and ends clean. Why the missing
+  keyframe stalled the handover is not isolated yet.
+- **Transport.** ace-media's lanes and ingest on Windows are current-user named pipes,
+  `\\.\pipe\ace-media-<pid>-<nonce>{c,i}` with `D:P(A;;GRGW;;;<user SID>)`, merged from
+  `ace/build-media-windows-pipes`. The helper opens the ingest pipe read/write with
+  identification-only impersonation; the hello is the same 32-byte-token MediaFrame as on Unix.
+- **Daemon.** `platformRouteCapabilities("win32")` adds `screen`. `helperEncodesVideo`
+  (`packages/screen/src/media-source.ts`) is the one rule for "this helper makes its own
+  video" (the Mac's, or Windows' with an MFT): it opens the shared `ScreenMediaSource`, with its
+  origin's platform from the hello, and gates `configureStream`; `stream.keyframe` and
+  `stream.image` go to every Mac helper and to Windows' when it encodes.
+- **Tested on the VM** (Windows 11 ARM64, software MFT; ace-media built for x64 because `ring`
+  needs clang for ARM64): `media-ingest.native.process.test.ts`, whose Windows cases run from
+  `scripts/vitest-windows-screen.config.ts` with `ACE_MEDIA_TEST_BINARY`. The software MFT's
+  stream through ace-media's ingest pipe and egress reaches the legacy viewer with today's
+  headers, and 30 of those units decode in Edge's WebCodecs at the header's size. Four route
+  flips lose and repeat nothing and end clean. A killed ace-media puts video back on the helper's
+  pipe within 2 s, then onto the restarted process. The no-MFT helper offers JPEG only.
+- **Owed on real hardware:** a GPU machine per vendor (Intel, NVIDIA, AMD, Qualcomm). There,
+  the hello should say `hardware: true`, `zeroCopy: true`, and the helper's log line should
+  report `0 staging readback(s)` per frame. Also owed: the async hardware MFT's real behaviour
+  (media-mf's driving of it is tested on the VM's software MFT only), the "Acceleration
+  acceptance" Windows numbers (1080p60 ≤ 5 % of a core with a GPU; software MFT 1080p30 ≥
+  30 fps on the VM, not benched yet), and x64 Windows.
