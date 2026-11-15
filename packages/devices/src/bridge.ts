@@ -17,6 +17,7 @@ import { framePicture } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
 import { heldPushes } from "./held-pushes.ts";
+import type { MediaAccelerationStore } from "@ace/media/acceleration";
 
 export interface DevicePeer {
   authorize(): boolean;
@@ -31,6 +32,8 @@ export interface DevicePeer {
   /** Clock for keyframe pacing; defaults to the wall clock and timers. */
   now?(): number;
   after?(ms: number, run: () => void): () => void;
+  /** ace-media's reports of what each device's video runs on, for `DeviceState.acceleration`. */
+  acceleration?: Pick<MediaAccelerationStore, "for" | "watch"> | undefined;
 }
 /**
  * A transport owner supplies authenticated identity and revocation checks. The channel speaks
@@ -92,12 +95,22 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     access();
     await pushes.send(message);
   };
-  const stateForPeer = (state: DeviceState): DeviceState => ({
-    ...state,
-    ownedHere: service.ownsControl(state.device.id, owner),
-  });
+  const stateForPeer = (state: DeviceState): DeviceState => {
+    const acceleration = peer.acceleration?.for("deviceId", state.device.id);
+    return {
+      ...state,
+      ownedHere: service.ownsControl(state.device.id, owner),
+      ...(acceleration ? { acceleration } : {}),
+    };
+  };
   const unwatch = service.watch((state) => {
     if (state.threadId && !peer.canReadThread(state.threadId)) return;
+    void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
+  });
+  const unwatchAcceleration = peer.acceleration?.watch((change) => {
+    const id = change.kind === "source" ? change.subject.deviceId : undefined;
+    const state = id === undefined ? undefined : service.states().find((s) => s.device.id === id);
+    if (closed || !state || (state.threadId && !peer.canReadThread(state.threadId))) return;
     void send({ type: "devices.state", state: stateForPeer(state) }).catch(close);
   });
   // Admin peers see the whole inventory, as a "list" request would show them.
@@ -121,6 +134,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     unwatch();
     unwatchInventory();
     unwatchEnabled();
+    unwatchAcceleration?.();
     inventoryView?.();
     inventoryView = undefined;
     streams.close();

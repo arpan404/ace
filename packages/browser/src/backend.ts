@@ -1,4 +1,10 @@
-import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
+import type {
+  BrowserOpen,
+  BrowserTab,
+  BrowserDownload,
+  BrowserDialog,
+  MediaAcceleration,
+} from "@ace/protocol";
 import type { VideoEncode } from "./video-policy.ts";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
@@ -45,6 +51,8 @@ export interface CaptureEvents {
    * the first thing after the move back.
    */
   moved?(to: "ingest" | "daemon"): void;
+  /** What the capture runs on in ace-media changed (`VideoCaptureHandle.acceleration`). */
+  accelerated?(): void;
 }
 /** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
 export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";
@@ -71,6 +79,8 @@ export interface VideoCaptureHandle {
    * the moment its socket opens, or back to the daemon (undefined). Never both.
    */
   ingest?(target: VideoIngestTarget | undefined): void;
+  /** What ace-media runs the capture on, while it carries it (ADR 0148). */
+  acceleration?(): MediaAcceleration | undefined;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
