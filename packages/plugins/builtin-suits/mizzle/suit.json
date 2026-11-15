@@ -1,0 +1,152 @@
+{
+  "format": 1,
+  "id": "mizzle",
+  "name": "Mizzle",
+  "description": "Rain on a window over a city out of focus, behind misted glass panels in slate and lamplight.",
+  "version": "1",
+  "base": "ace",
+  "dark": {
+    "canvas": "#15171B",
+    "sidebar": "#0F1114",
+    "surface": "#1B1E23",
+    "raised": "#22252A",
+    "hover": "#262A30",
+    "active": "#2E3238",
+    "code": "#121418",
+    "border": "#2A2E34",
+    "borderStrong": "#3E434A",
+    "text": "#E8E9EC",
+    "muted": "#B5B8BE",
+    "subtle": "#969AA2",
+    "faint": "#6B7078",
+    "accent": "#E6DCCD",
+    "accentHover": "#F3ECE1",
+    "accentFg": "#15171B",
+    "accentText": "#E4D8C6",
+    "diffAdd": "#192A24",
+    "diffAddFg": "#71C6A2",
+    "diffDel": "#2E1E21",
+    "diffDelFg": "#EC8492",
+    "syntax": {
+      "kw": "#B4BFDD",
+      "fn": "#E8E9EC",
+      "str": "#AECAB6",
+      "num": "#DFC09F",
+      "type": "#A2C4D1",
+      "com": "#8D9199",
+      "punc": "#969AA2"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F6F7F8",
+    "sidebar": "#ECEEF0",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#E9EBEE",
+    "active": "#E0E3E7",
+    "code": "#EFF1F3",
+    "border": "#DCDFE3",
+    "borderStrong": "#C5C9CE",
+    "text": "#1A1D22",
+    "muted": "#4A4E56",
+    "subtle": "#5E636B",
+    "faint": "#858A92",
+    "accent": "#3A342E",
+    "accentHover": "#25211D",
+    "accentFg": "#FFFFFF",
+    "accentText": "#3D3631",
+    "diffAdd": "#E0F1E8",
+    "diffAddFg": "#00714F",
+    "diffDel": "#F7E4E6",
+    "diffDelFg": "#A3243A",
+    "syntax": {
+      "kw": "#3D4B78",
+      "fn": "#1A1D22",
+      "str": "#36684F",
+      "num": "#85582C",
+      "type": "#2A5F6D",
+      "com": "#656A73",
+      "punc": "#5E636B"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"Mizzle Sans\", \"Instrument Sans\""
+    },
+    "prose": {
+      "system": "\"Mizzle Sans\", \"Instrument Sans\""
+    },
+    "mono": {
+      "asset": "assets/fonts/CommitMono-Regular.woff2",
+      "family": "Mizzle Mono"
+    }
+  },
+  "shape": {
+    "radius": 0.85,
+    "border": 1
+  },
+  "reveal": {
+    "app": 0.6,
+    "transcript": 0.24,
+    "page": 0.24,
+    "right-panel": 0.4
+  },
+  "terminal": {
+    "fontFamily": "Mizzle Mono",
+    "fontSize": 12.5,
+    "lineHeight": 1.4,
+    "cursorStyle": "bar",
+    "cursorBlink": false,
+    "dark": {
+      "foreground": "#DADCE1",
+      "cursor": "#E6DCCD",
+      "cursorAccent": "#0F1114",
+      "selection": "#E6DCCD33",
+      "ansi": {
+        "black": "#2E3238",
+        "red": "#EC8492",
+        "green": "#7DC7A5",
+        "yellow": "#DEC084",
+        "blue": "#95AEE2",
+        "magenta": "#BDA8E0",
+        "cyan": "#86C5D2",
+        "white": "#C7CAD0",
+        "brightBlack": "#6B7078",
+        "brightRed": "#F49DA9",
+        "brightGreen": "#9AD7B9",
+        "brightYellow": "#EBD09C",
+        "brightBlue": "#B2C5EC",
+        "brightMagenta": "#D0C0EA",
+        "brightCyan": "#A6D7E2",
+        "brightWhite": "#F1F2F4"
+      }
+    },
+    "light": {
+      "foreground": "#23262C",
+      "cursor": "#3A342E",
+      "cursorAccent": "#ECEEF0",
+      "selection": "#3A342E24",
+      "ansi": {
+        "black": "#1A1D22",
+        "red": "#AF3045",
+        "green": "#207555",
+        "yellow": "#855F12",
+        "blue": "#35589D",
+        "magenta": "#6B4EA4",
+        "cyan": "#1D6A7A",
+        "white": "#5E636B",
+        "brightBlack": "#4A4E56",
+        "brightRed": "#C54258",
+        "brightGreen": "#2B8965",
+        "brightYellow": "#99701A",
+        "brightBlue": "#4568B1",
+        "brightMagenta": "#7E60B8",
+        "brightCyan": "#287E90",
+        "brightWhite": "#858A92"
+      }
+    },
+    "reveal": 0.4
+  }
+}
