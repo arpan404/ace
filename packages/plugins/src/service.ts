@@ -66,6 +66,11 @@ export class PluginService {
           type: "plugins.availability",
           availability: this.manager.configure(request),
         });
+      case "plugins.spade":
+        return PluginResponse.parse({
+          type: "plugins.spade",
+          plugin: await this.manager.spade(request.name),
+        });
       case "plugins.catalog":
         return PluginResponse.parse({
           type: "plugins.catalog",

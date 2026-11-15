@@ -12,22 +12,32 @@ export function reviewPlugin(
     name: manifest.name,
     version: manifest.version,
     unsupported: imported.unsupported,
-    executions: [
-      ...manifest.hooks.map((hook) => Object.assign({ kind: "hook" }, hook)),
-      ...Object.entries(manifest.mcpServers).map(([name, server]) =>
-        server.type === "stdio"
-          ? {
-              kind: "stdio",
-              name,
-              command: server.command,
-              args: server.args,
-              env: server.env,
-              cwd: server.cwd,
-            }
-          : { kind: "remote", name, type: server.type, url: server.url, headers: server.headers },
-      ),
-    ],
+    executions: executionsOf(manifest),
   });
+}
+/** A plugin's hooks and MCP servers as review lists them, in manifest order. */
+export function executionsOf(manifest: ImportedPlugin["manifest"]): PluginReview["executions"] {
+  return [
+    ...manifest.hooks.map((hook) => Object.assign({ kind: "hook" as const }, hook)),
+    ...Object.entries(manifest.mcpServers).map(([name, server]) =>
+      server.type === "stdio"
+        ? {
+            kind: "stdio" as const,
+            name,
+            command: server.command,
+            args: server.args,
+            env: server.env,
+            ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+          }
+        : {
+            kind: "remote" as const,
+            name,
+            type: server.type,
+            url: server.url,
+            headers: server.headers,
+          },
+    ),
+  ];
 }
 export function validateComponents(imported: ImportedPlugin, text: Record<string, string>): void {
   const { manifest } = imported;
