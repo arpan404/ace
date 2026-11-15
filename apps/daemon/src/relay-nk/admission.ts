@@ -66,6 +66,7 @@ class Bucket {
 export interface NkSession {
   readonly device: string;
   readonly confirmed: boolean;
+  readonly closed: boolean;
   /** Reserves projection and snapshot bytes; false when that would go over, nothing reserved. */
   reserveBytes(bytes: number): boolean;
   /** Reserves replayed events; false when that would go over, nothing reserved. */

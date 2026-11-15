@@ -63,6 +63,8 @@ import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
 import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
+import { RELAY_NK_HANDSHAKE } from "@ace/protocol";
+import { planEarlySubscribes, quietReads } from "./relay-nk/early-reads.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -340,6 +342,11 @@ export async function startServer(options: ServerOptions): Promise<{
     // whichever path its hello came by.
     let accountAdmitted = relayed?.stillAdmitted;
     let accountId = relayed?.account;
+    // An NK stream not yet confirmed (ADR 0155): its subscribes hold threads quietly, and what a
+    // hello runs on the device waits for the confirmation.
+    const early = relayed?.early;
+    const quiet = early ? quietReads(options.store) : undefined;
+    let earlyReads = quiet?.store;
     // An account device's main socket stays open only while it holds an unexpired grant.
     let grant: AccountGrantSocket | undefined;
     const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
@@ -459,6 +466,72 @@ export async function startServer(options: ServerOptions): Promise<{
       if (record) options.warn?.("WebSocket closed", record);
       options.onDisconnect?.(device);
     });
+    /** Notifications for this device, once it may read. */
+    const enroll = (id: DeviceId) => {
+      const notifications = options.notifications;
+      if (authorize("read") && notifications)
+        enrollNotifications(id, {
+          connect: (deviceId) => notifications.connectDevice(deviceId),
+          active: () => !cleaned && authorize("read"),
+          delay: runtime.delay,
+          log: (error) => options.log?.(error),
+          tasks: serviceTasks,
+          scheduled: (stop) => {
+            stopEnrollment = stop;
+          },
+        });
+    };
+    /** A main socket that may read hears the device's notifications and broadcasts. */
+    const receiveBroadcasts = (channel: string | undefined) => {
+      if (channel !== undefined || !authorize("read") || !device) return;
+      let connections = receivers.get(device);
+      if (!connections) {
+        connections = new Map();
+        receivers.set(device, connections);
+      }
+      connections.set(socket, send);
+    };
+    const authenticateServices = async (channel: Parameters<NonNullable<(typeof sessions)[number]["authenticated"]>>[0]) => {
+      try {
+        for (const service of sessions) await service.authenticated?.(channel);
+        return true;
+      } catch (error) {
+        const limit = error instanceof Error && "code" in error && error.code === "limit";
+        const code = limit ? "connection_limit" : "service_unavailable";
+        socket.close(limit ? 4013 : 1011, code);
+        return false;
+      }
+    };
+    /**
+     * An NK session confirmed (ADR 0155): now it runs what a hello runs, as the welcome would
+     * have, hands its next ticket, and the socket reads what the client sends.
+     */
+    const afterConfirm = async (
+      pending: NonNullable<typeof early>,
+      actor: SessionActor,
+      channel: Parameters<typeof authenticateServices>[0],
+      epoch: string | undefined,
+    ) => {
+      const confirm = await pending.confirmed;
+      const open = () => socket.readyState === WebSocket.OPEN && cleanups.has(socket);
+      if (!confirm || !open()) {
+        pending.readable.resolve(false);
+        return;
+      }
+      quiet?.confirm();
+      earlyReads = undefined;
+      holdGrant(relayed?.grantExpiresAt, actor.id);
+      enroll(actor.id);
+      receiveBroadcasts(channel);
+      if (!(await authenticateServices(channel)) || !open()) {
+        pending.readable.resolve(false);
+        return;
+      }
+      const next = confirm.nextTicket && epoch !== undefined ? auth.handOver(actor, epoch) : undefined;
+      send({ type: "hello.confirmed", ...(next ? { ticket: next } : {}) });
+      for (const service of sessions) service.welcomed?.();
+      pending.readable.resolve(true);
+    };
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
@@ -535,7 +608,7 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
-        if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
+        if (relayed && !early) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
@@ -561,18 +634,7 @@ export async function startServer(options: ServerOptions): Promise<{
           // welcome promises the socket can use the published service registry.
           if (message.channel === undefined && !ready) send({ type: "starting" });
           await options.ready;
-          const notifications = options.notifications;
-          if (authorize("read") && notifications)
-            enrollNotifications(actor.id, {
-              connect: (id) => notifications.connectDevice(id),
-              active: () => !cleaned && authorize("read"),
-              delay: runtime.delay,
-              log: (error) => options.log?.(error),
-              tasks: serviceTasks,
-              scheduled: (stop) => {
-                stopEnrollment = stop;
-              },
-            });
+          if (!early) enroll(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
@@ -581,29 +643,18 @@ export async function startServer(options: ServerOptions): Promise<{
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         // A dedicated channel (devices, files, browser, screen) speaks only its own frames, so
         // notifications and broadcasts go to the device's main sockets.
-        if (message.channel === undefined && authorize("read")) {
-          let connections = receivers.get(device);
-          if (!connections) {
-            connections = new Map();
-            receivers.set(device, connections);
-          }
-          connections.set(socket, send);
-        }
-        try {
-          for (const service of sessions) await service.authenticated?.(message.channel);
-        } catch (error) {
-          const limit = error instanceof Error && "code" in error && error.code === "limit";
-          const code = limit ? "connection_limit" : "service_unavailable";
-          socket.close(limit ? 4013 : 1011, code);
-          return;
-        }
+        if (!early) receiveBroadcasts(message.channel);
+        if (!early && !(await authenticateServices(message.channel))) return;
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         welcomed = true;
         // A paired device that opened with a ticket and asked gets its next one here, so its
-        // next connection skips the exchange (ADR 0150). Only clients that keep it ask.
+        // next connection skips the exchange (ADR 0150). Only clients that keep it ask. On the
+        // relay, a daemon that takes NK hands one to an XX hello that asks, for the next NK
+        // attempt, bound to the relay key; an NK session gets its own after it confirms.
+        const epoch = relayed?.relayEpoch;
         const next =
-          message.nextTicket && message.ticket !== undefined && !relayed
-            ? auth.handOver(actor)
+          message.nextTicket && !early && (relayed ? epoch !== undefined : message.ticket !== undefined)
+            ? auth.handOver(actor, relayed ? epoch : undefined)
             : undefined;
         send({
           type: "welcome",
@@ -613,8 +664,11 @@ export async function startServer(options: ServerOptions): Promise<{
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
           ...(next ? { ticket: next } : {}),
+          // Announced only where the pinned key authenticates it: over the relay.
+          ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
         });
-        for (const service of sessions) service.welcomed?.();
+        if (!early) for (const service of sessions) service.welcomed?.();
+        else void afterConfirm(early, actor, message.channel, epoch);
         return;
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
@@ -656,6 +710,7 @@ export async function startServer(options: ServerOptions): Promise<{
       }
       readCore(message, {
         options,
+        ...(earlyReads ? { store: earlyReads } : {}),
         device: actor,
         subscriptions,
         authorize,
@@ -690,7 +745,19 @@ export async function startServer(options: ServerOptions): Promise<{
     relaySockets.add(socket);
     socket.once("close", () => relaySockets.delete(socket));
     connected(socket, false, undefined, entry);
-    socket.start(entry.hello);
+    const early = entry.early;
+    if (!early) {
+      socket.start(entry.hello);
+      return;
+    }
+    // Subscribes that fit the unconfirmed session's budgets run now; the rest after it confirms.
+    const plan = planEarlySubscribes(early.subscribes, early.session, options.store);
+    socket.start(entry.hello, {
+      then: plan.now.map((message) => JSON.stringify(message)),
+      after: plan.later.map((message) => JSON.stringify(message)),
+      readAfter: early.readable.promise,
+      session: early.session,
+    });
   };
   const stopTimer = runtime.every(
     () => {

@@ -23,6 +23,7 @@ import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 import { RelayRefusedError } from "./refusal.ts";
+import { XX_FIRST_MESSAGE, answerNk, type NkAccepted, type NkHost } from "./nk-stream.ts";
 import type { z } from "zod";
 const noop = () => {};
 /** The `type` of a channel's first message, read without trusting the rest of it. */
@@ -79,6 +80,12 @@ export async function connectHostToRelay(options: {
    * the client falls back at once instead of waiting out the ticket.
    */
   media?: { offer(ticket: string, joinUrl: string, reject: () => void): boolean };
+  /**
+   * Takes client streams opened with Noise NK (ADR 0155, step 2): the daemon admits each first
+   * message's early hello. Without it, an NK first message fails the XX handshake, as on an
+   * older daemon, and the client falls back to XX.
+   */
+  nk?: NkHost;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -133,12 +140,45 @@ export async function connectHostToRelay(options: {
       watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
-      const transport = await respondHandshake(socket, reader, {
-        staticKey: options.hostKeys,
-        prologue: STREAM_PROLOGUE,
-        clock,
-        timeoutMs: limits.handshakeTimeoutMs,
-      });
+      const handshakeDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+      let first: Uint8Array;
+      try {
+        first = await reader.next();
+      } finally {
+        handshakeDeadline();
+      }
+      // An XX first message is exactly 32 bytes; a longer one is NK, if this daemon takes it.
+      let accepted: NkAccepted | undefined;
+      let transport: Parameters<typeof hostMessageChannel>[2];
+      if (options.nk && first.length !== XX_FIRST_MESSAGE) {
+        const nkDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+        let answer: Awaited<ReturnType<typeof answerNk>>;
+        try {
+          answer = await answerNk(socket, first, {
+            host: options.nk,
+            staticKey: options.hostKeys,
+            clock,
+            signal,
+          });
+        } finally {
+          nkDeadline();
+        }
+        if (!answer) return;
+        accepted = answer.accepted;
+        transport = answer.keys;
+      } else
+        transport = await respondHandshake(
+          socket,
+          reader,
+          {
+            staticKey: options.hostKeys,
+            prologue: STREAM_PROLOGUE,
+            clock,
+            timeoutMs: limits.handshakeTimeoutMs,
+          },
+          first,
+        );
+      const nkSession = accepted;
       channel = hostMessageChannel(
         socket,
         reader,
@@ -146,6 +186,13 @@ export async function connectHostToRelay(options: {
         (message) => {
           if (seenHello) return;
           const type = firstMessageType(message);
+          // After an NK answer the client's first message is its confirmation; its hello came
+          // in the handshake.
+          if (nkSession) {
+            if (type !== "hello.confirm") throw new Error("First message must be hello.confirm");
+            seenHello = true;
+            return;
+          }
           // A pairing redemption is answered and closed by the daemon; it never authorizes.
           if (type === "pair.redeem" && !redeeming) {
             redeeming = true;
@@ -164,7 +211,7 @@ export async function connectHostToRelay(options: {
       const opened = channel;
       channels.add(opened);
       void Promise.resolve()
-        .then(() => options.onClientChannel(opened))
+        .then(() => (nkSession ? nkSession.open(opened) : options.onClientChannel(opened)))
         .catch(() => opened.close());
       await opened.closed;
     } finally {

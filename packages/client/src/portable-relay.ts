@@ -3,11 +3,12 @@ import {
   CREDIT_FLAG,
   FlowCredit,
   MAX_MESSAGE,
+  NoiseNK,
   NoiseXX,
   fragmentCost,
   readCredit,
   type HandshakeOptions,
-  type Transport,
+  type SessionKeys,
 } from "@ace/secure-channel";
 import { inflate } from "./inflate.ts";
 import { RelayClosedError } from "./relay-closed.ts";
@@ -46,7 +47,21 @@ export interface PortableRelay {
    * its marker said so. A client without a grant may then offer to send early next time.
    */
   readonly earlyCapable?: boolean;
+  /**
+   * The daemon static key this stream is keyed to: pinned by the XX answer, or the one an NK
+   * first message was sent to. A capability the daemon announces is kept with it (ADR 0155).
+   */
+  readonly hostKey?: Uint8Array;
+  /** Which handshake opened this stream. */
+  readonly handshake?: "xx" | "nk";
 }
+/**
+ * Open the stream with Noise NK (ADR 0155, step 2): the first message is sealed to `hostKey`
+ * (a key this client pinned before) and carries `early` (an encoded `hello.early`). Once the
+ * daemon's answer is authenticated, `confirm` (an encoded `hello.confirm`) is the first
+ * message sent, before anything else and without waiting for the welcome.
+ */
+export type PortableRelayNk = { hostKey: Uint8Array; early: Uint8Array; confirm: Uint8Array };
 export interface PortableRelayOptions {
   relayUrl: string;
   pinnedFingerprint: string;
@@ -69,8 +84,10 @@ export interface PortableRelayOptions {
    * the relay's upgrade answer says it may; otherwise after the marker, as before.
    */
   early?: boolean | undefined;
+  nk?: PortableRelayNk | undefined;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
+const nkPrologue = new TextEncoder().encode("ace daemon relay stream v2 nk");
 
 const queueLimit = 1024 * 1024;
 const logicalLimit = 16 * 1024 * 1024;
@@ -111,7 +128,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   let count = 0;
   let bytes = 0;
   let error: Error | undefined;
-  let crypto: Transport | undefined;
+  let crypto: SessionKeys | undefined;
   let pending: { resolve(data: Uint8Array): void; reject(error: Error): void } | undefined;
   let opened: { resolve(): void; reject(error: Error): void } | undefined;
   const flow = new FlowCredit();
@@ -155,7 +172,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     }
   };
   /** Encrypt the next outgoing fragment; rekeys right after the frame that reaches the interval. */
-  const seal = (secured: Transport, plain: Uint8Array): Uint8Array => {
+  const seal = (secured: SessionKeys, plain: Uint8Array): Uint8Array => {
     const frame = secured.send.encrypt(plain);
     if (++sendCount % rekeyInterval === 0) secured.send.rekey();
     return frame;
@@ -165,7 +182,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     if (plain && crypto && !error) write(seal(crypto, plain));
   };
   /** A frame after the handshake: a credit is applied now, data waits for the reader. */
-  const accept = (secured: Transport, frame: Uint8Array) => {
+  const accept = (secured: SessionKeys, frame: Uint8Array) => {
     const plain = secured.receive.decrypt(frame);
     if (++receiveCount % rekeyInterval === 0) secured.receive.rekey();
     if (plain[0] === CREDIT_FLAG) {
@@ -214,22 +231,31 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   options.signal?.addEventListener("abort", aborted, { once: true });
   const cancel = options.schedule(() => close(new Error("Relay handshake timed out")), 10000);
   let earlyCapable = false;
-  const state = new NoiseXX({
-    initiator: true,
-    ...options.keys(),
-    prologue,
-    pinnedFingerprint: options.pinnedFingerprint,
-  });
+  let hostKey: Uint8Array | undefined;
+  const nk = options.nk;
+  const state = nk
+    ? NoiseNK.initiator({
+        remoteStatic: nk.hostKey,
+        ephemeralKey: options.keys().ephemeralKey,
+        prologue: nkPrologue,
+      })
+    : new NoiseXX({
+        initiator: true,
+        ...options.keys(),
+        prologue,
+        pinnedFingerprint: options.pinnedFingerprint,
+      });
   try {
     await new Promise<void>((resolve, reject) => {
       opened = { resolve, reject };
       if (options.signal?.aborted) aborted();
     });
     opened = undefined;
+    const first = () => state.writeMessage(nk?.early);
     // The relay's upgrade answer is the permission: echoed, the first message goes now and the
     // relay holds it until the daemon joins; otherwise it waits for the marker, as before.
     const permitted = options.early === true && socket.protocol === RELAY_EARLY.subprotocol;
-    if (permitted) write(state.writeMessage());
+    if (permitted) write(first());
     const marker = await next();
     if (
       marker.length !== 1 ||
@@ -237,9 +263,12 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     )
       throw new Error("Invalid relay pairing marker");
     earlyCapable = permitted || marker[0] === RELAY_EARLY.capableMarker;
-    if (!permitted) write(state.writeMessage());
+    if (!permitted) write(first());
     if (state.readMessage(await next()).length) throw new Error("Unexpected handshake payload");
-    write(state.writeMessage());
+    if (state instanceof NoiseXX) {
+      write(state.writeMessage());
+      hostKey = state.transport.remoteStatic.slice();
+    } else hostKey = nk?.hostKey.slice();
     const secured = state.transport;
     // Frames that came in with the last handshake message are still ciphertext.
     const early: Uint8Array[] = [];
@@ -263,8 +292,13 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   let sending = Promise.resolve();
   let queuedBytes = 0;
   let receiving = false;
+  // The confirmation goes first, as soon as the answer is authenticated: before the welcome,
+  // and ahead of anything the caller sends.
+  if (nk) void sendBody(nk.confirm.slice()).catch(() => {});
   return {
     earlyCapable,
+    ...(hostKey ? { hostKey } : {}),
+    handshake: nk ? "nk" : "xx",
     close() {
       options.signal?.removeEventListener("abort", aborted);
       close();

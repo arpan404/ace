@@ -164,6 +164,7 @@ export class Store {
   private listeners = new Set<Listener>();
   private writeHooks = new Set<Listener>();
   private readonly threadReads: ThreadReads;
+  readonly quietHolds: Pick<ThreadReads, "hush" | "voice">;
   private readonly navigation: LongThreadQueries;
   private readonly sidebarReads: SidebarReads;
   private sidebarSnapshotSeq = 0;
@@ -323,7 +324,7 @@ export class Store {
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
-      this.threadReads = new ThreadReads({
+      this.quietHolds = this.threadReads = new ThreadReads({
         db: this.db,
         cache: this.readCache,
         payloads: this.payloads,

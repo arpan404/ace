@@ -151,11 +151,17 @@ export class RemoteAuth {
   recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {
     if (installId !== undefined) this.devices.recognize(device.id, installId, this.now());
   }
-  ticket(device: PairedDevice): { ticket: string; expiresAt: number } {
+  ticket(device: PairedDevice, epoch = ""): { ticket: string; expiresAt: number } {
     if (device.scopes.includes("desktop") || device.scopes.includes("user-browser"))
       throw new AccessError(403, "Desktop credentials are local only");
     const ticket = this.secret();
-    const allocation = this.tickets.issue(hash(ticket), device.id, device.generation, this.now());
+    const allocation = this.tickets.issue(
+      hash(ticket),
+      device.id,
+      device.generation,
+      this.now(),
+      epoch,
+    );
     if ("error" in allocation) throw new AccessError(429, allocation.error);
     const { expiresAt } = allocation;
     return { ticket, expiresAt };
@@ -166,10 +172,10 @@ export class RemoteAuth {
    * exchanged ticket, and voided by revocation the same way. Undefined for any other session,
    * or when the device's quota is spent; the client then exchanges one as before.
    */
-  handOver(actor: SessionActor): { ticket: string; ttlMs: number } | undefined {
+  handOver(actor: SessionActor, epoch = ""): { ticket: string; ttlMs: number } | undefined {
     if (!actor.revocable || actor.generation === undefined) return undefined;
     try {
-      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation });
+      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation }, epoch);
       return { ticket, ttlMs: expiresAt - this.now() };
     } catch {
       return undefined;
@@ -183,6 +189,23 @@ export class RemoteAuth {
     if (!device || localOnly(device)) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
+  }
+  /**
+   * A ticket in an NK first message (ADR 0155): consumed at once, in one synchronous step, so
+   * exactly one of two racing copies gets it. It opens nothing unless the host key `epoch` that
+   * issued it is the current one, and, unlike `consume`, records nothing about the device: that
+   * waits for the client's confirmation (`touch`).
+   */
+  consumeEarly(ticket: string, epoch: string): PairedDevice | undefined {
+    const issued = this.tickets.consume(hash(ticket), this.now());
+    if (!issued || issued.epoch !== epoch) return undefined;
+    const device = this.devices.current(issued.deviceId, issued.generation, this.now());
+    if (!device || localOnly(device)) return undefined;
+    return device;
+  }
+  /** A paired device whose NK session confirmed was seen now. */
+  touch(device: Pick<Device, "id">): void {
+    this.devices.touch(device.id, this.now());
   }
   clearPending(): void {
     this.codes.clear();

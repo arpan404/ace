@@ -4,6 +4,8 @@
  */
 export const CONTROL_PROLOGUE = new TextEncoder().encode("ace relay registration v1");
 export const STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v1");
+/** The prologue of a stream opened with Noise NK (ADR 0155, step 2). */
+export const NK_STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v2 nk");
 /** The one-byte marker a relay sends a client once its host stream is paired. */
 export const PAIRED_MARKER = 1;
 export { EARLY_FRAME } from "./early-frame.ts";

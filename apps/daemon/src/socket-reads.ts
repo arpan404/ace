@@ -3,13 +3,15 @@ import type { CommandLanes } from "./command-lanes.ts";
 import { commandState } from "./command-status.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { SocketMessage } from "./services/socket.ts";
-import { pageSubscription, storePlacement, subscribe } from "./subscription.ts";
+import { pageSubscription, storePlacement, subscribe, type SubscriptionStore } from "./subscription.ts";
 import type { WireEncoder } from "./wire-encoder.ts";
 import { outputReadBytes } from "./reply-bounds.ts";
 
 /** What the core reads need from one authenticated socket. */
 export interface CoreReader {
   options: ServerOptions;
+  /** Where subscriptions read, when not `options.store`: an unconfirmed session's quiet reads. */
+  store?: SubscriptionStore | undefined;
   device: DeviceId;
   subscriptions: Map<string, () => void>;
   authorize(scope: DeviceScope): boolean;
@@ -92,7 +94,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
       }
       try {
         const stop = subscribe(
-          options.store,
+          reader.store ?? options.store,
           message.subscriptionId,
           message.scope,
           message.afterSeq,

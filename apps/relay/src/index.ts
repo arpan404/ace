@@ -15,3 +15,5 @@ export { EARLY_FRAME } from "./early-frame.ts";
 export { ClientSlots } from "./admission.ts";
 export type { Clock } from "./clock.ts";
 export type { ForwardedHttp, HostHttpOptions, RelayHttpHandler } from "./http-host.ts";
+export { XX_FIRST_MESSAGE } from "./nk-stream.ts";
+export type { NkAccepted, NkHost } from "./nk-stream.ts";
