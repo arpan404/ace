@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { lstat, open, rename, rm, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
+import { publishReplacement } from "./replacement.ts";
 import { SafeRoot, GitIgnore, walkWorkspace, isWorkspaceTransferTemporary } from "@ace/workspace";
 import { z } from "zod";
 import { CHUNK_SIZE, codeOf, FileError, version, checkVersion } from "./types.ts";
@@ -130,6 +131,7 @@ export async function atomicWrite(
   const target = await checkedTarget(safe, path, expected);
   const temp = join(dirname(target.path), `.ace-upload-${id}`);
   const handle = await open(temp, "wx", 0o600);
+  const own = await handle.stat();
   try {
     await writeAll(handle, bytes, 0);
     await handle.sync();
@@ -142,11 +144,21 @@ export async function atomicWrite(
       return;
     }
     if (expected === null) await exclusive.move(temp, target.path);
-    else await rename(temp, target.path);
+    else
+      await publishReplacement({
+        exclusive,
+        temp,
+        identity: `${own.dev}:${own.ino}`,
+        destination: target.path,
+        expected,
+        id,
+      });
     await target.verify();
   } finally {
     await handle.close();
-    await rm(temp, { force: true });
+    // Only this write's own file: a refused exchange may have left another program's save here.
+    const left = await lstat(temp).catch(() => undefined);
+    if (left && left.dev === own.dev && left.ino === own.ino) await rm(temp, { force: true });
   }
 }
 
