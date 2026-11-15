@@ -606,11 +606,10 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         })) => (*seen).min(last_step),
         _ => last_step,
     };
-    let steered = events[seen..].iter().any(|e| {
-        matches!(
-            e,
-            Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. })
-        )
+    let steered = events[seen..].iter().any(|e| match e {
+        Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. }) => true,
+        Event::Known(known) => spade_core::question::is_late(known),
+        Event::Unknown(_) => false,
     });
     if steered {
         return Ok(false);

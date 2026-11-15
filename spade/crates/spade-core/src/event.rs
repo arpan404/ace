@@ -71,11 +71,41 @@ pub enum Known {
     MemoryIndexed {
         text: String,
     },
-    /// `ask_user`: the bot asked the person and the turn waits for their next message.
+    /// `ask_user`: the bot asked the person (ADR 0154). The turn waits for the answer unless a
+    /// `question_deferred` follows. `question` is the prompts, one per line; `questions` holds
+    /// each with its kind (absent on events stored before kinds: one `text` question).
     QuestionAsked {
         reply: String,
         call_id: String,
         question: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        questions: Vec<crate::question::Question>,
+    },
+    /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
+    /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes
+    /// on; the question stays open until answered or dismissed.
+    QuestionDeferred {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        by_bot: bool,
+    },
+    /// The person's answers, one per question, as checked. `late`: the question was deferred,
+    /// so this reaches the bot like a job's result, as a `<question_answer>`. `typed`: a
+    /// message the person typed (stored just before) stood for these answers; the bot reads the
+    /// message itself.
+    QuestionAnswered {
+        call_id: String,
+        answers: Vec<Value>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        late: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        typed: bool,
+    },
+    /// The person dismissed the question (**Never mind**). `late` as for `question_answered`.
+    QuestionDismissed {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        late: bool,
     },
     /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
     /// whole so they go back exactly as they came.

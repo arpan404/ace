@@ -134,6 +134,8 @@ pub struct AgentView {
     pub last_message: Option<LastMessage>,
     /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
     pub waiting_for: Option<&'static str>,
+    /// Question cards its conversation leaves for later (ADR 0154).
+    pub questions_for_later: usize,
     /// `{"spending", "review"}` (ADR 0135).
     pub oversight: serde_json::Value,
     /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
@@ -259,6 +261,9 @@ pub struct Activity {
     pub last_message: Option<LastMessage>,
     /// `question` while an `ask_user` waits, else `approval` while one waits.
     pub waiting_for: Option<&'static str>,
+    /// Question cards left for later (ADR 0154): deferred and not yet answered or dismissed.
+    /// They never make the bot read as waiting.
+    pub questions_for_later: usize,
     /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
     pub problem: Option<String>,
     /// The bot's access level (ADR 0144).

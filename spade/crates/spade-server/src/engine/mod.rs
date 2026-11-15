@@ -27,6 +27,7 @@ mod memory;
 mod outbox;
 mod oversight;
 mod plugin_hooks;
+mod questions;
 mod retry;
 mod review;
 pub mod roster;
@@ -50,6 +51,7 @@ pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
 };
+pub use questions::{QuestionError, QuestionReply};
 pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub(crate) use search::Native;
@@ -65,7 +67,7 @@ use std::sync::{Arc, Mutex};
 use spade_core::event::Known;
 use spade_core::maintenance::Pause;
 use spade_core::turn::{job_stopped, needs_reply};
-use spade_core::{Event, Transcript, spending};
+use spade_core::{Event, Transcript, question, spending};
 use spade_models::{Listed, Models};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
@@ -365,6 +367,7 @@ impl Engine {
             state: State::of(&transcript),
             last_message: roster::last_message(&stored),
             waiting_for: memory::waiting_for(&transcript),
+            questions_for_later: question::for_later(stored.iter().map(|e| &e.event)),
             problem: spade_core::brain::problem(stored.iter().map(|e| &e.event)).map(str::to_owned),
             access: autonomy::access_of(&stored, self.limits.new_bot_access),
             task: autonomy::task_of(&stored),
@@ -509,13 +512,28 @@ impl Engine {
                     }
                     job_stopped(&events, job)
                 }
+                // A late answer or dismissal (ADR 0154) lands once: only while its question is
+                // still left for later, checked under the lock every answer is stored under.
+                Event::Known(
+                    Known::QuestionAnswered { call_id, .. }
+                    | Known::QuestionDismissed { call_id, .. },
+                ) => {
+                    if question::standing(&events, call_id) != Some(question::Standing::Deferred) {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
                 _ => false,
             };
             // While the person has the bot's computer, messages wait for the hand-back.
             let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
-                    (false, self.append_as(id, std::slice::from_ref(event), ask)?)
+                    // A typed message that can stand for a waiting card's answers is stored with
+                    // them, so the card shows what it answered (ADR 0154).
+                    let mut batch = vec![event.clone()];
+                    batch.extend(question::typed_answer(&events, event));
+                    (false, self.append_as(id, &batch, ask)?)
                 } else {
                     // Stored together, so a crash can never keep the input without its reply.
                     let model = self.reply_model(id);
@@ -530,7 +548,8 @@ impl Engine {
         if start {
             self.spawn_turn(id);
         } else {
-            // A turn waiting on the person (an `ask_user` question) reads the message now.
+            // A turn waiting on the person (an `ask_user` question) reads the message, or a late
+            // answer, now.
             memory::wake_on_message(self, id, event);
         }
         Ok(delivered)

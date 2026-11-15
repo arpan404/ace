@@ -12,6 +12,7 @@ mod media;
 mod memory;
 mod oversight;
 mod plugins;
+mod questions;
 mod routines;
 mod search;
 mod skills;
@@ -112,6 +113,11 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
+        .route("/conversations/{id}/questions", get(questions::list))
+        .route(
+            "/conversations/{id}/questions/{call_id}",
+            post(questions::reply),
+        )
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
         .route("/models", get(endpoints::models))
@@ -253,7 +259,8 @@ async fn list(State(state): State<AppState>) -> Response {
                 .map(|(c, activity)| {
                     json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms,
                             "answering": activity.answering, "jobs": activity.jobs,
-                            "waiting_on_you": activity.waiting_on_you })
+                            "waiting_on_you": activity.waiting_on_you,
+                            "questions_for_later": activity.questions_for_later })
                 })
                 .collect::<Vec<_>>(),
         )

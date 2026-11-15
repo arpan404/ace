@@ -13,6 +13,7 @@ use spade_core::event::Verdict;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
+use spade_core::question;
 use spade_core::review;
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
@@ -91,27 +92,52 @@ pub(super) async fn handle_calls(
                 let refused = ToolOutput::error(helper_refusal(engine, id, &name));
                 finish_tool(engine, id, reply, &pending.call, &name, refused).await;
             }
-            // `ask_user` (ADR 0128) waits like an approval; the person's next message answers it.
-            Status::New if name == context::ASK_USER => match super::memory::question(&arguments) {
-                Err(refused) => finish_tool(engine, id, reply, &pending.call, &name, refused).await,
-                Ok(question) => {
-                    waiting = true;
-                    let asked = Event::Known(Known::QuestionAsked {
+            // `ask_user` (ADR 0128, ADR 0154) waits like an approval until the person answers,
+            // leaves it for later or dismisses it; asked with `wait: false` it never waits.
+            Status::New if name == context::ASK_USER => match question::parse(&arguments) {
+                Err(why) => {
+                    let refused = ToolOutput::error(why);
+                    finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                }
+                Ok(ask) => {
+                    let mut asked = vec![Event::Known(Known::QuestionAsked {
                         reply: reply.to_owned(),
                         call_id: pending.call.id.clone(),
-                        question,
-                    });
-                    match engine.record_unless_stopped(id, reply, &asked) {
+                        question: ask.summary(),
+                        questions: ask.questions,
+                    })];
+                    if !ask.wait {
+                        asked.push(Event::Known(Known::QuestionDeferred {
+                            call_id: pending.call.id.clone(),
+                            by_bot: true,
+                        }));
+                    }
+                    match engine.record_all_unless_stopped(id, reply, &asked) {
                         Ok(true) => {}
                         Ok(false) => return Handled::Stopped,
                         Err(error) => return Handled::Failed(error.to_string()),
+                    }
+                    if ask.wait {
+                        waiting = true;
+                    } else {
+                        let later = ToolOutput::ok(question::ASKED_FOR_LATER);
+                        finish_tool(engine, id, reply, &pending.call, &name, later).await;
                     }
                 }
             },
             Status::Asked => waiting = true,
             Status::Answered => {
-                let answered = ToolOutput::ok(context::ANSWERED);
-                finish_tool(engine, id, reply, &pending.call, &name, answered).await;
+                let said = question::call_result(events, &pending.call.id)
+                    .unwrap_or_else(|| context::ANSWERED.to_owned());
+                finish_tool(
+                    engine,
+                    id,
+                    reply,
+                    &pending.call,
+                    &name,
+                    ToolOutput::ok(said),
+                )
+                .await;
             }
             Status::New => match registry.get(&name) {
                 None => {
