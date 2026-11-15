@@ -370,3 +370,21 @@ export function machineBack(records: Records, now: number): Map<string, ChildRec
       next.set(id, { ...rec, retryAt: now });
   return next;
 }
+
+/**
+ * The machine's reachability evidence after a call that got through: when it was last known up.
+ * Like every answer, a reply proves the machine up only as of when its call went out; a reply to
+ * a call sent before an outage, arriving during it, says nothing of the outage.
+ */
+export function heardFrom(heard: number | undefined, at: { sent: number; now: number }): number {
+  return Math.max(heard ?? Number.NEGATIVE_INFINITY, at.sent);
+}
+
+/** Whether the machine counts as down for a read sent at `sentAt`: nothing heard around it. */
+export function machineDown(
+  heard: number | undefined,
+  sentAt: number,
+  config: ScheduleConfig,
+): boolean {
+  return (heard ?? Number.NEGATIVE_INFINITY) < sentAt - 2 * config.pollMs;
+}

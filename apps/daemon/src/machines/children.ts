@@ -27,6 +27,8 @@ import {
   asksAlone,
   defaultScheduleConfig,
   foldCall,
+  heardFrom,
+  machineDown,
   nextDue,
   planTurn,
   machineBack,
@@ -127,8 +129,8 @@ export class MachineChildren implements RemoteChildren {
    */
   private reach: RetryBackoff;
   /**
-   * When any call to each machine last got through (a status read, a refusal, a description),
-   * by the injected clock. The one evidence of whether the machine is up, for both sides: a
+   * When each machine was last known up: the send time of the latest call to it that got through
+   * (a status read, a refusal, a description), by the injected clock. The one evidence of whether the machine is up, for both sides: a
    * child's failed read is the machine's only when nothing was heard from it around that read.
    */
   private heardAt = new Map<string, number>();
@@ -474,7 +476,10 @@ export class MachineChildren implements RemoteChildren {
    * wait: only its own answer ends that.
    */
   machineReachable(machine: string, sentAt: number = this.deps.now()): void {
-    this.heardAt.set(machine, this.deps.now());
+    this.heardAt.set(
+      machine,
+      heardFrom(this.heardAt.get(machine), { sent: sentAt, now: this.deps.now() }),
+    );
     const since = this.downSince.get(machine);
     if (since === undefined || sentAt < since) return;
     this.downSince.delete(machine);
@@ -486,8 +491,7 @@ export class MachineChildren implements RemoteChildren {
   }
   /** Whether the machine is down for a call started at `startedAt`: nothing heard around it. */
   private down(machine: string, startedAt: number): boolean {
-    const heard = this.heardAt.get(machine) ?? Number.NEGATIVE_INFINITY;
-    return heard < startedAt - 2 * this.deps.pollMs;
+    return machineDown(this.heardAt.get(machine), startedAt, this.schedule);
   }
   /** A status call sent at `sentAt` failed while the machine was down: logged once per episode. */
   private unreached(machine: string, sentAt: number, error: unknown) {

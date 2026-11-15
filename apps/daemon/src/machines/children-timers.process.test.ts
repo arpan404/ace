@@ -480,3 +480,26 @@ it("e. a reply to a read sent before a cancel, arriving after it, never counts a
   expect(contacts.has("unconfirmed")).toBe(false);
   expect(h.state(id)).toBe("cancelled");
 });
+
+it("c. a late reply to a call sent before an outage doesn't make the outage's failures look like the child's own", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const child = h.add("child");
+  h.report(child, working);
+  await run(h, h.clock.now + 2_000);
+  const beforeOutage = h.clock.now;
+  h.reads.error = new MachineFailure("offline");
+  // Replies to calls sent before the outage keep arriving late all through it, one a second, as
+  // the directory reports each.
+  const end = h.clock.now + 2 * 60_000;
+  for (let at = h.clock.now; at < end; at += POLL) {
+    h.clock.now = at;
+    h.children.machineReachable("studio", beforeOutage);
+    while (Math.min(...h.timers.map((timer) => timer.at)) <= at) await next(h);
+  }
+  // The machine is back: a call sent now gets through, and the child is read at once.
+  h.reads.error = undefined;
+  h.report(child, done("Done."));
+  h.children.machineReachable("studio", h.clock.now);
+  await run(h, h.clock.now + 2 * POLL);
+  expect(h.state(child)).toBe("done");
+});
