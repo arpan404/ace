@@ -51,6 +51,8 @@ pub struct Plugins {
     refreshing: tokio::sync::Mutex<()>,
     servers: servers::Servers,
     fresh_for: Duration,
+    /// How long one hook may run, in milliseconds ([`hooks::LIMIT`] unless a test shortens it).
+    hook_limit: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Default)]
@@ -106,6 +108,9 @@ impl Plugins {
             refreshing: tokio::sync::Mutex::new(()),
             servers: servers::Servers::default(),
             fresh_for: FRESH_FOR,
+            hook_limit: std::sync::atomic::AtomicU64::new(
+                u64::try_from(hooks::LIMIT.as_millis()).unwrap_or(10_000),
+            ),
         })
     }
 
@@ -114,6 +119,19 @@ impl Plugins {
     pub fn with_server_idle(self: Arc<Self>, idle: Duration) -> Arc<Self> {
         self.servers.set_idle(idle);
         self
+    }
+
+    /// Makes each hook stop after `limit`, for tests.
+    #[must_use]
+    pub fn with_hook_limit(self: Arc<Self>, limit: Duration) -> Arc<Self> {
+        let ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+        self.hook_limit
+            .store(ms, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    fn hook_limit(&self) -> Duration {
+        Duration::from_millis(self.hook_limit.load(std::sync::atomic::Ordering::Relaxed))
     }
 
     /// Reads the daemon's plugins again unless the last reading is fresh. A plugin whose hash

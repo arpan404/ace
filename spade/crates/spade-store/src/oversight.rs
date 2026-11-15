@@ -69,7 +69,7 @@ impl Store {
 
 /// Event types the activity log reads (ADR 0135): the rest (progress checkpoints, indexes,
 /// titles, compaction) never make an entry.
-pub const ACTIVITY_TYPES: [&str; 20] = [
+pub const ACTIVITY_TYPES: [&str; 21] = [
     "user_message",
     "reply_started",
     "step_finished",
@@ -90,6 +90,7 @@ pub const ACTIVITY_TYPES: [&str; 20] = [
     "access_changed",
     "task_continued",
     "task_paused",
+    "hook_ran",
 ];
 
 impl Store {

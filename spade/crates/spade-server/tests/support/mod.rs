@@ -191,6 +191,11 @@ pub struct Options {
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
     /// Bots' workspaces, for the API (ADR 0130).
     pub workspaces: Option<spade_server::workspace::Workspaces>,
+    /// The person's accepted plugins (ADR 0151), from this stand-in for ace; hooks stop after
+    /// `plugin_hook_limit` and local servers after `plugin_server_idle`.
+    pub plugins: Option<Arc<dyn spade_server::plugins::Daemon>>,
+    pub plugin_hook_limit: Duration,
+    pub plugin_server_idle: Duration,
     /// Skill proposals, for the API (ADR 0130).
     pub learning: Option<Arc<spade_server::learning::Learning>>,
     /// Sets up connectors (ADR 0131), with the mock keychain.
@@ -302,6 +307,9 @@ impl Default for Options {
             keychain_read_gate: None,
             keychain_gate_for: None,
             workspaces: None,
+            plugins: None,
+            plugin_hook_limit: Duration::from_secs(10),
+            plugin_server_idle: Duration::from_secs(600),
             learning: None,
             connectors: false,
             client_metadata: None,
@@ -502,6 +510,27 @@ impl Spade {
         } else {
             None
         };
+        let plugins = match &options.plugins {
+            Some(daemon) => {
+                let workspaces = options.workspaces.clone().unwrap_or_else(|| {
+                    spade_server::workspace::Workspaces::new(dir.path().join("workspace"))
+                });
+                let plugins = spade_server::plugins::Plugins::new(
+                    daemon.clone(),
+                    Store::open(&dir.path().join("spade.sqlite"))?,
+                    workspaces,
+                    spade_server::workspace::shell::Shell::system(),
+                )
+                .with_hook_limit(options.plugin_hook_limit)
+                .with_server_idle(options.plugin_server_idle);
+                tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
+                    plugins.clone(),
+                    Store::open(&dir.path().join("spade.sqlite"))?,
+                )));
+                Some(plugins)
+            }
+            None => None,
+        };
         let bots = spade_server::tools::EngineHandle::default();
         let search = match options.search.clone() {
             Some(config) => {
@@ -555,6 +584,9 @@ impl Spade {
             engine.set_brains(brains);
         }
         bots.set(&engine);
+        if let Some(plugins) = plugins {
+            engine.set_plugins(plugins);
+        }
         if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {
             search.set_searxng(url.as_deref())?;
         }

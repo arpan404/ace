@@ -78,7 +78,7 @@ impl Plugins {
                 .run_job(Job {
                     dir: &dir,
                     script: &script,
-                    timeout: LIMIT,
+                    timeout: self.hook_limit(),
                     env: &root_vars(&root),
                     tee: None,
                     cleanup: None,
