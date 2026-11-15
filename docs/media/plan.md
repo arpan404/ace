@@ -2314,6 +2314,13 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
     returns it, and `watch` returns an unsubscribe, so lookups never add watchers.
   - `CipherState.exportInto` refuses overlapping key and nonce ranges, writes nothing, and leaves
     the cipher usable.
+  - Relay sockets have a zero linger, so a close sends a reset and nothing queued in the kernel
+    leaves. `close` returns the stream's tasks, and a priority gate (`shell/priority_gate.rs`)
+    holds an answer that follows a close until every task that owned the socket has ended.
+    `revoked` and `closed` therefore say what they mean. Answers keep their order, and the
+    supervisor's 250 ms kill bounds the wait.
+  - The hand-over wipes the ephemeral private key it was given once Noise has its copy, and
+    when the constructor fails.
   - Tickets follow D1's ownership rule: `relay.keys`' block is the supervisor's from `send` on
     (the lane wipes it once written, or at once when refused), and the daemon never touches it
     after. `claimRelay` refuses an all-zero ticket, as ace-media does.
