@@ -49,7 +49,7 @@
   const SLIDE_MIN = 14;
   const SLIDE_MAX = 190;
   /** Seconds for a cleared trail to mist over again. */
-  const REFOG = 26;
+  const REFOG = 20;
   /** How far a drop's lens reaches, as a share of the window's height. */
   const LENS = 0.24;
 
@@ -484,7 +484,8 @@ void main() {
   // Mist forms back unevenly, from tiny points, so a fading trail's edge is ragged.
   float grain = vnoise(gl_FragCoord.xy * 0.22) * 0.6 + vnoise(gl_FragCoord.xy * 0.07) * 0.4;
   float from = 0.08 + 0.45 * grain;
-  float fog = clamp(thick * mix(1.0, 0.86, day), 0.0, 1.0) * (1.0 - smoothstep(from, from + 0.18, clear));
+  // A cleared trail keeps a thin film of water, so it is never quite as clear as dry glass.
+  float fog = clamp(thick * mix(1.0, 0.86, day), 0.0, 1.0) * (1.0 - 0.82 * smoothstep(from, from + 0.18, clear));
   vec3 fogged = mix(misty, veil, 0.4) * mix(0.8, 0.9, day) + mix(vec3(0.0035, 0.0035, 0.0045), vec3(0.06, 0.062, 0.066), day);
   vec3 glass = mix(through, fogged, fog);
 
@@ -507,7 +508,7 @@ void main() {
   vec3 col = mix(glass, lensed, wet);
 
   // Light to screen: a soft shoulder, then display values, with a fixed dither against banding.
-  col = 1.0 - exp(-max(col, 0.0) * mix(1.15, 1.55, day));
+  col = 1.0 - exp(-max(col, 0.0) * mix(2.6, 1.55, day));
   col = pow(col, vec3(1.0 / 2.2));
   col += (hash(ip.x + 4096, ip.y + 4096) - 0.5) / 255.0;
   outColor = vec4(col, 1.0);
@@ -1152,6 +1153,7 @@ void main() {
     drawWater(view);
     drawPane(view);
   }
+  let frames = 0;
 
   ace.scene({
     init(view) {
@@ -1176,17 +1178,21 @@ void main() {
       });
       buildPrograms();
       fit(view);
+      // The warm-up runs here, before the first frame is timed.
+      if (!view.reduceMotion) start(view, WARM_UP);
     },
     resize(view) {
       // The glass keeps its drops; the mist map comes back misted, so trails start again.
       fit(view);
       stillDrawn = false;
+      frames = 0;
     },
     motion() {
       stillDrawn = false;
     },
     scheme() {
       stillDrawn = false;
+      frames = 0;
     },
     frame(time, view) {
       if (!programs || gl.isContextLost()) return;
@@ -1208,7 +1214,10 @@ void main() {
       clock += dt;
       // Fixed steps, so the rain is the same whatever the frame rate.
       runGlass(dt, work, view);
-      picture(view, moods(time));
+      // The city moves slowly and out of focus: every other frame is enough for it.
+      if (frames++ % 2 === 0) drawCities(view, moods(time));
+      drawWater(view);
+      drawPane(view);
     },
     signal(name) {
       if (name === "working") workUntil = now + 45_000;
