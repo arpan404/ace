@@ -40,6 +40,8 @@ pub struct Agent {
     pub updated_ms: i64,
     /// When its conversation last changed.
     pub last_activity_ms: i64,
+    /// When the person pinned it to the top of their list; `None` when it isn't pinned.
+    pub pinned_ms: Option<i64>,
 }
 
 /// What creating an agent needs.
@@ -55,7 +57,7 @@ pub struct NewAgent<'a> {
 }
 
 const COLUMNS: &str = "a.id, a.kind, a.name, a.task, a.avatar, a.model, a.conversation_id,
-    a.created_ms, a.updated_ms, c.updated_ms";
+    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms";
 
 fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
     Ok(Agent {
@@ -69,6 +71,7 @@ fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
         created_ms: row.get(7)?,
         updated_ms: row.get(8)?,
         last_activity_ms: row.get(9)?,
+        pinned_ms: row.get(10)?,
     })
 }
 
@@ -118,6 +121,18 @@ impl Store {
         ))?;
         let rows = statement.query_map([], agent)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Pins the agent at `now_ms`, or unpins it. Pinning a pinned agent keeps its place. Answers
+    /// false when there is no such agent.
+    pub fn set_agent_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
+        let connection = self.lock()?;
+        let changed = connection.execute(
+            "UPDATE agents SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+             WHERE id = ?1",
+            params![id, pinned, now_ms],
+        )?;
+        Ok(changed > 0)
     }
 
     pub fn agent(&self, id: &str) -> Result<Option<Agent>> {

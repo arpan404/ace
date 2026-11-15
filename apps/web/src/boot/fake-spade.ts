@@ -483,6 +483,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
 
   seedFakeCards(here);
   seedFakeGroup(here, now);
+  // A few pins, oldest first: the strip under the list's buttons.
+  for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
+    const agent = here.agents.find((each) => each.id === id);
+    if (agent) agent.pinned_at = now - (10 - index) * 60_000;
+  }
+  const lisbon = here.teams.groups.find((each) => each.id === "lisbon");
+  if (lisbon) lisbon.pinned_at = now - 5 * 60_000;
   seedFakeTranscript(here, (back) => {
     rewound = back * 60_000;
   });

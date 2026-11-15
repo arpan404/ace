@@ -64,6 +64,11 @@ export async function deleteGroup(target: SpadeTarget, id: string): Promise<void
   await spadeHttp(target, "DELETE", `/v1/groups/${segment(id)}`);
 }
 
+/** Pins a group to the strip under the list's buttons, or unpins it. */
+export async function pinGroup(target: SpadeTarget, id: string, pinned: boolean): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/groups/${segment(id)}/pin`, { body: { pinned } });
+}
+
 /** Starts a run: the lead answers, or each member named with `@`. */
 export async function postGroupMessage(
   target: SpadeTarget,

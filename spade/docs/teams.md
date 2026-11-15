@@ -16,7 +16,7 @@ with (kept for a bot whose machine is away). `away` is true while a member's mac
 reached.
 
 **Group** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
-"updated_at", "last_activity", "state", "status", "last_message", "seen_seq", "unseen"}`.
+"updated_at", "last_activity", "pinned_at", "state", "status", "last_message", "seen_seq", "unseen"}`.
 
 - `members` includes the lead, in the order the person chose.
 - `conversation` is the group's transcript: read it with `GET /v1/conversations/{id}/events` and
@@ -33,6 +33,7 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 
 | Method and path              | Body                                          | Answer                                   |
 | ---------------------------- | --------------------------------------------- | ---------------------------------------- |
+| `PUT /groups/{id}/pin`       | `{"pinned": bool}`                              | `200 {"group"}`; `404` (see Pins in agents.md) |
 | `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity` |
 | `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                          |
 | `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                          |

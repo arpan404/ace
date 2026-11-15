@@ -81,6 +81,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(agents::delete)
                 .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
         )
+        .route("/agents/{id}/pin", put(agents::pin))
         .route("/main", put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
         .route(
