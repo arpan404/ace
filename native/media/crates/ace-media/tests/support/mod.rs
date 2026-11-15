@@ -250,20 +250,41 @@ impl Media {
 }
 
 /// Connects a socket lane and returns it once accepted, or None when ace-media closed it
-/// without answering.
+/// without answering. The daemon's side of the lane hello (`media_wire::lane`): it sends its
+/// proof even when ace-media's doesn't check out against `secret`, so a test with the wrong
+/// secret sees ace-media itself refuse it.
 pub fn lane(path: &str, tag: u8, secret: [u8; 32]) -> Option<UnixStream> {
+    use media_wire::lane::{self, NONCE_LEN, SERVER_REPLY_LEN};
     let Ok(mut socket) = UnixStream::connect(path) else {
         panic!("control socket refused the connection");
     };
     let _ = socket.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut hello = b"ACEL".to_vec();
-    hello.push(tag);
-    hello.extend_from_slice(&secret);
+    let mut nonce = [0u8; NONCE_LEN];
+    let _ = ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce);
+    let hello = lane::hello(tag, &nonce).unwrap_or_else(|| {
+        let mut bytes = [0u8; lane::HELLO_LEN];
+        bytes[..4].copy_from_slice(lane::MAGIC);
+        bytes[4] = tag;
+        bytes
+    });
     let _ = socket.write_all(&hello);
+    let mut reply = [0u8; SERVER_REPLY_LEN];
+    if socket.read_exact(&mut reply).is_err() {
+        return None;
+    }
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret);
+    let server_ok =
+        ring::hmac::verify(&key, &lane::server_message(tag, &nonce), &reply[..32]).is_ok();
+    let mut server_nonce = [0u8; NONCE_LEN];
+    server_nonce.copy_from_slice(&reply[32..]);
+    let proof = ring::hmac::sign(&key, &lane::client_message(tag, &nonce, &server_nonce));
+    let _ = socket.write_all(proof.as_ref());
     let mut answer = [0u8; 1];
     match socket.read(&mut answer) {
-        Ok(1) if answer[0] == 1 => Some(socket),
+        Ok(1) if answer[0] == 1 && server_ok => Some(socket),
+        Ok(1) if answer[0] == 1 => panic!("accepted a lane whose server proof failed"),
         Ok(0) => None,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => None,
         other => panic!("unexpected lane answer {other:?}"),
     }
 }
