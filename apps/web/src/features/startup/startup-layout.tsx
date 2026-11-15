@@ -26,36 +26,44 @@ export function StartupLayout(props: {
     if (event.target === event.currentTarget && props.leaving) props.onLeft?.();
   };
   return (
+    // The cover itself is no Suit part: a Suit dresses the startup page (`page`, inside it), but
+    // whatever background or opacity it gives pages, the app mounting underneath never shows
+    // through. A scene Suit's see-through `page` once let the shell's skeletons show beside the
+    // mark.
     <div
       ref={frame}
       data-slot="startup-screen"
-      {...part("page", props.busy && "working", "startup")}
-      data-page="connect"
       data-leaving={props.leaving ? "" : undefined}
       aria-busy={props.busy}
       onTransitionEnd={ended}
       className="fixed inset-0 z-[141] bg-background text-foreground transition-opacity duration-(--motion-slow) ease-(--ease-out) data-leaving:pointer-events-none data-leaving:opacity-0"
     >
-      {/* The window has no title bar; the top strip moves it, as the shell's header does. */}
-      <div aria-hidden className="fixed inset-x-0 top-0 h-[50px] [-webkit-app-region:drag]" />
-      {/* Leaving, only the plain background fades: the app is already drawn underneath, and a
-          mark or status line fading out over a transcript reads as a glitch. */}
-      {!props.leaving && (
-        <>
-          <AceLogo
-            className={cn(
-              "absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2",
-              props.busy && "fx-breathe",
-            )}
-          />
-          <div
-            {...part("page-body")}
-            className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center"
-          >
-            {props.children}
-          </div>
-        </>
-      )}
+      <div
+        {...part("page", props.busy && "working", "startup")}
+        data-page="connect"
+        className="absolute inset-0"
+      >
+        {/* The window has no title bar; the top strip moves it, as the shell's header does. */}
+        <div aria-hidden className="fixed inset-x-0 top-0 h-[50px] [-webkit-app-region:drag]" />
+        {/* Leaving, only the plain background fades: the app is already drawn underneath, and a
+            mark or status line fading out over a transcript reads as a glitch. */}
+        {!props.leaving && (
+          <>
+            <AceLogo
+              className={cn(
+                "absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2",
+                props.busy && "fx-breathe",
+              )}
+            />
+            <div
+              {...part("page-body")}
+              className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center"
+            >
+              {props.children}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -141,3 +141,29 @@ test("a screen that takes over at boot is not hidden behind the startup screen",
   expect(document.querySelector('[data-slot="startup-screen"]')).toBeNull();
   expect(screen.getByRole("heading", { name: "Connect to ace" })).toBeTruthy();
 });
+
+test("a Suit that makes pages see-through still can't let the app show through the startup cover", () => {
+  const { startup } = clock();
+  // What a scene Suit writes so its backdrop shows behind every page.
+  const suitCss = document.createElement("style");
+  suitCss.textContent =
+    '[data-part="page"]{opacity:0.4;background:transparent}[data-part]{visibility:hidden}';
+  document.head.append(suitCss);
+  try {
+    render(
+      <AppFrame environment={{}} startup={startup}>
+        <StartupPending />
+      </AppFrame>,
+    );
+    const cover = covering();
+    expect(cover).toBeTruthy();
+    const style = getComputedStyle(cover as Element);
+    expect(style.opacity).not.toBe("0.4");
+    expect(style.visibility).not.toBe("hidden");
+    expect(style.backgroundColor).not.toBe("transparent");
+    // The Suit still dresses the startup page itself.
+    expect(cover?.querySelector('[data-part="page"][data-variant="startup"]')).toBeTruthy();
+  } finally {
+    suitCss.remove();
+  }
+});
