@@ -50,3 +50,24 @@ async fn one_plugin_arrives_with_its_rule_text_and_its_server_as_accepted() {
         "{missing:?}"
     );
 }
+
+#[tokio::test]
+async fn a_plugin_skills_files_are_listed_with_it_and_each_is_read_through_the_daemon() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon);
+    let plugin = skills.plugin_for_spade("style-kit").await;
+    let plugin = plugin.unwrap_or_else(|e| panic!("{e}"));
+    let tidy = plugin.components.iter().find(|c| c.name == "tidy");
+    let files = tidy.map(|c| c.files.clone()).unwrap_or_default();
+    assert_eq!(files.len(), 1);
+    assert_eq!((files[0].path.as_str(), files[0].bytes), ("guide.md", 5));
+    let bytes = skills
+        .plugin_file("style-kit", "skills/tidy/guide.md")
+        .await;
+    assert_eq!(bytes.unwrap_or_else(|e| panic!("{e}")), b"Guide");
+    let refused = skills.plugin_file("style-kit", "scripts/run.sh").await;
+    assert!(
+        matches!(refused, Err(SkillsError::Daemon { .. })),
+        "{refused:?}"
+    );
+}

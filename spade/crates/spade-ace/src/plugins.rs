@@ -60,6 +60,20 @@ pub struct Component {
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub omitted: Option<String>,
+    /// A skill's other files, by their path in its folder; fetched with
+    /// [`AceSkills::plugin_file`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<PluginFile>,
+}
+
+/// Mirrors `PluginSpadeFile`: one of a plugin skill's files besides `SKILL.md`, as accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginFile {
+    pub path: String,
+    pub bytes: u64,
+    pub hash: String,
+    #[serde(default)]
+    pub executable: bool,
 }
 
 /// Mirrors `PluginExecution`: something of the plugin's that runs, exactly as accepted.
@@ -147,6 +161,23 @@ impl AceSkills {
             .cloned()
             .and_then(|plugin| serde_json::from_value(plugin).ok())
             .ok_or_else(|| unexpected(response))
+    }
+
+    /// One file of an accepted plugin's skill, by its path in the plugin, with its content. The
+    /// daemon reads it and checks it against the accepted hash; Spade never reads the folder.
+    pub async fn plugin_file(&self, name: &str, path: &str) -> Result<Vec<u8>, SkillsError> {
+        use base64::Engine as _;
+        let response = self
+            .plugin_request(&json!({ "type": "plugins.spadeFile", "name": name, "path": path }))
+            .await?;
+        if response.get("type").and_then(Value::as_str) != Some("plugins.spadeFile") {
+            return Err(unexpected(response));
+        }
+        let content = response.get("content").and_then(Value::as_str);
+        match content.map(|c| base64::engine::general_purpose::STANDARD.decode(c.as_bytes())) {
+            Some(Ok(bytes)) => Ok(bytes),
+            _ => Err(unexpected(response)),
+        }
     }
 }
 

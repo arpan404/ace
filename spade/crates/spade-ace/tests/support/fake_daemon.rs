@@ -409,10 +409,22 @@ fn plugin_answer(message: &Value) -> Value {
         (Some("plugins.spade"), Some("style-kit")) => json!({ "type": "plugins.spade", "plugin": {
             "install": install, "enabled": false, "root": "/plugins/versions/d",
             "components": [{ "kind": "rule", "name": "style", "path": "rules/style.md",
-                "description": "", "text": "Use tabs." }],
+                "description": "", "text": "Use tabs." },
+                { "kind": "skill", "name": "tidy", "path": "skills/tidy/SKILL.md",
+                "description": "Tidy code", "text": "---\nname: tidy\n---\nTidy it.\n",
+                "files": [{ "path": "guide.md", "bytes": 5,
+                    "hash": "e".repeat(64), "executable": false }] }],
             "executions": [{ "kind": "stdio", "name": "lint", "command": "node",
                 "args": ["${PLUGIN_ROOT}/lint.js"], "env": { "MODE": "x" } }],
             "unsupported": [] } }),
+        (Some("plugins.spadeFile"), Some("style-kit"))
+            if request["path"] == "skills/tidy/guide.md" =>
+        {
+            use base64::Engine as _;
+            json!({ "type": "plugins.spadeFile", "path": "skills/tidy/guide.md",
+                "hash": "e".repeat(64), "executable": false,
+                "content": base64::engine::general_purpose::STANDARD.encode("Guide") })
+        }
         _ => {
             return json!({ "type": "error", "code": "plugin_failed",
                 "message": "Plugin not installed", "requestId": request_id });
