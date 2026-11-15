@@ -1,5 +1,6 @@
 // The native host stand-in loads before any bridge module reads it (the upload tray does).
 export { native as nativeHost } from "./test-host.ts";
+import { ClientError } from "@ace/client";
 import { BrowserPageMessage, type ServerMessage } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { BrowserLive, type BrowserOwner, type BrowserThreadContext } from "./browser-live.ts";
@@ -29,9 +30,9 @@ export async function liveBrowser(
      * How the daemon answers a subscribe naming a media connection (ADR 0147 §4): `binds` says
      * so in its reply, `refuses` refuses it as another session's, and by default it serves the
      * view on the main socket as the fake daemon does. `hangs`: its request waits until the test
-     * fails it (`hanging`), as a lost connection would.
+     * fails it (`hanging`), as a lost connection would. `fails`: its request fails at once.
      */
-    media?: "binds" | "refuses" | "hangs";
+    media?: "binds" | "refuses" | "hangs" | "fails";
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
     context?: Pick<
       BrowserThreadContext,
@@ -60,6 +61,7 @@ export async function liveBrowser(
           ok: false,
           error: "media-connection: that media connection isn't this session's",
         });
+      if (named && options.media === "fails") return Promise.reject(new ClientError("timeout"));
       if (named && options.media === "hangs")
         return new Promise((_resolve, reject) => void hanging.push(reject));
       const reply = client.request(message, requestOptions);

@@ -566,8 +566,11 @@ export class BrowserLive {
     const failed = (error: unknown) => {
       const next = this.#media.failed(watch.threadId, begun.generation, error);
       if (next === "resubscribe") refused = true;
-      // A deadline may have settled its delivery already (`ignore`): the request failed all the
-      // same, and climbs the ladder.
+      // To be tried again (its delivery settled on the channel, or the one it replaced restored,
+      // whose generation is then the source's again): it climbs the ladder.
+      else if (next === "retry") lost = true;
+      // `ignore` after the deadline settled its delivery, while it is still the latest: the
+      // request failed all the same. One a later subscribe superseded leaves that one to it.
       else if (this.#media.generation(watch.threadId) === begun.generation) lost = true;
     };
     // No answer in time: the thread stops waiting on the media connection (a late reply still
