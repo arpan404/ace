@@ -128,7 +128,7 @@ import XCTest
     private func openPull() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         app.openPulls()
         let row = app.buttons["forge.pull.245"]

@@ -12,7 +12,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--perf-probe"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-log-long"))
         let toggle = app.buttons.matching(identifier: "work.toggle").allElementsBoundByIndex.last { $0.isHittable }
         let work = try XCTUnwrap(toggle, "no settled log on screen")

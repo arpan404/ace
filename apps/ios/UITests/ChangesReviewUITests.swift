@@ -227,7 +227,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", "ios-changes"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func capture(_ name: String) {

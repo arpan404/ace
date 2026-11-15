@@ -36,8 +36,16 @@ process forward and drops `--spike` and every other argument. The fixture's `/he
 at `snapshots: 0`, and Threads shows "No computer paired", or a stalled skeleton if the simulator
 remembers a machine it can't reach (#2075). Measured on 2026-11-14 with the iOS 27.0 runtime
 (24A434): a plain launch after install connected 0 times out of 2, and a launch with
-`--terminate-running-process` connected every time. UI tests aren't affected, because
-`XCUIApplication.launch()` ends a running copy first.
+`--terminate-running-process` connected every time.
+
+UI tests hit the same thing. `XCUIApplication.launch()` ends a running copy first, but on a
+freshly booted iOS 27 simulator the first launch after an install can still land on the copy the
+system starts, without the test's arguments (#2086). Measured on 2026-11-15 with the iOS 27.0
+runtime: 4 of 6 cold-boot runs of `HomeShellUITests` drove an `Ace` process with no arguments,
+which listed no chats; a warm simulator never did. So UI tests launch with
+`launchWithArguments()` (`UITests/FixtureLaunch.swift`), which reads the arguments the app
+reports in its hidden `launch.arguments` element (fixture builds only) and launches again when
+they don't match.
 
 Use an **iOS 26.1** simulator runtime, not 26.2. The iOS 26.2 simulator's JavaScriptCore
 (runtime 23C52, JavaScriptCore UUID `0ED6EFCF-6A91-3C3A-845A-7B6AA4832FB6`) corrupts string
