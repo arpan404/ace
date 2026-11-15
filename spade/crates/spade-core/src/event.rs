@@ -535,6 +535,24 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<i32>,
     },
+    /// This bot was made as another bot's worker (ADR 0161): the first event of its conversation.
+    /// Its parent, its grants, its budget and the brief that starts it.
+    WorkerOf(crate::tree::Link),
+    /// This bot started a worker (ADR 0161): a bot it made, or an ace child of its `delegate`.
+    WorkerStarted(crate::tree::Started),
+    /// A worker of this bot settled (ADR 0161). The model reads it like a job's result.
+    WorkerReported(crate::tree::Report),
+    /// This worker's subtree budget was set or changed; `None` takes it away.
+    WorkerBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        budget_micros: Option<u64>,
+        /// Who set it: its parent's or an ancestor's name, or `person`.
+        by: String,
+    },
+    /// This worker no longer has a parent: its parent was deleted and the person kept it.
+    WorkerDetached {
+        by: String,
+    },
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -599,6 +617,8 @@ impl FailureKind {
 pub enum CapScope {
     Daily,
     Monthly,
+    /// A worker's subtree budget (ADR 0161): it doesn't reset.
+    Budget,
 }
 
 /// What the model review decided about a call.

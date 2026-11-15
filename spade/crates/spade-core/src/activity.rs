@@ -466,12 +466,30 @@ impl Log {
                 let words = format!("service {service} {}", cause.name());
                 self.push(stored, Kind::Task, Fields::named("service_ended", &words));
             }
+            // Its workers (ADR 0161).
+            Known::WorkerStarted(started) => {
+                let words = format!("started {} worker {}", started.kind.name(), started.name);
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("worker_started", &redact::one_line(&words)),
+                );
+            }
+            Known::WorkerReported(report) => {
+                let words = format!("{} {}", report.name, report.state.words());
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("worker_reported", &redact::one_line(&words)),
+                );
+            }
             Known::CapReached {
                 scope, cap_micros, ..
             } => {
                 let name = match scope {
                     CapScope::Daily => "daily",
                     CapScope::Monthly => "monthly",
+                    CapScope::Budget => "budget",
                 };
                 let words = format!("{} cap", crate::oversight::dollars(*cap_micros));
                 self.push(stored, Kind::Cap, Fields::named(name, &words));

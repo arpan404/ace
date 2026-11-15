@@ -42,13 +42,11 @@ impl Refusal {
         match self {
             Self::Service => "the service's daily cap".to_owned(),
             Self::InFlight => "a cap, counting the calls still running".to_owned(),
-            Self::Bot { hit, .. } => format!(
-                "the bot's {} cap",
-                match hit.scope {
-                    spade_core::event::CapScope::Daily => "daily",
-                    spade_core::event::CapScope::Monthly => "monthly",
-                }
-            ),
+            Self::Bot { hit, .. } => match hit.scope {
+                spade_core::event::CapScope::Daily => "the bot's daily cap".to_owned(),
+                spade_core::event::CapScope::Monthly => "the bot's monthly cap".to_owned(),
+                spade_core::event::CapScope::Budget => "its budget".to_owned(),
+            },
         }
     }
 }

@@ -531,5 +531,6 @@ fn scope_word(scope: spade_core::event::CapScope) -> &'static str {
     match scope {
         spade_core::event::CapScope::Daily => "daily",
         spade_core::event::CapScope::Monthly => "monthly",
+        spade_core::event::CapScope::Budget => "budget",
     }
 }
