@@ -157,8 +157,24 @@ export interface HostOperations {
 }
 export type HostOperation = keyof HostOperations;
 
-/** Socket actions the script asks for; native answers through `aceSocket`. */
-export type SocketAction = "open" | "send" | "close";
+/**
+ * Socket actions the script asks for; native answers through `aceSocket`. `send` is one text
+ * message; `bytes` one binary message, its value base64 (a media connection's hello).
+ */
+export type SocketAction = "open" | "send" | "bytes" | "close";
+
+/**
+ * What `socket(id, "open", value)` opens: "" for the runtime's own daemon socket, or this as JSON
+ * for a media connection (ADR 0147 §4). `url` is the `media.connect` address of ace-media's
+ * listener, held by native code to the runtime's own trust (the daemon's pinned WSS). Without
+ * it, or whenever the runtime reaches its machine through the relay, native code opens a relay
+ * stream with the `media` purpose. Native code only carries the connection: the ticket, hello,
+ * acks and reconnecting stay in the script. Stream pieces arriving on it go to the native live
+ * views exactly as the daemon socket's do.
+ */
+export interface MediaSocketOpen {
+  media: { url?: string };
+}
 
 /** What native code installs as `globalThis.aceHost` before the bundle runs. */
 export interface NativeHost {

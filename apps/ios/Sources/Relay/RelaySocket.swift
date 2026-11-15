@@ -5,6 +5,8 @@ import os
 protocol DaemonSocket: AnyObject, Sendable {
     func open()
     func send(_ text: String)
+    /// A binary message: only a direct media connection's hello is one.
+    func send(bytes: Data)
     func close()
 }
 extension PinnedSocket: DaemonSocket {}
@@ -19,6 +21,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private static let log = Logger(subsystem: "app.ace.ios", category: "relay")
 
     private let route: RelayRoute
+    /// The relay stream's purpose: nil for the daemon's own channels, `media` for a media
+    /// connection, whose stream the daemon hands to ace-media once it has admitted the hello.
+    private let purpose: String?
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?
     private let keys: @Sendable () -> (NoiseKeys, NoiseKeys)
@@ -43,10 +48,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         case secured(RelaySession)
     }
 
-    init(route: RelayRoute, streams: BrowserStreamHub? = nil,
+    init(route: RelayRoute, purpose: String? = nil, streams: BrowserStreamHub? = nil,
          keys: @escaping @Sendable () -> (NoiseKeys, NoiseKeys) = { (.generate(), .generate()) },
          event: @escaping @Sendable (String, SocketPayload) -> Void) {
-        self.route = route; self.streams = streams; self.keys = keys; self.event = event
+        self.route = route; self.purpose = purpose; self.streams = streams; self.keys = keys; self.event = event
         super.init()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
@@ -81,7 +86,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         }
     }
     private func connect(grant: String) {
-        guard !ended, let url = route.clientURL else { finish(4003, cause: "no relay address"); return }
+        guard !ended, let url = route.clientURL(purpose: purpose) else { finish(4003, cause: "no relay address"); return }
         let config = URLSessionConfiguration.ephemeral
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
         config.urlCache = nil
@@ -107,6 +112,11 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             } catch { self.finish(1009, cause: "message too large to send") }
         }
     }
+    /// A relay stream's hello is JSON (`channel: "media"` with its ticket), so the script never
+    /// sends binary on one: if it did, the stream ends rather than carry something undefined.
+    func send(bytes: Data) {
+        queue.addOperation { [weak self] in self?.finish(1002, cause: "binary message from the app") }
+    }
     func close() {
         queue.addOperation { [weak self] in
             guard let self else { return }
@@ -129,7 +139,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         guard var hello = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               hello["type"] as? String == "hello" else { return text }
         if hello["flowControl"] == nil { hello["flowControl"] = ["credit"] }
-        if hello["compression"] == nil, hello["channel"] as? String != "provider_auth" { hello["compression"] = ["deflate-raw"] }
+        // ace-media carries a media stream's text after the hand-over, and inflates nothing.
+        let plain = ["provider_auth", "media"].contains(hello["channel"] as? String ?? "")
+        if hello["compression"] == nil, !plain { hello["compression"] = ["deflate-raw"] }
         guard let data = try? JSONSerialization.data(withJSONObject: hello, options: [.withoutEscapingSlashes]) else { return text }
         return String(decoding: data, as: UTF8.self)
     }

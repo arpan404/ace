@@ -28,7 +28,11 @@ const expectedCpu = {
 };
 const cases = [
   ["degraded with a reason", onCpu, onCpu.reason],
-  ["degraded without a reason", { ...onCpu, reason: undefined }, "Video runs on the processor here."],
+  [
+    "degraded without a reason",
+    { ...onCpu, reason: undefined },
+    "Video runs on the processor here.",
+  ],
   ["on hardware", onHardware, ""],
   ["on the CPU by design", expectedCpu, ""],
   ["not chosen yet", undefined, ""],
@@ -36,7 +40,12 @@ const cases = [
 
 const browser = (acceleration: unknown) =>
   browserViewState(
-    BrowserState.parse({ threadId: "web", url: "https://example.com", closed: false, acceleration }),
+    BrowserState.parse({
+      threadId: "web",
+      url: "https://example.com",
+      closed: false,
+      acceleration,
+    }),
     { preview: plainPreview, agentName: () => "Agent", navigation: undefined },
   ).degraded;
 

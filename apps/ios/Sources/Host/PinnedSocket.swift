@@ -2,7 +2,8 @@ import Foundation
 import Security
 
 struct ConnectionTarget: Sendable {
-    let endpoint: URL
+    /// The daemon's socket; a media connection's copy points at ace-media's listener (`media(at:)`).
+    private(set) var endpoint: URL
     let hostId: String
     let deviceId: String
     let pin: String?
@@ -66,6 +67,20 @@ struct ConnectionTarget: Sendable {
     }
 }
 
+extension ConnectionTarget {
+    /// The same daemon's media listener at `url`, held to this target's rules: WSS with this
+    /// target's certificate pin (the daemon hands ace-media its own TLS identity), or plain WS on
+    /// loopback in the debug fixture. Nil for any other address, and for a relay target, whose
+    /// media stream goes through the relay instead.
+    func media(at url: URL) -> ConnectionTarget? {
+        guard relay == nil, url.host?.isEmpty == false else { return nil }
+        var media = self
+        media.endpoint = url
+        do { try media.validate() } catch { return nil }
+        return media
+    }
+}
+
 /// The host and device a machine's cache, outbox and notifications are bound to on this phone.
 struct MachineScope: Sendable, Equatable { let hostId: String; let deviceId: String }
 
@@ -112,6 +127,14 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     func send(_ text: String) {
         queue.addOperation { [weak self] in
             self?.task?.send(.string(text)) { [weak self] error in
+                if error != nil { self?.queue.addOperation { [weak self] in self?.finish(1006) } }
+            }
+        }
+    }
+    /// One binary message: a media connection's hello. Sent in order with the text ones.
+    func send(bytes: Data) {
+        queue.addOperation { [weak self] in
+            self?.task?.send(.data(bytes)) { [weak self] error in
                 if error != nil { self?.queue.addOperation { [weak self] in self?.finish(1006) } }
             }
         }

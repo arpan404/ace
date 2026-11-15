@@ -175,14 +175,30 @@ final class NativeHost: @unchecked Sendable {
                     HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
             }
-            let socket: any DaemonSocket = if let relay = target.relay {
-                RelaySocket(route: relay, streams: runtime?.browserStreams, event: event)
-            } else {
-                PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams, event: event)
+            // Pictures on either socket go to the same native views; each socket assembles its own.
+            let streams = runtime?.browserStreams
+            let socket: any DaemonSocket
+            switch (SocketOpening.parse(text), target.relay) {
+            case (.daemon, let relay?): socket = RelaySocket(route: relay, streams: streams, event: event)
+            case (.daemon, nil): socket = PinnedSocket(target: target, now: services.now, streams: streams, event: event)
+            // Through the relay a media connection is always a relay stream, whatever URL came with it:
+            // the phone has no pin for the machine's own listeners there.
+            case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", streams: streams, event: event)
+            case (.media(let url?), nil):
+                guard let media = target.media(at: url) else { event("close", .text("1008")); return }
+                socket = PinnedSocket(target: media, now: services.now, streams: streams, event: event)
+            default:
+                // A direct media connection without an address, or one that isn't this daemon's
+                // pinned WSS. Never 4003, which means a revoked device.
+                event("close", .text("1008")); return
             }
             sockets[id] = socket
             socket.open()
         case "send": sockets[id]?.send(text)
+        case "bytes":
+            // Base64 of one binary message, at most a media hello's few bytes in practice.
+            guard text.utf8.count <= 4096, let bytes = Data(base64Encoded: text), !bytes.isEmpty else { return }
+            sockets[id]?.send(bytes: bytes)
         case "close": sockets.removeValue(forKey: id)?.close()
         default: break
         }
