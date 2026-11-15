@@ -12,11 +12,14 @@ import {
   PictureChannel,
   pictureLinkLimits,
   type PictureTransport,
+  type PictureView,
 } from "@ace/browser/picture-channel";
 import {
   mediaSubscribed,
   viewLink,
+  viewSwap,
   viewViewport,
+  type HeldView,
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
 import type { MediaOwner } from "@ace/media/media-connections";
@@ -60,9 +63,16 @@ export function screenConnection(
   owner: string,
   peer: ScreenPeer,
 ): { request(input: unknown): Promise<void>; ack(input: unknown): void; close(): void } {
-  const subscriptions = new Map<string, () => void>();
-  /** Watched sessions ace-media delivers, by their viewer there. */
-  const delivered = new Map<string, string>();
+  /** Each watched session's view: what to release, and its view in ace-media if it has one. */
+  const subscriptions = new Map<string, { media: HeldView | undefined; release(): void }>();
+  /** A watched session's view ends: everything it holds, its view in ace-media included. */
+  const end = (sessionId: string) => {
+    const watch = subscriptions.get(sessionId);
+    if (!watch) return;
+    subscriptions.delete(sessionId);
+    watch.release();
+    if (watch.media) peer.delivery?.port()?.unbind(watch.media.viewer);
+  };
   let closed = false;
   let pending = 0;
   const later =
@@ -89,8 +99,7 @@ export function screenConnection(
       }),
     failed: (error) => {
       // Pictures that can't get out end every view on this connection; the host closes it.
-      for (const stop of subscriptions.values()) stop();
-      subscriptions.clear();
+      for (const sessionId of subscriptions.keys()) end(sessionId);
       peer.failed?.(error);
     },
   });
@@ -143,7 +152,6 @@ export function screenConnection(
     });
     if (viewer === undefined)
       throw new Error("media-connection: that media connection isn't this session's");
-    delivered.set(sessionId, viewer);
     return viewer;
   };
   return {
@@ -259,24 +267,54 @@ export function screenConnection(
             await manager.action(operation.sessionId, "human", operation.action, owner);
             break;
           case "subscribe": {
-            subscriptions.get(operation.sessionId)?.();
-            subscriptions.delete(operation.sessionId);
-            if (subscriptions.size >= 8) throw new Error("Screen subscription limit");
             const sessionId = operation.sessionId;
-            const viewer = operation.media
-              ? bindMedia(sessionId, operation.media.connection, operation)
-              : undefined;
+            // The session's earlier view keeps delivering until this one is set up: a failed
+            // resubscribe leaves it as it was (ace-media's view included, through `viewSwap`).
+            const previous = subscriptions.get(sessionId);
+            if (!previous && subscriptions.size >= 8) throw new Error("Screen subscription limit");
+            const connection = operation.media?.connection;
+            const viewer =
+              connection === undefined ? undefined : bindMedia(sessionId, connection, operation);
+            const media =
+              viewer !== undefined && connection !== undefined ? { viewer, connection } : undefined;
+            const swap = viewSwap(peer.delivery?.port(), previous?.media, media);
             const now = peer.now ?? (() => performance.now());
+            /** This view's pictures, opened once it is set up (opening replaces the old one's). */
+            let view: PictureView | undefined;
             // Video for a helper that makes only JPEG; the Mac's helper encodes its own.
             const converter = manager.openPictureVideo({
               host: () => peer.pictureEncoder?.(),
               sessionId,
               now,
               frame: (frame: Frame) => {
-                if (!closed) view.push(framePicture(frame));
+                if (!closed) view?.push(framePicture(frame));
               },
             });
-            const view = pictures.open(sessionId, {
+            let stop: (() => void) | undefined;
+            let state: ScreenState;
+            try {
+              // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
+              stop = manager.subscribeEvery(sessionId, (frame) => {
+                // Live views are video only: the stills agents read never reach a viewer, except
+                // encoded as video for one whose helper makes no video of its own.
+                // ace-media delivers this view on the client's media connection: none of its
+                // pictures go on this socket.
+                if (closed || viewer) return;
+                if (frame.header.codec === "h264") view?.push(framePicture(frame));
+                else converter.push(frame);
+              });
+              state = accelerated(ScreenState.parse(manager.state(sessionId)));
+            } catch (error) {
+              stop?.();
+              converter.close();
+              swap.abort();
+              throw error;
+            }
+            // Set up: the new view replaces the old one.
+            swap.commit();
+            subscriptions.delete(sessionId);
+            previous?.release();
+            const opened = pictures.open(sessionId, {
               keyframe: () => {
                 if (!converter.keyframe()) void manager.requestKeyframe(sessionId).catch(() => {});
               },
@@ -285,8 +323,9 @@ export function screenConnection(
               },
               link: pictureLinkLimits,
             });
+            view = opened;
             const follow = new LinkFollow({
-              rate: () => view.rate(),
+              rate: () => opened.rate(),
               apply: async (settings) => {
                 const result = await manager.configureStream(sessionId, settings);
                 if (result.codec === "h264" || settings.codec !== "h264") {
@@ -296,45 +335,17 @@ export function screenConnection(
                 return converter.want(settings) ? { codec: "h264" as const } : result;
               },
             });
-            try {
-              // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
-              const stop = manager.subscribeEvery(sessionId, (frame) => {
-                // Live views are video only: the stills agents read never reach a viewer, except
-                // encoded as video for one whose helper makes no video of its own.
-                // ace-media delivers this view on the client's media connection: none of its
-                // pictures go on this socket.
-                if (closed || viewer) return;
-                if (frame.header.codec === "h264") view.push(framePicture(frame));
-                else converter.push(frame);
-              });
-              follows.set(sessionId, follow);
-              cancelTick ??= later(1000, tick);
-              subscriptions.set(sessionId, () => {
-                stop();
-                if (viewer) {
-                  peer.delivery?.port()?.unbind(viewer);
-                  delivered.delete(sessionId);
-                }
-                view.close();
-                follow.close();
-                converter.close();
-                if (follows.get(sessionId) === follow) follows.delete(sessionId);
-              });
-            } catch (error) {
-              converter.close();
+            follows.set(sessionId, follow);
+            cancelTick ??= later(1000, tick);
+            const release = () => {
+              stop?.();
+              opened.close();
               follow.close();
-              view.close();
-              // The grant made for this subscribe goes with it.
-              if (viewer) {
-                peer.delivery?.port()?.unbind(viewer);
-                delivered.delete(sessionId);
-              }
-              throw error;
-            }
-            peer.send({
-              type: "screen.state",
-              state: accelerated(ScreenState.parse(manager.state(operation.sessionId))),
-            });
+              converter.close();
+              if (follows.get(sessionId) === follow) follows.delete(sessionId);
+            };
+            subscriptions.set(sessionId, { media, release });
+            peer.send({ type: "screen.state", state });
             if (viewer && operation.media) {
               const poster = await peer.delivery?.port()?.poster(viewer);
               respond({ ok: true, media: mediaSubscribed(operation.media.connection, poster) });
@@ -344,7 +355,7 @@ export function screenConnection(
           }
           case "stream.configure": {
             // A view ace-media delivers is planned there at the size it asks for.
-            const mediaViewer = delivered.get(operation.sessionId);
+            const mediaViewer = subscriptions.get(operation.sessionId)?.media?.viewer;
             if (mediaViewer) {
               peer.delivery?.port()?.configure(
                 mediaViewer,
@@ -368,8 +379,7 @@ export function screenConnection(
             break;
           }
           case "unsubscribe":
-            subscriptions.get(operation.sessionId)?.();
-            subscriptions.delete(operation.sessionId);
+            end(operation.sessionId);
             break;
           case "record.start":
             await manager.startRecording(operation.sessionId);
@@ -410,8 +420,7 @@ export function screenConnection(
       cancelTick?.();
       cancelTick = undefined;
       pictures.close();
-      for (const stop of subscriptions.values()) stop();
-      subscriptions.clear();
+      for (const sessionId of subscriptions.keys()) end(sessionId);
       unwatch();
       unwatchAcceleration?.();
       unwatchEnabled();

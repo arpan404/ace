@@ -795,6 +795,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },

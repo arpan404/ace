@@ -11,6 +11,7 @@ import { ThreadId, AgentId } from "@ace/protocol";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
 import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -651,4 +652,56 @@ it("a Simulator streams to a person and is handed to an agent while computer use
   });
   expect(f.screen.isEnabled()).toBe(false);
   expect(f.screen.states()).toMatchObject([{ controller: "agent", lifecycle: "live" }]);
+});
+
+it("a resubscribe on the same media connection that fails keeps delivering on the view it had", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  const d = fakeDelivery();
+  const failing = { on: false };
+  const sent: DeviceServerMessage[] = [];
+  const channel = reserveDevices(f.service, "browser-1", {
+    authorize: () => true,
+    canReadThread: () => true,
+    agentExists: () => true,
+    async send(message) {
+      sent.push(message);
+    },
+    media: { bufferedBytes: () => 0, async write() {} },
+    delivery: {
+      owner: () => phoneOwner,
+      // The view's first picture for the answer: failing here fails the subscribe after its
+      // view was granted.
+      port: () => ({
+        ...d.port,
+        poster: () =>
+          failing.on ? Promise.reject(new Error("poster gone")) : Promise.resolve(undefined),
+      }),
+    },
+  });
+  onTestFinished(() => channel.close());
+  channel.activate();
+  const request = async (requestId: string, operation: Record<string, unknown>) => {
+    await channel.request({ type: "devices.request", requestId, operation });
+    const result = sent.findLast((m) => m.type === "devices.result" && m.requestId === requestId);
+    if (!result) throw new Error(`no answer to ${requestId}`);
+    return result;
+  };
+  await request("enable", { op: "enable", enabled: true });
+  await request("list", { op: "list" });
+  await request("start", { op: "start", deviceId, fps: 10 });
+  const media = { connection: "mc_aaaaaaaaaaaa" };
+  expect(await request("first", { op: "subscribe", deviceId, media })).toMatchObject({ ok: true });
+  const [first] = d.live;
+  expect(first).toBeDefined();
+  failing.on = true;
+  expect(await request("again", { op: "subscribe", deviceId, media })).toMatchObject({ ok: false });
+  failing.on = false;
+  // Its new view replaced the old one in ace-media, then was undone: the old one delivers again.
+  expect([...d.live]).toEqual([first]);
+  expect(d.views.size).toBe(1);
+  // The subscription still holds it: leaving closes it.
+  await request("leave", { op: "unsubscribe", deviceId });
+  expect(d.live.size).toBe(0);
+  expect(d.views.size).toBe(0);
 });
