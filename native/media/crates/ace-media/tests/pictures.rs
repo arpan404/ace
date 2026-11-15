@@ -64,7 +64,7 @@ fn picture(step: u32) -> Vec<u8> {
     }
 }
 
-fn read_egress(lane: &mut UnixStream) -> Egress {
+fn read_egress(lane: &mut support::SealedLane) -> Egress {
     let mut head = [0u8; 24];
     if let Err(e) = lane.read_exact(&mut head) {
         panic!("egress lane: {e}");

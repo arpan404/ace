@@ -4,7 +4,7 @@
 //! they are compared in constant time, wiped when dropped, and kept on locked pages where the
 //! OS permits (best effort).
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub const SECRET_LEN: usize = 32;
 /// Live tickets and tokens at once. A full vault refuses the grant rather than spill a secret
@@ -137,6 +137,24 @@ impl LaneSecret {
         let tag = ring::hmac::sign(&key, message);
         let mut out = zeroize::Zeroizing::new([0u8; 32]);
         out.copy_from_slice(tag.as_ref());
+        out
+    }
+
+    /// HKDF-SHA256 (RFC 5869) from the secret, `salt` and the concatenation of `info`: a
+    /// lane's directional key.
+    pub fn derive_key(&self, salt: &[u8], info: &[&[u8]]) -> Zeroizing<[u8; 32]> {
+        struct Length;
+        impl ring::hkdf::KeyType for Length {
+            fn len(&self) -> usize {
+                32
+            }
+        }
+        let mut out = Zeroizing::new([0u8; 32]);
+        let prk = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, salt).extract(&self.bytes.0);
+        // A 32-byte output is far within HKDF's limit, so expand and fill cannot fail.
+        if let Ok(okm) = prk.expand(info, Length) {
+            let _ = okm.fill(&mut out[..]);
+        }
         out
     }
 

@@ -109,6 +109,20 @@ impl<const INTERVAL: u64> Transport<INTERVAL> {
             flow,
         })
     }
+    /// Two fresh keys at nonce 0 and no flow credit: a private channel between two processes
+    /// that derived its keys itself (ace-media's control lanes), not a relay key block.
+    pub fn from_keys(send: Zeroizing<[u8; 32]>, receive: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
+        if INTERVAL == 0 {
+            return Err(Error::InvalidKeyBlock);
+        }
+        Ok(Self {
+            send: CipherState::new(send, 0)?,
+            receive: CipherState::new(receive, 0)?,
+            sent: 0,
+            received: 0,
+            flow: FlowCredit::default(),
+        })
+    }
     /// Copying wrapper over `seal_in_place`; the plaintext copy is wiped on failure.
     pub fn seal(&mut self, plain: &[u8]) -> Result<Vec<u8>, Error> {
         let mut out = Zeroizing::new(Vec::with_capacity(plain.len() + 16));

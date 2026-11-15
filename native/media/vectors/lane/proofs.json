@@ -1,5 +1,5 @@
 {
-  "description": "Lane hello proofs (docs/media/plan.md, K1 contract clarifications): HMAC-SHA256 keyed by the lane secret over a direction label, the lane tag and the nonces.",
+  "description": "Lane hello (docs/media/plan.md, K1 contract clarifications): HMAC-SHA256 proofs keyed by the lane secret over a direction label, the lane tag and the nonces; then HKDF-SHA256 keys per direction over the transcript, and every lane byte in u16-length-prefixed ChaCha20-Poly1305 records (Noise CipherState nonces, empty AD).",
   "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
   "clientNonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
   "serverNonce": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
@@ -11,14 +11,25 @@
       "serverMessage": "6163652d6d65646961206c616e652076312073657276657201a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "clientMessage": "6163652d6d65646961206c616e6520763120636c69656e7401a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "serverProof": "b2da17d1ffcc267533e2f98e9d7dc831fcfba38e634c8c1027a96646561eb67e",
-      "clientProof": "812d0b9c549b9a575f1512d96ee499a7e0c82b4d413e4f3f89a68615b5d6e54e"
+      "clientProof": "812d0b9c549b9a575f1512d96ee499a7e0c82b4d413e4f3f89a68615b5d6e54e",
+      "toMediaKey": "7918339680a246c85c4f6102530c559477e466ddf95abf5c384ba8cd56026fec",
+      "toDaemonKey": "b4e58fb2ca38b802e901ebf3cdf9d4163f107947e636aa0ff99df757b22ccf45",
+      "acceptRecord": "001196f9e9932919411060e4f0e25403ec569b",
+      "firstRecord": "0014d4004ded61d72e590c371ec44ec810ef72c80d82"
     },
     {
       "tag": 2,
       "serverMessage": "6163652d6d65646961206c616e652076312073657276657202a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "clientMessage": "6163652d6d65646961206c616e6520763120636c69656e7402a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "serverProof": "10680b95ed505f96f12e0d2b5cd35fb20cdf774540f8ed281031e8302ee63e18",
-      "clientProof": "99138eca86eed5414f84d403365463031a5545e59e62a26a60159aeb6b737d79"
+      "clientProof": "99138eca86eed5414f84d403365463031a5545e59e62a26a60159aeb6b737d79",
+      "toMediaKey": "55a9d23b6f6ed2c3f3755395e1a878fdcdc4228e337a027aca6e1f617962c666",
+      "toDaemonKey": "d0e91b4c845682d58d9c12546cdae1b6bbad8ec1e4898f249b54543dc7681929",
+      "acceptRecord": "001123b6f514439d2da727f2857f0fb1f42e2c",
+      "firstRecord": "0014c986e453e36ed907cd75abe6b05f4a1d9be10e3c"
     }
-  ]
+  ],
+  "keySalt": "ace-media lane v1 keys",
+  "toMediaLabel": "daemon to media",
+  "toDaemonLabel": "media to daemon"
 }

@@ -3,6 +3,7 @@
 //! holds the lane secret first, with a MAC over the daemon's fresh nonce; the daemon then proves
 //! it, with a MAC over both nonces. The secret never goes on the wire, a proof from another
 //! connection or for the other direction fails, and each lane is accepted once.
+use crate::lane_cipher::{LaneKeys, derive};
 use crate::secret::LaneSecret;
 use media_wire::lane::{self, NONCE_LEN, PROOF_LEN, SERVER_REPLY_LEN};
 use subtle::ConstantTimeEq;
@@ -30,11 +31,17 @@ pub struct Challenge {
     lane: SocketLane,
     reply: [u8; SERVER_REPLY_LEN],
     expected: Zeroizing<[u8; PROOF_LEN]>,
+    /// The lane's record keys, from the secret and this hello's transcript.
+    keys: Option<LaneKeys>,
 }
 impl Challenge {
     /// ace-media's proof, then its nonce.
     pub fn reply(&self) -> &[u8; SERVER_REPLY_LEN] {
         &self.reply
+    }
+    /// The keys every record of an accepted lane is sealed with; once.
+    pub fn take_keys(&mut self) -> Option<LaneKeys> {
+        self.keys.take()
     }
 }
 
@@ -79,10 +86,12 @@ impl LaneAuth {
             .copy_from_slice(&secret.mac(&lane::server_message(tag, &client_nonce))[..]);
         reply[PROOF_LEN..].copy_from_slice(&server_nonce);
         let expected = secret.mac(&lane::client_message(tag, &client_nonce, &server_nonce));
+        let keys = Some(derive(secret, tag, &client_nonce, &server_nonce));
         Some(Challenge {
             lane,
             reply,
             expected,
+            keys,
         })
     }
 
