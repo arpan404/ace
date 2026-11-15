@@ -503,3 +503,27 @@ it("c. a late reply to a call sent before an outage doesn't make the outage's fa
   await run(h, h.clock.now + 2 * POLL);
   expect(h.state(child)).toBe("done");
 });
+
+it("c. a read sent during an outage that fails after the machine is back starts no wait of its own", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const child = h.add("child");
+  h.report(child, working);
+  await run(h, h.clock.now + 2_000);
+  // Down long enough for its reads to wait 30 s between tries.
+  h.reads.error = new MachineFailure("offline");
+  await run(h, h.clock.now + 3 * 60_000);
+  // Its next read goes out while the machine is still down, and takes a while to time out.
+  const { held } = await holdNextRead(h);
+  h.reads.error = undefined;
+  h.report(child, done("Done."));
+  // A description sent after it gets through: the machine is back.
+  h.clock.now += POLL;
+  h.children.machineReachable("studio", h.clock.now);
+  // The read's failure arrives ten seconds on, after the recovery.
+  h.clock.now += 10_000;
+  await held.release();
+  await h.children.flush();
+  // It is read again at once, not after another 30 s wait.
+  await run(h, h.clock.now + 2 * POLL);
+  expect(h.state(child)).toBe("done");
+});
