@@ -37,17 +37,17 @@ const looks = {
     fireflies: [206, 220, 238],
   },
   light: {
-    sky: ["#dfe5ee", "#e7ebf2", "#eff1f5", "#f8f5f0"],
+    sky: ["#e1e5ea", "#e8ebef", "#f0f1f3", "#f7f5f2"],
     glow: [255, 240, 218],
     glowAlpha: 0.85,
-    ridges: ["#dce2eb", "#cfd7e2", "#c1cbd9", "#b4c0d0", "#a8b5c7"],
-    ridgeFoot: ["#e9edf3", "#dfe5ed", "#d3dbe6", "#c7d1de", "#bbc6d5"],
+    ridges: ["#dee2e7", "#d2d7dd", "#c5cbd3", "#b8bfc9", "#adb5bf"],
+    ridgeFoot: ["#eaedf0", "#e1e5ea", "#d6dbe1", "#cbd1d8", "#bfc6cf"],
     mist: [255, 255, 255],
     mistAlpha: 0.42,
-    water: ["#eef0f4", "#e2e7ee", "#d6dde7"],
+    water: ["#eff0f2", "#e4e7eb", "#d8dde3"],
     waterInk: [
-      [238, 240, 244],
-      [214, 221, 231],
+      [239, 240, 242],
+      [216, 221, 227],
     ],
     reflect: 0.45,
     shimmer: [255, 255, 255],
@@ -407,7 +407,7 @@ function flock(t, width, height, look) {
   const along = leftward ? 1.08 - p * 1.16 : -0.08 + p * 1.16;
   const high = 0.16 + chance(turn, 7) * 0.16;
   const span = Math.max(4, width * 0.0042);
-  ctx.strokeStyle = rgba(look.birds, 0.5);
+  ctx.strokeStyle = rgba(look.birds, 0.34);
   ctx.lineWidth = 1.1;
   ctx.lineCap = "round";
   ctx.beginPath();

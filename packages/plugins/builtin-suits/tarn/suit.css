@@ -58,7 +58,8 @@
   --suit-plate: #ffffff;
   --suit-well: rgb(24 28 34 / 0.055);
   --suit-page-background: color-mix(in oklab, var(--color-background) 40%, transparent);
-  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 52%, transparent);
+  /* Near-white and mostly solid: ace's status colours are tuned for a pale sidebar. */
+  --suit-sidebar-background: rgb(253 253 254 / 0.9);
 }
 [data-scheme="dark"] [data-part="app"],
 [data-scheme="dark"] [data-part="menu"],
@@ -320,6 +321,11 @@
 [data-part="issue-row"]:hover,
 [data-part="check-row"]:hover {
   background: var(--suit-wash-1);
+}
+/* A state pill's label is white, as on ace's own white page, not the Suit's off-white canvas. */
+[data-scheme="light"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
+  color: #ffffff;
 }
 [data-part="branch-chip"] {
   font-family: var(--font-mono);
