@@ -465,8 +465,14 @@ struct ThreadView: View {
                          },
                          // A long paste goes as a text file, as the web's does; the chip can put it back.
                          pasteLong: screen.attachmentsLocked != nil ? nil : { words in
-                             if let file = ComposerIntake.stage(paste: words, into: AttachmentStaging()) { model.attach(file) }
-                             else { restore = ComposerRestore(text: words) }
+                             Task {
+                                 // Staged off the main actor; one past the file limit is refused in words, never put in the field.
+                                 switch await ComposerIntake.stage(paste: words, into: AttachmentStaging()) {
+                                 case .file(let file): attachProblem = nil; model.attach(file)
+                                 case .refused(let why): attachProblem = why
+                                 case .words: restore = ComposerRestore(text: words)
+                                 }
+                             }
                          },
                          restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
@@ -482,9 +488,13 @@ struct ThreadView: View {
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
                 ComposerAccessories(model: model, screen: screen, problem: attachProblem) { localId in
-                    guard let words = ComposerIntake.pastedText(localId, in: AttachmentStaging()) else { return }
-                    model.detach(localId)
-                    restore = ComposerRestore(text: words)
+                    Task {
+                        guard let words = await ComposerIntake.pastedText(localId, in: AttachmentStaging()) else {
+                            attachProblem = "Couldn't read the paste back."; return
+                        }
+                        model.detach(localId)
+                        restore = ComposerRestore(text: words)
+                    }
                 }
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)

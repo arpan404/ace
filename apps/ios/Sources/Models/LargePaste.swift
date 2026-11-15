@@ -21,6 +21,12 @@ enum LargePaste {
         return File(name: name(lines), lines: lines)
     }
 
+    /// Whether a paste goes as a file, decided as the person pastes: its length first, and its
+    /// lines only when it is short enough to go inline, so a huge paste costs nothing here.
+    static func isLong(_ text: String) -> Bool {
+        text.utf16.count > maxInlineChars || lineCount(text) > maxInlineLines
+    }
+
     /// Whether a file is one a paste became, by its name.
     static func isPasted(_ name: String) -> Bool {
         name.wholeMatch(of: /Pasted \d+ lines?\.txt/) != nil

@@ -67,15 +67,62 @@ enum ComposerIntake {
         return result
     }
 
-    /// A long paste staged as the text file the web makes of it (`LargePaste`); nil for a paste
-    /// short enough to go in as words, or one that couldn't be written.
-    static func stage(paste text: String, into staging: AttachmentStaging) -> StagedAttachment? {
-        guard let file = LargePaste.file(for: text) else { return nil }
-        return try? staging.stage(data: Data(text.utf8), name: file.name, mimeType: "text/plain")
+    /// What a paste becomes.
+    enum Paste: Equatable, Sendable {
+        /// Short enough to go in as words.
+        case words
+        /// A text file on the message (`LargePaste`).
+        case file(StagedAttachment)
+        /// Why it can't go: past the file limit, or it couldn't be written.
+        case refused(String)
+    }
+    /// One file's limit, the web's and the daemon's default (`@ace/ui-core` `attachmentLimits.fileBytes`),
+    /// with the web's words for a file past it (`attachmentSizeProblem`).
+    static let fileBytes = 512 * 1024 * 1024
+    static let tooLarge = "Too large: files can be up to 512 MB each"
+    /// The longest paste that can go back into the field as text: more makes the field unusable.
+    static let restoreBytes = 1024 * 1024
+
+    /// A paste, off the main actor: words when short, else the text file the web makes of it,
+    /// written a slice at a time and hashed as `AttachmentStaging` streams it. Past `limit` it is
+    /// refused before anything is written.
+    @concurrent static func stage(paste text: String, into staging: AttachmentStaging, limit: Int = fileBytes) async -> Paste {
+        guard let file = LargePaste.file(for: text) else { return .words }
+        var text = text
+        text.makeContiguousUTF8()
+        guard text.utf8.count <= limit else { return .refused(tooLarge) }
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ace-paste-\(UUID().uuidString)")
+        do {
+            guard FileManager.default.createFile(atPath: scratch.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
+            let handle = try FileHandle(forWritingTo: scratch)
+            defer { try? handle.close() }
+            // A native string is one run of UTF-8 (`makeContiguousUTF8`): written from it, a slice at a time.
+            let written: Void? = try text.utf8.withContiguousStorageIfAvailable { bytes in
+                let slice = 256 * 1024
+                var start = 0
+                while start < bytes.count {
+                    try handle.write(contentsOf: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: bytes[start..<min(start + slice, bytes.count)])))
+                    start += slice
+                }
+            }
+            if written == nil { try handle.write(contentsOf: Data(text.utf8)) }
+            try handle.close()
+            return .file(try staging.stage(moving: scratch, name: file.name, mimeType: "text/plain"))
+        } catch {
+            try? FileManager.default.removeItem(at: scratch)
+            return .refused("Couldn't attach the paste. Try again.")
+        }
     }
 
-    /// A staged paste's words, to put back in the message as text.
-    static func pastedText(_ localId: String, in staging: AttachmentStaging) -> String? {
+    /// Whether a file on the message is a paste that can go back into the field as text: the
+    /// phone made it (`LargePaste` name, not carried from another message), it is short enough
+    /// for the field, and its staged copy is still here, whatever became of its upload.
+    static func restorable(_ file: AttachmentFile, in staging: AttachmentStaging) -> Bool {
+        file.carried == nil && LargePaste.isPasted(file.name) && file.bytes <= restoreBytes && staging.holds(file.id)
+    }
+
+    /// A staged paste's words, read off the main actor, to put back in the message as text.
+    @concurrent static func pastedText(_ localId: String, in staging: AttachmentStaging) async -> String? {
         guard let url = staging.file(localId), let data = try? Data(contentsOf: url) else { return nil }
         return String(data: data, encoding: .utf8)
     }

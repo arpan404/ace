@@ -29,7 +29,7 @@ struct ComposerMediaStrip: View {
                         ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
                         AttachmentChip(file: file, remove: { remove(file.id) },
-                                       asText: asText.flatMap { asText in pasted(file) ? { asText(file.id) } : nil })
+                                       asText: asText.flatMap { asText in ComposerIntake.restorable(file, in: staging) ? { asText(file.id) } : nil })
                     }
                 }
             }
@@ -49,13 +49,6 @@ struct ComposerMediaStrip: View {
                 MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
             }
         }
-    }
-}
-
-extension ComposerMediaStrip {
-    /// A paste the phone made into a file and still holds, so its words can go back as text.
-    private func pasted(_ file: AttachmentFile) -> Bool {
-        file.carried == nil && file.state != "failed" && LargePaste.isPasted(file.name)
     }
 }
 

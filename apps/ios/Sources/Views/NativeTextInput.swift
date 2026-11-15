@@ -175,7 +175,7 @@ struct CaretPlacement: Equatable {
     override func paste(_ sender: Any?) {
         if let pasteFiles, ComposerIntake.pastesFiles() { pasteFiles(UIPasteboard.general.itemProviders); return }
         // Read only inside Paste itself, which the person chose, so it never asks for permission.
-        if let pasteLong, let words = UIPasteboard.general.string, LargePaste.file(for: words) != nil { pasteLong(words); return }
+        if let pasteLong, let words = UIPasteboard.general.string, LargePaste.isLong(words) { pasteLong(words); return }
         super.paste(sender)
     }
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
