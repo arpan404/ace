@@ -79,7 +79,10 @@ fn each_backend_absent_in_turn_takes_the_cpu_and_last_resort_steps() {
         let steps = picture_steps(&present);
         let report = assess(&present, steps);
         let encode = report.steps.iter().find(|s| s.step == Step::Encode);
-        assert_eq!(encode.map(|s| (s.backend, s.hardware)), Some((backend, true)));
+        assert_eq!(
+            encode.map(|s| (s.backend, s.hardware)),
+            Some((backend, true))
+        );
         assert!(!report.degraded, "{backend:?} present: {report:?}");
 
         let absent = machine(None);

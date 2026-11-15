@@ -22,12 +22,13 @@ pub fn chrome_options(
 pub fn chrome_trial(
     options: media_chrome::ChromeOptions,
     deadline: Duration,
+    cancel: &crate::probe::Cancel,
     done: impl FnOnce(Capability) + Send + 'static,
 ) {
+    let cancel = cancel.flag();
     let _ = std::thread::Builder::new()
         .name("probe-chrome".into())
         .spawn(move || {
-            let cancel = std::sync::Arc::default();
             done(media_chrome::probe(options, deadline, cancel));
         });
 }

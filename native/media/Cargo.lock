@@ -14,6 +14,8 @@ dependencies = [
  "media-core",
  "media-mp4",
  "media-noise",
+ "media-nv",
+ "media-vaapi",
  "media-vt",
  "media-wire",
  "serde_json",

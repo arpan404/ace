@@ -28,7 +28,9 @@ fn sentence(step: Step, listed_failed: bool) -> &'static str {
         (Step::JpegEncode, _) => {
             "Stills are made on the processor here: the hardware JPEG encoder failed."
         }
-        (Step::Scale, _) => "Pictures are scaled on the processor here: the hardware scaler failed.",
+        (Step::Scale, _) => {
+            "Pictures are scaled on the processor here: the hardware scaler failed."
+        }
     }
 }
 
