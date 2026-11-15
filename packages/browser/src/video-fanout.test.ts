@@ -228,7 +228,7 @@ describe("video to each viewer at its own pace", () => {
     fanout.assign("phone", "e2");
     fanout.publish("e2", numbered(1, true));
     expect(phone.received).toHaveLength(2);
-    fanout.forget("phone", old);
+    fanout.forget("phone", old ?? -1);
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 1]);
   });
 
