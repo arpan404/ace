@@ -14,6 +14,7 @@ import {
   withSkillFolder,
 } from "./skill-files.ts";
 import { SkillDisk, sameDirectory } from "./skill-disk.ts";
+import { listSkillFolder, readSkillFolderFile } from "./skill-folder-files.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
@@ -257,7 +258,8 @@ export class SkillLibrary {
   }
   /** Reads are answered from the watched cache; a change reads the disk throughout. */
   private async run(op: SkillOperation): Promise<SkillResult> {
-    if (op.op === "list" || op.op === "read" || op.op === "usage") return this.perform(op);
+    if (op.op === "list" || op.op === "read" || op.op === "files" || op.op === "usage")
+      return this.perform(op);
     this.changing = true;
     try {
       return await this.perform(op);
@@ -444,6 +446,8 @@ export class SkillLibrary {
         this.notify();
         return this.skill(op.id, op.workspaceId);
       }
+      case "files":
+        return this.files(op.id, op.workspaceId, op.path);
       case "cancelUpdate":
         await this.updates?.cancel(op.reviewId);
         return { kind: "cancelled", reviewId: op.reviewId };
@@ -459,6 +463,34 @@ export class SkillLibrary {
           ),
         };
       }
+    }
+  }
+  /** A skill's files, or one of them (ADR 0151), through its folder opened without links. */
+  private async files(
+    id: string,
+    workspaceId: string | undefined,
+    path: string | undefined,
+  ): Promise<SkillResult> {
+    const { place } = await this.find(id, workspaceId);
+    const supplier =
+      place.canonical ??
+      place.members.find((member) => member.real === place.real) ??
+      place.members[0];
+    // A plugin's skill has no folder here: its files are the plugin's.
+    if (!supplier) throw new SkillError("read_only", "Open the plugin to read this skill's files.");
+    const folder = await this.disk.openPath(
+      place.canonical?.real ?? place.real,
+      skillRootLane(supplier.root),
+    );
+    if (folder === undefined)
+      throw new SkillError("not_found", "This skill's folder moved. Reload the list.");
+    try {
+      if (path === undefined)
+        return { kind: "files", id, ...(await listSkillFolder(this.disk, folder)) };
+      const { file, bytes } = await readSkillFolderFile(this.disk, folder, path);
+      return { kind: "file", id, file, content: bytes.toString("base64") };
+    } finally {
+      await this.disk.closeDirectory(folder);
     }
   }
   private requireUpdates(): SkillUpdates {

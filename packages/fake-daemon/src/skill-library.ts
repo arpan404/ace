@@ -251,6 +251,11 @@ export class FakeSkillLibrary {
       this.reviews.delete(operation.reviewId);
       return { kind: "cancelled", reviewId: operation.reviewId };
     }
+    // Seeded skills are SKILL.md alone.
+    if (operation.op === "files")
+      return operation.path === undefined
+        ? { kind: "files", id: operation.id, files: [], omitted: [] }
+        : error("not_found", `This skill has no file ${operation.path}.`);
     if (operation.op === "usage")
       return {
         kind: "usage",

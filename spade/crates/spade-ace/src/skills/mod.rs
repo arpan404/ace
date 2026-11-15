@@ -9,14 +9,17 @@
 mod socket;
 mod wire;
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use base64::Engine as _;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 pub use crate::config::SkillsConfig;
 use socket::Socket;
 use wire::Operation;
+pub use wire::SkillFile;
 
 /// Where a skill lives (`SkillScope` in `packages/protocol/src/skill-library.ts`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +69,21 @@ pub struct SkillText {
     pub text: String,
     /// The whole result as the daemon sent it.
     pub raw: Value,
+}
+
+/// A skill's files besides SKILL.md, as the daemon listed them (ADR 0151).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkillFiles {
+    pub files: Vec<SkillFile>,
+    /// What the daemon left out (too large, too many, not a file), as sent.
+    pub omitted: Vec<Value>,
+}
+
+/// One of a skill's files with its content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillFileBytes {
+    pub file: SkillFile,
+    pub bytes: Vec<u8>,
 }
 
 /// The daemon's typed refusals (`SkillErrorCode` in `packages/protocol/src/skill-library.ts`).
@@ -130,6 +148,8 @@ pub struct AceSkills {
     config: SkillsConfig,
     socket: Mutex<Option<Socket>>,
     next_id: AtomicU64,
+    /// Rung by a pushed `skills.changed` and when a socket ends.
+    changed: Arc<Notify>,
 }
 
 impl AceSkills {
@@ -139,6 +159,73 @@ impl AceSkills {
             config,
             socket: Mutex::new(None),
             next_id: AtomicU64::new(0),
+            changed: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Waits until the library may have changed since [`AceSkills::list_watched`]: the daemon
+    /// pushed a change, or the socket it was subscribed on ended. One waiter at a time; a change
+    /// that came while nobody waited is kept for the next wait.
+    pub async fn changed(&self) {
+        self.changed.notified().await;
+    }
+
+    /// Like [`AceSkills::list`] for personal, plugin and builtin skills, and subscribes the
+    /// socket, once, so the daemon pushes later changes (see [`AceSkills::changed`]).
+    pub async fn list_watched(&self) -> Result<SkillList, SkillsError> {
+        let (socket, _) = self.socket().await?;
+        let subscribe = socket.subscribe_once();
+        let sent = self
+            .send(
+                &socket,
+                &Operation::List {
+                    workspace_id: None,
+                    subscribe,
+                },
+            )
+            .await
+            .and_then(|result| self.refusal(result));
+        if subscribe && sent.is_err() {
+            socket.unsubscribed();
+        }
+        list_of(sent?)
+    }
+
+    /// A skill's files besides SKILL.md: paths, sizes and hashes (ADR 0151).
+    pub async fn files(&self, id: &str) -> Result<SkillFiles, SkillsError> {
+        let result = self.request(Operation::Files { id, path: None }).await?;
+        if kind(&result) != "files" {
+            return Err(unexpected(result));
+        }
+        match serde_json::from_value::<wire::FilesResult>(result.clone()) {
+            Ok(listed) => Ok(SkillFiles {
+                files: listed.files,
+                omitted: listed.omitted,
+            }),
+            Err(_) => Err(unexpected(result)),
+        }
+    }
+
+    /// One of a skill's files, by its relative path, with its content.
+    pub async fn file(&self, id: &str, path: &str) -> Result<SkillFileBytes, SkillsError> {
+        let result = self
+            .request(Operation::Files {
+                id,
+                path: Some(path),
+            })
+            .await?;
+        if kind(&result) != "file" {
+            return Err(unexpected(result));
+        }
+        let Ok(read) = serde_json::from_value::<wire::FileResult>(result.clone()) else {
+            return Err(unexpected(result));
+        };
+        match base64::engine::general_purpose::STANDARD.decode(read.content.as_bytes()) {
+            Ok(bytes) => Ok(SkillFileBytes {
+                file: read.file,
+                bytes,
+            }),
+            Err(_) => Err(unexpected(result)),
         }
     }
 
@@ -150,44 +237,13 @@ impl AceSkills {
 
     /// Personal, plugin and builtin skills, and the project's when `workspace_id` names one.
     pub async fn list(&self, workspace_id: Option<&str>) -> Result<SkillList, SkillsError> {
-        let result = self.request(Operation::List { workspace_id }).await?;
-        let Value::Object(mut fields) = result else {
-            return Err(unexpected(result));
-        };
-        if fields.get("kind").and_then(Value::as_str) != Some("list") {
-            return Err(unexpected(Value::Object(fields)));
-        }
-        let entries = match fields.remove("entries") {
-            Some(Value::Array(entries)) => entries,
-            other => {
-                if let Some(other) = other {
-                    fields.insert("entries".into(), other);
-                }
-                return Err(unexpected(Value::Object(fields)));
-            }
-        };
-        fields.remove("kind");
-        let stale = match fields.remove("stale") {
-            Some(Value::Bool(stale)) => stale,
-            Some(other) => {
-                fields.insert("stale".into(), other);
-                false
-            }
-            None => false,
-        };
-        let mut list = SkillList {
-            skills: Vec::new(),
-            stale,
-            unreadable: Vec::new(),
-            extra: fields,
-        };
-        for entry in entries {
-            match skill(entry) {
-                Ok(skill) => list.skills.push(skill),
-                Err(raw) => list.unreadable.push(raw),
-            }
-        }
-        Ok(list)
+        let result = self
+            .request(Operation::List {
+                workspace_id,
+                subscribe: false,
+            })
+            .await?;
+        list_of(result)
     }
 
     /// One skill and its SKILL.md text. An id the daemon doesn't know is `not_found`.
@@ -242,6 +298,11 @@ impl AceSkills {
             }
             other => other,
         }?;
+        self.refusal(result)
+    }
+
+    /// The result, or the daemon's typed refusal when it is an `error`.
+    fn refusal(&self, result: Value) -> Result<Value, SkillsError> {
         if kind(&result) == "error" {
             let code = result.get("code").and_then(Value::as_str).unwrap_or("");
             let message = result.get("message").and_then(Value::as_str).unwrap_or("");
@@ -346,7 +407,7 @@ impl AceSkills {
         {
             return Ok((socket.clone(), false));
         }
-        let socket = Socket::open(&self.config).await?;
+        let socket = Socket::open(&self.config, self.changed.clone()).await?;
         *slot = Some(socket.clone());
         Ok((socket, true))
     }
@@ -386,6 +447,47 @@ pub struct SkillEdit<'a> {
 /// Every agent ace's library can link a skill for (`SkillAgent` in
 /// `packages/protocol/src/skill-library.ts`).
 pub const ALL_AGENTS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "pi"];
+
+/// A `list` result as a [`SkillList`].
+fn list_of(result: Value) -> Result<SkillList, SkillsError> {
+    let Value::Object(mut fields) = result else {
+        return Err(unexpected(result));
+    };
+    if fields.get("kind").and_then(Value::as_str) != Some("list") {
+        return Err(unexpected(Value::Object(fields)));
+    }
+    let entries = match fields.remove("entries") {
+        Some(Value::Array(entries)) => entries,
+        other => {
+            if let Some(other) = other {
+                fields.insert("entries".into(), other);
+            }
+            return Err(unexpected(Value::Object(fields)));
+        }
+    };
+    fields.remove("kind");
+    let stale = match fields.remove("stale") {
+        Some(Value::Bool(stale)) => stale,
+        Some(other) => {
+            fields.insert("stale".into(), other);
+            false
+        }
+        None => false,
+    };
+    let mut list = SkillList {
+        skills: Vec::new(),
+        stale,
+        unreadable: Vec::new(),
+        extra: fields,
+    };
+    for entry in entries {
+        match skill(entry) {
+            Ok(skill) => list.skills.push(skill),
+            Err(raw) => list.unreadable.push(raw),
+        }
+    }
+    Ok(list)
+}
 
 fn skill_text(result: Value) -> Result<SkillText, SkillsError> {
     let text = result

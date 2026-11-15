@@ -5,6 +5,7 @@
 //! and dropping the last handle stops the task even in the middle of a stuck write.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -36,6 +37,8 @@ pub(super) struct Socket {
     outgoing: mpsc::Sender<Message>,
     waiters: Waiters,
     token: Secret,
+    /// A subscribed list was asked for on this socket, so the daemon pushes changes on it.
+    subscribed: Arc<AtomicBool>,
     /// Shared by every handle; the last one dropped stops the task.
     _owner: Arc<Owner>,
 }
@@ -51,13 +54,18 @@ impl Drop for Owner {
 }
 
 impl Socket {
-    pub(super) async fn open(config: &SkillsConfig) -> Result<Self, SkillsError> {
-        tokio::time::timeout(config.timeout(), Self::handshake(config))
+    /// `changed` is rung for each `skills.changed` the daemon pushes and once when the socket
+    /// ends, so whoever watches the library lists again (and subscribes on a new socket).
+    pub(super) async fn open(
+        config: &SkillsConfig,
+        changed: Arc<Notify>,
+    ) -> Result<Self, SkillsError> {
+        tokio::time::timeout(config.timeout(), Self::handshake(config, changed))
             .await
             .map_err(|_| SkillsError::Timeout)?
     }
 
-    async fn handshake(config: &SkillsConfig) -> Result<Self, SkillsError> {
+    async fn handshake(config: &SkillsConfig, changed: Arc<Notify>) -> Result<Self, SkillsError> {
         let token = config.token().clone();
         let unreachable = |error: &dyn std::fmt::Display| {
             SkillsError::Unreachable(token.scrub(error.to_string()))
@@ -105,14 +113,26 @@ impl Socket {
                 token: token.clone(),
                 stop: stop.clone(),
                 timeout: config.timeout(),
+                changed,
             },
         ));
         Ok(Self {
             outgoing,
             waiters,
             token,
+            subscribed: Arc::new(AtomicBool::new(false)),
             _owner: Arc::new(Owner { stop }),
         })
+    }
+
+    /// Marks the socket subscribed; `true` the first time, when the list must ask to subscribe.
+    pub(super) fn subscribe_once(&self) -> bool {
+        !self.subscribed.swap(true, Ordering::SeqCst)
+    }
+
+    /// A subscribing list failed: the next one asks again.
+    pub(super) fn unsubscribed(&self) {
+        self.subscribed.store(false, Ordering::SeqCst);
     }
 
     pub(super) fn is_open(&self) -> bool {
@@ -197,6 +217,7 @@ struct Task {
     token: Secret,
     stop: Arc<Notify>,
     timeout: Duration,
+    changed: Arc<Notify>,
 }
 
 type Stream =
@@ -218,6 +239,7 @@ async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waite
         token,
         stop,
         timeout,
+        changed,
     } = task;
     let grace = timeout.min(CLOSE_GRACE);
     let ending = loop {
@@ -252,7 +274,7 @@ async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waite
                 break SkillsError::Unreachable("closed".into());
             }
             incoming = stream.next() => match incoming {
-                Some(Ok(Message::Text(text))) => route(&text, &waiters, &token),
+                Some(Ok(Message::Text(text))) => route(&text, &waiters, &token, &changed),
                 Some(Ok(Message::Close(frame))) => {
                     break closed(frame.map(|f| u16::from(f.code)), &token);
                 }
@@ -267,10 +289,16 @@ async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waite
     for (_, waiter) in left {
         let _ = waiter.send(Err(ending.clone()));
     }
+    // A subscription ends with its socket: the watcher lists again on a new one.
+    changed.notify_one();
 }
 
-fn route(text: &str, waiters: &Waiters, token: &Secret) {
+fn route(text: &str, waiters: &Waiters, token: &Secret, changed: &Notify) {
     let (request_id, answer) = match serde_json::from_str::<Incoming>(text) {
+        Ok(Incoming::SkillsChanged) => {
+            changed.notify_one();
+            return;
+        }
         Ok(Incoming::SkillsResult(result)) => (result.request_id, Ok(result.result)),
         Ok(Incoming::SpadeResult(result)) => (result.request_id, Ok(Value::Object(result.fields))),
         // The daemon rejects a malformed request with a plain `error` naming its request.

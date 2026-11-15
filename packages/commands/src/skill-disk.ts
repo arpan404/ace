@@ -168,6 +168,34 @@ export class SkillDisk {
       await this.closeFd(fd);
     }
   }
+  /**
+   * A regular file's bytes and executable bit; `"too_large"` over `limit` (read no further);
+   * `undefined` for a link, folder or anything else that isn't a regular file.
+   */
+  async readEntry(
+    directory: number,
+    name: string,
+    limit: number,
+  ): Promise<{ bytes: Buffer; executable: boolean } | "too_large" | undefined> {
+    const fd = await this.openChild(directory, name, fileFlags).catch(() => undefined);
+    if (fd === undefined) return undefined;
+    try {
+      const info = await this.statFd(fd);
+      if (!info.isFile()) return undefined;
+      if (info.size > limit) return "too_large";
+      const buffer = Buffer.alloc(limit + 1);
+      let offset = 0;
+      for (;;) {
+        const count = await this.readFd(fd, buffer.subarray(offset), offset);
+        if (!count) break;
+        offset += count;
+        if (offset > limit) return "too_large";
+      }
+      return { bytes: buffer.subarray(0, offset), executable: (info.mode & 0o111) !== 0 };
+    } finally {
+      await this.closeFd(fd);
+    }
+  }
   /** Write `bytes` to a new file (exclusive create, no links) and flush it. */
   async writeNew(directory: number, name: string, bytes: Buffer, mode: number): Promise<void> {
     const fd = await createCommandFile(directory, name, this.calls).catch((error: unknown) => {
