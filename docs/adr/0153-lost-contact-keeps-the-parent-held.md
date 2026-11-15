@@ -1,6 +1,6 @@
 # 0153: A remote child that lost contact keeps its parent held
 
-Status: proposed. Date: 2026-11-14. Supersedes the lost-contact part of
+Status: accepted. Date: 2026-11-14. Decided by: the owner (2026-11-15). Supersedes the lost-contact part of
 [ADR 0052](0052-agent-control.md) ("Stop and proof of life", Rule 2 and the remote-children
 paragraph). Follows the unpaired-child handling of
 [ADR 0099](0099-running-children-limit-and-remote-queue.md).
