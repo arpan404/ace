@@ -18,6 +18,7 @@
  */
 
 import type { MediaLinkHint } from "@ace/protocol";
+import { DeliveryWindow } from "./delivery-window.ts";
 import { hintedStart } from "./link-start.ts";
 
 export interface LinkRateLimits {
@@ -33,13 +34,6 @@ export const linkFloor = 150_000;
 
 /** How long the round-trip floor remembers its lowest sample. */
 const floorWindowMs = 10_000;
-/** How long delivered bytes are counted for the delivery rate. */
-const deliveryWindowMs = 1_000;
-/**
- * A cut aims at what was delivered over this longer window too, whichever is more: a loss
- * stall leaves a gap in the last second's deliveries that says nothing about the link.
- */
-const cutWindowMs = 2_000;
 /** The rate is reconsidered at most this often. */
 const stepMs = 200;
 /** Queueing delay above this lowers the rate; below `calmMs` it may rise. */
@@ -84,12 +78,6 @@ export const backlogMs = 300;
  * this only bounds memory when acks stop coming.
  */
 export const outstandingSends = 512;
-/**
- * Delivery entries kept (one per ack, over the 2 s cut window). Past this an ack's bytes join
- * the newest entry, so a burst of acks never grows the queue; below it, decisions are exactly
- * those of one entry per ack. `media-core` reserves the same, so it never allocates.
- */
-export const deliveryEntries = 256;
 
 interface Sent {
   sequence: number;
@@ -106,12 +94,8 @@ export class LinkRate {
   /** Smoothed round trips, ascending by time and by value (a monotonic queue for the floor). */
   #floor: { at: number; rtt: number }[] = [];
   #smoothed: number | undefined;
-  #delivered: { at: number; bytes: number }[] = [];
-  /** Bytes delivered over `cutWindowMs`, and the share of them inside `deliveryWindowMs`. */
-  #cutBytes = 0;
-  #deliveredBytes = 0;
-  /** Index of the oldest entry inside `deliveryWindowMs`. */
-  #recent = 0;
+  /** What the link delivered over the last second, and the last two. */
+  readonly #delivered = new DeliveryWindow();
   #proven: { at: number; rate: number }[] = [];
   #lastStep = -Infinity;
   /** The rate rises at most once a path round trip: what a rise did shows a round trip later. */
@@ -193,17 +177,7 @@ export class LinkRate {
       bytes += chunk.bytes;
     }
     if (!newest) return;
-    // One entry per ack (its chunks share its time); when full, the ack's bytes join the
-    // newest entry, counted as recent unless that entry has left the recent window.
-    const last = this.#delivered.at(-1);
-    if (this.#delivered.length < deliveryEntries || !last) {
-      this.#delivered.push({ at, bytes });
-      this.#deliveredBytes += bytes;
-    } else {
-      last.bytes += bytes;
-      if (this.#recent < this.#delivered.length) this.#deliveredBytes += bytes;
-    }
-    this.#cutBytes += bytes;
+    this.#delivered.add(at, bytes);
     this.#inflight.splice(0, count);
     // The chunk's own time on the wire is not queueing: a keyframe on a thin link takes long.
     // It is judged at the target rate, which may be far below a fast link's, so it only ever
@@ -280,23 +254,6 @@ export class LinkRate {
     while (this.#floor.length > 1 && (this.#floor[0]?.at ?? at) < at - floorWindowMs)
       this.#floor.shift();
   }
-  /** Bits per second delivered over the last `deliveryWindowMs`, and over `cutWindowMs`. */
-  #deliveryRate(at: number): { recent: number; longer: number } {
-    // Out of the recent window first, so nothing leaves the longer one still counted as recent.
-    while (
-      this.#recent < this.#delivered.length &&
-      (this.#delivered[this.#recent]?.at ?? at) < at - deliveryWindowMs
-    )
-      this.#deliveredBytes -= this.#delivered[this.#recent++]?.bytes ?? 0;
-    while (this.#recent > 0 && (this.#delivered[0]?.at ?? at) < at - cutWindowMs) {
-      this.#cutBytes -= this.#delivered.shift()?.bytes ?? 0;
-      this.#recent--;
-    }
-    return {
-      recent: (this.#deliveredBytes * 8 * 1000) / deliveryWindowMs,
-      longer: (this.#cutBytes * 8 * 1000) / cutWindowMs,
-    };
-  }
   #provenRate(at: number, delivered: number): number {
     while (this.#proven.length && (this.#proven[0]?.at ?? at) < at - provenWindowMs)
       this.#proven.shift();
@@ -307,7 +264,7 @@ export class LinkRate {
   #step(at: number, now = false): void {
     if (!now && at - this.#lastStep < stepMs) return;
     this.#lastStep = at;
-    const rates = this.#deliveryRate(at);
+    const rates = this.#delivered.rates(at);
     const delivered = rates.recent;
     const floor = this.#floor[0]?.rtt ?? 0;
     const queueing = (this.#smoothed ?? floor) - floor;

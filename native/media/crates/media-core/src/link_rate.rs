@@ -39,13 +39,7 @@ pub struct LinkHint {
 pub const OUTSTANDING_SENDS: usize = 512;
 /// Bytes in flight may hold the link's rate for its round trip plus this long, no more.
 pub const BACKLOG_MS: f64 = 300.0;
-/// Delivery entries kept (one per ack, over the 2 s cut window); reserved up front. Past this,
-/// an ack's bytes join the newest entry, so a burst of acks never grows the queue. Below it
-/// (more than 128 acks a second), decisions are exactly those of one entry per ack.
-pub const DELIVERY_ENTRIES: usize = 256;
 const FLOOR_WINDOW_MS: f64 = 10_000.0;
-const DELIVERY_WINDOW_MS: f64 = 1_000.0;
-const CUT_WINDOW_MS: f64 = 2_000.0;
 const STEP_MS: f64 = 200.0;
 const QUEUED_MS: f64 = 80.0;
 const CALM_MS: f64 = 30.0;
@@ -62,6 +56,93 @@ const PROBE_RISE: f64 = 1.1;
 /// Where a viewer's rate starts, from what its client says about its link, matching
 /// link-start.ts (K3): never above `limits.initial`, never below `limits.min`. The hint was
 /// parsed (and clamped) at the boundary.
+/// How long delivered bytes count for the delivery rate, and for a cut's longer look.
+pub const DELIVERY_WINDOW_MS: f64 = 1_000.0;
+pub const CUT_WINDOW_MS: f64 = 2_000.0;
+/// Acks this close share a bucket: 2 s over 128, exact in binary.
+pub const BUCKET_MS: f64 = CUT_WINDOW_MS / 128.0;
+/// Buckets that can live at once (the window's 128, one partly expired, one new), reserved.
+pub const DELIVERY_BUCKETS: usize = 130;
+
+/// What a link delivered over the last second and the last two, matching delivery-window.ts:
+/// acks land in fixed buckets stamped with their newest ack's time, and expired buckets leave
+/// before each add, so it never grows and an ack's bytes stay at their own time.
+#[derive(Debug)]
+pub struct DeliveryWindow {
+    /// (bucket, newest ack time, bytes), oldest first.
+    buckets: VecDeque<(i64, f64, usize)>,
+    recent: usize,
+    recent_bytes: usize,
+    longer_bytes: usize,
+}
+impl Default for DeliveryWindow {
+    fn default() -> Self {
+        Self {
+            buckets: VecDeque::with_capacity(DELIVERY_BUCKETS),
+            recent: 0,
+            recent_bytes: 0,
+            longer_bytes: 0,
+        }
+    }
+}
+impl DeliveryWindow {
+    /// Bytes acknowledged at `at` (acks come in time order).
+    pub fn add(&mut self, at: f64, bytes: usize) {
+        self.prune(at);
+        let bucket = (at / BUCKET_MS).floor() as i64;
+        match self.buckets.back_mut() {
+            Some(last) if last.0 == bucket => {
+                last.1 = at;
+                last.2 = last.2.saturating_add(bytes);
+            }
+            _ => {
+                if self.buckets.len() == DELIVERY_BUCKETS {
+                    // Unreachable for acks in time order: kept so a clock jump can't grow it.
+                    if let Some(oldest) = self.buckets.pop_front() {
+                        self.longer_bytes = self.longer_bytes.saturating_sub(oldest.2);
+                        if self.recent == 0 {
+                            self.recent_bytes = self.recent_bytes.saturating_sub(oldest.2);
+                        } else {
+                            self.recent -= 1;
+                        }
+                    }
+                }
+                self.buckets.push_back((bucket, at, bytes));
+            }
+        }
+        self.recent_bytes = self.recent_bytes.saturating_add(bytes);
+        self.longer_bytes = self.longer_bytes.saturating_add(bytes);
+    }
+    /// Bits per second delivered over `DELIVERY_WINDOW_MS`, and over `CUT_WINDOW_MS`.
+    pub fn rates(&mut self, at: f64) -> (f64, f64) {
+        self.prune(at);
+        (
+            self.recent_bytes as f64 * 8.0 * 1000.0 / DELIVERY_WINDOW_MS,
+            self.longer_bytes as f64 * 8.0 * 1000.0 / CUT_WINDOW_MS,
+        )
+    }
+    fn prune(&mut self, at: f64) {
+        while let Some(&(_, when, bytes)) = self.buckets.get(self.recent) {
+            if when >= at - DELIVERY_WINDOW_MS {
+                break;
+            }
+            self.recent_bytes = self.recent_bytes.saturating_sub(bytes);
+            self.recent += 1;
+        }
+        while self.recent > 0
+            && self
+                .buckets
+                .front()
+                .is_some_and(|c| c.1 < at - CUT_WINDOW_MS)
+        {
+            if let Some(c) = self.buckets.pop_front() {
+                self.longer_bytes = self.longer_bytes.saturating_sub(c.2);
+            }
+            self.recent -= 1;
+        }
+    }
+}
+
 pub fn hinted_start(limits: Limits, hint: Option<&LinkHint>) -> f64 {
     let Some(hint) = hint else {
         return limits.initial.round();
@@ -103,11 +184,7 @@ pub struct LinkRate {
     inflight: VecDeque<Sent>,
     floor: VecDeque<(f64, f64)>,
     smoothed: Option<f64>,
-    /// One entry per ack: (time, bytes). `recent` indexes the oldest inside the delivery window.
-    delivered: VecDeque<(f64, usize)>,
-    recent: usize,
-    delivered_bytes: usize,
-    cut_bytes: usize,
+    delivered: DeliveryWindow,
     proven: VecDeque<(f64, f64)>,
     last_step: f64,
     last_rise: f64,
@@ -140,10 +217,7 @@ impl LinkRate {
             inflight: VecDeque::with_capacity(OUTSTANDING_SENDS),
             floor: VecDeque::with_capacity(1024),
             smoothed: None,
-            delivered: VecDeque::with_capacity(DELIVERY_ENTRIES),
-            recent: 0,
-            delivered_bytes: 0,
-            cut_bytes: 0,
+            delivered: DeliveryWindow::default(),
             proven: VecDeque::with_capacity(256),
             last_step: f64::NEG_INFINITY,
             last_rise: f64::NEG_INFINITY,
@@ -216,23 +290,7 @@ impl LinkRate {
         let Some((sent_at, own_bytes)) = newest else {
             return;
         };
-        // One entry per ack (they share its time), so a large cumulative ack never grows this;
-        // when full, the ack's bytes join the newest entry.
-        // The bytes count toward the recent window unless they join an entry already past it.
-        let recent = if self.delivered.len() < DELIVERY_ENTRIES {
-            self.delivered.push_back((at, bytes));
-            true
-        } else {
-            let past = self.recent >= self.delivered.len();
-            if let Some(newest) = self.delivered.back_mut() {
-                newest.1 = newest.1.saturating_add(bytes);
-            }
-            !past
-        };
-        if recent {
-            self.delivered_bytes = self.delivered_bytes.saturating_add(bytes);
-        }
-        self.cut_bytes = self.cut_bytes.saturating_add(bytes);
+        self.delivered.add(at, bytes);
         // Own send time only takes away queueing: never below the floor (see link-rate.ts).
         let rtt = at - sent_at;
         let own = own_bytes as f64 * 8000.0 / self.rate;
@@ -311,37 +369,12 @@ impl LinkRate {
             self.floor.pop_front();
         }
     }
-    /// Bits per second delivered over the delivery window, and over the longer cut window.
-    fn delivery_rate(&mut self, at: f64) -> (f64, f64) {
-        while let Some(&(when, bytes)) = self.delivered.get(self.recent) {
-            if when >= at - DELIVERY_WINDOW_MS {
-                break;
-            }
-            self.delivered_bytes = self.delivered_bytes.saturating_sub(bytes);
-            self.recent += 1;
-        }
-        while self.recent > 0
-            && self
-                .delivered
-                .front()
-                .is_some_and(|c| c.0 < at - CUT_WINDOW_MS)
-        {
-            if let Some(c) = self.delivered.pop_front() {
-                self.cut_bytes = self.cut_bytes.saturating_sub(c.1);
-            }
-            self.recent -= 1;
-        }
-        (
-            self.delivered_bytes as f64 * 8.0 * 1000.0 / DELIVERY_WINDOW_MS,
-            self.cut_bytes as f64 * 8.0 * 1000.0 / CUT_WINDOW_MS,
-        )
-    }
     fn step(&mut self, at: f64, now: bool) {
         if !now && at - self.last_step < STEP_MS {
             return;
         }
         self.last_step = at;
-        let (delivered, longer) = self.delivery_rate(at);
+        let (delivered, longer) = self.delivered.rates(at);
         let floor = self.floor.front().map_or(0.0, |c| c.1);
         let queueing = self.smoothed.unwrap_or(floor) - floor;
         while self.proven.front().is_some_and(|c| c.0 < at - 30_000.0) {

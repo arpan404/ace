@@ -334,7 +334,15 @@ export function linkRateEdges() {
     // port must make the same decisions without growing its queue.
     rateScenario(
       "an ack burst past the delivery entries",
-      Array.from({ length: 320 }, (_, i) => sendAndAck(i, 500, i * 5, 20)).flat(),
+      [
+        // 320 acks in 1.6 s, more than one entry each would hold...
+        ...Array.from({ length: 320 }, (_, i) => sendAndAck(i, 500, i * 5, 20)).flat(),
+        // ...then larger chunks while a queue builds and lasts, so a cut comes at about 3 s: its
+        // target is what was delivered over the last 1 and 2 s, past the burst's expiry.
+        ...Array.from({ length: 40 }, (_, i) =>
+          sendAndAck(320 + i, 4_000, 1_600 + i * 50, 20 + Math.min(400, i * 25)),
+        ).flat(),
+      ],
       phoneLimits,
     ),
     // A new encode restarts sequences: sends before it don't count, and acks of old numbers

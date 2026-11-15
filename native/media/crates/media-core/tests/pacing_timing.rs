@@ -282,3 +282,20 @@ fn fifth_size_joins_nearest_matching_encode_and_a_fifth_codec_gets_no_assignment
     assert_eq!(plan.viewers.len(), 4);
     assert!(plan.viewers.iter().all(|(id, _)| id != "e"));
 }
+#[test]
+fn delivery_counts_an_ack_at_its_own_time_and_expires_it_at_each_window_edge() {
+    let rate = |bytes: f64, ms: f64| bytes * 8.0 * 1000.0 / ms;
+    // 256 small acks in the first 256 ms, then a large one at 1.5 s: half a second old at 2 s.
+    let mut window = DeliveryWindow::default();
+    for at in 0..256 {
+        window.add(f64::from(at), 10);
+    }
+    window.add(1_500.0, 100_000);
+    assert_eq!(window.rates(2_000.0).0, rate(100_000.0, 1_000.0));
+    let mut window = DeliveryWindow::default();
+    window.add(1_500.0, 100_000);
+    assert_eq!(window.rates(2_499.0).0, rate(100_000.0, 1_000.0));
+    assert_eq!(window.rates(2_510.0).0, 0.0);
+    assert_eq!(window.rates(3_499.0).1, rate(100_000.0, 2_000.0));
+    assert_eq!(window.rates(3_510.0).1, 0.0);
+}
