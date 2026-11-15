@@ -23,6 +23,9 @@ impl Engine {
         // under the one lock work starts under: no turn, job or step can begin between the
         // look and the marker, and anything that begins after it sees the stop.
         let (loaded, reply, jobs, pending, stored) = {
+            // The job list before the record lock, the order a job start takes them in
+            // (jobs::start), so a start and a stop at once never wait on each other.
+            let live_jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let worker = live
                 .stop
@@ -30,13 +33,8 @@ impl Engine {
                 .unwrap_or_else(|p| p.into_inner())
                 .as_ref()
                 .map(|(reply, _)| reply.clone());
-            let running_jobs: Vec<String> = live
-                .jobs
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .keys()
-                .cloned()
-                .collect();
+            let running_jobs: Vec<String> = live_jobs.keys().cloned().collect();
+            drop(live_jobs);
             // From storage and from memory, so a read failure still stops what runs.
             let loaded = self.load(id).map(|events| Transcript::fold(&events));
             let pending = self.drop_continuation(id);
