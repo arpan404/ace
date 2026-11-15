@@ -1,5 +1,6 @@
 import type { MediaPoster } from "@ace/protocol";
 import type { DecodedPicture } from "./codecs.ts";
+import { drawUpright } from "./picture-canvas.ts";
 
 /*
  * A subscribe's poster (ADR 0149): a viewport-sized JPEG still that shows within about a second
@@ -34,5 +35,24 @@ export const imagePoster: PosterDecoder = async (poster) => {
   }
 };
 
-/** The poster as a `data:` URL, for a view that shows it as an image under its canvas. */
-export const posterUrl = (poster: MediaPoster): string => `data:image/jpeg;base64,${poster.jpeg}`;
+/**
+ * Draws a device's or screen's poster on its live canvas while no live picture has been drawn
+ * there (`data-frame` unset); the first picture then draws over it. Resolves whether it drew.
+ */
+export async function drawPoster(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  poster: MediaPoster,
+  decode: PosterDecoder = imagePoster,
+): Promise<boolean> {
+  if (canvas.dataset["frame"] !== undefined) return false;
+  const image = await decode(poster);
+  if (!image) return false;
+  try {
+    if (canvas.dataset["frame"] !== undefined) return false;
+    drawUpright(canvas, context, image, { width: poster.width, height: poster.height, rotation: 0 });
+    return true;
+  } finally {
+    image.close();
+  }
+}

@@ -16,6 +16,7 @@ import { nextFrame } from "@/lib/next-frame.ts";
 import { later } from "@/lib/later.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
+import { drawPoster } from "@/lib/video/poster.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
 import { Problem } from "./device-problem.tsx";
 import type { DeviceProblem } from "./use-devices.ts";
@@ -245,7 +246,12 @@ export function DeviceScreen(props: {
       }
       await renderer.render(next);
     });
+    let poster: ReturnType<typeof session.client.poster>;
     const unwatch = session.client.watch((snapshot) => {
+      // The subscribe's still shows until the first live picture (ADR 0149).
+      const still = session.client.poster(deviceId);
+      if (still && still !== poster) void drawPoster(element, context, still);
+      poster = still;
       const state = snapshot.states.find((candidate) => candidate.device.id === deviceId);
       const next: Touch =
         state?.touch ?? (state?.device.platform === "ios" ? "pointer" : "gestures");
