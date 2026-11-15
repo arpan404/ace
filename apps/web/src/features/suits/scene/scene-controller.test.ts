@@ -29,10 +29,15 @@ function manualTime() {
           if (entry[1].at <= end && (!due || entry[1].at < due[1].at)) due = entry;
         if (!due) break;
         timers.delete(due[0]);
-        now = due[1].at;
+        // An overdue timer (after a `stall`) runs late, at the time it gets to run.
+        now = Math.max(now, due[1].at);
         due[1].run();
       }
       now = end;
+    },
+    /** The page's thread is busy for `ms`: time passes and no timer runs until it is free. */
+    stall(ms: number) {
+      now += ms;
     },
   };
 }
@@ -235,6 +240,26 @@ test("three frames drawn more than 100 ms after their tick stop the scene", () =
   expect(stops).toEqual([]);
   answerLate();
   expect(stops).toEqual([{ reason: "slow" }]);
+});
+
+test("a busy page holding back an answer now and then never stops the scene", () => {
+  // A long transcript rendering blocks the page's thread: the answer and the next timer wait.
+  const { controller, time, ticks, stops, play } = scene();
+  controller.start();
+  controller.receive({ type: "ready" });
+  for (let stall = 0; stall < 6; stall++) {
+    play(100);
+    // A tick goes out, then the page blocks before its answer is handled.
+    const seen = ticks().length;
+    for (let waited = 0; waited < 100 && ticks().length === seen; waited++) time.advance(1);
+    const tick = ticks().at(-1);
+    time.stall(400);
+    // The page frees up: sometimes the answer is handled first, sometimes the next timer.
+    if (stall % 2 === 1) time.advance(1);
+    if (tick?.type === "tick") controller.receive({ type: "drawn", time: tick.time });
+  }
+  play(200);
+  expect(stops).toEqual([]);
 });
 
 test("a scene that stops answering ticks is stopped as slow", () => {

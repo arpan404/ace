@@ -93,17 +93,47 @@ export function suitTransport(channel: SuitChannel): SuitTransport {
 }
 
 /**
- * The detail with its served paths as URLs this page can load. Where the daemon's HTTP routes
- * are out of reach, the Suit applies with its colours alone: no scene, system fonts.
+ * The detail with its served paths as URLs this page can load: the scene pages, the assets, and
+ * the asset references the daemon wrote into suit.css and the ornaments. Where the daemon's HTTP
+ * routes are out of reach, the Suit applies with its colours alone: no scene, system fonts.
  */
 function reachable(detail: SuitDetail, channel: SuitChannel): SuitDetail {
   const assets: SuitDetail["assets"] = {};
+  const moved = new Map<string, string>();
   for (const [path, url] of Object.entries(detail.assets)) {
     const served = channel.served(url);
-    if (served) assets[path] = served;
+    if (!served) continue;
+    assets[path] = served;
+    moved.set(url, served);
   }
   const sceneUrl = detail.sceneUrl === null ? null : (channel.served(detail.sceneUrl) ?? null);
-  return { ...detail, sceneUrl, assets };
+  const sceneUrls: SuitDetail["sceneUrls"] = {};
+  for (const [region, url] of Object.entries(detail.sceneUrls) as [
+    keyof SuitDetail["sceneUrls"],
+    string,
+  ][]) {
+    const served = channel.served(url);
+    if (served) sceneUrls[region] = served;
+  }
+  const ornaments: SuitDetail["ornaments"] = {};
+  for (const [slot, markup] of Object.entries(detail.ornaments) as [
+    keyof SuitDetail["ornaments"],
+    string,
+  ][])
+    ornaments[slot] = servedIn(markup, moved);
+  const css = detail.css === null ? null : servedIn(detail.css, moved);
+  return { ...detail, sceneUrl, sceneUrls, assets, css, ornaments };
+}
+
+/** `text` with each served path in `moved` swapped for its URL, longest first. */
+function servedIn(text: string, moved: ReadonlyMap<string, string>): string {
+  if (moved.size === 0) return text;
+  const paths = [...moved.keys()].toSorted((a, b) => b.length - a.length);
+  const pattern = new RegExp(
+    paths.map((path) => path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "g",
+  );
+  return text.replace(pattern, (path) => moved.get(path) ?? path);
 }
 
 /**

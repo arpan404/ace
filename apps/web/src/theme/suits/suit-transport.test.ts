@@ -9,7 +9,10 @@ const base = "/v1/suits/starfield/hash-1/grant/";
 const starfield: SuitDetail = {
   ...fakeSuit({ id: "starfield", dark: { canvas: "#0a0f1e" } }, { scene: true }),
   sceneUrl: `${base}scene.html`,
+  sceneUrls: { app: `${base}scene.html`, sidebar: `${base}rain.html` },
   assets: { "assets/star.png": `${base}assets/star.png` },
+  css: `[data-suit="starfield"] [data-part=sidebar]{background:url(${base}assets/star.png)}`,
+  ornaments: { "sidebar-footer": `<svg><image href="${base}assets/star.png"></image></svg>` },
 };
 
 /** A ready client over the daemon's Suit messages, whose socket can be swapped. */
@@ -79,21 +82,31 @@ test("the list comes on every new socket and on each change, tagged with its soc
   ]);
 });
 
-test("a read's scene and assets point at the daemon this page dials", async () => {
+test("a read's scenes, assets and the asset references in its CSS and ornaments point at the daemon this page dials", async () => {
   const fake = daemon();
   const detail = await suitTransport(daemonSuitChannel(fake.client, "http://127.0.0.1:4242/")).read(
     "starfield",
   );
-  expect(detail.sceneUrl).toBe(`http://127.0.0.1:4242${base}scene.html`);
-  expect(detail.assets).toEqual({
-    "assets/star.png": `http://127.0.0.1:4242${base}assets/star.png`,
+  const daemonUrl = `http://127.0.0.1:4242${base}`;
+  expect(detail.sceneUrl).toBe(`${daemonUrl}scene.html`);
+  expect(detail.sceneUrls).toEqual({
+    app: `${daemonUrl}scene.html`,
+    sidebar: `${daemonUrl}rain.html`,
   });
+  expect(detail.assets).toEqual({ "assets/star.png": `${daemonUrl}assets/star.png` });
+  expect(detail.css).toBe(
+    `[data-suit="starfield"] [data-part=sidebar]{background:url(${daemonUrl}assets/star.png)}`,
+  );
+  expect(detail.ornaments["sidebar-footer"]).toBe(
+    `<svg><image href="${daemonUrl}assets/star.png"></image></svg>`,
+  );
 });
 
 test("through a relay, where the daemon's HTTP is out of reach, a Suit applies with colours alone", async () => {
   const fake = daemon();
   const detail = await suitTransport(daemonSuitChannel(fake.client, undefined)).read("starfield");
   expect(detail.sceneUrl).toBeNull();
+  expect(detail.sceneUrls).toEqual({});
   expect(detail.assets).toEqual({});
   expect(detail.manifest.dark?.canvas).toBe("#0a0f1e");
 });

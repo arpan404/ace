@@ -4,8 +4,8 @@ import { SceneMessage, type SceneHostMessage, type SceneSignal } from "@ace/prot
  * What decides a scene's frames (ADR 0150, "Scenes"). ace owns the clock: this sends `init`,
  * then at most 30 ticks a second while the scene may run, and pauses it when the page is hidden,
  * the window has been blurred for 10 s, the device saves power, or Reduce motion is on (one
- * still frame). It also watches the scene: no `ready` within 3 s, an `error`, or three frames
- * drawn more than 100 ms after their tick stop it for good. Pure: time and timers come in.
+ * still frame). It also watches the scene: no `ready` within 3 s, an `error`, or three frames in
+ * a row drawn more than 100 ms after their tick stop it for good. Pure: time and timers come in.
  */
 
 export const sceneFrameMs = 1000 / 30;
@@ -206,7 +206,9 @@ export function createSceneController(
       if (!outstanding || message.time !== outstanding.time) return;
       const late = clock.now() - outstanding.sentAt > sceneLateFrameMs;
       outstanding = undefined;
+      // Only a run of late frames is the scene's: a busy page delays one answer now and then.
       if (late) countLate();
+      else lateFrames = 0;
     },
     setVisible(visible) {
       facts.visible = visible;
