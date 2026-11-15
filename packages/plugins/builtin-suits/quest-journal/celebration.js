@@ -63,16 +63,22 @@ function burst(cx, cy, t, fade) {
   ctx.fillStyle = glow;
   ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
 
-  const rays = 18;
-  const turn = t * 0.00006;
-  ctx.fillStyle = `rgba(245,204,128,${0.16 * fade * open})`;
+  // Thin rays that fade along their length, turning slowly.
+  const rays = 28;
+  const turn = t * 0.00005;
+  const reach = radius * 1.25;
+  const shine = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach);
+  shine.addColorStop(0, `rgba(250,214,140,${0.2 * fade * open})`);
+  shine.addColorStop(0.5, `rgba(240,196,120,${0.07 * fade * open})`);
+  shine.addColorStop(1, "rgba(240,196,120,0)");
+  ctx.fillStyle = shine;
   for (let i = 0; i < rays; i++) {
     const angle = (i / rays) * Math.PI * 2 + turn;
-    const spread = 0.045;
+    const spread = i % 2 === 0 ? 0.03 : 0.016;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.cos(angle - spread) * radius, cy + Math.sin(angle - spread) * radius);
-    ctx.lineTo(cx + Math.cos(angle + spread) * radius, cy + Math.sin(angle + spread) * radius);
+    ctx.lineTo(cx + Math.cos(angle - spread) * reach, cy + Math.sin(angle - spread) * reach);
+    ctx.lineTo(cx + Math.cos(angle + spread) * reach, cy + Math.sin(angle + spread) * reach);
     ctx.closePath();
     ctx.fill();
   }
@@ -102,17 +108,17 @@ function banner(cx, cy, t, fade) {
     return;
   }
 
-  // The swallowtail ends, folded behind the band.
-  const tail = h * 0.9;
+  // The swallowtail ends slide out from behind the rolls once the band is nearly open.
+  const tail = h * 0.9 * easeOut(clamp((open - 0.75) / 0.25));
   ctx.fillStyle = `rgba(96,26,24,${fade})`;
-  for (const side of [-1, 1]) {
+  for (const side of tail > 0 ? [-1, 1] : []) {
     const x = cx + side * half;
     ctx.beginPath();
-    ctx.moveTo(x - side * h * 0.3, cy - h * 0.25);
+    ctx.moveTo(x, cy - h * 0.25);
     ctx.lineTo(x + side * tail, cy - h * 0.25);
     ctx.lineTo(x + side * tail * 0.7, cy + h * 0.2);
     ctx.lineTo(x + side * tail, cy + h * 0.65);
-    ctx.lineTo(x - side * h * 0.3, cy + h * 0.65);
+    ctx.lineTo(x, cy + h * 0.65);
     ctx.closePath();
     ctx.fill();
   }
