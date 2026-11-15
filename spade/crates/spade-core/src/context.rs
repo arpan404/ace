@@ -76,6 +76,16 @@ waiting for."
     )
 }
 
+/// The answer to a call still running after the turn's foreground window, `seconds` long: it
+/// carries on as job `job` (ADR 0157).
+pub fn moved_to_background(job: &str, seconds: u64) -> String {
+    format!(
+        "Still running after {seconds} seconds, so it carries on in the background as job {job}. \
+Its result will arrive in this conversation as a <job_result> when it finishes. Carry on with \
+other work, or end your reply and say what you are waiting for."
+    )
+}
+
 /// The result of a background job Spade lost when it stopped or restarted.
 pub const JOB_LOST: &str = "Unknown outcome: Spade stopped while this job ran in the background. \
 It may have taken effect; check before trying it again.";

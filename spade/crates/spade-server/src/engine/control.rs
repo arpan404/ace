@@ -36,7 +36,7 @@ impl Engine {
             let running_jobs: Vec<String> = live_jobs.keys().cloned().collect();
             drop(live_jobs);
             // From storage and from memory, so a read failure still stops what runs.
-            let loaded = self.load(id).map(|events| Transcript::fold(&events));
+            let loaded = self.load(id).map(|events| Transcript::fold(events.iter()));
             let pending = self.drop_continuation(id);
             let (open, mut jobs, busy) = match &loaded {
                 Ok(t) => (
@@ -105,7 +105,8 @@ impl Engine {
         close: &Event,
     ) -> Result<(), StoreError> {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let mut events = self.load(id)?;
+        // Once per reply: a copy is fine here.
+        let mut events = Arc::unwrap_or_clone(self.load(id)?);
         events.push(close.clone());
         // While closed for an update nothing new starts; reopening answers what is left.
         let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.held(id);
@@ -159,7 +160,7 @@ impl Engine {
         // Check and answer under one lock, so two answers to one approval cannot both land.
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let events = self.load(id)?;
-        let transcript = Transcript::fold(&events);
+        let transcript = Transcript::fold(events.iter());
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
             self.answer_for_helper(id, &events, call_id, allowed, always)?;

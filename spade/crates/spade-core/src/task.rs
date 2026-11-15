@@ -47,7 +47,8 @@ pub struct State {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PauseReason {
-    /// It used the steps one task may take on its own.
+    /// It used the steps one task could take on its own. Only earlier Spades stored it: no step
+    /// count pauses a task now (ADR 0157).
     Budget,
     /// Several steps in a row changed nothing.
     NoProgress,
@@ -70,8 +71,6 @@ impl PauseReason {
 /// How far a task goes on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Policy {
-    /// Steps Spade starts by itself before pausing, counted from the person's latest message.
-    pub max_steps: u32,
     /// Steps in a row with no effect (no change made, no plan changed) before pausing.
     pub idle_limit: u32,
     /// The wait before a step that follows one with no effect; doubled for each more.
@@ -82,7 +81,6 @@ pub struct Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self {
-            max_steps: 25,
             idle_limit: 3,
             backoff_ms: 30_000,
             backoff_max_ms: 15 * 60_000,
@@ -149,7 +147,8 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
         return Next::Nothing;
     }
     // The run started at the person's latest message. A bot's message or a routine's firing
-    // carries on the task it belongs to, with its budget and any pause.
+    // carries on the task it belongs to, with any pause. However many steps it takes, it carries
+    // on while each step does something (ADR 0157).
     let run_start = events
         .iter()
         .rposition(|e| {
@@ -173,12 +172,6 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     }
     let steps = continued_replies(run);
     let taken = u32::try_from(steps.len()).unwrap_or(u32::MAX);
-    if taken >= policy.max_steps {
-        return Next::Pause {
-            reason: PauseReason::Budget,
-            steps: taken,
-        };
-    }
     let idle = idle_in_a_row(run, &steps);
     if idle >= policy.idle_limit {
         return Next::Pause {

@@ -409,30 +409,98 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
     Ok(())
 }
 
+/// `steps` model steps that each look something up.
+fn lookups(steps: usize) -> Vec<Script> {
+    (0..steps)
+        .map(|n| Script::reply("").call(&format!("c{n}"), "lookup", json!({ "n": n })))
+        .collect()
+}
+
 #[tokio::test]
-async fn a_turn_stops_at_its_step_limit() -> Result {
+async fn a_turn_takes_as_many_steps_as_its_work_needs_and_finishes() -> Result {
     let lookup = FakeTool::new("lookup", Risk::Read, "more");
-    let spade = Spade::start_with(
-        vec![Script::reply("").call("c", "lookup", json!({}))],
-        tools(vec![lookup]),
-        support::Options {
-            limits: spade_server::engine::Limits {
-                max_steps: 3,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    )
-    .await?;
-    let id = spade.ask("Loop forever").await?;
-    let events = spade.wait_for(&id, "reply_failed").await?;
-    let failed = events.iter().find(|e| e["type"] == "reply_failed");
-    assert!(failed.is_some_and(|e| e["error"].as_str().is_some_and(|m| m.contains("3 steps"))));
+    let mut scripts = lookups(120);
+    scripts.push(Script::reply("Looked up all 120."));
+    let spade = Spade::start(scripts, tools(vec![lookup])).await?;
+    let id = spade.ask("Look everything up").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
     let steps = events
         .iter()
         .filter(|e| e["type"] == "step_finished")
         .count();
-    assert_eq!(steps, 3);
+    assert_eq!(steps, 121);
+    assert!(!types(&events).contains(&"reply_failed".to_owned()));
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Looked up all 120."))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_long_turn_that_reaches_todays_cap_starts_no_more_model_calls_and_says_so() -> Result {
+    let lookup = FakeTool::new("lookup", Risk::Read, "more");
+    let spade = Spade::start_with(
+        lookups(200),
+        tools(vec![lookup]),
+        support::Options {
+            // Less than one step costs.
+            cap_usd: 0.00005,
+            ..Default::default()
+        },
+    )
+    .await?;
+    let id = spade.ask("Look everything up").await?;
+    let events = spade.wait_for(&id, "reply_failed").await?;
+    let failed = events.iter().find(|e| e["type"] == "reply_failed");
+    assert_eq!(
+        failed.map(|e| (e["error"].clone(), e["kind"].clone())),
+        Some((json!("today's spending cap is used up"), json!("cap")))
+    );
+    let steps = events
+        .iter()
+        .filter(|e| e["type"] == "step_finished")
+        .count();
+    assert_eq!(steps, 1);
+    // No title either: nothing more is spent today.
+    assert_eq!(spade.fake.seen().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_long_turn_paused_for_an_update_resumes_from_its_events_and_finishes() -> Result {
+    let lookup = || {
+        tools(vec![
+            FakeTool::new("lookup", Risk::Read, "more").slow(Duration::from_millis(5)),
+        ])
+    };
+    let spade = Spade::start(lookups(500), lookup()).await?;
+    let id = spade.ask("Look everything up").await?;
+    spade.wait_for_count(&id, "step_finished", 60).await?;
+    let mut after = lookups(60);
+    after.push(Script::reply("Done after the update."));
+    let spade = spade
+        .restart_after_stop(Duration::from_millis(200), lookup(), after)
+        .await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let kinds = types(&events);
+    assert!(kinds.contains(&"turn_paused".to_owned()), "{kinds:?}");
+    assert!(!kinds.contains(&"reply_failed".to_owned()), "{kinds:?}");
+    assert!(
+        !kinds.contains(&"reply_interrupted".to_owned()),
+        "{kinds:?}"
+    );
+    // One reply, carried on where it stopped.
+    let replies = kinds.iter().filter(|k| *k == "reply_started").count();
+    assert_eq!(replies, 1);
+    let steps = kinds.iter().filter(|k| *k == "step_finished").count();
+    assert!(steps > 120, "{steps}");
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Done after the update."))
+    );
     Ok(())
 }
 
@@ -712,11 +780,12 @@ async fn a_message_steered_into_a_reply_cut_off_by_a_restart_is_answered_after_i
 }
 
 #[tokio::test]
-async fn a_write_that_times_out_is_stored_as_unknown_with_the_risk_it_ran_with() -> Result {
-    let email = FakeTool::new("send_email", Risk::Write, "sent").slow(Duration::from_secs(5));
+async fn a_call_still_running_after_the_foreground_window_carries_on_as_a_job_and_delivers_once()
+-> Result {
+    let email = FakeTool::new("send_email", Risk::Write, "sent").slow(Duration::from_millis(600));
     let options = support::Options {
         limits: spade_server::engine::Limits {
-            tool_timeout: Duration::from_millis(50),
+            foreground: Duration::from_millis(50),
             ..Default::default()
         },
         ..Default::default()
@@ -724,7 +793,9 @@ async fn a_write_that_times_out_is_stored_as_unknown_with_the_risk_it_ran_with()
     let spade = Spade::start_with(
         vec![
             Script::reply("").call("c1", "send_email", json!({ "to": "sam@example.com" })),
-            Script::reply("It may have gone."),
+            Script::reply("It is on its way."),
+            Script::reply("").plain(r#"{"title":"Email"}"#),
+            Script::reply("Sent."),
         ],
         tools(vec![email]),
         options,
@@ -738,13 +809,41 @@ async fn a_write_that_times_out_is_stored_as_unknown_with_the_risk_it_ran_with()
             json!({ "allowed": true }),
         )
         .await?;
-    let events = spade.wait_for(&id, "reply_finished").await?;
-    let started = events.iter().find(|e| e["type"] == "tool_started");
-    assert_eq!(started.map(|e| e["risk"].clone()), Some(json!("write")));
-    let finished = events.iter().find(|e| e["type"] == "tool_finished");
+    // The turn did not wait for it: the call answered with its job, and the reply went on.
+    let events = spade.wait_for(&id, "job_finished").await?;
+    let answered = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(answered["is_error"], json!(false), "{answered}");
+    assert!(
+        answered["content"]
+            .as_str()
+            .is_some_and(|c| c.contains("background as job c1")),
+        "{answered}"
+    );
+    let started = events.iter().position(|e| e["type"] == "job_started");
+    let finished = events.iter().position(|e| e["type"] == "job_finished");
+    assert!(started < finished);
+    let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
+    let results: Vec<_> = events
+        .iter()
+        .filter(|e| e["type"] == "job_finished")
+        .collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["content"], json!("sent"));
+    // The model read its result once, as a job result.
+    let last = spade
+        .fake
+        .seen()
+        .last()
+        .map(|s| s.body.to_string())
+        .unwrap_or_default();
     assert_eq!(
-        finished.map(|e| (e["is_error"].clone(), e["uncertain"].clone())),
-        Some((json!(true), json!(true)))
+        last.matches("<job_result job=\\\"c1\\\"").count(),
+        1,
+        "{last}"
     );
     Ok(())
 }

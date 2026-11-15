@@ -307,8 +307,9 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
 }
 
 #[tokio::test]
-async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the_cap() -> Result {
-    // The image takes longer than a turn waits for a tool, and costs more than today's cap.
+async fn a_slow_image_outlives_the_foreground_window_and_its_cost_counts_against_the_cap() -> Result
+{
+    // The image takes longer than a turn holds a call, and costs more than today's cap.
     let media = FakeMedia::slow(PNG, "", std::time::Duration::from_millis(900)).await?;
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path().join("workspace"));
@@ -325,7 +326,7 @@ async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the
         Options {
             cap_usd: 1.0,
             limits: spade_server::engine::Limits {
-                tool_timeout: std::time::Duration::from_millis(300),
+                foreground: std::time::Duration::from_millis(300),
                 ..spade_server::engine::Limits::default()
             },
             workspaces: Some(workspaces),

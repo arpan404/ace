@@ -99,7 +99,18 @@ struct Live {
     worker: Mutex<Option<tokio::task::AbortHandle>>,
     /// True while the person has the bot's computer (ADR 0142): the turn pauses.
     hold: watch::Sender<bool>,
+    /// The conversation's events while a turn runs, so each step reads only what was added.
+    log: Mutex<Option<Log>>,
 }
+
+/// A conversation's events as read so far, up to `last` (a seq).
+struct Log {
+    events: Events,
+    last: i64,
+}
+
+/// A conversation's events, shared without copying.
+pub(crate) type Events = Arc<Vec<Event>>;
 
 pub struct Engine {
     store: Store,
@@ -265,7 +276,7 @@ impl Engine {
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
-            let transcript = Transcript::fold(&events);
+            let transcript = Transcript::fold(events.iter());
             if let Some(close) = transcript.close_after_restart() {
                 // Closed like any reply: a message it never answered opens the next one.
                 match transcript.open_reply().and_then(|m| m.reply.clone()) {
@@ -531,7 +542,9 @@ impl Engine {
                     Known::QuestionAnswered { call_id, .. }
                     | Known::QuestionDismissed { call_id, .. },
                 ) => {
-                    if question::standing(&events, call_id) != Some(question::Standing::Deferred) {
+                    if question::standing(events.iter(), call_id)
+                        != Some(question::Standing::Deferred)
+                    {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
                     false
@@ -541,7 +554,7 @@ impl Engine {
             // While the person has the bot's computer, messages wait for the hand-back.
             let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
             let (start, stored) =
-                if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
+                if quiet || !admitted || Transcript::fold(events.iter()).open_reply().is_some() {
                     // A typed message that can stand for a waiting card's answers is stored with
                     // them, so the card shows what it answered (ADR 0154).
                     let mut batch = vec![event.clone()];
@@ -690,16 +703,51 @@ impl Engine {
     }
 
     fn reply_open(&self, id: &str) -> Result<bool, StoreError> {
-        Ok(Transcript::fold(&self.load(id)?).open_reply().is_some())
+        Ok(Transcript::fold(self.load(id)?.iter())
+            .open_reply()
+            .is_some())
     }
 
-    fn load(&self, id: &str) -> Result<Vec<Event>, StoreError> {
-        Ok(self
-            .store
-            .events(id, 0)?
-            .into_iter()
-            .map(|e| e.event)
-            .collect())
+    /// The conversation's events. While a turn runs they are kept in memory and only the events
+    /// stored since the last read are read, so a step costs what it added, not the whole history.
+    fn load(&self, id: &str) -> Result<Events, StoreError> {
+        let live = self
+            .live
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .cloned();
+        let Some(live) = live.filter(|l| l.turn_running.load(Ordering::SeqCst)) else {
+            return Ok(Arc::new(self.read_all(id)?.0));
+        };
+        let mut log = live.log.lock().unwrap_or_else(|p| p.into_inner());
+        match log.as_mut() {
+            Some(log) => {
+                let added = self.store.events(id, log.last)?;
+                if let Some(newest) = added.last() {
+                    log.last = newest.seq;
+                    // Copies only if a reader still holds the previous read.
+                    Arc::make_mut(&mut log.events).extend(added.into_iter().map(|e| e.event));
+                }
+                Ok(log.events.clone())
+            }
+            None => {
+                let (events, last) = self.read_all(id)?;
+                let events = Arc::new(events);
+                *log = Some(Log {
+                    events: events.clone(),
+                    last,
+                });
+                Ok(events)
+            }
+        }
+    }
+
+    /// Every event of the conversation, and the seq of the newest.
+    fn read_all(&self, id: &str) -> Result<(Vec<Event>, i64), StoreError> {
+        let stored = self.store.events(id, 0)?;
+        let last = stored.last().map_or(0, |e| e.seq);
+        Ok((stored.into_iter().map(|e| e.event).collect(), last))
     }
 
     fn live(&self, id: &str) -> Arc<Live> {
@@ -717,6 +765,7 @@ impl Engine {
                     status: Mutex::default(),
                     worker: Mutex::default(),
                     hold: watch::channel(false).0,
+                    log: Mutex::default(),
                 })
             })
             .clone()
@@ -805,7 +854,7 @@ impl Engine {
                 self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
                 true
             } else {
-                Transcript::fold(&events).open_reply().is_some()
+                Transcript::fold(events.iter()).open_reply().is_some()
             }
         };
         if open {
@@ -881,7 +930,7 @@ impl Engine {
         let Some(reply) = self
             .load(id)
             .ok()
-            .and_then(|events| Transcript::fold(&events).open_reply()?.reply.clone())
+            .and_then(|events| Transcript::fold(events.iter()).open_reply()?.reply.clone())
         else {
             live.turn_running.store(false, Ordering::SeqCst);
             return;

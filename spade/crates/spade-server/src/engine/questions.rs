@@ -52,7 +52,7 @@ impl Engine {
             // Checked and stored under one lock, so two answers to one card cannot both land.
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let events = self.load(id)?;
-            let card = question::views(&events)
+            let card = question::views(events.iter())
                 .into_iter()
                 .rev()
                 .find(|c| c.call_id == call_id)
@@ -123,6 +123,6 @@ impl Engine {
         if self.store.conversation(id)?.is_none() {
             return Ok(None);
         }
-        Ok(Some(question::views(&self.load(id)?)))
+        Ok(Some(question::views(self.load(id)?.iter())))
     }
 }

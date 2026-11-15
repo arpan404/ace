@@ -234,7 +234,7 @@ pub(super) fn record_paused(engine: &Engine, id: &str, reply: &str) {
             return;
         }
     };
-    let transcript = Transcript::fold(&events);
+    let transcript = Transcript::fold(events.iter());
     let mut records: Vec<Event> = transcript
         .running
         .iter()

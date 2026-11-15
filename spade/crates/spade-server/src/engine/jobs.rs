@@ -14,9 +14,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::Transcript;
-use spade_core::context::{JOB_LOST, JOB_STOPPED, MAYBE_RAN};
+use spade_core::context::{JOB_LOST, JOB_STOPPED};
 use spade_core::event::{Event, Known};
-use spade_core::tools::Risk;
 use spade_store::StoreError;
 use tokio::sync::watch;
 
@@ -60,6 +59,38 @@ pub(super) fn start(
     arguments: Value,
     stop: &watch::Receiver<bool>,
 ) -> Result<Started, StoreError> {
+    let work = {
+        let (engine, key, name) = (engine.clone(), format!("{id}.{job}"), name.to_owned());
+        async move { run(&engine, &key, &name, arguments).await }
+    };
+    begin(engine, id, reply, job, name, Box::pin(work), stop)
+}
+
+/// Moves a call still running after the foreground window to the background (ADR 0157): the same
+/// run carries on as job `job`, unless the turn was stopped, and then `work` is dropped, which
+/// cuts it off like any call in flight. The caller then answers the call with
+/// `context::moved_to_background`.
+pub(super) fn adopt(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    work: crate::tools::ToolFuture,
+    stop: &watch::Receiver<bool>,
+) -> Result<Started, StoreError> {
+    begin(engine, id, reply, job, name, work, stop)
+}
+
+fn begin(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    work: crate::tools::ToolFuture,
+    stop: &watch::Receiver<bool>,
+) -> Result<Started, StoreError> {
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
     if *stop.borrow() || engine.deleting(id) {
@@ -73,7 +104,7 @@ pub(super) fn start(
     if !engine.record_unless_stopped(id, reply, &started)? {
         return Ok(Started::Stopped);
     }
-    let handle = spawn(engine, id, reply, job, name, arguments);
+    let handle = spawn(engine, id, reply, job, name, work);
     jobs.insert(
         job.to_owned(),
         Job::Running {
@@ -84,14 +115,14 @@ pub(super) fn start(
     Ok(Started::Running)
 }
 
-/// Runs the job's tool and stores its end, as a task; the caller puts it in the live map.
+/// Runs the job's work and stores its end, as a task; the caller puts it in the live map.
 fn spawn(
     engine: &Arc<Engine>,
     id: &str,
     reply: &str,
     job: &str,
     name: &str,
-    arguments: Value,
+    work: crate::tools::ToolFuture,
 ) -> tokio::task::AbortHandle {
     let task = {
         let (engine, id, job, name, reply) = (
@@ -102,7 +133,7 @@ fn spawn(
             reply.to_owned(),
         );
         tokio::spawn(async move {
-            let output = run(&engine, &format!("{id}.{job}"), &name, arguments).await;
+            let output = work.await;
             {
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
@@ -168,31 +199,13 @@ pub(super) fn cancel_all(live: &super::Live) {
     }
 }
 
-/// Runs the job's tool. `key` is unique across conversations and stable for this job.
+/// Runs the job's tool for as long as it takes (ADR 0157): Stop ends it, nothing else does.
+/// `key` is unique across conversations and stable for this job.
 async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOutput {
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    let reads_only = tool.def().risk == Risk::Read;
-    // A helper keeps to its own step and spending limits (ADR 0152), and may wait on the person.
-    if name == spade_core::helper::TOOL {
-        return tool.run(key, arguments).await;
-    }
-    match tokio::time::timeout(engine.limits.job_timeout, tool.run(key, arguments)).await {
-        Ok(output) => output,
-        Err(_) => {
-            let said = format!(
-                "{name} did not finish within {} minutes.",
-                engine.limits.job_timeout.as_secs() / 60
-            );
-            if reads_only {
-                ToolOutput::error(said)
-            } else {
-                // A write cut off may still have acted; never let it read as "did not run".
-                ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({said})"))
-            }
-        }
-    }
+    tool.run(key, arguments).await
 }
 
 /// Stores something known only here (a job's end, a tool's result, a reply's close), retrying
@@ -290,7 +303,7 @@ fn take_named(
 /// Each is delivered as "unknown outcome", so the model can tell the person or check.
 pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
     let events = engine.load(id)?;
-    for job in Transcript::fold(&events).jobs {
+    for job in Transcript::fold(events.iter()).jobs {
         // A helper's work is all in its events: its job runs again and waits for it (ADR 0152).
         if let Some(helper) = engine.store.helper_for_job(id, &job)? {
             // Unless Stop was stored for it before the restart and its end was not: the stop
@@ -347,7 +360,18 @@ fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str) {
     let reply = reply.unwrap_or_default();
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
-    let handle = spawn(engine, id, &reply, job, spade_core::helper::TOOL, arguments);
+    let work = {
+        let (engine, key) = (engine.clone(), format!("{id}.{job}"));
+        async move { run(&engine, &key, spade_core::helper::TOOL, arguments).await }
+    };
+    let handle = spawn(
+        engine,
+        id,
+        &reply,
+        job,
+        spade_core::helper::TOOL,
+        Box::pin(work),
+    );
     jobs.insert(job.to_owned(), Job::Running { reply, handle });
 }
 

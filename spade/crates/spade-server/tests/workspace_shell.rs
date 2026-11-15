@@ -20,10 +20,18 @@ fn on_this_system(unix: &'static str, windows: &'static str) -> &'static str {
 }
 
 async fn start(scripts: Vec<Script>, workspaces: &Workspaces) -> Result<Spade> {
+    start_with(scripts, workspaces, support::Options::default()).await
+}
+
+async fn start_with(
+    scripts: Vec<Script>,
+    workspaces: &Workspaces,
+    options: support::Options,
+) -> Result<Spade> {
     let bots = EngineHandle::default();
     let tools: Vec<Arc<dyn Tool>> =
         workspace_tools(workspaces.clone(), bots.clone(), Shell::system());
-    let spade = Spade::start(scripts, tools).await?;
+    let spade = Spade::start_with(scripts, tools, options).await?;
     bots.set(&spade.engine);
     Ok(spade)
 }
@@ -225,6 +233,73 @@ fn alive(pid: &str) -> bool {
             out.status.success() && !stat.trim().is_empty() && !stat.trim().starts_with('Z')
         })
         .unwrap_or(false)
+}
+
+/// A command that outlives the foreground window (30 s, here 200 ms) is not cut off: it carries
+/// on as a background job under the deadline the model gave (no longer capped at 110 s), and its
+/// output reaches the model once, as a job result.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_long_command_moves_to_the_background_and_its_output_arrives_once() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let options = support::Options {
+        limits: spade_server::engine::Limits {
+            foreground: Duration::from_millis(200),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let spade = start_with(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": "sleep 1; echo built", "timeout_s": 3600 }),
+            ),
+            Script::reply("The build runs in the background."),
+            Script::reply("").plain(r#"{"title":"Build"}"#),
+            Script::reply("Built."),
+        ],
+        &workspaces,
+        options,
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Build it").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    answer(&spade, &conversation, "c1", json!({ "allowed": true })).await?;
+    // The call answered before the command ended; the turn went on and finished.
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let answered = finished(&events, "c1").cloned().unwrap_or_default();
+    assert!(
+        answered["content"]
+            .as_str()
+            .is_some_and(|c| c.contains("background as job c1")),
+        "{answered}"
+    );
+    assert!(!types(&events).contains(&"job_finished".to_owned()));
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let results: Vec<_> = events
+        .iter()
+        .filter(|e| e["type"] == "job_finished")
+        .collect();
+    assert_eq!(results.len(), 1, "{:?}", types(&events));
+    let output = results[0]["content"].as_str().unwrap_or_default();
+    assert!(
+        output.contains("Exit code 0.") && output.contains("built"),
+        "{output}"
+    );
+    let last = spade
+        .fake
+        .seen()
+        .last()
+        .map(|s| s.body.to_string())
+        .unwrap_or_default();
+    assert_eq!(last.matches("<job_result job=").count(), 1, "{last}");
+    Ok(())
 }
 
 #[cfg(unix)]
