@@ -15,11 +15,14 @@ const Targets = z.array(
   z.object({ type: z.string(), url: z.string(), webSocketDebuggerUrl: z.string() }),
 );
 const Evaluated = z.object({
-  id: z.literal(1),
-  result: z.object({
-    result: z.object({ value: z.unknown() }),
-    exceptionDetails: z.unknown().optional(),
-  }),
+  result: z.object({ value: z.unknown() }),
+  exceptionDetails: z.unknown().optional(),
+});
+const Message = z.object({
+  id: z.number().optional(),
+  method: z.string().optional(),
+  result: z.unknown().optional(),
+  error: z.unknown().optional(),
 });
 const Decoded = z.object({
   decoded: z.number(),
@@ -77,15 +80,16 @@ export async function decodeInChromium(
       const targets = Targets.parse(
         await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(),
       );
-      target = targets.find((entry) => entry.type === "page" && entry.url === page);
+      target = targets.find((entry) => entry.type === "page");
       if (!target) await pause(100);
     }
     if (!target) throw new Error("No page target");
-    const socket = new WebSocket(target.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
-    });
+    const cdp = await session(target.webSocketDebuggerUrl);
+    // The loopback page, loaded before anything runs: WebCodecs needs its secure context.
+    await cdp.call("Page.enable");
+    const loaded = cdp.event("Page.loadEventFired");
+    await cdp.call("Page.navigate", { url: page });
+    await loaded;
     const chunks = units.map((unit) => ({
       key: unit.keyframe,
       data: Buffer.from(unit.payload).toString("base64"),
@@ -107,24 +111,13 @@ export async function decodeInChromium(
       await decoder.flush().catch((error) => errors.push(String(error)));
       return { decoded, width, height, errors };
     })()`;
-    const reply = new Promise<unknown>((resolve, reject) => {
-      socket.addEventListener("message", (message) => resolve(JSON.parse(String(message.data))), {
-        once: true,
-      });
-      socket.addEventListener("error", reject, { once: true });
-    });
-    socket.send(
-      JSON.stringify({
-        id: 1,
-        method: "Runtime.evaluate",
-        params: { expression, awaitPromise: true, returnByValue: true },
-      }),
+    const evaluated = Evaluated.parse(
+      await cdp.call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true }),
     );
-    const evaluated = Evaluated.parse(await reply);
-    socket.close();
-    if (evaluated.result.exceptionDetails)
-      throw new Error(`WebCodecs threw: ${JSON.stringify(evaluated.result.exceptionDetails)}`);
-    return Decoded.parse(evaluated.result.result.value);
+    cdp.close();
+    if (evaluated.exceptionDetails)
+      throw new Error(`WebCodecs threw: ${JSON.stringify(evaluated.exceptionDetails)}`);
+    return Decoded.parse(evaluated.result.value);
   } finally {
     const exited = new Promise((resolve) =>
       chrome.exitCode !== null ? resolve(null) : chrome.once("exit", resolve),
@@ -153,4 +146,38 @@ async function closeBrowser(port: string): Promise<void> {
     socket.addEventListener("error", reject, { once: true });
   });
   socket.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+}
+
+/** One DevTools session: calls answered by id, and the first event of a name. */
+async function session(url: string) {
+  const socket = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, { once: true });
+    socket.addEventListener("error", reject, { once: true });
+  });
+  const pending = new Map<number, (message: z.infer<typeof Message>) => void>();
+  const events = new Map<string, () => void>();
+  socket.addEventListener("message", (raw) => {
+    const message = Message.parse(JSON.parse(String(raw.data)));
+    if (message.id !== undefined) pending.get(message.id)?.(message);
+    else if (message.method) events.get(message.method)?.();
+  });
+  let next = 0;
+  return {
+    call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
+      const id = ++next;
+      return new Promise((resolve, reject) => {
+        pending.set(id, (message) => {
+          pending.delete(id);
+          if (message.error) reject(new Error(`${method}: ${JSON.stringify(message.error)}`));
+          else resolve(message.result);
+        });
+        socket.send(JSON.stringify({ id, method, params }));
+      });
+    },
+    event(name: string): Promise<void> {
+      return new Promise((resolve) => events.set(name, resolve));
+    },
+    close: () => socket.close(),
+  };
 }
