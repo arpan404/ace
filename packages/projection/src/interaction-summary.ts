@@ -34,6 +34,8 @@ const mostPaths = 8;
 const mostTodos = 32;
 const longestUrl = 8192;
 const longestId = 1024;
+/** Code units of decline ids longer than `longestId` a summary keeps, so a no always goes. */
+const longDeclineIds = 48 * 1024;
 
 /** The length `truncated.chars` counts: the request's JSON in UTF-16 code units. */
 export function requestChars(request: InteractionRequest): number {
@@ -110,7 +112,7 @@ function summarizeRequest(request: InteractionRequest): InteractionRequest {
         title: cut(request.title, titleChars),
         ...some(request.description, textChars, (description) => ({ description })),
         ...(request.target ? { target: summarizeTarget(request.target) } : {}),
-        options: keptOptions(request.options.filter(named)).map(cutOption),
+        options: keptOptions(request.options).map(cutOption),
         ...(request.defaultToNo === undefined ? {} : { defaultToNo: request.defaultToNo }),
         ...(request.suppressAlwaysAllowRule === undefined
           ? {}
@@ -220,12 +222,24 @@ function summarizeTarget(target: ApprovalTarget): ApprovalTarget {
   };
 }
 
-/** The first `mostOptions` options, then any later declines, in order: a decline always goes. */
-function keptOptions<O extends { kind: string }>(options: readonly O[]): O[] {
+/**
+ * The first `mostOptions` options, then any later declines, in order: a decline always goes. An
+ * id is never cut, since the answer names it: an option whose id is longer than `longestId` is
+ * left out, but for declines while their long ids come to at most `longDeclineIds`, so even a
+ * request whose only decline has a huge id can be declined from its summary.
+ */
+function keptOptions<O extends { id: string; kind: string }>(options: readonly O[]): O[] {
   const kept: O[] = [];
+  let longIds = 0;
   for (const [index, option] of options.entries()) {
     if (kept.length >= mostWithDeclines) break;
-    if (index < mostOptions || !option.kind.startsWith("allow")) kept.push(option);
+    const declines = !option.kind.startsWith("allow");
+    if (index >= mostOptions && !declines) continue;
+    if (option.id.length > longestId) {
+      if (!declines || longIds + option.id.length > longDeclineIds) continue;
+      longIds += option.id.length;
+    }
+    kept.push(option);
   }
   return kept;
 }

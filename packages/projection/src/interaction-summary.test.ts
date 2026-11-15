@@ -166,6 +166,27 @@ describe("requests sent with their thread", () => {
     expect(JSON.stringify(approved).length + JSON.stringify(asked).length).toBeLessThan(8192);
   });
 
+  it("a decline whose id is huge still goes, so the summary can always be declined", () => {
+    const declines = Array.from({ length: 300 }, (_, index) => ({
+      id: `deny-${index}-${"x".repeat(32 * 1024)}`,
+      label: `Choice ${index}`,
+      kind: "deny",
+    }));
+    const lone = summarizeInteraction(
+      interaction(
+        approval("d".repeat(40_000), [
+          { id: `option-${"x".repeat(40_000)}`, label: "Deny", kind: "deny" },
+        ]),
+      ),
+    );
+    const many = summarizeInteraction(interaction(approval("short", declines)));
+    if (lone.request.kind !== "approval" || many.request.kind !== "approval")
+      throw new Error("not approvals");
+    expect(lone.request.options.map((option) => option.id.length)).toEqual([40_007]);
+    expect(many.request.options.map((option) => option.id)).toEqual([declines[0]?.id]);
+    expect(JSON.stringify(many).length).toBeLessThan(wholeRequestChars);
+  });
+
   it("an address too long to send whole is left out, never cut", () => {
     const summary = summarizeInteraction(interaction(oversized.elicitation));
     if (summary.request.kind !== "elicitation") throw new Error("not an elicitation");
