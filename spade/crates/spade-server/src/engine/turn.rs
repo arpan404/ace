@@ -380,8 +380,10 @@ async fn drive(
             }
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
-                if super::plugin_hooks::before_calls(engine, id, &reply, &events, &calls).await {
-                    continue;
+                match super::plugin_hooks::before_calls(engine, id, &reply, &events, &calls).await {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => return Ended::Failed(String::new(), error.to_string()),
                 }
                 match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {
                     Handled::Continue => {}

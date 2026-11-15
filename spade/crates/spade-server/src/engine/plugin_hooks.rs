@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use spade_core::event::{Event, Known};
 use spade_core::hooks::{self, HookOutcome};
 use spade_core::turn::{Pending, Status};
+use spade_store::StoreError;
 
 use super::Engine;
 use crate::plugins::Plugins;
@@ -167,7 +168,7 @@ pub(super) async fn before_calls(
     reply: &str,
     events: &[Event],
     calls: &[Pending],
-) -> bool {
+) -> Result<bool, StoreError> {
     let fresh: Vec<&Pending> = calls.iter().filter(|p| p.status == Status::New).collect();
     // Answered before a restart: the refusal is stored with the hook's answer from now on, but
     // a store that failed half way (or an older Spade) can leave the answer alone.
@@ -179,10 +180,11 @@ pub(super) async fn before_calls(
         })
         .collect();
     if !owed.is_empty() {
-        return store_all(engine, id, &owed);
+        store_all(engine, id, &owed)?;
+        return Ok(true);
     }
     let Some((plugins, agent)) = plugins_of(engine, id) else {
-        return false;
+        return Ok(false);
     };
     let searching = fresh.iter().any(|pending| {
         [spade_core::tools::TOOL_SEARCH, spade_core::tools::CALL_TOOL]
@@ -192,7 +194,7 @@ pub(super) async fn before_calls(
         plugins.start_servers(&agent).await;
     }
     if !plugins.has_hooks(&agent, hooks::PRE_TOOL_USE).await {
-        return false;
+        return Ok(false);
     }
     let mut stored = false;
     for pending in fresh {
@@ -213,9 +215,12 @@ pub(super) async fn before_calls(
         let mut answer = vec![ran_event(hooks::PRE_TOOL_USE, &call.id, outcomes)];
         // The answer and the refused call's result in one write: a crash keeps both or neither.
         answer.extend(refusal.map(|content| refused(reply, call, content)));
-        stored |= store_all(engine, id, &answer);
+        // A hook's answer that cannot be stored ends the turn: a refusal held only in memory
+        // would let the call reach the gate on the next pass or after a restart.
+        store_all(engine, id, &answer)?;
+        stored = true;
     }
-    stored
+    Ok(stored)
 }
 
 /// A refused call's result: the refusal, as an error.
@@ -233,18 +238,17 @@ fn refused(reply: &str, call: &spade_core::event::Call, content: String) -> Even
 }
 
 /// Stores `events` together, in order.
-fn store_all(engine: &Engine, id: &str, events: &[Event]) -> bool {
+fn store_all(engine: &Engine, id: &str, events: &[Event]) -> Result<(), StoreError> {
     let _order = engine
         .record_lock
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    match engine.append_events(id, events) {
-        Ok(_) => true,
-        Err(error) => {
+    engine
+        .append_events(id, events)
+        .map(|_| ())
+        .inspect_err(|error| {
             tracing::error!(%error, "could not store what a plugin's hook answered");
-            false
-        }
-    }
+        })
 }
 
 /// As a reply is about to finish: runs `Stop`, at most [`hooks::MOST_STOP_EXTENSIONS`] times a
