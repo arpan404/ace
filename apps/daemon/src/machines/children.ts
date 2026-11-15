@@ -79,7 +79,7 @@ export interface ChildrenDeps {
 }
 
 /** At most this long between status calls to a machine that keeps failing them. */
-const UNREACHABLE_RETRY_CAP_MS = 30_000;
+export const UNREACHABLE_RETRY_CAP_MS = 30_000;
 
 /** The person stopped tracking this lost child: it stays settled for good (ADR 0099). */
 const abandoned = (row: ChildRow) => row.settled === 1 && row.lost_at !== null;
