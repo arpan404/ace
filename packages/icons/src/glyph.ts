@@ -115,7 +115,10 @@ function draw(parts: readonly Part[], weight: IconWeight, ink: string, id: strin
     return createElement("g", { key, mask: `url(#${holeId})` }, drawn);
   };
 
-  if (look !== "solid") {
+  // Solid cuts details and spots out of a body; with no body there is nothing to cut them from,
+  // so an icon of lines and dots alone draws as it does in outline.
+  const solid = look === "solid" && parts.some((part) => part.role === "shape");
+  if (!solid) {
     const drawn = parts.map((part, i) =>
       paintOne(
         part,

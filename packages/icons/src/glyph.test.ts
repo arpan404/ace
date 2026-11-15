@@ -89,6 +89,12 @@ describe("ace icons", () => {
     expect(svg.querySelector("path")?.getAttribute("stroke")).toBe("red");
   });
 
+  it("keeps an icon made only of dots visible when filled", () => {
+    const filled = doc(html(icons.DotsThreeIcon, { weight: "fill" }));
+    expect(filled.querySelector("mask")).toBeNull();
+    expect(filled.querySelectorAll("circle[fill='currentColor']")).toHaveLength(3);
+  });
+
   it("draws a heavier stroke at bold", () => {
     expect(caretStroke("bold")).toBeGreaterThan(caretStroke("regular"));
   });
