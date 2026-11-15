@@ -37,8 +37,11 @@ const read = (id: string, path = `${id}.ts`) => call(id, { kind: "file.read", pa
 const search = (id: string) => call(id, { kind: "search", query: id });
 const shell = (id: string, command: string, status?: "succeeded" | "failed" | "running") =>
   call(id, { kind: "shell", command }, { status });
-const edit = (id: string, path: string) =>
-  call(id, { kind: "file.edit", changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }] });
+const editDetail = (path: string): ToolDetail => ({
+  kind: "file.edit",
+  changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }],
+});
+const edit = (id: string, path: string) => call(id, editDetail(path));
 const ask = (id: string) => call(id, { kind: "ask_user" });
 const spawn = (id: string) => call(id, { kind: "agent.spawn", description: id });
 const tell = (id: string) => call(id, { kind: "agent.message", message: id });
@@ -204,7 +207,7 @@ it("browser and computer-use steps count sites visited and app steps", () => {
   expect(summary).toBe("Used 1 app and visited 2 sites");
 });
 
-it("appending a step builds only the last group again; earlier groups stay the same objects", () => {
+it("appending a step builds only the last run again; earlier rows stay the same objects", () => {
   const steps: StepFact[] = facts([
     read("a"),
     read("b"),
@@ -218,18 +221,42 @@ it("appending a step builds only the last group again; earlier groups stay the s
   );
   expect(appended.groups[0]).toBe(first.groups[0]);
   expect(appended.groups[1]).toBe(first.groups[1]);
-  expect(appended.groups[2]?.ids).toEqual(["x", "y"]);
-  expect(appended.groups[2]).toMatchObject({ running: true, newest: "y" });
+  // The run in flight is built again, but its unchanged row reads as before and stays.
+  expect(appended.groups[2]).toBe(first.groups[2]);
+  expect(appended.groups.slice(2).map((group) => group.ids)).toEqual([["x"], ["y"]]);
   // Nothing changed: the same grouping comes back.
   expect(groupSteps(appended.facts, appended)).toBe(appended);
 });
 
-it("a step settling regroups from its group on and keeps its summary current", () => {
+it("a step settling regroups from its run on and keeps its summary current", () => {
   const running = facts([shell("a", "bun run lint"), shell("x", "bun install", "running")]);
   const before = groupSteps(running);
   const after = groupSteps(facts([shell("a", "bun run lint"), shell("x", "bun install")]), before);
-  expect(before.groups[0]?.running).toBe(true);
-  expect(after.groups[0]?.running).toBe(false);
+  expect(before.groups.map((group) => group.running)).toEqual([false, true]);
+  expect(after.groups).toHaveLength(1);
+  expect(after.groups[0]).toMatchObject({ running: false, summary: "Ran 2 commands" });
+});
+
+it("regrouping a log from an earlier grouping reads as grouping it afresh", () => {
+  const log = [
+    read("a"),
+    shell("b", "bun run lint"),
+    shell("c", "bun run test", "running"),
+    prose("between"),
+    shell("d", "git status"),
+    edit("e", "src/a.ts"),
+    shell("f", "bun run build", "running"),
+    shell("g", "bun run slow", "running"),
+  ];
+  const fresh = groupSteps(facts(log));
+  // Grown one step at a time, each grouping built on the one before.
+  let grown = groupSteps([]);
+  for (let count = 1; count <= log.length; count++)
+    grown = groupSteps(facts(log.slice(0, count)), grown);
+  expect(grown.groups).toEqual(fresh.groups);
+  // Settling the middle command regroups from its run on, to the same rows as a fresh read.
+  const settled = log.map((item) => (item.id === "c" ? shell("c", "bun run test") : item));
+  expect(groupSteps(facts(settled), grown).groups).toEqual(groupSteps(facts(settled)).groups);
 });
 
 it("thoughts count with the tools around them; a finished thought with no words is no step", () => {
@@ -239,12 +266,13 @@ it("thoughts count with the tools around them; a finished thought with no words 
       thought("empty", ""),
       shell("b", "bun run build"),
       thought("why", "The build needs the generated types first."),
-      thought("now", "", false),
+      thought("still", "Checking the output.", false),
     ]),
   );
-  expect(groups.map((group) => group.ids)).toEqual([["a", "b", "why", "now"]]);
-  expect(groups[0]?.running).toBe(true);
-  expect(groups[0]?.summary).toBe("Ran 2 commands and thought 2 times");
+  // A thought still under way stands apart like any step in flight, and folds in once done.
+  expect(groups.map((group) => group.ids)).toEqual([["a", "b", "why"], ["still"]]);
+  expect(groups.map((group) => group.running)).toEqual([false, true]);
+  expect(groups[0]?.summary).toBe("Ran 2 commands and thought once");
 });
 
 it("a thought in view on its own stays its own row when steps follow it", () => {
@@ -324,4 +352,104 @@ it("commands left running in the background are a row of their own, never counte
   ]);
   expect(groups[1]).toMatchObject({ icon: "background", sentence: "Ran 2 background tasks" });
   expect(groups.map((group) => group.summary).join(" ")).not.toMatch(/commands/);
+});
+
+const pending = (id: string, detail: ToolDetail) => call(id, detail, { status: "running" });
+const rows = (items: Item[]) =>
+  groupSteps(facts(items)).groups.map((group) =>
+    group.single ? `${group.running ? "running" : "done"} ${group.key}` : group.summary,
+  );
+
+it.each([
+  {
+    behaviour: "a running command stands apart from the commands that already ran",
+    log: [shell("a", "bun install"), shell("b", "bun run build"), shell("c", "bun run lint", "running")],
+    rows: ["Ran 2 commands", "running c"],
+  },
+  {
+    behaviour: "a finished command folds into the group before it",
+    log: [shell("a", "bun install"), shell("b", "bun run build"), shell("c", "bun run lint")],
+    rows: ["Ran 3 commands"],
+  },
+  {
+    behaviour: "with no group yet, one finished command is its own row beside the running one",
+    log: [shell("a", "python3 -"), shell("b", "bun run lint", "running")],
+    rows: ["done a", "running b"],
+  },
+  {
+    behaviour: "two commands running at once are two rows after the ones that ran",
+    log: [
+      shell("a", "bun install"),
+      shell("b", "bun run build"),
+      shell("c", "bun run lint", "running"),
+      shell("d", "bun run slow", "running"),
+    ],
+    rows: ["Ran 2 commands", "running c", "running d"],
+  },
+  {
+    behaviour: "a step that finished after one still running joins the group before it",
+    log: [shell("a", "bun install"), shell("b", "bun run lint", "running"), shell("c", "bun run build")],
+    rows: ["Ran 2 commands", "running b"],
+  },
+  {
+    behaviour: "an edit in flight stands apart from the edits that are done",
+    log: [edit("a", "src/a.ts"), edit("b", "src/b.ts"), pending("c", editDetail("src/c.ts"))],
+    rows: ["Edited 2 files", "running c"],
+  },
+  {
+    behaviour: "a read in flight stands apart from what was explored",
+    log: [read("a"), search("b"), search("c"), pending("d", { kind: "file.read", path: "d.ts" })],
+    rows: ["Explored 1 file and 2 searches", "running d"],
+  },
+  {
+    behaviour: "a search in flight stands apart from the searches that are done",
+    log: [search("a"), search("b"), pending("c", { kind: "search", query: "c" })],
+    rows: ["Explored 2 searches", "running c"],
+  },
+  {
+    behaviour: "a mixed group keeps its sentence while a command runs after it",
+    log: [edit("a", "src/a.ts"), shell("b", "bun run lint"), shell("c", "bun test", "running")],
+    rows: ["Edited 1 file and ran 1 command", "running c"],
+  },
+  {
+    behaviour: "a subagent launch in flight stands apart from the launches, never in the tools",
+    log: [shell("a", "bun install"), spawn("b"), spawn("c"), pending("d", { kind: "agent.spawn", description: "d" })],
+    rows: ["done a", "Started 2 subagents", "running d"],
+  },
+])("$behaviour", (row) => {
+  expect(rows(row.log)).toEqual(row.rows);
+});
+
+it("a step waiting on approval stands apart like any step in flight", () => {
+  const waiting = Item.parse({
+    id: "c",
+    agentId: "root",
+    type: "tool_call",
+    createdAt: ++created,
+    complete: false,
+    call: {
+      id: "c",
+      agentId: "root",
+      kind: "shell",
+      title: "c",
+      status: "awaiting_approval",
+      startedAt: created,
+      detail: { kind: "shell", command: "rm -rf dist" },
+      raw: [],
+    },
+  });
+  expect(rows([shell("a", "bun install"), shell("b", "bun run build"), waiting])).toEqual([
+    "Ran 2 commands",
+    "running c",
+  ]);
+});
+
+it("commands left running in the background keep one card, running or not", () => {
+  const steps = facts([
+    shell("a", "bun run dev", "running"),
+    shell("b", "bun run watch"),
+  ]).map(backgroundFact);
+  const { groups } = groupSteps(steps);
+  expect(groups.map((group) => group.ids)).toEqual([["a", "b"]]);
+  expect(groups[0]).toMatchObject({ icon: "background", running: true });
 });

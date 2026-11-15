@@ -14,7 +14,8 @@ import { stepOf } from "./thread-rows.ts";
 /*
  * A work log's rows as the web's work log draws them (`step-groups-view.tsx`), from the same
  * shared reading (`@ace/ui-core/work-log-reading`) and grouping: a run of steps as one sentence
- * row ("Edited 2 files and ran 1 command"), a lone step, a thought ("Thought for 12s"), what the
+ * row ("Edited 2 files and ran 1 command"), a lone step (a step still in flight is always one,
+ * after the steps that finished), a thought ("Thought for 12s"), what the
  * agent said between steps, and commands left running in the background as their own lines or
  * one group of them. ace's own audits fold into the call they record and are never a row. Each
  * step's own line travels on its item row; a row here carries only what the log as a whole
@@ -36,7 +37,7 @@ export type LogRow =
       failed: number;
       icon: string;
       running: boolean;
-      /** The step in flight, which titles a running group in a live log. */
+      /** The thought in flight after the group, which titles it in a live log. */
       active: string;
       /** "2 steps", after the live title. */
       count: string;

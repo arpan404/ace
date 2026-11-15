@@ -8,9 +8,10 @@ import { useStepDisplay } from "./use-step-display.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 
 /**
- * A running group's row parts: its step in flight as the title, and how many steps it holds.
- * While the thread's copy isn't current it says only that ("Syncing…"): no step in flight, no
- * waiting on approval, no shimmer.
+ * The row parts of a group the agent is thinking after: the thought in flight as the title
+ * ("Thinking"), and how many steps the group holds. Steps in flight never title a group; each is
+ * a row of its own. While the thread's copy isn't current it says only that ("Syncing…"), with
+ * no shimmer.
  */
 export function LiveGroupTitle(props: {
   threadId: string;
@@ -32,13 +33,6 @@ export function LiveGroupTitle(props: {
       />
     );
   const { item, step } = data;
-  if (data.awaiting)
-    return (
-      <RowParts
-        lead={<StepGlyph threadId={props.threadId} item={item} running={false} failed={false} />}
-        title="Waiting for your approval"
-      />
-    );
   return (
     <RowParts
       lead={

@@ -54,10 +54,10 @@ import { currentLive } from "@/lib/live-connection.ts";
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
  * muted icon ("Edited 2 files, ran 1 command and thought once"), opening in place to their
- * steps; what the agent said between them is prose. While the turn works, the running group
- * shows its current step as its title (no second line for the step in flight), settling to
- * its sentence once done, or "Thinking" when no step is. Each step is read once per change
- * of that step, so streaming costs what changed, not the turn's length.
+ * steps; what the agent said between them is prose. A step still in flight is its own row after
+ * the steps that finished ("Running `bun run lint`", with its time) and folds into them once it
+ * ends (`groupSteps`); a thought with no words yet titles the last group "Thinking". Each step
+ * is read once per change of that step, so streaming costs what changed, not the turn's length.
  */
 
 /** The log's groups, regrouped from the first changed step only. */
@@ -282,12 +282,12 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
-  const active = group.active ?? props.thinking ?? group.newest;
-  const runningLive = props.live && (group.running || !!props.thinking);
+  // Steps in flight stand as rows of their own, so only a thought after the group titles it.
+  const thinking = props.live ? props.thinking : undefined;
   return (
     <li className="relative">
       <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />
-      {runningLive ? (
+      {thinking ? (
         <button
           type="button"
           aria-expanded={open}
@@ -300,9 +300,9 @@ const GroupView = memo(function GroupView(props: {
         >
           <LiveGroupTitle
             threadId={props.threadId}
-            itemId={active}
-            ace={props.contexts[active]}
-            surface={props.surfaces?.get(active) ?? props.carried.get(active)}
+            itemId={thinking}
+            ace={props.contexts[thinking]}
+            surface={props.surfaces?.get(thinking) ?? props.carried.get(thinking)}
             count={group.ids.length}
           />
         </button>
