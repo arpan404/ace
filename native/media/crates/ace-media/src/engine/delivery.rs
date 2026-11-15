@@ -203,6 +203,7 @@ impl Delivery {
     }
 
     /// The range ace-media's encode ids come from (tests make it small to run it out).
+    #[cfg(test)]
     pub(crate) fn with_media_ids(&mut self, ids: std::ops::Range<u32>) {
         self.media_ids = Some(ids);
     }
