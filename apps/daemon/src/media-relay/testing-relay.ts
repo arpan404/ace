@@ -210,7 +210,11 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
       bind(connection: string) {
         return runtime.viewers.bind({
           viewer: `tab-${connection}`,
-          session: "s1",
+          requester: {
+            session: "s1",
+            device: phone.deviceId,
+            admission: { kind: "pairing", generation: 1 },
+          },
           connection,
           target: { kind: "browser", threadId: "t1" },
           codecs: ["avc1.42E033"],
