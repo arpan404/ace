@@ -307,193 +307,224 @@ struct ConversationFeed: View {
         return observeReading(scroller, proxy: proxy)
     }
 
+    /// What the feed does when what it reads changes, in four chains short enough to type-check
+    /// quickly (a single chain took the CI compiler too long).
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
-        content.onChange(of: acceptedSend) { _, _ in
-            reading.toEnd(model: model, thread: thread)
-            setFollowing(true)
-            toEnd(proxy)
-        }
-        .onChange(of: shown.disclosures.opens) { _, _ in
-            intent.opened = true
-            // Anchor the disclosure while reading history; the live end keeps following.
-            if !following || reading.thread != nil, let top = currentTopRow() {
-                viewport.toggle(rowID: top.rowID, itemID: top.itemID, top: top.top)
-            }
-            applyLayoutRevision()
-        }
-        .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
-        #if ACE_FIXTURE
-        .onChange(of: extent.before) { _, _ in PerfCounters.bump("extent.spacers") }
-        .onChange(of: extent.after) { _, _ in PerfCounters.bump("extent.spacers") }
-        #endif
-        .onChange(of: reading.thread?.epoch) { _, _ in
-            extent.update(change: TranscriptExtent.WindowChange(
-                ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues:
-                TranscriptFeedRow.rows(shown).map { ($0.id, $0.block.row.items) })
-        }
-        .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
-        .onChange(of: reading.revision) { _, _ in
-            guard reading.thread != nil else { return }
-            if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
-            updateExtent()
-            let rows = TranscriptFeedRow.rows(shown)
-                if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
-                    // Session restore owns this pass: a center jump would lose
-                    // the saved pixel offset. Coarse-scroll until the row
-                    // measures, then refine to the exact offset below.
-                    reading.focus = nil
-                    if anchor.keeper.frames.frame(session.rowID) == nil {
-                        if viewport.correctionFrames == 0 {
-                            proxy.scrollTo(session.rowID, anchor: .center)
-                        }
-                        viewport.noteCorrectionApplied()
-                    } else {
-                        applySessionRestore(proxy: proxy)
-                    }
-                } else if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
-                reading.focus = nil
-                proxy.scrollTo("block:\(row)", anchor: .center)
-            } else {
-                // Post-measurement layout event: apply the pending semantic
-                // anchor correction, if the viewport still owes one. Gestures
-                // cancel what is owed, so a drag never fights a restore.
-                let locate: (String) -> (key: String, index: Int, top: Double)? = { key in
-                    if let index = rows.firstIndex(where: { $0.id == key }) {
-                        return (key: key, index: index, top: rowTop(key))
-                    }
-                    if let index = rows.firstIndex(where: { $0.block.row.items.contains(key) }) {
-                        return (key: rows[index].id, index: index, top: rowTop(rows[index].id))
-                    }
-                    return nil
-                }
-                let correction = viewport.residentChanged(
-                    newKeys: rows.map(\.id),
-                    locate: locate,
-                    successorOf: { self.itemSuccessor(for: $0, rows: rows) },
-                    now: model.now())
-                switch correction {
-                case .shift:
-                    if let held = viewport.held,
-                        placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
-                        viewport.noteCorrectionApplied()
-                        keep(.placedHeldRow, proxy: proxy)
-                    }
-                case .aim(let index):
-                    if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
-                case .end, .none: break
-                }
-            }
-            pageIfNeeded(proxy)
-        }
-        .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
-        .onChange(of: thread.loaded) { _, loaded in
-            guard loaded else { focusRequested(); return }
-            restoreSessionIfReady()
-            if !initialScroll {
-                if following { toEnd(proxy) }
-                initialScroll = true
-            }
-            focusRequested()
-        }
-        .onChange(of: typeSize) { _, _ in applyLayoutRevision() }
-        .onChange(of: densityId) { _, _ in applyLayoutRevision() }
-        .onChange(of: feedFrame.size) { _, _ in
+        let rows = observeRows(content, proxy: proxy)
+        let layout = observeLayout(rows)
+        let room = observeRoom(layout, proxy: proxy)
+        return observeLifecycle(room, proxy: proxy)
+    }
+    /// Sends, disclosures, the window's rows and paging, focus requests and the thread loading.
+    private func observeRows<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onChange(of: acceptedSend) { _, _ in returnToEnd(proxy: proxy) }
+            .onChange(of: shown.disclosures.opens) { _, _ in disclosuresChanged() }
+            .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
+            .modifier(SpacerCounts(before: extent.before, after: extent.after))
+            .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced() }
+            .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
+            .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
+            .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
+            .onChange(of: thread.loaded) { _, loaded in threadLoaded(loaded, proxy: proxy) }
+    }
+    /// Type size, density, the feed's size and the connection.
+    private func observeLayout<Content: View>(_ content: Content) -> some View {
+        content
+            .onChange(of: typeSize) { _, _ in applyLayoutRevision() }
+            .onChange(of: densityId) { _, _ in applyLayoutRevision() }
             // Rotation and split-view width changes invalidate measurements
             // automatically: only geometry (not paging or streaming) does.
-            applyLayoutRevision()
+            .onChange(of: feedFrame.size) { _, _ in applyLayoutRevision() }
+            .onChange(of: model.connection) { _, connection in connectionChanged(connection) }
+    }
+    /// The keyboard and the composer: the room under the last row.
+    private func observeRoom<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                keyboardWillMove(note, proxy: proxy)
+            }
+            .onChange(of: barHeight) { old, new in
+                // The composer opening as it takes the keyboard moves on the keyboard's spring.
+                let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
+                roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
+                keyboardMoving = false
+                // Text that streamed in while the keyboard moved.
+                if pinned && !intent.active { toEnd(proxy) }
+            }
+    }
+    /// Appearing and leaving, and Scroll to end.
+    private func observeLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .task { appeared(proxy: proxy) }
+            .onDisappear { disappeared() }
+            // Away from the end, or reading a window apart from it: following a joined window is at
+            // the end, so Scroll to end isn't offered there.
+            .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
+            // A history window that catches up with the live end while the reader sits at its end
+            // follows it again, so Scroll to end goes.
+            .onChange(of: reading.joined) { _, joined in windowJoined(joined) }
+            .onChange(of: jumps) { _, _ in returnToEnd(proxy: proxy) }
+            .modifier(TranscriptTopEdge())
+    }
+    /// A sent message or a Scroll to end tap: back to the live end, following it.
+    private func returnToEnd(proxy: ScrollViewProxy) {
+        reading.toEnd(model: model, thread: thread)
+        setFollowing(true)
+        toEnd(proxy)
+    }
+    private func disclosuresChanged() {
+        intent.opened = true
+        // Anchor the disclosure while reading history; the live end keeps following.
+        if !following || reading.thread != nil, let top = currentTopRow() {
+            viewport.toggle(rowID: top.rowID, itemID: top.itemID, top: top.top)
         }
-        .onChange(of: model.connection) { _, connection in
-            // A fresh complete window on reconnect before clearing stale: the
-            // bridge resets its stale window and loads around the anchor item,
-            // so never merge old cached chunks with new authoritative rows.
-            if connection == "ready", reading.thread != nil, !reading.loading {
-                reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
+        applyLayoutRevision()
+    }
+    /// A new history window: its rows replace the extent's.
+    private func windowReplaced() {
+        extent.update(change: TranscriptExtent.WindowChange(
+            ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
+        let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
+        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+    }
+    /// The history window's rows changed: restore, focus or hold the reader's place.
+    private func readingRevised(proxy: ScrollViewProxy) {
+        guard reading.thread != nil else { return }
+        if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
+        updateExtent()
+        let rows = TranscriptFeedRow.rows(shown)
+            if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
+                // Session restore owns this pass: a center jump would lose
+                // the saved pixel offset. Coarse-scroll until the row
+                // measures, then refine to the exact offset below.
+                reading.focus = nil
+                if anchor.keeper.frames.frame(session.rowID) == nil {
+                    if viewport.correctionFrames == 0 {
+                        proxy.scrollTo(session.rowID, anchor: .center)
+                    }
+                    viewport.noteCorrectionApplied()
+                } else {
+                    applySessionRestore(proxy: proxy)
+                }
+            } else if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
+            reading.focus = nil
+            proxy.scrollTo("block:\(row)", anchor: .center)
+        } else {
+            // Post-measurement layout event: apply the pending semantic
+            // anchor correction, if the viewport still owes one. Gestures
+            // cancel what is owed, so a drag never fights a restore.
+            let locate: (String) -> (key: String, index: Int, top: Double)? = { key in
+                if let index = rows.firstIndex(where: { $0.id == key }) {
+                    return (key: key, index: index, top: rowTop(key))
+                }
+                if let index = rows.firstIndex(where: { $0.block.row.items.contains(key) }) {
+                    return (key: rows[index].id, index: index, top: rowTop(rows[index].id))
+                }
+                return nil
+            }
+            let correction = viewport.residentChanged(
+                newKeys: rows.map(\.id),
+                locate: locate,
+                successorOf: { self.itemSuccessor(for: $0, rows: rows) },
+                now: model.now())
+            switch correction {
+            case .shift:
+                if let held = viewport.held,
+                    placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
+                    viewport.noteCorrectionApplied()
+                    keep(.placedHeldRow, proxy: proxy)
+                }
+            case .aim(let index):
+                if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
+            case .end, .none: break
             }
         }
-        .task {
-            model.readingWillMove = { captureTop() }
-            model.readingMoved = { reading.moved() }
-            // Overflow recovery hook: fired once after the gesture ends (or the
-            // page settles) when the held queue discarded rows with no fresh
-            // reset yet. Rebuilds authoritatively around the saved item anchor;
-            // old rows stay readable until the replacement publishes, and the
-            // hold clears `needsFresh` only on that fresh flush. Captures only
-            // class-backed state so the closure never goes stale.
-            model.onReadingNeedsFresh = { [anchor, intent, reading, thread, model] in
-                guard reading.thread != nil, !reading.loading else { return }
-                let shown = reading.shown ?? thread
-                let rows = TranscriptFeedRow.rows(shown)
-                let topID = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
-                let first = rows.first { $0.id == topID }
-                let item = first?.block.row.items.first ?? reading.lastAnchorItemId
-                if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
-            }
-            restoreSessionIfReady()
-            applyLayoutRevision()
-            if thread.loaded, !initialScroll {
-                if following { toEnd(proxy) }
-                initialScroll = true
-            }
+        pageIfNeeded(proxy)
+    }
+    private func threadLoaded(_ loaded: Bool, proxy: ScrollViewProxy) {
+        guard loaded else { focusRequested(); return }
+        restoreSessionIfReady()
+        if !initialScroll {
+            if following { toEnd(proxy) }
+            initialScroll = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-            // Intersection, not just vertical overlap: a floating keyboard
-            // beside the reading column reserves no space over it.
-            let lift: CGFloat
-            if feedFrame == .zero {
-                lift = max(0, feedBottom - end.minY)
-            } else {
-                lift = CGFloat(TranscriptKeyboardLift.overlap(
-                    feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
-                    keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
-            }
-            if duration > 0 { keyboardDuration = duration }
-            guard lift != keyboardLift else { return }
-            let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
-            let growth = lift - keyboardLift
-            keyboardMoving = true
-            // The room is empty space: it changes at once, and only the scroll animates, so the
-            // two never drift apart on different curves.
-            var instant = Transaction()
-            instant.disablesAnimations = true
-            withTransaction(instant) { keyboardLift = lift }
-            roomChanged(by: growth, motion: motion, proxy: proxy)
+        focusRequested()
+    }
+    /// A fresh complete window on reconnect before clearing stale: the bridge resets its stale
+    /// window and loads around the anchor item, so never merge old cached chunks with new
+    /// authoritative rows.
+    private func connectionChanged(_ connection: String) {
+        if connection == "ready", reading.thread != nil, !reading.loading {
+            reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
         }
-        .onChange(of: barHeight) { old, new in
-            // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
-            roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
+    }
+    private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        // Intersection, not just vertical overlap: a floating keyboard
+        // beside the reading column reserves no space over it.
+        let lift: CGFloat
+        if feedFrame == .zero {
+            lift = max(0, feedBottom - end.minY)
+        } else {
+            lift = CGFloat(TranscriptKeyboardLift.overlap(
+                feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
+                keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
-            keyboardMoving = false
-            // Text that streamed in while the keyboard moved.
-            if pinned && !intent.active { toEnd(proxy) }
+        if duration > 0 { keyboardDuration = duration }
+        guard lift != keyboardLift else { return }
+        let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
+        let growth = lift - keyboardLift
+        keyboardMoving = true
+        // The room is empty space: it changes at once, and only the scroll animates, so the
+        // two never drift apart on different curves.
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant) { keyboardLift = lift }
+        roomChanged(by: growth, motion: motion, proxy: proxy)
+    }
+    private func appeared(proxy: ScrollViewProxy) {
+        model.readingWillMove = { captureTop() }
+        model.readingMoved = { reading.moved() }
+        model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
+        restoreSessionIfReady()
+        applyLayoutRevision()
+        if thread.loaded, !initialScroll {
+            if following { toEnd(proxy) }
+            initialScroll = true
         }
-        .onDisappear {
-            settle.cancel()
-            saveSession()
-            reading.cancel(model: model)
-            model.readingWillMove = nil
-            model.readingMoved = nil
-            model.onReadingNeedsFresh = nil
+    }
+    /// Overflow recovery hook: fired once after the gesture ends (or the page settles) when the
+    /// held queue discarded rows with no fresh reset yet. Rebuilds authoritatively around the
+    /// saved item anchor; old rows stay readable until the replacement publishes, and the hold
+    /// clears `needsFresh` only on that fresh flush. Captures only class-backed state so the
+    /// closure never goes stale.
+    private static func rebuildOnOverflow(anchor: TranscriptReadingAnchor, intent: TranscriptScrollIntent,
+                                          reading: TranscriptReading, thread: ThreadModel, model: ClientModel) -> () -> Void {
+        return {
+            guard reading.thread != nil, !reading.loading else { return }
+            let shown: ThreadModel = reading.shown ?? thread
+            let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
+            let topID: String? = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
+            let first: TranscriptFeedRow? = rows.first { $0.id == topID }
+            let item: String? = first?.block.row.items.first ?? reading.lastAnchorItemId
+            if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
         }
-        // Away from the end, or reading a window apart from it: following a joined window is at
-        // the end, so Scroll to end isn't offered there.
-        .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
-        // A history window that catches up with the live end while the reader sits at its end
-        // follows it again, so Scroll to end goes.
-        .onChange(of: reading.joined) { _, joined in
-            if joined, reading.thread != nil, !intent.active, intent.metrics.bottom <= AceDesign.Space.group { setFollowing(true) }
-            updateBehind()
-        }
-        .onChange(of: jumps) { _, _ in
-            reading.toEnd(model: model, thread: thread)
-            setFollowing(true)
-            toEnd(proxy)
-        }
-        .modifier(TranscriptTopEdge())
+    }
+    private func disappeared() {
+        settle.cancel()
+        saveSession()
+        reading.cancel(model: model)
+        model.readingWillMove = nil
+        model.readingMoved = nil
+        model.onReadingNeedsFresh = nil
+    }
+    private func windowJoined(_ joined: Bool) {
+        if joined, reading.thread != nil, !intent.active, intent.metrics.bottom <= AceDesign.Space.group { setFollowing(true) }
+        updateBehind()
     }
     /// Shows or hides Scroll to end by where the end is now (`TranscriptEndButton`); writes only
     /// on a change, so a scroll's frames don't re-evaluate the thread.
@@ -871,6 +902,21 @@ private struct TapPutsKeyboardAway: ViewModifier {
             .highPriorityGesture(TapGesture().onEnded {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }, including: up ? .all : .subviews)
+    }
+}
+
+/// Fixture builds count the spacers' changes (`PerfCounters`); elsewhere it adds nothing.
+private struct SpacerCounts: ViewModifier {
+    let before: Double
+    let after: Double
+    func body(content: Content) -> some View {
+        #if ACE_FIXTURE
+        content
+            .onChange(of: before) { _, _ in PerfCounters.bump("extent.spacers") }
+            .onChange(of: after) { _, _ in PerfCounters.bump("extent.spacers") }
+        #else
+        content
+        #endif
     }
 }
 
