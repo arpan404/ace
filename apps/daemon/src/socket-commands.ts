@@ -7,7 +7,6 @@ import {
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import type { MaintenanceGate } from "@ace/service";
-import { answerRefusal } from "@ace/projection/interaction-summary";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { commandLane, settledWithin, type CommandLanes } from "./command-lanes.ts";
 import type { ServerOptions } from "./server-options.ts";
@@ -101,12 +100,6 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     refuseBeforeAccept("host_thread", "Spade runs this bot's turns; talk to the bot in Spade.");
     return;
   }
-  // A yes to a request clients get summarized needs the person to have seen it whole (ADR 0156).
-  const unread = unreadAnswer(command, options.store);
-  if (unread) {
-    refuseBeforeAccept(unread, "Open the whole request before answering yes to it.");
-    return;
-  }
   if (!maintenance.admitCommand(command)) {
     refuseBeforeAccept(
       "maintenance",
@@ -134,22 +127,6 @@ export async function admitCommand(command: Command, admission: CommandAdmission
   // Bounded work per socket: past the cap the queue waits, so TCP backpressure applies.
   if (admission.flights.count > commandFlights) await task;
   else await settledWithin(task, commandGraceMs, admission.delay);
-}
-
-/** Why a client's answer to a request is refused before it runs, if it is. */
-function unreadAnswer(
-  command: Command,
-  store: Pick<Store, "getInteraction" | "interactionRequestVersion">,
-) {
-  const payload = command.payload;
-  if (payload.type !== "interaction.resolve") return undefined;
-  const asked = store.getInteraction(payload.interactionId);
-  if (!asked || !answerRefusal(asked, payload.resolution, false)) return undefined;
-  // Shown whole only if what was shown is the request as it is now.
-  const shown =
-    payload.readWhole !== undefined &&
-    payload.readWhole === store.interactionRequestVersion(asked.threadId, asked.id);
-  return answerRefusal(asked, payload.resolution, shown);
 }
 
 /** Whether a client's command names a Spade bot's hidden session as its thread or its source. */

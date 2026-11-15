@@ -20,7 +20,7 @@ const failures: Record<string, string> = {
   already_resolved: "Already answered or closed.",
   interaction_expired: "This request expired before your answer arrived.",
   not_found: "This request no longer exists.",
-  request_not_read: "The whole request hadn't loaded yet. Wait for it, then answer again.",
+  request_not_read: "The request changed or hadn't loaded in full. Check it again, then answer.",
   permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
   read_only_mutation_denied: "Read only mode can't approve a change.",
 };
@@ -123,5 +123,7 @@ export function useAnswerSender(target: AnswerTarget) {
       : error
         ? "Couldn't send the answer. Check the connection and try again."
         : undefined;
-  return { answer, failed, held: !live.fresh };
+  /** The daemon's code for a refused answer, when it refused one. */
+  const refused = state === "failed" ? intent?.error : undefined;
+  return { answer, failed, refused, held: !live.fresh };
 }

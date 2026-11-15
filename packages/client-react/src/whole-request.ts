@@ -11,7 +11,7 @@ import { useClient } from "./context.ts";
 export type WholeRequest =
   | { status: "whole"; request: InteractionRequest }
   | { status: "loading" }
-  | { status: "loaded"; request: InteractionRequest; version: string }
+  | { status: "loaded"; request: InteractionRequest; version: string; retry(): void }
   | { status: "failed"; code: string; retry(): void };
 
 type Outcome =
@@ -54,7 +54,8 @@ export function useWholeRequest(
   if (!summarized) return { status: "whole", request: interaction.request };
   const current = outcome?.read === read ? outcome.outcome : undefined;
   if (!current) return { status: "loading" };
-  return current.status === "failed" ? { ...current, retry } : current;
+  // Loaded, `retry` reads it again: the daemon said the request changed since (`request_not_read`).
+  return { ...current, retry };
 }
 
 function failure(error: unknown): string {
