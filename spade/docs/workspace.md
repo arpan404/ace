@@ -159,9 +159,11 @@ answer only waits for that drop and never creates twice.
 
 `skill_load` answers with SKILL.md, then, when the skill has other files, the folder they are in
 and each path with its size (and "runnable" for an executable one). The files are written into
-the bot's workspace at `skills/<name>/` when the skill is loaded: kept as they are when every
-file is there with the same content and still trusted, otherwise the folder is deleted and
-written again, so nothing of an older version stays. Each file is written through the workspace
+the bot's workspace at `skills/<name>/` when the skill is loaded: kept as they are when the
+folder holds exactly the skill's files (nothing else: no other file, link or empty folder), each
+with the same content and still trusted; otherwise the folder is deleted, with the trust records
+of everything in it, and written again, so nothing of an older version stays or stays trusted.
+A skill with no other files has no folder: loading it removes one an older version left. Each file is written through the workspace
 handle like any write, then made read only (`0444`, or `0555` for an executable one) through a
 handle that does not follow links; on Windows files stay writable, since a read-only file there
 could not be replaced or deleted when the skill changes. Each is recorded in the trust record

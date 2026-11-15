@@ -202,8 +202,8 @@ impl Tool for SkillLoad {
     }
 }
 
-/// Puts the skill's files in the bot's workspace and answers what to tell the model about them:
-/// nothing when the skill has none.
+/// Makes the bot's `skills/<name>/` hold exactly the skill's files and answers what to tell the
+/// model about them: nothing when the skill has none (an older version's folder is removed).
 async fn place_files(
     library: &dyn SkillLibrary,
     workspaces: &Workspaces,
@@ -212,7 +212,6 @@ async fn place_files(
     name: &str,
 ) -> String {
     let files = match library.files(id).await {
-        Ok(files) if files.is_empty() => return String::new(),
         Ok(files) => files,
         Err(error) => return format!("\nIts other files could not be read: {error}"),
     };
@@ -231,11 +230,12 @@ async fn place_files(
     })
     .await;
     match placed {
-        Ok(Ok(folder)) => format!(
+        Ok(Ok(Some(folder))) => format!(
             "\nIts other files are in {folder}/ in your workspace, read only. Read them with \
              workspace_read; run its scripts with shell.\n{}",
             listed.join("\n")
         ),
+        Ok(Ok(None)) => String::new(),
         Ok(Err(error)) => format!("\nIts other files could not be put in your workspace: {error}"),
         Err(_) => "\nIts other files could not be put in your workspace.".to_owned(),
     }

@@ -138,6 +138,16 @@ impl Trust {
         });
     }
 
+    /// Forgets `folder` and every file in it, when Spade removes the folder.
+    pub fn forget_under(&self, folder: &str) {
+        let inside = format!("{folder}/");
+        self.change(|record| {
+            record
+                .files
+                .retain(|path, _| path != folder && !path.starts_with(&inside));
+        });
+    }
+
     /// Forgets the record, when the bot is deleted.
     pub(super) fn forget(&self) {
         let _ = std::fs::remove_file(&self.file);

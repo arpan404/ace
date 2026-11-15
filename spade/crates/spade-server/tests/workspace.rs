@@ -785,3 +785,52 @@ async fn a_pipe_in_the_workspace_never_hangs_a_read_a_search_or_a_download() -> 
     }
     Ok(())
 }
+
+fn skill_file(path: &str, text: &str) -> spade_server::tools::SkillFileData {
+    spade_server::tools::SkillFileData {
+        path: path.to_owned(),
+        bytes: text.as_bytes().to_vec(),
+        executable: false,
+    }
+}
+
+#[test]
+fn a_loaded_skills_folder_holds_exactly_its_files_and_nothing_removed_stays_trusted() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspace = Workspaces::new(dir.path().join("workspace")).of("bot")?;
+    let on_disk = dir.path().join("workspace/bot");
+    let (guide, old) = ("skills/review/guide.md", "skills/review/old/notes.md");
+    let both = [
+        skill_file("guide.md", "Guide"),
+        skill_file("old/notes.md", "Notes"),
+    ];
+    assert_eq!(
+        workspace.place_skill("review", &both)?.as_deref(),
+        Some("skills/review")
+    );
+    assert!(workspace.file_trusted(old, b"Notes"));
+
+    // A newer version without notes.md: the file goes, and so does its trust.
+    workspace.place_skill("review", &both[..1])?;
+    assert!(
+        !on_disk.join(old).exists(),
+        "an older version's file stayed"
+    );
+    assert!(workspace.file_trusted(guide, b"Guide"));
+    std::fs::create_dir_all(on_disk.join("skills/review/old"))?;
+    std::fs::write(on_disk.join(old), "Notes")?;
+    assert!(
+        !workspace.file_trusted(old, b"Notes"),
+        "a file the skill no longer has is trusted"
+    );
+
+    // A file a command added beside the skill's is removed on the next load too.
+    workspace.place_skill("review", &both[..1])?;
+    assert!(!on_disk.join(old).exists(), "an extra file stayed");
+
+    // A version with no other files has no folder.
+    assert_eq!(workspace.place_skill("review", &[])?, None);
+    assert!(!on_disk.join("skills/review").exists(), "the folder stayed");
+    assert!(!workspace.file_trusted(guide, b"Guide"));
+    Ok(())
+}
