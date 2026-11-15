@@ -383,6 +383,7 @@ async fn serve(
                     *shared = list.clone();
                 }
                 engine.capabilities_changed(&list);
+                pictures.capabilities_changed();
                 let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()

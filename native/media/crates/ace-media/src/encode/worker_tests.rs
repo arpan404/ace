@@ -397,3 +397,6 @@ fn an_encoder_that_cannot_drain_says_so_rather_than_drained() {
     worker.command(Command::Drain, 2_000, &mut out);
     assert_eq!(out, [Output::Failed("encoder-undrainable".into())]);
 }
+
+#[path = "worker_upgrade_tests.rs"]
+mod upgrade;

@@ -35,6 +35,9 @@ pub enum Command {
     Key(u32),
     /// The source closed: hand over every unit still pending, then `Output::Drained`.
     Drain,
+    /// The probe's findings changed (`capabilities.changed`): an encode or JPEG decode that a
+    /// newly found hardware path improves moves onto it, the encode at a keyframe.
+    Capabilities,
 }
 
 #[derive(Debug, PartialEq)]
@@ -76,6 +79,14 @@ pub trait Backends: Send {
     fn decode(&mut self, jpeg: &[u8], size: Size, encoder: Backend) -> Result<Decoded, CodecError>;
     /// What the probe found, which decides whether a step on the CPU is degraded.
     fn probed(&self) -> Vec<Capability>;
+    /// The encoder `encoder` would choose for `codec` now, `(backend, hardware)`. None: never
+    /// moves a running encode.
+    fn choice(&self, _codec: Codec) -> Option<(Backend, bool)> {
+        None
+    }
+    /// The probe's findings changed: drop any decoder built for a path since improved, so the
+    /// next picture builds it again.
+    fn refresh(&mut self) {}
 }
 
 /// A boxed backend is one: the shell picks the codecs per thread.
@@ -88,6 +99,12 @@ impl Backends for Box<dyn Backends> {
     }
     fn probed(&self) -> Vec<Capability> {
         (**self).probed()
+    }
+    fn choice(&self, codec: Codec) -> Option<(Backend, bool)> {
+        (**self).choice(codec)
+    }
+    fn refresh(&mut self) {
+        (**self).refresh();
     }
 }
 
@@ -199,6 +216,7 @@ impl<B: Backends> Worker<B> {
                 }
             }
             Command::Drain => return self.drain(now_us, out),
+            Command::Capabilities => self.upgrade(now_us, out),
         }
         self.poll(now_us, out);
         // After the units, so a source reports its steps once it plays.
@@ -221,6 +239,43 @@ impl<B: Backends> Worker<B> {
         self.poll(now_us, out);
         if !self.failed {
             out.push(Output::Drained);
+        }
+    }
+
+    /// Moves each encode a newly found hardware encoder improves onto it: the old encoder's
+    /// held units go out first, then the new one starts at a keyframe. Never moves off
+    /// hardware. The steps, and so `degraded`, follow on the next picture.
+    fn upgrade(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        self.backends.refresh();
+        let ids: Vec<u32> = self.encodes.keys().copied().collect();
+        for id in ids {
+            let Some(running) = self.encodes.get(&id) else {
+                continue;
+            };
+            let improves = !running.chosen.hardware
+                && matches!(self.backends.choice(running.codec), Some((_, true)));
+            if !improves {
+                continue;
+            }
+            let (codec, spec) = (running.codec, spec_of(&running.wire, running.codec));
+            let mut chosen = match self.backends.encoder(codec) {
+                Ok(chosen) if chosen.hardware => chosen,
+                // It didn't open after all: the source keeps the encoder it has.
+                Ok(_) | Err(_) => continue,
+            };
+            if chosen.encoder.configure(&spec).is_err() {
+                continue;
+            }
+            if let Some(running) = self.encodes.get_mut(&id) {
+                let _ = running.chosen.encoder.flush();
+            }
+            self.poll(now_us, out);
+            if let Some(running) = self.encodes.get_mut(&id) {
+                running.chosen = chosen;
+                running.key_owed = true;
+                running.description = None;
+                running.pending.clear();
+            }
         }
     }
 

@@ -1714,6 +1714,15 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   that hangs, and each late step reaches ace-media as `capabilities.changed`. The still tests
   and the still bench compare against that final list (`tests/support/probed.rs`), not
   `ready`'s.
+- **Open sources move to hardware.** A `capabilities.changed` that brings a hardware path
+  reaches every JPEG source's encoder thread (`Command::Capabilities`, between its commands, as
+  F2's still threads swap backends between jobs). An encode on the fallback whose codec a
+  hardware encoder now covers flushes the old encoder, hands on its units, and starts the
+  hardware one at a keyframe; a VideoToolbox JPEG decoder built without hardware is built
+  again. The next picture's steps report the new path, so `degraded` and its sentence clear.
+  Nothing ever moves off hardware this way. Every caller sharing `media-vt`'s probe worker
+  cancels only itself; the worker stops once none is left. The tests' waits for the final
+  probe answer are bounded (trial deadline + `LATE_LIMIT` + 5 s) and fail naming what's missing.
 - **Usable is what this build constructs.** The probe reports what each backend can do, but
   only backends in `encode::platform::BUILT_ENCODERS`, the table beside the match in
   `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort

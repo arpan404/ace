@@ -2,7 +2,9 @@
 //! The real backends for JPEG sources, chosen from the probe's capabilities: VideoToolbox on
 //! macOS (JPEG decode on its hardware session where the probe observed one, straight into the
 //! encoder's surfaces), and the last-resort Chrome encoder where no hardware encoder works.
-use super::select::{encoder_for, jpeg_decode_hardware};
+use super::select::encoder_for;
+#[cfg(target_os = "macos")]
+use super::select::jpeg_decode_hardware;
 use super::worker::{Backends, Chosen, Decoded};
 use media_chrome::{ChromeEncoder, ChromeOptions, jpeg_picture};
 use media_codec::{Codec, CodecError, CpuJpegCodec, JpegCodec, Size};
@@ -26,8 +28,9 @@ pub struct Platform {
     capabilities: SharedCapabilities,
     chrome: Option<ChromeOptions>,
     cpu: CpuJpegCodec,
+    /// The VideoToolbox JPEG decoder, and whether it was built on hardware.
     #[cfg(target_os = "macos")]
-    vt: Option<media_vt::VtJpeg>,
+    vt: Option<(media_vt::VtJpeg, bool)>,
 }
 
 impl Platform {
@@ -92,13 +95,14 @@ impl Backends for Platform {
         #[cfg(target_os = "macos")]
         if encoder == Backend::Vt {
             let hardware = jpeg_decode_hardware(&self.capabilities(), Backend::Vt);
-            let vt = self.vt.get_or_insert_with(|| {
+            let (vt, _) = self.vt.get_or_insert_with(|| {
                 let output = media_vt::VtFormat::Nv12;
-                if hardware {
+                let decoder = if hardware {
                     media_vt::VtJpeg::new(output)
                 } else {
                     media_vt::VtJpeg::without_hardware(output)
-                }
+                };
+                (decoder, hardware)
             });
             let picture = JpegCodec::decode(vt, jpeg, size.width, size.height)?;
             let path = vt.last_path();
@@ -119,6 +123,20 @@ impl Backends for Platform {
 
     fn probed(&self) -> Vec<Capability> {
         self.capabilities()
+    }
+
+    fn choice(&self, codec: Codec) -> Option<(Backend, bool)> {
+        encoder_for(&self.capabilities(), codec, BUILT_ENCODERS)
+    }
+
+    fn refresh(&mut self) {
+        // A JPEG decoder built before the probe observed a hardware one is built again.
+        #[cfg(target_os = "macos")]
+        if self.vt.as_ref().is_some_and(|(_, hardware)| !hardware)
+            && jpeg_decode_hardware(&self.capabilities(), Backend::Vt)
+        {
+            self.vt = None;
+        }
     }
 }
 
