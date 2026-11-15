@@ -99,7 +99,8 @@ export function readRelayConfig(env: Record<string, string | undefined>) {
  */
 export const ControlMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("registered"), hostId: HostId }),
-  z.object({ type: z.literal("client"), ticket: Ticket }),
+  /** `purpose: "media"` only to a daemon that registered with `MEDIA_FEATURE` (ADR 0147 §5.2). */
+  z.object({ type: z.literal("client"), ticket: Ticket, purpose: z.literal("media").optional() }),
   z.object({ type: z.literal("http"), ticket: Ticket }),
 ]);
 /**

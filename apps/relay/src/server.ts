@@ -17,6 +17,7 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
+import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
 const noop = () => {};
 export type RelayOptions = {
@@ -109,7 +110,11 @@ export async function startRelay(options: RelayOptions = {}) {
             JSON.stringify(
               action.type === "registered"
                 ? { type: "registered", hostId: action.hostId }
-                : { type: "client", ticket: action.ticket },
+                : {
+                    type: "client",
+                    ticket: action.ticket,
+                    ...(action.purpose ? { purpose: action.purpose } : {}),
+                  },
             ),
           ),
         ),
@@ -128,7 +133,9 @@ export async function startRelay(options: RelayOptions = {}) {
         control.destroy();
         return;
       }
-      await apply(routing.register(id, hostId(control.remoteStatic)));
+      await apply(
+        routing.register(id, hostId(control.remoteStatic), hostFeatures(url).has(MEDIA_FEATURE)),
+      );
       while (connection.socket.readyState === WebSocket.OPEN) {
         const input: unknown = JSON.parse(
           new TextDecoder().decode(control.receive.decrypt(await connection.reader.next())),
@@ -136,11 +143,20 @@ export async function startRelay(options: RelayOptions = {}) {
         const message = HostControlMessage.parse(input);
         await apply(routing.reject(id, message.ticket));
       }
-    } else if (url.pathname === "/client")
-      await apply(
-        routing.request(id, url.searchParams.get("hostId") ?? "", createTicket(), clock.now()),
-      );
-    else if (url.pathname === "/join")
+    } else if (url.pathname === "/client") {
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") connection.socket.close(1008, "Unknown purpose");
+      else
+        await apply(
+          routing.request(
+            id,
+            url.searchParams.get("hostId") ?? "",
+            createTicket(),
+            clock.now(),
+            purpose,
+          ),
+        );
+    } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
   }
