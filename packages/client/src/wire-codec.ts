@@ -17,10 +17,12 @@ import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-del
 
 /**
  * Frame shapes this client reads (hello `framing`): several messages per frame, one per line,
- * streamed deltas in short form (`short-deltas`), made whole by `decode`, and paced replays
- * (`paced-replay`), each piece acknowledged by the connection once handed on.
+ * and streamed deltas in short form (`short-deltas`), made whole by `decode`. The connection
+ * acknowledges paced replay pieces (`paced-replay`), but does not ask for them yet: as paced
+ * today, a replay finishes later, and an approval on the thread being replayed waits for all of
+ * it (measured in apps/daemon/bench/head-of-line.ts, PR description).
  */
-export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming, "paced-replay"];
+export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming];
 
 export type ServiceWire = typeof import("./service-wire.ts");
 
