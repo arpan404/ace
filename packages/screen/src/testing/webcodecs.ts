@@ -104,11 +104,19 @@ export async function decodeInChromium(
       throw new Error(`WebCodecs threw: ${JSON.stringify(evaluated.result.exceptionDetails)}`);
     return Decoded.parse(evaluated.result.result.value);
   } finally {
-    chrome.kill();
-    await new Promise((resolve) =>
+    const exited = new Promise((resolve) =>
       chrome.exitCode !== null ? resolve(null) : chrome.once("exit", resolve),
     );
-    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    // Closing over DevTools ends every Chromium process, so the profile is free to delete.
+    if (port) await closeBrowser(port).catch(() => {});
+    const timer = setTimeout(() => chrome.kill(), 5_000);
+    await exited;
+    clearTimeout(timer);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    } catch {
+      // A helper process may hold a file a moment longer; the temp folder is the test's own.
+    }
   }
 }
 
