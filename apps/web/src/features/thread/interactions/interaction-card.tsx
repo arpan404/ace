@@ -1,7 +1,14 @@
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { useAgent, useInteraction, useItem, useThreadMeta } from "@ace/client-react";
+import {
+  useAgent,
+  useInteraction,
+  useItem,
+  useThreadMeta,
+  useWholeRequest,
+  type WholeRequest,
+} from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import {
   agentName,
@@ -31,6 +38,7 @@ import { BrowserHelp } from "./browser-help.tsx";
 import type { Answer } from "./answer.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
+import { shownWhole, WholeRequestNote } from "./whole-request-note.tsx";
 
 /** Typing a digit in these goes into the field, not to an option. */
 const typing = (target: EventTarget) =>
@@ -55,7 +63,9 @@ export type InteractionFrame = keyof typeof frames;
  * the card's own border for a surface that has one (the composer's attached card), and `aside`
  * goes at the end of its top line (that card's "1 of 3"). While the thread's copy isn't confirmed
  * (reconnecting, offline, read back from disk) the request stays in view but can't be answered:
- * it may have been answered, withdrawn or replaced meanwhile.
+ * it may have been answered, withdrawn or replaced meanwhile. A request its thread sent
+ * summarized (`truncated`) shows its summary until it is read whole, and until then takes only
+ * a decline.
  */
 export function InteractionCard(props: {
   threadId: string;
@@ -71,9 +81,13 @@ export function InteractionCard(props: {
 }) {
   const frame = frames[props.frame ?? "card"];
   const live = useThreadLiveState(props.threadId);
-  const interaction = useInteraction(props.threadId, props.interactionId);
+  const summary = useInteraction(props.threadId, props.interactionId);
+  const whole = useWholeRequest(props.threadId, summary);
+  // The whole request in place of the summary, once it has loaded.
+  const interaction =
+    summary && whole && "request" in whole ? { ...summary, request: whole.request } : summary;
   const agent = useAgent(props.threadId, interaction?.agentId ?? "");
-  const identity = interaction ? requestIdentity(interaction) : undefined;
+  const identity = summary ? requestIdentity(summary) : undefined;
   const local = useLocalAnswer(props.interactionId, identity);
   const earlier = useEarlierAnswer(props.threadId, interaction);
   const [reopened, setReopened] = useState(false);
@@ -82,6 +96,8 @@ export function InteractionCard(props: {
     interactionId: props.interactionId,
     identity,
     questions: interaction?.request.kind === "question" ? interaction.request.questions : [],
+    unread: summary?.truncated && !shownWhole(whole) ? summary.request : undefined,
+    readWhole: summary?.truncated !== undefined && shownWhole(whole),
   });
   const { failed } = sender;
   const answer: Answer = (resolution) => {
@@ -154,6 +170,7 @@ export function InteractionCard(props: {
       asker={asker}
       answer={answer}
       failed={failed}
+      whole={whole}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
       targeted={props.targeted}
       held={live.staleLabel}
@@ -185,6 +202,8 @@ function OpenRequest(props: {
   asker: string;
   answer: Answer;
   failed: string | undefined;
+  /** How much of the request is here: a summarized one takes only declines until read whole. */
+  whole: WholeRequest | undefined;
   local: LocalAnswer | undefined;
   targeted?: boolean | undefined;
   /** Why it can't be answered yet ("Reconnecting…"), while the thread's copy isn't confirmed. */
@@ -197,6 +216,7 @@ function OpenRequest(props: {
   const request = interaction.request;
   const sending = local?.state === "sending";
   const disabled = sending || held !== undefined;
+  const declinesOnly = !shownWhole(props.whole);
   const command =
     call?.type === "tool_call" && call.call.detail.kind === "shell"
       ? displayCommand(call.call.detail).command
@@ -275,12 +295,14 @@ function OpenRequest(props: {
           )}
         </div>
       ) : null}
+      <WholeRequestNote whole={props.whole} />
       {request.kind === "approval" && copy && (
         <>
           <ApprovalRequest
             copy={copy}
             presentation="compact"
             disabled={disabled}
+            declinesOnly={declinesOnly}
             numbered
             keyed={(option) => approvalByKey(request, option, copy.risk)}
             onAnswer={(picked) => answer({ kind: "approval", optionId: picked.option.id })}
@@ -315,16 +337,22 @@ function OpenRequest(props: {
           aside={props.aside && <span className="flex items-center gap-3">{props.aside}</span>}
           questions={request.questions}
           disabled={disabled}
+          declinesOnly={declinesOnly}
           onAnswer={answer}
         />
       )}
       {request.kind === "plan_review" && (
-        <PlanReview disabled={disabled} onAnswer={answer}>
+        <PlanReview disabled={disabled} declinesOnly={declinesOnly} onAnswer={answer}>
           <Prose text={request.markdown} className="text-ui leading-[1.55]" />
         </PlanReview>
       )}
       {request.kind === "elicitation" && (
-        <Elicitation request={request} disabled={disabled} onAnswer={answer} />
+        <Elicitation
+          request={request}
+          disabled={disabled}
+          declinesOnly={declinesOnly}
+          onAnswer={answer}
+        />
       )}
       {request.kind === "browser_help" && (
         <BrowserHelp

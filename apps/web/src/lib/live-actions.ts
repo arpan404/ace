@@ -69,6 +69,8 @@ export function answerRequest<T>(
   interactionId: string,
   resolution: InteractionResolution,
   send: Send<T>,
+  /** The person was shown the whole of a summarized request (ADR 0156). */
+  readWhole = false,
 ): Live<T> {
   return gated(
     client,
@@ -77,6 +79,7 @@ export function answerRequest<T>(
       type: "interaction.resolve",
       interactionId: InteractionId.parse(interactionId),
       resolution,
+      ...(readWhole ? { readWhole: true as const } : {}),
     },
     send,
   );

@@ -8,8 +8,8 @@ import { cwd, scenario } from "./ux-facts.ts";
  */
 
 const root = "root";
-/** About 100 Ki characters: over the 64 Ki a request may be and still go whole. */
-const long = (line: string) => Array.from({ length: 1500 }, (_, at) => `${at + 1}. ${line}`);
+/** 2,000 lines, each ending in its number: well over the 64 Ki characters a request may be and still go whole. */
+const long = (line: string) => Array.from({ length: 2000 }, (_, at) => `${line} (${at + 1})`);
 
 export function largeRequests(): Scenario[] {
   return [
