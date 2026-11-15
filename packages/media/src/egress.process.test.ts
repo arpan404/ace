@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
@@ -25,16 +26,33 @@ import {
 // ace-media (`bun run check:media` does).
 const real = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
+const processBudgetMs = 30_000;
+const cleanupBudgetMs = 5_000;
+const progress = new EventEmitter();
+
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function until(condition: () => boolean, end: number, description: string): Promise<void> {
-  while (!condition()) {
-    if (performance.now() > end) throw new Error(`timed out waiting for ${description}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+function until(condition: () => boolean, end: number, description: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      if (!condition()) return;
+      clearTimeout(timer);
+      progress.off("change", finish);
+      resolve();
+    };
+    const timer = setTimeout(
+      () => {
+        progress.off("change", finish);
+        reject(new Error(`timed out waiting for ${description}`));
+      },
+      Math.max(0, end - performance.now()),
+    );
+    progress.on("change", finish);
+    finish();
+  });
 }
 
 function mediaUnit(kind: number, payload: Uint8Array): Uint8Array {
@@ -90,7 +108,7 @@ it.runIf(real)(
   "units from two sources with the same encode id come back on egress to only their own legacy consumers, and the route returns to the daemon when ace-media dies",
   async () => {
     // Share one condition-wait budget, leaving room for cleanup within the process tier.
-    const deadline = performance.now() + 25_000;
+    const deadline = performance.now() + processBudgetMs - cleanupBudgetMs;
     const binary = real ?? "";
     const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-egress-"));
     const settings: MediaSettings = {
@@ -107,11 +125,10 @@ it.runIf(real)(
     };
     const router = new EgressRouter((kind) => watch.routes()[kind]);
     const sources = { a: legacy(), b: legacy() };
+    const starting = new Set<string>();
     const handles = new Map<string, number>();
     const tokens = new Map<string, Uint8Array>();
     const changes: { at: number; routes: MediaRoutes }[] = [];
-    // Sources ace-media has opened: a producer's hello before that is refused.
-    const opened = new Set<string>();
 
     const supervisor: MediaSupervisor = new MediaSupervisor({
       version: execFileSync(binary, ["--version"]).toString().trim(),
@@ -140,13 +157,19 @@ it.runIf(real)(
         }
       },
       onMessage: (message) => {
-        if (message.type === "source.status" && message.status === "starting")
-          opened.add(message.source);
+        if (message.type === "source.status" && message.status === "starting") {
+          starting.add(message.source);
+          progress.emit("change");
+        }
       },
-      onEgress: (frame) => router.push(frame),
+      onEgress: (frame) => {
+        router.push(frame);
+        progress.emit("change");
+      },
       onExit: () => {
         for (const handle of handles.values()) router.close(handle);
         watch.update();
+        progress.emit("change");
       },
       log: () => {},
     });
@@ -158,16 +181,17 @@ it.runIf(real)(
     });
     cleanups.push(async () => {
       supervisor.dispose();
-      await removeWhenFree(runtimeDir);
+      // Windows frees the named pipes' folder a moment after the process exits.
+      await removeWhenFree(runtimeDir, cleanupBudgetMs - 1_000);
     });
 
     // Before ace-media is up the producer streams to the daemon.
     expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
     supervisor.need();
     await until(
-      () => supervisor.health() === "healthy" && handles.size === 2 && opened.size === 2,
+      () => supervisor.health() === "healthy" && starting.has("a") && starting.has("b"),
       deadline,
-      "healthy media process and both sources open in it",
+      "healthy media process and both sources acknowledged",
     );
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
@@ -177,6 +201,8 @@ it.runIf(real)(
       stills: "legacy",
     });
 
+    // Local handles only mean source.open was queued on stdin. Ingest is a separate socket:
+    // wait for the binary's starting events, or it can reject the hello before opening the source.
     const ingest = supervisor.ingest()?.socket ?? "";
     produce(ingest, tokens.get("a") ?? new Uint8Array(0), 0xa);
     produce(ingest, tokens.get("b") ?? new Uint8Array(0), 0xb);
@@ -218,5 +244,5 @@ it.runIf(real)(
     expect((back?.at ?? Infinity) - killed).toBeLessThan(2_000);
     expect(back?.routes.tab).toMatchObject({ egress: false, tee: false, deliverer: "legacy" });
   },
-  30_000,
+  processBudgetMs,
 );

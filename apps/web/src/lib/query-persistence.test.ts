@@ -6,6 +6,7 @@ import {
   keptForgeLimit,
   persistQueries,
   queryRecordKey,
+  restoredUnconfirmed,
   restoreQueries,
 } from "./query-persistence.ts";
 
@@ -21,6 +22,16 @@ function measurement(measuredAt: number): StorageUsage {
 }
 
 const host = "6b0f9c1e-1f5c-4b5e-9d0a-2f8f6a3c7d11";
+
+/** What a view reading `key` shows, as its observer would report it. */
+function shown(queries: QueryClient, key: QueryKey) {
+  const state = queries.getQueryState(key);
+  return {
+    data: state?.data,
+    dataUpdatedAt: state?.dataUpdatedAt ?? 0,
+    isPlaceholderData: false,
+  };
+}
 
 function memory() {
   const values = new Map<string, unknown>();
@@ -298,4 +309,55 @@ test("restored storage measurements survive a short cache collection window and 
     queries.clear();
     vi.useRealTimers();
   }
+});
+
+test("a thread's queue and latest turn are kept, newest only, and unconfirmed until asked again", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  earlier.queries.setQueryData(
+    ["queue", "t1", 3],
+    { threadId: "t1", revision: 3 },
+    {
+      updatedAt: 1_000,
+    },
+  );
+  earlier.queries.setQueryData(
+    ["queue", "t1", 4],
+    { threadId: "t1", revision: 4 },
+    {
+      updatedAt: 2_000,
+    },
+  );
+  earlier.queries.setQueryData(["thread-turns", "t1", "latest", 40], { ordinal: 2 });
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+
+  const next = session(m.storage);
+  const queue = ["queue", "t1", 4];
+  await vi.waitFor(() =>
+    expect(next.queries.getQueryData(queue)).toEqual({ threadId: "t1", revision: 4 }),
+  );
+  // An older revision of the same thread's queue is never read again, so it was not kept.
+  expect(next.queries.getQueryData(["queue", "t1", 3])).toBeUndefined();
+  expect(next.queries.getQueryData(["thread-turns", "t1", "latest", 40])).toEqual({ ordinal: 2 });
+  // Shown at once, but nothing may act on it before the daemon answers.
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(true);
+  expect(await observe(next.queries, queue, { threadId: "t1", revision: 4, fresh: true })).toEqual({
+    threadId: "t1",
+    revision: 4,
+  });
+  expect(restoredUnconfirmed(next.queries, shown(next.queries, queue))).toBe(false);
+  next.stop();
+});
+
+test("a queue read this session is confirmed", async () => {
+  const m = memory();
+  const now = session(m.storage);
+  await now.queries.fetchQuery({
+    queryKey: ["queue", "t2", 1],
+    queryFn: async () => ({ revision: 1 }),
+  });
+  expect(restoredUnconfirmed(now.queries, shown(now.queries, ["queue", "t2", 1]))).toBe(false);
+  now.stop();
 });

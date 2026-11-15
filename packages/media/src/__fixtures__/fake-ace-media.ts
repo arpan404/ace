@@ -5,6 +5,7 @@
  * egress lane full: 4 MiB of frames once the lanes are up, and one 64 KiB frame for every
  * `source.picture` it reads.
  */
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { encodeEgress } from "../frame.ts";
@@ -58,12 +59,14 @@ function serveLane(socket: Socket): void {
     if (hello.length < 37) return;
     const tag = hello[4] ?? 0;
     const known = secret;
+    // The secret is compared in constant time whatever else is wrong, as ace-media does.
+    const matches =
+      known !== undefined && known.length === 32 && timingSafeEqual(hello.subarray(5, 37), known);
     const valid =
-      known !== undefined &&
+      matches &&
       new DataView(hello.buffer).getUint32(0) === 0x4143454c &&
       (tag === 1 || tag === 2) &&
-      !lanes.has(tag) &&
-      hello.subarray(5, 37).every((byte, i) => byte === known[i]);
+      !lanes.has(tag);
     if (!valid) return void socket.destroy();
     lanes.add(tag);
     if (lanes.size === 2) secret?.fill(0);

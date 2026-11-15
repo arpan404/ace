@@ -55,6 +55,10 @@
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
         },
+        "nextTicket": {
+          "const": true,
+          "type": "boolean"
+        },
         "protocolVersion": {
           "const": 1,
           "type": "number"
@@ -102,6 +106,25 @@
         "subscriptionId": {
           "minLength": 1,
           "type": "string"
+        },
+        "tail": {
+          "properties": {
+            "bytes": {
+              "maximum": 1048576,
+              "minimum": 1024,
+              "type": "integer"
+            },
+            "items": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "bytes"
+          ],
+          "type": "object"
         },
         "type": {
           "const": "subscribe",

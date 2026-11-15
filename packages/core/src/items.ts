@@ -1,4 +1,4 @@
-import { applyDelta, outputDeltas } from "@ace/projection";
+import { applyDelta, deltaChanges, outputDeltas } from "@ace/projection";
 import { Item, ItemId, type EventPayload, type ToolDetail } from "@ace/protocol";
 import type { Fact, ItemDraft, Key, ToolDetailDraft } from "./facts.ts";
 import type { ApplyContext, ThreadState } from "./state.ts";
@@ -163,8 +163,12 @@ function appendDelta(
   text: string,
   events: EventPayload[],
 ): void {
+  // An append that changes nothing (Claude's thinking signature, an empty output read) is
+  // applied for its checks but sends no event: a client would fold it to the same item.
+  const changes = deltaChanges(item, field, text);
   if (item.type === "artifact" || !applyDelta(item, field, text))
     throw new Error(`delta ${field} does not apply to ${item.type}`);
+  if (!changes) return;
   for (const append of field === "output" ? outputDeltas(text) : [text])
     events.push({ type: "item.delta", itemId: item.id, agentId: item.agentId, field, append });
 }

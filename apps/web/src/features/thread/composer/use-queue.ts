@@ -17,7 +17,7 @@ import {
   type QueuedMessage,
 } from "@ace/protocol";
 import { queueActionPayload, type QueueAction } from "@ace/ui-core";
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -117,7 +117,10 @@ export interface QueueControls {
   /** Every retained entry with this device's optimistic edits applied. */
   allMessages: readonly QueuedMessage[];
   failed: boolean;
-  /** A command for this message is on its way: its pill waits for it. */
+  /**
+   * A command for this message is on its way, or the queue shown is a kept copy the daemon has
+   * not answered yet: its pill waits.
+   */
   busy(messageId: string): boolean;
   /** A queue-wide action (resume, hold, a limit choice) is on its way. */
   acting: boolean;
@@ -154,7 +157,15 @@ export function useQueue(threadId: string): QueueControls {
   const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
+  const { page, retained, failed, refresh, loadingMore, loadMore, unconfirmed } =
+    useServerQueue(threadId);
+  // A page kept from an earlier session that the daemon has not answered since: nothing is
+  // built from it. Held for the handlers too, so one that runs after a render re-checks.
+  // (When every live action moves behind one gated sender, this check moves there.)
+  const confirmed = useRef(!unconfirmed);
+  useLayoutEffect(() => {
+    confirmed.current = !unconfirmed;
+  }, [unconfirmed]);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
@@ -179,7 +190,7 @@ export function useQueue(threadId: string): QueueControls {
     /** A refusal the caller says itself, with no toast. */
     quiet: (error: unknown) => boolean = () => false,
   ) => {
-    if (!payload || inFlight.current.has(id)) return false;
+    if (!payload || !confirmed.current || inFlight.current.has(id)) return false;
     inFlight.current.add(id);
     put(id, edit);
     return runCommand(client, payload, crypto.randomUUID())
@@ -232,7 +243,9 @@ export function useQueue(threadId: string): QueueControls {
     retained,
     allMessages,
     failed,
+    // Unconfirmed, every message waits as if a command for it were on its way.
     busy: (id) => {
+      if (unconfirmed) return true;
       const edit = edits.get(id);
       return !!edit && !edit.settled;
     },

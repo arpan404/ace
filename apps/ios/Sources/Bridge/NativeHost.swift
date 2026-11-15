@@ -28,6 +28,15 @@ final class NativeHost: @unchecked Sendable {
     private var snapshots: SnapshotStore?
     private var sockets: [String: any DaemonSocket] = [:]
     private var timers: [String: Timer] = [:]
+    /// The machine's pinned HTTPS and WSS connections, made on first use and kept until this
+    /// runtime ends, so a ticket and the socket after it reuse one connection and TLS session.
+    private var pinnedSession: PinnedSession?
+    private func pinned(_ target: ConnectionTarget) -> PinnedSession {
+        if let pinnedSession { return pinnedSession }
+        let made = PinnedSession(target: target, now: services.now)
+        pinnedSession = made
+        return made
+    }
 
     init(runtime: ClientRuntime, binding: HostBinding) {
         self.runtime = runtime; self.binding = binding
@@ -150,8 +159,11 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(.invalid)); return
         }
         let tracing = LaunchTrace.begin("http", request.path)
-        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now) { result in
+        let ticket = request.path == "/v1/tickets"
+        PinnedHTTP.send(on: pinned(target), origin: origin, request: request) { result in
             tracing.end()
+            // Only whether and how it was answered; never the ticket.
+            if ticket { LaunchTrace.mark("ticket.answered", (try? result.get()).map { String($0.status) } ?? "failed") }
             callback.finish()
             reply(result)
         }
@@ -178,7 +190,7 @@ final class NativeHost: @unchecked Sendable {
             let socket: any DaemonSocket = if let relay = target.relay {
                 RelaySocket(route: relay, streams: runtime?.browserStreams, event: event)
             } else {
-                PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams, event: event)
+                PinnedSocket(target: target, session: pinned(target), streams: runtime?.browserStreams, event: event)
             }
             sockets[id] = socket
             socket.open()
@@ -205,6 +217,8 @@ final class NativeHost: @unchecked Sendable {
         sockets.removeAll()
         for timer in timers.values { timer.invalidate() }
         timers.removeAll()
+        pinnedSession?.close()
+        pinnedSession = nil
         storageQueue.sync { store = nil }
     }
 }

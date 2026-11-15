@@ -1313,8 +1313,8 @@ export class Store {
     return this.threadReads.acquireThread(id);
   }
   /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
-  snapshotThread(id: ThreadId): ThreadView {
-    return this.threadReads.snapshotThread(id);
+  snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
+    return this.threadReads.snapshotThread(id, tail);
   }
   readEntityPage(
     threadId: ThreadId,
@@ -1331,6 +1331,16 @@ export class Store {
   itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
     this.flushLiveWrites();
     return this.payloads.itemCreatedSeq(threadId, itemId);
+  }
+  /** For `item.raw`: the version of an item's raw payloads, undefined without the item. */
+  itemRawRevision(threadId: ThreadId, itemId: string) {
+    this.flushLiveWrites();
+    return this.payloads.rawRevision(threadId, itemId);
+  }
+  /** For `item.raw`: an item's raw payloads from `from`, read as they are taken. */
+  itemRawEntries(threadId: ThreadId, itemId: string, from: number) {
+    this.flushLiveWrites();
+    return this.payloads.rawEntries(threadId, itemId, from);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
     return this.threadReads.readItems(threadId, before, limit);
@@ -1371,6 +1381,10 @@ export class Store {
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
     return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
+  }
+  /** Told after `markThreadRead`, possibly before its transaction commits. */
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    return this.navigation.onThreadRead(listener);
   }
   outputThread(streamId: string) {
     return this.threadReads.outputThread(streamId);

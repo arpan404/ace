@@ -106,6 +106,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
   | "items.window"
   | "turn.steps"
+  | "item.raw"
   | "icons.resolve"
   | "icons.read"
   | "avatars.resolve"
@@ -219,6 +220,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
   "turn.steps": ["turn.steps"],
+  "item.raw": ["item.raw"],
   "icons.resolve": ["icons.resolve"],
   "icons.read": ["icons.read"],
   "avatars.resolve": ["avatars.resolve"],

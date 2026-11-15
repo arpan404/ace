@@ -7,14 +7,27 @@ import { MachinePath, type MachinePathKind } from "@ace/protocol";
 
 /** The timings ADR 0114 fixes. Tests and the manager read them from here. */
 export const pathTiming = {
-  /** A race starts the next path after this long without the previous one opening. */
+  /**
+   * A race starts the next path after this long without the previous one opening, at least;
+   * after a slow win it waits longer (`raceStagger`), up to `raceStaggerCapMs`.
+   */
   raceStaggerMs: 150,
+  raceStaggerCapMs: 2_000,
   pingVisibleMs: 5_000,
-  pingHiddenMs: 15_000,
+  /**
+   * Hidden, a ping is a keep-alive: under the 30 s after which many NATs and phone carriers
+   * silently forget an idle mapping, and so well inside the daemon's 60 s idle limit. It is not
+   * the failure deadline (`pongDeadline`), which scales to the link on its own.
+   */
+  pingHiddenMs: 25_000,
   /** The warm standby only proves it is alive. */
   standbyPingMs: 30_000,
-  /** A ping without its pong this long counts as a failed path. */
+  /**
+   * A ping without its pong this long counts as a miss, on a fast link; a slow one waits four
+   * smoothed round trips (`pongDeadline`), up to `pongDeadlineCapMs`.
+   */
   pongDeadlineMs: 2_000,
+  pongDeadlineCapMs: 10_000,
   /** While on a worse path, better ones are probed this often. */
   upgradeProbeMs: 30_000,
   /** After a switch, the client stays put this long unless the path fails. */
@@ -70,6 +83,8 @@ export interface PathHealth {
   restUntil: number;
   /** Smoothed round trip, once measured. */
   rttMs?: number;
+  /** When `rttMs` last took a sample (the manager's `now`). */
+  rttAt?: number;
 }
 export const freshHealth: PathHealth = { failures: 0, restUntil: 0 };
 
@@ -89,10 +104,38 @@ export function resting(health: PathHealth | undefined, now: number): boolean {
   return health !== undefined && health.restUntil > now;
 }
 
+/** A round-trip sample longer than this is taken for a clock fault, not a link. */
+const absurdRttMs = 60_000;
+/**
+ * The round trip a ping sent at `sentAt` and answered at `at` measured, both on the monotonic
+ * clock; undefined for a reading no link gives (negative, not finite, or over a minute), which
+ * is left out of the estimate rather than dragging it.
+ */
+export function rttSample(sentAt: number, at: number): number | undefined {
+  const sample = at - sentAt;
+  return Number.isFinite(sample) && sample >= 0 && sample <= absurdRttMs ? sample : undefined;
+}
 /** The smoothed round trip after one more sample. */
 export function smoothRtt(previous: number | undefined, sampleMs: number): number {
   const sample = Math.max(0, sampleMs);
   return previous === undefined ? sample : previous + smoothing * (sample - previous);
+}
+
+/**
+ * How long a ping on a path whose smoothed round trip is `rttMs` waits for its pong: 2 s, or
+ * four round trips on a slower link (a phone network's round trip swings far past its mean),
+ * never more than 10 s, so a dead path is still found out.
+ */
+export function pongDeadline(rttMs: number | undefined): number {
+  const scaled = 4 * Math.max(0, rttMs ?? 0);
+  return Math.min(pathTiming.pongDeadlineCapMs, Math.max(pathTiming.pongDeadlineMs, scaled));
+}
+/**
+ * Missed pongs in a row that fail the active path over: one when a warm standby takes over at
+ * once, two when there is none, since then a miss costs a whole reconnect.
+ */
+export function missesToFail(hasStandby: boolean): number {
+  return hasStandby ? 1 : 2;
 }
 
 /**
@@ -119,9 +162,25 @@ export function raceOrder(
   return soonest ? [soonest] : [];
 }
 
+/**
+ * How long a race waits for a path before starting the next, given how long the last race's
+ * winner took to open (`lastOpenMs`): 150 ms with nothing measured, else one and a half times
+ * that, within 150 ms and 2 s. Over a relay that opens in about 3 s, a fixed 150 ms would dial
+ * every path every time, doubling handshake bytes and grant fetches on a metered link. A path
+ * that fails fast still lets the next start at once.
+ */
+export function raceStagger(lastOpenMs: number | undefined): number {
+  if (lastOpenMs === undefined || !Number.isFinite(lastOpenMs)) return pathTiming.raceStaggerMs;
+  const scaled = Math.round(1.5 * Math.max(0, lastOpenMs));
+  return Math.min(pathTiming.raceStaggerCapMs, Math.max(pathTiming.raceStaggerMs, scaled));
+}
+
 /** When each path in a race starts, relative to the race's start. */
-export function raceSchedule(order: readonly PlannedPath[]): { path: PlannedPath; at: number }[] {
-  return order.map((path, index) => ({ path, at: index * pathTiming.raceStaggerMs }));
+export function raceSchedule(
+  order: readonly PlannedPath[],
+  staggerMs: number = pathTiming.raceStaggerMs,
+): { path: PlannedPath; at: number }[] {
+  return order.map((path, index) => ({ path, at: index * staggerMs }));
 }
 
 /** Paths better ranked than the active one and not resting: what an upgrade check probes. */
@@ -203,7 +262,7 @@ function standbyRelays(paths: readonly PlannedPath[], active: PlannedPath): Plan
     .toSorted((a, b) => pathRank(a.kind) - pathRank(b.kind));
 }
 
-/** How often the active path is pinged: every 5 s while visible, 15 s while hidden. */
+/** How often the active path is pinged: every 5 s while visible, 25 s while hidden. */
 export function pingEvery(visible: boolean): number {
   return visible ? pathTiming.pingVisibleMs : pathTiming.pingHiddenMs;
 }

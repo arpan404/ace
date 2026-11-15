@@ -14,7 +14,7 @@ import {
   settledStates,
 } from "../agent-control/watch-view.ts";
 import { savedView, type ChildRow } from "./child-ledger.ts";
-import { MachineFailure } from "./transport.ts";
+import { MachineFailure, MachineTimeout } from "./transport.ts";
 
 /* What the parent's wait and agents_status read from a child's ledger row. Pure. */
 
@@ -26,6 +26,7 @@ export const outcomeOf = (state: WatchedThread["state"]): DelegationOutcome["out
 /** Why a machine can't be read or won't take a message yet, short enough for a status row. */
 function refusedWhy(error: unknown): string {
   if (!(error instanceof MachineFailure)) return "not answering; retrying";
+  if (error instanceof MachineTimeout) return "answering slowly; retrying";
   if (error.kind === "offline") return "unreachable; retrying";
   if (error.kind === "disconnected") return "connection lost; retrying";
   switch (error.refusal) {

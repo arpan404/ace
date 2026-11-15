@@ -2,7 +2,7 @@ import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol"
 import { parseThreadRecord, threadRecord } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
-import { ClientError, type Limits } from "./types.ts";
+import { ClientError, type Limits, type OpenTail } from "./types.ts";
 
 /** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
 export const inactiveThreadBytes = 16 * 1024 * 1024;
@@ -34,6 +34,18 @@ interface Cached {
   restored: boolean;
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
+  /** Completions of a tail-only copy that failed in a row, and the retry waiting, if any. */
+  completions: number;
+  retry: (() => void) | undefined;
+}
+/**
+ * Threads open with a small tail (`ClientOptions.openTail`). A store that holds only a tail is
+ * completed by subscribing again with neither a cursor nor a tail: the daemon's full snapshot
+ * replaces it, as an open without a tail gets. `delay` paces retries of a completion that fails.
+ */
+export interface TailOpen {
+  tail: OpenTail;
+  delay(milliseconds: number, run: () => void): () => void;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -56,17 +68,24 @@ export class Subscriptions {
   #wires = new Map<string, Cached>();
   /** The database the current connection's daemon named, if it named one. */
   #database: string | undefined;
+  /** This socket's hello is out and its welcome not yet in: subscribes go ahead of it. */
+  #early = false;
+  /** Subscribes sent ahead of the welcome with a cursor, and the database each one assumed. */
+  #assumed = new Map<string, string | undefined>();
   #limits: Limits;
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #tail: TailOpen | undefined;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
     persistence?: Persistence,
+    tail?: TailOpen,
   ) {
+    this.#tail = tail;
     this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
@@ -115,6 +134,8 @@ export class Subscriptions {
         database: undefined,
         restored: false,
         loading: false,
+        completions: 0,
+        retry: undefined,
       };
       entry.binding = this.#bind(entry);
       if (entry.binding) {
@@ -164,6 +185,19 @@ export class Subscriptions {
         }
       },
     };
+  }
+  /**
+   * Complete a store that holds only a small tail: resubscribe with neither a cursor nor a tail
+   * (`#resumable` is false for it), so the daemon's full snapshot replaces what it holds.
+   */
+  #complete(entry: Cached): void {
+    if (entry.subscriptionId) {
+      this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
+      this.#wires.delete(entry.subscriptionId);
+      this.#starting.delete(entry.subscriptionId);
+    }
+    entry.subscriptionId = undefined;
+    this.#pump();
   }
   /** Slots an optional hold may still take: free ones beyond the reserve. */
   room(): number {
@@ -249,7 +283,10 @@ export class Subscriptions {
       this.#persistence,
       `thread:${threadId}`,
       contentChanges((tap) => store.observe(tap)),
-      () => threadRecord(store.export(), entry.database),
+      // A store holding only a tail keeps nothing on disk: any reader, this build's or an older
+      // one that would drop the `partial` mark, then restores the thread as holding nothing and
+      // opens it fresh. A record from before stays a complete copy at its own, older cursor.
+      () => (store.filling ? undefined : threadRecord(store.export(), entry.database)),
       (value) => {
         const record = parseThreadRecord(value, threadId);
         if (!record || !store.restore(record.view, record.truncated)) return;
@@ -311,12 +348,18 @@ export class Subscriptions {
     if (entry.store.cursor !== undefined) entry.store.setSyncing(true);
     this.#wires.set(id, entry);
     this.#starting.add(id);
+    const resumable = this.#resumable(entry);
+    if (resumable && this.#early) this.#assumed.set(id, this.#database ?? entry.database);
     this.#send({
       type: "subscribe",
       paced: true,
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
-      ...(this.#resumable(entry) ? { afterSeq: entry.store.cursor } : {}),
+      ...(resumable ? { afterSeq: entry.store.cursor } : {}),
+      // Only a store holding nothing opens from a small tail: one holding a copy resumes or
+      // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers. The
+      // same before the welcome (a subscribe in the hello's flight) as after it.
+      ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail.tail } : {}),
     });
   }
   /**
@@ -324,9 +367,16 @@ export class Subscriptions {
    * only under the database that copy was kept under.
    */
   #resumable(entry: Cached): boolean {
+    // A copy that holds only a tail, live or from disk, is replaced by the full snapshot.
+    if (entry.store.filling) {
+      entry.store.replaceOnSnapshot();
+      return false;
+    }
     if (entry.fresh || entry.store.cursor === undefined) return false;
     if (!entry.restored) return true;
-    if (entry.database !== undefined && entry.database === this.#database) return true;
+    // Ahead of the first welcome, a disk copy assumes the database it was kept under.
+    const database = this.#database ?? (this.#early ? entry.database : undefined);
+    if (entry.database !== undefined && entry.database === database) return true;
     // Known to be another database's: its sequences say nothing here, so nothing of it is kept.
     if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
     return false;
@@ -348,13 +398,31 @@ export class Subscriptions {
   database(databaseId: string | undefined): void {
     const changed = this.#database !== undefined && this.#database !== databaseId;
     this.#database = databaseId;
-    if (!changed) return;
-    for (const entry of this.#cache.values()) {
-      entry.fresh = true;
-      entry.database = undefined;
-      entry.restored = false;
-      entry.store.replaceOnSnapshot();
+    this.#early = false;
+    const assumed = this.#assumed;
+    this.#assumed = new Map();
+    if (changed)
+      for (const entry of this.#cache.values()) {
+        entry.fresh = true;
+        entry.database = undefined;
+        entry.restored = false;
+        entry.store.replaceOnSnapshot();
+      }
+    // A subscribe sent with the hello resumed under the database it assumed. Under another one
+    // its cursor means nothing: drop it before any of its frames land, and subscribe afresh.
+    for (const [id, database] of assumed) {
+      const entry = this.#wires.get(id);
+      if (database === databaseId || !entry) continue;
+      this.#send({ type: "unsubscribe", subscriptionId: id });
+      this.#wires.delete(id);
+      this.#starting.delete(id);
+      entry.subscriptionId = undefined;
     }
+  }
+  /** This socket's hello went out: subscribe now, ahead of the welcome. */
+  early(): void {
+    this.#early = true;
+    this.#pump();
   }
   /** A live frame for `entry` landed: its cursor is now the current database's. */
   #confirmed(entry: Cached): void {
@@ -367,6 +435,8 @@ export class Subscriptions {
   disconnect(): void {
     this.#wires.clear();
     this.#starting.clear();
+    this.#early = false;
+    this.#assumed.clear();
     for (const entry of this.#cache.values()) {
       entry.subscriptionId = undefined;
       entry.rejected = false;
@@ -383,6 +453,16 @@ export class Subscriptions {
     entry.rejected = true;
     entry.store.setSyncing(false);
     entry.store.fail(error);
+    // A tail-only copy never rests as if complete: its completion is tried again, with backoff,
+    // while the thread stays held (and on the next connection, which subscribes it afresh).
+    if (this.#tail && entry.store.filling && entry.refs && !entry.retry) {
+      const wait = Math.min(30_000, 500 * 2 ** entry.completions++);
+      entry.retry = this.#tail.delay(wait, () => {
+        entry.retry = undefined;
+        entry.rejected = false;
+        this.#pump();
+      });
+    }
     this.#pump();
   }
   receive(message: ServerMessage): void {
@@ -420,6 +500,12 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
+      // A small tail paints first; the full snapshot that replaces it is asked for at once.
+      if (entry.store.filling) {
+        this.#complete(entry);
+        return;
+      }
+      entry.completions = 0;
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

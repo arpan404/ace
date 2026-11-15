@@ -38,8 +38,8 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let started = runtime.nanos()
         guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
             timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage, quality: jpegQuality(changed.quality)) else { return }
-        lock.lock(); let published = sequence; sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
-        ingest.legacyStill(published) { writer.publish(packet, sessionId: sessionId) }
+        lock.lock(); sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
+        ingest.legacyStill { writer.publish(packet, sessionId: sessionId) }
     }
     // Video goes to ace-media's ingest while the daemon routes it there (`stream.configure`'s
     // `ingest`), else to the daemon's socket; stills always take the daemon's socket. The route

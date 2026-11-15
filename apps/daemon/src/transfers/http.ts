@@ -10,6 +10,7 @@ import {
 import { allows } from "../devices.ts";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import type { IncomingTransfers } from "./incoming.ts";
+import { keepTrusted } from "../sni-listener.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
 
@@ -73,6 +74,8 @@ export function transfersHttp(
     const method = route === "call" ? "POST" : "PUT";
     const token = request.headers.authorization?.match(/^Bearer ([0-9a-f]{64})$/)?.[1] ?? "";
     const device = token ? authenticate(token) : undefined;
+    // A paired machine sending a project keeps its connection open for the next chunk.
+    if (device) keepTrusted(request, response);
     const owner = target();
     if (request.method !== method || !device || !owner) {
       request.resume();
