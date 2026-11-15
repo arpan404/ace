@@ -18,6 +18,7 @@ dependencies = [
  "media-vaapi",
  "media-vt",
  "media-wire",
+ "ring",
  "rustls",
  "rustls-native-certs",
  "serde_json",

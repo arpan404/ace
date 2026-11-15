@@ -180,8 +180,8 @@ fn settle(media: &mut Media, id: &str) {
 }
 
 struct Lanes {
-    priority: UnixStream,
-    _egress: UnixStream,
+    priority: SealedLane,
+    _egress: SealedLane,
 }
 
 fn lanes(control: &str) -> Lanes {
