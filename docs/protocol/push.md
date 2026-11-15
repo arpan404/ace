@@ -3579,6 +3579,7 @@ Example:
   "view": {
     "keep": [],
     "kind": "threads",
+    "reads": {},
     "seq": 3,
     "threads": {}
   }

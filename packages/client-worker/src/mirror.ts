@@ -34,6 +34,8 @@ export class MirrorThread implements ThreadSource {
   private failure: ClientError | undefined;
   private catchingUp = false;
   private copy = false;
+  /** The worker's store holds only a small tail until its full snapshot lands. */
+  private owing = false;
   private meta: ThreadView["thread"] | undefined;
   private queued: ThreadView["queue"] | undefined;
   private ids: readonly string[] = none;
@@ -85,6 +87,9 @@ export class MirrorThread implements ThreadSource {
   }
   get unconfirmed() {
     return this.copy;
+  }
+  get filling() {
+    return this.owing;
   }
   get thread() {
     return this.meta;
@@ -165,6 +170,7 @@ export class MirrorThread implements ThreadSource {
     this.failure = errorOf(copy.error);
     this.catchingUp = copy.syncing ?? false;
     this.copy = copy.unconfirmed ?? false;
+    this.owing = view?.partial !== undefined;
     this.meta = view?.thread;
     this.queued = view?.queue;
     this.ids = view?.itemOrder ?? none;
@@ -207,6 +213,9 @@ export class MirrorThread implements ThreadSource {
         return;
       case "unconfirmed":
         this.copy = v === true;
+        return;
+      case "filling":
+        this.owing = v === true;
         return;
       case "thread":
         this.meta = trusted<ThreadView["thread"] | undefined>(v);

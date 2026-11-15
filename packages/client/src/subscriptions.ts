@@ -2,7 +2,7 @@ import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol"
 import { parseThreadRecord, threadRecord } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
-import { ClientError, type Limits } from "./types.ts";
+import { ClientError, type Limits, type OpenTail } from "./types.ts";
 
 /** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
 export const inactiveThreadBytes = 16 * 1024 * 1024;
@@ -34,6 +34,18 @@ interface Cached {
   restored: boolean;
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
+  /** Completions of a tail-only copy that failed in a row, and the retry waiting, if any. */
+  completions: number;
+  retry: (() => void) | undefined;
+}
+/**
+ * Threads open with a small tail (`ClientOptions.openTail`). A store that holds only a tail is
+ * completed by subscribing again with neither a cursor nor a tail: the daemon's full snapshot
+ * replaces it, as an open without a tail gets. `delay` paces retries of a completion that fails.
+ */
+export interface TailOpen {
+  tail: OpenTail;
+  delay(milliseconds: number, run: () => void): () => void;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -64,13 +76,16 @@ export class Subscriptions {
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #tail: TailOpen | undefined;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
     persistence?: Persistence,
+    tail?: TailOpen,
   ) {
+    this.#tail = tail;
     this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
@@ -119,6 +134,8 @@ export class Subscriptions {
         database: undefined,
         restored: false,
         loading: false,
+        completions: 0,
+        retry: undefined,
       };
       entry.binding = this.#bind(entry);
       if (entry.binding) {
@@ -168,6 +185,19 @@ export class Subscriptions {
         }
       },
     };
+  }
+  /**
+   * Complete a store that holds only a small tail: resubscribe with neither a cursor nor a tail
+   * (`#resumable` is false for it), so the daemon's full snapshot replaces what it holds.
+   */
+  #complete(entry: Cached): void {
+    if (entry.subscriptionId) {
+      this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
+      this.#wires.delete(entry.subscriptionId);
+      this.#starting.delete(entry.subscriptionId);
+    }
+    entry.subscriptionId = undefined;
+    this.#pump();
   }
   /** Slots an optional hold may still take: free ones beyond the reserve. */
   room(): number {
@@ -253,7 +283,10 @@ export class Subscriptions {
       this.#persistence,
       `thread:${threadId}`,
       contentChanges((tap) => store.observe(tap)),
-      () => threadRecord(store.export(), entry.database),
+      // A store holding only a tail keeps nothing on disk: any reader, this build's or an older
+      // one that would drop the `partial` mark, then restores the thread as holding nothing and
+      // opens it fresh. A record from before stays a complete copy at its own, older cursor.
+      () => (store.filling ? undefined : threadRecord(store.export(), entry.database)),
       (value) => {
         const record = parseThreadRecord(value, threadId);
         if (!record || !store.restore(record.view, record.truncated)) return;
@@ -323,6 +356,10 @@ export class Subscriptions {
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
       ...(resumable ? { afterSeq: entry.store.cursor } : {}),
+      // Only a store holding nothing opens from a small tail: one holding a copy resumes or
+      // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers. The
+      // same before the welcome (a subscribe in the hello's flight) as after it.
+      ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail.tail } : {}),
     });
   }
   /**
@@ -330,6 +367,11 @@ export class Subscriptions {
    * only under the database that copy was kept under.
    */
   #resumable(entry: Cached): boolean {
+    // A copy that holds only a tail, live or from disk, is replaced by the full snapshot.
+    if (entry.store.filling) {
+      entry.store.replaceOnSnapshot();
+      return false;
+    }
     if (entry.fresh || entry.store.cursor === undefined) return false;
     if (!entry.restored) return true;
     // Ahead of the first welcome, a disk copy assumes the database it was kept under.
@@ -411,6 +453,16 @@ export class Subscriptions {
     entry.rejected = true;
     entry.store.setSyncing(false);
     entry.store.fail(error);
+    // A tail-only copy never rests as if complete: its completion is tried again, with backoff,
+    // while the thread stays held (and on the next connection, which subscribes it afresh).
+    if (this.#tail && entry.store.filling && entry.refs && !entry.retry) {
+      const wait = Math.min(30_000, 500 * 2 ** entry.completions++);
+      entry.retry = this.#tail.delay(wait, () => {
+        entry.retry = undefined;
+        entry.rejected = false;
+        this.#pump();
+      });
+    }
     this.#pump();
   }
   receive(message: ServerMessage): void {
@@ -448,6 +500,12 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
+      // A small tail paints first; the full snapshot that replaces it is asked for at once.
+      if (entry.store.filling) {
+        this.#complete(entry);
+        return;
+      }
+      entry.completions = 0;
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

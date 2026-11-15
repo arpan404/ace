@@ -147,6 +147,7 @@ export {
   SnapshotView,
   SubscriptionScope,
   ThreadListEntry,
+  ThreadReadCursor,
   ThreadListView,
   ThreadView,
 } from "./wire-core.ts";
