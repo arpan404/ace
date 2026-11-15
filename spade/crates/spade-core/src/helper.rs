@@ -391,7 +391,9 @@ mod tests {
                 endpoint: None,
             }),
         ];
-        let end = ended(&failed).expect("ended");
+        let Some(end) = ended(&failed) else {
+            panic!("a failed helper has ended");
+        };
         assert!(end.is_error);
         assert!(
             end.content.contains("spending limit of $1.00"),
