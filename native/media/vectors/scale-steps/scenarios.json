@@ -120,7 +120,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -138,7 +138,7 @@
         },
         "output": {
           "scale": 0.7055999999999999,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -156,7 +156,7 @@
         },
         "output": {
           "scale": 0.4978713599999999,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -174,7 +174,7 @@
         },
         "output": {
           "scale": 0.3512980316159999,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -424,7 +424,7 @@
         },
         "output": {
           "scale": 0.4978713599999999,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -437,7 +437,7 @@
         },
         "output": {
           "scale": 0.4978713599999999,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -494,7 +494,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -507,7 +507,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -697,7 +697,45 @@
         },
         "output": {
           "scale": 0.3512980316159999,
-          "fps": 5
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "a low link keeps 15 fps at a smaller size",
+    "steps": [
+      {
+        "input": {
+          "link": 250000,
+          "pixels": 4096000,
+          "fps": 60,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 15
+        }
+      }
+    ]
+  },
+  {
+    "name": "a 10 fps view on a low link keeps its 10 fps",
+    "steps": [
+      {
+        "input": {
+          "link": 250000,
+          "pixels": 4096000,
+          "fps": 10,
+          "now": 0,
+          "probing": false,
+          "side": 2560
+        },
+        "output": {
+          "scale": 0.41821194239999987,
+          "fps": 10
         }
       }
     ]
@@ -716,7 +754,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       }
     ]
@@ -810,7 +848,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -823,7 +861,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -836,7 +874,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -849,7 +887,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {
@@ -862,7 +900,7 @@
         },
         "output": {
           "scale": 0.84,
-          "fps": 5
+          "fps": 15
         }
       },
       {

@@ -12,7 +12,7 @@ pub const KEYFRAME_BPP: f64 = 0.15;
 pub const KEYFRAME_SECONDS: f64 = 0.5;
 const SIZE_STEP: f64 = 0.84;
 const SIZE_STEPS: i32 = 6;
-const MAX_STEPS: usize = 12;
+const MAX_STEPS: usize = 24;
 const STEADY_FPS: f64 = 15.0;
 pub const READABLE_SIDE: f64 = 1152.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,6 +42,10 @@ pub fn readable_steps(side: f64) -> usize {
         steps += 1;
     }
     steps
+}
+/// Bits per second per pixel a frame rate costs: its frames, or its keyframe's floor.
+fn per_pixel(fps: f64) -> f64 {
+    (fps * frames_bpp(fps)).max(KEYFRAME_BPP / KEYFRAME_SECONDS)
 }
 pub fn step_needs(pixels: f64, step: Step) -> f64 {
     let area = pixels * step.scale.powi(2);
@@ -79,21 +83,28 @@ impl Ladder {
             return ladder;
         }
         let steady = rates.iter().filter(|r| **r >= STEADY_FPS).count();
+        // The rate the picture shrinks at: 15 fps, or the view's own when it asks for fewer.
+        let shrink_at = if steady == 0 { fps } else { rates[steady - 1] };
         let kept = if steady == 0 { 0 } else { readable };
-        let lowest = rates[count - 1];
         for rate in &rates[..steady] {
             ladder.push(1.0, *rate);
         }
-        if steady > 0 {
-            for level in 1..=kept {
-                ladder.push(size(level), rates[steady - 1]);
+        for level in 0..=SIZE_STEPS as usize {
+            if level > 0 || steady == 0 {
+                ladder.push(size(level), shrink_at);
             }
-        }
-        for rate in &rates[steady..] {
-            ladder.push(size(kept), *rate);
-        }
-        for level in kept + 1..=SIZE_STEPS as usize {
-            ladder.push(size(level), lowest);
+            if level < kept {
+                continue;
+            }
+            // A slower rate only where it saves bandwidth (float noise aside).
+            let mut cost = per_pixel(shrink_at);
+            for rate in &rates[steady..] {
+                if *rate >= shrink_at || per_pixel(*rate) >= cost * (1.0 - 1e-9) {
+                    continue;
+                }
+                cost = per_pixel(*rate);
+                ladder.push(size(level), *rate);
+            }
         }
         ladder
     }

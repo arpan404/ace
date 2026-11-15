@@ -47,6 +47,9 @@ export function scaleSteps() {
     ]),
     // The plan's 3G refinement: shrink at 15 fps to a readable size before 8 and 5 fps.
     ...descending.map((link) => ladder(`readable at ${link}`, [input(link, 0, false, 60, 2560)])),
+    // Below the readable size, 15 fps costs what 5 would (the keyframe sets the price).
+    ladder("a low link keeps 15 fps at a smaller size", [input(250e3, 0, false, 60, 2560)]),
+    ladder("a 10 fps view on a low link keeps its 10 fps", [input(250e3, 0, false, 10, 2560)]),
     ladder("a portrait phone already near readable", [input(1.2e6, 0, false, 60, 1170)]),
     ladder("a 30 fps view, readable", [input(1.2e6, 0, false, 30, 2560)]),
     // Frame-only recovery waits 1 s, not a size step's 3 s.

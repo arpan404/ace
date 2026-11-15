@@ -110,7 +110,8 @@ fn a_measured_thin_link_steps_the_frame_rate_before_the_size() {
         })
         .collect();
     assert!(steps.windows(2).all(|w| w[0].fps >= w[1].fps));
-    assert!(steps.iter().all(|s| s.scale == 1.0 || s.fps == 5.0));
+    // The picture shrinks only once at 15 fps: below it, fewer frames would save nothing.
+    assert!(steps.iter().all(|s| s.scale == 1.0 || s.fps == 15.0));
     assert!(steps.last().is_some_and(|s| s.scale < 1.0));
 }
 #[test]

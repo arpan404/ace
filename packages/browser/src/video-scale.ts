@@ -94,9 +94,16 @@ export function readableSteps(side: number | undefined): number {
   return steps;
 }
 
+/** Bits per second per pixel a frame rate costs: its frames, or its keyframe's floor. */
+function perPixel(fps: number): number {
+  return Math.max(fps * framesBpp(fps), keyframeBpp / keyframeSeconds);
+}
+
 /**
  * The steps from the full picture down. Measured: the frame rate to 15 fps at full size, then
- * the size at 15 fps down to `readable` steps, then 8 and 5 fps, then the size again. While
+ * the size at 15 fps down to `readable` steps, then smaller sizes, each at 15 fps. A slower rate
+ * (8, 5 fps) is offered at a size only where it costs less than the rate above it: where the
+ * keyframe sets the price, fewer frames save nothing and the picture keeps its 15 fps. While
  * probing: the size first at the top frame rate, then the frame rate at the smallest size.
  */
 export function pictureLadder(fps: number, probing: boolean, readable = 0): PictureStep[] {
@@ -110,15 +117,24 @@ export function pictureLadder(fps: number, probing: boolean, readable = 0): Pict
     ];
   const steady = rates.filter((rate) => rate >= steadyFps);
   const slow = rates.filter((rate) => rate < steadyFps);
-  const shrinkAt = steady.at(-1);
-  const kept = shrinkAt === undefined ? 0 : readable;
-  const lowest = rates.at(-1) ?? fps;
-  return [
-    ...steady.map((rate) => ({ scale: 1, fps: rate })),
-    ...sizes.slice(1, kept + 1).map((scale) => ({ scale, fps: shrinkAt ?? fps })),
-    ...slow.map((rate) => ({ scale: sizes[kept] ?? 1, fps: rate })),
-    ...sizes.slice(kept + 1).map((scale) => ({ scale, fps: lowest })),
-  ];
+  // The rate the picture shrinks at: 15 fps, or the view's own when it asks for fewer.
+  const shrinkAt = steady.at(-1) ?? fps;
+  const kept = steady.length ? readable : 0;
+  const steps: PictureStep[] = steady.map((rate) => ({ scale: 1, fps: rate }));
+  sizes.forEach((scale, level) => {
+    // Full size at 15 fps is the last steady step already; a view asking for fewer starts here.
+    if (level > 0 || !steady.length) steps.push({ scale, fps: shrinkAt });
+    // Slower rates only from the readable size down, and only where they save bandwidth.
+    if (level < kept) return;
+    let cost = perPixel(shrinkAt);
+    for (const rate of slow) {
+      // Saves something: equal costs (float noise aside) offer nothing a slower rate is for.
+      if (rate >= shrinkAt || perPixel(rate) >= cost * (1 - 1e-9)) continue;
+      cost = perPixel(rate);
+      steps.push({ scale, fps: rate });
+    }
+  });
+  return steps;
 }
 
 /** A pending step up to `level`: kept while the target holds, restarted when it changes. */

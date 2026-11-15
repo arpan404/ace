@@ -25,19 +25,19 @@ describe("the picture and frame rate a link carries", () => {
     expect(new PictureScale().update(at(16_000_000, 0))).toEqual({ scale: 1, fps: 60 });
   });
 
-  it("a measured thin link loses frames before pixels: 60, 30, 15, 8, 5 fps, then size", () => {
+  it("a measured thin link loses frames before pixels: 60, 30, 15 fps, then size", () => {
     const steps = [6_000_000, 4_000_000, 2_500_000, 2_100_000, 1_000_000, 400_000].map((link) =>
       new PictureScale().update(at(link, 0)),
     );
     const fps = steps.map((step) => step.fps);
     expect(fps).toEqual(fps.toSorted((a, b) => b - a));
-    // Every frame rate step comes at full size; the picture shrinks only at 5 fps.
-    for (const step of steps) if (step.scale < 1) expect(step.fps).toBe(5);
+    // Each frame rate step comes at full size; the picture shrinks only once at 15 fps.
+    for (const step of steps) if (step.scale < 1) expect(step.fps).toBe(15);
     expect(steps.at(-1)?.scale).toBeLessThan(1);
-    expect(new Set(fps).size).toBeGreaterThan(3);
+    expect(new Set(fps)).toEqual(new Set([60, 30, 15]));
   });
 
-  it("below 15 fps the picture first shrinks, at 15 fps, but no smaller than readable text", () => {
+  it("past the readable size, the picture still shrinks at 15 fps: fewer frames save nothing", () => {
     const steps = [6e6, 3e6, 1.2e6, 900e3, 600e3, 300e3, 150e3].map((link) =>
       new PictureScale().update({ ...at(link, 0), side: 2560 }),
     );
@@ -45,14 +45,21 @@ describe("the picture and frame rate a link carries", () => {
     const thin = steps[2];
     expect(thin?.fps).toBe(15);
     expect(2560 * (thin?.scale ?? 0)).toBeGreaterThanOrEqual(readableSide);
-    for (const step of steps)
-      if (step.fps === 15) expect(2560 * step.scale).toBeGreaterThanOrEqual(readableSide);
-    // Below that the frame rate drops at the readable size, and only then the size again.
-    const slower = steps.filter((step) => step.fps < 15);
-    expect(slower.length).toBeGreaterThan(0);
-    const fps = steps.map((step) => step.fps);
-    expect(fps).toEqual(fps.toSorted((a, b) => b - a));
+    // Below a link that carries 15 fps of readable text, the picture shrinks, still at 15 fps:
+    // with the keyframe setting the price, 8 or 5 fps would cost the same.
+    expect(steps.every((step) => step.fps >= 15)).toBe(true);
     expect(steps.at(-1)?.scale).toBeLessThan(readableSide / 2560);
+    const scales = steps.map((step) => step.scale);
+    expect(scales).toEqual(scales.toSorted((a, b) => b - a));
+  });
+
+  it("below the readable size, a smaller picture keeps 15 fps where fewer frames would save nothing", () => {
+    // At 250 kbit/s, 15 fps of the picture at 0.42 costs what 5 fps would (about 215 kbit/s):
+    // its keyframe, not its motion, sets the price.
+    const step = new PictureScale().update({ ...at(250e3, 0), side: 2560 });
+    expect(step.fps).toBe(15);
+    expect(step.scale).toBeCloseTo(0.84 ** 5, 10);
+    expect(stepNeeds(pixels, { ...step, fps: 5 })).toBe(stepNeeds(pixels, step));
   });
 
   it("a picture already near readable size keeps 15 fps at full size on a link that carries it", () => {
