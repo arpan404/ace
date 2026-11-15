@@ -42,6 +42,8 @@ export interface RelayRouteOptions {
    * opened. An attempt whose upgrade succeeded resets the count, however it ends after.
    */
   grantRefused?(grant: string): boolean;
+  /** Carry the first handshake message in the upgrade request (ADR 0155, step 3); default on. */
+  inUpgrade?: boolean | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -169,7 +171,7 @@ export function relayRoute(options: RelayRouteOptions): {
               // The first message rides in the upgrade wherever early sending is offered: with a
               // grant, or to a relay that said it is new. Both answer something offered whether
               // or not they know ace.v2, so the offer can't fail an upgrade they would accept.
-              const inUpgrade = early && !upgradeRefused;
+              const inUpgrade = early && !upgradeRefused && options.inUpgrade !== false;
               try {
                 opened = await dial(early, inUpgrade);
               } catch (error) {

@@ -44,6 +44,8 @@ const profile = linkProfile(argument("profile", "3g-slow"));
 const runs = Number(argument("runs", "5"));
 const output = argument("output", "");
 const joinRtt = Number(argument("join-rtt", "0"));
+/** `--in-upgrade=0`: step 1 only, as before step 3 (ADR 0155). */
+const inUpgrade = argument("in-upgrade", "1") !== "0";
 const timeoutMs = 120_000;
 
 const Thread = z.object({ id: z.string(), items: z.number(), turns: z.number() });
@@ -143,6 +145,7 @@ function client(
     credential: async () => route.token,
     socket: sockets.socket,
     schedule: (callback, delayMs) => scheduler.set(delayMs, callback),
+    inUpgrade,
   });
   return new Client({
     // What the web app passes (apps/web/src/boot/client.ts).
@@ -341,8 +344,9 @@ function table(results: Awaited<ReturnType<typeof measure>>) {
     "connections",
   ] as const;
   const lines = [
-    `step (median ms from dial, ${profile.name}, join rtt ${joinRtt})`.padEnd(30) +
-      "cold  reconnect  relaunch",
+    `step (median ms from dial, ${profile.name}, join rtt ${joinRtt}${inUpgrade ? "" : ", step 1 only"})`.padEnd(
+      30,
+    ) + "cold  reconnect  relaunch",
   ];
   for (const key of keys)
     lines.push(
@@ -360,6 +364,7 @@ const result = {
   bench: "relay-connect",
   profile,
   joinRtt,
+  inUpgrade,
   runs,
   startedAt: new Date().toISOString(),
   results,
