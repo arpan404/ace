@@ -14,9 +14,22 @@ for (const args of [
 }
 
 // The daemon's supervisor, the egress route and the recording route against the binary just
-// built: the acceptance tests for the process core, G1 and F1. Windows has no lanes in the
-// binary yet.
-if (process.platform !== "win32") {
+// built: the acceptance tests for the process core, G1 and F1. Windows runs the supervisor and
+// egress tests over its named pipes; it has no recorder yet, and the producer suites below
+// haven't been run against the Windows binary.
+if (process.platform === "win32") {
+  execFileSync("cargo", ["build", "--locked", "-p", "ace-media"], { cwd, stdio: "inherit" });
+  const binary = fileURLToPath(new URL("target/debug/ace-media.exe", cwd));
+  execFileSync(
+    "bun",
+    ["--bun", "x", "vitest", "run", "src/supervisor.process.test.ts", "src/egress.process.test.ts"],
+    {
+      cwd: new URL("../packages/media/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+} else {
   execFileSync("cargo", ["build", "--locked", "-p", "ace-media"], { cwd, stdio: "inherit" });
   const binary = fileURLToPath(new URL("target/debug/ace-media", cwd));
   const tests = [
