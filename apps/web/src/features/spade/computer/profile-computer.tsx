@@ -165,6 +165,9 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
               side={place.side}
               writable={state.mayAct}
             />
+            <div className="px-4">
+              <DriveLine bot={bot} state={state} what="computer" />
+            </div>
           </div>
         ) : (
           <SpadeActivity bot={bot} />

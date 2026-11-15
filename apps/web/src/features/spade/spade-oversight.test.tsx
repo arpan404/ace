@@ -227,7 +227,7 @@ test("Show older goes on from where Spade stopped reading, past a part with noth
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   expect(list.getAllByRole("listitem")).toHaveLength(1);
   await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
-  await waitFor(() => expect(activityReads(spade)).toContain("before=3001&limit=100"));
+  await waitFor(() => expect(activityReads(spade)).toContain("before=3001&limit=50"));
   // That part held nothing; the cursor still moves on, never repeating.
   await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
   await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
