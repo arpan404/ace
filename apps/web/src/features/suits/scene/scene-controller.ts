@@ -184,6 +184,8 @@ export function createSceneController(
     receive(message) {
       if (phase === "over" || phase === "idle") return;
       if (message.type === "error") return stop({ reason: "error", message: message.message });
+      // Samples answer the live check (`scene-sample.ts`), not the clock.
+      if (message.type === "sample") return;
       if (message.type === "ready") {
         if (phase !== "starting") return;
         cancelReady?.();

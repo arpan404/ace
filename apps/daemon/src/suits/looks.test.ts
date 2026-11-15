@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import type { SuitActive } from "@ace/protocol/suits";
+import type { SuitActive, SuitLiveCheck } from "@ace/protocol/suits";
 import { SuitLooks, type LookSocket } from "./looks.ts";
 
 const mine = ThreadId.parse("thread-mine");
@@ -9,12 +9,14 @@ const theirs = ThreadId.parse("thread-theirs");
 /** A socket of `device` that may read `threads`, recording what it hears. */
 function socket(device: string, threads: readonly ThreadId[]) {
   const heard: SuitActive[] = [];
+  const checks: SuitLiveCheck[] = [];
   const looks: LookSocket = {
     device,
     hears: (thread) => threads.includes(thread),
     send: (active) => heard.push(active),
+    check: (check) => checks.push(check),
   };
-  return { looks, heard };
+  return { looks, heard, checks };
 }
 
 function hub() {
@@ -95,4 +97,16 @@ it("a newer preview from another thread takes over, and devices it doesn't reach
   looks.preview(theirs, "starfield");
   expect(both.heard.at(-1)).toEqual({ kind: "preview", suitId: "starfield" });
   expect(onlyMine.heard.at(-1)).toEqual({ kind: "none" });
+});
+
+it("a live check is asked only of the sockets that may read the calling thread", () => {
+  const looks = hub();
+  const laptop = socket("laptop", [mine]);
+  const stranger = socket("stranger", [theirs]);
+  looks.attach(laptop.looks);
+  looks.attach(stranger.looks);
+  const asked = looks.askCheck(mine, { checkId: "check-1", suitId: "neon-district" });
+  expect(asked).toEqual([laptop.looks]);
+  expect(laptop.checks).toEqual([{ checkId: "check-1", suitId: "neon-district" }]);
+  expect(stranger.checks).toEqual([]);
 });

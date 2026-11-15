@@ -88,7 +88,7 @@ import {
 } from "./terminal-client.ts";
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
-import { SuitClientMessage, SuitServerMessage } from "./suits.ts";
+import { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "./suits.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
 import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
@@ -263,6 +263,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TerminalCredit,
   PluginClientMessage,
   SuitClientMessage,
+  SuitReportMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,
   PermissionCapabilitiesRequest,

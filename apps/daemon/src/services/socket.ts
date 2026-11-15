@@ -10,7 +10,7 @@ import type {
   UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
-import type { SuitClientMessage, SuitServerMessage } from "@ace/protocol/suits";
+import type { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "@ace/protocol/suits";
 import type { MainSocket } from "../main-socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { MaintenanceGate } from "@ace/service";
@@ -18,6 +18,7 @@ export type SocketMessage =
   | ClientMessage
   | PluginClientMessage
   | SuitClientMessage
+  | SuitReportMessage
   | BrowserClientMessage
   | BrowserBackendClientMessage
   | UserBrowserExtensionMessage;

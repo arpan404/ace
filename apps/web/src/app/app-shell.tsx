@@ -40,7 +40,7 @@ import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
-import { AppliedSuitBackdrop } from "@/features/suits/index.ts";
+import { AppliedSuitBackdrop, SuitLiveChecks } from "@/features/suits/index.ts";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -86,6 +86,8 @@ export function AppShell() {
               >
                 {/* A Suit's scene, behind the sidebar and the transcript. */}
                 <AppliedSuitBackdrop onShowing={setSceneShowing} />
+                {/* Answers an agent's live check of the Suit on screen. */}
+                <SuitLiveChecks />
                 <a
                   href="#main"
                   // The desktop's macOS traffic lights cover the window's top-left corner.

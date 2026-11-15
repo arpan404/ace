@@ -1,15 +1,17 @@
 import type { ClientApi } from "@ace/client";
 import {
   SuitActive,
+  SuitLiveCheck,
   SuitResponse,
   SuitsChanged,
   type SuitDetail,
   type SuitId,
+  type SuitLiveReport,
   type SuitRequest,
   type SuitSummary,
 } from "@ace/protocol/suits";
 
-export type { SuitActive } from "@ace/protocol/suits";
+export type { SuitActive, SuitLiveCheck, SuitLiveReport } from "@ace/protocol/suits";
 
 /*
  * The one place the web app talks to the daemon's Suit library (ADR 0150). Everything else goes
@@ -29,6 +31,10 @@ export interface SuitChannel {
   watch(push: (payload: unknown, socket: number) => void, failed: () => void): () => void;
   /** Hears `suitActive` pushes (an agent's `suit_apply`). Returns the unsubscribe. */
   watchActive(push: (payload: unknown) => void): () => void;
+  /** Hears `suitCheck`: the daemon asks for a live check. Returns the unsubscribe. */
+  watchChecks(push: (payload: unknown) => void): () => void;
+  /** Sends a live check's `suitReport`; false when the socket is down. */
+  report(report: SuitLiveReport): boolean;
   /**
    * The daemon URL a served path (`/v1/suits/...`) is reached at from this page, or undefined
    * when this page can't reach the daemon's HTTP routes (a machine reached through a relay).
@@ -49,6 +55,10 @@ export interface SuitTransport {
   read(id: SuitId, signal?: AbortSignal): Promise<SuitDetail>;
   /** Each preview, keep or revert an agent makes. Malformed pushes are ignored. */
   watchActive(receive: (active: SuitActive) => void): () => void;
+  /** Each live check the daemon asks of this page. Malformed pushes are ignored. */
+  watchChecks(receive: (check: SuitLiveCheck) => void): () => void;
+  /** Answers a live check; false when it couldn't be sent. */
+  report(report: SuitLiveReport): boolean;
 }
 
 export function suitTransport(channel: SuitChannel): SuitTransport {
@@ -66,6 +76,13 @@ export function suitTransport(channel: SuitChannel): SuitTransport {
         if (parsed.success) receive(parsed.data);
       });
     },
+    watchChecks(receive) {
+      return channel.watchChecks((payload) => {
+        const parsed = SuitLiveCheck.safeParse(payload);
+        if (parsed.success) receive(parsed.data);
+      });
+    },
+    report: (report) => channel.report(report),
     async read(id, signal) {
       const reply = SuitResponse.safeParse(await channel.request({ op: "read", id }, signal));
       if (!reply.success || reply.data.op !== "read")
@@ -94,7 +111,7 @@ function reachable(detail: SuitDetail, channel: SuitChannel): SuitDetail {
  * `suitActive`). `origin` is the daemon's HTTP origin when this page may dial it directly.
  */
 export function daemonSuitChannel(
-  client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration">,
+  client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration" | "send">,
   origin: string | undefined,
 ): SuitChannel {
   return {
@@ -147,6 +164,19 @@ export function daemonSuitChannel(
       return client.onMessage((message) => {
         if (message.type === "suitActive") push(message.active);
       });
+    },
+    watchChecks(push) {
+      return client.onMessage((message) => {
+        if (message.type === "suitCheck") push(message.check);
+      });
+    },
+    report(report) {
+      try {
+        client.send({ type: "suitReport", report });
+        return true;
+      } catch {
+        return false;
+      }
     },
     served(path) {
       if (!origin || !path.startsWith("/v1/suits/")) return undefined;

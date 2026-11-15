@@ -5,7 +5,8 @@ import { logError } from "@ace/diagnostics";
 import { seedBuiltinSuits } from "@ace/plugins";
 import type { SuitResponse, SuitServerMessage } from "@ace/protocol/suits";
 import { SuitLibrary } from "../suits/library.ts";
-import { SuitLooks } from "../suits/looks.ts";
+import { SuitLiveChecks } from "../suits/live-checks.ts";
+import { SuitLooks, type LookSocket } from "../suits/looks.ts";
 import { nodeSuitSchedule, nodeSuitWatch } from "../suits/watch.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -29,16 +30,24 @@ export async function startSuits(context: ServiceContext): Promise<void> {
   resources.own(() => library.close());
   services.suits = library;
   services.suitLooks = new SuitLooks(context.id);
+  services.suitChecks = new SuitLiveChecks(context.id, {
+    after(ms, run) {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
+  });
 }
 
 /**
  * `suitRequest` (read scope, admin to remove), and once welcomed `suitsChanged` pushes and the
- * `suitActive` an agent's preview, keep or revert sends this device (`SuitLooks`).
+ * `suitActive` an agent's preview, keep or revert sends this device (`SuitLooks`), its
+ * `suitCheck` asks, and the `suitReport` the device answers with (`SuitLiveChecks`).
  */
 export function createSuitsSession(context: SocketContext): SocketService {
   const { options, tasks, authorize, send } = context;
   let stop: (() => void) | undefined;
   let detach: (() => void) | undefined;
+  let looks: LookSocket | undefined;
   return {
     welcomed() {
       stop = options.suits?.subscribe((suits) => {
@@ -46,7 +55,7 @@ export function createSuitsSession(context: SocketContext): SocketService {
         const message: SuitServerMessage = { type: "suitsChanged", suits };
         send(message);
       });
-      detach = options.suitLooks?.attach({
+      looks = {
         device: context.device(),
         hears: (threadId) => authorize("read") && context.canReadThread(threadId),
         send: (active) => {
@@ -54,15 +63,28 @@ export function createSuitsSession(context: SocketContext): SocketService {
           const message: SuitServerMessage = { type: "suitActive", active };
           send(message);
         },
-      });
+        check: (check) => {
+          if (!context.connected()) return;
+          const message: SuitServerMessage = { type: "suitCheck", check };
+          send(message);
+        },
+      };
+      detach = options.suitLooks?.attach(looks);
     },
     close() {
       stop?.();
       stop = undefined;
       detach?.();
       detach = undefined;
+      if (looks) options.suitChecks?.forget(looks);
+      looks = undefined;
     },
     handle(message) {
+      if (message.type === "suitReport") {
+        // Only a socket that was asked, for the check it was asked; anything else is dropped.
+        if (looks && authorize("read")) options.suitChecks?.receive(looks, message.report);
+        return true;
+      }
       if (message.type !== "suitRequest") return false;
       const scope = message.request.op === "remove" ? "admin" : "read";
       const reply = (response: SuitResponse) => {

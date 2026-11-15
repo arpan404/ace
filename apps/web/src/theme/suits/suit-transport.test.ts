@@ -23,7 +23,9 @@ function daemon() {
     if (request.op === "read") return { op: "read", suit: starfield };
     return { op: "error", code: "failed", message: "not here" };
   };
-  const client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration"> = {
+  const sent: unknown[] = [];
+  const client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration" | "send"> = {
+    send: (message) => void sent.push(message),
     connectionGeneration: () => notifications.select(["socket"], () => socket),
     onMessage(listener) {
       listeners.add(listener);
@@ -42,6 +44,8 @@ function daemon() {
   };
   return {
     client,
+    sent,
+    push,
     swap() {
       socket++;
       notifications.emit(["socket"]);
@@ -106,4 +110,25 @@ test("an agent's previews and keeps reach the page as they are pushed", () => {
     { kind: "preview", suitId: "starfield" },
     { kind: "keep", suitId: "starfield", keepId: "k1" },
   ]);
+});
+
+test("a live check the daemon asks for reaches the page, and its report goes back as suitReport", () => {
+  const fake = daemon();
+  const transport = suitTransport(daemonSuitChannel(fake.client, undefined));
+  const asked: unknown[] = [];
+  transport.watchChecks((check) => asked.push(check));
+  fake.push({ type: "suitCheck", check: { checkId: "c1", suitId: "starfield" } });
+  expect(asked).toEqual([{ checkId: "c1", suitId: "starfield" }]);
+  const report = {
+    checkId: "c1",
+    suitId: "starfield",
+    client: "web" as const,
+    scheme: "dark" as const,
+    widths: [1280],
+    problems: [],
+    unchecked: [],
+    screenshot: null,
+  };
+  expect(transport.report(report)).toBe(true);
+  expect(fake.sent).toEqual([{ type: "suitReport", report }]);
 });

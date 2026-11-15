@@ -1,5 +1,10 @@
 import { SuitManifest, type SuitDetail, type SuitSummary } from "@ace/protocol/suits";
-import type { SuitActive, SuitTransport } from "@/theme/suits/suit-transport.ts";
+import type {
+  SuitActive,
+  SuitLiveCheck,
+  SuitLiveReport,
+  SuitTransport,
+} from "@/theme/suits/suit-transport.ts";
 
 /** A Suit as the daemon would describe it; `manifest` is parsed so defaults fill in. */
 export function fakeSuit(
@@ -33,6 +38,8 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
   let socket: number | undefined;
   const lists = new Set<(suits: readonly SuitSummary[], socket?: number) => void>();
   const actives = new Set<(active: SuitActive) => void>();
+  const checks = new Set<(check: SuitLiveCheck) => void>();
+  const reports: SuitLiveReport[] = [];
   const transport: SuitTransport = {
     watch(receive) {
       lists.add(receive);
@@ -53,6 +60,14 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
       actives.add(receive);
       return () => actives.delete(receive);
     },
+    watchChecks(receive) {
+      checks.add(receive);
+      return () => checks.delete(receive);
+    },
+    report(report) {
+      reports.push(report);
+      return true;
+    },
   };
   return {
     transport,
@@ -69,5 +84,10 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
     active(active: SuitActive) {
       for (const receive of actives) receive(active);
     },
+    /** The daemon asks this page for a live check. */
+    check(check: SuitLiveCheck) {
+      for (const receive of checks) receive(check);
+    },
+    reports,
   };
 }

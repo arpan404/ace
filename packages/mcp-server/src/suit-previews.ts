@@ -1,5 +1,5 @@
 import type { McpAttribution } from "@ace/protocol";
-import type { SuitId, SuitProblem } from "@ace/protocol/suits";
+import type { SuitId, SuitLiveReport, SuitProblem, SuitScreenshot } from "@ace/protocol/suits";
 import type { SuitPort } from "./suit-port.ts";
 
 export type SuitApplyStatus =
@@ -10,11 +10,27 @@ export type SuitApplyStatus =
   | "not-found"
   | "nothing-to-do";
 
+/** What the devices showing the Suit saw when they checked it as rendered. */
+export interface SuitLiveSummary {
+  /** `live`: at least one device answered; `static`: none did, so only the static checks ran. */
+  source: "live" | "static";
+  /** One line per device that answered: its client, scheme and the widths it measured. */
+  devices: string[];
+  /** Parts whose background is an image the check can't read. */
+  unchecked: string[];
+  /** Why a screenshot is missing, per device. */
+  notes: string[];
+}
+
 export interface SuitApplyOutcome {
   status: SuitApplyStatus;
   suit: SuitId | null;
+  /** The static checks' refusals, or after a preview or keep the live check's problems. */
   problems: SuitProblem[];
   next: string;
+  live?: SuitLiveSummary;
+  /** Captures of the app in the Suit; sent as images, never in the JSON. */
+  screenshots?: SuitScreenshot[];
 }
 
 /** What one thread changed: the Suit it is previewing, or the keep it can undo. */
@@ -45,10 +61,9 @@ export class SuitPreviews {
     if (refused) return refused;
     await this.port.preview(caller, id);
     this.showing = { caller, suit: id };
-    return outcome(
-      "previewing",
-      id,
-      "Look at ace in the browser, then keep or revert before your turn ends.",
+    return this.withLive(
+      outcome("previewing", id, "Keep or revert before your turn ends."),
+      await this.port.liveCheck(caller, id, signal),
     );
   }
 
@@ -65,7 +80,10 @@ export class SuitPreviews {
     const { restore } = await this.port.keep(caller, suit);
     if (this.showing?.caller.threadId === caller.threadId) this.showing = undefined;
     this.threads.set(caller.threadId, { undo: { suit, restore } });
-    return outcome("kept", suit, "Kept on the person's devices. revert once undoes it.");
+    return this.withLive(
+      outcome("kept", suit, "Kept on the person's devices. revert once undoes it."),
+      await this.port.liveCheck(caller, suit, signal),
+    );
   }
 
   async revert(caller: McpAttribution) {
@@ -86,6 +104,40 @@ export class SuitPreviews {
   async turnEnded(threadId: string): Promise<void> {
     const showing = this.showing;
     if (showing?.caller.threadId === threadId) await this.end(showing.caller);
+  }
+
+  /** The outcome with what the devices reported, or a note that only static checks ran. */
+  private withLive(base: SuitApplyOutcome, reports: readonly SuitLiveReport[]): SuitApplyOutcome {
+    if (reports.length === 0)
+      return {
+        ...base,
+        live: { source: "static", devices: [], unchecked: [], notes: [] },
+        next: `${base.next} No device answered the live check in time, so only the static checks ran: open ace in the browser (browser_open, browser_screenshot) to see it.`,
+      };
+    const problems = dedupe(reports.flatMap((report) => report.problems));
+    const screenshots = reports.flatMap((report) => (report.screenshot ? [report.screenshot] : []));
+    const notes = reports.flatMap((report) =>
+      report.screenshotNote ? [`${report.client}: ${report.screenshotNote}`] : [],
+    );
+    const seen = problems.length
+      ? `As rendered, ${problems.length} problem${problems.length === 1 ? "" : "s"} showed: fix each part in suit.css or suit.json and save; the devices re-check on the next preview.`
+      : "As rendered, nothing failed.";
+    return {
+      ...base,
+      problems,
+      next: `${seen} ${screenshots.length ? "The screenshots show the app in the Suit." : ""} ${base.next}`
+        .replace(/\s+/g, " ")
+        .trim(),
+      live: {
+        source: "live",
+        devices: reports.map(
+          (report) => `${report.client}, ${report.scheme}, at ${report.widths.join("/")} px`,
+        ),
+        unchecked: [...new Set(reports.flatMap((report) => report.unchecked))],
+        notes,
+      },
+      screenshots,
+    };
   }
 
   private ownPreview(caller: McpAttribution): SuitId | undefined {
@@ -110,6 +162,14 @@ export class SuitPreviews {
       next: "Nothing was applied. Fix each problem's field in its scheme, then preview again.",
     };
   }
+}
+
+/** One problem per scheme, check and part across devices. */
+function dedupe(problems: readonly SuitProblem[]): SuitProblem[] {
+  const seen = new Map<string, SuitProblem>();
+  for (const problem of problems)
+    seen.set(`${problem.scheme}\u0000${problem.check}\u0000${problem.field}`, problem);
+  return [...seen.values()];
 }
 
 function outcome(status: SuitApplyStatus, suit: SuitId | null, next: string): SuitApplyOutcome {

@@ -30,6 +30,8 @@ interface Library {
   want(summary: SuitSummary): void;
   /** An agent's preview on top of the device setting; undefined when none runs. */
   preview: SuitId | null | undefined;
+  /** The daemon channel, for the live check's `suitCheck` and `suitReport`. */
+  transport: SuitTransport | undefined;
 }
 const LibraryContext = createContext<Library | undefined>(undefined);
 
@@ -174,8 +176,9 @@ export function SuitLibraryProvider(props: {
       detail: (summary) => details.get(versionKey(summary))?.detail,
       want,
       preview,
+      transport,
     }),
-    [summaries, failed, details, want, preview],
+    [summaries, failed, details, want, preview, transport],
   );
   return <LibraryContext.Provider value={value}>{props.children}</LibraryContext.Provider>;
 }
@@ -187,6 +190,7 @@ const noLibrary: Library = {
   detail: () => undefined,
   want: () => {},
   preview: undefined,
+  transport: undefined,
 };
 
 export function useSuitLibrary(): Library {

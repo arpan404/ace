@@ -1,5 +1,5 @@
 import type { McpAttribution } from "@ace/protocol";
-import type { SuitId, SuitSummary } from "@ace/protocol/suits";
+import type { SuitId, SuitLiveReport, SuitSummary } from "@ace/protocol/suits";
 
 /**
  * What `suit_apply` needs from the daemon (ADR 0150): its Suit library and the person's look on
@@ -22,4 +22,9 @@ export interface SuitPort {
    * Returns how to put back what each device had before, for a one-step undo.
    */
   keep(caller: McpAttribution, id: SuitId): Promise<{ restore(): Promise<void> }>;
+  /**
+   * Asks the calling person's devices that show `id` to check it as rendered, and waits a
+   * bounded time for their reports. Empty when no device answered in time.
+   */
+  liveCheck(caller: McpAttribution, id: SuitId, signal: AbortSignal): Promise<SuitLiveReport[]>;
 }

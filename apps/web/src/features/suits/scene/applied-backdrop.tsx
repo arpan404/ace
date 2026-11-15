@@ -45,7 +45,11 @@ export function AppliedSuitBackdrop(props: {
         onStopped={onStopped}
       />
       {/* The frame's colour over the scene, so the sidebar's text keeps its contrast. */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 bg-sidebar/35" />
+      <div
+        aria-hidden="true"
+        data-suit-veil=""
+        className="pointer-events-none fixed inset-0 -z-10 bg-sidebar/35"
+      />
     </>
   );
 }

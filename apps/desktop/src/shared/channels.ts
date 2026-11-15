@@ -119,6 +119,22 @@ export const requests = {
   "badge.set": { request: Count, result: None },
   "window.action": { request: WindowAction, result: WindowState },
   "window.state": { request: None, result: WindowState },
+  /**
+   * The app window as it looks now, as a JPEG at most `maxWidth` CSS px wide, for a Suit's live
+   * check (ADR 0150). Only the window's own page; never another window or the screen.
+   */
+  "window.capture": {
+    request: z.strictObject({
+      maxWidth: z.number().int().min(320).max(2560),
+      quality: z.number().int().min(30).max(95),
+    }),
+    result: z.object({
+      mimeType: z.literal("image/jpeg"),
+      data: z.string().min(1),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+    }),
+  },
   "theme.appearance": { request: None, result: NativeAppearance },
   "theme.setSource": { request: ThemeSource, result: NativeAppearance },
   /** The page's theme colours, painted behind it from the next launch's first frame on. */
