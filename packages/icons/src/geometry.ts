@@ -153,3 +153,20 @@ export function bubble(cx: number, cy: number, r: number, mirrored = false): str
     ? `M${top}A${radius} 0 1 ${at(...a)}${tail}A${radius} 1 1 ${top}Z`
     : `M${top}A${radius} 1 1 ${at(...a)}${tail}A${radius} 0 1 ${top}Z`;
 }
+
+/** `points` turned by `degrees` (clockwise) about `cx`, `cy`, radii kept: for drawing a tilted shape upright. */
+export function turned(points: readonly Vertex[], degrees: number, cx = 12, cy = 12): Vertex[] {
+  const a = (degrees * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  return points.map(([x, y, r = 0]): Vertex => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos, r];
+  });
+}
+
+/** `points` grown by `factor` about `cx`, `cy`, radii kept. */
+export function scaled(points: readonly Vertex[], factor: number, cx = 12, cy = 12): Vertex[] {
+  return points.map(([x, y, r = 0]): Vertex => [cx + (x - cx) * factor, cy + (y - cy) * factor, r]);
+}
