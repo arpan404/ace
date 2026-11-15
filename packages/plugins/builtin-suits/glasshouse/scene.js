@@ -7,9 +7,9 @@
 //
 // The light is composed in a field a third of the window's size (it is all soft light, so the
 // stretch only softens it further) from sprites built once, the caustic tile once per scheme;
-// a frame is a small gradient fill, a few dozen small blits and one full-size copy. The
-// brightness range stays narrow in each scheme so text on the panes reads everywhere. Signals
-// only brighten the light for a moment.
+// a frame is a small gradient fill, a few dozen small blits and one full-size copy, drawn on
+// every other tick. The brightness range stays narrow in each scheme so text on the panes reads
+// everywhere. Signals only brighten the light for a moment.
 
 const fieldScale = 1 / 3;
 const tileSize = 384;
@@ -26,6 +26,8 @@ let scheme = "";
 let now = 0;
 let liftAt = -1e9;
 let lift = 0;
+let tick = 0;
+let fresh = true; // a size or scheme change must draw on the next tick
 
 let base = null;
 let pattern = null;
@@ -326,11 +328,19 @@ ace.scene({
   },
   resize(view) {
     build(view);
+    fresh = true;
   },
   frame(time, view) {
     now = time;
-    if (view.scheme !== scheme || view.width !== viewWidth || view.height !== viewHeight)
+    if (view.scheme !== scheme || view.width !== viewWidth || view.height !== viewHeight) {
       build(view);
+      fresh = true;
+    }
+    // The light drifts over minutes, so every other tick is enough; the canvas keeps the last
+    // frame in between. A still frame, a change of size or scheme and a signal draw at once.
+    tick++;
+    if (!fresh && !view.reduceMotion && tick % 2 === 1 && now - liftAt > 1800) return;
+    fresh = false;
     draw(time, view);
   },
   signal(name) {
