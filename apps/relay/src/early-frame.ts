@@ -128,8 +128,8 @@ export function upgradeMessage(header: string): Buffer | undefined {
   if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
   const offered = header.split(",").map((entry) => entry.trim());
   if (!offered.includes(UPGRADE_MESSAGE.subprotocol)) return undefined;
-  const entries = offered.filter((entry) => entry.startsWith(UPGRADE_MESSAGE.prefix));
-  if (entries[0]?.length !== UPGRADE_MESSAGE.prefix.length + UPGRADE_MESSAGE.messageCharacters)
+  const xx = offered.find((entry) => entry.startsWith(UPGRADE_MESSAGE.prefix));
+  if (xx?.length !== UPGRADE_MESSAGE.prefix.length + UPGRADE_MESSAGE.messageCharacters)
     return undefined;
   return decodeEntry(
     offered,

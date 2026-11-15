@@ -18,18 +18,20 @@ const wiped = (bytes: Uint8Array) => bytes.every((byte) => byte === 0);
 
 it("a frame dropped on arrival is zero-filled", () => {
   const ws = socket();
-  new FrameReader(ws, { onFrame: () => false });
+  const reader = new FrameReader(ws, { onFrame: () => false });
   const dropped = frame(7);
   ws.emit("message", dropped, true);
   expect(wiped(dropped)).toBe(true);
+  expect(reader.bufferedBytes).toBe(0);
 });
 
 it("a frame refused for its size is zero-filled", () => {
   const ws = socket();
-  new FrameReader(ws, { refuse: () => {} });
+  const reader = new FrameReader(ws, { refuse: () => {} });
   const large = frame(7, FRAME_LIMIT + 1);
   ws.emit("message", large, true);
   expect(wiped(large)).toBe(true);
+  expect(reader.bufferedBytes).toBe(0);
 });
 
 it("frames still queued when the reader fails are zero-filled, the injected one included", () => {
