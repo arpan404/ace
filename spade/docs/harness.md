@@ -27,6 +27,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
 | `task_parked`                    | `reason`, `until_ms?`, `why`                                             | The bot's working task waits for a cap's reset; planned again at `until_ms` or when the cap is raised ([autonomy.md](autonomy.md))                                                 |
+| `turn_parked`                    | `reply`, `until_ms`, `round`, `why`                                      | The reply's model endpoint is down; the turn waits and sends its step again at `until_ms`. The reply stays open; a restart resumes the wait                                        |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -68,7 +69,17 @@ turn's total.
   streamed, or the endpoint answered at all (a `200` whose body was then cut or unreadable), the
   step is never sent again: it may have been billed, so it is paid for as an estimate and fails
   or is interrupted as below. Other
-  refusals (`400`, `401`, a missing model) fail at once.
+  refusals (`400`, `401`, `403`, a missing model) fail at once, and so does a `429` whose words
+  say the account's quota or credit is used up: the person has to act, and the reply's failure
+  says so.
+- **Waiting out an outage** (ADR 0158): when those three tries are used up on a failure that may
+  pass (unreachable, `408`, `429`, `5xx`), the turn does not fail. It stores `turn_parked {reply,
+  until_ms, round, why}` and waits on the engine's clock: 1 minute, then doubling to at most an
+  hour a round, or longer when the endpoint's `retry-after` asks for it; then the three quick tries
+  start again. As many rounds as it takes; the reply stays open, the bot reads as working with the
+  status "Waiting for <endpoint>; trying again in 4 minutes", and Stop ends the wait at any point.
+  A pause for an update ends the wait like any other; after a restart the turn resumes and keeps
+  waiting until the stored `until_ms`.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).

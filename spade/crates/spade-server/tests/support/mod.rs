@@ -685,6 +685,18 @@ impl Spade {
         self.restart(tools, scripts).await
     }
 
+    /// [`Spade::restart_after_stop`] with `options` for the new server.
+    pub async fn restart_after_stop_with(
+        self,
+        allowance: Duration,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        self.engine.pause_for_stop(allowance).await;
+        self.restart_with(tools, scripts, options).await
+    }
+
     pub async fn delete(&self, path: &str) -> Result<(u16, Value)> {
         let response = self
             .http

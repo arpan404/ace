@@ -4,12 +4,13 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use spade_server::engine::Retry;
 use spade_testkit::Script;
-use support::{Options, Result, Spade};
+use support::{ManualClock, Options, Result, Spade};
 
 fn title() -> Script {
     Script::reply("").plain(r#"{"title":"A title"}"#)
@@ -126,30 +127,103 @@ async fn a_request_the_endpoint_refuses_for_good_fails_at_once_without_a_retry()
     Ok(())
 }
 
+/// 2026-11-15T12:00:00Z, for a manual clock.
+const NOON: i64 = 1_794_744_000_000;
+
+fn retry_at(clock: &Arc<ManualClock>) -> Options {
+    Options {
+        clock: Some(clock.clone()),
+        ..retry(Duration::from_millis(10))
+    }
+}
+
+fn down_three_times() -> Vec<Script> {
+    vec![
+        Script::failing(503),
+        Script::failing(503),
+        Script::failing(503),
+    ]
+}
+
 #[tokio::test]
-async fn an_endpoint_that_keeps_failing_is_tried_three_times_then_the_reply_fails() -> Result {
-    let spade = Spade::start_with(
-        vec![
-            Script::failing(503),
-            Script::failing(503),
-            Script::failing(503),
-            title(),
-        ],
-        Vec::new(),
-        retry(Duration::from_millis(10)),
-    )
-    .await?;
+async fn an_outage_past_the_quick_tries_parks_the_turn_and_it_answers_once_the_endpoint_is_back()
+-> Result {
+    let clock = ManualClock::at(NOON);
+    let mut scripts = down_three_times();
+    scripts.extend([Script::reply("Back."), title()]);
+    let spade = Spade::start_with(scripts, Vec::new(), retry_at(&clock)).await?;
     let id = spade.ask("Hello").await?;
-    let events = spade.wait_for(&id, "reply_failed").await?;
+    let events = spade.wait_for(&id, "turn_parked").await?;
+    let parked = events
+        .iter()
+        .find(|e| e["type"] == "turn_parked")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(parked["until_ms"], NOON + 60_000, "{parked}");
+    assert!(
+        parked["why"].as_str().is_some_and(|w| w.contains("503")),
+        "{parked}"
+    );
+    assert!(!events.iter().any(|e| e["type"] == "reply_failed"));
+    let shown = bot(&spade, &id).await?;
+    assert_eq!(shown["state"], "working", "the turn is not over: {shown}");
+    status_reads(&spade, &id, "Waiting for fake; trying again in a minute").await?;
     assert_eq!(streamed(&spade), 3);
+
+    clock.set(NOON + 61_000);
+    let events = spade.wait_for(&id, "reply_finished").await?;
     assert!(
         events
             .iter()
-            .find(|e| e["type"] == "reply_failed")
-            .and_then(|e| e["error"].as_str())
-            .is_some_and(|e| e.contains("503")),
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Back."),
         "{events:?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_turn_waiting_for_its_endpoint_keeps_waiting_through_a_restart() -> Result {
+    let clock = ManualClock::at(NOON);
+    let spade = Spade::start_with(down_three_times(), Vec::new(), retry_at(&clock)).await?;
+    let id = spade.ask("Hello").await?;
+    spade.wait_for(&id, "turn_parked").await?;
+    let spade = spade
+        .restart_after_stop_with(
+            Duration::from_secs(1),
+            Vec::new(),
+            vec![Script::reply("Back."), title()],
+            retry_at(&clock),
+        )
+        .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(streamed(&spade), 0, "not sent again before its time");
+    assert_eq!(bot(&spade, &id).await?["state"], "working");
+    clock.set(NOON + 61_000);
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Back."),
+        "{events:?}"
+    );
+    assert!(!events.iter().any(|e| e["type"] == "reply_interrupted"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_ends_a_turn_waiting_for_its_endpoint() -> Result {
+    let clock = ManualClock::at(NOON);
+    let spade = Spade::start_with(down_three_times(), Vec::new(), retry_at(&clock)).await?;
+    let id = spade.ask("Hello").await?;
+    spade.wait_for(&id, "turn_parked").await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    spade.wait_for(&id, "reply_stopped").await?;
+    clock.set(NOON + 61_000);
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    assert_eq!(streamed(&spade), 3, "nothing is sent after Stop");
     Ok(())
 }
 
@@ -263,13 +337,8 @@ async fn a_reply_cut_after_the_endpoint_answered_is_not_sent_again_and_is_paid_f
 
 #[tokio::test]
 async fn a_failed_reply_says_what_kind_of_failure_it_was_and_names_the_endpoint() -> Result {
-    for (status, kind) in [
-        (401, "key"),
-        (403, "key"),
-        (429, "rate_limited"),
-        (400, "model"),
-    ] {
-        // A rate limit is sent again; every try is refused, so the reply fails.
+    // A rate limit or an outage waits for the endpoint instead (above); these fail at once.
+    for (status, kind) in [(401, "key"), (403, "key"), (400, "model")] {
         let spade = Spade::start_with(
             vec![
                 Script::failing(status),
