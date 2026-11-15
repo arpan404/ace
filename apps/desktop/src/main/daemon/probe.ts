@@ -42,27 +42,47 @@ async function readHostId(home: string): Promise<string | undefined> {
   }
 }
 
+/** The home's token and identity, which stay the same across its daemon's starts. */
+export async function readHomeCredentials(
+  home: string,
+): Promise<{ token: string; hostId?: string } | undefined> {
+  try {
+    const [token, hostId] = await Promise.all([
+      readFile(join(home, "daemon-token"), "utf8"),
+      readHostId(home),
+    ]);
+    return { token: Token.parse(token.trim()), ...(hostId ? { hostId } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The local daemon at a loopback origin (`http://127.0.0.1:<port>`), with the home's credentials. */
+export function localDaemonAt(
+  origin: string,
+  credentials: { token: string; hostId?: string },
+): LocalDaemon | undefined {
+  const parsed = Origin.safeParse(origin);
+  if (!parsed.success) return undefined;
+  return {
+    origin: parsed.data,
+    url: parsed.data.replace(/^http:/, "ws:") + "/",
+    ...credentials,
+  };
+}
+
 /**
  * Reads the endpoint, token and host-id files. A missing or malformed endpoint or token means
  * "no daemon here".
  */
 export async function readLocalDaemon(home: string): Promise<LocalDaemon | undefined> {
-  try {
-    const [endpoint, token, hostId] = await Promise.all([
-      readFile(join(home, "daemon-endpoint"), "utf8"),
-      readFile(join(home, "daemon-token"), "utf8"),
-      readHostId(home),
-    ]);
-    const origin = Origin.parse(endpoint.trim());
-    return {
-      origin,
-      url: origin.replace(/^http:/, "ws:") + "/",
-      token: Token.parse(token.trim()),
-      ...(hostId ? { hostId } : {}),
-    };
-  } catch {
-    return undefined;
-  }
+  const [endpoint, credentials] = await Promise.all([
+    readFile(join(home, "daemon-endpoint"), "utf8").catch(() => undefined),
+    readHomeCredentials(home),
+  ]);
+  return endpoint !== undefined && credentials
+    ? localDaemonAt(endpoint.trim(), credentials)
+    : undefined;
 }
 
 /**

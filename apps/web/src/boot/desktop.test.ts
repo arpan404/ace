@@ -3,6 +3,7 @@ import {
   desktopAppVersion,
   desktopConnection,
   desktopDaemon,
+  desktopExpected,
   hasDesktopBridge,
   reloadApp,
 } from "./desktop.ts";
@@ -38,6 +39,38 @@ describe("desktop daemon hand-off", () => {
       kind: "target",
       target: { url: "ws://127.0.0.1:4242/", token },
     });
+  });
+
+  it("opens on the daemon the desktop expects at the address it was last handed, before it answers", async () => {
+    const asked: unknown[] = [];
+    const scope = (answer: unknown) => ({
+      ace: {
+        platform: "darwin",
+        daemon: {
+          connection: () => new Promise(() => {}),
+          expected: async (remembered: unknown) => {
+            asked.push(remembered);
+            return answer;
+          },
+        },
+      },
+    });
+    const expected = { mode: "daemon", url: "ws://127.0.0.1:4242/", token, localHostId: "host" };
+    await expect(desktopExpected("ws://127.0.0.1:4242/", scope(expected))).resolves.toEqual({
+      url: "ws://127.0.0.1:4242/",
+      token,
+      localHostId: "host",
+    });
+    expect(asked).toEqual(["ws://127.0.0.1:4242/"]);
+    // No telling, or an answer that isn't a target: the page waits for the hand-off as before.
+    await expect(desktopExpected(undefined, scope(null))).resolves.toBeUndefined();
+    await expect(desktopExpected(undefined, scope({ mode: "fake" }))).resolves.toBeUndefined();
+    // A desktop build without it.
+    await expect(
+      desktopExpected(undefined, {
+        ace: { platform: "darwin", daemon: { connection: async () => ({}) } },
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("falls back to the browser flow without a bridge or in the desktop's fake mode", async () => {
