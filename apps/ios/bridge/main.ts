@@ -60,6 +60,7 @@ import { OutsideOpenAction, OutsideWatch } from "./outside-clients.ts";
 import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { phoneMedia, type PhoneMedia } from "./phone-media.ts";
+import { nativeMediaRelay } from "./phone-media-relay.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
 import { CacheAction, handleCacheAction } from "./chat-cache.ts";
@@ -509,6 +510,10 @@ async function start(json: string): Promise<void> {
   // Live pictures by ace-media when the machine offers it (ADR 0147 §4); the main socket otherwise.
   media?.stop();
   media = phoneMedia(client, {
+    // An account machine is reached only through the relay: its grants carry no address.
+    relay: account
+      ? nativeMediaRelay({ deviceId: config.deviceId, expectedHostId: undefined, credential })
+      : undefined,
     schedule: (run, ms) => scheduler.set(ms, run),
     now: () => host.monotonicMs(),
   });

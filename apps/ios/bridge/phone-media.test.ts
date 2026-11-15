@@ -3,6 +3,7 @@ import { ClientError } from "@ace/client";
 import { mediaHello } from "@ace/client/media";
 import { expect, test } from "vitest";
 import { phoneMedia, type PhoneMediaOwner } from "./phone-media.ts";
+import { nativeMediaRelay } from "./phone-media-relay.ts";
 import { socketEvent } from "./socket.ts";
 
 /*
@@ -124,5 +125,65 @@ test("a daemon that refuses media.connect keeps every picture on the main socket
   expect(asked.filter((entry) => entry.action === "open")).toEqual([]);
   expect(media.connection.state).toMatchObject({ state: "legacy" });
   expect(media.route.binding()).toBeUndefined();
+  media.stop();
+});
+
+/** A machine reached only through the relay: its grant names no address. */
+const relayed = (connection: string) => ({
+  type: "media.connect.result",
+  requestId: "r",
+  result: { ok: true, connection, ticket, expiresAt: 1 },
+});
+const throughRelay = (main: ReturnType<typeof session>) =>
+  phoneMedia(main.owner, {
+    relay: nativeMediaRelay({
+      deviceId: "ios-device",
+      credential: async () => ({ grant: "g.r.a.n.t" }),
+    }),
+    schedule: never,
+    now: () => 0,
+    codecs: () => [],
+  });
+
+test("through the relay the phone opens a media stream, says the ticket in its hello and binds on the welcome", async () => {
+  const asked = nativeSockets();
+  const media = throughRelay(session(async () => relayed("mc_aaaaaaaa")));
+  await later();
+  const open = asked.find((entry) => entry.action === "open");
+  expect(JSON.parse(open?.value ?? "")).toEqual({ media: {} });
+  const id = open?.id ?? "";
+  socketEvent(id, "open", "");
+  await later();
+  const hello = JSON.parse(asked.find((entry) => entry.action === "send")?.value ?? "");
+  expect(hello).toMatchObject({
+    type: "hello",
+    deviceId: "ios-device",
+    grant: "g.r.a.n.t",
+    channel: "media",
+    mediaTicket: ticket,
+  });
+  // No binary hello on a relay stream: the JSON hello is the stream's own.
+  expect(asked.some((entry) => entry.action === "bytes")).toBe(false);
+  expect(media.route.binding()).toBeUndefined();
+
+  socketEvent(id, "message", JSON.stringify({ type: "welcome", hostId: "H" }));
+  expect(media.route.binding()).toEqual({ connection: "mc_aaaaaaaa" });
+  const ack = { type: "screen.ack", sessionId: "s", streamId: "c", sequence: 2 } as const;
+  expect(media.route.ack(ack)).toBe(true);
+  expect(JSON.parse(asked.at(-1)?.value ?? "")).toEqual(ack);
+  media.stop();
+});
+
+test("a relay stream the daemon refuses leaves every picture on the main socket", async () => {
+  const asked = nativeSockets();
+  const media = throughRelay(session(async () => relayed("mc_aaaaaaaa")));
+  await later();
+  const id = asked.find((entry) => entry.action === "open")?.id ?? "";
+  socketEvent(id, "open", "");
+  await later();
+  socketEvent(id, "message", JSON.stringify({ type: "error", code: "media-ticket" }));
+  expect(media.route.binding()).toBeUndefined();
+  expect(media.connection.state).toMatchObject({ state: "legacy", reason: "relay-refused" });
+  expect(asked).toContainEqual(expect.objectContaining({ id, action: "close" }));
   media.stop();
 });

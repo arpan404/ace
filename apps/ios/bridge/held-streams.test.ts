@@ -113,17 +113,27 @@ test("without a media connection the app is subscribed and acked on its channel"
   expect(app.carried).toEqual([]);
 });
 
-test("a decoder that can't play the codec asks again for H.264 on the same connection", async () => {
+test("one view whose decoder can't play HEVC asks again without it; the other keeps it", async () => {
   const app = phone("mc_aaaaaaaa");
   app.streams.hold("app");
+  app.streams.hold("other");
   await settle();
-  app.streams.fallBack();
+  app.streams.fallBack("app", "hvc1.1.6.L153.B0");
   await settle();
-  expect(app.subscribes().at(-1)).toEqual({
-    op: "subscribe",
-    sessionId: "app",
-    media: { connection: "mc_aaaaaaaa" },
-    codecs: ["avc1.42E033"],
+  expect(app.subscribes().slice(2)).toEqual([
+    {
+      op: "subscribe",
+      sessionId: "app",
+      media: { connection: "mc_aaaaaaaa" },
+      codecs: ["avc1.42E033"],
+    },
+  ]);
+  // The other app's next subscribe still names HEVC first.
+  app.streams.hold("other");
+  await settle();
+  expect(app.subscribes().at(-1)).toMatchObject({
+    sessionId: "other",
+    codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"],
   });
 });
 

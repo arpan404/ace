@@ -1,5 +1,5 @@
 import { ClientError, type ClientCore } from "@ace/client";
-import { MediaConnection, type OpenMediaSocket } from "@ace/client/media";
+import { MediaConnection, type OpenMediaRelay, type OpenMediaSocket } from "@ace/client/media";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { nativeMediaSocket } from "./socket.ts";
 import { nativeVideoCodecs } from "./video-codecs.ts";
@@ -16,6 +16,8 @@ export type PhoneMediaOwner = Pick<ClientCore, "request" | "connectionGeneration
 
 export interface PhoneMediaOptions {
   socket?: OpenMediaSocket;
+  /** The machine is reached through the relay: media connections are relay streams. */
+  relay?: OpenMediaRelay | undefined;
   schedule(run: () => void, ms: number): () => void;
   /** A monotonic clock in ms (`host.monotonicMs`). */
   now(): number;
@@ -58,6 +60,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
         return { refused: true };
       }),
     socket: options.socket ?? nativeOpenMediaSocket,
+    relay: () => options.relay,
     schedule: options.schedule,
     now: options.now,
   });

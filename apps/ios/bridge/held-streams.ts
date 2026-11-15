@@ -14,23 +14,19 @@ export interface StreamChannel {
   retainStream(source: string): () => void;
   useMedia(route: MediaRoute | undefined): void;
   ack(picture: SourcePicture, keyframe?: boolean): void;
+  /** The view of `source` couldn't decode `codec`: that stream alone asks again without it. */
+  fallBack(source: string, codec: string): boolean;
 }
-
-const h264 = ["avc1.42E033"];
 
 export class HeldStreams {
   readonly #channel: StreamChannel;
   readonly #held = new Map<string, () => void>();
-  /** A decoder failed on a better codec: this channel's views ask for H.264 from here on. */
-  #h264Only = false;
   constructor(channel: StreamChannel) {
     this.#channel = channel;
   }
   /** Pictures by this media connection while it has a binding, in the codecs the phone decodes. */
   useMedia(route: MediaRoute | undefined): void {
-    this.#channel.useMedia(
-      route && { ...route, codecs: () => (this.#h264Only ? h264 : route.codecs()) },
-    );
+    this.#channel.useMedia(route);
   }
   /**
    * A view watches `source`: its stream is held until `release`. Swift asks again whenever its
@@ -53,12 +49,9 @@ export class HeldStreams {
   ack(source: string, streamId: string, sequence: number, keyframe: boolean): void {
     this.#channel.ack(decoded(source, streamId, sequence), keyframe);
   }
-  /** The decoder couldn't play the codec: every held stream subscribes again for H.264. */
-  fallBack(): void {
-    if (this.#h264Only) return;
-    this.#h264Only = true;
-    // A copy: holding again re-adds each source, which would keep a live iteration going.
-    for (const source of Array.from(this.#held.keys())) this.hold(source);
+  /** Swift's decoder couldn't play `codec` for `source`: that stream asks again without it. */
+  fallBack(source: string, codec: string): void {
+    this.#channel.fallBack(source, codec);
   }
 }
 

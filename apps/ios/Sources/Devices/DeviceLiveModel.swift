@@ -13,6 +13,8 @@ struct NativeDeviceAck: Sendable {
     let sequence: Int
     let keyframe: Bool
     var fallback = false
+    /// The codec the decoder couldn't play, with `fallback`.
+    var codec = ""
 }
 final class LatestDevicePicture: @unchecked Sendable {
     private let lock = NSLock()
@@ -71,7 +73,8 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
                 }
             } catch { decoder = nil; needsKeyframe = true; fallback = VideoCapabilities.isHEVC(chunk.codec) }
             if needsKeyframe { sampler?.keyframeAsked() }
-            acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe, fallback: fallback))
+            acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe,
+                                        fallback: fallback, codec: fallback ? chunk.codec : ""))
         }
     }
     func close() { queue.async { [self] in closed = true; decoder = nil } }
@@ -93,7 +96,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         let renderer = NativeRemotePictureRenderer(deviceId: deviceId, sampler: sampler, present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if ack.keyframe { value["keyframe"] = true }
-            if ack.fallback { value["fallback"] = true }
+            if ack.fallback { value["fallback"] = true; value["codec"] = ack.codec }
             ClientModel.action(value, to: session)
         }
         self.renderer = renderer; streams = session.browserStreams

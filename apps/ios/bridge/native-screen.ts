@@ -18,7 +18,11 @@ export const NativeScreenRequest = z.discriminatedUnion("type", [
 ]);
 
 export const NativeScreenControl = z.discriminatedUnion("type", [
-  ScreenAck.extend({ fallback: z.boolean().optional() }),
+  ScreenAck.extend({
+    fallback: z.boolean().optional(),
+    /** The codec the decoder couldn't play, with `fallback`. */
+    codec: z.string().max(64).optional(),
+  }),
   z.object({ type: z.literal("native.screen.close") }),
   z.object({ type: z.literal("native.screen.unwatch"), sessionId: ScreenAck.shape.sessionId }),
   z.object({ type: z.literal("native.screen.release"), sessionId: ScreenAck.shape.sessionId }),
@@ -97,7 +101,7 @@ export class NativeScreen {
         action.sequence,
         action.keyframe === true,
       );
-      if (action.fallback) this.#streams.fallBack();
+      if (action.fallback) this.#streams.fallBack(action.sessionId, action.codec ?? "hvc1");
     } else if (action.type === "native.screen.unwatch") {
       this.#streams.release(action.sessionId);
     } else if (this.client.getSnapshot().connected) {

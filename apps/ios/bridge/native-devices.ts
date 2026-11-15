@@ -54,7 +54,11 @@ export const NativeDeviceRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devices.tree"), deviceId: AppDeviceId }),
 ]);
 export const NativeDeviceControl = z.discriminatedUnion("type", [
-  DeviceAck.extend({ fallback: z.boolean().optional() }),
+  DeviceAck.extend({
+    fallback: z.boolean().optional(),
+    /** The codec the decoder couldn't play, with `fallback`. */
+    codec: z.string().max(64).optional(),
+  }),
   z.object({ type: z.literal("native.devices.close") }),
   z.object({ type: z.literal("native.devices.unwatch"), deviceId: DeviceAck.shape.deviceId }),
   z.object({ type: z.literal("native.devices.release"), deviceId: DeviceAck.shape.deviceId }),
@@ -215,7 +219,7 @@ export class NativeDevices {
           action.sequence,
           action.keyframe === true,
         );
-        if (action.fallback) this.#streams.fallBack();
+        if (action.fallback) this.#streams.fallBack(action.deviceId, action.codec ?? "hvc1");
         return;
       case "native.devices.unwatch":
         this.#streams.release(action.deviceId);
