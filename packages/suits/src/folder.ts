@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { fontProblems, parseManifest, problem, readabilityProblems } from "./checks.ts";
 import { suitLimits } from "./limits.ts";
+import { regionCss } from "./css/regions.ts";
+import { sanitiseSuitCss } from "./css/sanitise.ts";
 import { suitSchemes } from "./palette.ts";
 
 export { problem };
@@ -28,7 +30,20 @@ export interface SuitPlan {
 }
 
 const checkFor = (path: string) =>
-  path === "suit.json" ? "schema" : path === "scene.js" ? "scene" : "asset";
+  path === "suit.json"
+    ? "schema"
+    : path === "scene.js"
+      ? "scene"
+      : path === "suit.css"
+        ? "css"
+        : "asset";
+
+/** Files with a cap of their own; everything else counts toward the assets' total. */
+const ownCaps = new Map<string, number>([
+  ["suit.json", suitLimits.manifestBytes],
+  ["scene.js", suitLimits.sceneBytes],
+  ["suit.css", suitLimits.cssBytes],
+]);
 const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** What a reader may read of `entries`, and the problems the walk itself found. */
@@ -67,12 +82,7 @@ export function plan(entries: readonly SuitEntry[]): SuitPlan {
       result.skipped.push({ path, size: entry.size });
       continue;
     }
-    const cap =
-      path === "suit.json"
-        ? suitLimits.manifestBytes
-        : path === "scene.js"
-          ? suitLimits.sceneBytes
-          : undefined;
+    const cap = ownCaps.get(path);
     if (cap !== undefined) {
       if (entry.size > cap) {
         result.problems.push(
@@ -132,6 +142,37 @@ export interface InspectedSuit {
   summary: SuitSummary;
   /** Undefined when suit.json is missing or doesn't parse. */
   manifest: SuitManifest | undefined;
+  /** suit.css as written, for `suitCss`; undefined without one. */
+  cssSource: string | undefined;
+}
+
+/** Asset paths among the files a reader read. */
+const assetPaths = (files: Iterable<string>) =>
+  new Set([...files].filter((path) => path.startsWith("assets/")));
+
+/**
+ * The Suit's CSS: suit.json's region styles, then suit.css, each sanitised with asset urls
+ * pointing at `url(path)`; null with neither. Refusals are already in the summary's problems
+ * (`inspectSuit`).
+ */
+export function suitCss(
+  id: string,
+  inspected: InspectedSuit,
+  assets: Iterable<string>,
+  url: (path: string) => string,
+): string | null {
+  const paths = assetPaths(assets);
+  const regions = inspected.manifest?.regions
+    ? regionCss({ id, manifest: inspected.manifest, assets: paths, url }).css
+    : "";
+  const css =
+    inspected.cssSource === undefined
+      ? ""
+      : sanitiseSuitCss({ id, text: inspected.cssSource, assets: paths, url }).css;
+  const text = [regions, css].filter(Boolean).join("\n");
+  return text === "" && inspected.cssSource === undefined && !inspected.manifest?.regions
+    ? null
+    : text;
 }
 
 /** A Suit's summary from the files `plan` let the reader read, and the plan's own problems. */
@@ -152,13 +193,28 @@ export function inspectSuit(
   if (manifest) {
     const present = new Set(files.keys());
     problems.push(...fontProblems(manifest, present));
+    problems.push(
+      ...regionCss({ id, manifest, assets: assetPaths(present), url: (path) => path }).problems,
+    );
     // Readability only counts once the manifest itself holds together.
     if (problems.every((entry) => entry.check !== "schema"))
       problems.push(...readabilityProblems(manifest));
   }
+  const css = files.get("suit.css");
+  const cssSource = css ? Buffer.from(css).toString("utf8") : undefined;
+  if (cssSource !== undefined)
+    problems.push(
+      ...sanitiseSuitCss({
+        id,
+        text: cssSource,
+        assets: assetPaths(files.keys()),
+        url: (path) => path,
+      }).problems,
+    );
   const hasScene = scene !== undefined || sceneSkipped;
   return {
     manifest: manifest ? { ...manifest, scene: hasScene } : undefined,
+    cssSource,
     summary: {
       id,
       name: manifest?.name ?? id,

@@ -133,6 +133,25 @@ test("links are never read, and oversized files are refused by size", () => {
   ]);
 });
 
+test("suit.css over its cap is refused unread, as a css problem", () => {
+  const result = plan([
+    { path: "suit.json", kind: "file", size: 100 },
+    { path: "suit.css", kind: "file", size: suitLimits.cssBytes + 1 },
+  ]);
+  expect(result.read).toEqual(["suit.json"]);
+  expect(result.problems).toEqual([expect.objectContaining({ check: "css", field: "suit.css" })]);
+});
+
+test("a refused suit.css rule stops the Suit applying, with its line", () => {
+  const result = inspect({
+    "suit.json": manifest({ dark: { canvas: "#101014" } }),
+    "suit.css": "[data-part=rail] { color: red }\n\n#main { color: red }",
+  });
+  expect(result.summary.problems).toEqual([
+    expect.objectContaining({ check: "css", field: "suit.css", line: 3 }),
+  ]);
+});
+
 test("a folder without suit.json says so", () => {
   expect(plan([]).problems).toEqual([expect.objectContaining({ field: "suit.json" })]);
 });

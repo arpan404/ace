@@ -6,3 +6,4 @@
 export * from "./palette.ts";
 export { fontProblems, parseManifest, readabilityProblems } from "./checks.ts";
 export * from "./limits.ts";
+export * from "./reveal.ts";

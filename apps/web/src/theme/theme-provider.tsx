@@ -24,7 +24,7 @@ import {
 } from "./appearance.ts";
 import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { SuitDetail } from "@ace/protocol/suits";
-import { suitDensity, suitPalette, suitSchemes, suitStylesheet } from "./suits/suit-css.ts";
+import { suitDensity, suitPalette, suitSchemes, suitSheets } from "./suits/suit-css.ts";
 import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
@@ -132,8 +132,9 @@ export function ThemeProvider(props: { environment: Environment; children: React
     [accent, customAccent],
   );
 
-  // The Suit's rules, after the themes' so they win where both match.
-  const suitSheet = useMemo(() => (suit ? suitStylesheet(suit) : ""), [suit]);
+  // The Suit's rules, after the themes' so they win where both match; its suit.css in
+  // `@layer suit` under ace's guard. A new version of the Suit swaps this text, never a reload.
+  const suitSheet = useMemo(() => (suit ? suitSheets(suit) : ""), [suit]);
 
   // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
   useLayoutEffect(() => {
@@ -265,7 +266,7 @@ function bootAppearance(
     density: appearance.density,
     suitDensity: suit ? suitDensity(suit.manifest) : undefined,
     transcriptPx: transcriptSizes[appearance.transcriptSize].px,
-    css: suit ? `${themeCss}\n${suitStylesheet(suit, appearance.translucency)}` : themeCss,
+    css: suit ? `${themeCss}\n${suitSheets(suit, appearance.translucency)}` : themeCss,
   };
 }
 

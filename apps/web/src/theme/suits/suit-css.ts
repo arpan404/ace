@@ -9,6 +9,7 @@ import {
 } from "@ace/themes";
 import { declarationBlock, paletteDeclarations } from "../css.ts";
 import { defaultTranslucency } from "../translucency.ts";
+import { revealDeclarations, suitGuardSheet, suitLayerSheet } from "./suit-layers.ts";
 
 /*
  * A Suit (ADR 0150) as the page's CSS: its palettes laid over the base theme and run through
@@ -127,14 +128,11 @@ export function suitDeclarations(
 ): Record<string, string> {
   const { manifest } = detail;
   const scheme = suitSchemeFor(manifest, wanted);
+  const palette = suitPalette(manifest, scheme);
   return {
-    ...paletteDeclarations(
-      suitPalette(manifest, scheme),
-      scheme,
-      fontPlan(detail).fonts,
-      translucency,
-    ),
+    ...paletteDeclarations(palette, scheme, fontPlan(detail).fonts, translucency),
     ...shapeDeclarations(manifest),
+    ...revealDeclarations(manifest, palette),
   };
 }
 
@@ -153,6 +151,19 @@ export function suitStylesheet(
       `[data-suit="${detail.manifest.id}"][data-scheme="${scheme}"]{${declarationBlock(suitDeclarations(detail, scheme, translucency))}}`,
   );
   return [...faces, ...rules].join("\n");
+}
+
+/**
+ * Everything a Suit puts on the page: its tokens, then its sanitised suit.css in `@layer suit`,
+ * then ace's guard over both. A new version of the Suit replaces this text in place.
+ */
+export function suitSheets(
+  detail: Pick<SuitDetail, "manifest" | "assets" | "css">,
+  translucency = defaultTranslucency,
+): string {
+  return [suitStylesheet(detail, translucency), suitLayerSheet(detail), suitGuardSheet]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Density as the app has it: Spacious draws as Comfortable, the roomiest the app has. */

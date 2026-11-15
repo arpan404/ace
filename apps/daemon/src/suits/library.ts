@@ -8,6 +8,7 @@ import {
   type SuitSummary,
 } from "@ace/protocol/suits";
 import { suitLimits } from "@ace/suits";
+import { suitCss } from "@ace/suits/folder";
 import { isMissing, readSuit, readSuitFile, type ReadSuit } from "./reader.ts";
 import { encodeSuitPath, SuitUrls } from "./urls.ts";
 
@@ -43,6 +44,8 @@ export class SuitLibrary {
   readonly urls: SuitUrls;
   readonly #options: SuitLibraryOptions;
   readonly #cache = new Map<string, ReadSuit>();
+  /** Sanitised suit.css per read version, so repeated reads don't parse it again. */
+  readonly #css = new WeakMap<ReadSuit, string | null>();
   readonly #listeners = new Set<(suits: SuitSummary[]) => void>();
   #stopWatch: (() => void) | undefined;
   #cancelSettle: (() => void) | undefined;
@@ -136,10 +139,15 @@ export class SuitLibrary {
       if (path.startsWith("assets/")) assets[path] = base + encodeSuitPath(path);
     const sceneUrl = read.plan.read.includes("scene.js") ? `${base}scene.html` : null;
     const sceneUrls: SuitDetail["sceneUrls"] = sceneUrl ? { app: sceneUrl } : {};
-    // suit.css, ornaments and region scenes are served once the sanitiser lands (ADR 0150).
+    let css = this.#css.get(read);
+    if (css === undefined) {
+      css = suitCss(id, read.inspected, read.plan.read, (path) => base + encodeSuitPath(path));
+      this.#css.set(read, css);
+    }
+    // Ornaments and region scenes are served once their sanitiser lands (ADR 0150).
     return {
       op: "read",
-      suit: { summary, manifest, sceneUrl, sceneUrls, assets, css: null, ornaments: {} },
+      suit: { summary, manifest, sceneUrl, sceneUrls, assets, css, ornaments: {} },
     };
   }
 

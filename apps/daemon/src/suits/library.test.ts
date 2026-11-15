@@ -189,3 +189,37 @@ test("a Suit without a scene serves no scene page and no runtime", async () => {
   expect((await fetch(origin + base + sceneRuntimeFile)).status).toBe(404);
   expect((await fetch(new URL(sceneRuntimeFile, origin + neon))).status).toBe(200);
 });
+
+test("suit.css is served sanitised, its refusals block the Suit, and an edit re-runs the checks", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon"),
+    "suit.css": `[data-part=sidebar] { background: url(assets/bg.png) }\n`,
+    "assets/bg.png": "png",
+  });
+  const read = detail(await library.read("neon"));
+  expect(read.summary.problems).toEqual([]);
+  const base = library.urls.base("neon", read.summary.contentHash);
+  expect(read.css).toBe(
+    `[data-suit="neon"] [data-part=sidebar]{background:url(${base}assets/bg.png)}`,
+  );
+  // The raw file is never served: only the sanitised text reaches a client.
+  expect((await fetch(origin + base + "suit.css")).status).toBe(404);
+  expect((await fetch(origin + base + "assets/bg.png")).status).toBe(200);
+
+  const heard: SuitSummary[][] = [];
+  library.subscribe((suits) => heard.push(suits));
+  await writeFile(
+    join(root, "neon", "suit.css"),
+    `[data-part=sidebar] { color: red }\n.sidebar { color: blue }\n`,
+  );
+  await vi.waitFor(
+    () =>
+      expect(heard.at(-1)?.[0]?.problems).toEqual([
+        expect.objectContaining({ check: "css", field: "suit.css", line: 2 }),
+      ]),
+    { timeout: 3000 },
+  );
+  expect(detail(await library.read("neon")).css).toBe(
+    `[data-suit="neon"] [data-part=sidebar]{color:red}`,
+  );
+});
