@@ -35,8 +35,10 @@ import XCTest
         XCTAssertGreaterThanOrEqual(seeded, Workload.busyThreads, "Start the busy fixture with ACE_IOS_SPIKE_INBOX=\(Workload.busyThreads)")
         let app = fixtureApp(port: busyPort)
         app.launch()
-        let busy = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-busy-")).firstMatch
-        XCTAssertTrue(busy.waitForExistence(timeout: 30), "no busy rows listed")
+        // The rows needing the person come first and fill the screen, so the busy rows sit below
+        // the fold: wait for the list, then for the app to hold every busy row.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch.waitForExistence(timeout: 30), "no rows listed")
+        XCTAssertTrue(app.waitForProbe("inbox.rows", atLeast: Double(Workload.busyThreads), timeout: 30), "the busy rows never arrived")
         // Two full five-second bridge windows while one row changes every 200 ms.
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
@@ -269,17 +271,22 @@ import XCTest
             app.openAgents()
             XCTAssertTrue(app.waitForCount("sheets", from: before, timeout: 15))
             agents.append(try XCTUnwrap(app.probeValue("sheet.agentsMs")))
-            app.buttons["agents.close"].tap()
+            app.closeAgents()
             before = app.probe["sheets"]
             app.buttons["thread.menu"].tap()
             app.threadMenuItem("thread.changes").tap()
             XCTAssertTrue(app.waitForCount("sheets", from: before, timeout: 15))
             changes.append(try XCTUnwrap(app.probeValue("sheet.changesMs")))
-            app.buttons["changes.close"].tap()
-            // The model sheet reads nothing; this is tap to shown, XCUITest's own time included.
+            app.closeChanges()
+            // The model sheet reads nothing; this is the title's tap to the sheet shown, XCUITest's
+            // own taps included. `appears` polls: `waitForExistence` checks about once a second.
+            let title = app.threadTitle()
             models.append(timed {
-                app.openModelPicker()
-                XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 15))
+                title.tap()
+                let item = app.titleMenuItem("thread.title.model", label: "Model")
+                XCTAssertTrue(app.appears(item, timeout: 10), "the title's menu has no Model")
+                item.tap()
+                XCTAssertTrue(app.appears(app.buttons["modelSheet.close"], timeout: 15))
             })
             app.buttons["modelSheet.close"].tap()
         }
@@ -411,6 +418,43 @@ extension XCUIApplication {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
         } while Date() < deadline
         return nil
+    }
+    /// Waits until `element` exists, checking every 50 ms, so a short wait reads as short.
+    func appears(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            if element.exists { return true }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        } while Date() < deadline
+        return false
+    }
+    /// Waits until `key` reads at least `least`.
+    func waitForProbe(_ key: String, atLeast least: Double, timeout: TimeInterval) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        repeat {
+            if let value = probeValue(key), value >= least { return true }
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+        } while Date() < deadline
+        return false
+    }
+    /// Back from the Agents page to the thread: a phone pushes it and goes back with the bar's
+    /// back button; a sheet (iPad without its side panel) closes with its X.
+    func closeAgents() {
+        let close = buttons["agents.close"]
+        if close.exists { close.tap(); return }
+        let back = navigationBars["Agents"].buttons.element(boundBy: 0)
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "the Agents page has no back button")
+        back.tap()
+        XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
+    }
+    /// Back from Changes to the transcript: a phone shows Changes as a page beside Chat; a sheet
+    /// closes with its X.
+    func closeChanges() {
+        let close = buttons["changes.close"]
+        if close.exists { close.tap(); return }
+        let chat = buttons["thread.page.chat"]
+        XCTAssertTrue(chat.waitForExistence(timeout: 10), "Changes is neither a sheet nor a page")
+        chat.tap()
     }
     /// Waits until the counter `key` (opens, bridge or frame windows) moves on.
     func waitForCount(_ key: String, from start: String?? = nil, timeout: TimeInterval = 20) -> Bool {
