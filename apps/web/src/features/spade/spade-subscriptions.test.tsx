@@ -30,19 +30,14 @@ const withSubscriptions = (spade: FakeSpadeApi) => {
 test("the model picker offers your subscriptions beside endpoints, per account, and a bot is made on one", async () => {
   const { spade } = await spadeApp("/spade", withSubscriptions);
   await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Notes");
-  await userEvent.click(await form.findByRole("combobox", { name: "Endpoint" }));
-  const group = await screen.findByRole("group", { name: "Your subscriptions" });
-  expect(
-    within(group)
-      .getAllByRole("option")
-      .map((option) => option.textContent),
-  ).toEqual(["Codex · Work", "Codex · home"]);
-  await userEvent.click(within(group).getByRole("option", { name: "Codex · Work" }));
-  await userEvent.click(await form.findByRole("combobox", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: "GPT-6.1 Luna" }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
+  const name = await screen.findByRole("textbox", { name: "Name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Notes");
+  await userEvent.click(screen.getByRole("button", { name: "Model" }));
+  const work = await screen.findByRole("group", { name: "Codex · Work" });
+  expect(screen.getByRole("group", { name: "Codex · home" })).toBeTruthy();
+  await userEvent.click(within(work).getByRole("option", { name: "GPT-6.1 Luna" }));
+  await userEvent.type(screen.getByRole("combobox", { name: "Message Notes" }), "Hi{Enter}");
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/agents")).toEqual([
       expect.objectContaining({ name: "Notes", model: "cli:codex@work/gpt-6.1-luna" }),

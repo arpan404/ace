@@ -47,6 +47,7 @@ import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as SpadeIndexRouteImport } from "./routes/spade.index"
 import { Route as SpadeAgentIdRouteImport } from "./routes/spade.$agentId"
+import { Route as SpadeNewRouteImport } from "./routes/spade.new"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -60,6 +61,7 @@ import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.a
 import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
 import { Route as SettingsSpadeSearchRouteImport } from "./routes/settings.spade.search"
 import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
+import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
@@ -256,6 +258,11 @@ const SpadeAgentIdRoute = SpadeAgentIdRouteImport.update({
   path: "/$agentId",
   getParentRoute: () => SpadeRoute,
 } as any)
+const SpadeNewRoute = SpadeNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
   path: "/t/$threadId",
@@ -324,6 +331,11 @@ const SpadeGroupsGroupIdRoute = SpadeGroupsGroupIdRouteImport.update({
   path: "/groups/$groupId",
   getParentRoute: () => SpadeRoute,
 } as any)
+const SpadeGroupsNewRoute = SpadeGroupsNewRouteImport.update({
+  id: "/groups/new",
+  path: "/groups/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
@@ -390,6 +402,7 @@ export interface FileRoutesByFullPath {
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -403,6 +416,7 @@ export interface FileRoutesByFullPath {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -443,6 +457,7 @@ export interface FileRoutesByTo {
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
@@ -457,6 +472,7 @@ export interface FileRoutesByTo {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
@@ -503,6 +519,7 @@ export interface FileRoutesById {
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
@@ -517,6 +534,7 @@ export interface FileRoutesById {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -564,6 +582,7 @@ export interface FileRouteTypes {
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -577,6 +596,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -617,6 +637,7 @@ export interface FileRouteTypes {
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/"
     | "/automations"
     | "/settings"
@@ -631,6 +652,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
@@ -676,6 +698,7 @@ export interface FileRouteTypes {
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/_home/"
     | "/automations/"
     | "/settings/"
@@ -690,6 +713,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -981,6 +1005,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SpadeAgentIdRouteImport
       parentRoute: typeof SpadeRoute
     }
+    "/spade/new": {
+      id: "/spade/new"
+      path: "/new"
+      fullPath: "/spade/new"
+      preLoaderRoute: typeof SpadeNewRouteImport
+      parentRoute: typeof SpadeRoute
+    }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
       path: "/t/$threadId"
@@ -1070,6 +1101,13 @@ declare module "@tanstack/react-router" {
       path: "/groups/$groupId"
       fullPath: "/spade/groups/$groupId"
       preLoaderRoute: typeof SpadeGroupsGroupIdRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/groups/new": {
+      id: "/spade/groups/new"
+      path: "/groups/new"
+      fullPath: "/spade/groups/new"
+      preLoaderRoute: typeof SpadeGroupsNewRouteImport
       parentRoute: typeof SpadeRoute
     }
     "/_home/issues_/$project/$number": {
@@ -1248,14 +1286,18 @@ const SkillsRouteWithChildren =
 
 interface SpadeRouteChildren {
   SpadeAgentIdRoute: typeof SpadeAgentIdRoute
+  SpadeNewRoute: typeof SpadeNewRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
   SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
+  SpadeGroupsNewRoute: typeof SpadeGroupsNewRoute
 }
 
 const SpadeRouteChildren: SpadeRouteChildren = {
   SpadeAgentIdRoute: SpadeAgentIdRoute,
+  SpadeNewRoute: SpadeNewRoute,
   SpadeIndexRoute: SpadeIndexRoute,
   SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
+  SpadeGroupsNewRoute: SpadeGroupsNewRoute,
 }
 
 const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)

@@ -535,6 +535,21 @@ export class FakeSpadeApi implements FakeSpadeServer {
       );
   }
 
+  /** The person's message into a conversation, as `POST /conversations/{id}/messages` takes it. */
+  private takeMessage(conversation: string, agent: FakeSpadeAgent | undefined, body: Json) {
+    const media = mediaOf(body);
+    for (const image of (media.images ?? []) as Json[])
+      this.images.set(String(image.sha256), String(image.media_type));
+    this.store(conversation, { type: "user_message", text: body.text ?? "", ...media });
+    if (agent)
+      agent.last_message = {
+        from: "person",
+        text: String(body.text ?? ""),
+        at: this.now(),
+        from_agent: null,
+      };
+  }
+
   private roster() {
     return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
   }
@@ -561,6 +576,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
             ? { avatar: storedBotFace(repairFace(avatar)) as Json }
             : {}),
       });
+      // As Spade: a first message goes with the bot it makes (the new-bot conversation).
+      const first = body.first_message as Json | undefined;
+      if (first && typeof first === "object") this.takeMessage(agent.conversation, agent, first);
       return reply({ agent }, 201);
     }
     const agent = this.agents.find((candidate) => candidate.id === id);
@@ -782,17 +800,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (sub === "helpers") return reply({ helpers: this.helpers.get(id) ?? [] });
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      const media = mediaOf(body);
-      for (const image of (media.images ?? []) as Json[])
-        this.images.set(String(image.sha256), String(image.media_type));
-      this.store(id, { type: "user_message", text: body.text ?? "", ...media });
-      if (agent)
-        agent.last_message = {
-          from: "person",
-          text: String(body.text ?? ""),
-          at: this.now(),
-          from_agent: null,
-        };
+      this.takeMessage(id, agent, body);
       return reply({ seq: list.length }, 202);
     }
     if (sub === "questions" && subId && request.method === "POST") {

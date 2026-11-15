@@ -1,12 +1,10 @@
 import { spadeSetupSentence, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { PlusIcon } from "@phosphor-icons/react";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { NewBotDialog } from "./spade-bot-dialog.tsx";
-import { NewGroupDialog } from "./spade-group-dialog.tsx";
-import { SpadeListFoot, SpadeListHead, SpadeListSearch } from "./spade-list-head.tsx";
+import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { searchSpadeList, spadeListEntries } from "./spade-list-rows.ts";
 import { Problem } from "./spade-screen-parts.tsx";
@@ -18,13 +16,13 @@ import { useTellZone } from "./use-spade-zone.ts";
 import { useSpadeGroups } from "./use-spade-groups.ts";
 
 /**
- * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). The main bot heads it in
- * place of a title row, with Search, which opens in place over the rows and finds conversations
- * by their words, and + (New bot, New group, Import bot). Then one row per bot or group on every
- * machine this window reaches: what needs the person first, then what works, what failed and
- * what they haven't seen, then the rest by latest activity. The person sits at the foot, with
- * the gear to Settings › Spade. While Spade runs but waits on the person (a keychain prompt),
- * what to look for, under the head. The panel sees every machine, so it keeps Spade, the main
+ * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). Three buttons on top:
+ * Search, which opens in place over the rows and finds conversations by their words, Plugins &
+ * marketplace, and + (New bot, New group, Import bot). Then one row per bot or group on every
+ * machine this window reaches: Spade, the main bot, first as an ordinary row, then what needs
+ * the person, what works, what failed and what they haven't seen, then the rest by latest
+ * activity. While Spade runs but waits on the person (a keychain prompt), what to look for, under
+ * the top. The panel sees every machine, so it keeps Spade, the main
  * bot, on one (`useOneSpade`).
  */
 export function SpadeSidebar() {
@@ -38,12 +36,13 @@ export function SpadeSidebar() {
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState<"bot" | "group">();
+  const navigate = useNavigate();
+  // New bot and New group are conversations of their own (docs/design/spade.md §5).
+  const newBot = () => void navigate({ to: "/spade/new" });
   const open = useParams({
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
   });
-  const main = roster.bots.find((bot) => bot.kind === "main");
   const all = spadeListEntries(roster.bots, groups);
   const entries = searchSpadeList(all, query);
   const closeSearch = () => {
@@ -53,15 +52,12 @@ export function SpadeSidebar() {
   return (
     <>
       <nav aria-label="Bots" className="flex min-h-0 flex-1 flex-col">
-        <SpadeListHead
-          main={main}
-          ready={line.ready}
-          current={main !== undefined && open === main.id}
+        <SpadeListTop
           searching={searching}
           onSearch={() => (searching ? closeSearch() : setSearching(true))}
           hosts={roster.hosts}
-          onNewBot={() => setCreating("bot")}
-          onNewGroup={() => setCreating("group")}
+          onNewBot={newBot}
+          onNewGroup={() => void navigate({ to: "/spade/groups/new" })}
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {searching && <SpadeListSearch query={query} onQuery={setQuery} onClose={closeSearch} />}
@@ -84,7 +80,7 @@ export function SpadeSidebar() {
                 <Button
                   variant="secondary"
                   className="h-(--spade-pill-button) rounded-full px-4"
-                  onClick={() => setCreating("bot")}
+                  onClick={newBot}
                 >
                   <Icon icon={PlusIcon} size={16} />
                   New bot
@@ -119,17 +115,6 @@ export function SpadeSidebar() {
           )}
         </div>
       </nav>
-      <SpadeListFoot />
-      {creating === "bot" && (
-        <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(undefined)} />
-      )}
-      {creating === "group" && (
-        <NewGroupDialog
-          hosts={roster.hosts}
-          bots={roster.bots}
-          onClose={() => setCreating(undefined)}
-        />
-      )}
     </>
   );
 }

@@ -24,7 +24,7 @@ const stateOf = (member: Member): BotFaceState =>
 
 /**
  * A group's face: up to three members' faces stacked in one square, each cut from the next by
- * the panel's colour; an away member's dimmed. Decorative, like a bot's face: its row names it.
+ * the colour under it (`--faces-cut`, the panel's by default); an away member's dimmed. Decorative, like a bot's face: its row names it.
  */
 export function GroupFaces(props: {
   members: readonly {
@@ -66,7 +66,7 @@ export function GroupFaces(props: {
         return (
           <span
             key={`${member.machineKey ?? ""}/${member.agent}`}
-            className="absolute grid rounded-full shadow-[0_0_0_1.5px_var(--sidebar-panel)]"
+            className="absolute grid rounded-full shadow-[0_0_0_1.5px_var(--faces-cut,var(--sidebar-panel))]"
             style={{ left: place.left * size, top: place.top * size }}
           >
             <SpadeFace

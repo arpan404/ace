@@ -3,7 +3,7 @@ import { isValidFace, repairFace } from "@ace/ui-core/bot-face";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -33,9 +33,13 @@ function crew(spade: FakeSpadeApi) {
   spade.addAgent({ id: "fern", name: "Fern", avatar: face({ body: "sprout", pair: "mint" }) });
 }
 
-async function newBot() {
-  await openNew("New bot");
-  return within(await screen.findByRole("dialog", { name: "New bot" }));
+/** Fern's profile, then its face: the popover with the face's full editor. */
+async function editor() {
+  await screen.findByRole("feed", { name: "Conversation with Fern" });
+  await openProfile("Fern");
+  await userEvent.click(await screen.findByRole("button", { name: "Change face" }));
+  const dialog = await screen.findByRole("dialog");
+  return { dialog, form: within(dialog) };
 }
 
 /** The editor's big face: the one whose parts step on click. */
@@ -85,14 +89,12 @@ test("while a bot works, the working line carries its face working; asking, the 
 });
 
 test("the editor changes one part at a time, hides what doesn't fit, and steps a part on click", async () => {
-  const { spade } = await spadeApp("/spade", crew);
-  const form = await newBot();
-  const dialog = await screen.findByRole("dialog", { name: "New bot" });
+  const { spade } = await spadeApp("/spade/fern", crew);
+  const { dialog, form } = await editor();
   await userEvent.click(form.getByRole("radio", { name: "Creature: round" }));
   // The creature and colours show first; More shows the other parts.
   expect(form.queryByRole("radiogroup", { name: "Extra" })).toBeNull();
   await userEvent.click(form.getByRole("button", { name: "More" }));
-  // The new face is random: start this one bare.
   await userEvent.click(form.getByRole("radio", { name: "Extra: none" }));
   await userEvent.click(form.getByRole("radio", { name: "Ears: bunny" }));
   // Bunny ears and headphones share a place: headphones are not offered.
@@ -109,19 +111,16 @@ test("the editor changes one part at a time, hides what doesn't fit, and steps a
   if (!eyes) throw new Error("no eyes on the big face");
   await userEvent.click(eyes);
   expect(checkedIn(form, "Eyes")).not.toBe(before);
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Wren");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() => expect(spade.sent("POST", "/v1/agents")).toHaveLength(1));
-  const [sent] = spade.sent("POST", "/v1/agents") as { avatar: Record<string, unknown> }[];
+  // Closing the popover saves the face.
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/fern")).toHaveLength(1));
+  const [sent] = spade.sent("PATCH", "/v1/agents/fern") as { avatar: Record<string, unknown> }[];
   expect(sent?.avatar).toMatchObject({ kind: "character", v: 1, body: "bird", ears: "none" });
 });
 
-test("Shuffle makes a new valid face each time, and a suggested name fills the name", async () => {
-  await spadeApp("/spade", crew);
-  const form = await newBot();
-  const dialog = await screen.findByRole("dialog", { name: "New bot" });
+test("Shuffle makes a new valid face each time", async () => {
+  await spadeApp("/spade/fern", crew);
+  const { dialog, form } = await editor();
   // Every part, so each shuffled one can be read back.
   await userEvent.click(form.getByRole("button", { name: "More" }));
   for (let round = 0; round < 4; round++) {
@@ -144,33 +143,6 @@ test("Shuffle makes a new valid face each time, and a suggested name fills the n
     expect(isValidFace(read)).toBe(true);
     expect(read).toMatchObject(fields);
   }
-  const names = within(form.getByLabelText("Names that suit this face"));
-  const [first] = names.getAllByRole("button");
-  if (!first) throw new Error("no names");
-  await userEvent.click(first);
-  expect(form.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe(
-    first.textContent,
-  );
-});
-
-test("Upload picture still gives a bot a picture instead of a face", async () => {
-  const { spade } = await spadeApp("/spade", crew);
-  const form = await newBot();
-  const png = new File([new Uint8Array([137, 80, 78, 71])], "me.png", { type: "image/png" });
-  await userEvent.upload(form.getByLabelText("Picture"), png);
-  await form.findByRole("button", { name: "Use a face" });
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Me");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents")).toEqual([
-      expect.objectContaining({
-        name: "Me",
-        avatar: { kind: "image", data: expect.stringMatching(/^data:image\/png;base64,/) },
-      }),
-    ]),
-  );
 });
 
 /** Opens the popover of Fern's face in its profile. */
@@ -197,33 +169,4 @@ test("changing a bot's face in its profile sends the new face as it closes; leav
   expect(spade.sent("PATCH", "/v1/agents/fern")[0]).toMatchObject({
     avatar: { kind: "character", body: "sprout", pair: "mint", mouth: "grin" },
   });
-});
-
-test("a new bot on an older remote server uses initials and the nearest legacy colour", async () => {
-  const { others } = await spadeApp("/spade", crew, {
-    machines: [
-      {
-        hostId: "old",
-        name: "Old Mac",
-        seed: (api) => {
-          withEndpoint(api);
-          api.characterAvatars = false;
-        },
-      },
-    ],
-  });
-  const form = await newBot();
-  await userEvent.click(form.getByRole("combobox", { name: "Machine" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Old Mac" }));
-  await userEvent.click(form.getByRole("radio", { name: "Colours: lagoon" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "River Scout");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() =>
-    expect(others.get("old")?.sent("POST", "/v1/agents")).toEqual([
-      expect.objectContaining({ avatar: { kind: "generated", initials: "RS", color: "teal" } }),
-    ]),
-  );
-  await screen.findByRole("feed", { name: "Conversation with River Scout" });
 });

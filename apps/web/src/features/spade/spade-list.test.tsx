@@ -80,15 +80,10 @@ test("Search opens in place, finds conversations by their words, and says when n
   await waitFor(async () => expect(await names()).toHaveLength(4));
 });
 
-test("a failed bot's line is its next step, and the foot leads to the person's notes and Spade settings", async () => {
+test("a failed bot's line is its next step, and the list has no foot row", async () => {
   await spadeApp("/spade", crew);
   expect((await botRow("Garden")).textContent).toMatch(/Sign in to Codex to go on$/);
-  expect(screen.getByRole("link", { name: "Spade settings" }).getAttribute("href")).toBe(
-    "/settings/spade",
-  );
-  expect(screen.getByRole("link", { name: /^You/ }).getAttribute("href")).toBe(
-    "/settings/spade#about-you",
-  );
+  expect(screen.queryByRole("link", { name: "Spade settings" })).toBeNull();
 });
 
 test("opening a bot that finished unseen marks its conversation seen, and a seen one sends nothing", async () => {
@@ -115,10 +110,10 @@ test("opening a bot that finished unseen marks its conversation seen, and a seen
 
 test("+ offers New bot, New group and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
+  // New bot opens its conversation, not a dialog.
   await openNew("New bot");
-  await screen.findByRole("dialog", { name: "New bot" });
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await screen.findByRole("textbox", { name: "Name" });
+  expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("New group");
   await screen.findByRole("dialog", { name: "New group" });

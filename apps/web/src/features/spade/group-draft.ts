@@ -3,11 +3,15 @@ import {
   spadeGroupMembersMin,
   type SpadeAvatar,
 } from "@ace/ui-core/spade-chat";
+import type { Machine } from "@/lib/machines.ts";
+import { spadeMachineKey } from "./spade-machine.tsx";
 import type { SpadeGroupDraft, SpadeMemberRef } from "./spade-teams-api.ts";
+import type { RosterGroup } from "./use-spade-groups.ts";
+import type { RosterBot } from "./use-spade-roster.ts";
 
 /*
- * The New group and Edit group form's rules, with no I/O: which bots it offers, in what order,
- * which may lead, and the body Spade takes (spade/docs/teams.md).
+ * A group's rules for the New group draft and the profile's edits, with no I/O: which bots they
+ * offer, in what order, which may lead, and the bodies Spade takes (spade/docs/teams.md).
  */
 
 /** A bot the form offers as a member. */
@@ -26,6 +30,54 @@ export interface MemberChoice {
 }
 
 export const choiceKey = (host: string, agent: string) => `${host}/${agent}`;
+
+/** Every roster bot as a member to offer, with its machine's host id. */
+export function choicesOf(
+  bots: readonly RosterBot[],
+  machines: readonly Pick<Machine, "id" | "primary" | "name">[],
+): MemberChoice[] {
+  return bots.flatMap((bot) => {
+    const machine = machines.find((each) => spadeMachineKey(each) === bot.machine.key);
+    if (!machine) return [];
+    return [
+      {
+        key: choiceKey(machine.id, bot.id),
+        agent: bot.id,
+        host: machine.id,
+        name: bot.name,
+        avatar: bot.avatar,
+        machineName: machine.name,
+        main: bot.kind === "main",
+        away: bot.away || bot.unavailable,
+      },
+    ];
+  });
+}
+
+/**
+ * The group's members as choices, in its order. A member whose bot the roster doesn't list (its
+ * machine out of reach) stays as the group has it, away.
+ */
+export function memberChoices(
+  group: Pick<RosterGroup, "members" | "host">,
+  choices: readonly MemberChoice[],
+): MemberChoice[] {
+  return group.members.map((member) => {
+    const host = member.machine ?? group.host;
+    return (
+      choices.find((choice) => choice.agent === member.agent && choice.host === host) ?? {
+        key: choiceKey(host, member.agent),
+        agent: member.agent,
+        host,
+        name: member.name,
+        avatar: member.avatar,
+        machineName: "",
+        main: false,
+        away: true,
+      }
+    );
+  });
+}
 
 /** Bots of the group's machine first, then the rest, each in the order the roster has them. */
 export function orderChoices(choices: readonly MemberChoice[], groupHost: string): MemberChoice[] {
@@ -147,4 +199,63 @@ export function groupChange(
   if (!sameMembers) change.members = after.members;
   if (after.lead !== undefined && after.lead !== before.lead) change.lead = after.lead;
   return change;
+}
+
+/** The group as Spade has it, for `groupChange` to compare an edit against. */
+export function groupAsIs(group: Pick<RosterGroup, "name" | "members" | "lead">): {
+  name: string;
+  members: SpadeMemberRef[];
+  lead: string;
+} {
+  return {
+    name: group.name,
+    members: group.members.map((member) =>
+      member.machine === null
+        ? { agent: member.agent }
+        : { agent: member.agent, machine: member.machine },
+    ),
+    lead: group.lead.agent,
+  };
+}
+
+/*
+ * The New group draft. Spade on this machine starts picked; the lead is a picked member, Spade
+ * while it is picked, else the first picked; and the group lives on its lead's machine, so there
+ * is no machine to choose.
+ */
+
+/** What the draft starts with picked: Spade on this machine, when it runs here. */
+export function draftStart(choices: readonly MemberChoice[], primaryHost: string): string[] {
+  const spade = hostSpade(choices, primaryHost);
+  return spade ? [spade.key] : [];
+}
+
+/** The draft's lead: the one asked for while it is picked, else Spade picked, else the first. */
+export function draftLead(
+  picked: readonly MemberChoice[],
+  asked: string | undefined,
+): MemberChoice | undefined {
+  return (
+    picked.find((choice) => choice.key === asked) ??
+    picked.find((choice) => choice.main) ??
+    picked[0]
+  );
+}
+
+/** Why the draft can't be made yet, in words; undefined when it can. */
+export function draftProblem(name: string, picked: readonly MemberChoice[]): string | undefined {
+  if (!name.trim()) return "Name the group.";
+  if (picked.length < spadeGroupMembersMin) return "Pick at least one more bot.";
+  if (picked.length > spadeGroupMembersMax)
+    return `A group holds up to ${spadeGroupMembersMax} bots.`;
+  return undefined;
+}
+
+/** `POST /v1/groups` for the draft, sent to its lead's machine; members named against it. */
+export function draftBody(
+  name: string,
+  picked: readonly MemberChoice[],
+  lead: MemberChoice,
+): SpadeGroupDraft {
+  return { name: name.trim(), members: memberRefs(picked, lead.host), lead: lead.agent };
 }

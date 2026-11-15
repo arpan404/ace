@@ -94,23 +94,27 @@ export type SpadeListEntry =
 const activity = (entry: SpadeListEntry) =>
   entry.kind === "bot" ? entry.bot.lastActivity : entry.group.lastActivity;
 
+const botEntry = (bot: RosterBot): SpadeListEntry => ({ kind: "bot", bot, row: spadeBotRow(bot) });
+
 /**
- * The rows under Spade's head: every bot but Spade (the head) and every group, by state, then
- * newest first within one.
+ * The list's rows: Spade, the main bot, first as an ordinary row, then every other bot and every
+ * group by state, newest first within one.
  */
 export function spadeListEntries(
   bots: readonly RosterBot[],
   groups: readonly RosterGroup[],
 ): SpadeListEntry[] {
-  const entries: SpadeListEntry[] = [
-    ...bots
-      .filter((bot) => bot.kind !== "main")
-      .map((bot) => ({ kind: "bot" as const, bot, row: spadeBotRow(bot) })),
+  const others: SpadeListEntry[] = [
+    ...bots.filter((bot) => bot.kind !== "main").map(botEntry),
     ...groups.map((group) => ({ kind: "group" as const, group, row: spadeGroupRow(group) })),
   ];
-  return entries.toSorted(
-    (a, b) => rank[a.row.state] - rank[b.row.state] || activity(b) - activity(a),
-  );
+  const main = bots.filter((bot) => bot.kind === "main").map(botEntry);
+  return [
+    ...main,
+    ...others.toSorted(
+      (a, b) => rank[a.row.state] - rank[b.row.state] || activity(b) - activity(a),
+    ),
+  ];
 }
 
 function words(entry: SpadeListEntry): string[] {

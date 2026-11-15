@@ -180,6 +180,27 @@ export function spadeGroupLine(group: SpadeGroup): {
   return { text: last.agent ? `${last.agent.name}: ${last.text}` : last.text };
 }
 
+/** A file a member made answering the group, for the group's Library (`GET /v1/groups/{id}/files`). */
+export interface SpadeGroupFile {
+  /** The member's agent id on the group's machine; the file is in its workspace. */
+  agent: string;
+  path: string;
+  /** When it was last written there. */
+  at: number;
+}
+
+const groupFileShape = z.object({ agent: z.string().min(1), path: z.string().min(1), at: time });
+
+/** `GET /v1/groups/{id}/files`, newest first as Spade sends them; undefined when the body has no list. */
+export function parseSpadeGroupFiles(body: string): SpadeGroupFile[] | undefined {
+  const list = spadeRecord(spadeJson(body))?.files;
+  if (!Array.isArray(list)) return undefined;
+  return list.flatMap((raw) => {
+    const file = groupFileShape.safeParse(raw);
+    return file.success ? [file.data] : [];
+  });
+}
+
 /** Most members a group holds, the lead counted, and fewest. */
 export const spadeGroupMembersMax = 8;
 export const spadeGroupMembersMin = 2;

@@ -1,5 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
@@ -71,6 +71,12 @@ function withGroup(spade: FakeSpadeApi) {
     from: researchBot,
   });
   return trips;
+}
+
+/** The pill over a group's chat, then its profile in the side panel. */
+async function openGroupProfile(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: `${name}: open its profile` }));
+  return within(await screen.findByRole("complementary", { name: `${name}'s profile` }));
 }
 
 async function openTrips() {
@@ -209,22 +215,23 @@ test("a message in a group posts to the group", async () => {
   );
 });
 
-test("New group posts its name, members of both machines and the lead", async () => {
+test("New group drafts in place: Spade starts picked, members of both machines join, and the picked lead is named", async () => {
   const { spade } = await spadeApp("/spade", team, { machines: [studio] });
   await openNew("New group");
-  const form = within(await screen.findByRole("dialog", { name: "New group" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Trips");
-  await userEvent.click(await form.findByRole("checkbox", { name: "Research" }));
-
-  await userEvent.click(form.getByRole("checkbox", { name: "Writer on Studio Mac" }));
-  await userEvent.click(form.getByRole("combobox", { name: "Lead" }));
+  const draft = within(await screen.findByRole("form", { name: "New group" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(draft.getByRole("checkbox", { name: "Spade" }).getAttribute("aria-checked")).toBe("true");
+  await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Writer on Studio Mac" }));
+  await userEvent.click(draft.getByRole("combobox", { name: "Lead" }));
   await userEvent.click(await screen.findByRole("option", { name: "Research" }));
-  await userEvent.click(form.getByRole("button", { name: "Create group" }));
+  await userEvent.click(draft.getByRole("button", { name: "Make group" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/groups")).toEqual([
       {
         name: "Trips",
-        members: [{ agent: "research" }, { agent: "writer", machine: "studio" }],
+        members: [{ agent: "main" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
         lead: "research",
       },
     ]),
@@ -232,7 +239,21 @@ test("New group posts its name, members of both machines and the lead", async ()
   await screen.findByRole("feed", { name: "Conversation in Trips" });
 });
 
-test("making Spade lead a group it isn't in adds Spade to the members and names it as lead", async () => {
+test("a draft can't be made until it has a name and two members", async () => {
+  await spadeApp("/spade", team, { machines: [studio] });
+  await openNew("New group");
+  const draft = within(await screen.findByRole("form", { name: "New group" }));
+  const make = draft.getByRole("button", { name: "Make group" });
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
+  expect(make).toHaveProperty("disabled", true);
+  await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
+  expect(make).toHaveProperty("disabled", false);
+  await userEvent.click(draft.getByRole("checkbox", { name: "Research" }));
+  expect(make).toHaveProperty("disabled", true);
+  await draft.findByText("Pick at least one more bot.");
+});
+
+test("making Spade lead in the profile, of a group it isn't in, adds Spade to the members and names it as lead", async () => {
   const { spade } = await spadeApp(
     "/spade",
     (seed) => {
@@ -249,12 +270,9 @@ test("making Spade lead a group it isn't in adds Spade to the members and names 
     { machines: [studio] },
   );
   await openTrips();
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit group" }));
-  const form = within(await screen.findByRole("dialog", { name: "Edit Trips" }));
-  await userEvent.click(form.getByRole("combobox", { name: "Lead" }));
+  const profile = await openGroupProfile("Trips");
+  await userEvent.click(profile.getByRole("combobox", { name: "Lead" }));
   await userEvent.click(await screen.findByRole("option", { name: "Spade" }));
-  await userEvent.click(form.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([
       {
@@ -265,20 +283,17 @@ test("making Spade lead a group it isn't in adds Spade to the members and names 
   );
 });
 
-test("a group on a machine without Spade offers only that machine's bots to lead and names the lead", async () => {
+test("a draft led by a bot of another machine is made there, with this machine's bots named", async () => {
   const { others } = await spadeApp("/spade", team, { machines: [studio] });
   await openNew("New group");
-  const form = within(await screen.findByRole("dialog", { name: "New group" }));
-  await userEvent.click(form.getByRole("combobox", { name: "Lives on" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Trips");
-  await userEvent.click(await form.findByRole("checkbox", { name: "Research on This Mac" }));
-  await userEvent.click(form.getByRole("checkbox", { name: "Writer" }));
-  await userEvent.click(form.getByRole("combobox", { name: "Lead" }));
-  const leads = await screen.findAllByRole("option");
-  expect(leads.map((option) => option.textContent)).toEqual(["Writer"]);
-  await userEvent.keyboard("{Escape}");
-  await userEvent.click(form.getByRole("button", { name: "Create group" }));
+  const draft = within(await screen.findByRole("form", { name: "New group" }));
+  await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
+  await userEvent.click(draft.getByRole("checkbox", { name: "Spade" }));
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Writer on Studio Mac" }));
+  await userEvent.click(draft.getByRole("combobox", { name: "Lead" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Writer on Studio Mac" }));
+  await userEvent.click(draft.getByRole("button", { name: "Make group" }));
   await waitFor(() =>
     expect(others.get("studio")?.sent("POST", "/v1/groups")).toEqual([
       {
@@ -288,6 +303,84 @@ test("a group on a machine without Spade offers only that machine's bots to lead
       },
     ]),
   );
+  await screen.findByRole("feed", { name: "Conversation in Trips" });
+});
+
+test("the group's profile adds and removes members, but never the lead or below two", async () => {
+  const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
+  await openTrips();
+  const profile = await openGroupProfile("Trips");
+  expect(profile.queryByRole("button", { name: "Remove Spade" })).toBeNull();
+  await userEvent.click(profile.getByRole("button", { name: "Remove Writer" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([
+      { members: [{ agent: "main" }, { agent: "research" }] },
+    ]),
+  );
+  // Two left: neither can go.
+  await waitFor(() => expect(profile.queryByRole("button", { name: /^Remove/ })).toBeNull());
+  await userEvent.click(profile.getByRole("button", { name: "Add a member" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Writer on Studio Mac" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/groups/trips").at(-1)).toEqual({
+      members: [{ agent: "main" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
+    }),
+  );
+});
+
+test("the group's profile renames it in place: Enter saves, Escape puts it back", async () => {
+  const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
+  await openTrips();
+  const profile = await openGroupProfile("Trips");
+  await userEvent.click(profile.getByRole("button", { name: "Rename Trips" }));
+  await userEvent.clear(profile.getByRole("textbox", { name: "Group name" }));
+  await userEvent.type(profile.getByRole("textbox", { name: "Group name" }), "Away{Escape}");
+  await profile.findByRole("button", { name: "Rename Trips" });
+  expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([]);
+  await userEvent.click(profile.getByRole("button", { name: "Rename Trips" }));
+  await userEvent.clear(profile.getByRole("textbox", { name: "Group name" }));
+  await userEvent.type(profile.getByRole("textbox", { name: "Group name" }), "Lisbon{Enter}");
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([{ name: "Lisbon" }]),
+  );
+});
+
+test("the group's Library lists its members' files, newest first, each opening in its member's files", async () => {
+  await spadeApp(
+    "/spade",
+    (spade) => {
+      const trips = withGroup(spade);
+      trips.files = [
+        { agent: "research", path: "notes/fares.md", at: Date.now() - 60_000 },
+        { agent: "research", path: "sources.md", at: Date.now() - 3_600_000 },
+      ];
+      spade.files.set("research", { "notes/fares.md": "# Fares\n", "sources.md": "# Sources\n" });
+    },
+    { machines: [studio] },
+  );
+  await openTrips();
+  const profile = await openGroupProfile("Trips");
+  await userEvent.click(profile.getByRole("button", { name: "Library" }));
+  const files = await profile.findAllByRole("button", { name: /, by Research$/ });
+  expect(files.map((file) => file.getAttribute("aria-label"))).toEqual([
+    "fares.md, by Research",
+    "sources.md, by Research",
+  ]);
+  await userEvent.click(profile.getByRole("button", { name: "fares.md, by Research" }));
+  await screen.findByRole("feed", { name: "Conversation with Research" });
+});
+
+test("a finished group the person hasn't seen is marked seen once they open it at its end", async () => {
+  const { spade } = await spadeApp(
+    "/spade",
+    (seed) => {
+      const trips = withGroup(seed);
+      trips.unseen = true;
+    },
+    { machines: [studio] },
+  );
+  await openTrips();
+  await waitFor(() => expect(spade.sent("PUT", "/v1/conversations/c-trips/seen")).toEqual([{}]));
 });
 
 test("a bot's own chat labels a group's message with the group, not as the person", async () => {
@@ -307,51 +400,6 @@ test("a bot's own chat labels a group's message with the group, not as the perso
     "Find flights",
   );
   expect(chat.queryByRole("article", { name: "You" })).toBeNull();
-});
-
-test("starting from a template fills the form and sends the template with the time zone", async () => {
-  const { spade } = await spadeApp("/spade", (seed) => {
-    team(seed);
-    seed.teams.templates.push({
-      id: "digest",
-      name: "Morning digest",
-      blurb: "Reads your feeds each morning",
-      task: "Summarise my feeds.",
-      face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
-      model_kind: "fast",
-      routines: [],
-    });
-  });
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  await userEvent.click(await form.findByRole("button", { name: /^Morning digest/ }));
-  expect(form.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe(
-    "Morning digest",
-  );
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents")).toEqual([
-      {
-        name: "Morning digest",
-        task: "Summarise my feeds.",
-        access: "auto_review",
-        template: "digest",
-        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        avatar: {
-          kind: "character",
-          v: 1,
-          body: "bird",
-          pair: "sky",
-          ears: "none",
-          marking: "cap",
-          eyes: "egg",
-          mouth: "none",
-          cheeks: "none",
-          accessory: "none",
-        },
-      },
-    ]),
-  );
 });
 
 test("Duplicate copies the bot and opens the copy; Export saves its file under its name", async () => {
@@ -376,70 +424,25 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   expect(spade.sent("POST", "/v1/agents/research/duplicate")).toEqual([{}]);
 });
 
-test("Import bot sends the file to the machine, says what it left out, then opens the bot", async () => {
-  const { spade } = await spadeApp("/spade", (seed) => {
-    team(seed);
-    seed.teams.leftOut = ["The Linear app isn't connected here."];
+test("Import bot from + refuses a file over 6 MB unread, and opens an imported bot", async () => {
+  const { spade } = await spadeApp("/spade", team);
+  const huge = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
+    type: "application/json",
   });
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
+  const read = vi.spyOn(huge, "text");
+  await openNew("Import bot…");
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [huge] } });
   const file = new File(
     [JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" })],
     "Scout.spade-bot.json",
     { type: "application/json" },
   );
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  const done = within(await screen.findByRole("dialog", { name: "Scout is here" }));
-  expect(done.getByRole("list", { name: "Left out" }).textContent).toBe(
-    "The Linear app isn't connected here.",
-  );
+  await openNew("Import bot…");
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [file] } });
+  await screen.findByRole("feed", { name: "Conversation with Scout" });
+  // Only the file that fits was read and sent.
+  expect(read).not.toHaveBeenCalled();
   expect(spade.sent("POST", "/v1/agents/import")).toEqual([
     { format: "spade-bot", version: 1, name: "Scout", task: "Scout news" },
   ]);
-  await userEvent.click(done.getByRole("button", { name: "Open Scout" }));
-  await screen.findByRole("feed", { name: "Conversation with Scout" });
-});
-
-test("Import bot refuses a file over 6 MB without reading or sending it", async () => {
-  const { spade } = await spadeApp("/spade", team);
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  const file = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
-    type: "application/json",
-  });
-  const read = vi.spyOn(file, "text");
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  expect((await form.findByRole("alert")).textContent).toBe(
-    "That file is too big for a bot file (6 MB at most).",
-  );
-  expect(read).not.toHaveBeenCalled();
-  expect(spade.sent("POST", "/v1/agents/import")).toEqual([]);
-});
-
-test("an imported bot opens on the machine it was sent to, even if Runs on moved meanwhile", async () => {
-  const { spade, others } = await spadeApp(
-    "/spade",
-    (seed) => {
-      team(seed);
-      seed.teams.leftOut = ["The Linear app isn't connected here."];
-    },
-    { machines: [studio] },
-  );
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  const file = new File(["{}"], "Scout.spade-bot.json", { type: "application/json" });
-  const read = Promise.withResolvers<string>();
-  vi.spyOn(file, "text").mockReturnValue(read.promise);
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  // While the file is still being read, the person picks another machine.
-  await userEvent.click(form.getByRole("combobox", { name: "Machine" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
-  read.resolve(
-    JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }),
-  );
-  const done = within(await screen.findByRole("dialog", { name: "Scout is here" }));
-  await userEvent.click(done.getByRole("button", { name: "Open Scout" }));
-  await screen.findByRole("feed", { name: "Conversation with Scout" });
-  expect(spade.sent("POST", "/v1/agents/import")).toHaveLength(1);
-  expect(others.get("studio")?.sent("POST", "/v1/agents/import")).toEqual([]);
 });

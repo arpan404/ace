@@ -39,6 +39,8 @@ export interface FakeSpadeGroup {
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
   unseen?: boolean;
+  /** Its Library: files its members made answering it, newest first. */
+  files?: { agent: string; path: string; at: number }[];
 }
 
 /** What the teams need of the rest of the fake. */
@@ -150,6 +152,7 @@ export class FakeSpadeTeams {
       group.last_message = { from: "person", text, at: this.host.now(), agent: null };
       return reply({ run }, 202);
     }
+    if (sub === "files" && method === "GET") return reply({ files: group.files ?? [] });
     if (sub === "stop" && method === "POST") {
       this.host.store(group.conversation, { type: "group_stopped", run: "run" });
       this.status(group, "idle", null);

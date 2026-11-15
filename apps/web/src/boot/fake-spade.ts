@@ -1,5 +1,6 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 
 /*
@@ -514,6 +515,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeGroup(here, now);
   seedFakeTranscript(here, (back) => {
     rewound = back * 60_000;
   });
