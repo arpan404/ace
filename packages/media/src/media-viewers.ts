@@ -239,6 +239,34 @@ export type MediaDeliveryPort = {
   unbind(viewer: string): void;
 };
 
+/** A view a subscribe holds: its id and the media connection it is on. */
+export type HeldView = { viewer: string; connection: string };
+
+/**
+ * A subscribe that replaces its view, as one transaction: the old view keeps delivering until
+ * the subscribe has succeeded (`commit` then closes it), and a failed one (`abort`) closes only
+ * the view granted for it. ace-media holds one view per connection and target, so a new view on
+ * the old one's connection has already replaced it there: an abort opens the old one again,
+ * where it carries on from a keyframe. `granted` is a view made for this subscribe (not one it
+ * shares); the browser, screen and device bridges all swap through this.
+ */
+export function viewSwap(
+  port: MediaDeliveryPort | undefined,
+  old: HeldView | undefined,
+  granted: HeldView | undefined,
+): { commit(): void; abort(): void } {
+  return {
+    commit: () => {
+      if (old && old.viewer !== granted?.viewer) port?.unbind(old.viewer);
+    },
+    abort: () => {
+      if (!granted) return;
+      port?.unbind(granted.viewer);
+      if (old && old.connection === granted.connection) port?.regrant(old.viewer);
+    },
+  };
+}
+
 const whole = (n: number) => Math.max(1, Math.min(0xffffffff, Math.round(n)));
 
 /** A client's viewport in ace-media's terms. */
