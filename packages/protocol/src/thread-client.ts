@@ -245,6 +245,11 @@ export const ThreadRunMetadata = z.object({
   turnStart: z.object({ turn: z.number().int().positive(), at: Timestamp }).optional(),
   /** Start of the current wait on subagents, while the root does nothing but wait on them. */
   waitingSince: Timestamp.optional(),
+  /**
+   * When the root agent began compacting its context, while it compacts: the "Compacting
+   * context" line counts from here, not from the Working stretch the compaction interrupted.
+   */
+  compactingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),
   model: z.string().max(256).optional(),
   account: z.string().max(256).optional(),
@@ -373,7 +378,17 @@ export const ThreadOrganizationCommands = [
    */
   z.object({ type: z.literal("thread.title.regenerate"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.delete"), threadId: ThreadId, force: z.boolean().optional() }),
+  z.object({
+    type: z.literal("thread.delete"),
+    threadId: ThreadId,
+    force: z.boolean().optional(),
+    /**
+     * The thread event the person decided at (its cursor, or its list entry's activitySeq): the
+     * daemon refuses (`thread_changed`) once a run started or a person's message arrived after
+     * it, so a replayed Stop and delete never stops newer work. Omitted: as before.
+     */
+    beforeSeq: z.number().int().nonnegative().optional(),
+  }),
   z.object({
     type: z.literal("thread.pin"),
     threadId: ThreadId,

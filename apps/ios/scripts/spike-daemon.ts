@@ -16,6 +16,7 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
 import { seedSubagents } from "./subagent-scenario.ts";
+import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -227,6 +228,8 @@ daemon.createThread({
   details: details("perf/shards"),
 });
 seedSubagents(daemon);
+seedElsewhere(daemon, { hostId, name: machineName });
+seedWorktreeStops(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",

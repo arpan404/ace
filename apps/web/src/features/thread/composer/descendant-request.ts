@@ -18,6 +18,11 @@ export interface DescendantRequest {
   interactionId: string | undefined;
   /** What it asks for (an interaction kind), once the child's request is loaded. */
   kind: Interaction["request"]["kind"] | undefined;
+  /**
+   * The threads whose copies' `askingThreads` hints led here, the thread itself first: that the
+   * child asks at all is their fact, so it is current only while each of them is.
+   */
+  via: readonly string[];
 }
 
 /** A delegated child the thread waits on, from the daemon's live hints. */
@@ -61,6 +66,7 @@ export function useDescendantRequest(threadId: string): DescendantRequest | unde
     [great, greatRequest],
   ] as const;
   let deepest: DescendantRequest | undefined;
+  const via: string[] = [threadId];
   for (const [asker, request] of levels) {
     if (!asker) break;
     deepest = {
@@ -68,8 +74,10 @@ export function useDescendantRequest(threadId: string): DescendantRequest | unde
       name: asker.name,
       interactionId: request?.id,
       kind: request?.kind,
+      via: [...via],
     };
     if (request) return deepest;
+    via.push(asker.id);
   }
   return deepest;
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Command, ThreadId } from "@ace/protocol";
+import { Command, RunId, ThreadId } from "@ace/protocol";
 import { ThreadLifecycle } from "../thread-lifecycle.ts";
 import { setup } from "./test-support.ts";
 
@@ -120,4 +120,58 @@ test("cyclic ownership is visited once and a tree wider than 64 children is clea
   const cleaned = f.engine.cleanupThreads(parent.threadId);
   expect(cleaned).toHaveLength(66);
   expect(cleaned).toContain(ThreadId.parse("malformed-63"));
+});
+
+test("a Stop and delete decided before a delegated child started newer work is refused, and deletes once decided after it", async () => {
+  const f = setup();
+  const parent = await f.parent();
+  const edge = f.delegate(parent, "child", true);
+  await f.engine.flush();
+  await f.complete(edge.childId, "Done");
+  await f.service.wait(parent, edge.childId, new AbortController().signal);
+  await f.engine.flush();
+  const latest = () =>
+    Number(f.store.statement("SELECT MAX(seq) AS seq FROM events").get()?.["seq"] ?? 0);
+  const decided = latest();
+  // Another device starts newer work in the child; the parent's own history gets nothing.
+  const child = ThreadId.parse(edge.childId);
+  const childRoot = f.store.snapshotThread(child).thread.rootAgentId;
+  if (!childRoot) throw new Error("No child root agent");
+  f.store.appendEvents(child, [
+    {
+      type: "run.started",
+      run: {
+        id: RunId.parse("child-newer-run"),
+        threadId: child,
+        agentId: childRoot,
+        trigger: "user",
+        state: "active",
+        startedAt: f.clock.now(),
+      },
+    },
+  ]);
+  const lifecycle = new ThreadLifecycle({
+    store: f.store,
+    engine: f.engine,
+    handler: f.engine.handler,
+    port: 0,
+    hostId: "test",
+    token: "unused",
+    now: f.clock.now,
+  });
+  const forced = (id: string, beforeSeq: number) =>
+    lifecycle.delete(
+      Command.parse({
+        id,
+        deviceId: "test",
+        payload: { type: "thread.delete", threadId: parent.threadId, force: true, beforeSeq },
+      }),
+    );
+  expect(await forced("decided-before", decided)).toMatchObject({
+    ok: false,
+    error: "thread_changed",
+  });
+  expect(f.store.getThread(parent.threadId)?.deletedAt).toBeUndefined();
+  expect(await forced("decided-after", latest())).toMatchObject({ ok: true });
+  expect(f.store.getThread(parent.threadId)?.deletedAt).toBeDefined();
 });

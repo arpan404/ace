@@ -50,6 +50,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "compactingSince": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
     "contextMeter": {
       "properties": {
         "at": {

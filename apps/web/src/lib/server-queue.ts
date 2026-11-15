@@ -4,13 +4,21 @@ import { ThreadId, type QueuePage } from "@ace/protocol";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "./daemon-query.ts";
-import { restoredUnconfirmed } from "./query-persistence.ts";
+import { restoredUnconfirmed, restoredUnconfirmedNow } from "./query-persistence.ts";
 
 /** Visible queue rows grow on demand; wire pages remain bounded by the daemon. */
 export const queuePageSize = 16;
 const queueOf = (reader: ThreadReader) => reader.queue;
 
 export { readServerQueue };
+
+/**
+ * The queue copy a view shows, as a sender checks it when it sends (`unconfirmedNow`): whether
+ * it is still a page kept from an earlier session that the daemon has not answered since.
+ */
+export interface QueueCopy {
+  unconfirmedNow(): boolean;
+}
 
 /**
  * One shared read per revision follows the daemon's byte-bounded cursors. Retained inputs
@@ -21,8 +29,13 @@ export function useServerQueue(threadId: string): {
   page: QueuePage | undefined;
   retained: readonly QueuePage["messages"][number][];
   failed: boolean;
-  /** The page is the copy kept from an earlier session, not yet confirmed by the daemon. */
+  /**
+   * The page is the copy kept from an earlier session, not yet confirmed by the daemon, as of
+   * this render: for wording and disabling. Senders check `copy` instead, as they send.
+   */
   unconfirmed: boolean;
+  /** The copy shown, for a sender to check as it sends. */
+  copy: QueueCopy;
   loadingMore: boolean;
   loadMore(): void;
   refresh(): void;
@@ -54,6 +67,7 @@ export function useServerQueue(threadId: string): {
     // The page shown may be another revision's, carried over while this one is read: what counts
     // is whether the daemon has answered for the data on screen.
     unconfirmed: restoredUnconfirmed(queries, query),
+    copy: { unconfirmedNow: () => restoredUnconfirmedNow(queries, query.data) },
     loadingMore: query.isFetching,
     loadMore: () => setShown({ threadId, count: Math.min(count + queuePageSize, retained.length) }),
     refresh: () => void query.refetch(),

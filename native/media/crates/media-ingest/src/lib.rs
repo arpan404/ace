@@ -8,6 +8,7 @@
 //! actions returned (write these bytes, end or destroy a connection, report a cut). The rules
 //! are those of the daemon's own writer, `packages/media/src/ingest-writer.ts`.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+pub mod epochs;
 pub mod frame;
 pub mod route;
 pub mod writer;

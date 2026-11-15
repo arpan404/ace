@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useActiveRootRun } from "../composer/stop-state.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { floatingControl, floatingHover, floatingMotion } from "@/components/floating-control.ts";
 
 /**
@@ -37,8 +38,10 @@ export function StoppedPill(props: { threadId: string; raised: boolean }) {
   const toast = useToast();
   const stop = useThread(props.threadId, ["queue", "thread"], stopOf, sameStop);
   const running = !!useActiveRootRun(props.threadId);
+  // A cached stop may have been continued meanwhile: only a current copy offers Continue.
+  const { fresh } = useThreadLiveState(props.threadId);
   const [sending, setSending] = useState(false);
-  if (!stop || running) return null;
+  if (!stop || running || !fresh) return null;
   const { label } = stop;
   const Glyph = stop.exited ? PauseBarsIcon : ArrowClockwiseIcon;
   const go = () => {
