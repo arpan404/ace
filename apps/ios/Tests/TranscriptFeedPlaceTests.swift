@@ -126,6 +126,18 @@ import Testing
         #expect(!feed.landing.isActive)
     }
 
+    @Test func theReaderTakingOverAfterAFailedOpenKeepsRetryFromPullingThemBack() {
+        // The open failed, the reader dragged elsewhere, then tapped Retry.
+        var feed = Feed(rows: ["a", "b", "c", "d", "e", "f"])
+        feed.landing.jumped(to: "item.f", now: 0)
+        feed.landing.readFailed()
+        feed.send(.takeover)
+        feed.landing.retried(now: 100)
+        #expect(!feed.landing.isActive)
+        feed.send(.revised)
+        #expect(feed.aims == 0)
+    }
+
     @Test func aDragAfterTheFocusLandedHoldsWhereTheReaderStops() {
         var feed = Feed(rows: ["a", "b", "c", "d", "e", "f"])
         feed.open("item.f")

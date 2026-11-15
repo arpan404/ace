@@ -92,7 +92,8 @@ enum TranscriptFeedPlace {
             landing.expire(now: now)
             if held, !landing.holdsPlace { actions.append(.released) }
         case .takeover:
-            if landing.isActive { landing.readerTookOver() }
+            // Also with nothing landing: a failed open kept for Retry is the reader's to drop.
+            landing.readerTookOver()
         }
         return actions
     }
