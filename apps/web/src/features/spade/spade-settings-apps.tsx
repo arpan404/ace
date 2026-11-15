@@ -15,8 +15,8 @@ const storeKey = ["spade", "skill-store"] as const;
 
 /**
  * Settings › Spade › Apps: the apps Spade is connected to, then the plugins and skills its bots
- * use, each with the bots that use it. Which bots use an app or a skill shows once Spade says;
- * a plugin's, from each bot's own plugin choice.
+ * use, each with the bots that use it: an app's and a skill's as Spade lists them, a plugin's
+ * from each bot's own plugin choice.
  */
 export function SpadeAppsSettings() {
   const { line, reading } = useSpadeRunning();
@@ -86,7 +86,7 @@ function PluginSection(props: { bots: readonly SpadeAgent[] }) {
 }
 
 /**
- * Skills the bots use or wrote, each with those bots (once Spade says), and Add to ace's library
+ * Skills the bots use or wrote, each with those bots, and Add to ace's library
  * for one written in Spade while ace is running. Shows nothing when there are none.
  */
 function SkillSection(props: { names: ReadonlyMap<string, string> }) {
@@ -98,10 +98,7 @@ function SkillSection(props: { names: ReadonlyMap<string, string> }) {
   });
   const shown =
     store.data?.skills.filter(
-      (skill) =>
-        skill.origin === "spade" ||
-        Boolean(skill.usedBy?.length) ||
-        Boolean(skill.writtenBy?.length),
+      (skill) => skill.origin === "spade" || skill.usedBy.length > 0 || skill.writtenBy.length > 0,
     ) ?? [];
   if (!store.data || shown.length === 0) return null;
   const { ace } = store.data;

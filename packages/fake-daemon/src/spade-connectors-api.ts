@@ -55,20 +55,41 @@ export class FakeSpadeConnectors {
     Object.assign(connector, { state: "needs_reconnect", device: { ...device, state } });
   }
 
-  /** `/v1/connectors…`. */
+  /**
+   * Each connector with `bots`, as Spade answers: the ids of the bots allowed to use it, in
+   * roster order. Spade, the main bot, uses every one until narrowed; a bot only those allowed.
+   */
+  private withBots(connectors: Json[], roster: readonly { id: string; main: boolean }[]) {
+    return connectors.map((connector) => ({
+      ...connector,
+      bots: roster
+        .filter((agent) => {
+          const list = this.access.get(agent.id) ?? { all: agent.main, connectors: [] };
+          return list.all || list.connectors.includes(String(connector.id));
+        })
+        .map((agent) => agent.id),
+    }));
+  }
+
+  /** `/v1/connectors…`; `roster` is the bots Spade lists now, in its order. */
   route(
     method: string,
     id: string | undefined,
     sub: string | undefined,
     body: Json,
+    roster: readonly { id: string; main: boolean }[] = [],
   ): FakeSpadeAnswer {
     if (!id && method === "GET")
-      return reply({ catalogue: this.catalogue, connectors: this.connectors });
+      return reply({
+        catalogue: this.catalogue,
+        connectors: this.withBots(this.connectors, roster),
+      });
     if (!id && method === "POST") return this.connect(body);
     const connector = this.connectors.find((candidate) => candidate.id === id);
     if (!connector) return problem(404, "no such connector");
     if (sub === "connect" && method === "POST") return this.connect({ ...body, id });
-    if (!sub && method === "GET") return reply({ connector });
+    if (!sub && method === "GET")
+      return reply({ connector: this.withBots([connector], roster)[0] });
     if (!sub && method === "DELETE") {
       this.connectors = this.connectors.filter((candidate) => candidate !== connector);
       for (const list of this.access.values())

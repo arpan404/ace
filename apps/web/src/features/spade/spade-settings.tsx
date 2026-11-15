@@ -76,8 +76,8 @@ export function SpadeSettings() {
 }
 
 /**
- * The model new bots start on (shown once Spade says it has the setting), the fast model, the
- * review's rows (`review`) and the transcription model, each model one picker.
+ * The model new bots start on, the fast model, the review's rows (`review`) and the
+ * transcription model, each model one picker.
  */
 function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
   const client = useSpadeClient();
@@ -93,14 +93,12 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
   const { models } = props;
   return (
     <>
-      {models.newBotModel !== undefined && (
-        <ModelSettingRow
-          title="Model for new bots"
-          value={models.newBotModel ?? undefined}
-          none="Your first usable model"
-          save={saved((model) => setNewBotModel(client, model))}
-        />
-      )}
+      <ModelSettingRow
+        title="Model for new bots"
+        value={models.newBotModel}
+        none="Your first usable model"
+        save={saved((model) => setNewBotModel(client, model))}
+      />
       <ModelSettingRow
         title="Fast model"
         description="Titles and other small jobs"

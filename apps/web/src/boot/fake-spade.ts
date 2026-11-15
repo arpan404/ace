@@ -639,7 +639,6 @@ function seedConnectors(spade: FakeSpadeApi) {
       sign_in: "token",
       state: "connected",
       tools: 41,
-      bots: ["spade", "inbox"],
     },
     {
       id: "notion",
@@ -650,7 +649,6 @@ function seedConnectors(spade: FakeSpadeApi) {
       state: "needs_reconnect",
       account: "sam@example.com",
       tools: 12,
-      bots: ["spade"],
     },
   );
   spade.connectors.access.set("inbox", { all: false, connectors: ["github"] });

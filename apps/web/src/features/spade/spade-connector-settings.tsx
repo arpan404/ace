@@ -25,7 +25,7 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 /**
  * Settings › Spade › Apps, its first group (ADR 0131): the apps Spade is connected to, each with
  * its state, what it needs (reconnect when its sign-in ended) and the bots that use it, named
- * from `names` (shown once Spade says), then Connect an app.
+ * from `names`, then Connect an app.
  */
 export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<string, string> }) {
   const connectors = useSpadeConnectors(props.ready);
@@ -63,8 +63,8 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
 }
 
 /** The bots in `ids` by name, in Spade's order; ids not in the roster are left out. */
-export function botNames(ids: readonly string[] | undefined, names: ReadonlyMap<string, string>) {
-  return (ids ?? []).flatMap((id) => {
+export function botNames(ids: readonly string[], names: ReadonlyMap<string, string>) {
+  return ids.flatMap((id) => {
     const name = names.get(id);
     return name ? [name] : [];
   });
@@ -88,6 +88,8 @@ function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<str
   const refresh = () => cache.invalidateQueries({ queryKey: connectorsKey });
   const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
   const { device } = connector;
+  // The bots that use it, after its state: the state line stays one phrase of its own.
+  const users = botNames(connector.bots, props.names);
   const copy = useCopy(() => toast.error({ title: "Couldn't copy the code" }));
   const again = async () => {
     setBusy(true);
@@ -118,14 +120,20 @@ function ConnectorRow(props: { connector: SpadeConnector; names: ReadonlyMap<str
   return (
     <SettingRow
       title={connector.name}
-      description={[
-        spadeConnectorLine(connector),
-        spadeCloudLine(connector),
-        connector.local && "On your own network",
-        botNames(connector.bots, props.names).join(", "),
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      description={
+        <>
+          <span>
+            {[
+              spadeConnectorLine(connector),
+              spadeCloudLine(connector),
+              connector.local && "On your own network",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          {users.length > 0 && ` · ${users.join(", ")}`}
+        </>
+      }
       htmlFor={token === undefined ? undefined : field}
       density="compact"
     >

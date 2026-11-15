@@ -11,10 +11,10 @@ export interface SpadeStoredSkill {
   description: string;
   /** A copy of ace's library, written in Spade, or a plugin's. */
   origin: "ace" | "spade" | "plugin";
-  /** Bot ids whose saved proposals wrote or changed it; undefined from an older Spade. */
-  writtenBy: string[] | undefined;
-  /** Bot ids that have loaded it; undefined from an older Spade. */
-  usedBy: string[] | undefined;
+  /** Bot ids whose saved proposals wrote or changed it, sorted. */
+  writtenBy: string[];
+  /** Bot ids that have loaded it, sorted. */
+  usedBy: string[];
 }
 
 export interface SpadeSkillStore {
@@ -25,11 +25,9 @@ export interface SpadeSkillStore {
 
 const origins = new Set(["ace", "spade", "plugin"]);
 
-/** A list of bot ids; undefined when the field isn't sent. */
-const ids = (value: unknown): string[] | undefined =>
-  Array.isArray(value)
-    ? value.filter((each): each is string => typeof each === "string")
-    : undefined;
+/** A list of bot ids; none when the field is missing or isn't a list. */
+const ids = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
 
 function parseStore(body: string): SpadeSkillStore | undefined {
   let value: unknown;

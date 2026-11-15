@@ -33,11 +33,8 @@ test("Settings lists Spade's four pages under its own label, and marks only the 
   );
 });
 
-test("the model for new bots shows once Spade has the setting, and saves the one model picked", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
-    withSpade(api);
-    api.newBotModel = null;
-  });
+test("the model for new bots starts on the first usable model and saves the one model picked", async () => {
+  const { spade } = await spadeApp("/settings/spade", withSpade);
   const picker = await screen.findByRole("button", { name: "Model for new bots" });
   expect(picker.textContent).toBe("Your first usable model");
   await userEvent.click(picker);
@@ -50,13 +47,7 @@ test("the model for new bots shows once Spade has the setting, and saves the one
   await waitFor(() => expect(picker.textContent).toBe("Sonnet · OpenRouter"));
 });
 
-test("a Spade without the setting shows no model for new bots", async () => {
-  await spadeApp("/settings/spade", withSpade);
-  await screen.findByRole("button", { name: "Fast model" });
-  expect(screen.queryByRole("button", { name: "Model for new bots" })).toBeNull();
-});
-
-test("each connected app names the bots that use it, and says nothing of them when Spade doesn't", async () => {
+test("each connected app names the bots Spade lets use it, and leaves out a bot narrowed off it", async () => {
   await spadeApp("/settings/spade/apps", (api) => {
     withSpade(api);
     api.connectors.connectors.push(
@@ -65,12 +56,14 @@ test("each connected app names the bots that use it, and says nothing of them wh
         name: "GitHub",
         url: "https://api.githubcopilot.com/mcp/",
         state: "connected",
-        bots: ["main", "inbox"],
       },
       { id: "notion", name: "Notion", url: "https://mcp.notion.com/mcp", state: "connected" },
     );
+    api.connectors.access.set("inbox", { all: false, connectors: ["github"] });
   });
-  const apps = within(await screen.findByRole("region", { name: "Connected apps" }));
-  expect(await apps.findByText("Connected · Spade, Inbox")).toBeTruthy();
-  expect(apps.getAllByText("Connected")).toHaveLength(1);
+  const apps = await screen.findByRole("region", { name: "Connected apps" });
+  const line = (app: string) =>
+    within(apps).getByText(app).closest("[data-setting-slot]")?.textContent ?? "";
+  await waitFor(() => expect(line("GitHub")).toContain("Connected · Spade, Inbox"));
+  expect(line("Notion")).toMatch(/Connected · Spade(?!, Inbox)/);
 });
