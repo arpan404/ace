@@ -9,6 +9,7 @@ import {
   type ServerMessage as Message,
 } from "@ace/protocol";
 import { FakeAutomationStore } from "./automation-store.ts";
+import { FakeAutomationWebhooks } from "./automation-webhooks.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
 /** An automation an agent made from a thread; the thread owns it. */
@@ -34,8 +35,15 @@ export class FakeAutomationWire {
   private threads: FakeAutomationStore;
   /** Each thread automation's owner thread, kept after removal as the daemon keeps it. */
   private owners = new Map<string, string>();
-  constructor(now: () => number, enabled: () => boolean, host?: FakeServiceContext) {
+  private webhooks: FakeAutomationWebhooks;
+  constructor(
+    now: () => number,
+    enabled: () => boolean,
+    host?: FakeServiceContext,
+    relayedWebhooks: () => boolean = () => false,
+  ) {
     this.host = host;
+    this.webhooks = new FakeAutomationWebhooks(relayedWebhooks);
     this.person = new FakeAutomationStore(now, enabled);
     this.threads = new FakeAutomationStore(now, enabled);
   }
@@ -57,6 +65,7 @@ export class FakeAutomationWire {
   }
   handle(message: ClientMessage): Message | undefined {
     if (!("requestId" in message)) return undefined;
+    if (message.type === "automation.webhook") return this.webhook(message);
     const reply = (result: object) =>
       ServerMessage.parse({
         type: "automation.result",
@@ -67,10 +76,13 @@ export class FakeAutomationWire {
     switch (message.type) {
       case "automation.put":
         return reply(this.person.put(message));
-      case "automation.remove":
-        return reply(
-          message.source === "thread" ? this.thread(message) : this.person.remove(message),
-        );
+      case "automation.remove": {
+        const result =
+          message.source === "thread" ? this.thread(message) : this.person.remove(message);
+        // Removing the automation removes its webhook, as the daemon does.
+        if (!("ok" in result) || result.ok !== false) this.webhooks.revoke(message.id);
+        return reply(result);
+      }
       case "automation.setEnabled":
         return reply(
           message.source === "thread" ? this.thread(message) : this.person.setEnabled(message),
@@ -83,13 +95,38 @@ export class FakeAutomationWire {
         );
       case "automation.run":
         return reply(message.source === "thread" ? this.thread(message) : this.person.run(message));
-      case "automation.list":
+      case "automation.list": {
+        const { automations, schedules } = this.person.list();
         return reply({
-          ...this.person.list(),
+          automations,
+          schedules: schedules.map((schedule) => ({
+            ...schedule,
+            ...this.webhookOf(automations.find((automation) => automation.id === schedule.id)),
+          })),
           ...(message.includeThreads ? { threadAutomations: this.threadList() } : {}),
         });
+      }
     }
     return undefined;
+  }
+  /** The person's rotate and revoke, for either store's webhook automation. */
+  private webhook(message: Extract<ClientMessage, { type: "automation.webhook" }>): Message {
+    const base = { type: "automation.webhookResult", requestId: message.requestId };
+    const known =
+      message.source === "thread"
+        ? this.owner(message.id) !== undefined && this.threads.has(message.id)
+        : this.person.has(message.id);
+    if (!known) return ServerMessage.parse({ ...base, ok: false, error: "not_found" });
+    const result =
+      message.action === "rotate"
+        ? this.webhooks.rotate(message.id)
+        : { webhook: this.webhooks.revoke(message.id) };
+    return ServerMessage.parse({ ...base, ok: true, ...result });
+  }
+  private webhookOf(automation: Automation | undefined) {
+    return automation?.trigger.kind === "webhook"
+      ? { webhook: this.webhooks.state(automation.id) }
+      : {};
   }
   /** The live thread that owns an automation; none once that thread is deleted. */
   private owner(automationId: string): string | undefined {
@@ -110,6 +147,7 @@ export class FakeAutomationWire {
           revision: schedule.revision,
           ...(schedule.triggerError ? { triggerError: schedule.triggerError } : {}),
           ...(schedule.lastRun ? { lastRun: schedule.lastRun } : {}),
+          ...this.webhookOf(automation),
         },
       ];
     });
