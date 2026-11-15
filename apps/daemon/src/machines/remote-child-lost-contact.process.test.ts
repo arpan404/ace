@@ -251,7 +251,11 @@ it("a child an older build let go as unknown has its hold and row repaired even 
   const { f, parent, rijan, ledger, at } = fixture;
   const [id] = ids;
   if (!id) throw new Error("no child");
-  rijan.views.set(id, { ...notSent(id), state: "working", status: { state: "working", agents: 1 } });
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
   await at(f.clock.now() + 1_000);
   await f.complete(parent.threadId, "Delegated the review.");
   ledger.close();
@@ -289,7 +293,8 @@ it("a child an older build let go as unknown has its hold and row repaired even 
   // The next poll repairs both: one question, the hold running, the row needing the person.
   const view = parentView(f, parent);
   expect(asks(f, parent)).toHaveLength(1);
-  expect(view.holds.map((hold) => hold.status)).toEqual(["running"]);
+  // The hold it let go stays in history; a fresh one runs.
+  expect(view.holds.filter((hold) => hold.status === "running")).toHaveLength(1);
   const row = view.rows[0];
   expect(row?.live).toBe(true);
   expect(row?.kind === "agent" ? row.agent.status.state : undefined).not.toBe("done");

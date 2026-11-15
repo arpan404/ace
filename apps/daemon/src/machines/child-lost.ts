@@ -166,18 +166,35 @@ export class LostChildren {
    * The child's machine stopped answering for a lease (ADR 0153): it is lost contact, which is
    * not knowing, so its parent keeps holding it and asks the person. Called when its lease runs
    * out and on every poll after, so a question that closed (its parent's session ended) opens
-   * again and is never opened twice; its row is written only when the question opens.
+   * again and is never opened twice. The question and the child's row (its hold kept, or taken
+   * back from an older build that let it go) are written in one transaction: an open question
+   * always means the row was written, and a failed write leaves neither, for the next poll.
    */
   silent(row: ChildRow, since: number): void {
     if (this.pending(row)) return;
     const name = this.deps.label(row.machine);
-    const now = this.deps.now();
-    // The question opens first, on its row, so the row counts it once.
-    if (!this.ask(row, name, silentRequest(row, name, since, now))) return;
-    this.deps.store.atomic(() =>
-      this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you", null, "lost"),
-    );
-    this.deps.emit([row.id]);
+    const request = silentRequest(row, name, since, this.deps.now());
+    try {
+      const opened = this.deps.store.atomic(() => {
+        // The question opens first, on its row, so the row counts it once.
+        if (!this.open(row, request)) return false;
+        this.launchRow(
+          row,
+          name,
+          { state: "needs_you", interactions: 1 },
+          "needs_you",
+          null,
+          "lost",
+        );
+        return true;
+      });
+      if (opened) this.deps.emit([row.id]);
+    } catch (error) {
+      this.deps.log("Lost contact not shown to the person yet", {
+        id: row.id,
+        error: String(error),
+      });
+    }
   }
   /** Its machine answered again, or a stop began: the question about lost contact closes. */
   heard(row: ChildRow): void {
@@ -232,35 +249,34 @@ export class LostChildren {
       this.deps.store.getInteraction(InteractionId.parse(row.lost_ask))?.state === "pending"
     );
   }
+  /** Opens the parent's approval about the child, unless one is open already. */
+  private ask(row: ChildRow, name: string, request = lostRequest(row, name)): void {
+    if (this.pending(row)) return;
+    try {
+      if (this.deps.store.atomic(() => this.open(row, request))) this.deps.emit([row.id]);
+    } catch (error) {
+      this.deps.log("Lost child not shown to the person yet", { id: row.id, error: String(error) });
+    }
+  }
   /**
-   * Opens the parent's approval about the child, unless one is open already. True when one is
-   * open now.
+   * Opens the parent's approval about the child, in the caller's transaction; false when its
+   * parent is gone. Throws when the write fails.
    */
-  private ask(row: ChildRow, name: string, request = lostRequest(row, name)): boolean {
-    const { store } = this.deps;
-    if (this.pending(row)) return true;
-    const parent = store.getThread(row.parent_thread);
+  private open(row: ChildRow, request: InteractionRequest): boolean {
+    const parent = this.deps.store.getThread(row.parent_thread);
     const engine = this.deps.engine();
     if (!engine || !parent || parent.deletedAt !== undefined) return false;
     const key = `machine-lost:${row.id}:${this.deps.now()}:${++this.asks}`;
-    try {
-      store.atomic(() => {
-        const ask = engine.openHostApproval(
-          row.parent_thread,
-          key,
-          request,
-          // Names the child, so its row can offer the same answer.
-          [{ type: "ace.machine.lost", data: { machine: row.machine, threadId: row.id } }],
-          childAgentKey(row.id),
-        );
-        this.deps.ledger.setLostAsk(row.id, key, ask);
-      });
-      this.deps.emit([row.id]);
-      return true;
-    } catch (error) {
-      this.deps.log("Lost child not shown to the person yet", { id: row.id, error: String(error) });
-      return false;
-    }
+    const ask = engine.openHostApproval(
+      row.parent_thread,
+      key,
+      request,
+      // Names the child, so its row can offer the same answer.
+      [{ type: "ace.machine.lost", data: { machine: row.machine, threadId: row.id } }],
+      childAgentKey(row.id),
+    );
+    this.deps.ledger.setLostAsk(row.id, key, ask);
+    return true;
   }
   private close(row: ChildRow, result: Parameters<Engine["resolveHostApproval"]>[2]): void {
     if (!row.lost_key || !row.lost_ask) return;
