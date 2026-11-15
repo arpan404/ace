@@ -159,10 +159,7 @@ describe("device pictures by the media connection", () => {
     const { client, subscribes } = setup("mc_aaaaaaaaaa", "refuses");
     client.retainStream(deviceId);
     await flush();
-    expect(subscribes().map((s) => s.media)).toEqual([
-      { connection: "mc_aaaaaaaaaa" },
-      undefined,
-    ]);
+    expect(subscribes().map((s) => s.media)).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
   });
 
   it("keeps the poster its media subscribe brings back", () => {

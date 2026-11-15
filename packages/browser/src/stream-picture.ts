@@ -61,7 +61,9 @@ export const PictureCodec = z.union([
   z
     .string()
     .max(64)
-    .regex(/^(?:hvc1|hev1)\.[A-C]?\d{1,2}\.[0-9A-Fa-f]{1,8}\.[LH]\d{1,3}(?:\.[0-9A-Fa-f]{1,2}){0,6}$/),
+    .regex(
+      /^(?:hvc1|hev1)\.[A-C]?\d{1,2}\.[0-9A-Fa-f]{1,8}\.[LH]\d{1,3}(?:\.[0-9A-Fa-f]{1,2}){0,6}$/,
+    ),
 ]);
 
 const Header = z.object({

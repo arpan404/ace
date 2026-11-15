@@ -106,9 +106,8 @@ export class MediaConnection {
   settled(): Promise<void> {
     if (this.#state.state !== "connecting") return Promise.resolve();
     if (!this.#settled) {
-      let resolve = () => {};
-      const promise = new Promise<void>((done) => (resolve = done));
-      this.#settled = { promise, resolve };
+      const { promise, resolve } = Promise.withResolvers<void>();
+      this.#settled = { promise, resolve: () => resolve() };
       this.#after(mediaSettleMs, () => this.#settle());
     }
     return this.#settled.promise;
@@ -287,6 +286,6 @@ export class MediaConnection {
     this.#state = next;
     if (next.state !== "connecting") this.#settle();
     if (this.binding()?.connection === before) return;
-    for (const listener of [...this.#watchers]) listener();
+    for (const listener of this.#watchers) listener();
   }
 }

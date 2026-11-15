@@ -24,7 +24,9 @@ const bytesOf = (base64: string): Uint8Array<ArrayBuffer> => {
 export const imagePoster: PosterDecoder = async (poster) => {
   if (typeof createImageBitmap !== "function") return undefined;
   try {
-    const bitmap = await createImageBitmap(new Blob([bytesOf(poster.jpeg)], { type: "image/jpeg" }));
+    const bitmap = await createImageBitmap(
+      new Blob([bytesOf(poster.jpeg)], { type: "image/jpeg" }),
+    );
     return {
       sequence: posterSequence,
       draw: (context, width, height) => context.drawImage(bitmap, 0, 0, width, height),
@@ -50,7 +52,11 @@ export async function drawPoster(
   if (!image) return false;
   try {
     if (canvas.dataset["frame"] !== undefined) return false;
-    drawUpright(canvas, context, image, { width: poster.width, height: poster.height, rotation: 0 });
+    drawUpright(canvas, context, image, {
+      width: poster.width,
+      height: poster.height,
+      rotation: 0,
+    });
     return true;
   } finally {
     image.close();

@@ -53,7 +53,10 @@ import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
 import { isMediaRefusal } from "@ace/browser/live-view";
 
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
-export type PreviewMedia = Pick<MediaConnection, "binding" | "settled" | "watch" | "onStream" | "ack">;
+export type PreviewMedia = Pick<
+  MediaConnection,
+  "binding" | "settled" | "watch" | "onStream" | "ack"
+>;
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -386,8 +389,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (disposed) throw new Error("preview_disposed");
     const viewport = captures.get(threadId);
     const offered = codecs.length ? media?.binding() : undefined;
-    const binding =
-      offered && refusedOn.get(threadId) !== offered.connection ? offered : undefined;
+    const binding = offered && refusedOn.get(threadId) !== offered.connection ? offered : undefined;
     bound.delete(threadId);
     const reply = await request({
       type: "browser.subscribe",
@@ -518,7 +520,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch.cancel = later(() => poll(threadId), retryMs);
   };
   /** The poster shows until the first video picture replaces it, never over one. */
-  const showPoster = async (threadId: string, poster: { width: number; height: number; jpeg: string }) => {
+  const showPoster = async (
+    threadId: string,
+    poster: { width: number; height: number; jpeg: string },
+  ) => {
     const picture = await (options.poster ?? imagePoster)(poster);
     if (!picture) return;
     if (disposed || !watches.has(threadId) || frames.has(threadId)) return picture.close();

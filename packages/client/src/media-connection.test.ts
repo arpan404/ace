@@ -33,7 +33,7 @@ class Clock {
   async advance(ms: number) {
     const until = this.now + ms;
     for (;;) {
-      const next = this.timers.filter((t) => t.at <= until).sort((a, b) => a.at - b.at)[0];
+      const next = this.timers.filter((t) => t.at <= until).toSorted((a, b) => a.at - b.at)[0];
       if (!next) break;
       this.timers = this.timers.filter((t) => t !== next);
       this.now = next.at;
@@ -252,7 +252,9 @@ describe("media connection", () => {
     media.stop();
     expect(sockets[0]!.closed).toBe(1000);
     expect(media.state).toEqual({ state: "off" });
-    sockets[0]!.events.message(JSON.stringify({ type: "media.welcome", connection: "mc_aaaaaaaaaa" }));
+    sockets[0]!.events.message(
+      JSON.stringify({ type: "media.welcome", connection: "mc_aaaaaaaaaa" }),
+    );
     expect(media.binding()).toBeUndefined();
     expect(changes).toEqual(["mc_aaaaaaaaaa", undefined]);
   });

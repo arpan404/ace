@@ -31,7 +31,6 @@ const picture = (sequence: number, codec = "hvc1.1.6.L153.B0") =>
     Uint8Array.of(0, 0, 0, 1, 0x40),
   );
 
-
 function fakeRoute(initial: string | undefined) {
   let connection = initial;
   const watchers = new Set<() => void>();
@@ -97,7 +96,9 @@ function harness(daemon: Daemon = "binds") {
                   type: "screen.result",
                   requestId,
                   ok: true,
-                  ...(named && daemon === "binds" ? { media: { connection: named.connection } } : {}),
+                  ...(named && daemon === "binds"
+                    ? { media: { connection: named.connection } }
+                    : {}),
                 },
           ),
         ),
@@ -109,7 +110,7 @@ function harness(daemon: Daemon = "binds") {
   const server = (message: ServerMessage | Uint8Array) => events!.message(message);
   server(ServerMessage.parse({ type: "screen.state", state }));
   const drawn: SourcePicture[] = [];
-  client.watchPictures("app", (picture) => void drawn.push(picture));
+  client.watchPictures("app", (shown) => void drawn.push(shown));
   return { client, sent, server, drawn };
 }
 
@@ -166,7 +167,11 @@ describe("screen pictures by the media connection", () => {
     expect(media.acks).toEqual([
       { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 1 },
     ]);
-    expect(sent.some((m) => typeof m === "object" && m !== null && "type" in m && m.type === "screen.ack")).toBe(false);
+    expect(
+      sent.some(
+        (m) => typeof m === "object" && m !== null && "type" in m && m.type === "screen.ack",
+      ),
+    ).toBe(false);
   });
 
   it("subscribes again with the new connection after the media connection reconnects", () => {
@@ -176,11 +181,9 @@ describe("screen pictures by the media connection", () => {
     client.retainStream("app");
     media.move(undefined);
     media.move("mc_bbbbbbbbbb");
-    expect(subscribes(sent).map((s) => ("media" in s ? s.media : undefined))).toEqual([
-      { connection: "mc_aaaaaaaaaa" },
-      undefined,
-      { connection: "mc_bbbbbbbbbb" },
-    ]);
+    expect(
+      subscribes(sent).map((operation) => ("media" in operation ? operation.media : undefined)),
+    ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined, { connection: "mc_bbbbbbbbbb" }]);
   });
 
   it("keeps legacy delivery on the channel while the media connection has no binding", async () => {
@@ -219,10 +222,9 @@ describe("screen pictures by the media connection", () => {
     client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
     client.retainStream("app");
     await flush();
-    expect(subscribes(sent).map((s) => ("media" in s ? s.media : undefined))).toEqual([
-      { connection: "mc_aaaaaaaaaa" },
-      undefined,
-    ]);
+    expect(
+      subscribes(sent).map((operation) => ("media" in operation ? operation.media : undefined)),
+    ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
   });
 
   it("keeps the poster a media subscribe brings back", async () => {
