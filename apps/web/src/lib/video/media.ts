@@ -1,5 +1,10 @@
 import { ClientError, type ClientApi } from "@ace/client";
-import { browserMediaSocket, MediaConnection, type OpenMediaSocket } from "@ace/client/media";
+import {
+  browserMediaSocket,
+  MediaConnection,
+  type OpenMediaRelay,
+  type OpenMediaSocket,
+} from "@ace/client/media";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { webCodecsSupport, within, type VideoSupport } from "./codecs.ts";
 
@@ -14,6 +19,11 @@ export interface WebMedia {
   readonly connection: MediaConnection;
   /** What the screen and device channels take (`useMedia`). */
   readonly route: MediaRoute;
+  /**
+   * How this client reaches the daemon through the relay, from whichever view knows its
+   * endpoint; a grant without a `url` opens a relay stream with it, and goes legacy without.
+   */
+  useRelay(open: OpenMediaRelay | undefined): void;
 }
 
 export interface WebMediaOptions {
@@ -41,7 +51,9 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
   const known = media.get(client);
   if (known) return known;
   const later = options.schedule ?? schedule;
+  let relay: OpenMediaRelay | undefined;
   const connection = new MediaConnection({
+    relay: () => relay,
     // A daemon that refuses the request outright (an older build) has no media connection: that
     // answer stands like `unavailable`. Only a lost socket is worth asking again soon.
     connect: () =>
@@ -64,7 +76,13 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
   };
-  const made: WebMedia = { connection, route };
+  const made: WebMedia = {
+    connection,
+    route,
+    useRelay: (open) => {
+      relay = open;
+    },
+  };
   media.set(client, made);
   try {
     const socket = client.connectionGeneration();

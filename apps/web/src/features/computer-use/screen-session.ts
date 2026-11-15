@@ -21,6 +21,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { channelEndpoint, throughAccount, type ChannelEndpoint } from "@/boot/main-machine.ts";
 import { mediaFor } from "@/lib/video/media.ts";
+import { mediaRelayFor } from "@/lib/video/media-relay.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -254,7 +255,9 @@ const shared = new WeakMap<ChannelEndpoint, Shared>();
 function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    const media = endpoint.kind === "fake" ? undefined : mediaFor(client).route;
+    const web = endpoint.kind === "fake" ? undefined : mediaFor(client);
+    web?.useRelay(mediaRelayFor(endpoint));
+    const media = web?.route;
     entry = {
       session: openSession(endpoint, lastKnown.get(endpoint), media),
       media,

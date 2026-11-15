@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { encodePicture, streamKinds, type StreamMessage } from "@ace/browser/stream";
-import { MediaConnection, mediaHello, type MediaSocketEvents } from "./media-connection.ts";
+import {
+  MediaConnection,
+  mediaHello,
+  type MediaRelayEvents,
+  type MediaSocketEvents,
+} from "./media-connection.ts";
 
 const vector = (name: string): unknown =>
   JSON.parse(
@@ -56,9 +61,17 @@ interface FakeSocket {
   closed: number | undefined;
 }
 
-function harness(replies: unknown[]) {
+interface FakeRelay {
+  ticket: string;
+  events: MediaRelayEvents;
+  sent: (string | Uint8Array)[];
+  closed: number | undefined;
+}
+
+function harness(replies: unknown[], options: { relay?: boolean } = {}) {
   const clock = new Clock();
   const sockets: FakeSocket[] = [];
+  const relays: FakeRelay[] = [];
   let asked = 0;
   const media = new MediaConnection({
     connect: async () => {
@@ -74,6 +87,18 @@ function harness(replies: unknown[]) {
         close: (code) => void (socket.closed = code ?? 1000),
       };
     },
+    ...(options.relay
+      ? {
+          relay: () => (ticket: string, events: MediaRelayEvents) => {
+            const relay: FakeRelay = { ticket, events, sent: [], closed: undefined };
+            relays.push(relay);
+            return {
+              send: (data: string | Uint8Array) => void relay.sent.push(data),
+              close: (code?: number) => void (relay.closed = code ?? 1000),
+            };
+          },
+        }
+      : {}),
     schedule: clock.schedule,
     now: () => clock.now,
   });
@@ -83,7 +108,7 @@ function harness(replies: unknown[]) {
     socket.events.open();
     socket.events.message(JSON.stringify({ type: "media.welcome", connection }));
   };
-  return { media, clock, sockets, changes, welcome, asked: () => asked };
+  return { media, clock, sockets, relays, changes, welcome, asked: () => asked };
 }
 
 describe("media connection", () => {
@@ -270,5 +295,79 @@ describe("media connection", () => {
     sockets[0]!.events.message(JSON.stringify({ type: "pong" }));
     await clock.advance(4_580);
     expect(JSON.parse(sockets[0]!.sent.at(-1) as string)).toEqual({ type: "ping", rttMs: 420 });
+  });
+
+  it("opens a relay stream with the ticket when only the relay reaches the daemon", async () => {
+    const { media, sockets, relays, changes } = harness([granted("mc_aaaaaaaaaa", null)], {
+      relay: true,
+    });
+    const received: StreamMessage[] = [];
+    media.onStream((message) => received.push(message));
+    media.start();
+    await flush();
+    expect(sockets).toHaveLength(0);
+    expect(relays.map((relay) => relay.ticket)).toEqual([ticket]);
+    expect(media.binding()).toBeUndefined();
+    // The relay channel's welcome is the daemon's: no media.welcome follows it.
+    relays[0]!.events.welcome();
+    expect(media.binding()).toEqual({ connection: "mc_aaaaaaaaaa" });
+    expect(changes).toEqual(["mc_aaaaaaaaaa"]);
+    for (const piece of encodePicture(
+      streamKinds.deviceFrame,
+      1,
+      "android:Pixel_9",
+      {
+        sequence: 1,
+        timestamp: 1,
+        width: 4,
+        height: 2,
+        scale: 1,
+        rotation: 0,
+        codec: "avc1.42E033",
+        key: true,
+        streamId: "s",
+      },
+      Uint8Array.of(0, 0, 0, 1, 0x67),
+    ))
+      relays[0]!.events.message(piece);
+    expect(received.map((message) => message.kind)).toEqual(["device.frame"]);
+    const ack = {
+      type: "devices.ack",
+      deviceId: "android:Pixel_9",
+      streamId: "s",
+      sequence: 1,
+    } as const;
+    expect(media.ack(ack)).toBe(true);
+    expect(JSON.parse(relays[0]!.sent[0] as string)).toEqual(ack);
+  });
+
+  it("stays legacy when the relay stream is refused before its welcome", async () => {
+    const { media, relays, clock, asked } = harness([granted("mc_aaaaaaaaaa", null)], {
+      relay: true,
+    });
+    media.start();
+    await flush();
+    relays[0]!.events.close(4401);
+    expect(media.state).toEqual({ state: "legacy", reason: "relay-refused" });
+    expect(media.binding()).toBeUndefined();
+    // A refused ticket isn't retried at once: the next ask is the legacy interval's.
+    await clock.advance(29_999);
+    expect(asked()).toBe(1);
+    await clock.advance(1);
+    expect(asked()).toBe(2);
+  });
+
+  it("reconnects with a new ticket when an open relay stream drops", async () => {
+    const { media, relays, clock, changes } = harness(
+      [granted("mc_aaaaaaaaaa", null), granted("mc_bbbbbbbbbb", null)],
+      { relay: true },
+    );
+    media.start();
+    await flush();
+    relays[0]!.events.welcome();
+    relays[0]!.events.close(1006);
+    await clock.advance(250);
+    relays[1]!.events.welcome();
+    expect(changes).toEqual(["mc_aaaaaaaaaa", undefined, "mc_bbbbbbbbbb"]);
   });
 });

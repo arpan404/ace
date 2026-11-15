@@ -13,8 +13,12 @@ export {
   mediaSettleMs,
   mediaWelcomeMs,
 } from "./media-connection.ts";
+export { relayMediaStreams } from "./media-relay.ts";
+export type { MediaRelayOptions } from "./media-relay.ts";
 export type {
   MediaConnectionOptions,
+  MediaRelayEvents,
+  OpenMediaRelay,
   MediaSocket,
   MediaSocketEvents,
   MediaState,
