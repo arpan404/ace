@@ -497,6 +497,81 @@ test("an automation can run when its webhook is called", async () => {
   expect(saved?.trigger).toEqual({ kind: "webhook" });
 });
 
+/** The workbench with one webhook automation, "Triage failed deploys", besides its own. */
+function withWebhook(seed: Seed) {
+  const [first] = seed.automations ?? [];
+  if (!first) throw new Error("No automations to copy");
+  seed.automations?.push({
+    ...first,
+    id: "auto-deploy-hook",
+    title: "Triage failed deploys",
+    prompt: "Triage the failed deploy of {{body.service}}",
+    trigger: { kind: "webhook" },
+  });
+}
+
+const webhookPanel = () => within(screen.getByRole("region", { name: "Webhook" }));
+
+test("a webhook's secret is shown once when created, and never again after closing or reopening", async () => {
+  const { sidebar } = await open("/automations/auto-deploy-hook", withWebhook);
+  await heading("Triage failed deploys");
+  const panel = within(await main().findByRole("region", { name: "Webhook" }));
+  expect(panel.getByText("No secret yet")).toBeTruthy();
+  await userEvent.click(panel.getByRole("button", { name: "Create secret" }));
+  const secret = (await panel.findByText(/^whsec_/)).textContent ?? "";
+  // Webhooks are off in Settings, so it has no address yet: the panel says what to turn on.
+  expect(
+    await panel.findByText("Turn on Automation webhooks through ace cloud in Settings."),
+  ).toBeTruthy();
+  expect(secret).toMatch(/^whsec_[A-Za-z0-9+/]{43}=$/);
+  expect(panel.getByText(/won't be shown again/)).toBeTruthy();
+  await userEvent.click(panel.getByRole("button", { name: "Done" }));
+  expect(screen.queryByText(secret)).toBeNull();
+  expect(panel.getByRole("button", { name: "Rotate secret" })).toBeTruthy();
+  await userEvent.click(sidebar.getByRole("link", { name: /Nightly dependency audit/ }));
+  await heading("Nightly dependency audit");
+  await userEvent.click(sidebar.getByRole("link", { name: /Triage failed deploys/ }));
+  await heading("Triage failed deploys");
+  expect(await webhookPanel().findByRole("button", { name: "Revoke" })).toBeTruthy();
+  expect(document.body.textContent).not.toContain("whsec_");
+  expect(JSON.stringify({ ...localStorage })).not.toContain("whsec_");
+});
+
+test("with webhooks on, a webhook shows its address; rotating and revoking ask first", async () => {
+  const { app } = await open("/automations/auto-deploy-hook", (seed) => {
+    withWebhook(seed);
+    seed.settings = { ...seed.settings, "remote.relayWebhooks": true };
+  });
+  await heading("Triage failed deploys");
+  await userEvent.click(await webhookPanel().findByRole("button", { name: "Create secret" }));
+  const first = (await webhookPanel().findByText(/^whsec_/)).textContent;
+  await userEvent.click(webhookPanel().getByRole("button", { name: "Done" }));
+  expect(
+    await webhookPanel().findByText(/^https:\/\/cloud\.acehq\.dev\/m\/.+\/hooks\/[0-9a-f]{32}$/),
+  ).toBeTruthy();
+  await userEvent.click(webhookPanel().getByRole("button", { name: "Rotate secret" }));
+  const rotate = within(
+    await screen.findByRole("dialog", { name: "Rotate this webhook's secret?" }),
+  );
+  await userEvent.click(rotate.getByRole("button", { name: "Rotate secret" }));
+  const second = (await webhookPanel().findByText(/^whsec_/)).textContent;
+  expect(second).not.toBe(first);
+  await userEvent.click(webhookPanel().getByRole("button", { name: "Done" }));
+  await userEvent.click(webhookPanel().getByRole("button", { name: "Revoke" }));
+  const revoke = within(
+    await screen.findByRole("dialog", { name: "Revoke this webhook's secret?" }),
+  );
+  await userEvent.click(revoke.getByRole("button", { name: "Revoke" }));
+  expect(await webhookPanel().findByRole("button", { name: "Create secret" })).toBeTruthy();
+  expect(webhookPanel().queryByText(/cloud\.acehq\.dev/)).toBeNull();
+  const listed = await app.client.request({ type: "automation.list" });
+  expect(listed.schedules?.find((entry) => entry.id === "auto-deploy-hook")?.webhook).toEqual({
+    active: false,
+    path: null,
+    url: null,
+  });
+});
+
 test("a model picked in the chip is saved as the provider's model id", async () => {
   const { app } = await open("/automations/new");
   await chooseModel("GPT-5 Codex", "Codex");

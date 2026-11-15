@@ -10,9 +10,11 @@ export {
   setEnabledAutomation,
   retryAutomation,
   runAutomation,
+  webhookSecret,
   type AutomationEntry,
   type AutomationLists,
   type RunRequest,
+  type WebhookSecretResult,
 } from "./automations-source.ts";
 export {
   automationsQueryKey,
