@@ -90,18 +90,28 @@ pub(crate) fn unfinished(step: Step, codec: &str, state: TrialState) -> Capabili
 /// arrive late. Only a driver that hangs reaches it; cancellation stops the worker sooner.
 pub const LATE_LIMIT: Duration = Duration::from_secs(30);
 
-/// What the worker checks before each operation.
+/// What the worker checks before each operation. Every caller sharing the worker subscribes
+/// with its own cancellation; one caller cancelling never stops the others' trial.
 pub(crate) struct Gate {
-    cancel: ProbeCancel,
+    subscribers: Mutex<Vec<ProbeCancel>>,
     deadline: Mutex<Instant>,
 }
 impl Gate {
-    /// Open until cancelled, or [`LATE_LIMIT`] past the latest caller's deadline: a step past the
-    /// deadline still runs, and its result arrives late.
-    pub(crate) fn open(&self) -> bool {
-        !self.cancel.is_cancelled() && Instant::now() < *lock(&self.deadline) + LATE_LIMIT
+    fn new(cancel: ProbeCancel, deadline: Instant) -> Self {
+        Self {
+            subscribers: Mutex::new(vec![cancel]),
+            deadline: Mutex::new(deadline),
+        }
     }
-    fn extend(&self, until: Instant) {
+    /// Open while any subscriber is still active, until [`LATE_LIMIT`] past the latest caller's
+    /// deadline: a step past the deadline still runs, and its result arrives late.
+    pub(crate) fn open(&self) -> bool {
+        let active = lock(&self.subscribers).iter().any(|c| !c.is_cancelled());
+        active && Instant::now() < *lock(&self.deadline) + LATE_LIMIT
+    }
+    /// Another caller joins: its cancellation counts, and its deadline extends the worker's.
+    fn join(&self, cancel: ProbeCancel, until: Instant) {
+        lock(&self.subscribers).push(cancel);
         let mut deadline = lock(&self.deadline);
         *deadline = (*deadline).max(until);
     }
@@ -155,7 +165,7 @@ fn acquire(
         let mut active = lock(&ACTIVE);
         if let Some(run) = active.as_ref().filter(|run| run.input == options.input) {
             if !lock(&run.state).done {
-                run.gate.extend(deadline);
+                run.gate.join(options.cancel.clone(), deadline);
                 return Ok(Some(Arc::clone(run)));
             }
         }
@@ -180,10 +190,7 @@ fn acquire(
         }
         let run = Arc::new(Run {
             input: options.input,
-            gate: Gate {
-                cancel: options.cancel.clone(),
-                deadline: Mutex::new(deadline),
-            },
+            gate: Gate::new(options.cancel.clone(), deadline),
             state: Mutex::new(RunState::default()),
             changed: Condvar::new(),
         });
@@ -297,9 +304,12 @@ mod tests {
             .map(|c| c.state)
     }
 
-    // One test: the worker is one per process, so these run in order on it.
+    /// The worker is one per process: these tests take turns on it.
+    static TURN: Mutex<()> = Mutex::new(());
+
     #[test]
     fn a_step_finishing_after_the_deadline_arrives_late_unless_the_probe_is_cancelled() {
+        let _turn = lock(&TURN);
         let options = ProbeOptions {
             deadline: Duration::from_millis(50),
             ..Default::default()
@@ -330,6 +340,52 @@ mod tests {
         cancelled.cancel.cancel();
         assert_eq!(
             report.late.recv_timeout(Duration::from_secs(2)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
+    fn a_caller_cancelling_leaves_the_shared_worker_running_for_the_others() {
+        let _turn = lock(&TURN);
+        let first = ProbeOptions {
+            deadline: Duration::from_millis(40),
+            ..Default::default()
+        };
+        let second = ProbeOptions {
+            deadline: Duration::from_millis(40),
+            ..Default::default()
+        };
+        // Both time out on one worker: the second joins while the first's decode is pending.
+        let a = probe_with(&first, slow_decode);
+        let b = probe_with(&second, slow_decode);
+        assert_eq!(
+            state_of(&b.capabilities, Step::Decode),
+            Some(TrialState::TimedOut)
+        );
+        // The first caller goes away (a restart); the second is still waiting for its decode.
+        first.cancel.cancel();
+        drop(a);
+        let late = b.late.recv_timeout(Duration::from_secs(2));
+        assert_eq!(
+            late.map(|c| (c.step, c.state)),
+            Ok((Step::Decode, TrialState::Ok))
+        );
+
+        // Once every caller has cancelled, the worker stops at its next step.
+        let first = ProbeOptions {
+            deadline: Duration::from_millis(40),
+            ..Default::default()
+        };
+        let second = ProbeOptions {
+            deadline: Duration::from_millis(40),
+            ..Default::default()
+        };
+        let _a = probe_with(&first, slow_decode);
+        let b = probe_with(&second, slow_decode);
+        first.cancel.cancel();
+        second.cancel.cancel();
+        assert_eq!(
+            b.late.recv_timeout(Duration::from_secs(2)),
             Err(mpsc::RecvTimeoutError::Disconnected)
         );
     }
