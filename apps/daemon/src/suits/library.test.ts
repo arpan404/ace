@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { SuitResponse, SuitSummary } from "@ace/protocol/suits";
+import { suitAssetReplyBytes, type SuitResponse, type SuitSummary } from "@ace/protocol/suits";
 import { seedBuiltinSuits } from "@ace/plugins";
 import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
 import { sceneCsp, sceneRuntimeFile, suitsHttp } from "./http.ts";
@@ -119,6 +119,27 @@ test("asset URLs need their grant, and stop serving once the Suit changes", asyn
   const fresh = detail(await library.read("neon")).sceneUrl ?? "";
   expect(fresh).not.toBe(url);
   expect((await fetch(new URL("scene.js", origin + fresh))).status).toBe(200);
+});
+
+test("an asset comes over the socket as base64 for that version only, within the size cap", async () => {
+  await suit("neon", {
+    "suit.json": manifest("neon", { thumbnail: { dark: "assets/still.webp" } }),
+    "assets/still.webp": "still-bytes",
+    "assets/huge.png": "x".repeat(suitAssetReplyBytes + 1),
+  });
+  const hash = detail(await library.read("neon")).summary.contentHash;
+  const asked = (path: string, contentHash = hash) =>
+    library.request({ op: "asset", id: "neon", contentHash, path });
+  expect(await asked("assets/still.webp")).toEqual({
+    op: "asset",
+    path: "assets/still.webp",
+    mimeType: "image/webp",
+    data: Buffer.from("still-bytes").toString("base64"),
+  });
+  expect(await asked("assets/huge.png")).toMatchObject({ op: "error", code: "failed" });
+  expect(await asked("assets/missing.png")).toMatchObject({ op: "error", code: "not_found" });
+  await writeFile(join(root, "neon", "assets", "still.webp"), "changed");
+  expect(await asked("assets/still.webp")).toMatchObject({ op: "error", code: "not_found" });
 });
 
 test("links are refused: a linked Suit folder and a linked file are never read or served", async () => {

@@ -294,6 +294,9 @@ export const SceneMessage = z.discriminatedUnion("type", [
 ]);
 export type SceneMessage = z.infer<typeof SceneMessage>;
 
+/** The largest asset `asset` sends, before base64: under the socket's 1 MiB frame once encoded. */
+export const suitAssetReplyBytes = 640 * 1024;
+
 /* Requests over the daemon socket. */
 export const SuitRequest = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list") }),
@@ -301,6 +304,17 @@ export const SuitRequest = z.discriminatedUnion("op", [
   /** Re-run every check on the folder as it is on disk now. */
   z.object({ op: z.literal("validate"), id: SuitId }),
   z.object({ op: z.literal("remove"), id: SuitId }),
+  /**
+   * One asset's bytes over the socket, for a client that can't reach the daemon's HTTP routes
+   * (a phone, often through the relay): a backdrop still or a font. Only one version of the
+   * Suit (`contentHash`), only files the checks let through, at most `suitAssetReplyBytes`.
+   */
+  z.object({
+    op: z.literal("asset"),
+    id: SuitId,
+    contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    path: SuitAssetPath,
+  }),
 ]);
 export type SuitRequest = z.infer<typeof SuitRequest>;
 
@@ -335,6 +349,13 @@ export const SuitResponse = z.discriminatedUnion("op", [
   z.object({ op: z.literal("read"), suit: SuitDetail }),
   z.object({ op: z.literal("validate"), summary: SuitSummary }),
   z.object({ op: z.literal("remove"), removed: z.boolean() }),
+  z.object({
+    op: z.literal("asset"),
+    path: SuitAssetPath,
+    mimeType: z.string().max(80),
+    /** Base64, no data: prefix. */
+    data: z.string().max(Math.ceil(suitAssetReplyBytes / 3) * 4),
+  }),
   z.object({
     op: z.literal("error"),
     /** `invalid`: the Suit exists but its `suit.json` doesn't parse; `summary` says why. */

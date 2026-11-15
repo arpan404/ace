@@ -244,3 +244,26 @@ How it runs (added 2026-11-14):
 The daemon watches each Suit folder; any saved change re-runs the checks and pushes the new Suit
 to every client, which swaps it without a reload. An agent editing `suit.css` sees each save
 land in the open app.
+
+## On the iPhone (added 2026-11-15)
+
+ADR 0150 says phones apply colours, fonts and shape and show a scene as a still. How (#2128):
+
+- **Resolved in shared code.** `@ace/suits/phone` turns a Suit into the phone's colour roles (the
+  same `customPalette` and role mapping a built-in theme uses), its font slots, a corner and
+  hairline scale, density and a still per scheme. The iPhone runs it in its JavaScriptCore
+  bridge; Swift draws what it answers and decides nothing about a Suit. A Suit the daemon's
+  checks refused, or whose colours don't read on the phone's own surfaces
+  (`phoneColourWarnings`), shows as unavailable with the reason, and the theme shows instead.
+- **Assets over the socket.** A phone often reaches its machine through the relay and can't load
+  the daemon's `/v1/suits/` URLs, so `suitRequest` gains `asset { id, contentHash, path }`:
+  one checked file of one version, base64, at most `suitAssetReplyBytes` (640 KiB). The still
+  and bundled fonts come this way; anything larger is left out and the system font or no
+  backdrop shows. The served URLs stay the only way scenes load; a phone never runs one.
+- **The still** is the Suit's `thumbnail` for the scheme on screen. A Suit without one shows no
+  backdrop on a phone; no frame is rendered for it.
+- **Shape on a phone.** The radius scale multiplies the phone's fixed corners; capsules and
+  concentric shapes stay what the design language makes them.
+- **Not on a phone**, as before: `suit.css`, `layout`, ornaments, labels, live and celebration
+  scenes, and the live check (a phone sends no `suitReport`, so `suit_apply` falls back to the
+  static checks after its wait).

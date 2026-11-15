@@ -2,6 +2,7 @@ import { lstat, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   SuitId,
+  suitAssetReplyBytes,
   type SuitDetail,
   type SuitManifest,
   type SuitRequest,
@@ -211,7 +212,27 @@ export class SuitLibrary {
         return this.validate(request.id);
       case "remove":
         return this.remove(request.id);
+      case "asset":
+        return this.asset(request.id, request.contentHash, request.path);
     }
+  }
+
+  /** One asset's bytes as base64, for clients that can't load the served URLs. */
+  async asset(id: string, hash: string, path: string): Promise<SuitResponse> {
+    const file = await this.file(id, hash, path);
+    if (!file) return notFound(`${id} ${path}`);
+    if (file.bytes.byteLength > suitAssetReplyBytes)
+      return {
+        op: "error",
+        code: "failed",
+        message: `${path} is larger than ${suitAssetReplyBytes / 1024} KiB, too large to send over the socket`,
+      };
+    return {
+      op: "asset",
+      path,
+      mimeType: suitMimeType(path),
+      data: file.bytes.toString("base64"),
+    };
   }
 
   /** A scene file of one version of a Suit, when it has any (the runtime is served beside it). */
@@ -240,6 +261,22 @@ export class SuitLibrary {
     return { bytes, path };
   }
 }
+
+const mimeTypes: Record<string, string> = {
+  woff2: "font/woff2",
+  woff: "font/woff",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+};
+const suitMimeType = (path: string) =>
+  mimeTypes[path.slice(path.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
 
 const notFound = (id: string): SuitResponse => ({
   op: "error",
