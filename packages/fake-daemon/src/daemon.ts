@@ -76,6 +76,7 @@ import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
+import { entityPage } from "./entity-pages.ts";
 import { piControlResult } from "./pi-control.ts";
 import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
@@ -997,21 +998,28 @@ export class FakeDaemon implements Host {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
   }
+  /** A page of `collection`'s entities created before `before`, as the daemon pages them. */
   entities(
     threadId: string,
     collection: EntityCollection,
+    before: number,
     limit: number,
+    maxBytes = 128 * 1024,
   ): EntitiesPage | undefined {
     const host = this.threads.get(threadId);
     if (!host) return undefined;
-    const all: { createdAt?: number }[] = Object.values(host.view[collection]);
-    const entries = all.toSorted((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-limit);
     return EntitiesPage.parse({
       collection,
-      entries,
       seq: this.seq,
       threadId,
-      entitiesBefore: entries.length < all.length ? 1 : null,
+      ...entityPage(
+        Object.values(host.view[collection] as Record<string, unknown>),
+        collection,
+        before,
+        limit,
+        maxBytes,
+        this.options.entityPages ?? "active-first",
+      ),
     });
   }
   private canManageProjects(device: string): boolean {
@@ -1450,3 +1458,4 @@ export class FakeDaemon implements Host {
     }
   }
 }
+

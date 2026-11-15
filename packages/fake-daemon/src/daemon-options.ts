@@ -7,6 +7,12 @@ export interface FakeDaemonOptions {
   clock(): number;
   /** Finished work before this moment counts as seen when placing threads; default: all of it. */
   seenBefore?: number;
+  /**
+   * How `entities.page` pages: `active-first` (default), as this daemon does, the newest page
+   * carrying every active entity first; `chronological`, as daemons before it did, newest first
+   * with no regard for state.
+   */
+  entityPages?: "active-first" | "chronological";
   /** false: speak as a daemon from before placement, sending lists without places or dots. */
   placement?: false;
   /** Keep creation visible for screenshot capture. */
