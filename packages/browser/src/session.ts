@@ -353,6 +353,8 @@ export class BrowserSession {
       annotation: viewed?.annotation.owner,
       recording: this.recordings.by,
       video: this.videoStatus(),
+      // Read while the constructor still sets up the tabs, before the live capture exists.
+      acceleration: (this.live as LiveCapture | undefined)?.video.acceleration(),
     });
   }
   private videoStatus() {

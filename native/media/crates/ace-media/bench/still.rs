@@ -14,6 +14,9 @@
 //! that took a slower path than its machine's expected one always fails.
 // The bench needs unix (load average, the still threads); elsewhere it builds to nothing.
 #![cfg_attr(not(unix), allow(unused))]
+#[cfg(target_os = "macos")]
+#[path = "../tests/support/probed.rs"]
+mod probed;
 #[path = "screen.rs"]
 mod screen;
 
@@ -111,10 +114,10 @@ impl Bench {
 fn gpu() -> Fallible<(Vec<f64>, Option<f64>, ace_media::engine::stills::Made, bool)> {
     use ace_media::engine::stills::StillUnit;
     use ace_media::stills::vt::{VtOptions, VtStills};
-    use media_vt::{ProbeOptions, VtEncoder};
+    use media_vt::VtEncoder;
     use media_wire::control::{Step, TrialState};
 
-    let probed = media_vt::probe(&ProbeOptions::default()).capabilities;
+    let probed = probed::probed();
     let hardware = |step| {
         probed
             .iter()

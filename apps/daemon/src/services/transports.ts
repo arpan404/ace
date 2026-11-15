@@ -47,6 +47,9 @@ export async function startRelayTransport(
     get screen() {
       return options.screen;
     },
+    get mediaAcceleration() {
+      return options.mediaAcceleration;
+    },
     get canReadThread() {
       return options.canReadThread;
     },

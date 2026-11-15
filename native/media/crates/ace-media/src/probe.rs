@@ -1,28 +1,57 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Bounded availability trials at start (docs/media/plan.md, "Probe at start"). Each backend
-//! gives one [`Trial`]; trials run in parallel on threads of their own. `ready` waits for them
-//! up to the trial deadline. A trial publishes what it has found so far as often as it learns
-//! more: the last list published by the deadline goes into `ready` (a trial that published
-//! nothing is reported `timed-out`), and every later one replaces its entries in
-//! `capabilities.changed` as soon as it is published. A trial still running at the deadline
-//! is abandoned. The probe never ranks. Hardware backends (B1–B5) add their trials here.
+//! gives one [`Trial`]; trials run in parallel on threads of their own, each under
+//! [`TRIAL_DEADLINE`], and `ready` comes within [`READY_DEADLINE`]. A trial publishes what it
+//! has found so far as often as it learns more: the last list published by the deadline goes
+//! into `ready` (a trial that published nothing is reported `timed-out`), and every later one
+//! replaces its entries in `capabilities.changed` as soon as it is published. A trial still
+//! running at the deadline is abandoned: nothing waits for it, and it closes its sessions when
+//! it returns, or at its next step once [`Cancel`] is set (ace-media stopping). An entry whose
+//! trial didn't succeed is never hardware, whatever the backend listed. The probe never ranks;
+//! that is `rank`'s.
 use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, Size, StillCodec};
 use media_wire::capability::{Backend, Capability, Step, TrialState};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+/// How long one trial has, covering a cold driver start (CUDA or NVENC initialisation).
 pub const TRIAL_DEADLINE: Duration = Duration::from_secs(2);
+/// The most `ready` waits for the probe.
+pub const READY_DEADLINE: Duration = Duration::from_secs(3);
+
+/// Stops every trial still running at its next step.
+#[derive(Clone, Debug, Default)]
+pub struct Cancel(Arc<AtomicBool>);
+
+impl Cancel {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+    /// The flag itself, for backends that take one (`media-chrome`).
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
+}
 
 /// One backend's availability trial.
 pub trait Trial: Send + 'static {
     /// The steps it covers, as `(step, codec, backend)`: what to report when it times out.
     fn steps(&self) -> Vec<(Step, Option<String>, Backend)>;
     /// Opens a session and pushes one frame through each step, calling `publish` with every
-    /// entry it covers each time it learns more.
-    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>));
+    /// entry it covers each time it learns more. Returns, closing what it opened, once `stop`
+    /// says so.
+    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>), stop: &dyn Fn() -> bool);
 }
 
-fn entries(steps: &[(Step, Option<String>, Backend)], state: TrialState) -> Vec<Capability> {
+pub(crate) fn entries(
+    steps: &[(Step, Option<String>, Backend)],
+    state: TrialState,
+) -> Vec<Capability> {
     steps
         .iter()
         .map(|(step, codec, backend)| Capability {
@@ -34,6 +63,24 @@ fn entries(steps: &[(Step, Option<String>, Backend)], state: TrialState) -> Vec<
             state,
             max_width: 0,
             max_height: 0,
+        })
+        .collect()
+}
+
+/// A trial that didn't succeed found no hardware, and no size: a backend that lists a codec but
+/// fails its trial frame is not a hardware path.
+fn observed(found: Vec<Capability>) -> Vec<Capability> {
+    found
+        .into_iter()
+        .map(|c| match c.state {
+            TrialState::Ok => c,
+            TrialState::Failed | TrialState::TimedOut => Capability {
+                hardware: false,
+                zero_copy: false,
+                max_width: 0,
+                max_height: 0,
+                ..c
+            },
         })
         .collect()
 }
@@ -55,7 +102,7 @@ impl Capabilities {
     /// A late result replaces its trial's slot.
     pub fn update(&mut self, trial: usize, found: Vec<Capability>) {
         if let Some(slot) = self.slots.get_mut(trial) {
-            *slot = found;
+            *slot = observed(found);
         }
     }
 }
@@ -65,11 +112,13 @@ enum Message {
     Done,
 }
 
-/// Runs every trial, waiting at most `deadline`. Returns the list for `ready` and a receiver
-/// of what trials publish after it, `(trial, entries)`, as they publish it.
+/// Runs every trial, waiting at most `deadline` (at most [`READY_DEADLINE`]). Returns the list
+/// for `ready` and a receiver of what trials publish after it, `(trial, entries)`, as they
+/// publish it. `cancel` stops the trials still running.
 pub fn probe(
     trials: Vec<Box<dyn Trial>>,
     deadline: Duration,
+    cancel: &Cancel,
 ) -> (Capabilities, mpsc::Receiver<(usize, Vec<Capability>)>) {
     let (tx, rx) = mpsc::channel();
     let mut slots = Vec::with_capacity(trials.len());
@@ -77,12 +126,17 @@ pub fn probe(
     for (index, trial) in trials.into_iter().enumerate() {
         slots.push(entries(&trial.steps(), TrialState::TimedOut));
         let tx = tx.clone();
+        let cancel = cancel.clone();
         let spawned = std::thread::Builder::new()
             .name(format!("probe-{index}"))
             .spawn(move || {
-                trial.run(&mut |found| {
-                    let _ = tx.send(Message::Published(index, found));
-                });
+                let stop = || cancel.is_cancelled();
+                trial.run(
+                    &mut |found| {
+                        let _ = tx.send(Message::Published(index, found));
+                    },
+                    &stop,
+                );
                 let _ = tx.send(Message::Done);
             });
         match spawned {
@@ -91,11 +145,11 @@ pub fn probe(
         }
     }
     drop(tx);
-    let end = Instant::now() + deadline;
-    while running > 0 {
+    let end = Instant::now() + deadline.min(READY_DEADLINE);
+    while running > 0 && !cancel.is_cancelled() {
         let left = end.saturating_duration_since(Instant::now());
         match rx.recv_timeout(left) {
-            Ok(Message::Published(index, found)) => slots[index] = found,
+            Ok(Message::Published(index, found)) => slots[index] = observed(found),
             Ok(Message::Done) => running -= 1,
             Err(_) => break,
         }
@@ -115,6 +169,27 @@ pub fn probe(
     (Capabilities { slots }, late)
 }
 
+/// `ace-media --probe [--data-dir <dir>]`: the start probe on its own, as `ace doctor` shows
+/// it. One JSON object: how long the probe took, the list `ready` would carry, and the ranking
+/// cache's results under `dir`. The last-resort encoder's trial, which starts a browser, isn't
+/// run here.
+pub fn report(data_dir: Option<&std::path::Path>) -> String {
+    let cancel = Cancel::default();
+    let started = Instant::now();
+    let (capabilities, _late) = probe(trials(), TRIAL_DEADLINE, &cancel);
+    let probe_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    cancel.cancel();
+    let ranking = data_dir
+        .map(|dir| crate::rank::RankCache::load(&crate::rank::RankCache::path(dir)).report())
+        .unwrap_or_default();
+    serde_json::json!({
+        "probeMs": probe_ms,
+        "capabilities": capabilities.list(),
+        "ranking": ranking,
+    })
+    .to_string()
+}
+
 /// M5's CPU path: JPEG decode, scale and JPEG encode, available everywhere.
 pub struct CpuTrial;
 
@@ -127,7 +202,7 @@ impl Trial for CpuTrial {
         ]
     }
 
-    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>)) {
+    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>), _stop: &dyn Fn() -> bool) {
         publish(self.trial());
     }
 }
@@ -194,11 +269,14 @@ impl Trial for VtTrial {
         ]
     }
 
-    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>)) {
+    fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>), stop: &dyn Fn() -> bool) {
         let options = media_vt::ProbeOptions {
             deadline: TRIAL_DEADLINE.saturating_sub(Duration::from_millis(200)),
             ..Default::default()
         };
+        if stop() {
+            return;
+        }
         let report = media_vt::probe(&options);
         let mut found = report.capabilities;
         publish(found.clone());
@@ -206,7 +284,16 @@ impl Trial for VtTrial {
             let codec = c.codec.as_deref().unwrap_or("");
             (c.step, codec.get(..4).unwrap_or(codec).to_owned())
         };
-        while let Ok(late) = report.late.recv() {
+        loop {
+            if stop() {
+                options.cancel.cancel();
+                return;
+            }
+            let late = match report.late.recv_timeout(Duration::from_millis(100)) {
+                Ok(late) => late,
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
             let key = family(&late);
             match found.iter_mut().find(|c| family(c) == key) {
                 Some(entry) => *entry = late,
@@ -217,115 +304,23 @@ impl Trial for VtTrial {
     }
 }
 
-/// The trials this build runs: the platform's hardware backend first, then the CPU path.
+/// The trials this build runs: the platform's hardware backends first, then the CPU path.
 pub fn trials() -> Vec<Box<dyn Trial>> {
     vec![
         #[cfg(target_os = "macos")]
         Box::new(VtTrial),
+        #[cfg(target_os = "linux")]
+        Box::new(linux::VaapiTrial),
+        #[cfg(target_os = "linux")]
+        Box::new(linux::NvTrial),
         Box::new(CpuTrial),
     ]
 }
 
+#[cfg(target_os = "linux")]
+#[path = "probe_linux.rs"]
+mod linux;
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Scripted {
-        delay: Duration,
-        state: TrialState,
-    }
-
-    impl Trial for Scripted {
-        fn steps(&self) -> Vec<(Step, Option<String>, Backend)> {
-            vec![(Step::Encode, Some("avc1.640028".into()), Backend::Vt)]
-        }
-        fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>)) {
-            std::thread::sleep(self.delay);
-            publish(entries(&self.steps(), self.state));
-        }
-    }
-
-    fn scripted(ms: u64, state: TrialState) -> Box<dyn Trial> {
-        Box::new(Scripted {
-            delay: Duration::from_millis(ms),
-            state,
-        })
-    }
-
-    #[test]
-    fn the_cpu_path_is_reported_available_without_claiming_hardware() {
-        let (capabilities, _) = probe(vec![Box::new(CpuTrial)], TRIAL_DEADLINE);
-        let list = capabilities.list();
-        assert_eq!(list.len(), 3);
-        for entry in list {
-            assert_eq!(entry.state, TrialState::Ok);
-            assert_eq!(entry.backend, Backend::Cpu);
-            assert!(!entry.hardware && !entry.zero_copy);
-            assert!(entry.max_width > 0);
-            assert_eq!(entry.codec.is_none(), entry.step == Step::Scale);
-        }
-    }
-
-    #[test]
-    fn a_hung_trial_is_timed_out_at_the_deadline_and_its_late_result_replaces_it() {
-        let started = Instant::now();
-        let (mut capabilities, late) = probe(
-            vec![
-                scripted(0, TrialState::Failed),
-                scripted(300, TrialState::Ok),
-            ],
-            Duration::from_millis(100),
-        );
-        assert!(started.elapsed() < Duration::from_millis(280));
-        let states: Vec<_> = capabilities.list().iter().map(|c| c.state).collect();
-        assert_eq!(states, [TrialState::Failed, TrialState::TimedOut]);
-        let Ok((trial, found)) = late.recv_timeout(Duration::from_secs(2)) else {
-            panic!("no late result");
-        };
-        capabilities.update(trial, found);
-        let states: Vec<_> = capabilities.list().iter().map(|c| c.state).collect();
-        assert_eq!(states, [TrialState::Failed, TrialState::Ok]);
-    }
-
-    /// Publishes a first answer at once, then more after `later`, then keeps running.
-    struct Staged {
-        later: Duration,
-        release: mpsc::Receiver<()>,
-    }
-
-    impl Trial for Staged {
-        fn steps(&self) -> Vec<(Step, Option<String>, Backend)> {
-            vec![(Step::Decode, Some("hvc1".into()), Backend::Vt)]
-        }
-        fn run(self: Box<Self>, publish: &mut dyn FnMut(Vec<Capability>)) {
-            publish(entries(&self.steps(), TrialState::TimedOut));
-            std::thread::sleep(self.later);
-            publish(entries(&self.steps(), TrialState::Ok));
-            // Still running: the update must not wait for the trial to end.
-            let _ = self.release.recv_timeout(Duration::from_secs(5));
-        }
-    }
-
-    #[test]
-    fn what_a_trial_publishes_after_the_deadline_arrives_while_it_is_still_running() {
-        let (release, wait) = mpsc::channel();
-        let staged = Staged {
-            later: Duration::from_millis(150),
-            release: wait,
-        };
-        let (mut capabilities, late) = probe(vec![Box::new(staged)], Duration::from_millis(50));
-        let states: Vec<_> = capabilities.list().iter().map(|c| c.state).collect();
-        assert_eq!(
-            states,
-            [TrialState::TimedOut],
-            "the first answer is in ready"
-        );
-        let Ok((trial, found)) = late.recv_timeout(Duration::from_secs(2)) else {
-            panic!("the later answer did not arrive while the trial ran");
-        };
-        capabilities.update(trial, found);
-        let states: Vec<_> = capabilities.list().iter().map(|c| c.state).collect();
-        assert_eq!(states, [TrialState::Ok]);
-        let _ = release.send(());
-    }
-}
+#[path = "probe_tests.rs"]
+mod tests;

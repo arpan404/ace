@@ -22,15 +22,31 @@ fn working(capability: &Capability, step: Step) -> bool {
     capability.step == step && capability.state == TrialState::Ok
 }
 
-/// The encoder for `codec`: a hardware backend whose trial encoded it, else Chrome (H.264 only)
-/// when its trial worked. `(backend, hardware)`; none when the machine has neither.
-pub fn encoder_for(capabilities: &[Capability], codec: Codec) -> Option<(Backend, bool)> {
-    let hardware = capabilities.iter().find(|c| {
-        working(c, Step::Encode)
-            && c.hardware
-            && c.backend != Backend::Chrome
-            && family_of(c) == Some(codec)
-    });
+/// A hardware encode the probe saw work on a backend this build can construct (`built`, the
+/// platform's table): the only entries that count for choosing an encoder, and for turning the
+/// last-resort encoder off.
+fn usable_hardware(capability: &Capability, built: &[Backend]) -> bool {
+    working(capability, Step::Encode)
+        && capability.hardware
+        && capability.backend != Backend::Chrome
+        && built.contains(&capability.backend)
+}
+
+/// The last-resort Chrome encoder is needed where no usable hardware encoder works.
+pub fn last_resort_needed(capabilities: &[Capability], built: &[Backend]) -> bool {
+    !capabilities.iter().any(|c| usable_hardware(c, built))
+}
+
+/// The encoder for `codec`: a usable hardware backend whose trial encoded it, else Chrome
+/// (H.264 only) when its trial worked. `(backend, hardware)`; none when the machine has neither.
+pub fn encoder_for(
+    capabilities: &[Capability],
+    codec: Codec,
+    built: &[Backend],
+) -> Option<(Backend, bool)> {
+    let hardware = capabilities
+        .iter()
+        .find(|c| usable_hardware(c, built) && family_of(c) == Some(codec));
     if let Some(found) = hardware {
         return Some((found.backend, true));
     }
@@ -50,6 +66,8 @@ pub fn jpeg_decode_hardware(capabilities: &[Capability], backend: Backend) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ALL: [Backend; 4] = [Backend::Vt, Backend::Mf, Backend::Vaapi, Backend::Nv];
 
     fn entry(step: Step, codec: &str, backend: Backend, hardware: bool, ok: bool) -> Capability {
         Capability {
@@ -75,8 +93,14 @@ mod tests {
             entry(Step::Encode, "avc1.640033", Backend::Vt, true, true),
             entry(Step::Encode, "hvc1.1.6.L153.B0", Backend::Vt, true, true),
         ];
-        assert_eq!(encoder_for(&caps, Codec::H264), Some((Backend::Vt, true)));
-        assert_eq!(encoder_for(&caps, Codec::Hevc), Some((Backend::Vt, true)));
+        assert_eq!(
+            encoder_for(&caps, Codec::H264, &ALL),
+            Some((Backend::Vt, true))
+        );
+        assert_eq!(
+            encoder_for(&caps, Codec::Hevc, &ALL),
+            Some((Backend::Vt, true))
+        );
     }
 
     #[test]
@@ -86,10 +110,10 @@ mod tests {
             entry(Step::Encode, "avc1.42E033", Backend::Chrome, false, true),
         ];
         assert_eq!(
-            encoder_for(&caps, Codec::H264),
+            encoder_for(&caps, Codec::H264, &ALL),
             Some((Backend::Chrome, false))
         );
-        assert_eq!(encoder_for(&caps, Codec::Hevc), None);
+        assert_eq!(encoder_for(&caps, Codec::Hevc, &ALL), None);
     }
 
     #[test]
@@ -98,7 +122,7 @@ mod tests {
             entry(Step::Encode, "avc1.640033", Backend::Mf, false, true),
             entry(Step::JpegDecode, "jpeg", Backend::Cpu, false, true),
         ];
-        assert_eq!(encoder_for(&caps, Codec::H264), None);
+        assert_eq!(encoder_for(&caps, Codec::H264, &ALL), None);
     }
 
     #[test]
@@ -109,6 +133,30 @@ mod tests {
         ];
         assert!(jpeg_decode_hardware(&caps, Backend::Vt));
         assert!(!jpeg_decode_hardware(&caps, Backend::Vaapi));
+    }
+
+    #[test]
+    fn a_probed_backend_this_build_cannot_construct_leaves_the_last_resort_on() {
+        // VA-API's trial worked, but the JPEG encoder can't build a VA-API encoder here.
+        let caps = [
+            entry(Step::Encode, "avc1.640028", Backend::Vaapi, true, true),
+            entry(Step::Encode, "hvc1.1.6.L120.B0", Backend::Vaapi, true, true),
+            entry(Step::Encode, "avc1.42E01F", Backend::Chrome, false, true),
+        ];
+        let built = [Backend::Vt];
+        assert!(last_resort_needed(&caps, &built));
+        assert_eq!(
+            encoder_for(&caps, Codec::H264, &built),
+            Some((Backend::Chrome, false))
+        );
+        assert_eq!(encoder_for(&caps, Codec::Hevc, &built), None);
+        // Once the build can construct it, the probe's entry wins and the fallback goes.
+        let built = [Backend::Vt, Backend::Vaapi];
+        assert!(!last_resort_needed(&caps, &built));
+        assert_eq!(
+            encoder_for(&caps, Codec::Hevc, &built),
+            Some((Backend::Vaapi, true))
+        );
     }
 
     #[test]

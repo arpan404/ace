@@ -76,9 +76,14 @@ function perMinute(
 
 it("watching one running and one settled remote child costs few connections and calls", async () => {
   const calls: string[] = [];
+  /** Status reads answered, so the window opens once polling's connection is up and settled. */
+  const answered: string[] = [];
   const counting: MachineTransport = (profile, body, options) => {
     calls.push(body.call.op);
-    return machineRequest(profile, body, options);
+    return machineRequest(profile, body, options).then((answer) => {
+      if (body.call.op === "status") answered.push(body.call.op);
+      return answer;
+    });
   };
   const pair = await pairedMachines({
     access: "operate",
@@ -95,8 +100,10 @@ it("watching one running and one settled remote child costs few connections and 
     () => expect(pair.target.h.inputs.get(threadId)?.join("\n")).toContain(delegation.task),
     { timeout: 15_000 },
   );
-  // Polling's own connection opens with its first status read; the window measures from there.
-  await vi.waitFor(() => expect(calls).toContain("status"), { timeout: 15_000 });
+  // Polling's own connection opens with its first status read, and its handshake bytes cross the
+  // proxy until that read is answered: the window opens after it and one more poll.
+  await vi.waitFor(() => expect(answered).toContain("status"), { timeout: 15_000 });
+  await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2));
 
   const measure = async (window: number) => {
     const before = { ...proxy.counts };

@@ -41,6 +41,7 @@ export interface RelayServices {
     | undefined;
   browser?: BrowserService | undefined;
   screen?: ScreenManager | undefined;
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   store?: Store | undefined;
   canReadThread?: ((device: DeviceId, thread: ThreadId) => boolean) | undefined;
   /** Warn-level daemon log for refused requests. */
@@ -99,6 +100,7 @@ export function attachRelayService(
       if (closed) return undefined;
       endpoint = connectDevices(service, sessionId, {
         authorize: () => authorize("admin"),
+        acceleration: options.mediaAcceleration,
         canReadThread: threadAccess,
         agentExists: (threadId, agentId) =>
           options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
@@ -172,6 +174,7 @@ export function attachRelayService(
       throw new Error("Screen relay requires admin access");
     const endpoint = screenConnection(options.screen, new Simulators(process.platform), sessionId, {
       pictureEncoder: () => options.browser?.videoEncoder(),
+      acceleration: options.mediaAcceleration,
       send(message) {
         void send(message).catch(() => channel.close());
       },
