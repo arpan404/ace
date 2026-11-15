@@ -28,6 +28,7 @@ import {
   realVideo,
   seedBrowser,
 } from "./spike-browser.ts";
+import { spikePoster } from "./spike-poster.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
@@ -140,6 +141,8 @@ daemon.apply("ios-stream", [
 const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
 /** `ACE_IOS_SPIKE_DEGRADED=1`: the browser's video reports it runs on the processor. */
 const degraded = degradedBrowser(process.env.ACE_IOS_SPIKE_DEGRADED === "1");
+/** `ACE_IOS_SPIKE_POSTER=1`: browser subscribes bring a poster; `hold` also holds video back. */
+const poster = spikePoster(daemon, process.env.ACE_IOS_SPIKE_POSTER);
 if (Number.isSafeInteger(streamed) && streamed > 0)
   daemon.apply("ios-stream", [
     facts.stream(
@@ -468,6 +471,8 @@ const server = Bun.serve<undefined>({
       );
       return Response.json({ ok: true });
     }
+    const posterReply = poster.control(request);
+    if (posterReply) return posterReply;
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
     const devicesReply = devicesControl(daemon, request);
@@ -522,13 +527,16 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of socketFrames(degraded(text))) {
+            for (const frame of socketFrames(poster.rewrite(degraded(text)))) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
           },
           close: (code) => socket.close(code),
-          binary: realVideo(daemon, (bytes) => socket.send(bytes)),
+          binary: realVideo(
+            daemon,
+            poster.gate((bytes) => socket.send(bytes)),
+          ),
         }),
       );
     },
@@ -537,6 +545,7 @@ const server = Bun.serve<undefined>({
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        poster.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);
       }

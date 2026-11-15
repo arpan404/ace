@@ -1,8 +1,10 @@
+import CoreGraphics
 import Foundation
 
 /// One screen session at a time, using the same native pixel renderer and bounded latest frame.
 @MainActor final class ScreenLiveModel {
     private var latest = LatestDevicePicture()
+    private var poster = LatestPoster()
     private var renderer: NativeRemotePictureRenderer?
     private var streams: BrowserStreamHub?
     private(set) var sessionId: String?
@@ -17,10 +19,13 @@ import Foundation
         }
         self.renderer = renderer; streams = session.browserStreams
         streams?.attachScreen { renderer.receiveScreen($0) }
+        let poster = LatestPoster(); self.poster = poster
+        streams?.attachPoster(.screen) { poster.put($0) }
     }
     func nextPicture() -> NativeDevicePicture? { latest.take() }
+    func nextPoster() -> CGImage? { poster.take() }
     func close() {
-        sessionId = nil; streams?.attachScreen(nil); streams = nil
+        sessionId = nil; streams?.attachScreen(nil); streams?.attachPoster(.screen, nil); streams = nil
         renderer?.close(); renderer = nil; _ = latest.take()
     }
 }

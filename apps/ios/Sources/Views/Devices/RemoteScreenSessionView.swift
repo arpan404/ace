@@ -22,7 +22,7 @@ struct RemoteScreenSessionView: View {
         ZStack {
             AceDesign.Surface.background.ignoresSafeArea()
             if state?.lifecycle == "live" {
-                DeviceSurface(next: { screen.live.nextPicture() }, interactive: controlling, label: "\(session?.app ?? "Mac app") window",
+                DeviceSurface(next: { screen.live.nextPicture() }, poster: { screen.live.nextPoster() }, interactive: controlling, label: "\(session?.app ?? "Mac app") window",
                               identifier: "screen.surface", screenSize: { windowSize = $0 }) { from, to in gesture(from.point, to.point) }
                     .aspectRatio(windowSize ?? CGSize(width: 4, height: 3), contentMode: .fit)
                     .clipShape(AceDesign.Shape.block)

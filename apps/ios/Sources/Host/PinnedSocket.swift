@@ -154,7 +154,8 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
             self?.queue.addOperation { [weak self] in
                 guard let self, !self.ended else { return }
                 switch result {
-                case .success(.string(let text)): self.event("message", .text(text)); self.receive()
+                case .success(.string(let text)):
+                    self.event("message", .text(self.streams?.text(text) ?? text)); self.receive()
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break

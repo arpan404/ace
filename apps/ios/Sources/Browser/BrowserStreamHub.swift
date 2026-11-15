@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Where one runtime's sockets hand decoded browser video chunks, off the JavaScriptCore
@@ -8,12 +9,23 @@ final class BrowserStreamHub: @unchecked Sendable {
     private var sink: (@Sendable (BrowserVideoChunk) -> Void)?
     private var screenSink: (@Sendable (DeviceFrameChunk) -> Void)?
     private var deviceSink: (@Sendable (DeviceFrameChunk) -> Void)?
+    private var posterSinks: [LivePoster.Kind: @Sendable (CGImage) -> Void] = [:]
 
     func attach(_ sink: (@Sendable (BrowserVideoChunk) -> Void)?) { lock.withLock { self.sink = sink } }
     func attachScreen(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { screenSink = sink } }
     func deliverScreen(_ chunk: DeviceFrameChunk) { lock.withLock { screenSink }?(chunk) }
     func attachDevice(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { deviceSink = sink } }
     func deliver(_ chunk: DeviceFrameChunk) { lock.withLock { deviceSink }?(chunk) }
+    /// The open view of `kind` takes the posters its subscribes bring back; nil when it closes.
+    func attachPoster(_ kind: LivePoster.Kind, _ sink: (@Sendable (CGImage) -> Void)?) { lock.withLock { posterSinks[kind] = sink } }
+    func deliver(_ poster: LivePoster) { lock.withLock { posterSinks[poster.kind] }?(poster.image) }
+    /// A text message from a socket: a subscribe reply's poster is taken out and drawn natively,
+    /// and the rest goes on to the script. Called on the delivering socket's queue.
+    func text(_ message: String) -> String {
+        let (rest, taken) = PosterReply.take(message)
+        if let taken, let poster = PosterReply.decode(taken) { deliver(poster) }
+        return rest
+    }
     /// Called on the delivering socket's queue.
     func deliver(_ chunk: BrowserVideoChunk) {
         let sink = lock.withLock { self.sink }

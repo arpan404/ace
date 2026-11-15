@@ -123,7 +123,7 @@ struct DeviceScreen: View {
             // The device's own screen, dark whatever the app's scheme: content, not chrome.
             Color.black
             if info.live {
-                DeviceSurface(next: { devices.live.nextPicture() }, interactive: canDrive, handle: handle,
+                DeviceSurface(next: { devices.live.nextPicture() }, poster: { devices.live.nextPoster() }, interactive: canDrive, handle: handle,
                               label: "\(info.name) screen", screenSize: { screenSize = $0 }, turn: { pictureTurn = $0 },
                               sampler: devices.live.sampler) { from, to in
                     devices.gesture(model, threadId: threadId, deviceId: deviceId, from: from, to: to)

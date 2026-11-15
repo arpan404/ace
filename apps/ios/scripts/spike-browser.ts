@@ -257,7 +257,7 @@ export function realVideo(
   };
 }
 
-function title(daemon: FakeDaemon, threadId: string): string {
+export function title(daemon: FakeDaemon, threadId: string): string {
   const tab = daemon.browser.tab(threadId);
   return tab?.url.includes("cart") ? "Your cart" : "Checkout";
 }
@@ -318,13 +318,25 @@ function nalUnits(stream: Buffer): Buffer[] {
 
 /** ffmpeg's drawing filters, in CSS pixels drawn at 2×. */
 const font = "/System/Library/Fonts/SFNS.ttf";
+/** Whether this Mac's ffmpeg can draw text: Homebrew's default build has no `drawtext`. */
+const drawsText = /\bdrawtext\b/.test(
+  spawnSync("ffmpeg", ["-hide_banner", "-filters"]).stdout?.toString() ?? "",
+);
+/** A line of the page's text, or nothing where ffmpeg can't draw it (the page keeps its boxes). */
 const text = (value: string, x: number, y: number, size: number, colour: string) =>
-  `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`;
+  drawsText
+    ? `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`
+    : "";
 const box = (x: number, y: number, bw: number, bh: number, colour: string, fill = true) =>
   `drawbox=x=${x * 2}:y=${y * 2}:w=${bw * 2}:h=${bh * 2}:color=${colour}:t=${fill ? "fill" : 2}`;
 
 /** A shop's checkout page drawn by ffmpeg at twice `width` × `height` CSS pixels. */
-function drawPage(width: number, height: number, format: "h264" | "png", heading: string): Buffer {
+export function drawPage(
+  width: number,
+  height: number,
+  format: "h264" | "png" | "jpeg",
+  heading: string,
+): Buffer {
   const w = even(width * 2);
   const h = even(height * 2);
   const inner = width - 40;
@@ -361,7 +373,7 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
     "-f",
     "lavfi",
     "-i",
-    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.join(",")}`,
+    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.filter(Boolean).join(",")}`,
     "-frames:v",
     "1",
     ...(format === "h264"
@@ -378,7 +390,9 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
           "h264",
           "-",
         ]
-      : ["-f", "image2", "-c:v", "png", "-"]),
+      : format === "jpeg"
+        ? ["-f", "image2", "-c:v", "mjpeg", "-q:v", "14", "-"]
+        : ["-f", "image2", "-c:v", "png", "-"]),
   ];
   const result = spawnSync("ffmpeg", args, { maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);

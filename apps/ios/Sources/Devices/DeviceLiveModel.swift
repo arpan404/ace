@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreVideo
 import Foundation
 import Observation
@@ -78,6 +79,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
 
 @MainActor final class DeviceLiveModel {
     private var latest = LatestDevicePicture()
+    private var poster = LatestPoster()
     private(set) var deviceId: String?
     private var renderer: NativeRemotePictureRenderer?
     private var streams: BrowserStreamHub?
@@ -96,12 +98,15 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         }
         self.renderer = renderer; streams = session.browserStreams
         streams?.attachDevice { renderer.receiveVideo($0) }
+        let poster = LatestPoster(); self.poster = poster
+        streams?.attachPoster(.device) { poster.put($0) }
     }
     func nextPicture() -> NativeDevicePicture? { latest.take() }
+    func nextPoster() -> CGImage? { poster.take() }
     func close(deviceId: String? = nil) {
         if let deviceId, deviceId != self.deviceId { return }
         self.deviceId = nil
-        streams?.attachDevice(nil); streams = nil; renderer?.close(); renderer = nil
+        streams?.attachDevice(nil); streams?.attachPoster(.device, nil); streams = nil; renderer?.close(); renderer = nil
         _ = latest.take()
     }
 }

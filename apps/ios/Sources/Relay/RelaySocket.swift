@@ -234,7 +234,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                             finish(code, reason: Self.channelCloseReason(text), cause: "daemon closed the channel")
                             return false
                         }
-                        event("message", .text(text))
+                        event("message", .text(streams?.text(text) ?? text))
                     case .binary(let data): return deliver(data)
                     }
                 }
