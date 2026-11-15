@@ -126,6 +126,8 @@ export async function startAutomationWebhooks(
       const path = new URL(request.url).pathname;
       const start = forwarded.prefix + hooksPath;
       if (!on || !path.startsWith(start)) return answer(404, { error: "not_found" });
+      // The ADR's order: the method before anything about the hook.
+      if (request.method !== "POST") return answer(405, { error: "method_not_allowed" });
       const hookId = path.slice(start.length);
       const owner = Object.values(sources()).find((source) => {
         const automationId = source?.webhooks.ownerOf(hookId);

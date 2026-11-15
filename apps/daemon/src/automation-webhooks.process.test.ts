@@ -203,6 +203,13 @@ test("a wrong secret, a rotated secret, a revoked webhook and a paused automatio
     });
     expect((await deliver(f.daemon, () => f.h.clock.now(), hookId, current)).status).toBe(404);
     expect(await runs()).toHaveLength(0);
+    // The method is checked first, so a GET says only that: the hook is gone either way.
+    const get = await f.daemon.automationWebhooks?.relay(
+      new Request(`${forwarded.origin}${forwarded.prefix}/hooks/${hookId}`),
+      new AbortController().signal,
+      forwarded,
+    );
+    expect(get?.status).toBe(405);
   } finally {
     await app.client.close();
     await f.daemon.close();
