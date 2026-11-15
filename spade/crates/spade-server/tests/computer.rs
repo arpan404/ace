@@ -796,7 +796,7 @@ impl Daemon for FakeDaemon {
             let stopped = driver == Driver::Bot
                 || self
                     .still_running
-                    .fetch_update(
+                    .try_update(
                         std::sync::atomic::Ordering::SeqCst,
                         std::sync::atomic::Ordering::SeqCst,
                         |n| n.checked_sub(1),

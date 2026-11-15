@@ -69,15 +69,27 @@ here). From the harness audit's wave 0.
    the next model call after the person changes the bot's plugins, which is stored as
    `plugins_changed` so prompts rebuild from events. Before, both were frozen at the bot's first
    model call, and with one conversation per bot later skills and plugins never applied.
-9. **Work waits instead of ending.** A working task stopped by a spending cap is parked
-   (`task_parked {reason: cap, until_ms, why}`): the bot reads as waiting with the reason, and the
-   task carries on at the cap's reset, when the person raises the cap, or when Spade reopens. A
-   turn whose endpoint is down past the quick tries is parked (`turn_parked`) and sends its step
-   again after 1 minute, doubling to an hour a round (or the endpoint's longer `retry-after`), as
-   long as it takes; the reply stays open, Stop ends the wait and a restart resumes it. A refused
-   key and a `429` that says the quota or credit is used up still fail at once: the person has to
-   act. The service-wide daily cap (`SPADE_DAILY_CAP_USD`) is unset by default instead of $5 for
-   every bot together; the person's caps per bot are the money boundary.
+9. **Work waits instead of ending.** Every wait is a wake of [ADR 0160](0160-spade-wake-and-owned-services.md),
+   so it is shown, kept across a restart and fired once by one mechanism:
+   - A working task stopped by a spending cap is parked (`wake_set {purpose: {kind: park,
+     reason: cap}}`, due at the cap's reset, its `reason` what the person reads). The bot reads as
+     sleeping with the reason, and the task carries on when it fires: at the reset, when the
+     person raises the cap, when Spade reopens with the cap lifted, or when the person wakes it. A
+     message settles it; Stop cancels it. A check of done the cap stops parks the same way.
+   - A turn whose endpoint is down past the quick tries, or whose stream a failure that may pass
+     cuts, waits out the outage on `wake_set {purpose: {kind: outage, attempt, error}}` holding
+     its reply open, and sends its step again when it fires: after 1 minute, doubling to at most
+     an hour, or the endpoint's longer `retry-after` (also at most an hour, so a far-off date
+     still gets an hourly try), as long as it takes. Stop or the person cancelling the wake ends
+     the reply, the person waking it or writing hurries it, and a pause or a restart resumes it. A
+     check of done whose model fails that way parks (`reason: check`) with the same backoff.
+   - A refused key and a `429` that says the quota or credit is used up still fail at once: the
+     person has to act.
+   - The service-wide daily cap (`SPADE_DAILY_CAP_USD`) is unset by default instead of $5 for
+     every bot together; the person's caps per bot are the money boundary.
+
+   First built with events of its own (`task_parked`, `turn_parked`), folded into wakes when ADR
+   0160 merged; both are still read (docs/harness.md, Events).
 10. **A bot never reads idle while its ace children work** (AGENTS.md priority 1). A background
     `delegate` or `wait` calls ace's `wait` again each time ace's ten-minute wait runs out, until
     the children are done, need the person, or are held at a usage limit. After a restart such a
@@ -108,8 +120,10 @@ here). From the harness audit's wave 0.
 - Amendment tests: 400 compactions of 50 KB writes keep the list under 18,000 characters with every
   recent write listed; a skill added and a plugin rule changed reach the instructions at the next
   compaction, a plugin turned on or off at the next model call; a capped task waits through a
-  restart and carries on at the reset or when the cap is raised; an outage parks the turn, which
-  survives a restart and answers once the endpoint is back, and Stop ends the wait; a delegate job
+  restart and carries on at the reset or when the cap is raised; an outage holds the turn on a
+  wake, which survives a restart and answers once the endpoint is back, and Stop ends the wait;
+  an outage during a check of done parks it through a restart; a capped bot that sleeps parks on
+  its cap only once its sleep ends; a delegate job
   stays open while ace's waits time out and reattaches after a restart; twelve reads of one step
   run at once; a group ask back up the chain is refused; a `Stop` hook whose reason moves on
   extends a reply five times; a helper's command runs while the bot's build does.

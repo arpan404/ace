@@ -42,8 +42,9 @@ looking at it.
    by the event the model reads anyway (a job's result, a message) is stored with no note.
 4. **A sleeping or waiting bot is never idle or done.** The roster state is `sleeping` (old
    clients read `working: true`), with words such as "Sleeping until 14:05: deploy settles" or
-   "Waiting for the job to finish". A task with an open wake is not carried on by itself (ADR
-   0144); the wake is its next step. The person can wake it early (`cause: person`) or cancel the
+   "Waiting for the job to finish", and so is a bot whose open turn waits out an outage with no
+   job running. A task with an open wake is not carried on by itself (ADR 0144), and no claim
+   of done is checked while one is open (ADR 0159); the wake is its next step. The person can wake it early (`cause: person`) or cancel the
    wake (`wake_cancelled {by: person}`). Stop cancels every open wake (`by: stop`) and stops the
    bot's services. The bot can cancel its own with `wake_cancel`.
 5. **Owned services.** `service_start {name, command, cwd?, keep?}` runs a long-lived process
@@ -58,14 +59,20 @@ looking at it.
    recorded `lost`. Services are listed at `GET /v1/agents/{id}/services` and stopped when the
    bot is stopped or deleted. A running service does not make the bot read as working: it is the
    bot's tool, not work in progress.
-6. **Parked retries.** The error kind decides. A reply whose model call failed transiently
-   (unreachable, `429`, `5xx`, a dropped stream) after the retry window is closed as failed, as
-   today, and parked: `wake_set {purpose: retry, attempt}` with a backoff of 1, 2, 4 … minutes up
-   to an hour, and no attempt limit (ADR 0158). Its firing opens a reply that carries on. A
-   permanent failure (a refused key, a cap, a refused request) is reported and not parked. A
-   background job whose tool reports a transient failure is parked the same way (`retry` with
-   the job id): it stays running in the record, and the same call runs again when the wake fires.
-   A message from the person settles a parked reply retry, since their message opens a reply.
+6. **Parked retries.** The error kind decides, and one backoff serves every retry: 1, 2, 4 …
+   minutes, at most an hour, or the endpoint's longer `retry-after` (at most an hour), with no
+   attempt limit (ADR 0158). A permanent failure (a refused key, a used-up quota, a cap, a refused
+   request) is reported and never parked.
+   - A reply whose model call failed transiently (unreachable, `429`, `5xx`, a dropped stream)
+     after the quick retries is not closed: its turn waits out the outage on `wake_set {purpose:
+     outage, attempt, error}`, which holds the reply open and adds nothing for the model, and
+     sends the step again when it fires (ADR 0158 decision 9). The person's message settles it,
+     and their message goes with the step.
+   - A background job whose tool reports a transient failure is parked (`retry` with the job
+     id): it stays running in the record, and the same call runs again when the wake fires.
+   - A task stopped by a cap, or whose check of done (ADR 0159) meets a cap or an outage, is
+     parked (`park` with `reason: cap | check`); when it fires the task carries on, its pending
+     claim checked first. Any message settles a park.
 7. **Check-ins on long jobs.** While a background job runs past 15 minutes, the bot gets a
    `<job_progress>` note with the job's latest output tail (from the bot's terminal for shell
    jobs), then at 30, 60, 120 minutes and every 2 hours after. Each is `job_progress {job, check,
@@ -76,6 +83,22 @@ looking at it.
    `DELETE /v1/agents/{id}/wakes/{wake}`, `GET /v1/agents/{id}/services`,
    `GET /v1/agents/{id}/services/{service}/logs`, `DELETE /v1/agents/{id}/services/{service}`,
    and the agent's `wake` field (the soonest open wake).
+
+### Reconciled with ADR 0158's amendment (2026-11-15)
+
+ADR 0158 decisions 9 and 10 were built beside this one with their own waits (`turn_parked`,
+`task_parked`). They now run on wakes, so each concern has one mechanism:
+
+- The outage retry of a reply keeps 0158's shape (the reply stays open, so a helper, a group ask
+  and a routine run wait instead of failing; `retry-after` honoured; pause and restart resume) on
+  this ADR's machinery (shown, cancellable, woken early, fired once). The closed-reply retry first
+  built here (a `reply_failed`, then a new reply with a note) is retired; a `retry` wake with no
+  `job` stored by it still fires once with its note.
+- A cap park is a wake due at the reset rather than a timer of its own: the wake already gives
+  restart re-arming, exactly-once firing, Stop, the person's early wake and the roster words.
+- A parked `delegate` or `wait` job reruns by reattaching to ace's children, as after a restart
+  (0158 decision 10). A job's end is stored once, whether it ran once, ran again at its wake, or
+  reattached.
 
 ## Consequences
 
@@ -89,4 +112,7 @@ looking at it.
 - Tests: wakes fire once across a restart and against the person waking early; a sleeping bot
   reads `sleeping`; each condition fires from its event; a service outlives its call, matches a
   line, is stopped with its group and is restarted after a restart only with `keep`; a transient
-  reply failure parks and retries while a permanent one does not; check-ins arrive once per slot.
+  reply failure waits on an outage wake with its reply open while a permanent one fails; the
+  person writing ends the wait, cancelling it stops the reply; a transient job failure parks and
+  reruns once; an outage wait and a parked job both resume once after a restart; check-ins arrive
+  once per slot.

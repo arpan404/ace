@@ -26,8 +26,9 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `job_finished`                   | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`       | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
-| `task_parked`                    | `reason`, `until_ms?`, `why`                                             | The bot's working task waits for a cap's reset; planned again at `until_ms` or when the cap is raised ([autonomy.md](autonomy.md))                                                 |
-| `turn_parked`                    | `reply`, `until_ms`, `round`, `why`                                      | The reply's model endpoint is down; the turn waits and sends its step again at `until_ms`. The reply stays open; a restart resumes the wait                                        |
+| `wake_set` / `wake_fired` / `wake_cancelled` | `wake`, `reply`, `purpose`, `due_ms?`, `condition?`, `reason` / `cause`, `note?` / `by` | Every timed or event-driven resume: a sleep, a wait, a turn waiting out an outage, a parked job, a task parked on a cap or for its check. Fires once ([autonomy.md](autonomy.md)) |
+| `task_parked` (retired)          | `reason`, `until_ms?`, `why`                                             | Stored by earlier builds for a task waiting on a cap. Still read and ignored: when Spade opens the task is planned again, and parks on a wake if the cap still holds             |
+| `turn_parked` (retired)          | `reply`, `until_ms`, `round`, `why`                                      | Stored by earlier builds for a turn waiting for its endpoint. Still read: the reply stays open across a restart, waits until `until_ms`, and `round` counts toward the backoff  |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -58,9 +59,13 @@ turn's total.
   replaced before the step is stored, so results and approvals never match the wrong call.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
   (with no time limit; Stop ends it). Its result is delivered like a message: it steers the open reply or starts a
-  new one. Stop cancels jobs and records them stopped without starting a turn; after a restart each
-  lost job is delivered as "unknown outcome". The conversation list shows `jobs` running, so a
-  conversation never reads as idle while one is out.
+  new one. Stop cancels jobs and records them stopped without starting a turn. After a restart a
+  job the old process was running is delivered as "unknown outcome", except: a helper's job runs
+  again and waits for its helper ([helpers.md](helpers.md)); a `delegate` or `wait` job runs
+  again and reattaches to ace's children (below); a job parked for a retry stays parked and runs
+  at its wake ([autonomy.md](autonomy.md)). Each job's end is stored once, whichever way it
+  ran. The conversation list shows `jobs` running, so a conversation never reads as idle while
+  one is out.
 - **Sending a step again:** a model step that fails before anything streamed, because the
   request could not be sent or the endpoint answered `408`, `429` or `5xx`, is sent again: three
   tries in all, waiting 2 s and then 6 s, or the endpoint's `retry-after` when it gives one, and
@@ -74,22 +79,27 @@ turn's total.
   refusals (`400`, `401`, `403`, a missing model) fail at once, and so does a `429` whose words
   say the account's quota or credit is used up: the person has to act, and the reply's failure
   says so.
-- **Waiting out an outage** (ADR 0158): when those three tries are used up on a failure that may
-  pass (unreachable, `408`, `429`, `5xx`), the turn does not fail. It stores `turn_parked {reply,
-  until_ms, round, why}` and waits on the engine's clock: 1 minute, then doubling to at most an
-  hour a round, or longer when the endpoint's `retry-after` asks for it; then the three quick tries
-  start again. As many rounds as it takes; the reply stays open, the bot reads as working with the
-  status "Waiting for <endpoint>; trying again in 4 minutes", and Stop ends the wait at any point.
-  A pause for an update ends the wait like any other; after a restart the turn resumes and keeps
-  waiting until the stored `until_ms`.
+- **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
+  failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
+  started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
+  outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+  the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
+  step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
+  it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
+  resumed pause. As many rounds as it takes. The reply stays open and the bot reads as `sleeping`
+  with "The model is not answering; trying again at 14:05 (…)". Stop ends the wait and the
+  reply; the person cancelling the wake ends the reply stopped; the person waking it, or writing
+  (their message goes with the step), sends the step now. A pause ends the wait like any other,
+  and after a pause or a restart the turn resumes and waits on the same wake. A helper's turn
+  waits the same way. A refused key and a used-up quota fail at once.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).
   The person's controls are Stop and their spending caps: past the service's daily cap (unset by
   default) the turn ends with `reply_failed` ("today's spending cap is used up"), and a bot at its
   own daily or monthly cap starts no model call: the turn closes and the bot says so once
-  ([oversight.md](oversight.md)). Either way a task that was working waits for the cap's reset
-  (`task_parked`) and carries on then ([autonomy.md](autonomy.md)). With the model review on, a write the gate would run
+  ([oversight.md](oversight.md)). Either way a task that was working parks on a wake until the
+  cap's reset and carries on then ([autonomy.md](autonomy.md)). With the model review on, a write the gate would run
   is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).

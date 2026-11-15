@@ -55,8 +55,9 @@ the person's time zone (`PUT /v1/oversight {time_zone}`; the machine's until set
 A bot is **at its cap** when its spend this day (or month) is at least that cap. Then:
 
 - No model call starts for it: its open turn ends before its next step (`reply_finished` with no
-  text), and research and reviews stop. A task it was working on waits for the reset
-  (`task_parked`) and carries on then, or as soon as the cap is raised ([autonomy.md](autonomy.md)).
+  text), and research and reviews stop. A task it was working on (or its check of done) parks
+  on a wake until the reset and carries on then, or as soon as the cap is raised
+  ([autonomy.md](autonomy.md)).
 - `cap_reached` is stored in its conversation once per day or month the cap is first hit; the
   chat shows it as one bubble of the bot's.
 - The person's messages answer `402 {"error": "Research is at its daily cap of $1.00 until

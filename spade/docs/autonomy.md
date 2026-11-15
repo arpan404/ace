@@ -208,13 +208,15 @@ call with arguments different from the one before it. The engine also starts not
 Spade is closing or the person has the bot's computer.
 
 **At a spending cap the task waits** (ADR 0158): a step due while the bot (or the service) is at a
-cap is not dropped. Spade stores `task_parked {reason: "cap", until_ms, why}` once, the bot reads
-as `waiting` with `why` as its status ("Porter is at its daily cap of $1.00 until midnight. It
-carries on then, or as soon as the cap is raised."), and the step is planned again at `until_ms`
-(the cap's reset: the person's next midnight, or the first of next month), as soon as the person
-raises or removes the bot's cap, or when Spade reopens. A reply the service's cap ended
-(`reply_failed` of kind `cap`) carries the task on the same way. The park ends at the next reply,
-message or Stop; Stop calls the wait off like any waiting step.
+cap is not dropped. The task parks on a wake, `wake_set {purpose: {kind: park, reason: cap},
+due_ms, reason}`, once; the bot reads as `sleeping` with `reason` as its status ("Porter is at
+its daily cap of $1.00 until midnight. It carries on then, or as soon as the cap is raised.").
+The wake fires at `due_ms` (the cap's reset: the person's next midnight, or the first of next
+month), as soon as the person raises or removes the bot's cap, when Spade opens with the cap
+lifted, or when the person wakes it; then the step is planned again (and parks again if a cap
+still holds). A reply the service's cap ended (`reply_failed` of kind `cap`) carries the task on
+the same way. Any message settles the park (the reply it opens meets the cap again if it still
+holds); Stop cancels it. A `task_parked` stored by an earlier build is still read and ignored.
 
 A continued step is stored as `task_continued {step, nudge}` followed by `reply_started`, in one
 write. The model reads `nudge` (`<continue step="n">…</continue>`) as a note from Spade; CLI
@@ -250,9 +252,13 @@ on an idle bot with a step waiting stores `stop_requested` with no reply and cal
   `verify::claim` decides: open or blocked items, an empty plan, or nothing changed since the
   last `not_yet` are answered `not_yet` without a model. Otherwise the verifier (the goal's
   `verifier`, else the review model) gets the goal, criteria, items and the evidence's stored
-  results, quoted. `done` needs every criterion met and no item rejected. A check that can't
-  run stores `unchecked`. Registered like a waiting step, so Stop calls it off; a restart checks
-  an unchecked claim again.
+  results, quoted. `done` needs every criterion met and no item rejected. A check stopped by a
+  spending cap parks the task on the cap like a step (above); one whose model fails in a way that
+  may pass parks it on `wake_set {purpose: {kind: park, reason: check, attempt}}` with the same
+  backoff as an outage (1, 2, 4 … minutes, at most an hour). Either way the task reads as
+  `checking`, never done, and the claim is checked when the wake fires. A check that can't run
+  otherwise (a refused request, the 60 s timeout) stores `unchecked`. Registered like a waiting
+  step, so Stop calls it off. No claim is checked while a wake is open.
 - `not_yet` reads as `working` for `task::next`; the next `task_continued` nudge appends a
   `<check>` with what's missing and a `<plan_next>` naming the item to resume. Plan calls count
   as an effect for the no-progress pause.
@@ -275,13 +281,25 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
   message that settles a wait is stored with it and adds no note. `wake_cancelled {wake, by}`:
   `person`, `bot` or `stop`. Open wakes are armed from the events when Spade opens for work; one
   already due fires on the timer's first look. The timer looks at least once a minute.
-- The roster state is `sleeping` while a wake is open and nothing else runs; `status` says what
-  for and until when; the agent's `wake` is the soonest open wake.
-- A reply whose model call failed transiently after its retries is parked: `wake_set {purpose:
-  {kind: retry, attempt, error}}`, due after 1, 2, 4 … minutes, at most an hour. A background job
-  whose tool marks its failure transient (`ToolOutput::transient`: `web_fetch` on the network,
-  `429` or `5xx`; an ace tool that did not run) is parked the same way with its `job`, stays
-  running in the record, and runs again at the wake. The person's message settles a parked reply.
+- The roster state is `sleeping` while a wake is open and nothing else runs, and while the open
+  turn waits out an outage with no job running; `status` says what for and until when; the
+  agent's `wake` is the soonest open wake. A bot is never idle or done while any wake is open:
+  `task::next` carries no task on and `verify::claim` checks no claim until it fires.
+- One rule for work that failed in a way that may pass (ADR 0158): it waits 1, 2, 4 … minutes,
+  at most an hour, longer when the endpoint asks (still at most an hour), with no attempt limit,
+  and a refused key, a used-up quota or a refused request is reported and never waits. What waits
+  depends on what failed:
+  - a turn's model step: the turn waits out the outage on `{kind: outage, attempt, error}`
+    holding its reply open, and sends the step again when it fires ([harness.md](harness.md),
+    "Waiting out an outage"). The person's message ends the wait early;
+  - a background job whose tool marks its failure transient (`ToolOutput::transient`:
+    `web_fetch` on the network, `429` or `5xx`; an ace tool that did not run): parked on
+    `{kind: retry, attempt, job, error}`, it stays running in the record (no "unknown outcome"
+    after a restart, no check-ins while parked) and runs its call again at the wake, a
+    `delegate` or `wait` by reattaching to ace's children. Cancelling the wake ends the job;
+  - the check of done: parked on `{kind: park, reason: check}` (above).
+  A `{kind: retry}` with no `job` was stored by an earlier build for a closed reply; it still
+  fires once and opens a reply with its note.
 - While a background job runs, `job_progress {job, name, check, minutes, tail}` is delivered at
   15, 30, 60 and 120 minutes, then every two hours; `tail` is a shell job's terminal output.
 - `service_start {name, command, cwd?, keep?}` (gated like `shell`), `service_status`,
@@ -294,7 +312,8 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## API
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
-  attempt, job, error}]}`. `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
+  attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
+  `parked` the park's reason (`cap`, `check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
   when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
 - `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
   restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
