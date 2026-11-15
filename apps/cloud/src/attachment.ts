@@ -28,6 +28,8 @@ export const Attachment = z.discriminatedUnion("kind", [
     receive: Cipher,
     /** It registered with `features=http` and takes forwarded HTTP tickets (ADR 0122). */
     http: z.literal(true).optional(),
+    /** It registered with `features=media` and takes media streams (ADR 0147 §5.2). */
+    media: z.literal(true).optional(),
   }),
   /** A client waiting for its host to join `ticket`. `owner` is the host socket offered it. */
   z.object({
@@ -44,14 +46,18 @@ export type Attachment = z.infer<typeof Attachment>;
 
 /** Routing facts recorded in attachments, for `RelayRoutes.restore`. */
 export function routeFacts(attachments: readonly Attachment[]): {
-  hosts: { socket: string; hostId: string }[];
+  hosts: { socket: string; hostId: string; media?: boolean }[];
   pending: PendingTicket[];
 } {
-  const hosts: { socket: string; hostId: string }[] = [];
+  const hosts: { socket: string; hostId: string; media?: boolean }[] = [];
   const pending: PendingTicket[] = [];
   for (const attachment of attachments) {
     if (attachment.kind === "host")
-      hosts.push({ socket: attachment.id, hostId: attachment.hostId });
+      hosts.push({
+        socket: attachment.id,
+        hostId: attachment.hostId,
+        ...(attachment.media ? { media: true } : {}),
+      });
     if (attachment.kind === "waiting")
       pending.push({
         ticket: attachment.ticket,

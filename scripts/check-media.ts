@@ -35,8 +35,8 @@ for (const args of [
   cargo(args);
 }
 
-// The daemon's supervisor, the egress route and the recording route against the binary just
-// built: the acceptance tests for the process core, G1 and F1. Windows runs the supervisor and
+// The daemon's supervisor, the egress route, the recording route and delivery against the binary
+// just built: the acceptance tests for the process core, G1, F1 and D1. Windows runs the supervisor and
 // egress tests over its named pipes; it has no recorder yet, and the producer suites below
 // haven't been run against the Windows binary.
 if (process.platform === "win32") {
@@ -58,12 +58,33 @@ if (process.platform === "win32") {
     "src/supervisor.process.test.ts",
     "src/egress.process.test.ts",
     "src/recordings.process.test.ts",
+    // D1: a tab, a screen and a device on one media connection, revocation and restart.
+    "src/media-delivery.process.test.ts",
   ];
   execFileSync("bun", ["--bun", "x", "vitest", "run", ...tests], {
     cwd: new URL("../packages/media/", import.meta.url),
     env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
     stdio: "inherit",
   });
+  // D2: a relay media stream through the self-hosted relay and the binary, handed over with its
+  // keys, the relay negative authorization cases, revocation and kill deadlines, and wss://
+  // with its certificate refusals.
+  execFileSync(
+    "bun",
+    [
+      "--bun",
+      "x",
+      "vitest",
+      "run",
+      "src/media-relay/relay-media.process.test.ts",
+      "src/media-relay/relay-media-tls.process.test.ts",
+    ],
+    {
+      cwd: new URL("../apps/daemon/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
   // E4: ace's Chrome streaming through the video extension into the binary and back on egress
   // (skipped where no Chrome is installed).
   execFileSync("bun", ["--bun", "x", "vitest", "run", "src/media-video.process.test.ts"], {

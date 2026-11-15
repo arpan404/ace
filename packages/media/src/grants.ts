@@ -76,6 +76,7 @@ export class InFlight {
       case "record.start":
         return void this.#recordings.add(message.recording);
       case "still.take":
+      case "still.poster":
         return void this.#stills.add(message.request);
       case "media.ticket":
         return void this.#connections.add(message.connection);

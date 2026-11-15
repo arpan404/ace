@@ -36,6 +36,8 @@ interface Session {
   /** The person's input while an agent uses it in cowork: the agent waits. */
   personActive?: boolean;
   agentPointer?: DeviceState["agentPointer"];
+  /** What its live video runs on (ADR 0148), as the daemon reports it. */
+  acceleration?: DeviceState["acceleration"];
   leaseExpiresAt?: number;
   screen: "home" | "app";
   logs: string[];
@@ -237,6 +239,14 @@ export class FakeAppDevices {
     this.publish(session);
   }
 
+  /** What a device's live video runs on (ADR 0148); `undefined` clears it. */
+  setAcceleration(deviceId: string, acceleration: DeviceState["acceleration"]): void {
+    const session = this.known(deviceId);
+    if (acceleration) session.acceleration = acceleration;
+    else delete session.acceleration;
+    this.publish(session);
+  }
+
   /** The agent holding a device acted on it: viewers see the action, numbered, and a new frame. */
   agentActs(deviceId: string, activity: Omit<DeviceActivity, "sequence">): void {
     const session = this.known(deviceId);
@@ -357,6 +367,7 @@ export class FakeAppDevices {
       ...(session.agentPointer && session.controller === "agent"
         ? { agentPointer: session.agentPointer }
         : {}),
+      ...(session.acceleration ? { acceleration: session.acceleration } : {}),
       ownedHere:
         session.controller === "human" &&
         session.humanOwner === channel &&

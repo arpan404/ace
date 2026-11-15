@@ -545,7 +545,9 @@
         "@ace/adapter-testkit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/daemon": "workspace:*",
+        "@ace/media": "workspace:*",
         "@ace/relay": "workspace:*",
+        "@ace/screen": "workspace:*",
         "@types/ws": "^8.18.1",
         "ws": "^8.18.3",
       },
@@ -793,6 +795,7 @@
     "packages/media": {
       "name": "@ace/media",
       "dependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",

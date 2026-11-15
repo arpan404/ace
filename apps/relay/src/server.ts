@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { createServer as createSecureServer } from "node:https";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import type { Socket } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
@@ -17,6 +20,7 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
+import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
 const noop = () => {};
 export type RelayOptions = {
@@ -30,6 +34,12 @@ export type RelayOptions = {
   createConnectionId?: () => string;
   onBackpressure?: (bytes: number) => void;
   onThrottle?: () => void;
+  /**
+   * Also serve the same relay over TLS on a second listener (`tlsUrl`), with this certificate
+   * chain and key in PEM. Production relays terminate TLS in front of the relay; this lets a
+   * test reach the relay itself over `wss://`.
+   */
+  tls?: { cert: string; key: string };
 };
 type Connection = {
   socket: WebSocket;
@@ -109,7 +119,11 @@ export async function startRelay(options: RelayOptions = {}) {
             JSON.stringify(
               action.type === "registered"
                 ? { type: "registered", hostId: action.hostId }
-                : { type: "client", ticket: action.ticket },
+                : {
+                    type: "client",
+                    ticket: action.ticket,
+                    ...(action.purpose ? { purpose: action.purpose } : {}),
+                  },
             ),
           ),
         ),
@@ -128,7 +142,9 @@ export async function startRelay(options: RelayOptions = {}) {
         control.destroy();
         return;
       }
-      await apply(routing.register(id, hostId(control.remoteStatic)));
+      await apply(
+        routing.register(id, hostId(control.remoteStatic), hostFeatures(url).has(MEDIA_FEATURE)),
+      );
       while (connection.socket.readyState === WebSocket.OPEN) {
         const input: unknown = JSON.parse(
           new TextDecoder().decode(control.receive.decrypt(await connection.reader.next())),
@@ -136,11 +152,20 @@ export async function startRelay(options: RelayOptions = {}) {
         const message = HostControlMessage.parse(input);
         await apply(routing.reject(id, message.ticket));
       }
-    } else if (url.pathname === "/client")
-      await apply(
-        routing.request(id, url.searchParams.get("hostId") ?? "", createTicket(), clock.now()),
-      );
-    else if (url.pathname === "/join")
+    } else if (url.pathname === "/client") {
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") connection.socket.close(1008, "Unknown purpose");
+      else
+        await apply(
+          routing.request(
+            id,
+            url.searchParams.get("hostId") ?? "",
+            createTicket(),
+            clock.now(),
+            purpose,
+          ),
+        );
+    } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
   }
@@ -150,7 +175,7 @@ export async function startRelay(options: RelayOptions = {}) {
     sockets.delete(socket);
     peerBudget.release(clock.now());
   }
-  http.on("connection", (socket) => {
+  const admit = (socket: Socket) => {
     const ip = socket.remoteAddress;
     if (!ip) {
       socket.destroy();
@@ -169,8 +194,9 @@ export async function startRelay(options: RelayOptions = {}) {
       releaseSocket(socket);
     });
     socket.once("close", () => releaseSocket(socket));
-  });
-  http.on("upgrade", (request, socket, head) => {
+  };
+  http.on("connection", admit);
+  const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     let url: URL;
     try {
       url = new URL(request.url ?? "/", "http://relay");
@@ -238,7 +264,11 @@ export async function startRelay(options: RelayOptions = {}) {
       });
       void route(id, url, connection).catch(() => ws.terminate());
     });
-  });
+  };
+  http.on("upgrade", upgrade);
+  const secure = options.tls ? createSecureServer(options.tls) : undefined;
+  secure?.on("secureConnection", admit);
+  secure?.on("upgrade", upgrade);
   function sweep(): void {
     void apply(routing.sweep(clock.now())).catch(() => {});
     for (const connection of connections.values())
@@ -260,6 +290,11 @@ export async function startRelay(options: RelayOptions = {}) {
       http.once("error", reject);
       http.listen(options.port ?? 0, options.bind ?? "127.0.0.1", resolve);
     });
+    if (secure)
+      await new Promise<void>((resolve, reject) => {
+        secure.once("error", reject);
+        secure.listen(0, options.bind ?? "127.0.0.1", resolve);
+      });
   } catch (error) {
     throttle.close();
     throw error;
@@ -267,9 +302,12 @@ export async function startRelay(options: RelayOptions = {}) {
   cancelSweep = clock.schedule(Math.min(10000, limits.idleTimeoutMs / 2), probe);
   const address = http.address();
   if (!address || typeof address === "string") throw new Error("No relay address");
+  const secureAddress = secure?.address();
   let closing: Promise<void> | undefined;
   return {
     url: `ws://${options.bind ?? "127.0.0.1"}:${address.port}`,
+    /** With `tls`: the TLS listener's port (the certificate decides which host name fits). */
+    tlsPort: secureAddress && typeof secureAddress !== "string" ? secureAddress.port : undefined,
     port: address.port,
     stats,
     sweep,
@@ -285,6 +323,7 @@ export async function startRelay(options: RelayOptions = {}) {
         new Promise<void>((resolve, reject) =>
           http.close((error) => (error ? reject(error) : resolve())),
         ),
+        new Promise<void>((resolve) => (secure ? secure.close(() => resolve()) : resolve())),
       ]).then(() => {});
       return closing;
     },

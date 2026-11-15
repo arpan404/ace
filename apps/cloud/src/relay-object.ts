@@ -5,6 +5,9 @@ import {
   CONTROL_PROLOGUE,
   HTTP_FEATURE,
   HostId,
+  MEDIA_FEATURE,
+  clientPurpose,
+  hostFeatures,
   LimitsSchema,
   PAIRED_MARKER,
   RelayRoutes,
@@ -41,6 +44,8 @@ type Handshake = {
   platform: string;
   /** It serves forwarded HTTP (`features=http`, ADR 0122). */
   http: boolean;
+  /** It takes media streams (`features=media`, ADR 0147 §5.2). */
+  media: boolean;
 };
 
 /**
@@ -94,7 +99,8 @@ export class RelayObject extends DurableObject<Env> {
         ),
         name: url.searchParams.get("name") ?? "",
         platform: url.searchParams.get("platform") ?? "",
-        http: (url.searchParams.get("features") ?? "").split(",").includes(HTTP_FEATURE),
+        http: hostFeatures(url).has(HTTP_FEATURE),
+        media: hostFeatures(url).has(MEDIA_FEATURE),
       });
       return upgraded(server.client, protocol);
     }
@@ -103,8 +109,10 @@ export class RelayObject extends DurableObject<Env> {
       const owner = hostAccount(this.#allAttachments(), hostId);
       if (owner !== undefined && owner !== account)
         return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") return refuseUpgrade(1008, "Unknown purpose", protocol);
       const ticket = randomTicket();
-      const actions = routes.request(id, hostId, ticket, now);
+      const actions = routes.request(id, hostId, ticket, now, purpose);
       const refusal = this.#refusal(actions, id, protocol);
       if (refusal) return refusal;
       const server = this.#accept(id);
@@ -235,6 +243,7 @@ export class RelayObject extends DurableObject<Env> {
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
         ...(pending.http ? { http: true } : {}),
+        ...(pending.media ? { media: true } : {}),
       };
     } finally {
       transport.destroy();
@@ -259,7 +268,7 @@ export class RelayObject extends DurableObject<Env> {
     // The daemon closed while the entry was written.
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);
-    this.#apply(this.#routing().register(attachment.id, host.hostId));
+    this.#apply(this.#routing().register(attachment.id, host.hostId, pending.media));
   }
 
   /** The caller of forwarded request `exchange` left (the Worker saw it): cancel it. */
@@ -328,7 +337,11 @@ export class RelayObject extends DurableObject<Env> {
         host.send,
         action.type === "registered"
           ? { type: "registered", hostId: action.hostId }
-          : { type: "client", ticket: action.ticket },
+          : {
+              type: "client",
+              ticket: action.ticket,
+              ...(action.purpose ? { purpose: action.purpose } : {}),
+            },
       );
       this.#save(ws, { ...host, send: sealed.next });
       ws.send(sealed.frame);

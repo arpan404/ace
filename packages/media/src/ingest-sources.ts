@@ -71,6 +71,17 @@ export type IngestProducer = {
   pathEnded?: (path: string, interrupted: boolean) => void;
   /** ace-media ended the source with a reason: it stays on the daemon until its route changes. */
   refused?: (reason: string | undefined) => void;
+  /**
+   * The privacy epochs this producer stamped that the daemon knows were clear: the source was
+   * public for all of each one. A poster shows a picture only from these (D1). Absent: none, so
+   * no poster (a producer that can't vouch for its source's privacy history gets none).
+   */
+  clearEpochs?: () => [number, number][];
+  /**
+   * ace-media's plan for the views it delivers (`source.want`, D1): the encodes to run, under
+   * ace-media's own ids. Sent only while this producer streams to ace-media.
+   */
+  want?: (encodes: EncodeSpec[]) => void;
 };
 
 /** What the sources need of the supervisor. */
@@ -93,6 +104,11 @@ export type IngestSourcesOptions = {
   id: () => string;
   schedule: (callback: () => void, milliseconds: number) => () => void;
   log?: (message: string, fields: Record<string, unknown>) => void;
+  /**
+   * A producer's open in ace-media changed: its id there now, or none. Viewers delivered by
+   * ace-media follow it (D1).
+   */
+  onLive?: (producer: IngestProducer, path: string | undefined) => void;
   /** A source's `source.status.acceleration`; undefined once its path ends. */
   acceleration?: (
     subject: AccelerationSubject,
@@ -151,6 +167,8 @@ type Path = {
   /** Draining keeps ace-media's need until the path ends. */
   release: (() => void) | undefined;
   reported: boolean;
+  /** ace-media's last plan for it (`source.want`), for the producer once it is pointed here. */
+  want: Extract<FromMedia, { type: "source.want" }>["encodes"] | undefined;
 };
 
 export type IngestSource = {
@@ -250,7 +268,7 @@ export class IngestSources {
   exited(): void {
     for (const entry of this.#entries) {
       const live = entry.live;
-      entry.live = undefined;
+      this.#live(entry, undefined);
       entry.generation++;
       const was = entry.state;
       entry.state = "daemon";
@@ -261,15 +279,41 @@ export class IngestSources {
     for (const path of this.#paths.values()) this.#finish(path, true, false);
   }
 
+  #live(entry: Entry, path: Path | undefined): void {
+    if (entry.live === path) return;
+    entry.live = path;
+    this.#options.onLive?.(entry.producer, path?.id);
+  }
+
+  /** The producers streaming into ace-media now, with their ids there. */
+  live(): { producer: IngestProducer; path: string }[] {
+    const out: { producer: IngestProducer; path: string }[] = [];
+    for (const entry of this.#entries)
+      if (entry.live && !entry.closed) out.push({ producer: entry.producer, path: entry.live.id });
+    return out;
+  }
+
   /** The supervisor's `onMessage`. */
   message(message: FromMedia): void {
-    if (message.type !== "source.status" && message.type !== "source.keyframe") return;
+    if (
+      message.type !== "source.status" &&
+      message.type !== "source.keyframe" &&
+      message.type !== "source.want"
+    )
+      return;
     const path = this.#paths.get(message.source);
     if (!path || path.draining) return;
     const { entry } = path;
     if (entry.closed || entry.live !== path) return;
     if (message.type === "source.keyframe") {
       if (entry.state === "ingest") entry.producer.keyframe(message.encode);
+      return;
+    }
+    if (message.type === "source.want") {
+      // ace-media plans as soon as a view is granted, often before the producer is pointed
+      // here: the plan is kept for then.
+      path.want = message.encodes;
+      if (entry.state === "ingest") entry.producer.want?.(message.encodes);
       return;
     }
     if (message.acceleration) {
@@ -363,9 +407,10 @@ export class IngestSources {
       closeSent: false,
       release: undefined,
       reported: false,
+      want: undefined,
     };
     this.#paths.set(id, path);
-    entry.live = path;
+    this.#live(entry, path);
     entry.state = "opening";
     if (route.egress) this.#send({ type: "source.egress", source: id, on: true });
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
@@ -388,7 +433,9 @@ export class IngestSources {
       path: path.id,
       ...(ingest.pid ? { pid: ingest.pid } : {}),
     };
-    entry.producer.point(address).then(
+    const pointed = entry.producer.point(address);
+    if (path.want) entry.producer.want?.(path.want);
+    pointed.then(
       () => token.fill(0),
       (error: unknown) => {
         token.fill(0);
@@ -406,7 +453,7 @@ export class IngestSources {
   /** Points the producer back at the daemon; its path drains until its marker. */
   #leave(entry: Entry): void {
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.generation++;
     const was = entry.state;
     entry.state = "daemon";
@@ -421,7 +468,7 @@ export class IngestSources {
   #reconnect(entry: Entry): void {
     if (entry.closed || entry.state === "daemon") return;
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.state = "daemon";
     entry.generation++;
     if (live) this.#retire(live);
@@ -492,7 +539,7 @@ export class IngestSources {
     entry.generation++;
     this.#entries.delete(entry);
     const live = entry.live;
-    entry.live = undefined;
+    this.#live(entry, undefined);
     entry.state = "daemon";
     // The capture is gone: nothing is left to deliver to.
     if (live) this.#finish(live, true, true);

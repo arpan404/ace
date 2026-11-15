@@ -235,6 +235,28 @@ it("a flip back to the helper socket while ace-media still has the old path's un
   expect(s.source.stale).toBe(0);
 });
 
+it("ace-media's plan for the views it delivers reaches the helper, within its settings' bounds", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 1280, height: 800, fps: 15, bitrate: 600_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 15, bitrate: 600_000 },
+  });
+  // A thin link's plan below the helper's bounds is held to them, never refused.
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 32, height: 20, fps: 5, bitrate: 50_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    settings: { codec: "h264", maxWidth: 64, maxHeight: 64, fps: 5, bitrate: 128_000 },
+  });
+});
+
 it("a Linux helper is asked for H.264 only toward ace-media and keeps its JPEG pictures on the daemon's path", async () => {
   const s = session("linux-wayland");
   expect(s.producer().origin).toEqual({ kind: "screen", platform: "linux-wayland" });
@@ -283,5 +305,51 @@ it("the helper is told which process serves ace-media's ingest, so it can refuse
   expect(s.sent.at(-1)).toMatchObject({
     op: "stream.configure",
     ingest: { socket: "/run/m1i.sock", pid: 4242 },
+  });
+});
+
+it("legacy viewers and ace-media's views share the helper's one stream, and neither overwrites the other", async () => {
+  const s = session();
+  const configured = () =>
+    s.sent.flatMap((c) =>
+      typeof c === "object" && c !== null && "settings" in c ? [c.settings] : [],
+    );
+  await s.source.configure({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 800,
+    fps: 60,
+    bitrate: 8_000_000,
+  });
+  s.producer().want?.([
+    { id: 0, codec: "avc1.42E033", width: 1920, height: 1200, fps: 15, bitrate: 600_000 },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The stream both can take: the smaller of each.
+  expect(configured().at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 1280,
+    maxHeight: 800,
+    fps: 15,
+    bitrate: 600_000,
+  });
+  // A legacy viewer resizing keeps ace-media's lower rate.
+  await s.source.configure({
+    codec: "h264",
+    maxWidth: 1024,
+    maxHeight: 640,
+    fps: 60,
+    bitrate: 8_000_000,
+  });
+  expect(configured().at(-1)).toMatchObject({ maxWidth: 1024, fps: 15, bitrate: 600_000 });
+  // ace-media's last view goes: the legacy viewer's request alone.
+  s.producer().want?.([]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(configured().at(-1)).toEqual({
+    codec: "h264",
+    maxWidth: 1024,
+    maxHeight: 640,
+    fps: 60,
+    bitrate: 8_000_000,
   });
 });

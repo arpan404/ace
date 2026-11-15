@@ -226,3 +226,35 @@ fn a_still_of_an_h264_stream_is_decoded_and_encoded_by_videotoolbox() {
         "decoded by VideoToolbox: {steps:?}"
     );
 }
+
+#[test]
+fn a_poster_comes_back_fitted_to_the_viewport_within_twenty_kilobytes() {
+    let mut media = Media::spawn("stills-poster");
+    media.start();
+    open_source(&mut media, "s1", 1, 3);
+    media.send(
+        json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
+        &base64(&picture(1600, 1000)),
+    );
+    media.send(
+        json!({ "type": "still.poster", "request": "p1", "source": "s1", "width": 390,
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
+        &[],
+    );
+    let (size, _, jpeg) = done(&mut media);
+    assert!(size.width <= 390 && size.height <= 844, "{size:?}");
+    assert_eq!(jpeg_size(&jpeg), Ok(size));
+    assert!(jpeg.len() <= 20_000, "{} bytes", jpeg.len());
+
+    media.send(
+        json!({ "type": "still.poster", "request": "p2", "source": "nobody", "width": 390,
+                "height": 844, "deadlineMs": 2_000, "clear": [[1, 1]] }),
+        &[],
+    );
+    match answer(&mut media) {
+        (FromMedia::StillFailed { request, reason }, _) => {
+            assert_eq!((request.get(), reason.as_str()), ("p2", "no-source"));
+        }
+        other => panic!("expected still.failed, got {other:?}"),
+    }
+}

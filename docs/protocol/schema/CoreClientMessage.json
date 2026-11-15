@@ -10,7 +10,8 @@
             "devices",
             "browser",
             "screen",
-            "provider_auth"
+            "provider_auth",
+            "media"
           ],
           "type": "string"
         },
@@ -54,6 +55,9 @@
         },
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "mediaTicket": {
+          "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
         },
         "nextTicket": {
           "const": true,

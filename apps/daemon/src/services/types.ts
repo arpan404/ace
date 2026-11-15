@@ -34,6 +34,8 @@ export interface Services {
   ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;

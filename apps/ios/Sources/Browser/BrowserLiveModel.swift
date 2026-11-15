@@ -15,6 +15,8 @@ import UIKit
     private(set) var page: BrowserPageInfo?
     /// The drawn picture's page size (CSS pixels); nil until the first picture is drawn.
     private(set) var pageSize: CGSize?
+    /// A subscribe's poster is on screen in place of the page until its first live picture.
+    private(set) var posterShown = false
     /// The devices the device toolbar offers (`bridge/browser-device.ts`).
     private(set) var presets: [BrowserViewInfo.Device.Preset] = []
     /// The person's zoom and move of the picture (`PageGeometry`), for what is drawn over it.
@@ -50,6 +52,7 @@ import UIKit
 
     @ObservationIgnored private var renderer: BrowserRenderer?
     @ObservationIgnored private var latest: LatestBrowserPicture?
+    @ObservationIgnored private var poster: LatestPoster?
     @ObservationIgnored private var acks: BrowserAcks?
     @ObservationIgnored private var generation: Int?
     @ObservationIgnored private var visible = true
@@ -66,18 +69,24 @@ import UIKit
         self.threadId = threadId
         let latest = LatestBrowserPicture()
         let acks = BrowserAcks(visible: visible, send: ack)
-        let renderer = BrowserRenderer(threadId: threadId, present: { latest.put($0) }, ack: { acks.acknowledge($0) })
+        let poster = LatestPoster()
+        self.poster = poster
+        let renderer = BrowserRenderer(threadId: threadId, discard: { _ = latest.take() }, showPoster: { poster.put($0) },
+                                       present: { latest.put($0) }, ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
         self.renderer = renderer
-        streams?.attach { chunk in renderer.receive(chunk) }
+        streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
+        renderer.follow(streams)
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
+        streams?.attachDelivery("browser", nil)
+        poster = nil
         renderer?.close()
         acks?.close()
         renderer = nil; latest = nil; acks = nil
-        threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
+        threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil; posterShown = false
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
         done = nil; source = nil; sizes = nil; extensions = nil; latency = nil
@@ -119,6 +128,12 @@ import UIKit
     func setVisible(_ value: Bool) {
         visible = value
         acks?.setVisible(value)
+    }
+    /// The poster a subscribe brought back since the last call, for the display link.
+    func nextPoster() -> CGImage? {
+        guard let image = poster?.take() else { return nil }
+        if pageSize == nil, !posterShown { posterShown = true }
+        return image
     }
     /// The newest picture decoded since the last call, for the display link; older ones are dropped.
     func nextPicture() -> BrowserPicture? {

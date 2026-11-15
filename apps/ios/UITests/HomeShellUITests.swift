@@ -46,7 +46,10 @@ import XCTest
         XCTAssertTrue(compose.waitForExistence(timeout: 5))
         XCTAssertEqual(compose.label, "New chat")
         compose.tap()
-        XCTAssertEqual(app.buttons["newThread.project"].waitForExistence(timeout: 10) ? app.buttons["newThread.project"].label : nil, "Project, none")
+        // The pill reads "Project" with the choice as its value (aa84168b9).
+        let project = app.buttons["newThread.project"]
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        XCTAssertEqual(project.value as? String, "No project", "a chat starts with no project")
     }
 
     func testSearchListsThePlacesAndOpensOne() {

@@ -829,8 +829,11 @@ export class ScreenManager {
     };
     for (;;) {
       authorize();
-      const outcome = await turn?.wait();
-      authorize();
+      // Only an agent with a cowork turn waits here. Anything else is queued on the session's
+      // action tail before this call returns, so a viewer leaving right after its input (the
+      // last viewer releasing capture) stops the session only once that input has drained.
+      const outcome = turn ? await turn.wait() : undefined;
+      if (turn) authorize();
       if (outcome?.busy) throw new PublicToolError("person_busy");
       const result = await executeSessionAction(
         {

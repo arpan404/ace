@@ -193,6 +193,8 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
+  // The client's media connection (ADR 0147 §4): granted with a ticket, or not, and why.
+  "media.connect": ["media.connect.result"],
   "notification.config": ["notification.config.result"],
   "notification.register": ["notification.register.result"],
   "notification.unregister": ["notification.unregister.result"],

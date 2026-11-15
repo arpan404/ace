@@ -1,0 +1,12 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "still.poster",
+    "request": "source-1",
+    "source": "source-1",
+    "width": 390,
+    "height": 844,
+    "deadlineMs": 800,
+    "clear": [[1, 2]]
+  }
+}

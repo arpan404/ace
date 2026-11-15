@@ -12,13 +12,27 @@ mod listener;
 mod pictures;
 #[cfg(windows)]
 mod pipe;
+mod priority_gate;
 mod readers;
+mod relay;
+#[cfg(test)]
+mod relay_close_tests;
+mod relay_sockets;
+#[cfg(test)]
+mod relay_tests;
+mod relay_tls;
+mod relay_ws;
 mod sealed;
+mod shutdown;
+#[cfg(test)]
+mod shutdown_tests;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
+mod viewers;
 mod writer;
 
 use crate::encode::worker::Output;
+use crate::engine::relay::CloseMode;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
@@ -178,6 +192,16 @@ async fn serve(
         Err(error) => return fail(&format!("ingest websocket: {error}")),
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
+    // Clients' media connections (D1): loopback only, plain WebSocket. Nothing binds beyond
+    // loopback until the TLS listener lands: `listen`'s remote part is taken and wiped, never
+    // served (remote clients use the relay, D2).
+    let media_listener = match TcpListener::bind(("127.0.0.1", 0)).await {
+        Ok(listener) => listener,
+        Err(error) => return fail(&format!("media listener: {error}")),
+    };
+    let loopback_port = media_listener
+        .local_addr()
+        .map_or(0, |a| u32::from(a.port()));
 
     // Trials still running when ace-media stops close their sessions at their next step.
     let cancel = Cancel::default();
@@ -228,7 +252,7 @@ async fn serve(
             socket: places.home.address(Role::Control),
         },
         listen: Listen {
-            loopback_port: 0,
+            loopback_port,
             remote_port: None,
         },
     };
@@ -242,6 +266,10 @@ async fn serve(
     let ingest = Ingest::new(ingest_tx);
     ingest::serve_socket(ingest_socket, ingest.clone());
     ingest::serve_websocket(websocket, ingest);
+    let (media_tx, mut media_rx) = mpsc::channel(256);
+    viewers::serve(media_listener, media_tx);
+    let mut outboxes = viewers::Outboxes::default();
+    let mut hellos = viewers::Hellos::default();
 
     let (normal_tx, mut normal_rx) = mpsc::channel(4);
     tokio::spawn(async move {
@@ -269,6 +297,9 @@ async fn serve(
     if let Ok(threads) = threads {
         engine = engine.with_stills(Box::new(threads));
     }
+    let (relay_tx, mut relay_rx) = mpsc::channel(256);
+    let mut relays = relay_sockets::RelaySockets::new(relay_tx, engine.relay_pool());
+    let mut gate = priority_gate::PriorityGate::default();
     let mut connections: HashMap<IngestId, oneshot::Sender<()>> = HashMap::new();
     let lag: Arc<Mutex<VecDeque<Instant>>> = Arc::default();
     let mut priority_rx: Option<mpsc::Receiver<ControlFrame<ToMedia>>> = None;
@@ -341,6 +372,9 @@ async fn serve(
                         lag: &lag,
                         pictures: &mut pictures,
                         readers: &mut readers,
+                        relays: &mut relays,
+            gate: &mut gate,
+                        media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
@@ -385,11 +419,55 @@ async fn serve(
                 }
             }
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
+            answer = gate.next(), if !gate.is_empty() => {
+                if let (Some(bytes), Some(priority)) = (answer, priority_out.as_ref())
+                    && priority.send(bytes).is_err()
+                {
+                    break fail("the priority lane is backed up past its bound");
+                }
+            }
+            Some(event) = relay_rx.recv() => match event {
+                relay::RelayEvent::Dialed { stream } => {
+                    // A stream the engine let go meanwhile: its socket goes at once.
+                    if !engine.relay_dialed(&stream) {
+                        gate.closed(relays.close(stream.get(), CloseMode::Forced));
+                        gate.settle();
+                    }
+                }
+                relay::RelayEvent::Closed { stream } => engine.relay_closed(&stream),
+                relay::RelayEvent::Frame { stream, frame } => {
+                    engine.relay_frame(&stream, frame, clock.now())
+                }
+                relay::RelayEvent::Ended { stream, reason } => {
+                    gate.closed(relays.ended(stream.get()));
+                    engine.relay_ended(&stream, reason, clock.now());
+                }
+            },
+            Some(event) = media_rx.recv() => match event {
+                viewers::MediaEvent::Hello { ticket, outbox, admit } => {
+                    let now = clock.now();
+                    let mut claim =
+                        |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+                    hellos.present(ticket, outbox, admit, &mut claim, &mut outboxes);
+                }
+                viewers::MediaEvent::Text(connection, text) => {
+                    engine.media_message(&connection, &text, clock.now());
+                }
+                viewers::MediaEvent::Closed(connection) => {
+                    outboxes.close(&connection, media_wire::media_link::close::CLOSED);
+                    engine.media_closed(&connection, clock.now());
+                }
+            },
             _ = tick.tick() => {
                 let now = clock.now();
                 engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
                 engine.tick(now);
             }
+        }
+        {
+            let now = clock.now();
+            let mut claim = |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+            hellos.retry(&mut claim, &mut outboxes);
         }
         let mut outputs = Outputs {
             stdout: &stdout,
@@ -398,6 +476,9 @@ async fn serve(
             lag: &lag,
             pictures: &mut pictures,
             readers: &mut readers,
+            relays: &mut relays,
+            gate: &mut gate,
+            media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {
@@ -406,19 +487,13 @@ async fn serve(
             Step::Shutdown(grace) => {
                 engine.finish();
                 apply(&mut engine, &mut outputs);
-                let half = grace / 2;
-                if let Some(priority) = priority_out.take() {
-                    priority.close(half).await;
-                }
-                stdout.close(half).await;
+                // Relay closes, then both lanes: all inside `grace`.
+                shutdown::shutdown_within(grace, &mut relays, priority_out.take(), stdout).await;
                 return EXIT_OK;
             }
         }
     };
     drop(connections);
-    if let Some(priority) = priority_out.take() {
-        priority.close(STDIN_GRACE).await;
-    }
-    stdout.close(STDIN_GRACE).await;
+    shutdown::shutdown_within(STDIN_GRACE, &mut relays, priority_out.take(), stdout).await;
     code
 }

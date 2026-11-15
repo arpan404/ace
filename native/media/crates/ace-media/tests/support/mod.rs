@@ -70,6 +70,8 @@ pub struct Media {
     pub stdin: Option<ChildStdin>,
     pub stdout: ChildStdout,
     pub dir: PathBuf,
+    /// The direct listener's loopback port, from `ready`.
+    pub listen_port: u32,
     /// The binary's capability list: `ready`'s, replaced by each `capabilities.changed`.
     pub capabilities: Vec<Capability>,
 }
@@ -106,6 +108,7 @@ impl Media {
             stdin: Some(stdin),
             stdout,
             dir,
+            listen_port: 0,
             capabilities: Vec::new(),
         }
     }
@@ -226,8 +229,10 @@ impl Media {
                 capabilities,
                 control,
                 ingest,
+                listen,
                 ..
             } => {
+                self.listen_port = listen.loopback_port;
                 assert_eq!(pid, self.child.id());
                 assert_eq!(version, env!("CARGO_PKG_VERSION"));
                 assert!(!capabilities.is_empty(), "the CPU path is always reported");
