@@ -66,14 +66,23 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
   const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-"));
   const exits: MediaExit[] = [];
   const state = { replays: 0, egress: 0 };
+  // The control socket the supervisor dialled for its lanes, as ace-media named it in `ready`.
+  let dialled: string | undefined;
+  const remember = (host: MediaHost): MediaHost => ({
+    spawn: (binary) => host.spawn(binary),
+    connect: (path) => {
+      dialled = path;
+      return host.connect(path);
+    },
+  });
   const supervisor: MediaSupervisor = new MediaSupervisor({
     version: target.version,
     binary: target.binary,
     runtimeDir,
     dataDir: runtimeDir,
     settings: () => ({ ...legacyMediaSettings, stills: "auto" }),
-    host: (hooks.host ?? ((host) => host))(
-      nodeMediaHost({ ...process.env, ...env }, target.launch),
+    host: remember(
+      (hooks.host ?? ((host) => host))(nodeMediaHost({ ...process.env, ...env }, target.launch)),
     ),
     ...(hooks.randomBytes ? { randomBytes: hooks.randomBytes } : {}),
     clock: systemMediaClock,
@@ -94,10 +103,9 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
   });
   const control = () => {
     const pid = supervisor.snapshot().pid;
-    // The binary's control socket is `m<pid>c.sock`; on Windows its two named pipes carry a
-    // nonce and differ only in their last letter, so the control pipe comes from the ingest one.
-    if (real && process.platform !== "win32") return join(runtimeDir, `m${pid}c.sock`);
-    if (real) return (supervisor.ingest()?.socket ?? "").replace(/i$/, "c");
+    // The binary names its control socket itself (`m<pid>c.sock`, or a named pipe with a nonce
+    // on Windows): the one the supervisor dialled. Known before the lanes are both up.
+    if (real) return dialled ?? "";
     return process.platform === "win32"
       ? `\\\\.\\pipe\\ace-media-fake-${pid}`
       : join(runtimeDir, "control.sock");
