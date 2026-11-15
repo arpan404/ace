@@ -18,6 +18,8 @@ impl Engine {
     /// all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
+        let woke = self.stop_wakes(id);
         let live = self.live(id);
         // What runs is read, a task's waiting step (ADR 0144) called off and the stop stored
         // under the one lock work starts under: no turn, job or step can begin between the
@@ -53,7 +55,7 @@ impl Engine {
                 }
             }
             if !busy && reply.is_none() && jobs.is_empty() && !pending {
-                return loaded.map(|_| false);
+                return loaded.map(|_| woke);
             }
             // The stop names what it stops, so a late write never reaches newer work.
             let marker = Event::Known(Known::StopRequested {
@@ -91,7 +93,7 @@ impl Engine {
         }
         loaded?;
         stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending)
+        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending || woke)
     }
 
     /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and

@@ -161,10 +161,13 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 untrusted: false,
                 files: Box::default(),
                 shared: crate::tools::Shared::default(),
+                transient: false,
             }
         }
+        // Nothing ran (ace was away or busy): a background call is parked and tried again later
+        // (ADR 0160).
         Err(ToolsError::NotRun(why)) => {
-            ToolOutput::error(format!("Not run: {why}. It is safe to try again."))
+            ToolOutput::error(format!("Not run: {why}. It is safe to try again.")).transient()
         }
         Err(error @ (ToolsError::OutcomeUnknown(_) | ToolsError::Timeout)) => {
             ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({error})"))

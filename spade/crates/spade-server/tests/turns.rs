@@ -389,6 +389,8 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
             "routine_delete",
             "routine_save",
             "routines_list",
+            "sleep_until",
+            "wait_for",
             "tool_search",
             "call_tool"
         ],

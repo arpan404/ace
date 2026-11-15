@@ -37,6 +37,11 @@ uuid.workspace = true
 cap-std = "4.0.3"
 cap = "0.1.2"
 cap-fs-ext = "4.0.3"
+# Wakes and owned services (ADR 0160): the OS's file events for `wait_for {file}`, service line
+# patterns, and polling a loopback URL.
+notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
+regex = "1"
+reqwest.workspace = true
 
 [features]
 # Timing hooks only tests may use (`Shell::with_end_delay`, `Terminals::with_end_deadline`); off

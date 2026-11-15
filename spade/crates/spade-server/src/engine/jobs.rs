@@ -134,6 +134,22 @@ fn spawn(
         );
         tokio::spawn(async move {
             let output = work.await;
+            // A failure that may pass parks the job: it stays running in the record and runs
+            // again when its retry wake fires (ADR 0160).
+            if output.transient && output.is_error && !output.uncertain {
+                let parked = {
+                    let live = engine.live(&id);
+                    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+                    // Gone means Stop already took this job's end.
+                    matches!(jobs.get(&job), Some(Job::Running { .. }))
+                        && engine.park_job(&id, &job, &output.content)
+                        && jobs.remove(&job).is_some()
+                };
+                if parked {
+                    engine.announce(&id);
+                    return;
+                }
+            }
             {
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
@@ -304,6 +320,10 @@ fn take_named(
 pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
     let events = engine.load(id)?;
     for job in Transcript::fold(events.iter()).jobs {
+        // A job parked for a retry is not running: its wake runs it again (ADR 0160).
+        if spade_core::wake::parked(&events, &job) {
+            continue;
+        }
         // A helper's work is all in its events: its job runs again and waits for it (ADR 0152).
         if let Some(helper) = engine.store.helper_for_job(id, &job)? {
             // Unless Stop was stored for it before the restart and its end was not: the stop
@@ -322,7 +342,7 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
                 });
                 engine.record(id, &stopped)?;
             } else {
-                reattach(engine, id, &events, &job);
+                reattach(engine, id, &events, &job, spade_core::helper::TOOL);
             }
             continue;
         }
@@ -341,8 +361,20 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
     Ok(())
 }
 
-/// Runs a helper's job again after a restart: it finds its helper and waits for its end.
-fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str) {
+/// A parked job's retry wake fired (ADR 0160): the same call runs again as the same job.
+pub(super) fn rerun(engine: &Arc<Engine>, id: &str, job: &str) {
+    let Ok(events) = engine.load(id) else { return };
+    if spade_core::turn::job_stopped(&events, job) || engine.deleting(id) {
+        return;
+    }
+    let name = job_name(&events, job);
+    reattach(engine, id, &events, job, &name);
+    engine.announce(id);
+}
+
+/// Runs job `job` (of tool `tool`) again with its call's arguments: a helper's after a restart,
+/// which finds its helper and waits for its end; a parked job's at its retry.
+fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &str) {
     let reply = events.iter().find_map(|event| match event {
         Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => Some(reply.clone()),
         _ => None,
@@ -361,17 +393,10 @@ fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str) {
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
     let work = {
-        let (engine, key) = (engine.clone(), format!("{id}.{job}"));
-        async move { run(&engine, &key, spade_core::helper::TOOL, arguments).await }
+        let (engine, key, tool) = (engine.clone(), format!("{id}.{job}"), tool.to_owned());
+        async move { run(&engine, &key, &tool, arguments).await }
     };
-    let handle = spawn(
-        engine,
-        id,
-        &reply,
-        job,
-        spade_core::helper::TOOL,
-        Box::pin(work),
-    );
+    let handle = spawn(engine, id, &reply, job, tool, Box::pin(work));
     jobs.insert(job.to_owned(), Job::Running { reply, handle });
 }
 

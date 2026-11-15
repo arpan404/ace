@@ -213,6 +213,8 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             "routine_delete",
             "routine_save",
             "routines_list",
+            "sleep_until",
+            "wait_for",
             "tool_search",
             "call_tool"
         ],

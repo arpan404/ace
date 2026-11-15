@@ -9,10 +9,12 @@ mod connectors;
 mod helper;
 mod memory;
 mod plugins;
+mod services;
 mod skill_tools;
 mod skills;
 mod task;
 mod todo;
+mod wake;
 mod web_fetch;
 mod web_search;
 
@@ -32,6 +34,7 @@ pub use connectors::ConnectorSource;
 pub use helper::HelperTool;
 pub use memory::{AskUser, MemoryTool};
 pub use plugins::PluginTools;
+pub use services::service_tools;
 pub use skill_tools::{SkillLoad, SkillSearch};
 pub use skills::{
     AceLibrary, LibraryFuture, SkillFileData, SkillLibrary, SkillSource, WriteError, WriteFuture,
@@ -39,6 +42,7 @@ pub use skills::{
 };
 pub use task::TaskStatus;
 pub use todo::Todo;
+pub use wake::with_wake_tools;
 pub use web_fetch::WebFetch;
 pub use web_search::{NOT_SET_UP, WebSearch};
 
@@ -61,6 +65,9 @@ pub struct ToolOutput {
     /// What the tool showed the person, already stored (ADR 0134). Recorded as a `shared` event
     /// beside the result; the model is not shown it.
     pub shared: Shared,
+    /// The call failed for a while (the network, a rate limit, a `5xx`), so trying it again later
+    /// may work: a background job that ends so is parked and run again (ADR 0160).
+    pub transient: bool,
 }
 
 /// Images and documents a tool showed the person, by reference.
@@ -86,7 +93,15 @@ impl ToolOutput {
             untrusted: false,
             files: Box::default(),
             shared: Shared::default(),
+            transient: false,
         }
+    }
+
+    /// The same result, marked as a failure that may pass (ADR 0160).
+    #[must_use]
+    pub fn transient(mut self) -> Self {
+        self.transient = true;
+        self
     }
 
     /// The same result, marked as carrying untrusted content.
@@ -105,6 +120,7 @@ impl ToolOutput {
             untrusted: false,
             files: Box::default(),
             shared: Shared::default(),
+            transient: false,
         }
     }
 

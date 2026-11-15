@@ -33,9 +33,12 @@ mod review;
 pub mod roster;
 mod routines;
 mod search;
+mod services;
 mod turn;
 mod turn_log;
 mod types;
+mod wake_sources;
+mod wakes;
 
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
@@ -177,6 +180,10 @@ pub struct Engine {
     levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
     helpers: helpers::Shared,
+    /// Bots' wakes, armed (ADR 0160, `wakes`).
+    wakes: wakes::Shared,
+    /// Bots' owned services (ADR 0160), once the server has set them.
+    services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -218,6 +225,8 @@ impl Engine {
             tools = tools.with_tool(tool);
         }
         let tools = crate::routines::with_tools(tools, &handle);
+        // `sleep_until`, `wait_for` and `wake_cancel` (ADR 0160).
+        let tools = crate::tools::with_wake_tools(tools, &handle);
         let tools = crate::teams::with_tools(tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
@@ -259,6 +268,8 @@ impl Engine {
             continuations: Mutex::default(),
             levels: Mutex::default(),
             helpers: helpers::Shared::default(),
+            wakes: wakes::Shared::default(),
+            services: std::sync::OnceLock::new(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -295,6 +306,8 @@ impl Engine {
     /// use one finds it.
     pub fn open_for_work(self: &Arc<Self>) {
         self.end_maintenance();
+        // Bots' wakes are armed from their events and `keep` services start again (ADR 0160).
+        self.restore_wakes();
         if let Err(error) = self.resume_groups() {
             tracing::error!(%error, "could not pick up the groups' open asks");
         }
@@ -384,6 +397,8 @@ impl Engine {
             task: spade_core::task::state_in(events.iter()),
             continued: transcript.open_reply().is_some()
                 && autonomy::continued(events.len(), |at| events.at(at).0),
+            wake: spade_core::wake::soonest(&spade_core::wake::open(events.iter())).cloned(),
+            services: spade_core::service::running(events.iter()).len(),
         };
         self.activity
             .lock()
@@ -436,6 +451,10 @@ impl Engine {
         match activity.state {
             State::Idle => None,
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
+            State::Sleeping => activity
+                .wake
+                .as_ref()
+                .map(|open| spade_core::wake::words(open, |ms| self.short_time(ms))),
             State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
@@ -548,8 +567,27 @@ impl Engine {
                     }
                     false
                 }
+                // A wake fires once (ADR 0160): only while it is still open.
+                Event::Known(Known::WakeFired { wake, .. }) => {
+                    if !spade_core::wake::is_open(&events, wake) {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    false
+                }
+                // Each check-in on a job once, and only while the job runs.
+                Event::Known(Known::JobProgress { job, check, .. }) => {
+                    if !Transcript::fold(events.iter()).jobs.contains(job)
+                        || spade_core::wake::checks_done(&events, job) >= *check
+                    {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
+                    job_stopped(&events, job)
+                }
                 _ => false,
             };
+            // The waits this event settles (a job's end, a message) are stored with it, so
+            // they are settled once, with what settles them (ADR 0160).
+            let settled = spade_core::wake::settled_by(&events, event);
             // While the person has the bot's computer, messages wait for the hand-back.
             let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
             let (start, stored) =
@@ -557,13 +595,17 @@ impl Engine {
                     // A typed message that can stand for a waiting card's answers is stored with
                     // them, so the card shows what it answered (ADR 0154).
                     let mut batch = vec![event.clone()];
+                    batch.extend(settled.iter().cloned());
                     batch.extend(question::typed_answer(&events, event));
                     (false, self.append_as(id, &batch, ask)?)
                 } else {
                     // Stored together, so a crash can never keep the input without its reply.
                     let model = self.reply_model(id);
                     let started = Event::reply_started(self.ids.next("r"), model);
-                    (true, self.append_as(id, &[event.clone(), started], ask)?)
+                    let mut batch = vec![event.clone()];
+                    batch.extend(settled.iter().cloned());
+                    batch.push(started);
+                    (true, self.append_as(id, &batch, ask)?)
                 };
             if !matches!(stored, spade_store::Delivered::Stored(_)) {
                 return Ok(stored);

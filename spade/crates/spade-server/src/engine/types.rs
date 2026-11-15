@@ -273,4 +273,8 @@ pub struct Activity {
     pub task: Option<spade_core::task::State>,
     /// The open reply is a step Spade started itself for the task.
     pub continued: bool,
+    /// The open wake the person sees first (ADR 0160).
+    pub wake: Option<spade_core::wake::Open>,
+    /// Owned services running (ADR 0160).
+    pub services: usize,
 }

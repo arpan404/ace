@@ -137,6 +137,13 @@ pub async fn run_now(
 
 /// An ace thread changed: every active routine waiting for that event runs.
 pub(crate) async fn thread_changed(engine: &Arc<Engine>, change: &ThreadChange) {
+    // Bots waiting on this thread wake first (ADR 0160).
+    let state = match change.state {
+        ThreadState::Done => "done",
+        ThreadState::Failed => "failed",
+        ThreadState::NeedsYou => "needs_you",
+    };
+    engine.wake_on_thread(&change.thread_id, state, &change.title);
     let event = match change.state {
         ThreadState::Done => AceEvent::ThreadDone,
         ThreadState::Failed => AceEvent::ThreadFailed,

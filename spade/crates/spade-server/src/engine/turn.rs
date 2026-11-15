@@ -39,6 +39,9 @@ pub(super) struct Failure {
     pub kind: FailureKind,
     /// The endpoint the call went to, when the failure was the endpoint's.
     pub endpoint: Option<String>,
+    /// It may pass (unreachable, rate limited, a `5xx`): the reply is parked for a retry (ADR
+    /// 0160).
+    pub transient: bool,
 }
 
 impl Failure {
@@ -53,7 +56,11 @@ impl Failure {
                     .map(|(endpoint, _)| endpoint.to_owned())
             })
             .flatten();
-        Self { kind, endpoint }
+        Self {
+            kind,
+            endpoint,
+            transient: error.transient(),
+        }
     }
 
     /// A spending cap: the day's, or one of the bot's own caps.
@@ -61,6 +68,7 @@ impl Failure {
         Self {
             kind: FailureKind::Cap,
             endpoint: None,
+            transient: false,
         }
     }
 }
@@ -101,7 +109,18 @@ pub(super) async fn run(
     let paused = matches!(ended, Ended::Paused);
     // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
     // not release the reply still open. Whether it is still open is checked as it is closed.
+    let mut park: Option<String> = None;
     if let Some(reply) = driven.clone() {
+        if let Ended::FailedAs(
+            _,
+            error,
+            Failure {
+                transient: true, ..
+            },
+        ) = &ended
+        {
+            park = Some(error.clone());
+        }
         let event = match ended {
             Ended::Finished => None,
             Ended::Paused => {
@@ -132,6 +151,10 @@ pub(super) async fn run(
         if let Some(event) = event {
             close_durably(&engine, &id, &reply, &event).await;
         }
+    }
+    // A failure that may pass is tried again later instead of ending the work (ADR 0160).
+    if let Some(error) = park {
+        engine.park_reply(&id, &error);
     }
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.

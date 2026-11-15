@@ -17,6 +17,7 @@ mod routines;
 mod search;
 mod skills;
 mod teams;
+mod wakes;
 mod workspace;
 
 use std::convert::Infallible;
@@ -148,6 +149,7 @@ pub fn router(state: AppState) -> Router {
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(wakes::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

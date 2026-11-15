@@ -256,6 +256,7 @@ impl Engine {
             worker.abort();
         }
         super::jobs::cancel_all(&live);
+        self.forget_wakes(&conversation);
         let deleted = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let deleted = self.store.delete_agent(id);
@@ -326,6 +327,15 @@ impl Engine {
                 self.continuing(&agent.conversation, activity.continued)
                     .into(),
             );
+            // What it sleeps or waits for, and its running services (ADR 0160).
+            shown.insert(
+                "wake".into(),
+                activity
+                    .wake
+                    .as_ref()
+                    .map_or(serde_json::Value::Null, |open| self.wake_json(open)),
+            );
+            shown.insert("services".into(), activity.services.into());
         }
         let seen = self.store.seen(&agent.conversation)?;
         Ok(AgentView {
