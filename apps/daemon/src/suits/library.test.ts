@@ -166,17 +166,23 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["blueprint", "neon-district", "phosphor", "starfield", "warm-paper"]);
+  expect(seeded).toEqual(["arcade-cabinet"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
   }
-  // The scene Suit is served with its scene; the colours-only one has none.
-  expect(detail(await library.read("starfield")).sceneUrl).toMatch(/scene\.html$/);
-  expect(detail(await library.read("neon-district")).sceneUrl).toMatch(/scene\.html$/);
-  expect(detail(await library.read("phosphor")).sceneUrl).toMatch(/scene\.html$/);
-  expect(detail(await library.read("warm-paper")).sceneUrl).toBeNull();
-  expect(detail(await library.read("blueprint")).sceneUrl).toBeNull();
+  // It is served with its scene, its sanitised suit.css and its ornaments.
+  const arcade = detail(await library.read("arcade-cabinet"));
+  expect(arcade.sceneUrl).toMatch(/scene\.html$/);
+  expect(arcade.css).toContain('[data-suit="arcade-cabinet"]');
+  expect(Object.keys(arcade.ornaments).toSorted()).toEqual([
+    "corner-bottom-left",
+    "corner-bottom-right",
+    "corner-top-left",
+    "corner-top-right",
+    "empty-state",
+    "sidebar-header",
+  ]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {

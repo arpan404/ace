@@ -24,7 +24,7 @@ function clock() {
   };
 }
 
-const report = (checkId: string, suitId = "neon-district"): SuitLiveReport => ({
+const report = (checkId: string, suitId = "arcade-cabinet"): SuitLiveReport => ({
   checkId,
   suitId,
   client: "web",
@@ -46,7 +46,7 @@ function setup() {
   const phone = { name: "phone" };
   let settled: SuitLiveReport[] | undefined;
   const start = (sockets: object[], signal = new AbortController().signal) =>
-    checks.run("neon-district", () => sockets, signal).then((reports) => (settled = reports));
+    checks.run("arcade-cabinet", () => sockets, signal).then((reports) => (settled = reports));
   return { time, checks, laptop, phone, start, settled: () => settled };
 }
 
@@ -104,7 +104,7 @@ test("a report from a device not asked, for another Suit, or a second one, is ig
   const world = setup();
   void world.start([world.laptop, world.phone]);
   world.checks.receive({ name: "stranger" }, report("check-1"));
-  world.checks.receive(world.laptop, report("check-1", "warm-paper"));
+  world.checks.receive(world.laptop, report("check-1", "quiet-ledger"));
   world.checks.receive(world.laptop, report("check-2"));
   world.checks.receive(world.laptop, report("check-1"));
   world.checks.receive(world.laptop, report("check-1"));

@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="220" height="40" viewBox="0 0 220 40">
-  <rect x="3" y="5" width="214" height="30" rx="6" fill="#0B0912" stroke="#FF2D95" stroke-opacity="0.3" stroke-width="6"/>
-  <rect x="3" y="5" width="214" height="30" rx="6" fill="none" stroke="#FF2D95" stroke-width="1.5"/>
-  <circle cx="18" cy="20" r="4" fill="#3DF2FF"/>
-  <text x="32" y="25" font-family="ui-monospace, Menlo, monospace" font-size="13" letter-spacing="3" fill="#F0EAF8">OPEN ALL NIGHT</text>
-</svg>

@@ -5,13 +5,13 @@ import { expect, test } from "vitest";
 import { fakeSuit } from "@/test/fake-suits.ts";
 import { daemonSuitChannel, suitTransport, type SuitActive } from "./suit-transport.ts";
 
-const base = "/v1/suits/starfield/hash-1/grant/";
-const starfield: SuitDetail = {
-  ...fakeSuit({ id: "starfield", dark: { canvas: "#0a0f1e" } }, { scene: true }),
+const base = "/v1/suits/arcade-cabinet/hash-1/grant/";
+const arcade: SuitDetail = {
+  ...fakeSuit({ id: "arcade-cabinet", dark: { canvas: "#0a0f1e" } }, { scene: true }),
   sceneUrl: `${base}scene.html`,
   sceneUrls: { app: `${base}scene.html`, sidebar: `${base}rain.html` },
   assets: { "assets/star.png": `${base}assets/star.png` },
-  css: `[data-suit="starfield"] [data-part=sidebar]{background:url(${base}assets/star.png)}`,
+  css: `[data-suit="arcade-cabinet"] [data-part=sidebar]{background:url(${base}assets/star.png)}`,
   ornaments: { "sidebar-footer": `<svg><image href="${base}assets/star.png"></image></svg>` },
 };
 
@@ -20,10 +20,10 @@ function daemon() {
   const notifications = new Notifications(64);
   const listeners = new Set<(message: ServerMessage) => void>();
   let socket = 1;
-  let suits: SuitSummary[] = [starfield.summary];
+  let suits: SuitSummary[] = [arcade.summary];
   const answer = (request: SuitRequest) => {
     if (request.op === "list") return { op: "list", suits };
-    if (request.op === "read") return { op: "read", suit: starfield };
+    if (request.op === "read") return { op: "read", suit: arcade };
     return { op: "error", code: "failed", message: "not here" };
   };
   const sent: unknown[] = [];
@@ -76,8 +76,8 @@ test("the list comes on every new socket and on each change, tagged with its soc
   await settle();
   fake.change([]);
   expect(heard).toEqual([
-    [["starfield"], 1],
-    [["starfield"], 2],
+    [["arcade-cabinet"], 1],
+    [["arcade-cabinet"], 2],
     [[], 2],
   ]);
 });
@@ -85,7 +85,7 @@ test("the list comes on every new socket and on each change, tagged with its soc
 test("a read's scenes, assets and the asset references in its CSS and ornaments point at the daemon this page dials", async () => {
   const fake = daemon();
   const detail = await suitTransport(daemonSuitChannel(fake.client, "http://127.0.0.1:4242/")).read(
-    "starfield",
+    "arcade-cabinet",
   );
   const daemonUrl = `http://127.0.0.1:4242${base}`;
   expect(detail.sceneUrl).toBe(`${daemonUrl}scene.html`);
@@ -95,7 +95,7 @@ test("a read's scenes, assets and the asset references in its CSS and ornaments 
   });
   expect(detail.assets).toEqual({ "assets/star.png": `${daemonUrl}assets/star.png` });
   expect(detail.css).toBe(
-    `[data-suit="starfield"] [data-part=sidebar]{background:url(${daemonUrl}assets/star.png)}`,
+    `[data-suit="arcade-cabinet"] [data-part=sidebar]{background:url(${daemonUrl}assets/star.png)}`,
   );
   expect(detail.ornaments["sidebar-footer"]).toBe(
     `<svg><image href="${daemonUrl}assets/star.png"></image></svg>`,
@@ -104,7 +104,7 @@ test("a read's scenes, assets and the asset references in its CSS and ornaments 
 
 test("through a relay, where the daemon's HTTP is out of reach, a Suit applies with colours alone", async () => {
   const fake = daemon();
-  const detail = await suitTransport(daemonSuitChannel(fake.client, undefined)).read("starfield");
+  const detail = await suitTransport(daemonSuitChannel(fake.client, undefined)).read("arcade-cabinet");
   expect(detail.sceneUrl).toBeNull();
   expect(detail.sceneUrls).toEqual({});
   expect(detail.assets).toEqual({});
@@ -117,11 +117,11 @@ test("an agent's previews and keeps reach the page as they are pushed", () => {
   suitTransport(daemonSuitChannel(fake.client, undefined)).watchActive((active) =>
     heard.push(active),
   );
-  fake.active({ kind: "preview", suitId: "starfield" });
-  fake.active({ kind: "keep", suitId: "starfield", keepId: "k1" });
+  fake.active({ kind: "preview", suitId: "arcade-cabinet" });
+  fake.active({ kind: "keep", suitId: "arcade-cabinet", keepId: "k1" });
   expect(heard).toEqual([
-    { kind: "preview", suitId: "starfield" },
-    { kind: "keep", suitId: "starfield", keepId: "k1" },
+    { kind: "preview", suitId: "arcade-cabinet" },
+    { kind: "keep", suitId: "arcade-cabinet", keepId: "k1" },
   ]);
 });
 
@@ -130,11 +130,11 @@ test("a live check the daemon asks for reaches the page, and its report goes bac
   const transport = suitTransport(daemonSuitChannel(fake.client, undefined));
   const asked: unknown[] = [];
   transport.watchChecks((check) => asked.push(check));
-  fake.push({ type: "suitCheck", check: { checkId: "c1", suitId: "starfield" } });
-  expect(asked).toEqual([{ checkId: "c1", suitId: "starfield" }]);
+  fake.push({ type: "suitCheck", check: { checkId: "c1", suitId: "arcade-cabinet" } });
+  expect(asked).toEqual([{ checkId: "c1", suitId: "arcade-cabinet" }]);
   const report = {
     checkId: "c1",
-    suitId: "starfield",
+    suitId: "arcade-cabinet",
     client: "web" as const,
     scheme: "dark" as const,
     widths: [1280],

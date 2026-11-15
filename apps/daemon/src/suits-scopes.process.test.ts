@@ -156,15 +156,15 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     };
     const signal = new AbortController().signal;
 
-    expect(await previews.preview(caller, "starfield", signal)).toMatchObject({
+    expect(await previews.preview(caller, "arcade-cabinet", signal)).toMatchObject({
       status: "previewing",
     });
-    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "starfield" });
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "arcade-cabinet" });
 
     expect(await previews.keep(caller, undefined, signal)).toMatchObject({ status: "kept" });
     expect(await laptop.active()).toEqual({
       kind: "keep",
-      suitId: "starfield",
+      suitId: "arcade-cabinet",
       keepId: "keep-1",
     });
 
@@ -173,8 +173,8 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     expect(await stranger.quiet("after")).toEqual([]);
 
     // A turn's end takes its preview down on the devices that saw it.
-    await previews.preview(caller, "warm-paper", signal);
-    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "warm-paper" });
+    await previews.preview(caller, "arcade-cabinet", signal);
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "arcade-cabinet" });
     await previews.turnEnded(thread);
     expect(await laptop.active()).toEqual({ kind: "none" });
   } finally {

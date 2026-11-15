@@ -263,7 +263,7 @@ const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
 
-test.each(["starfield", "neon-district", "neon-district/sidebar", "phosphor"])(
+test.each(["arcade-cabinet"])(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
     const source = readFileSync(
