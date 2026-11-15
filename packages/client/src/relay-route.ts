@@ -9,6 +9,7 @@ import { RELAY_EARLY } from "./relay-early.ts";
 export { RELAY_EARLY } from "./relay-early.ts";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import { ClientError, type Transport } from "./types.ts";
+import { RelayNkMemory, askNextTicket, earlyFlight, type NkClocks } from "./relay-nk.ts";
 
 /**
  * Close code a relay route reports when the daemon asked an account device for its machine
@@ -42,6 +43,11 @@ export interface RelayRouteOptions {
    * opened. An attempt whose upgrade succeeded resets the count, however it ends after.
    */
   grantRefused?(grant: string): boolean;
+  /**
+   * Clocks for the NK memory (ADR 0155): a monotonic `now` for ticket life and NK's retry wait,
+   * and the wall clock a ticket must also be fresh by. Without them, the platform's.
+   */
+  clocks?: NkClocks | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -71,6 +77,12 @@ export function relayRoute(options: RelayRouteOptions): {
    * offer to send early: memory only, for this route's life.
    */
   let earlyKnown = false;
+  /** What this route knows to open with Noise NK: memory only, for its life (ADR 0155). */
+  const nk = new RelayNkMemory(
+    options.hostId,
+    options.clocks ?? { now: () => performance.now(), wallNow: () => Date.now() },
+  );
+  const encoder = new TextEncoder();
   /** The grant the last attempt offered, when the relay failed before opening for it. */
   let unopened: string | undefined;
   /** An attempt offering `grant` failed before its WebSocket opened: twice in a row names it. */
@@ -96,6 +108,10 @@ export function relayRoute(options: RelayRouteOptions): {
       let epoch = 0;
       /** The credential this transport's own attempt opened with, for its hello. */
       let own: Credential | undefined;
+      /** While an NK attempt gathers its first flight: what the connection sends. */
+      let collecting: string[] | undefined;
+      /** The attempt opened with a device token: its XX hello asks for the next ticket. */
+      let askTicket = false;
       const stop = () => {
         epoch++;
         controller?.abort();
@@ -118,6 +134,8 @@ export function relayRoute(options: RelayRouteOptions): {
           stop();
           const stamp = ++epoch;
           const signal = (controller = new AbortController()).signal;
+          /** An NK stream opened but hasn't reached its welcome: a loss now counts against NK. */
+          let nkUnwelcomed = false;
           const ended = (code: number, reason: string) => {
             if (stamp !== epoch) return;
             stop();
@@ -139,7 +157,7 @@ export function relayRoute(options: RelayRouteOptions): {
             // Offer to send early only where any relay answers something offered: with a grant
             // (an older relay echoes it), or to a relay that said it is new.
             const early = grant !== undefined || earlyKnown;
-            const dial = (sendEarly: boolean) =>
+            const dial = (sendEarly: boolean, nkOpen?: PortableRelayOptions["nk"]) =>
               connectPortableRelay({
                 relayUrl: options.relayUrl,
                 pinnedFingerprint: options.hostId,
@@ -156,18 +174,63 @@ export function relayRoute(options: RelayRouteOptions): {
                 schedule: options.schedule,
                 signal,
                 early: sendEarly,
+                nk: nkOpen,
               });
-            let opened: PortableRelay;
-            try {
+            /** Today's XX path, with the one retry after a lost early frame. */
+            const dialXx = async () => {
               try {
-                opened = await dial(early);
+                return await dial(early);
               } catch (error) {
                 const lost =
                   error instanceof RelayClosedError && error.code === RELAY_EARLY.lostClose;
                 if (!early || !lost || stamp !== epoch) throw error;
                 // The hosted relay lost the held frame: once more at once, after the marker.
-                opened = await dial(false);
+                return await dial(false);
               }
+            };
+            const token =
+              typeof credential === "string" ||
+              (typeof credential === "object" && "token" in credential);
+            const plan = token || grant !== undefined ? nk.attempt(grant) : undefined;
+            /** The NK attempt's first flight, sent after its confirmation or over XX instead. */
+            let flight: string[] | undefined;
+            let opened: PortableRelay;
+            let viaNk = false;
+            try {
+              if (plan) {
+                // The connection sends its hello and read subscribes on open: they become the
+                // first message, so the welcome needs one round trip.
+                pending = credential;
+                own = credential;
+                const gathered: string[] = [];
+                collecting = gathered;
+                events.open();
+                await new Promise<void>((resolve) => options.schedule(resolve, 0));
+                collecting = undefined;
+                if (stamp !== epoch) return;
+                const converted = earlyFlight(
+                  gathered,
+                  plan.ticket !== undefined ? { ticket: plan.ticket } : grant ? { grant } : {},
+                );
+                flight = gathered;
+                if (converted) {
+                  try {
+                    opened = await dial(early, {
+                      hostKey: plan.hostKey,
+                      early: encoder.encode(JSON.stringify(converted.early)),
+                      confirm: encoder.encode(JSON.stringify(converted.confirm)),
+                    });
+                    viaNk = true;
+                    flight = converted.rest;
+                  } catch (error) {
+                    if (stamp !== epoch) throw error;
+                    // Refused (a burned ticket, a limit) or lost: one immediate XX attempt with
+                    // the pinned key and the device's own credential.
+                    nk.failed();
+                    opened = await dialXx();
+                  }
+                } else opened = await dialXx();
+              } else opened = await dialXx();
             } catch (error) {
               // Only an upgrade that failed may be the relay refusing the grant; a failure of
               // this attempt, not one the connection called off.
@@ -183,9 +246,18 @@ export function relayRoute(options: RelayRouteOptions): {
               return;
             }
             relay = opened;
-            pending = credential;
-            own = credential;
-            events.open();
+            nkUnwelcomed = viaNk;
+            askTicket = token && !viaNk;
+            if (flight) {
+              // What the connection already sent: over XX all of it, after NK what didn't go early.
+              const [hello, ...rest] = flight;
+              const queued = viaNk ? flight : hello === undefined ? rest : [askNextTicket(hello), ...rest];
+              for (const text of queued) void opened.sendText(text, 16 * 1024 * 1024).catch(() => {});
+            } else {
+              pending = credential;
+              own = credential;
+              events.open();
+            }
             let welcomed = false;
             const current = () => stamp === epoch;
             while (current()) {
@@ -201,10 +273,26 @@ export function relayRoute(options: RelayRouteOptions): {
                 ended(goodbye.code, goodbye.reason);
                 return;
               }
+              // The daemon's own answer to an NK confirmation: its next ticket, for this route.
+              if (frame.startsWith('{"type":"hello.confirmed"')) {
+                nk.handed(handedTicket(frame));
+                continue;
+              }
               if (!welcomed) {
                 if (frame.startsWith('{"type":"welcome"')) {
                   welcomed = true;
+                  const welcome = welcomeFacts(frame);
+                  // Kept with the key this stream was keyed to, and only if it is the pinned one.
+                  nk.welcomed(opened.hostKey, welcome.relayHandshakes);
+                  nk.handed(welcome.ticket);
+                  if (viaNk) nk.succeeded();
+                  nkUnwelcomed = false;
                   options.welcomed?.();
+                  // The ticket is this route's, for NK: the connection never sees it.
+                  if (welcome.ticket) {
+                    events.message(welcome.without);
+                    continue;
+                  }
                 } else if (frame.startsWith('{"type":"error"')) {
                   const refusal = machineCodeRefusal(frame);
                   if (refusal) {
@@ -216,14 +304,25 @@ export function relayRoute(options: RelayRouteOptions): {
               }
               events.message(frame);
             }
-          })().catch((error: unknown) =>
+          })().catch((error: unknown) => {
+            if (stamp === epoch && nkUnwelcomed) nk.failed();
+            return (
             // The relay's own "not your machine" is final; anything else is a drop to retry.
             error instanceof RelayClosedError && error.code === NOT_YOUR_MACHINE_CLOSE
               ? ended(NOT_YOUR_MACHINE_CLOSE, error.message)
-              : ended(1006, "Relay channel closed"),
-          );
+              : ended(1006, "Relay channel closed")
+            );
+          });
         },
         send(text) {
+          if (collecting) {
+            collecting.push(text);
+            return;
+          }
+          if (askTicket) {
+            askTicket = false;
+            text = askNextTicket(text);
+          }
           const current = relay;
           if (!current) throw new Error("Relay channel is not open");
           // The connection bounds what it sends; this only keeps the relay's own queue bound.
@@ -250,6 +349,35 @@ function machineCodeRefusal(
       message,
       ...(typeof until === "number" ? { lockedUntil: until } : {}),
     };
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the route takes from a welcome: NK's announcement, the handed ticket, and the rest. */
+function welcomeFacts(frame: string): {
+  relayHandshakes?: string[];
+  ticket?: { ticket: string; ttlMs: number };
+  without: string;
+} {
+  try {
+    const { ticket, ...rest } = JSON.parse(frame) as {
+      relayHandshakes?: string[];
+      ticket?: { ticket: string; ttlMs: number };
+    };
+    return {
+      ...(rest.relayHandshakes ? { relayHandshakes: rest.relayHandshakes } : {}),
+      ...(ticket ? { ticket } : {}),
+      without: ticket ? JSON.stringify(rest) : frame,
+    };
+  } catch {
+    return { without: frame };
+  }
+}
+
+function handedTicket(frame: string): { ticket: string; ttlMs: number } | undefined {
+  try {
+    return (JSON.parse(frame) as { ticket?: { ticket: string; ttlMs: number } }).ticket;
   } catch {
     return undefined;
   }

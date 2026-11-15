@@ -78,7 +78,7 @@ async function relayedDaemon() {
     return { peer, channel, welcome };
   };
   /** The NK first message for `early`, sent to `key`. */
-  const firstMessage = (early: unknown, key = hostKey) => {
+  const firstMessage = (early: unknown, key: Uint8Array = hostKey) => {
     const noise = NoiseNK.initiator({
       remoteStatic: key,
       ephemeralKey: keyPair(),

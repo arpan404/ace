@@ -77,6 +77,10 @@ it.each([
     },
   ],
   [
+    "a sidebar subscribe without its window",
+    { subscribes: [{ subscriptionId: "w", scope: { kind: "threads" } }] },
+  ],
+  [
     "a subscribe with a field subscribes don't have",
     {
       subscribes: [

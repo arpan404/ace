@@ -23,7 +23,8 @@ export const EARLY_SIDEBAR_WINDOWS = 2;
 const names = (max: number) => z.array(z.string().max(32)).max(max).optional();
 
 /** A read subscribe, as the main socket takes it, with nothing more. */
-export const EarlySubscribe = z.strictObject({
+export const EarlySubscribe = z
+  .strictObject({
   subscriptionId: z.string().min(1).max(128),
   scope: SubscriptionScope,
   paced: z.boolean().optional(),
@@ -38,7 +39,12 @@ export const EarlySubscribe = z.strictObject({
         .max(1024 * 1024),
     })
     .optional(),
-});
+  })
+  // A sidebar subscribe without a window reads every thread: it waits for the confirmation.
+  .refine((subscribe) => subscribe.scope.kind === "thread" || subscribe.scope.window !== undefined, {
+    message: "A sidebar subscribe needs its window",
+  })
+  .meta({ "x-ace-constraint": "A threads scope needs its window." });
 export type EarlySubscribe = z.infer<typeof EarlySubscribe>;
 
 export const HelloEarly = z
@@ -81,7 +87,7 @@ export const HelloEarly = z
   )
   .meta({
     "x-ace-constraint":
-      "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids.",
+      "Exactly one of ticket and grant; at most 4 thread subscribes and 2 sidebar windows, with distinct subscription ids; a threads scope needs its window.",
   });
 export type HelloEarly = z.infer<typeof HelloEarly>;
 
