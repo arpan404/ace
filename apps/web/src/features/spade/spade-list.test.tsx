@@ -68,10 +68,10 @@ test("Search, the first top button, opens in place, finds conversations by their
   const field = screen.getByRole("searchbox", { name: "Search conversations" });
   expect(document.activeElement).toBe(field);
   await userEvent.type(field, "tomatoes");
-  await waitFor(async () => expect(await names()).toEqual(["Spade", "Garden"]));
+  await waitFor(async () => expect(await names()).toEqual(["Garden"]));
   await userEvent.clear(field);
   await userEvent.type(field, "inb");
-  await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox"]));
+  await waitFor(async () => expect(await names()).toEqual(["Inbox"]));
   await userEvent.type(field, "zz");
   await (await roster()).findByText("Nothing matches “inbzz”.");
   // Esc clears the words, then closes the search, and every row is back.
