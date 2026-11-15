@@ -562,6 +562,13 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       afterSeq: seq,
       throughSeq: seq,
       events: z.array(DeliveryEvent),
+      /**
+       * Events an NK relay session gets before it confirms (ADR 0155): applied ahead of the
+       * subscription, which doesn't exist yet. They mark nothing current, ready or confirmed,
+       * and the subscription that follows may still answer with a snapshot. Only an NK session
+       * gets them.
+       */
+      early: z.literal(true).optional(),
     })
     .refine(
       (message) => {

@@ -6,9 +6,14 @@ import { DeviceId } from "@ace/protocol";
 // The real client on a relay route, for the NK process tests (ADR 0155): its sockets record
 // what they send, so a test can tell which handshake each dial opened with.
 
-/** Client sockets, each with the sizes of the binary frames it sent. */
-export function recordedSockets() {
+/**
+ * Client sockets, each with the sizes of the binary frames it sent. With `holdConfirm`, an NK
+ * dial's confirmation (its second frame) and what follows wait until `confirm()`.
+ */
+export function recordedSockets(options: { holdConfirm?: boolean } = {}) {
   const dials: { sent: number[]; close(): void }[] = [];
+  const held: (() => void)[] = [];
+  let gated = options.holdConfirm === true;
   const socket = (url: string, protocols?: string[]): PortableSocket => {
     const real = browserDeviceSocket(url, protocols);
     const dial = { sent: [] as number[], close: () => real.close() };
@@ -29,14 +34,21 @@ export function recordedSockets() {
       addEventListener: real.addEventListener.bind(real),
       send(data: string | Uint8Array) {
         dial.sent.push(typeof data === "string" ? data.length : data.length);
-        real.send(data);
+        const nk = dial.sent[0] !== 32;
+        if (gated && nk && (dial.sent.length > 1 || held.length)) held.push(() => real.send(data));
+        else real.send(data);
       },
       close: () => real.close(),
     };
   };
   /** Which handshake each dial opened with: an XX first message is exactly 32 bytes. */
   const patterns = () => dials.map((dial) => (dial.sent[0] === 32 ? "xx" : "nk"));
-  return { socket, dials, patterns, drop: () => dials.at(-1)?.close() };
+  /** Lets the held confirmation, and everything after it, go. */
+  const confirm = () => {
+    gated = false;
+    for (const send of held.splice(0)) send();
+  };
+  return { socket, dials, patterns, confirm, drop: () => dials.at(-1)?.close() };
 }
 
 export function newClient(

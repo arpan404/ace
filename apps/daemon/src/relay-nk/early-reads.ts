@@ -8,11 +8,12 @@ import type { NkSession } from "./admission.ts";
  * confirmation"). Before the client confirms, only one kind is answered: a thread subscribe
  * resuming from a cursor, whose missed events are read under a limit the store enforces before
  * decoding anything (`BoundedEvents`), and only when the whole answer fits the session's
- * remaining read, event and output budgets. Its answer is the one an XX session's replay would
- * send. Everything else (a snapshot, a sidebar window, a replay too large) is held as its
- * message, costing nothing, and subscribed at confirmation; so is the rest of an answered one:
- * it continues from where its early answer ended. No snapshot, projection or listener is
- * acquired and no live event is kept before confirmation.
+ * remaining read, event and output budgets. Its answer is only events applied early: the ones
+ * an XX replay would carry, flagged `early`, never a ready, a progress or a snapshot, so the
+ * client keeps the thread syncing. There is no subscription before confirmation; at
+ * confirmation each subscribe is made as an ordinary one, from the cursor its early events
+ * ended at (or as it came), free to answer with a replay or a snapshot. No snapshot,
+ * projection or listener is acquired and no live event is kept before confirmation.
  */
 
 /** XX sends a replay this small as is, without weighing a snapshot against it. */
@@ -36,11 +37,11 @@ export function answerEarly(subscribes: EarlySubscribe[], reads: EarlyReads): Cl
     const answered = answer(subscribe, reads);
     return answered === undefined
       ? { type: "subscribe", ...subscribe }
-      : { type: "subscribe", ...subscribe, afterSeq: answered, paced: false };
+      : { type: "subscribe", ...subscribe, afterSeq: answered };
   });
 }
 
-/** The cursor an early answer left the subscription at, or undefined when held. */
+/** The cursor the early events ended at, or undefined when none were sent. */
 function answer(subscribe: EarlySubscribe, reads: EarlyReads): number | undefined {
   const { session, store } = reads;
   const { scope, afterSeq } = subscribe;
@@ -61,29 +62,19 @@ function answer(subscribe: EarlySubscribe, reads: EarlyReads): number | undefine
   if (!read) return undefined;
   const wire = read.events.reduce((total, event) => total + reads.encoder.eventBytes(event), 0);
   if (wire > EARLY_REPLAY_BYTES) return undefined;
-  // As an XX replay: the missed events in one frame, or progress when none was the thread's.
-  const messages: ServerMessage[] = [];
-  if (read.events.length)
-    messages.push({
+  // Nothing missed of this thread: nothing to send early.
+  if (!read.events.length) return undefined;
+  // The missed events in one frame, as an XX replay carries them, flagged early.
+  const messages: ServerMessage[] = [
+    {
       type: "events",
       subscriptionId: subscribe.subscriptionId,
       afterSeq,
       throughSeq: head,
       events: read.events,
-    });
-  else if (head > afterSeq)
-    messages.push({
-      type: "progress",
-      subscriptionId: subscribe.subscriptionId,
-      afterSeq,
-      throughSeq: head,
-    });
-  if (subscribe.paced)
-    messages.push({
-      type: "subscription.ready",
-      subscriptionId: subscribe.subscriptionId,
-      seq: head,
-    });
+      early: true,
+    },
+  ];
   // Its JSON is at least what goes on the wire: the answer fits the output left, or isn't sent.
   const size = messages.reduce(
     (total, message) => total + Buffer.byteLength(JSON.stringify(message)),

@@ -95,7 +95,7 @@ it("a snapshot (whole status, agents, interactions, queue) and a sidebar window 
   expect(h.store.viewedThreads()).toEqual([]);
 });
 
-it("a small resume is answered as XX answers it, and continues from where it ended", () => {
+it("a small resume's missed events go early, marked so, and confirm nothing: the real subscription comes at confirmation", () => {
   const h = setup();
   const cursor = h.store.headSeq();
   h.append("a", "first");
@@ -107,9 +107,9 @@ it("a small resume is answered as XX answers it, and continues from where it end
     paced: true,
   };
   const later = h.early([request]);
-  // The same subscribe over XX, on the same store.
+  // The same events XX's replay would carry, flagged early; no progress, no ready.
   const xx: ServerMessage[] = [];
-  const stop = subscribeXx(
+  subscribeXx(
     h.store,
     "t",
     request.scope,
@@ -120,13 +120,24 @@ it("a small resume is answered as XX answers it, and continues from where it end
     () => () => {},
     true,
     new WireEncoder(),
-  );
-  stop();
-  expect(h.sent).toEqual(xx);
-  expect(later).toEqual([
-    { type: "subscribe", ...request, afterSeq: h.store.headSeq(), paced: false },
-  ]);
-  // What it read is charged to the session (its output is charged where it is sent).
+  )();
+  const replayed = xx.find((outgoing) => outgoing.type === "events");
+  expect(h.sent).toEqual([{ ...replayed, early: true }]);
+  expect(h.sent.some((outgoing) => outgoing.type === "subscription.ready")).toBe(false);
+  // At confirmation, an ordinary subscribe from where the early events ended, paced as asked.
+  expect(later).toEqual([{ type: "subscribe", ...request, afterSeq: h.store.headSeq() }]);
   expect(h.session.remaining().events).toBe(NK_LIMITS.sessionEvents - 2);
-  expect(h.session.remaining().bytes).toBeLessThan(NK_LIMITS.sessionBytes);
+});
+
+it("a resume with nothing missed sends nothing early, not even progress", () => {
+  const h = setup();
+  h.store.appendEvents(h.thread.id, []);
+  const request = {
+    subscriptionId: "t",
+    scope: { kind: "thread" as const, threadId: h.thread.id },
+    afterSeq: h.store.headSeq(),
+    paced: true,
+  };
+  expect(h.early([request])).toEqual([{ type: "subscribe", ...request }]);
+  expect(h.sent).toEqual([]);
 });

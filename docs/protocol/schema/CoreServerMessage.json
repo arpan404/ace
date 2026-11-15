@@ -334,6 +334,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "early": {
+          "const": true,
+          "type": "boolean"
+        },
         "events": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/DeliveryEvent.json"
