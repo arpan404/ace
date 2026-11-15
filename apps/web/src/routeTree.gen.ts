@@ -60,6 +60,7 @@ import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.a
 import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
 import { Route as SettingsSpadeSearchRouteImport } from "./routes/settings.spade.search"
 import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
+import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
@@ -324,6 +325,11 @@ const SpadeGroupsGroupIdRoute = SpadeGroupsGroupIdRouteImport.update({
   path: "/groups/$groupId",
   getParentRoute: () => SpadeRoute,
 } as any)
+const SpadeGroupsNewRoute = SpadeGroupsNewRouteImport.update({
+  id: "/groups/new",
+  path: "/groups/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
@@ -403,6 +409,7 @@ export interface FileRoutesByFullPath {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -457,6 +464,7 @@ export interface FileRoutesByTo {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
@@ -517,6 +525,7 @@ export interface FileRoutesById {
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -577,6 +586,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -631,6 +641,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
@@ -690,6 +701,7 @@ export interface FileRouteTypes {
     | "/settings/spade/models"
     | "/settings/spade/search"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -1072,6 +1084,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SpadeGroupsGroupIdRouteImport
       parentRoute: typeof SpadeRoute
     }
+    "/spade/groups/new": {
+      id: "/spade/groups/new"
+      path: "/groups/new"
+      fullPath: "/spade/groups/new"
+      preLoaderRoute: typeof SpadeGroupsNewRouteImport
+      parentRoute: typeof SpadeRoute
+    }
     "/_home/issues_/$project/$number": {
       id: "/_home/issues_/$project/$number"
       path: "/issues/$project/$number"
@@ -1250,12 +1269,14 @@ interface SpadeRouteChildren {
   SpadeAgentIdRoute: typeof SpadeAgentIdRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
   SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
+  SpadeGroupsNewRoute: typeof SpadeGroupsNewRoute
 }
 
 const SpadeRouteChildren: SpadeRouteChildren = {
   SpadeAgentIdRoute: SpadeAgentIdRoute,
   SpadeIndexRoute: SpadeIndexRoute,
   SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
+  SpadeGroupsNewRoute: SpadeGroupsNewRoute,
 }
 
 const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)
