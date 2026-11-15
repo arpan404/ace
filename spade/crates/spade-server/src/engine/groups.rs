@@ -48,6 +48,14 @@ pub enum GroupError {
     Store(#[from] StoreError),
 }
 
+/// A file a member made answering the group: in that member's workspace.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GroupFile {
+    pub agent: String,
+    pub path: String,
+    pub at: i64,
+}
+
 /// The latest message in a group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupLast {
@@ -320,6 +328,38 @@ impl Engine {
             .collect::<Result<_, _>>()?;
         views.sort_by_key(|v| std::cmp::Reverse(v.last_activity_ms));
         Ok(views)
+    }
+
+    /// The files the group's members on this machine made answering it, newest first: each
+    /// member's own workspace paths, by member. `None` for no such group. Members on other
+    /// machines keep theirs there.
+    pub fn group_files(&self, id: &str) -> Result<Option<Vec<GroupFile>>, StoreError> {
+        let Some(group) = self.store.group(id)? else {
+            return Ok(None);
+        };
+        let mut files = Vec::new();
+        for member in group.members.iter().filter(|m| m.machine.is_empty()) {
+            let Some(agent) = self.store.agent(&member.agent_id)? else {
+                continue;
+            };
+            let events = self.store.events(&agent.conversation, 0)?;
+            let stored = events.iter().map(|e| spade_core::activity::Stored {
+                seq: e.seq,
+                at: e.at_ms,
+                event: &e.event,
+            });
+            files.extend(
+                spade_core::group::files::made_for(&group.id, stored)
+                    .into_iter()
+                    .map(|made| GroupFile {
+                        agent: agent.id.clone(),
+                        path: made.path,
+                        at: made.at,
+                    }),
+            );
+        }
+        files.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.path.cmp(&b.path)));
+        Ok(Some(files))
     }
 
     pub fn group_view(&self, id: &str) -> Result<Option<GroupView>, StoreError> {

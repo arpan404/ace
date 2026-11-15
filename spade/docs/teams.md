@@ -39,7 +39,16 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 | `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped         |
 | `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                            |
 | `POST /groups/{id}/stop`     |                                               | `204`                                    |
+| `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`          |
 
+- `GET /groups/{id}/files` is the group's Library: every file its members on this machine made
+  answering it, newest first, once per member and path. A member's reply counts when a message
+  from the group started or steered it; a file counts when its `workspace_write` or
+  `workspace_edit` ran without error, or a background job of that reply kept it (a report). `at`
+  is when it was last written there; one since removed from the workspace is left out. A file
+  opens with `GET /v1/agents/{agent}/workspace/file?path=…`. Group messages carry no attachments,
+  so this is the only list; members on other machines keep their files there. `404` for no such
+  group.
 - `name`: 1 to 60 characters, one line. `lead` is a member's `agent` id on this machine. Without
   `lead`, Spade leads (and is added as a member when it isn't one); with Spade switched off on
   this machine, the first member of this machine leads. `members` (lead counted) is 2 to 8

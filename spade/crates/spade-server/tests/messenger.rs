@@ -416,3 +416,58 @@ async fn each_skill_names_the_bots_that_wrote_it_and_the_bots_that_use_it() -> R
     assert_eq!(skill["used_by"], json!(["a_reader", "a_writer"]));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_groups_files_are_the_ones_its_members_made_answering_it() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call(
+                "w1",
+                "workspace_write",
+                json!({ "path": "launch/plan.md", "content": "# Plan" }),
+            ),
+            Script::reply("I wrote the plan."),
+            Script::reply("").plain(r#"{"title":"T"}"#),
+        ],
+        vec![std::sync::Arc::new(support::FakeTool::new(
+            "workspace_write",
+            spade_core::tools::Risk::Read,
+            "written",
+        ))],
+    )
+    .await?;
+    let member = spade.new_agent("Research", "").await?;
+    let (status, body) = spade
+        .post(
+            "/v1/groups",
+            json!({ "name": "Launch", "members": [{ "agent": member["id"] }] }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let group = body["group"].clone();
+    let id = group["id"].as_str().unwrap_or_default();
+    let (_, files) = spade.get(&format!("/v1/groups/{id}/files")).await?;
+    assert_eq!(files, json!({ "files": [] }));
+    let (status, _) = spade
+        .post(
+            &format!("/v1/groups/{id}/messages"),
+            json!({ "text": "Write the launch plan" }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let conversation = group["conversation"].as_str().unwrap_or_default();
+    spade
+        .wait_for_count(conversation, "group_message", 2)
+        .await?;
+    let (status, files) = spade.get(&format!("/v1/groups/{id}/files")).await?;
+    assert_eq!(status, 200, "{files}");
+    let shown = files["files"].as_array().cloned().unwrap_or_default();
+    assert_eq!(shown.len(), 1, "{files}");
+    assert_eq!(
+        (&shown[0]["agent"], &shown[0]["path"]),
+        (&group["lead"]["agent"], &json!("launch/plan.md"))
+    );
+    let (status, _) = spade.get("/v1/groups/missing/files").await?;
+    assert_eq!(status, 404);
+    Ok(())
+}

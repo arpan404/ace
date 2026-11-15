@@ -41,7 +41,9 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
-pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
+pub use groups::{
+    GROUP_NAME_CHARS, GroupError, GroupFile, GroupInput, GroupLast, GroupView, MemberRef,
+};
 pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
