@@ -21,6 +21,8 @@ media-noise = { path = "../media-noise" }
 media-wire = { path = "../media-wire" }
 serde_json = "1"
 subtle = { version = "2.6", default-features = false }
+# The lane hello's HMAC-SHA256 (already in the tree through media-noise).
+ring = "=0.17.14"
 zeroize = "1.9"
 libc = "0.2"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

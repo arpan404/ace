@@ -103,15 +103,26 @@ pub struct LaneSecret {
 struct LanePage([u8; SECRET_LEN]);
 
 impl LaneSecret {
-    /// Takes the secret from `init`'s payload. None unless it is exactly 32 bytes.
+    /// Takes the secret from `init`'s payload. None unless it is exactly 32 bytes and not all
+    /// zero (a secret nobody chose proves nothing).
     pub fn from_payload(payload: &[u8]) -> Option<Self> {
-        if payload.len() != SECRET_LEN {
+        if payload.len() != SECRET_LEN || payload.iter().all(|byte| *byte == 0) {
             return None;
         }
         let mut bytes = Box::new(LanePage([0; SECRET_LEN]));
         let locked = media_noise::lock_memory(&bytes.0);
         bytes.0.copy_from_slice(payload);
         Some(Self { bytes, locked })
+    }
+
+    /// HMAC-SHA256 of `message` keyed by the secret: the lane hello's proofs. ring's key
+    /// schedule lives only for this call.
+    pub fn mac(&self, message: &[u8]) -> zeroize::Zeroizing<[u8; 32]> {
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &self.bytes.0);
+        let tag = ring::hmac::sign(&key, message);
+        let mut out = zeroize::Zeroizing::new([0u8; 32]);
+        out.copy_from_slice(tag.as_ref());
+        out
     }
 
     /// Constant-time comparison with a presented secret of any length.
@@ -172,6 +183,8 @@ mod tests {
     #[test]
     fn the_lane_secret_needs_exactly_32_bytes_and_compares_whole() {
         assert!(LaneSecret::from_payload(&[0; 31]).is_none());
+        // An all-zero secret proves nothing: refused like a wrong length.
+        assert!(LaneSecret::from_payload(&[0; 32]).is_none());
         let Some(secret) = LaneSecret::from_payload(&[9; 32]) else {
             panic!("refused a 32-byte lane secret");
         };

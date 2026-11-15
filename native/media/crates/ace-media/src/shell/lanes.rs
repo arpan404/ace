@@ -2,15 +2,16 @@
 //! The private control socket: accepts the priority and egress lanes once each, for the holder
 //! of the lane secret, and refuses every other connection by closing it without a word.
 use super::budget::Cap;
-use crate::auth::{HELLO_LEN, LANE_ACCEPTED, LaneAuth, SocketLane, Verdict};
+use crate::auth::{LANE_ACCEPTED, LaneAuth, SocketLane, Verdict};
 use crate::secret::LaneSecret;
+use media_wire::lane::{HELLO_LEN, NONCE_LEN, PROOF_LEN};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
 
-/// How long a connection may take to send its hello.
+/// How long a connection may take to send its hello and its proof.
 const HELLO_WITHIN: Duration = Duration::from_secs(5);
 /// Connections still sending their hello at once; more are closed at accept.
 const MAX_PENDING: usize = 8;
@@ -63,16 +64,21 @@ async fn hello(
     auth: Arc<Mutex<LaneAuth>>,
     accepted: mpsc::Sender<(SocketLane, UnixStream)>,
 ) {
-    let mut bytes = zeroize::Zeroizing::new([0u8; HELLO_LEN]);
-    let read = tokio::time::timeout(HELLO_WITHIN, stream.read_exact(&mut bytes[..])).await;
-    if !matches!(read, Ok(Ok(_))) {
-        return;
-    }
-    let verdict = match auth.lock() {
-        Ok(mut auth) => auth.check(&bytes[..]),
-        Err(_) => Verdict::Refuse,
+    let handshake = async {
+        let mut hello = [0u8; HELLO_LEN];
+        stream.read_exact(&mut hello).await.ok()?;
+        // Fresh for every connection: a proof from another one can't match it.
+        let mut nonce = [0u8; NONCE_LEN];
+        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce).ok()?;
+        let challenge = auth.lock().ok()?.challenge(&hello, nonce)?;
+        stream.write_all(challenge.reply()).await.ok()?;
+        let mut proof = zeroize::Zeroizing::new([0u8; PROOF_LEN]);
+        stream.read_exact(&mut proof[..]).await.ok()?;
+        let verdict = auth.lock().ok()?.accept(&challenge, &proof[..]);
+        Some(verdict)
     };
-    let Verdict::Accept(lane) = verdict else {
+    let Ok(Some(Verdict::Accept(lane))) = tokio::time::timeout(HELLO_WITHIN, handshake).await
+    else {
         return;
     };
     if stream.write_all(&[LANE_ACCEPTED]).await.is_ok() {

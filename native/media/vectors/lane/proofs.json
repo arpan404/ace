@@ -1,0 +1,24 @@
+{
+  "description": "Lane hello proofs (docs/media/plan.md, K1 contract clarifications): HMAC-SHA256 keyed by the lane secret over a direction label, the lane tag and the nonces.",
+  "secret": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+  "clientNonce": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "serverNonce": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+  "serverLabel": "ace-media lane v1 server",
+  "clientLabel": "ace-media lane v1 client",
+  "cases": [
+    {
+      "tag": 1,
+      "serverMessage": "6163652d6d65646961206c616e652076312073657276657201a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "clientMessage": "6163652d6d65646961206c616e6520763120636c69656e7401a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "serverProof": "b2da17d1ffcc267533e2f98e9d7dc831fcfba38e634c8c1027a96646561eb67e",
+      "clientProof": "812d0b9c549b9a575f1512d96ee499a7e0c82b4d413e4f3f89a68615b5d6e54e"
+    },
+    {
+      "tag": 2,
+      "serverMessage": "6163652d6d65646961206c616e652076312073657276657202a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+      "clientMessage": "6163652d6d65646961206c616e6520763120636c69656e7402a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "serverProof": "10680b95ed505f96f12e0d2b5cd35fb20cdf774540f8ed281031e8302ee63e18",
+      "clientProof": "99138eca86eed5414f84d403365463031a5545e59e62a26a60159aeb6b737d79"
+    }
+  ]
+}
