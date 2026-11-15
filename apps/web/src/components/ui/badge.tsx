@@ -33,13 +33,14 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        "data-part": "badge",
         className: cn(badgeVariants({ variant }), className),
       },
       props,
     ),
     render,
+    // Each state key is drawn as a `data-*` attribute: `data-part` names the Suit part.
     state: {
+      part: "badge",
       slot: "badge",
       variant,
     },

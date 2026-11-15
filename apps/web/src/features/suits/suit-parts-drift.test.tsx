@@ -1,3 +1,4 @@
+import type { InteractionRequest } from "@ace/protocol";
 import { suitParts } from "@ace/protocol/suit-parts";
 import { coldStartReplay, facts, replayCursor, seedPanels, type Scenario } from "@ace/fake-daemon";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -110,7 +111,7 @@ test("a working thread names the window, the transcript and the composer", async
 });
 
 /** A Codex thread whose agent waits on one request, approval or question. */
-function asks(id: string, title: string, request: Record<string, unknown>): Scenario {
+function asks(id: string, title: string, request: InteractionRequest): Scenario {
   return {
     thread: { id, workspaceId: "relay", title, provider: "codex" },
     steps: [
