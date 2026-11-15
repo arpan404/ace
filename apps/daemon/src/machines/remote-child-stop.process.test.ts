@@ -342,7 +342,10 @@ it("a child whose machine goes silent becomes lost contact after the lease, rele
   // that machine's backoff, never longer than its cap; polls come once a second meanwhile.
   rijan.silent = false;
   const answered = f.clock.now();
-  while (ledger.watched(id)?.view.contact === "lost" && f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS)
+  while (
+    ledger.watched(id)?.view.contact === "lost" &&
+    f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS
+  )
     await at(f.clock.now() + 1_000);
   // Then it is in contact and holds its parent until it ends.
   const back = parentView(f, parent);
