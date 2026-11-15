@@ -22,6 +22,8 @@ struct ThreadPageBody: View {
             .environment(\.panelHost, PanelHost(hide: openChat))
             .environment(\.threadPage, true)
             .safeAreaPadding(.bottom, barHeight)
+            // A container, so the page is findable without its name replacing every control's.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("thread.page.changes.body")
     }
 }
