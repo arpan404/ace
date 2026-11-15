@@ -322,6 +322,9 @@ export type ScreenInput = z.infer<typeof ScreenInput>;
 export const ScreenStreamIngest = z.object({
   socket: z.string().min(1).max(1024),
   token: z.string().length(44),
+  /** The ace-media process serving `socket`: the Windows helper refuses a pipe any other
+   * process serves, before the token is sent. */
+  pid: z.number().int().positive().max(0xffffffff).optional(),
 });
 export type ScreenStreamIngest = z.infer<typeof ScreenStreamIngest>;
 const Envelope = z.object({

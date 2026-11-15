@@ -98,6 +98,7 @@ it("an egress unit without the helper's stamp, or not H.264, is no screen frame"
 function session() {
   const accepted: Frame[] = [];
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
+  const sent: unknown[] = [];
   let producer: IngestProducer | undefined;
   const source = new ScreenMediaSource({
     sessionId: "s1",
@@ -108,6 +109,7 @@ function session() {
       requestV2: async () => ({}),
       request: async (command) => {
         if (command.op !== "stream.configure") return {};
+        sent.push(command);
         const reply = replies.shift() ?? { ingest: "off", boundary: null };
         return { codec: "h264", ...reply, switched: true };
       },
@@ -156,7 +158,7 @@ function session() {
         payload: new Uint8Array(annexB),
       },
     });
-  return { source, accepted, replies, producer: ready, video, still, egress, address };
+  return { source, accepted, replies, sent, producer: ready, video, still, egress, address };
 }
 
 const video = (sequence: number, keyframe = false) => screenFrame(sequence, "h264", keyframe);
@@ -242,4 +244,15 @@ it("a helper streams its own video only where it encodes H.264: the Mac, and Win
   expect(helperEncodesVideo(helper("windows", ["jpeg"]))).toBe(false);
   expect(helperEncodesVideo(helper("linux-wayland", ["jpeg", "h264"]))).toBe(false);
   expect(helperEncodesVideo(undefined)).toBe(false);
+});
+
+it("the helper is told which process serves ace-media's ingest, so it can refuse any other", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point({ ...s.address("p1"), pid: 4242 });
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    ingest: { socket: "/run/m1i.sock", pid: 4242 },
+  });
 });

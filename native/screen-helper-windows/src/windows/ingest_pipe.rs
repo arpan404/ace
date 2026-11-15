@@ -16,7 +16,7 @@ use windows::{
             OPEN_EXISTING, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
         },
         System::{
-            Pipes::{PeekNamedPipe, WaitNamedPipeW},
+            Pipes::{GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW},
             IO::CancelIoEx,
         },
     },
@@ -55,8 +55,11 @@ impl Cancel for PipeCancel {
     }
 }
 
+/// Opens ace-media's ingest pipe. `server` is the ace-media process the daemon started; the pipe
+/// is refused unless that process serves it, checked before a single byte (the hello carries the
+/// source's token) is written. Any process of this user may create another instance of the
+/// name, and a client is connected to whichever instance is listening.
 pub fn dial(name: &str, server: Option<u32>) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
-    let _ = server;
     let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
     let mut attempts = 0;
     let handle = loop {
@@ -85,6 +88,22 @@ pub fn dial(name: &str, server: Option<u32>) -> io::Result<(Box<dyn Link>, Arc<d
         }
     };
     let pipe = Arc::new(Pipe(unsafe { File::from_raw_handle(handle.0) }));
+    let Some(trusted) = server else {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ace-media's process id is needed to check the ingest pipe's server",
+        ));
+    };
+    let mut actual = 0u32;
+    unsafe { GetNamedPipeServerProcessId(pipe.handle(), &mut actual) }
+        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xffff))?;
+    if actual != trusted {
+        // Dropping the handle disconnects from the squatting instance, having sent nothing.
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("the ingest pipe is served by process {actual}, not ace-media ({trusted})"),
+        ));
+    }
     Ok((Box::new(PipeLink(pipe.clone())), Arc::new(PipeCancel(pipe))))
 }
 

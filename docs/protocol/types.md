@@ -28339,9 +28339,10 @@ Example:
 
 ```json
 {
-  "epoch": 6,
+  "epoch": 0,
   "id": "kzFY7okOwg",
   "ingest": {
+    "pid": 7,
     "socket": "example",
     "token": "examplexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   },
@@ -30001,11 +30002,13 @@ Example:
 | --- | --- | --- | --- |
 | socket | yes | string | {"minLength":1,"maxLength":1024} |
 | token | yes | string | {"minLength":44,"maxLength":44} |
+| pid | no | integer | {"exclusiveMinimum":0,"maximum":4294967295} |
 
 Example:
 
 ```json
 {
+  "pid": 6,
   "socket": "example",
   "token": "examplexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }

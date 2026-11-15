@@ -218,7 +218,11 @@ export class ScreenMediaSource {
   #point(address: IngestAddress | undefined): Promise<void> {
     return this.#serial(async () => {
       this.#address = address && {
-        ingest: { socket: address.socket, token: Buffer.from(address.token).toString("base64") },
+        ingest: {
+          socket: address.socket,
+          token: Buffer.from(address.token).toString("base64"),
+          ...(address.pid ? { pid: address.pid } : {}),
+        },
         path: address.path,
       };
       // No live video yet: the next `stream.configure` carries the address.
