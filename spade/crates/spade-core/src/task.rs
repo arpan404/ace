@@ -153,7 +153,10 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     if !ended_finished(events) || stopped_since_last_reply(events) || jobs_running(events) {
         return Next::Nothing;
     }
-    if state(events).map(|s| s.status) != Some(Status::Working) {
+    // A claim of done the goal's check answered "not yet" sends the bot back to work (ADR 0159).
+    if state(events).map(|s| s.status) != Some(Status::Working)
+        && !crate::goal::verify::sent_back(events)
+    {
         return Next::Nothing;
     }
     // The run started at the person's latest message. A bot's message or a routine's firing
@@ -203,7 +206,7 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
 }
 
 /// The last reply ended by finishing (not stopped, failed or cut off), and none is open.
-fn ended_finished(events: &[Event]) -> bool {
+pub(crate) fn ended_finished(events: &[Event]) -> bool {
     let last = events.iter().rev().find(|e| {
         matches!(
             e,
@@ -221,7 +224,7 @@ fn ended_finished(events: &[Event]) -> bool {
 
 /// The person pressed Stop after the last reply started (an idle Stop cancels a step waiting to
 /// start).
-fn stopped_since_last_reply(events: &[Event]) -> bool {
+pub(crate) fn stopped_since_last_reply(events: &[Event]) -> bool {
     let start = events
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
@@ -232,7 +235,7 @@ fn stopped_since_last_reply(events: &[Event]) -> bool {
 }
 
 /// A background job still runs: its result starts the next turn.
-fn jobs_running(events: &[Event]) -> bool {
+pub(crate) fn jobs_running(events: &[Event]) -> bool {
     !crate::Transcript::fold(events).jobs.is_empty()
 }
 
@@ -274,7 +277,8 @@ fn had_effect(run: &[Event], reply: &str) -> bool {
     changed || plan_changed(run, reply)
 }
 
-/// The reply sent a `todo` or `task_status` different from the one before it.
+/// The reply sent a `todo`, `task_status`, `task_goal` or `task_plan` different from the one
+/// before it.
 fn plan_changed(run: &[Event], reply: &str) -> bool {
     let mut before: Vec<(String, Value)> = Vec::new();
     for event in run {
@@ -286,7 +290,7 @@ fn plan_changed(run: &[Event], reply: &str) -> bool {
         };
         for call in calls {
             let (name, arguments) = resolved(&call.name, &call.arguments);
-            if name != "todo" && name != TASK_STATUS {
+            if name != "todo" && name != TASK_STATUS && !crate::goal::is_tool(&name) {
                 continue;
             }
             let previous = before

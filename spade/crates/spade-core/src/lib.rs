@@ -10,6 +10,7 @@ pub mod context;
 pub mod event;
 pub mod face;
 pub mod gate;
+pub mod goal;
 pub mod group;
 pub mod helper;
 pub mod hooks;

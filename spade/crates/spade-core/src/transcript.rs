@@ -258,6 +258,11 @@ impl Transcript {
             | Known::AccessChanged { .. }
             | Known::TaskContinued { .. }
             | Known::TaskPaused { .. }
+            | Known::GoalSet { .. }
+            | Known::GoalCleared { .. }
+            | Known::PlanChanged { .. }
+            | Known::PlanCheckpoint { .. }
+            | Known::TaskVerified { .. }
             | Known::PersonActivity { .. } => {}
         }
         if self.open_reply().is_none() {

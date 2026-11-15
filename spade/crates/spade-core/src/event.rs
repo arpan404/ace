@@ -266,6 +266,54 @@ pub enum Known {
         reason: crate::task::PauseReason,
         steps: u32,
     },
+    /// The task's goal (ADR 0159): the person's words and the criteria for done. The bot drafts
+    /// one while none is open; only the person changes or replaces an open one.
+    GoalSet {
+        goal: String,
+        title: String,
+        text: String,
+        criteria: Vec<crate::goal::Criterion>,
+        by: crate::goal::Author,
+        /// The model that checks this goal, when the person chose one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verifier: Option<String>,
+    },
+    /// The person ended the goal without it being done (ADR 0159).
+    GoalCleared {
+        goal: String,
+    },
+    /// One change to the goal's plan (ADR 0159), from a `task_plan` call Spade accepted.
+    PlanChanged {
+        goal: String,
+        change: crate::goal::Change,
+    },
+    /// An item of the plan closed with evidence (ADR 0159): where a restart resumes from.
+    PlanCheckpoint {
+        goal: String,
+        item: String,
+        done: u32,
+        total: u32,
+    },
+    /// The verifier judged a claim that the task is done (ADR 0159). Stored before anything acts
+    /// on it, so a restart reuses it.
+    TaskVerified {
+        goal: String,
+        /// The `task_status` call that claimed done.
+        claim: String,
+        verdict: crate::goal::Finding,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        criteria: Vec<crate::goal::CriterionCheck>,
+        /// Items whose evidence doesn't hold; they reopen.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rejected: Vec<crate::goal::Rejected>,
+        /// What is still missing, in plain words; the bot's next step reads it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        missing: Vec<String>,
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        cost_micros: u64,
+    },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
     /// without opening a reply. Later work is not affected.

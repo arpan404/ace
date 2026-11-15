@@ -381,6 +381,40 @@ impl Log {
                 let words = reason.words(*steps);
                 self.push(stored, Kind::Task, Fields::named("paused", &words));
             }
+            // The goal, plan and its check (ADR 0159).
+            Known::GoalSet { title, by, .. } => {
+                let name = match by {
+                    crate::goal::Author::Bot => "goal drafted",
+                    crate::goal::Author::Person => "goal set",
+                };
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named(name, &redact::one_line(title)),
+                );
+            }
+            Known::GoalCleared { .. } => {
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("goal ended", "ended by the person"),
+                );
+            }
+            Known::PlanCheckpoint {
+                item, done, total, ..
+            } => {
+                let words = format!("item {item} closed, {done} of {total}");
+                self.push(stored, Kind::Task, Fields::named("checkpoint", &words));
+            }
+            Known::TaskVerified {
+                verdict, missing, ..
+            } => {
+                let words = match missing.first() {
+                    Some(first) => redact::one_line(first),
+                    None => "every criterion met".to_owned(),
+                };
+                self.push(stored, Kind::Task, Fields::named(verdict.name(), &words));
+            }
             Known::CapReached {
                 scope, cap_micros, ..
             } => {
