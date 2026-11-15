@@ -52,9 +52,9 @@ import type { MediaConnection } from "@ace/client/media";
 import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
 import {
   channelPath,
-  mediaRetryCooldownMs,
   mediaSubscribeDeadlineMs,
   MediaSubscriptions,
+  SubscribeRetry,
   type MediaRoute,
 } from "@ace/browser/live-view";
 
@@ -189,12 +189,8 @@ interface Watch {
   subscribing: number | undefined;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
-  /** Cancels the retry of a failed subscribe waiting on the ladder (`mediaRetryDelaysMs`). */
-  retry: (() => void) | undefined;
-  /** An event already skipped this ladder step's wait: the next one waits it out. */
-  skipped: boolean;
-  /** The ladder is spent and `retry` is its cooldown, which no event skips. */
-  cooling: boolean;
+  /** A failed subscribe's retry on the shared ladder and cooldown (`SubscribeRetry`). */
+  retry: SubscribeRetry;
 }
 
 export interface PreviewOptions {
@@ -552,38 +548,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * named any more and the regular poll subscribes on the socket.
    */
   const retryLater = (threadId: string, watch: Watch) => {
-    watch.retry?.();
-    const delay = deliveries.retryDelay(threadId);
-    // Spent: the connection isn't named again, and the next try (the socket's) waits out the
-    // cooldown, as does every one after it while they keep failing.
-    if (delay === undefined) deliveries.giveUp(threadId);
-    watch.skipped = false;
-    watch.cooling = delay === undefined;
-    watch.retry = later(() => {
-      watch.retry = undefined;
-      watch.cooling = false;
+    watch.retry.failed(() => {
       if (watches.get(threadId) === watch) poll(threadId);
-    }, delay ?? mediaRetryCooldownMs);
+    });
   };
   /** The waiting retry (and its step) ends: an invalidation, an unmount, a dispose. */
-  const stopRetry = (watch: Watch) => {
-    watch.retry?.();
-    watch.retry = undefined;
-    watch.skipped = false;
-    watch.cooling = false;
-  };
+  const stopRetry = (watch: Watch) => watch.retry.stop();
   /**
    * Something changed that a subscribe may now succeed on (an agent opened the browser, the page
-   * opened or switched engine, the page shows again): a retry waiting on the ladder goes at once.
+   * opened or switched engine, the page shows again): a retry waiting on the ladder may go at
+   * once, at most once per step and never during the cooldown (`SubscribeRetry.event`).
    */
   const pollNow = (threadId: string, watch: Watch) => {
-    // At most one event skips each ladder step's wait, and none skips the cooldown: a page
-    // shown and hidden over and over never turns into a request each time.
-    if (watch.retry && !watch.cooling && !watch.skipped) {
-      watch.retry();
-      watch.retry = undefined;
-      watch.skipped = true;
-    }
+    watch.retry.event();
     watch.cancel?.();
     poll(threadId);
   };
@@ -591,7 +568,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const watch = watches.get(threadId);
     if (disposed || !watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
-    if (!watch.subscribed && watch.subscribing !== watch.generation && !watch.retry) {
+    if (!watch.subscribed && watch.subscribing !== watch.generation && !watch.retry.waiting) {
       const generation = watch.generation;
       watch.subscribing = generation;
       const reported = captures.get(threadId);
@@ -904,9 +881,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           count: 1,
           subscribed: false,
           subscribing: undefined,
-          retry: undefined,
-          skipped: false,
-          cooling: false,
+          retry: new SubscribeRetry(deliveries, threadId, later),
           cancel: undefined,
         };
         watches.set(threadId, watch);

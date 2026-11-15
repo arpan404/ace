@@ -14,10 +14,12 @@ export {
   MediaSubscriptions,
   type FailedSubscribe,
   type AckWay,
+  type DeliveryState,
   type MediaRoute,
   type Settled,
   type Stamped,
 } from "./media-route.ts";
+export { SubscribeRetry, type RetryLadder, type RetrySchedule } from "./subscribe-retry.ts";
 export {
   candidateLimits,
   DeliveryCandidates,
