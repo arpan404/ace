@@ -398,7 +398,8 @@ async fn text_a_hook_adds_is_untrusted_so_an_always_allowed_write_asks_again() -
 }
 
 #[tokio::test]
-async fn a_stop_hook_extends_a_reply_at_most_three_times() -> Result {
+async fn a_stop_hook_giving_the_same_reason_with_nothing_changed_stops_after_three_times() -> Result
+{
     let tests = plugin(
         "tests",
         &"e".repeat(64),
@@ -441,6 +442,40 @@ async fn a_stop_hook_extends_a_reply_at_most_three_times() -> Result {
         .map(|s| s.body.to_string())
         .unwrap_or_default();
     assert!(second.contains("Run the tests first."), "{second}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stop_hook_extends_a_reply_as_long_as_its_reason_moves_on() -> Result {
+    // Asks five times, each for the next round, then lets the reply finish.
+    let rounds = plugin(
+        "rounds",
+        &"d".repeat(64),
+        "/nowhere",
+        json!([]),
+        json!([hook(
+            "Stop",
+            "n=$(cat .rounds 2>/dev/null || echo 0); n=$((n+1)); echo $n > .rounds; \
+             if [ $n -le 5 ]; then echo \"Round $n: run the tests again.\" >&2; exit 2; fi",
+            None
+        )]),
+    );
+    let mut scripts: Vec<Script> = (1..=6)
+        .map(|n| Script::reply(&format!("Draft {n}.")))
+        .collect();
+    scripts.push(Script::reply("").plain(r#"{"title":"Drafts"}"#));
+    let spade =
+        Spade::start_with(scripts, Vec::new(), options(FakeAce::with(vec![rounds]))).await?;
+    let (_, chat) = bot(&spade, "Writer", &["rounds"]).await?;
+    spade.say(&chat, "Write it").await?;
+    let events = wait(&spade, &chat, "reply_finished", 1).await?;
+    assert_eq!(
+        of_type(&events, "step_finished").len(),
+        6,
+        "{:?}",
+        types(&events)
+    );
+    assert_eq!(of_type(&events, "reply_finished")[0]["text"], "Draft 6.");
     Ok(())
 }
 

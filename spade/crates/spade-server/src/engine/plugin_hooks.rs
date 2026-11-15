@@ -270,8 +270,9 @@ fn store_all(engine: &Engine, id: &str, events: &[Event]) -> Result<(), StoreErr
         })
 }
 
-/// As a reply is about to finish: runs `Stop`, at most [`hooks::MOST_STOP_EXTENSIONS`] times a
-/// reply. Returns whether a hook asked for one more step (its reason is stored for the model).
+/// As a reply is about to finish: runs `Stop`, as many times a reply as its hooks ask, unless they
+/// are stuck ([`hooks::stop_stuck`]). Returns whether a hook asked for one more step (its reason is
+/// stored for the model).
 pub(super) async fn at_stop(engine: &Arc<Engine>, id: &str) -> bool {
     let Some((plugins, agent)) = plugins_of(engine, id) else {
         return false;
@@ -286,7 +287,7 @@ pub(super) async fn at_stop(engine: &Arc<Engine>, id: &str) -> bool {
         return false;
     };
     let extended = hooks::stop_extensions(&events);
-    if hooks::ran(&events, hooks::STOP, &target) || extended >= hooks::MOST_STOP_EXTENSIONS {
+    if hooks::ran(&events, hooks::STOP, &target) || hooks::stop_stuck(&events) {
         return false;
     }
     let input = json!({ "session_id": id, "stop_hook_active": extended > 0 });

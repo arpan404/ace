@@ -163,7 +163,7 @@ async fn a_bot_cannot_message_itself() -> Result {
 }
 
 #[tokio::test]
-async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
+async fn a_chain_of_bot_messages_past_the_runaway_guard_is_refused() -> Result {
     let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
     let relay = spade.new_agent("Relay", "").await?;
     spade.new_agent("Other", "").await?;
@@ -171,7 +171,7 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    // Relay was asked by a bot three hops from the person, stored while Spade was away.
+    // Relay was asked by a bot at the guard's depth, stored while Spade was away.
     {
         let store = spade_store::Store::open(&spade.database())?;
         store.append(
@@ -185,7 +185,7 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
                 from_agent: Some(FromAgent {
                     id: "a_x".into(),
                     name: "Far".into(),
-                    depth: 3,
+                    depth: spade_server::engine::MOST_HOPS,
                     machine: None,
                 }),
                 from_routine: None,
@@ -215,7 +215,7 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
     assert!(
         result["content"]
             .as_str()
-            .is_some_and(|c| c.contains("more than 3")),
+            .is_some_and(|c| c.contains("more than 16")),
         "{result}"
     );
     tokio::time::sleep(Duration::from_millis(100)).await;

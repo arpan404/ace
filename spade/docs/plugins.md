@@ -133,8 +133,10 @@ characters; `PreToolUse` and `PreCompact` add none); exit 2 refuses or asks for 
 as the reason; anything else, a timeout included, is a failed hook and the turn carries on. A
 refused call is answered "Not run: the person's plugin refused this call. <plugin>: <reason>" and
 the gate never sees it. The reason is the hook's text, so it is untrusted like added text: a
-later write in that turn asks. A hook never allows a call the gate would ask about. `Stop` can extend a
-reply at most 3 times.
+later write in that turn asks. A hook never allows a call the gate would ask about. `Stop` extends a
+reply as many times as its hooks ask (ADR 0158), until they ask three times in a row for the same
+reason with no change (a write, a delete, a note) started since the first of the three: then they
+are stuck, the hook is not run again, and the reply finishes. Stop ends it at any point.
 
 Every answer is stored as `hook_ran {hook, target, outcomes}` before the turn moves on, `target`
 being the call id, or the message's, step's or compaction cut's event index; a hook never runs

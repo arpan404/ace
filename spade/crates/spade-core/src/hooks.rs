@@ -28,8 +28,10 @@ pub const EVENTS: [&str; 6] = [
     PRE_COMPACT,
 ];
 
-/// How many times `Stop` hooks may extend one reply.
-pub const MOST_STOP_EXTENSIONS: usize = 3;
+/// `Stop` extends a reply as many times as its hooks ask (ADR 0158), until it asks this many
+/// times in a row for the same reason with nothing changed in between: then it is stuck, not
+/// making progress, and the reply finishes.
+pub const STUCK_AFTER: usize = 3;
 
 /// The most of a hook's text kept.
 pub const MOST_TEXT: usize = 20_000;
@@ -214,6 +216,44 @@ pub fn stop_extensions(events: &[Event]) -> usize {
             _ => false,
         })
         .count()
+}
+
+/// Whether the open reply's `Stop` hooks are stuck: their last [`STUCK_AFTER`] extensions gave the
+/// same reason and no change (a write, a delete, a note) started since the first of them.
+pub fn stop_stuck(events: &[Event]) -> bool {
+    let Some(start) = open_turn(events) else {
+        return false;
+    };
+    let extensions: Vec<(usize, Vec<&str>)> = events[start..]
+        .iter()
+        .enumerate()
+        .filter_map(|(at, event)| match event {
+            Event::Known(Known::HookRan { hook, outcomes, .. }) if hook == STOP => {
+                let reasons: Vec<&str> = outcomes
+                    .iter()
+                    .filter_map(|o| match &o.result {
+                        HookResult::Refused { reason } => Some(reason.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                (!reasons.is_empty()).then_some((start + at, reasons))
+            }
+            _ => None,
+        })
+        .collect();
+    let Some(last) = extensions
+        .len()
+        .checked_sub(STUCK_AFTER)
+        .map(|n| &extensions[n..])
+    else {
+        return false;
+    };
+    let same = last.windows(2).all(|pair| pair[0].1 == pair[1].1);
+    let changed = events[last[0].0..].iter().any(|event| {
+        matches!(event, Event::Known(Known::ToolStarted { risk: Some(risk), .. })
+            if *risk != crate::tools::Risk::Read)
+    });
+    same && !changed
 }
 
 /// The target a `Stop` hook answers: the open reply's last step, by event index.
