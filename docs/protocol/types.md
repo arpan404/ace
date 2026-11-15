@@ -10059,24 +10059,6 @@ Example:
 }
 ```
 
-### events.received
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"events.received"` |  |
-| subscriptionId | yes | string | {"minLength":1} |
-| throughSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-
-Example:
-
-```json
-{
-  "subscriptionId": "example",
-  "throughSeq": 6,
-  "type": "events.received"
-}
-```
-
 ### command
 
 | Field | Required | Type | Constraints |
@@ -10092,32 +10074,19 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "action": "abort",
-      "expected": {
-        "id": "example",
-        "layers": [
-          {
-            "headSha": "9e0dc61373c59E6c0BDDCAfA91047c07f801d27DDe6aF10bB72b9d49CB769218",
-            "number": 6
-          }
-        ],
-        "local": null,
-        "trunk": "example"
-      },
       "link": {
         "pr": {
-          "number": 7,
+          "number": 6,
           "repository": {
-            "forge": "bitbucket",
-            "host": "oFd",
-            "name": "RXjKjzn",
-            "owner": ".T/mx96OdW-J3F"
+            "forge": "gitea",
+            "host": "PptSSj1rJS",
+            "name": "-N0OtnC",
+            "owner": "fe/XFEDud9KFHC"
           }
         },
         "threadId": "example"
       },
-      "method": "squash",
-      "type": "forge.pr.stack.change"
+      "type": "forge.pr.link"
     }
   },
   "type": "command"
@@ -10138,8 +10107,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
-  "offset": 4,
+  "limit": 6,
+  "offset": 6,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -10160,8 +10129,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 10,
+  "before": 5,
+  "limit": 4,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -10183,9 +10152,9 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "collection": "backgroundTasks",
-  "limit": 8,
+  "before": 10,
+  "collection": "agents",
+  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -10206,7 +10175,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 8,
     "id": "example"
   },
   "requestId": "example",
@@ -10515,13 +10484,11 @@ Semantic rule: throughSeq >= afterSeq; events are ordered with (firstSeq ?? seq)
 | afterSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | throughSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | events | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DeliveryEvent.json"}} |
-| ack | no | `true` |  |
 
 Example:
 
 ```json
 {
-  "ack": true,
   "afterSeq": 0,
   "events": [],
   "subscriptionId": "example",

@@ -17,10 +17,7 @@ import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-del
 
 /**
  * Frame shapes this client reads (hello `framing`): several messages per frame, one per line,
- * and streamed deltas in short form (`short-deltas`), made whole by `decode`. The connection
- * acknowledges paced replay pieces (`paced-replay`), but does not ask for them yet: as paced
- * today, a replay finishes later, and an approval on the thread being replayed waits for all of
- * it (measured in apps/daemon/bench/head-of-line.ts, PR description).
+ * and streamed deltas in short form (`short-deltas`), made whole by `decode`.
  */
 export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming];
 

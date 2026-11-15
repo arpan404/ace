@@ -664,13 +664,6 @@ export class Connection {
       }
       if (message.type === "pong") this.#pongs.shift()?.();
       this.#received(message);
-      // A paced replay's piece: the daemon makes the next once it hears this one was handed on.
-      if (message.type === "events" && message.ack)
-        this.send({
-          type: "events.received",
-          subscriptionId: message.subscriptionId,
-          throughSeq: message.throughSeq,
-        });
     } catch (error) {
       this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
     }

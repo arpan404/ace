@@ -3705,24 +3705,6 @@ Example:
 }
 ```
 
-### events.received
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"events.received"` |  |
-| subscriptionId | yes | string | {"minLength":1} |
-| throughSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-
-Example:
-
-```json
-{
-  "subscriptionId": "example",
-  "throughSeq": 0,
-  "type": "events.received"
-}
-```
-
 ### command
 
 | Field | Required | Type | Constraints |
@@ -3738,8 +3720,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
+      "access": "auto-review",
       "threadId": "example",
-      "type": "git.lock.clear"
+      "type": "thread.permission.set"
     }
   },
   "type": "command"
@@ -3760,8 +3743,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
-  "offset": 2,
+  "limit": 6,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3782,8 +3765,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 1,
+  "before": 3,
+  "limit": 4,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -3805,9 +3788,9 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "collection": "backgroundTasks",
-  "limit": 7,
+  "before": 1,
+  "collection": "agents",
+  "limit": 2,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -3828,7 +3811,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 2,
+    "at": 7,
     "id": "example"
   },
   "requestId": "example",

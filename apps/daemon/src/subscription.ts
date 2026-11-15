@@ -7,7 +7,6 @@ import { sidebarSubscription, type DeviceReads } from "./sidebar-subscription.ts
 import { SidebarPlacement } from "./sidebar-placement.ts";
 import { routeThread } from "./thread-routes.ts";
 import type { SnapshotTail } from "./thread-reads.ts";
-import type { ReplayGate } from "./replay-pacer.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -141,11 +140,6 @@ export function subscribe(
   placement?: SidebarPlacement,
   tail?: SnapshotTail,
   device?: DeviceId,
-  /**
-   * Pace the replay to the connection's link (`replay-pacer.ts`): it is made one piece at a time,
-   * each marked for the client to acknowledge, and live events wait until the last has gone.
-   */
-  gate?: ReplayGate,
 ): () => void {
   if (scope.kind === "threads" && scope.window) {
     const window = sidebarSubscription(
@@ -168,8 +162,6 @@ export function subscribe(
   let stopped = false;
   let progressHead = cursor;
   let progressTimer: (() => void) | undefined;
-  /** The wait for the paced replay's next piece. */
-  let pacing: (() => void) | undefined;
   const matches = (event: Event) =>
     scope.kind === "thread" ? event.threadId === scope.threadId : isSidebarEvent(event);
   const cancelProgress = () => {
@@ -229,65 +221,10 @@ export function subscribe(
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    pacing?.();
-    pacing = undefined;
-    gate?.forget(id);
     cancelProgress();
     remove();
     if (acquired) store.releaseThread(acquired);
   };
-  /** The subscription is caught up: say so if asked, then deliver what was heard meanwhile. */
-  const finish = () => {
-    if (stopped) return;
-    if (paced) send({ type: "subscription.ready", subscriptionId: id, seq: cursor });
-    initializing = false;
-    const pending = queued;
-    queued = [];
-    deliver(pending, Math.max(queuedHead, pending.at(-1)?.seq ?? 0));
-  };
-  /**
-   * The replay of `events` through `head`, one piece at a time as `gate` allows, each its own
-   * events message in the order one frame would have had; `finish` once the last has gone.
-   */
-  const replayPaced = gate
-    ? (events: Event[], head: number) => {
-        const selected = events.filter(
-          (event) => event.seq > cursor && event.seq <= head && matches(event),
-        );
-        progressHead = Math.max(progressHead, head);
-        let index = 0;
-        const piece = () => {
-          pacing = undefined;
-          if (stopped) return;
-          const budget = gate.pieceBytes();
-          const frame: Event[] = [];
-          let bytes = 0;
-          while (index < selected.length) {
-            const event = selected[index];
-            if (!event) break;
-            const size = encoder.eventBytes(event);
-            if (frame.length && bytes + size > budget) break;
-            frame.push(event);
-            bytes += size;
-            index++;
-          }
-          const previous = cursor;
-          cursor = index >= selected.length ? head : (frame.at(-1)?.seq ?? head);
-          send({
-            type: "events",
-            subscriptionId: id,
-            afterSeq: previous,
-            throughSeq: cursor,
-            events: frame,
-            ack: true,
-          });
-          gate.sent(id, cursor, bytes);
-          if (index >= selected.length) finish();
-          else pacing = gate.whenReady(piece);
-        };
-        piece();
-      }
-    : undefined;
   try {
     let replaySafe = afterSeq === undefined;
     if (afterSeq !== undefined) {
@@ -380,14 +317,14 @@ export function subscribe(
         } else if (cheaper) {
           cursor = progressHead = head;
           send(cheaper);
-        } else if (replayPaced && events.some((event) => event.seq > cursor && matches(event))) {
-          // Paced: `finish` runs once the last piece has gone, not here.
-          replayPaced(events, head);
-          return stop;
         } else deliver(events, head, true);
       }
     }
-    finish();
+    if (paced) send({ type: "subscription.ready", subscriptionId: id, seq: cursor });
+    initializing = false;
+    const pending = queued;
+    queued = [];
+    deliver(pending, Math.max(queuedHead, pending.at(-1)?.seq ?? 0));
     return stop;
   } catch (error) {
     stop();

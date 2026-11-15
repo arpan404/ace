@@ -24,7 +24,7 @@ export interface RelayCommand {
   sentAt?: number;
 }
 const relayCommands = new Map<string, RelayCommand>();
-/** What the daemon sent on the relay path, by message type: count and bytes (paced pieces apart). */
+/** What the daemon sent on the relay path, by message type: count and bytes. */
 const relaySent = new Map<string, { count: number; bytes: number }>();
 const epochNow = () => performance.timeOrigin + performance.now();
 
@@ -45,11 +45,10 @@ export function recordRelay(kind: "in" | "send" | "sent", text: string): void {
   for (const line of text.split("\n")) {
     if (kind === "send") {
       const type = /^\{"type":"([^"]+)"/.exec(line)?.[1] ?? "?";
-      const key = type === "events" && line.includes('"ack":true') ? "events (paced)" : type;
-      const entry = relaySent.get(key) ?? { count: 0, bytes: 0 };
+      const entry = relaySent.get(type) ?? { count: 0, bytes: 0 };
       entry.count++;
       entry.bytes += line.length;
-      relaySent.set(key, entry);
+      relaySent.set(type, entry);
     }
     if (!line.includes('"type":"commandResult"')) continue;
     const commandId = /"commandId":"([^"]+)"/.exec(line)?.[1];

@@ -161,29 +161,6 @@
     },
     {
       "properties": {
-        "subscriptionId": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "throughSeq": {
-          "maximum": 9007199254740991,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "type": {
-          "const": "events.received",
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "subscriptionId",
-        "throughSeq"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
         "command": {
           "$ref": "https://ace.local/protocol/v1/Command.json"
         },
