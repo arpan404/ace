@@ -153,6 +153,12 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::seen::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // Pins: when the person pinned a bot or a group to the top of their list.
+        sql: "ALTER TABLE agents ADD COLUMN pinned_ms INTEGER;
+              ALTER TABLE groups ADD COLUMN pinned_ms INTEGER;",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

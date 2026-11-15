@@ -23,6 +23,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/groups", get(list).post(create))
         .route("/groups/{id}", axum::routing::patch(update).delete(delete))
+        .route("/groups/{id}/pin", axum::routing::put(pin))
         .route("/groups/{id}/messages", post(post_message))
         .route("/groups/{id}/stop", post(stop))
         .route("/groups/{id}/files", get(files))
@@ -113,6 +114,7 @@ fn group_json(view: &GroupView) -> Value {
         "created_at": group.created_ms,
         "updated_at": group.updated_ms,
         "last_activity": view.last_activity_ms,
+        "pinned_at": group.pinned_ms,
         "state": view.state.name(),
         "status": view.status,
         "waiting_member": view.waiting_member.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
@@ -162,6 +164,19 @@ async fn update(
     match state.engine.update_group(&id, body.input()).await {
         Ok(view) => Json(json!({ "group": group_json(&view) })).into_response(),
         Err(error) => group_problem(&error),
+    }
+}
+
+/// `PUT /v1/groups/{id}/pin`: pins the group to the top of the list, or unpins it.
+async fn pin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<super::agents::Pin>,
+) -> Response {
+    match state.engine.pin_group(&id, body.pinned) {
+        Ok(Some(view)) => Json(json!({ "group": group_json(&view) })).into_response(),
+        Ok(None) => group_problem(&GroupError::NotFound),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
 
