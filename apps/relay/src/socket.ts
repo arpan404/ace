@@ -13,10 +13,11 @@ export class FrameReader {
   #holds = 0;
   #pending: { resolve(value: Buffer): void; reject(error: Error): void } | undefined;
   #permit: () => Promise<void> | undefined;
-  #onFrame: () => void;
+  /** Called with each frame's size as it arrives, before it is queued. */
+  #onFrame: (bytes: number) => void;
   constructor(
     socket: WebSocket,
-    options: { permit?: () => Promise<void> | undefined; onFrame?: () => void } = {},
+    options: { permit?: () => Promise<void> | undefined; onFrame?: (bytes: number) => void } = {},
   ) {
     this.#socket = socket;
     this.#permit = options.permit ?? (() => undefined);
@@ -33,7 +34,7 @@ export class FrameReader {
         : data instanceof ArrayBuffer
           ? Buffer.from(data)
           : data;
-      this.#onFrame();
+      this.#onFrame(frame.length);
       if (
         frame.length > FRAME_LIMIT ||
         this.#bytes + frame.length > QUEUE_LIMIT ||

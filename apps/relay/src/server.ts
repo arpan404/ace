@@ -20,6 +20,8 @@ import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
+import { EARLY_FRAME } from "./early-frame.ts";
+import { PAIRED_MARKER } from "./wire.ts";
 import { MEDIA_FEATURE, clientPurpose, hostFeatures } from "./purpose.ts";
 import type { RelayStats } from "./forward.ts";
 const noop = () => {};
@@ -47,6 +49,8 @@ type Connection = {
   abort: AbortController;
   lastActivity: number;
   control?: Transport;
+  /** The readiness marker this client gets when paired. */
+  marker: number;
 };
 /** Thin socket shell: registration proof, actions, forwarding and owned deadlines. */
 export async function startRelay(options: RelayOptions = {}) {
@@ -84,16 +88,26 @@ export async function startRelay(options: RelayOptions = {}) {
     maxFragments: 256,
     maxBufferedChunks: 256,
     // A self-hosted relay stays anonymous: an offered grant (ADR 0111) is echoed, never checked,
-    // so daemons and clients signed in to an ace account work here too. Nothing else is chosen.
-    handleProtocols: (protocols) =>
-      [...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ?? false,
+    // so daemons and clients signed in to an ace account work here too. A client whose early
+    // frame has room reserved is answered with the early subprotocol instead (ADR 0155): one
+    // subprotocol is echoed, so that answer is the client's permission to send at once.
+    handleProtocols: (protocols, request) =>
+      earlyUpgrades.has(request)
+        ? EARLY_FRAME.subprotocol
+        : ([...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ??
+          (protocols.has(EARLY_FRAME.neutral) ? EARLY_FRAME.neutral : false)),
   });
+  /** Upgrades whose early frame has room reserved, until `ws` answers them. */
+  const earlyUpgrades = new WeakSet<IncomingMessage>();
   async function apply(actions: RouteAction[]): Promise<void> {
     for (const action of actions) {
       if (action.type === "pair") {
         const client = connections.get(action.client),
           host = connections.get(action.host);
-        if (client && host) pairStreams(client, host, limits, stats, options.onBackpressure);
+        // A held early frame is still the first frame in the client's reader: pairing forwards
+        // it to this host, right after the marker, before anything sent later.
+        if (client && host)
+          pairStreams(client, host, limits, stats, options.onBackpressure, client.marker);
         else {
           client?.socket.terminate();
           host?.socket.terminate();
@@ -210,8 +224,23 @@ export async function startRelay(options: RelayOptions = {}) {
       return;
     }
     const peerBudget = admittedBudget;
+    const id = z.string().min(1).parse(createId());
+    // Room for an early frame is reserved before the upgrade is accepted, never after: a client
+    // is told it may send early only once the relay can hold what it sends (ADR 0155).
+    const offered = (request.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((protocol) => protocol.trim());
+    if (
+      url.pathname === "/client" &&
+      offered.includes(EARLY_FRAME.subprotocol) &&
+      !connections.has(id) &&
+      routing.reserveEarly(id, url.searchParams.get("hostId") ?? "")
+    ) {
+      earlyUpgrades.add(request);
+      // An upgrade that never completes gives the room back; a waiting client keeps it.
+      socket.once("close", () => routing.releaseEarly(id));
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
-      const id = z.string().min(1).parse(createId());
       if (connections.has(id)) {
         ws.terminate();
         return;
@@ -220,12 +249,18 @@ export async function startRelay(options: RelayOptions = {}) {
       const connection: Connection = {
         socket: ws,
         abort,
+        // A new client asked (`early=1`): its marker also says this relay holds early frames.
+        marker:
+          url.searchParams.get(EARLY_FRAME.query) === "1"
+            ? EARLY_FRAME.capableMarker
+            : PAIRED_MARKER,
         lastActivity: clock.now(),
         reader: new FrameReader(ws, {
           permit: () => throttle.wait(peerBudget, abort.signal),
-          onFrame: () => {
+          onFrame: (bytes) => {
             connection.lastActivity = clock.now();
-            void apply(routing.premature(id)).catch(() => ws.terminate());
+            // Before pairing, a client may send one frame it reserved room for; any other closes.
+            void apply(routing.early(id, bytes)).catch(() => ws.terminate());
           },
         }),
       };
