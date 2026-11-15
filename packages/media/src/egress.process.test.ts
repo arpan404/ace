@@ -110,6 +110,8 @@ it.runIf(real)(
     const handles = new Map<string, number>();
     const tokens = new Map<string, Uint8Array>();
     const changes: { at: number; routes: MediaRoutes }[] = [];
+    // Sources ace-media has opened: a producer's hello before that is refused.
+    const opened = new Set<string>();
 
     const supervisor: MediaSupervisor = new MediaSupervisor({
       version: execFileSync(binary, ["--version"]).toString().trim(),
@@ -137,7 +139,10 @@ it.runIf(real)(
           if (route.egress) supervisor.send({ type: "source.egress", source: id, on: true });
         }
       },
-      onMessage: () => {},
+      onMessage: (message) => {
+        if (message.type === "source.status" && message.status === "starting")
+          opened.add(message.source);
+      },
       onEgress: (frame) => router.push(frame),
       onExit: () => {
         for (const handle of handles.values()) router.close(handle);
@@ -160,9 +165,9 @@ it.runIf(real)(
     expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
     supervisor.need();
     await until(
-      () => supervisor.health() === "healthy" && handles.size === 2,
+      () => supervisor.health() === "healthy" && handles.size === 2 && opened.size === 2,
       deadline,
-      "healthy media process and both source handles",
+      "healthy media process and both sources open in it",
     );
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",
