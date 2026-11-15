@@ -33,8 +33,6 @@ const RTT_WINDOW_MS: u64 = 10_000;
 /// At most one keyframe request per encode in this time.
 const KEYFRAME_SPACING_MS: u64 = 200;
 const STATS_MS: u64 = 1_000;
-/// Units held for one view while its window is full; past this the oldest go.
-const HELD: usize = 64;
 const FRAME_AUDIO: u8 = 2;
 
 /// Whose view an ack is for, in the client's ids.
@@ -450,15 +448,20 @@ impl Delivery {
             } = view;
             fanout.acknowledge(
                 sequence,
-                |piece| {
-                    sent += send(out, connection, held, piece);
-                    true
+                |piece| match send(out, connection, held, piece) {
+                    Some(bytes) => {
+                        sent += bytes;
+                        true
+                    }
+                    None => false,
                 },
                 |e| events.push(e),
             );
             if keyframe {
                 fanout.keyframe(|e| events.push(e));
             }
+            // A unit's bytes live exactly as long as the fanout queues it.
+            held.retain(|(sequence, _)| fanout.queued(*sequence));
         }
         self.bytes_out += sent;
         self.events(key, events, now_ms, out);
@@ -591,9 +594,6 @@ impl Delivery {
                     ..
                 } = view;
                 held.push_back((sequence, built.pieces));
-                while held.len() > HELD {
-                    held.pop_front();
-                }
                 fanout.publish(
                     u64::from(frame.encode),
                     Piece {
@@ -601,12 +601,18 @@ impl Delivery {
                         key: built.key,
                         bytes: built.bytes,
                     },
-                    |piece| {
-                        sent += send(out, connection, held, piece);
-                        true
+                    |piece| match send(out, connection, held, piece) {
+                        Some(bytes) => {
+                            sent += bytes;
+                            true
+                        }
+                        None => false,
                     },
                     |e| events.push(e),
                 );
+                // A unit's bytes live exactly as long as the fanout queues it: what it dropped,
+                // or never took, goes with it. So the held bytes never outgrow its window.
+                held.retain(|(sequence, _)| fanout.queued(*sequence));
             }
             self.bytes_out += sent;
             self.events(key, events, now_ms, out);
@@ -839,35 +845,24 @@ impl Delivery {
     }
 }
 
-/// Sends one unit's held pieces when the fanout lets it go; older held units it skipped are
-/// dropped. Returns the bytes sent.
+/// Sends one unit's held pieces when the fanout lets it go. `None` when its bytes aren't held:
+/// the fanout is told the piece wasn't accepted, never that it was.
 fn send(
     out: &mut Vec<Effect>,
     connection: &str,
     held: &mut VecDeque<(u64, Vec<Vec<u8>>)>,
     piece: Piece,
-) -> u64 {
-    while let Some((sequence, _)) = held.front() {
-        if *sequence >= piece.sequence {
-            break;
-        }
-        held.pop_front();
-    }
-    let Some((sequence, _)) = held.front() else {
-        return 0;
-    };
-    if *sequence != piece.sequence {
-        return 0;
-    }
-    let Some((_, pieces)) = held.pop_front() else {
-        return 0;
-    };
+) -> Option<u64> {
+    let at = held
+        .iter()
+        .position(|(sequence, _)| *sequence == piece.sequence)?;
+    let (_, pieces) = held.remove(at)?;
     let mut bytes = 0;
     for piece in pieces {
         bytes += piece.len() as u64;
         media(out, connection, MediaOut::Binary(piece));
     }
-    bytes
+    Some(bytes)
 }
 
 /// Whether a new plan differs enough to tell the producer: other encodes, sizes or codecs, or a

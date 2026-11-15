@@ -84,6 +84,10 @@ impl Viewer {
     pub fn playing(&self) -> bool {
         self.playing
     }
+    /// Whether a piece is still queued here, waiting for room: its payload must be kept.
+    pub fn queued(&self, sequence: u64) -> bool {
+        self.queue.iter().any(|p| p.sequence == sequence)
+    }
     pub fn backlogged(&self) -> bool {
         !self.queue.is_empty() || self.dropping
     }

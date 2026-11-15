@@ -304,3 +304,45 @@ fn a_piece_carries_the_units_capture_time_on_the_wall_clock() {
         Some(NOW.wall_ms as f64 - 20.0)
     );
 }
+
+#[test]
+fn a_keyframe_queued_behind_a_full_window_keeps_its_bytes_however_many_deltas_follow() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let video = |effects: &[Effect]| {
+        let mut assembler = Assembler::new();
+        binaries(effects)
+            .iter()
+            .filter_map(|p| {
+                let envelope = assembler.push(p).ok().flatten()?;
+                let v = media_core::headers::decode_video(envelope.meta, envelope.payload).ok()?;
+                Some((v.sequence as u64, v.key, envelope.payload[5]))
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..60 {
+        first.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let sent = video(&first);
+    assert_eq!(sent.len(), 60, "the window is full");
+    // A keyframe now waits in the queue, then far more deltas than any fixed holding area.
+    let mut later = ingest(&mut engine, 1, h264(true, 100, 1, Vec::new()), NOW);
+    for n in 101..200u8 {
+        later.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    assert!(video(&later).is_empty(), "nothing fits until an ack");
+    let last = sent.last().map_or(0, |s| s.0);
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": last, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let after = video(&engine.effects().collect::<Vec<_>>());
+    // The first thing sent is the queued keyframe, with its own bytes.
+    assert_eq!(
+        after.first().map(|s| (s.1, s.2)),
+        Some((true, 100)),
+        "{after:?}"
+    );
+}
