@@ -48,6 +48,8 @@ export interface RelayRouteOptions {
    * and the wall clock a ticket must also be fresh by. Without them, the platform's.
    */
   clocks?: NkClocks | undefined;
+  /** Open returning streams with Noise NK when the daemon announced it (ADR 0155); default on. */
+  nk?: boolean | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -191,7 +193,8 @@ export function relayRoute(options: RelayRouteOptions): {
             const token =
               typeof credential === "string" ||
               (typeof credential === "object" && "token" in credential);
-            const plan = token || grant !== undefined ? nk.attempt(grant) : undefined;
+            const plan =
+              options.nk !== false && (token || grant !== undefined) ? nk.attempt(grant) : undefined;
             /** The NK attempt's first flight, sent after its confirmation or over XX instead. */
             let flight: string[] | undefined;
             let opened: PortableRelay;
