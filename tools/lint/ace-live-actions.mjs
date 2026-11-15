@@ -6,6 +6,10 @@
  * object), or a `delivery` of "steer", is an error: a new sender can't skip the gate. So is
  * using a helper from another package that sends one of them (`helpers`). Types and comments
  * may name them.
+ *
+ * `ace/live-words`: the ui-core formatters that put agent, subagent, step, task or thread state
+ * into words, counts, tones or actions (`formatters`) are used only in files named
+ * live-words.ts, whose functions take the copy's freshness first.
  */
 
 const commands = new Set([
@@ -35,6 +39,44 @@ const helpers = new Set([
   // @ace/ui-core: a queue-wide action's command (resume, pause, a limit choice).
   "queueActionPayload",
 ]);
+
+/**
+ * ui-core formatters that turn agent, subagent, step, task or thread state into words, counts,
+ * tones or actions. In the web app only files named live-words.ts may use them: each wraps one
+ * in a function that takes the copy's freshness (`Live`) first and returns the stale words
+ * before reading any state, so a component can't format a state without saying whether it is
+ * current.
+ */
+const formatters = new Set([
+  "subagentDetail",
+  "subagentLabels",
+  "subagentGroupTitle",
+  "subagentGroupCounts",
+  "subagentGroupStatus",
+  "subagentOutcome",
+  "backgroundGroup",
+  "backgroundTaskLine",
+  "thoughtLabel",
+  "describeActivity",
+  "agentWorkState",
+  "agentTally",
+  "agentTallyParts",
+  "agentStatusLabel",
+  "agentStep",
+  "agentOutcome",
+  "threadRowStatus",
+  "listTreeFacts",
+  "treeWorking",
+  "nowLine",
+  "queuedDetail",
+  "queuedSlotFragment",
+]);
+
+/** Files that may use the formatters: the live-words modules, and tests. */
+const wordsAllowed = (filename) =>
+  filename.endsWith("/live-words.ts") ||
+  /\.test\.tsx?$/.test(filename) ||
+  /apps\/web\/src\/test\//.test(filename);
 
 /** Files that may name them: the gated module itself, and tests. */
 const allowed = (filename) =>
@@ -99,4 +141,35 @@ const rule = {
   },
 };
 
-export default { meta: { name: "ace" }, rules: { "live-actions": rule } };
+/** `ace/live-words`: state formatters only through a live-words.ts wrapper that takes `Live`. */
+const wordsRule = {
+  meta: {
+    type: "problem",
+    docs: { description: "State formatters go through a live-words.ts wrapper" },
+  },
+  create(context) {
+    const filename = context.filename ?? context.getFilename?.() ?? "";
+    if (wordsAllowed(filename)) return {};
+    const report = (node, name) => {
+      if (formatters.has(name))
+        context.report({
+          node,
+          message: `Format state through a live-words.ts function that takes \`Live\` first, not ${name}: it shows only the stale words while the copy isn't current.`,
+        });
+    };
+    return {
+      ImportSpecifier(node) {
+        report(node, node.imported?.name ?? node.imported?.value);
+      },
+      MemberExpression(node) {
+        if (!node.computed && node.property?.type === "Identifier")
+          report(node, node.property.name);
+      },
+    };
+  },
+};
+
+export default {
+  meta: { name: "ace" },
+  rules: { "live-actions": rule, "live-words": wordsRule },
+};
