@@ -64,7 +64,7 @@ import { endingRow, filesRow } from "./turn-ending.ts";
 import { backgroundRows } from "./background-rows.ts";
 import { stepContext } from "./thread-rows.ts";
 import { workLog, type LogFacts } from "./work-log.ts";
-import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
+import { eventFollows, messageBlock, momentRow, streamingOf } from "./thread-messages.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
 
 /*
@@ -401,6 +401,16 @@ export function blockRow(
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
       return { ...base, live: compactingLine(store) };
+    case "moment": {
+      // One row for the whole moment, drawn as an event row on its first item.
+      const items = block.itemIds.slice(0, 1);
+      return {
+        ...base,
+        kind: "event",
+        items,
+        event: momentRow(store, block.moment, block.itemIds, block.since),
+      };
+    }
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };

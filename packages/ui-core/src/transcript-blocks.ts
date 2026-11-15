@@ -757,7 +757,8 @@ export function buildBlocks(source: BlockSource): Block[] {
       switch (item.type) {
         case "message":
           if (person) push({ kind: "user", key: id, itemId: id }, item.createdAt);
-          else if (item.synthetic) {
+          else if (item.synthetic || item.role === "user") {
+            // Written for the person, never by them: an event, or the turn's moment.
             const moment = momentOf(item);
             if (moment) addMoment(moment, id, item.createdAt, index);
             else push({ kind: "event", key: id, itemId: id }, false);

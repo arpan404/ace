@@ -16,6 +16,7 @@ import {
   sentFold,
   mayBeSystemInput,
   messageOrigin,
+  momentLine,
   personFold,
   promptText,
   referenceSegments,
@@ -24,6 +25,7 @@ import {
   thoughtMs,
   type BubbleFold,
   type EventView,
+  type MomentKind,
   withHardBreaks,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
@@ -266,6 +268,30 @@ function flatten(view: EventView, item: Item | undefined) {
     default:
       return row;
   }
+}
+
+/**
+ * A turn's moment (a restart, a limit's wait, delegated work coming back) as one event row, as
+ * the web's `MomentRow` reads it (`turn-moments.ts`); null when none of its items is loaded.
+ */
+export function momentRow(
+  store: ThreadSource,
+  moment: MomentKind,
+  itemIds: readonly string[],
+  since: number | undefined,
+) {
+  const items = itemIds.flatMap((id) => store.item(id) ?? []);
+  const line = momentLine(moment, items, since);
+  if (!line) return null;
+  return flatten(
+    {
+      kind: "event",
+      line: { icon: line.icon, text: line.text },
+      at: line.from,
+      received: line.received,
+    },
+    items[0],
+  );
 }
 
 /** Whether a block's item is drawn as an event: everything but the person's own bubble. */
