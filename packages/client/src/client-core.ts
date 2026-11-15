@@ -39,6 +39,12 @@ import {
   type CommandPayload,
 } from "@ace/protocol";
 import { RecentIds } from "./recent-ids.ts";
+import {
+  checkedPage,
+  readWholeRequest,
+  type InteractionData,
+  type WholeRequestInput,
+} from "./whole-request.ts";
 import type {
   ClientCoreApi,
   ConnectionControl,
@@ -261,6 +267,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "cursor.auth.error":
           case "registry.result":
           case "output.data":
+          case "interaction.data":
           case "command.status":
             // Resolved above with every other correlated reply.
             break;
@@ -995,6 +1002,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
+      | { type: "interaction.read"; threadId: string; interactionId: string; offset: number }
       | {
           type: "threads.page";
           subscriptionId: string;
@@ -1172,6 +1180,20 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         return { ...result, bytes };
       },
       options,
+    );
+  }
+  /** A summarized request whole (ADR 0156), read in pages of its JSON. */
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return readWholeRequest((offset) =>
+      this.#readCore(
+        { type: "interaction.read", ...input, offset },
+        (value) => {
+          const page = CoreServerMessage.parse(value);
+          if (page.type !== "interaction.data") throw new ClientError("protocol");
+          return checkedPage(input, offset, page satisfies InteractionData);
+        },
+        options,
+      ),
     );
   }
   /** Read a descriptor's text, optionally resuming at a byte offset, in bounded decoded chunks. */
