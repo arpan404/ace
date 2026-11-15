@@ -8,6 +8,7 @@ mod computer;
 mod connectors;
 mod endpoints;
 mod files;
+mod goals;
 mod media;
 mod memory;
 mod oversight;
@@ -82,6 +83,11 @@ pub fn router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
         )
         .route("/agents/{id}/pin", put(agents::pin))
+        .route("/agents/{id}/task", get(goals::read))
+        .route(
+            "/agents/{id}/task/goal",
+            put(goals::set).delete(goals::clear),
+        )
         .route("/main", put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
         .route(
