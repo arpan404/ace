@@ -19,6 +19,7 @@ import {
   type MediaSettings,
 } from "@ace/media/supervisor";
 import type { ServiceContext } from "./types.ts";
+import type { MediaRelayPort } from "../media-relay/port.ts";
 
 /*
  * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
@@ -68,6 +69,8 @@ export type DaemonDelivery = {
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void;
   pause(viewer: string, paused: boolean): void;
   unbind(viewer: string): void;
+  /** Relay media streams (D2): dials, hand-overs and relay hellos' tickets. */
+  relay: MediaRelayPort;
 };
 
 /** The daemon's ace-media as its producers see it. */
@@ -104,6 +107,8 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
+  /** Relay media streams watching ace-media's messages (D2). */
+  const relayHooks = new Set<Parameters<MediaRelayPort["watch"]>[0]>();
 
   const start = () =>
     (starting ??= (async () => {
@@ -125,6 +130,12 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         id,
         capabilities: platformRouteCapabilities(process.platform),
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
+        onMessage: (message, payload) => {
+          for (const hooks of relayHooks) hooks.message(message, payload);
+        },
+        onExit: () => {
+          for (const hooks of relayHooks) hooks.exit();
+        },
       });
       for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
       runtime.settingsChanged();
@@ -179,6 +190,14 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     configure: (viewer, viewport, audio) => live.viewers.configure(viewer, viewport, audio),
     pause: (viewer, paused) => live.viewers.pause(viewer, paused),
     unbind: (viewer) => live.viewers.unbind(viewer),
+    relay: {
+      send: (message, payload) => live.supervisor.send(message, payload),
+      closeStream: (message) => void live.supervisor.revoke(message),
+      need: () => live.supervisor.need(),
+      available: () => settings.delivery === "auto" && live.supervisor.health() !== "unavailable",
+      claim: (ticket, claimant) => live.connections.claimRelay(ticket, claimant),
+      watch: (hooks) => void relayHooks.add(hooks),
+    },
   });
 
   return {
