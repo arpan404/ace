@@ -21,16 +21,19 @@ import { RequestAnswer, requestResolution } from "./thread-requests.ts";
  * What each inbox row waits on the person for, read without opening the thread: for every
  * thread the daemon lists as needing the person, its pending requests as the thread's request
  * strip words them (`interactionRow`), within ADR 0074's preview bounds. Only threads the daemon
- * marks `needs_you` are read, one bounded page at a time; a row's requests change only when the
+ * marks `needs_you` are read, one bounded page at a time, until every request it counts is found
+ * or no older page is left (never a fixed number of pages: large answered requests in front of
+ * a pending one must not hide it; daemons since 2026-11 put every pending request on the newest
+ * page anyway); a row's requests change only when the
  * daemon's read says so, never on this phone's guess. Answers re-read the request first and go
  * through the durable command path (ADR 0012), as notification actions do.
  */
 
 /** Rows and the needs-you run show this many requests per thread; the count says the rest. */
 export const shownPerThread = 8;
-/** Interaction pages read per thread before giving up on finding every pending request. */
-const pageBudget = 4;
 const pageSize = 50;
+/** Pages of 64 KiB (the daemon's default is 128): every pending request is on the first anyway. */
+const pageBytes = 64 * 1024;
 /** Newest first: everything before the end of time. */
 const newest = Number.MAX_SAFE_INTEGER;
 /** The agent's last words, as one muted paragraph in the run. */
@@ -135,24 +138,29 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   const held = new Set<string>();
 
   const interactions = async (threadId: string) => {
-    const found: Interaction[] = [];
+    // By id: an interaction answered between two pages comes again, older, in its new state.
+    const found = new Map<string, Interaction>();
     let before = newest;
-    for (let page = 0; page < pageBudget; page++) {
+    for (;;) {
       const reply = await owner.request({
         type: "entities.page",
         threadId,
         collection: "interactions",
         before,
         limit: pageSize,
+        maxBytes: pageBytes,
       });
       const { page: result } = reply;
       if (result.collection !== "interactions") break;
-      found.push(...result.entries);
+      for (const entry of result.entries) if (!found.has(entry.id)) found.set(entry.id, entry);
       const want = needsSignature(store.thread(threadId)) ? waitingCount(threadId) : 0;
-      if (pendingOf(found).length >= want || result.entitiesBefore === null) break;
+      if (pendingOf([...found.values()]).length >= want) break;
+      // The daemon says there is nothing older; a cursor that did not move would read the same
+      // page again.
+      if (result.entitiesBefore === null || result.entitiesBefore >= before) break;
       before = result.entitiesBefore;
     }
-    return pendingOf(found);
+    return pendingOf([...found.values()]);
   };
   const waitingCount = (threadId: string) => {
     const status = store.thread(threadId)?.status;
@@ -165,6 +173,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       collection: "agents",
       before: newest,
       limit: pageSize,
+      maxBytes: pageBytes,
     });
     const byId = new Map<string, Agent>();
     if (reply.page.collection === "agents")

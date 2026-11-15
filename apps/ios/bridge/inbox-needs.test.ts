@@ -33,8 +33,17 @@ const approval = (interaction: string, command: string) => ({
 });
 
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
-async function phone() {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
+async function phone(
+  setup: {
+    entityPages?: "active-first" | "chronological";
+    /** More history on the asking thread, after its first approval, before the phone starts. */
+    history?: (daemon: FakeDaemon) => void;
+  } = {},
+) {
+  const daemon = new FakeDaemon({
+    clock: () => 1000,
+    ...(setup.entityPages ? { entityPages: setup.entityPages } : {}),
+  });
   for (const [id, title] of [
     [asking, "Give every Fleet map wire its own path"],
     [resting, "Show each remote network in Settings"],
@@ -46,6 +55,7 @@ async function phone() {
     approval("first", "bun run test:changed --with-process"),
   ]);
   daemon.apply(resting, [facts.rootAgent("claude")]);
+  setup.history?.(daemon);
   let sequence = 0;
   const client = new ClientCore({
     deviceId: DeviceId.parse("phone"),
@@ -160,3 +170,34 @@ it("an answer to a request no longer pending sends nothing and gives the control
   expect(of("receipt")).toHaveLength(0);
   expect(interaction(id)?.state).toBe("pending");
 });
+
+/** `count` newer approvals of about `bytes` each on the asking thread, all already answered. */
+const answered = (count: number, bytes: number) => (daemon: FakeDaemon) => {
+  for (let index = 0; index < count; index++) {
+    const id = `done-${index}`;
+    daemon.apply(asking, [
+      // An interaction keeps its provider frames: what makes real ones large.
+      { ...approval(id, "make"), raw: [{ type: "tool_use", data: { input: "x".repeat(bytes) } }] },
+      {
+        type: "interaction.closed" as const,
+        interaction: id,
+        state: "resolved" as const,
+        resolution: { kind: "approval" as const, optionId: `${id}:allow` },
+      },
+    ]);
+  }
+};
+
+it.each(["chronological", "active-first"] as const)(
+  "a pending approval behind many large answered ones still shows (%s daemon)",
+  async (entityPages) => {
+    // 16 answered approvals of about 40 KiB: more than four 128 KiB pages in front of it.
+    const { latest } = await phone({ entityPages, history: answered(16, 40 * 1024) });
+    await vi.waitFor(() =>
+      expect(latest(asking)).toMatchObject({
+        total: 1,
+        requests: [{ kind: "approval", command: "bun run test:changed --with-process" }],
+      }),
+    );
+  },
+);
