@@ -123,6 +123,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "state": view.state.name(),
         "working": view.state != AgentState::Idle,
         "waiting_for": view.waiting_for,
+        "questions_for_later": view.questions_for_later,
         "status": view.status,
         "problem": view.problem,
         "last_message": last_message,

@@ -63,7 +63,8 @@ pub struct Transcript {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
     pub call_id: String,
-    /// The person's next message has arrived; the call's result is still to be stored.
+    /// The person answered, left it for later or dismissed it; the call's result is still to be
+    /// stored.
     pub answered: bool,
 }
 
@@ -88,13 +89,13 @@ impl Transcript {
     }
 
     pub fn apply(&mut self, event: &Event) {
+        let event_ref = event;
         let Event::Known(event) = event else { return };
         match event {
-            Known::UserMessage {
-                text, from_agent, ..
-            } => {
-                // The person's next message answers what the bot asked; another bot's does not.
-                if from_agent.is_none() {
+            Known::UserMessage { text, .. } => {
+                // A message the person types answers what the bot asked; another bot's, a
+                // routine's or a group's does not.
+                if crate::question::typed_by_person(event_ref) {
                     for question in &mut self.questions {
                         question.answered = true;
                     }
@@ -115,6 +116,24 @@ impl Transcript {
                     });
                 }
             }
+            // Answered in the card, left for later or dismissed: the turn no longer waits on it,
+            // and its result is still owed. A late answer is for the model, like a job's result.
+            Known::QuestionDeferred { call_id, .. }
+            | Known::QuestionAnswered {
+                call_id,
+                late: false,
+                ..
+            }
+            | Known::QuestionDismissed {
+                call_id,
+                late: false,
+            } => {
+                for question in self.questions.iter_mut().filter(|q| &q.call_id == call_id) {
+                    question.answered = true;
+                }
+            }
+            Known::QuestionAnswered { late: true, .. }
+            | Known::QuestionDismissed { late: true, .. } => {}
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
@@ -731,6 +750,7 @@ mod tests {
                 reply: "r1".into(),
                 call_id: "q1".into(),
                 question: "Window or aisle?".into(),
+                questions: Vec::new(),
             }),
             Event::Known(Known::ToolStarted {
                 reply: "r1".into(),

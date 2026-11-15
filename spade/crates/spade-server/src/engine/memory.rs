@@ -13,8 +13,6 @@ use spade_store::{NewNote, Notes, Saved, StoreError, StoredNote, Updated};
 use super::Engine;
 use crate::tools::ToolOutput;
 
-/// The longest question `ask_user` takes, in characters.
-const QUESTION_CHARS: usize = 2_000;
 /// The most matches a search returns.
 const FOUND: usize = 10;
 /// The most events `history_read` returns at once.
@@ -64,24 +62,6 @@ pub(super) fn waiting_for(transcript: &Transcript) -> Option<&'static str> {
     } else {
         None
     }
-}
-
-/// The question an `ask_user` call asks, or why it cannot be asked.
-pub(super) fn question(arguments: &Value) -> Result<String, ToolOutput> {
-    let question = arguments
-        .get("question")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    if question.is_empty() {
-        return Err(ToolOutput::error("Give the question to ask in `question`."));
-    }
-    if question.chars().count() > QUESTION_CHARS {
-        return Err(ToolOutput::error(format!(
-            "The question is too long; keep it under {QUESTION_CHARS} characters."
-        )));
-    }
-    Ok(question.to_owned())
 }
 
 /// A message from the person reaches a turn waiting on them at once. A routine's message is not

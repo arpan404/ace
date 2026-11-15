@@ -31,9 +31,10 @@ pub enum Status {
     Declined,
     /// Started and not finished.
     Running,
-    /// An `ask_user` question waiting for the person's next message.
+    /// An `ask_user` question waiting for the person (ADR 0154).
     Asked,
-    /// The person's message answering an `ask_user` question has arrived.
+    /// The `ask_user` call no longer waits: answered in the card or by a typed message, left for
+    /// later, or dismissed. [`crate::question::call_result`] says what it reads.
     Answered,
 }
 
@@ -83,15 +84,7 @@ pub fn next_step(events: &[Event]) -> Next {
                 matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
             });
             if let Some(at) = question {
-                let answered = turn[at..].iter().any(|event| {
-                    matches!(
-                        event,
-                        Event::Known(Known::UserMessage {
-                            from_agent: None,
-                            ..
-                        })
-                    )
-                });
+                let answered = crate::question::call_result(&turn[at..], &call.id).is_some();
                 let status = if answered {
                     Status::Answered
                 } else {
@@ -199,6 +192,7 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
     events.iter().skip(from).any(|event| match event {
         Event::Known(Known::UserMessage { .. }) => true,
         Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+        Event::Known(known) => crate::question::is_late(known),
         _ => false,
     })
 }
@@ -215,6 +209,7 @@ pub fn needs_reply(events: &[Event]) -> bool {
         None => events.iter().any(|event| match event {
             Event::Known(Known::UserMessage { .. }) => true,
             Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+            Event::Known(known) => crate::question::is_late(known),
             _ => false,
         }),
         Some(_) if open_reply(events).is_some() => false,

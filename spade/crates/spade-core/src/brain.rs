@@ -96,85 +96,29 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
         _ => None,
     });
     let since = previous.unwrap_or(0).min(events.len());
-    // The person's answer to an `ask_user` question went to the CLI as that call's result.
-    let mut asking = events[..since]
-        .iter()
-        .rev()
-        .take_while(|e| {
-            !matches!(
-                e,
-                Event::Known(Known::UserMessage {
-                    from_agent: None,
-                    ..
-                })
-            )
-        })
-        .any(|e| matches!(e, Event::Known(Known::QuestionAsked { .. })));
+    // The person's typed answer to a waiting `ask_user` question went to the CLI as that call's
+    // result. One answered in the card, left for later or dismissed absorbs no message.
+    let mut asking = false;
+    for event in &events[..since] {
+        asking = still_asking(asking, event);
+    }
     let parts: Vec<String> = events[since..]
         .iter()
-        .filter_map(|event| match event {
-            Event::Known(Known::QuestionAsked { .. }) => {
-                asking = true;
-                None
-            }
-            Event::Known(Known::UserMessage {
-                from_agent: None, ..
-            }) if asking => {
-                asking = false;
-                None
-            }
-            Event::Known(Known::UserMessage {
-                text,
-                context,
-                images,
-                documents,
-                voice,
-                from_agent,
-                from_routine,
-                from_group,
-            }) => {
-                let spoken = match voice {
-                    Some(_) => format!("{} {text}", context::SPOKEN),
-                    None => text.clone(),
-                };
-                let mut text = context::person_text(
-                    &spoken,
-                    context.as_deref(),
-                    from_agent.as_ref(),
-                    from_routine.as_deref(),
-                    from_group.as_deref(),
-                );
-                // The extracted text, with how to read on (`document_read` through spade_call).
-                for document in documents {
-                    text.push_str("\n\n");
-                    text.push_str(&context::document_text(document, false));
+        .filter_map(|event| {
+            let was = asking;
+            asking = still_asking(asking, event);
+            match event {
+                Event::Known(Known::UserMessage { .. })
+                    if was && crate::question::typed_by_person(event) =>
+                {
+                    None
                 }
-                if !images.is_empty() {
-                    text.push_str(&format!(
-                        "\n\n[The person attached {} image(s); this bot can't see images yet.]",
-                        images.len()
-                    ));
+                // A late answer (ADR 0154) reaches the CLI as an endpoint model reads it.
+                Event::Known(known) if crate::question::is_late(known) => {
+                    crate::question::late_text(events, known)
                 }
-                Some(text)
+                other => turn_part(other),
             }
-            Event::Known(Known::JobFinished {
-                job,
-                name,
-                content,
-                is_error,
-                ..
-            }) => Some(context::job_result(job, name, content, *is_error)),
-            // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
-            Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
-            // Spade's notes on the person's work at the bot's computer (ADR 0142, ADR 0143), with
-            // their names as untrusted data, as an endpoint model reads them.
-            Event::Known(Known::PersonActivity { text, data }) => {
-                Some(context::person_activity(text, data))
-            }
-            Event::Known(Known::ComputerHandedBack { text, data }) => {
-                Some(context::handed_back(text, data))
-            }
-            _ => None,
         })
         .collect();
     // A CLI turn is done only when its last step made no call (`step` stores calls as steps of
@@ -197,6 +141,79 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
         message: parts.join("\n\n"),
         seen: events.len(),
     })
+}
+
+/// Whether a waiting `ask_user` question still takes the person's next typed message as its
+/// answer after `event`.
+fn still_asking(asking: bool, event: &Event) -> bool {
+    match event {
+        Event::Known(Known::QuestionAsked { .. }) => true,
+        Event::Known(
+            Known::QuestionDeferred { .. }
+            | Known::QuestionAnswered { late: false, .. }
+            | Known::QuestionDismissed { late: false, .. },
+        ) => false,
+        _ if crate::question::typed_by_person(event) => false,
+        _ => asking,
+    }
+}
+
+/// What one event that arrived for the CLI says, if it says anything.
+fn turn_part(event: &Event) -> Option<String> {
+    match event {
+        Event::Known(Known::UserMessage {
+            text,
+            context,
+            images,
+            documents,
+            voice,
+            from_agent,
+            from_routine,
+            from_group,
+        }) => {
+            let spoken = match voice {
+                Some(_) => format!("{} {text}", context::SPOKEN),
+                None => text.clone(),
+            };
+            let mut text = context::person_text(
+                &spoken,
+                context.as_deref(),
+                from_agent.as_ref(),
+                from_routine.as_deref(),
+                from_group.as_deref(),
+            );
+            // The extracted text, with how to read on (`document_read` through spade_call).
+            for document in documents {
+                text.push_str("\n\n");
+                text.push_str(&context::document_text(document, false));
+            }
+            if !images.is_empty() {
+                text.push_str(&format!(
+                    "\n\n[The person attached {} image(s); this bot can't see images yet.]",
+                    images.len()
+                ));
+            }
+            Some(text)
+        }
+        Event::Known(Known::JobFinished {
+            job,
+            name,
+            content,
+            is_error,
+            ..
+        }) => Some(context::job_result(job, name, content, *is_error)),
+        // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
+        Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
+        // Spade's notes on the person's work at the bot's computer (ADR 0142, ADR 0143), with
+        // their names as untrusted data, as an endpoint model reads them.
+        Event::Known(Known::PersonActivity { text, data }) => {
+            Some(context::person_activity(text, data))
+        }
+        Event::Known(Known::ComputerHandedBack { text, data }) => {
+            Some(context::handed_back(text, data))
+        }
+        _ => None,
+    }
 }
 
 /// Why the bot's latest reply on a subscription failed (signed out, out of quota), while no later

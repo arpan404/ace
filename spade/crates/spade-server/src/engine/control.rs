@@ -127,11 +127,21 @@ impl Engine {
         reply: &str,
         event: &Event,
     ) -> Result<bool, StoreError> {
+        self.record_all_unless_stopped(id, reply, std::slice::from_ref(event))
+    }
+
+    /// [`Engine::record_unless_stopped`] for events stored together.
+    pub(super) fn record_all_unless_stopped(
+        &self,
+        id: &str,
+        reply: &str,
+        events: &[Event],
+    ) -> Result<bool, StoreError> {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         if stop_requested(&self.load(id)?, reply) {
             return Ok(false);
         }
-        self.append(id, event)?;
+        self.append_events(id, events)?;
         Ok(true)
     }
 

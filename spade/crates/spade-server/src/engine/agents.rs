@@ -333,6 +333,7 @@ impl Engine {
             status,
             last_message: activity.last_message,
             waiting_for: activity.waiting_for,
+            questions_for_later: activity.questions_for_later,
             problem: activity.problem,
             agent,
         })

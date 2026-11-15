@@ -12,7 +12,10 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `plugins_started`                | `rules`, `added?`                                                        | The bot's plugin rules and `SessionStart` text, fixed at the first turn ([plugins.md](plugins.md))                                                                                  |
 | `hook_ran`                       | `hook`, `target`, `outcomes[]`                                           | What the bot's plugin hooks answered at one event, stored once so a restart never runs them again ([plugins.md](plugins.md))                                                        |
 | `memory_indexed`                 | `text`                                                                   | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                         |
-| `question_asked`                 | `reply`, `call_id`, `question`                                           | `ask_user` is waiting for the person's next message (memory.md)                                                                                                                     |
+| `question_asked`                 | `reply`, `call_id`, `question`, `questions`                              | `ask_user` asked a card; the turn waits unless a `question_deferred` follows ([questions.md](questions.md))                                                                         |
+| `question_deferred`              | `call_id`, `by_bot?`                                                     | Left for later; the call is answered at once                                                                                                                                        |
+| `question_answered`              | `call_id`, `answers`, `late?`, `typed?`                                  | The person's checked answers. A `late` one is delivered like a job result, read as a `<question_answer>`                                                                            |
+| `question_dismissed`             | `call_id`, `late?`                                                       | Never mind; a `late` one is delivered like a late answer                                                                                                                            |
 | `step_finished`                  | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen` | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from |
 | `approval_requested`             | `reply`, `call_id`, `name`, `arguments`                                  | The gate is waiting on the person                                                                                                                                                   |
 | `approval_answered`              | `reply`, `call_id`, `allowed`, `always`                                  | `always` allows that tool for the rest of the conversation                                                                                                                          |
@@ -129,19 +132,20 @@ turns (409 mid-reply).
 
 ## API added
 
-| Method and path                                   | Body                   | Answer                                                                                     |
-| ------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| `POST /v1/conversations/{id}/approvals/{call_id}` | `{allowed, always?}`   | `202`; `409` if that call is not waiting                                                   |
-| `POST /v1/conversations/{id}/compact`             | `{focus?}`             | `204`; `409` mid-reply or nothing to compact                                               |
-| `GET /v1/models`                                  |                        | The person's endpoints and models, presets, the fast model ([agents.md](agents.md))        |
-| `PUT /v1/keys/{endpoint}`                         | `{key}`                | `204`; stored in the OS keychain, never returned                                           |
-| `DELETE /v1/keys/{endpoint}`                      |                        | `204`; `404` if none                                                                       |
-| `POST /v1/maintenance`                            | `{mode, deadline_ms?}` | `202` with the state below; closes admission and starts pausing. `400` for an unknown mode |
-| `GET /v1/maintenance`                             |                        | `{admission: "open"\|"closed", running_turns, running_jobs}`                               |
-| `DELETE /v1/maintenance`                          |                        | `200` with the state; reopens admission, paused turns carry on                             |
-| `PUT /v1/ace`                                     | `{grant}`              | `204`; kept in the keychain (account `ace:grant`), used at once                            |
-| `DELETE /v1/ace`                                  |                        | `204`; forgets the grant and disconnects                                                   |
-| `GET /v1/ace`                                     |                        | `{grant: bool, connected: bool}`, never the grant                                          |
+| Method and path                                   | Body                                              | Answer                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `POST /v1/conversations/{id}/approvals/{call_id}` | `{allowed, always?}`                              | `202`; `409` if that call is not waiting                                                                    |
+| `POST /v1/conversations/{id}/questions/{call_id}` | `{answers}`, `{defer: true}` or `{dismiss: true}` | `202`; `400` for answers that break the card's rules; `409` if it isn't open ([questions.md](questions.md)) |
+| `POST /v1/conversations/{id}/compact`             | `{focus?}`                                        | `204`; `409` mid-reply or nothing to compact                                                                |
+| `GET /v1/models`                                  |                                                   | The person's endpoints and models, presets, the fast model ([agents.md](agents.md))                         |
+| `PUT /v1/keys/{endpoint}`                         | `{key}`                                           | `204`; stored in the OS keychain, never returned                                                            |
+| `DELETE /v1/keys/{endpoint}`                      |                                                   | `204`; `404` if none                                                                                        |
+| `POST /v1/maintenance`                            | `{mode, deadline_ms?}`                            | `202` with the state below; closes admission and starts pausing. `400` for an unknown mode                  |
+| `GET /v1/maintenance`                             |                                                   | `{admission: "open"\|"closed", running_turns, running_jobs}`                                                |
+| `DELETE /v1/maintenance`                          |                                                   | `200` with the state; reopens admission, paused turns carry on                                              |
+| `PUT /v1/ace`                                     | `{grant}`                                         | `204`; kept in the keychain (account `ace:grant`), used at once                                             |
+| `DELETE /v1/ace`                                  |                                                   | `204`; forgets the grant and disconnects                                                                    |
+| `GET /v1/ace`                                     |                                                   | `{grant: bool, connected: bool}`, never the grant                                                           |
 
 Maintenance details the contract leaves open: `POST` answers at once and the updater polls `GET`
 until `running_turns` is 0 (and, for `idle`, `running_jobs` too). For `idle`, `deadline_ms` bounds
