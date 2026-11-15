@@ -1,7 +1,14 @@
 import { once } from "node:events";
 import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
-import { AgentId, Item, ItemId, ServerMessage, type ClientMessage } from "@ace/protocol";
+import {
+  AgentId,
+  Interaction,
+  Item,
+  ItemId,
+  ServerMessage,
+  type ClientMessage,
+} from "@ace/protocol";
 import { wireTrims } from "@ace/projection/wire-trim";
 import { outputReadBytes, pageReplyBytes } from "./reply-bounds.ts";
 import { itemRawReplyBytes } from "./services/item-raw.ts";
@@ -217,6 +224,49 @@ const rows: Row[] = [
         threadId,
         ask,
       ),
+  },
+  {
+    name: "entities.page: a thread's many interactions, read page by page to the oldest",
+    bound: pageReplyBytes + envelopeBytes,
+    async read(store, threadId, ask) {
+      const stored = Array.from({ length: 150 }, (_, index) =>
+        Interaction.parse({
+          id: `ask-${index}`,
+          threadId,
+          agentId: root,
+          blocking: true,
+          request: {
+            kind: "approval",
+            title: `Run step ${index}`,
+            description: words(2000),
+            options: [{ id: "allow", label: "Allow once", kind: "allow_once" }],
+          },
+          state: "pending",
+          createdAt: 1,
+        }),
+      );
+      for (const interaction of stored)
+        store.appendEvents(threadId as never, [{ type: "interaction.opened", interaction }]);
+      const replies: string[] = [];
+      const got: unknown[] = [];
+      let before: number | null = Number.MAX_SAFE_INTEGER;
+      while (before !== null) {
+        const text = await ask({
+          type: "entities.page",
+          threadId,
+          collection: "interactions",
+          before,
+          limit: 200,
+        });
+        replies.push(text);
+        const reply = ServerMessage.parse(JSON.parse(text));
+        if (reply.type !== "entities.page") throw new Error(`Unexpected ${reply.type}`);
+        if (reply.page.collection !== "interactions") throw new Error("Wrong collection");
+        got.unshift(...reply.page.entries.map((entry) => entry.id));
+        before = reply.page.entitiesBefore;
+      }
+      return { replies, got, stored: stored.map((interaction) => interaction.id) };
+    },
   },
   {
     name: "output.read: a shell's whole output, asked for in the largest reads allowed",
