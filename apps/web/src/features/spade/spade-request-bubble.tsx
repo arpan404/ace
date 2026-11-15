@@ -11,7 +11,16 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { cardKeyHint, CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
+import {
+  CardBody,
+  cardKeyHint,
+  CardFooter,
+  CardPrimary,
+  CardWord,
+  NeedsYouLine,
+  RaisedCard,
+  settledLine,
+} from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 
@@ -31,7 +40,7 @@ export type RequestAnswer = "allow" | "always" | "deny";
 /**
  * A call the bot wants to make, as its card where it asked (ADR 0127). Open, it is raised: one
  * sentence in Spade's words, the reviewer's reason as one quiet line, the detail that matters for
- * that kind of call (folded when long), then Deny and, where the gate keeps it, Always allow on
+ * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
  * the left and Allow on the right. With focus on it, Enter allows and Escape denies. Answered, it
  * settles to one line ("Allowed · curl -s …") that opens to the whole request.
  */
@@ -82,45 +91,30 @@ export function SpadeRequestBubble(props: {
         }
       }}
     >
-      <NeedsYouLine>
+      <NeedsYouLine glyph="request">
         <p>{card.sentence}</p>
       </NeedsYouLine>
-      <div className="flex flex-col gap-2">
-        {item.reason && (
-          <p className="mt-1 text-ui leading-5 text-muted-foreground">{item.reason}</p>
-        )}
-        {card.detail && <Detail detail={card.detail} />}
-      </div>
+      {(item.reason || card.detail) && (
+        <CardBody>
+          {item.reason && <p className="text-ui leading-5 text-muted-foreground">{item.reason}</p>}
+          {card.detail && <Detail detail={card.detail} />}
+        </CardBody>
+      )}
       <CardFooter
         start={
           <>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={answering !== undefined}
-              onClick={() => answer("deny")}
-            >
-              {answering === "deny" ? "Denying…" : "Deny"}
-            </Button>
             {card.always && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={answering !== undefined}
-                onClick={() => answer("always")}
-              >
+              <CardWord disabled={answering !== undefined} onClick={() => answer("always")}>
                 {answering === "always" ? "Allowing…" : "Always allow"}
-              </Button>
+              </CardWord>
             )}
+            <CardWord disabled={answering !== undefined} onClick={() => answer("deny")}>
+              {answering === "deny" ? "Denying…" : "Deny"}
+            </CardWord>
           </>
         }
         end={
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={answering !== undefined}
-            onClick={() => answer("allow")}
-          >
+          <CardPrimary disabled={answering !== undefined} onClick={() => answer("allow")}>
             {answering === "allow" ? "Allowing…" : "Allow"}
             <Kbd
               aria-hidden
@@ -129,7 +123,7 @@ export function SpadeRequestBubble(props: {
               variant="on-primary"
               className={cardKeyHint}
             />
-          </Button>
+          </CardPrimary>
         }
       />
     </RaisedCard>
@@ -137,8 +131,8 @@ export function SpadeRequestBubble(props: {
 }
 
 /**
- * An answered request as one line in a bubble: how it was answered, then what it was (the
- * command itself, or the request's words), opening to the whole request.
+ * An answered request as one quiet line: how it was answered, then what it was (the command
+ * itself, or the request's words), opening to the whole request.
  */
 function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
   const { card } = props;
@@ -146,28 +140,23 @@ function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
   const command = card.detail?.kind === "command" ? card.detail.command : undefined;
   const what = command ?? card.sentence.replace(/\.$/, "");
   return (
-    <div role="group" aria-label={props.label} className={quietBubble}>
+    <div role="group" aria-label={props.label} className="flex w-full min-w-0 flex-col">
       <button
         type="button"
         aria-expanded={shown}
         onClick={() => setShown((open) => !open)}
-        className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-baseline gap-2 rounded-sm px-1 text-left text-ui leading-5 focus-ring"
+        className={cn(settledLine, "rounded-sm text-left focus-ring hover:text-foreground")}
       >
-        <span className="shrink-0 font-medium text-foreground">{answered(props.item)}</span>
+        <span className="shrink-0 text-subtle-foreground">{answered(props.item)}</span>
         {/* Open, the whole request reads below instead. */}
         {!shown && (
-          <span
-            className={cn(
-              "min-w-0 truncate",
-              command ? "font-mono text-xs text-subtle-foreground" : "text-muted-foreground",
-            )}
-          >
+          <span className={cn("min-w-0 truncate", command && "font-mono text-xs")}>
             {what.split("\n")[0]}
           </span>
         )}
       </button>
       {shown && (
-        <div className="mt-1.5 flex flex-col gap-2 text-ui">
+        <div className="mt-1.5 ml-3 flex max-w-150 min-w-0 flex-col gap-2 text-ui">
           <p className="text-muted-foreground">{card.sentence}</p>
           {props.item.reason && <p className="text-muted-foreground">{props.item.reason}</p>}
           {card.detail && <Detail detail={card.detail} />}
@@ -230,7 +219,7 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       return <Folded label="Command" text={detail.command} />;
     case "file":
       return (
-        <div className="mt-1">
+        <div className="flex flex-col gap-2">
           <p className="font-mono text-ui wrap-anywhere text-muted-foreground">{detail.path}</p>
           {detail.text !== undefined && <Folded label="Content" text={detail.text} />}
           {detail.before !== undefined && <Folded label="Replaces" text={detail.before} />}
@@ -239,7 +228,7 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       );
     case "note":
       return (
-        <div className="mt-1 flex flex-col gap-0.5 text-ui">
+        <div className="flex flex-col gap-0.5 text-ui">
           {detail.before !== undefined && (
             <p className="text-muted-foreground line-through decoration-border">{detail.before}</p>
           )}
@@ -248,7 +237,7 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       );
     case "email":
       return (
-        <div className="mt-1 flex flex-col gap-0.5 text-ui">
+        <div className="flex flex-col gap-0.5 text-ui">
           {detail.to && <Line label="To" value={detail.to} />}
           {detail.subject && <Line label="Subject" value={detail.subject} />}
           {detail.body && <FoldedText text={detail.body} muted />}
@@ -256,14 +245,14 @@ function Detail(props: { detail: SpadeRequestDetail }) {
       );
     case "message":
       return (
-        <div className="mt-1 flex flex-col gap-0.5 text-ui">
+        <div className="flex flex-col gap-0.5 text-ui">
           <Line label="To" value={detail.to} />
           <FoldedText text={detail.text} muted />
         </div>
       );
     case "fields":
       return (
-        <div className="mt-1 flex flex-col gap-0.5 text-ui">
+        <div className="flex flex-col gap-0.5 text-ui">
           {detail.fields.map((field) => (
             <Line key={field.label} label={field.label} value={field.value} />
           ))}

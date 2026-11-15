@@ -113,9 +113,12 @@ test("a command the bot wants to run shows itself, and can be allowed always as 
       { allowed: true, always: true },
     ]),
   );
-  // Answered, it stays where it was asked, saying so.
-  expect(await request.findByText("Always allowed")).toBeTruthy();
-  expect(request.queryByRole("button", { name: "Allow" })).toBeNull();
+  // Answered, it stays where it was asked as one line saying so.
+  const answered = within(
+    await screen.findByRole("group", { name: "Writer wants to run a command. Always allowed" }),
+  );
+  expect(answered.getByText("npm test")).toBeTruthy();
+  expect(answered.queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
 test("Files lists the bot's folder, opens a file and deletes after confirming", async () => {
