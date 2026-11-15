@@ -21,6 +21,11 @@ import {
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+/**
+ * Background Git reads (lock hygiene, checkout refresh) wait this long after startup, so they
+ * don't compete with the first clients for the daemon's thread and the machine's CPU.
+ */
+const startupQuietMs = 3_000;
 export async function startWorkspaceActions({
   store,
   config,
@@ -105,17 +110,24 @@ export async function startWorkspaceActions({
     }
   }
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
+  const settle = () =>
+    workspace.settleWorkspaceChanges((id, error) =>
+      log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
+    );
   const heal = () =>
     workspace
       .sweepStaleLeases((path, error) =>
         log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
       )
-      .then(() =>
-        workspace.settleWorkspaceChanges((id, error) =>
-          log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
-        ),
-      );
-  let sweep = heal();
+      .then(settle);
+  // A move a restart cut off is settled at once: until then its project's other threads can't
+  // send. The lease sweep, which spawns Git in every project, waits until a starting daemon has
+  // served its clients; it settles again after, should a stale lease have held a move.
+  let sweep = settle();
+  const first = setTimeout(() => {
+    sweep = sweep.then(heal);
+  }, startupQuietMs);
+  first.unref();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
   // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
@@ -123,6 +135,7 @@ export async function startWorkspaceActions({
   }, 60_000);
   healing.unref();
   resources.own(() => {
+    clearTimeout(first);
     clearInterval(healing);
     return sweep;
   }, "Git lock sweep");
@@ -138,15 +151,23 @@ export async function startWorkspaceActions({
   // A read that times out means something hangs (a Git or forge call); say so once per kind
   // of read, so a stuck checkout is visible without repeating every minute.
   const timedOut = new Set<string>();
-  const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) => {
-    const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
-    if (error instanceof RefreshTimeout) timedOut.add(error.step);
-    log.log(
-      first ? "warn" : "debug",
-      first ? "Workspace refresh read timed out" : "Workspace metadata unavailable",
-      logError(error),
-    );
-  });
+  const refresh = new WorkspaceRefresh(
+    store,
+    workspace,
+    now,
+    undefined,
+    (error) => {
+      const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
+      if (error instanceof RefreshTimeout) timedOut.add(error.step);
+      log.log(
+        first ? "warn" : "debug",
+        first ? "Workspace refresh read timed out" : "Workspace metadata unavailable",
+        logError(error),
+      );
+    },
+    undefined,
+    startupQuietMs,
+  );
   resources.own(() => refresh.close(), "workspace refresh");
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
