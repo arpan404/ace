@@ -83,7 +83,7 @@ test("a bot on a machine that goes offline stays listed, as away", async () => {
   await botRow("Research");
   app.crashMachine("studio");
   await waitFor(async () =>
-    expect((await botRow("Research")).textContent).toContain("Away · Studio Mac is offline"),
+    expect((await botRow("Research")).textContent).toContain("Studio Mac is offline"),
   );
 });
 

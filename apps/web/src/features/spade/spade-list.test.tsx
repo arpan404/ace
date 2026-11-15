@@ -1,8 +1,8 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -41,64 +41,51 @@ const names = async () =>
     .queryAllByRole("link")
     .map((row) => row.querySelector("[data-view-row-title]")?.textContent);
 
-/** Picks a filter option: what the list shows. */
-async function show(option: string) {
-  await userEvent.click(screen.getByRole("button", { name: /^Show: / }));
-  await userEvent.click(
-    await screen.findByRole("menuitemradio", { name: new RegExp(`^${option}`) }),
-  );
-  // A radio menu stays open on a pick; Esc closes it.
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-}
-test("the filter shows the bots working, the ones that need the person, or one machine's", async () => {
+test("Spade heads the list, then what needs the person, what works and what failed, with dots only for asks and failures", async () => {
   await spadeApp("/spade", crew, { machines: [studio] });
   await waitFor(async () =>
-    expect(await names()).toEqual(expect.arrayContaining(["Spade", "Scout", "Research"])),
+    expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden", "Research"]),
   );
-
-  await show("Working");
-  await waitFor(async () => expect(await names()).toEqual(["Scout"]));
-  await show("Needs you");
-  await waitFor(async () => expect((await names()).toSorted()).toEqual(["Garden", "Inbox"]));
-  await show("Studio Mac");
-  await waitFor(async () => expect(await names()).toEqual(["Research"]));
-  await show("All bots");
-  await waitFor(async () => expect(await names()).toHaveLength(5));
+  const dot = async (name: string) =>
+    (await botRow(name)).querySelector("[data-face-dot]")?.getAttribute("data-face-dot");
+  expect(await dot("Inbox")).toBe("needs-you");
+  expect(await dot("Garden")).toBe("failed");
+  // Working shows in the face moving, never a dot.
+  expect(await dot("Scout")).toBeUndefined();
+  expect(await dot("Research")).toBeUndefined();
+  // No time and no machine on a row: its name and one line.
+  expect((await botRow("Research")).textContent).toBe("ResearchFound 14 papers");
 });
 
-test("Search finds bots by name and by what they said, and says when nothing matches", async () => {
+test("Search opens in place, finds conversations by their words, and says when nothing matches", async () => {
   await spadeApp("/spade", crew);
   await waitFor(async () => expect(await names()).toHaveLength(4));
-  await userEvent.click(screen.getByRole("button", { name: "Search bots and messages" }));
-  const field = screen.getByRole("searchbox", { name: "Search bots and messages" });
+  await userEvent.click(screen.getByRole("button", { name: "Search conversations" }));
+  const field = screen.getByRole("searchbox", { name: "Search conversations" });
+  expect(document.activeElement).toBe(field);
   await userEvent.type(field, "tomatoes");
-  await waitFor(async () => expect(await names()).toEqual(["Garden"]));
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Garden"]));
   await userEvent.clear(field);
   await userEvent.type(field, "inb");
-  await waitFor(async () => expect(await names()).toEqual(["Inbox"]));
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox"]));
   await userEvent.type(field, "zz");
   await (await roster()).findByText("Nothing matches “inbzz”.");
+  // Esc clears the words, then closes the search, and every row is back.
+  await userEvent.keyboard("{Escape}");
+  expect(field).toHaveProperty("value", "");
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("searchbox", { name: "Search conversations" })).toBeNull();
+  await waitFor(async () => expect(await names()).toHaveLength(4));
 });
 
-test("a row says what the bot uses on its computer, its machine when elsewhere, and a problem as its next step", async () => {
-  await spadeApp(
-    "/spade",
-    (spade) => {
-      crew(spade);
-      spade.computer.use("scout", { kind: "browser", live: true, title: null, url: null });
-      spade.computer.use("scout", { kind: "terminal", live: true, title: null });
-    },
-    { machines: [studio] },
+test("a failed bot's line is its next step, and the foot leads to the person's notes and Spade settings", async () => {
+  await spadeApp("/spade", crew);
+  expect((await botRow("Garden")).textContent).toMatch(/Sign in to Codex to go on$/);
+  expect(screen.getByRole("link", { name: "Spade settings" }).getAttribute("href")).toBe(
+    "/settings/spade",
   );
-  const list = await roster();
-  const scout = await list.findByRole("link", { name: /^Scout/ });
-  // A bot busy on its computer shows no icons for it on its row.
-  expect(within(scout).queryByRole("img", { name: /^Using its/ })).toBeNull();
-  const research = await list.findByRole("link", { name: /^Research/ });
-  expect(research.textContent).toMatch(/Studio Mac$/);
-  expect((await list.findByRole("link", { name: /^Garden/ })).textContent).toMatch(
-    /Sign in to Codex to go on$/,
+  expect(screen.getByRole("link", { name: /^You/ }).getAttribute("href")).toBe(
+    "/settings/spade#about-you",
   );
 });
 
