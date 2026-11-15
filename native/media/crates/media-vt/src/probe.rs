@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The backend's availability trial (ADR 0148). Trials run on one worker
-//! thread under a gate: the caller's cancellation and deadline, checked before
-//! every operation. At most one worker is in flight per process: a probe that
+//! thread under a gate checked before every operation: the caller's
+//! cancellation, and [`LATE_LIMIT`] past the latest caller's deadline. The
+//! deadline bounds only how long `probe` waits; the worker keeps going after
+//! it, so a step a busy machine finishes late still arrives on `late`. At most one worker is in flight per process: a probe that
 //! finds one running with the same input joins it (and extends its deadline),
 //! and a probe with another input waits for it. A trial still running past an
 //! earlier probe's deadline is therefore reused, never duplicated. Unfinished
@@ -84,14 +86,20 @@ pub(crate) fn unfinished(step: Step, codec: &str, state: TrialState) -> Capabili
     }
 }
 
+/// How long the worker keeps trying after the latest caller's deadline, for its results to
+/// arrive late. Only a driver that hangs reaches it; cancellation stops the worker sooner.
+pub const LATE_LIMIT: Duration = Duration::from_secs(30);
+
 /// What the worker checks before each operation.
 pub(crate) struct Gate {
     cancel: ProbeCancel,
     deadline: Mutex<Instant>,
 }
 impl Gate {
+    /// Open until cancelled, or [`LATE_LIMIT`] past the latest caller's deadline: a step past the
+    /// deadline still runs, and its result arrives late.
     pub(crate) fn open(&self) -> bool {
-        !self.cancel.is_cancelled() && Instant::now() < *lock(&self.deadline)
+        !self.cancel.is_cancelled() && Instant::now() < *lock(&self.deadline) + LATE_LIMIT
     }
     fn extend(&self, until: Instant) {
         let mut deadline = lock(&self.deadline);
@@ -138,7 +146,11 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Joins the worker in flight with the same input, or starts one.
 /// `Ok(None)` when the caller's own deadline or cancellation came first while
 /// waiting for another input's worker; `Err` when no thread could start.
-fn acquire(options: &ProbeOptions, deadline: Instant) -> Result<Option<Arc<Run>>, ()> {
+fn acquire(
+    options: &ProbeOptions,
+    deadline: Instant,
+    trials: Trials,
+) -> Result<Option<Arc<Run>>, ()> {
     loop {
         let mut active = lock(&ACTIVE);
         if let Some(run) = active.as_ref().filter(|run| run.input == options.input) {
@@ -179,7 +191,7 @@ fn acquire(options: &ProbeOptions, deadline: Instant) -> Result<Option<Arc<Run>>
         std::thread::Builder::new()
             .name("media-vt-probe".into())
             .spawn(move || {
-                run_trials(worker.input, &worker.gate, &|c| worker.publish(c));
+                trials(worker.input, &worker.gate, &|c| worker.publish(c));
                 worker.finish();
             })
             .map_err(|_| ())?;
@@ -204,6 +216,13 @@ fn report(found: &[Capability], missing: TrialState) -> Vec<Capability> {
 /// Runs (or joins) the trials and waits at most `options.deadline`. A probe
 /// cancelled before it starts returns at once and starts nothing.
 pub fn probe(options: &ProbeOptions) -> ProbeReport {
+    probe_with(options, run_trials)
+}
+
+/// What the worker runs: every trial, publishing each step as it finishes.
+type Trials = fn(TrialInput, &Gate, &dyn Fn(Capability));
+
+fn probe_with(options: &ProbeOptions, trials: Trials) -> ProbeReport {
     let deadline = Instant::now() + options.deadline;
     let (sender, late) = mpsc::channel();
     let empty = |state| ProbeReport {
@@ -214,7 +233,7 @@ pub fn probe(options: &ProbeOptions) -> ProbeReport {
         return empty(TrialState::TimedOut);
     }
     loop {
-        let run = match acquire(options, deadline) {
+        let run = match acquire(options, deadline, trials) {
             Ok(Some(run)) => run,
             Ok(None) => return empty(TrialState::TimedOut),
             Err(()) => return empty(TrialState::Failed),
@@ -246,5 +265,72 @@ pub fn probe(options: &ProbeOptions) -> ProbeReport {
             capabilities: report(&found, TrialState::TimedOut),
             late,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok(step: Step, codec: &str) -> Capability {
+        Capability {
+            state: TrialState::Ok,
+            hardware: true,
+            ..unfinished(step, codec, TrialState::Ok)
+        }
+    }
+
+    /// Encodes at once, then takes 150 ms (three times the deadline) before its decode step.
+    fn slow_decode(_: TrialInput, gate: &Gate, publish: &dyn Fn(Capability)) {
+        publish(ok(Step::Encode, "avc1"));
+        std::thread::sleep(Duration::from_millis(150));
+        if !gate.open() {
+            return;
+        }
+        publish(ok(Step::Decode, "avc1"));
+    }
+
+    fn state_of(found: &[Capability], step: Step) -> Option<TrialState> {
+        found
+            .iter()
+            .find(|c| family(c) == (step, "avc1"))
+            .map(|c| c.state)
+    }
+
+    // One test: the worker is one per process, so these run in order on it.
+    #[test]
+    fn a_step_finishing_after_the_deadline_arrives_late_unless_the_probe_is_cancelled() {
+        let options = ProbeOptions {
+            deadline: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let report = probe_with(&options, slow_decode);
+        assert_eq!(
+            state_of(&report.capabilities, Step::Encode),
+            Some(TrialState::Ok)
+        );
+        assert_eq!(
+            state_of(&report.capabilities, Step::Decode),
+            Some(TrialState::TimedOut)
+        );
+        // The worker keeps going past the deadline: its decode upgrades the report.
+        let late = report.late.recv_timeout(Duration::from_secs(2));
+        assert_eq!(
+            late.map(|c| (c.step, c.state)),
+            Ok((Step::Decode, TrialState::Ok))
+        );
+        assert!(report.late.recv_timeout(Duration::from_secs(2)).is_err());
+
+        // Cancelled past its deadline, it stops at its next step and the late channel closes.
+        let cancelled = ProbeOptions {
+            deadline: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let report = probe_with(&cancelled, slow_decode);
+        cancelled.cancel.cancel();
+        assert_eq!(
+            report.late.recv_timeout(Duration::from_secs(2)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
     }
 }

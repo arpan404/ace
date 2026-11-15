@@ -1705,6 +1705,14 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   probe now runs B3's VA-API trial and B5's NVENC/NVDEC trial (`probe_linux.rs`); NVENC is
   still gated off (B5 notes), so it lists nothing and NVIDIA machines take the last-resort
   encoder. Media Foundation joins when ace-media runs on Windows (no lanes there yet).
+- **Late results always come.** `media-vt`'s worker used to close its gate at the callers'
+  deadline, so on a busy machine every step after the one in flight (decode, after both
+  encodes) was never tried, its `late` channel closed, and VideoToolbox stayed reported absent.
+  Now the deadline bounds only how long `probe` waits: the worker keeps going until
+  cancelled, or `media_vt::LATE_LIMIT` (30 s) past the latest caller's deadline for a driver
+  that hangs, and each late step reaches ace-media as `capabilities.changed`. The still tests
+  and the still bench compare against that final list (`tests/support/probed.rs`), not
+  `ready`'s.
 - **Usable is what this build constructs.** The probe reports what each backend can do, but
   only backends in `encode::platform::BUILT_ENCODERS`, the table beside the match in
   `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort
