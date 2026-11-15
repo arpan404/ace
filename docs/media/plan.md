@@ -1062,6 +1062,17 @@ Strict frame rate first can't meet the 1.6 Mbit/s target ("about 720p at 15 fps"
 
 **Changes to existing rows:**
 
+- **D1: link-follow for device and screen views in Rust.** M2b ports the cap to `media-core`
+  (`device_control::link_capped`): the bit rate capped to the link, rounded to 250 kbit/s (50 kbit/s
+  below 1 Mbit/s), and the frame rate and size at the link's step. The rest of
+  `packages/browser/src/link-follow.ts` has no Rust counterpart yet:
+  - the 15 % hysteresis before a capture is reconfigured;
+  - re-applying on a step change, with the `PictureScale` it keeps.
+
+  D1 owns both, because it moves device and screen viewers and `source.want` into ace-media and
+  rewires `packages/{screen,devices}/src/bridge.ts`, where `LinkFollow` runs today. D1 ports the
+  rule with `link-follow.test.ts`'s cases as shared vectors.
+
 - **Keyframe cap.** About rate × 0.5 s, coupled with scale, on every encoder.
   - Today's encoders get it now, in M2b's policy and its encoder hooks: the video extension's
     offscreen encoder (also run by the desktop's encoder page), and the Swift helper's
