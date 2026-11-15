@@ -17,27 +17,27 @@ export function reviewPlugin(
 }
 /** A plugin's hooks and MCP servers as review lists them, in manifest order. */
 export function executionsOf(manifest: ImportedPlugin["manifest"]): PluginReview["executions"] {
-  return [
-    ...manifest.hooks.map((hook) => Object.assign({ kind: "hook" as const }, hook)),
+  return PluginReview.shape.executions.parse([
+    ...manifest.hooks.map((hook) => Object.assign({ kind: "hook" }, hook)),
     ...Object.entries(manifest.mcpServers).map(([name, server]) =>
       server.type === "stdio"
         ? {
-            kind: "stdio" as const,
+            kind: "stdio",
             name,
             command: server.command,
             args: server.args,
             env: server.env,
-            ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
+            cwd: server.cwd,
           }
         : {
-            kind: "remote" as const,
+            kind: "remote",
             name,
             type: server.type,
             url: server.url,
             headers: server.headers,
           },
     ),
-  ];
+  ]);
 }
 export function validateComponents(imported: ImportedPlugin, text: Record<string, string>): void {
   const { manifest } = imported;

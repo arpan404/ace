@@ -169,6 +169,10 @@ async fn serve(
             }
             continue;
         }
+        if message["type"] == "pluginRequest" {
+            send(&out, plugin_answer(&message));
+            continue;
+        }
         if message["type"] != "skills.request" {
             continue;
         }
@@ -279,6 +283,31 @@ async fn serve_deaf(
             return;
         }
     }
+}
+
+/// What the daemon answers a `pluginRequest`: one accepted plugin, `style-kit`, turned off in
+/// ace, and `plugin_failed` for any other.
+fn plugin_answer(message: &Value) -> Value {
+    let request_id = message["requestId"].clone();
+    let request = &message["request"];
+    let install = json!({ "name": "style-kit", "version": "1.0", "commit": "c".repeat(40),
+        "hash": "d".repeat(64), "acceptedAt": 5 });
+    let response = match (request["type"].as_str(), request["name"].as_str()) {
+        (Some("plugins.list"), _) => json!({ "type": "plugins.list", "installs": [install],
+            "reviews": [], "availability": [{ "name": "style-kit", "enabled": false, "providers": [] }] }),
+        (Some("plugins.spade"), Some("style-kit")) => json!({ "type": "plugins.spade", "plugin": {
+            "install": install, "enabled": false, "root": "/plugins/versions/d",
+            "components": [{ "kind": "rule", "name": "style", "path": "rules/style.md",
+                "description": "", "text": "Use tabs." }],
+            "executions": [{ "kind": "stdio", "name": "lint", "command": "node",
+                "args": ["${PLUGIN_ROOT}/lint.js"], "env": { "MODE": "x" } }],
+            "unsupported": [] } }),
+        _ => {
+            return json!({ "type": "error", "code": "plugin_failed",
+                "message": "Plugin not installed", "requestId": request_id });
+        }
+    };
+    json!({ "type": "pluginResult", "requestId": request_id, "response": response })
 }
 
 /// What the daemon answers a `create` or `edit`.

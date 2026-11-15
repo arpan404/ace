@@ -3357,10 +3357,12 @@ dependencies = [
  "futures-util",
  "reqwest",
  "rmcp",
+ "rustix",
  "serde_json",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
+ "win32job",
 ]
 
 [[package]]
