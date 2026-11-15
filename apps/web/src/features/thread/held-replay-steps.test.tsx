@@ -13,15 +13,16 @@ import { harness } from "@/test/harness.tsx";
 import { openWorkPanel } from "@/test/open-work.ts";
 
 /*
- * The work log after a reconnect's welcome and before its replay lands: a cached group still in
- * flight names no step running and doesn't shimmer, as the live line says Syncing….
+ * The work log after a reconnect's welcome and before its replay lands: a cached step still in
+ * flight neither shimmers nor counts its time, as the live line says Syncing….
  */
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
-test("connected again but not caught up: a running step group names no step in flight and doesn't shimmer", async () => {
-  const app = harness();
+test("connected again but not caught up: a step in flight neither shimmers nor counts its time", async () => {
+  // The daemon's clock starts near 1 s, the reader's 12 s later.
+  const app = harness({ uiClock: () => 13_000 });
   const replay = slowReplay(app.daemon);
   app.daemon.createThread({
     id: "parallel",
@@ -47,16 +48,18 @@ test("connected again but not caught up: a running step group names no step in f
   ]);
   await app.open("/t/parallel");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const running = { name: /Running.*bun run slow.*2.*steps/ };
-  expect(await within(feed).findByRole("button", running)).toBeTruthy();
-  expect(feed.querySelector(".step-shimmer")).not.toBeNull();
+  const running = { name: /^Running.*bun run slow/ };
+  const row = await within(feed).findByRole("button", running);
+  expect(row.textContent).toMatch(/12s$/);
+  expect(row.querySelector(".step-shimmer")).not.toBeNull();
 
   await replay.hold(app.client);
-  await waitFor(() => expect(within(feed).queryByRole("button", running)).toBeNull());
-  expect(feed.querySelector(".step-shimmer")).toBeNull();
+  await waitFor(() => expect(feed.querySelector(".step-shimmer")).toBeNull());
+  expect(within(feed).getByRole("button", running).textContent).not.toMatch(/\ds$/);
 
   replay.release(app.client);
-  expect(await within(feed).findByRole("button", running)).toBeTruthy();
+  await waitFor(() => expect(feed.querySelector(".step-shimmer")).not.toBeNull());
+  expect(within(feed).getByRole("button", running).textContent).toMatch(/12s$/);
 });
 
 test("connected again but not caught up: a background group counts nothing as running", async () => {

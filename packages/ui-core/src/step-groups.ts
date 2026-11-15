@@ -9,8 +9,10 @@ import { isToolSearch } from "./tool-search.ts";
  * row ("Edited 2 files", "Ran 3 commands and thought once"), exploration into "Explored 3 files
  * and 2 searches". What the agent says between steps, an image it showed and an error stand alone
  * and end the group before them; so does a thought that starts a group. A group of one is a
- * plain row. Appending a step regroups only the last group, so a live log costs what changed,
- * not its history. Pure.
+ * plain row. A step still in flight stands apart as its own row right after the steps of its
+ * run that finished ("Ran 3 commands", then "Running `bun run lint`"), and folds into them once it
+ * ends; commands left running in the background keep their own card. Appending a step regroups
+ * only the last run, so a live log costs what changed, not its history. Pure.
  */
 
 export type StepKind =
@@ -328,9 +330,17 @@ function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   return !lead || reachesAgents(lead.kind) === reachesAgents(fact.kind);
 }
 
+/** One run of steps that group together: how many steps it holds and how many rows it made. */
+export interface StepRun {
+  steps: number;
+  groups: number;
+}
+
 export interface GroupedSteps {
   facts: readonly StepFact[];
   groups: readonly StepGroup[];
+  /** The runs `groups` was built from, in order, so a later grouping rebuilds only the last. */
+  runs: readonly StepRun[];
 }
 
 export const sameFact = (a: StepFact, b: StepFact) =>
@@ -343,15 +353,29 @@ export const sameFact = (a: StepFact, b: StepFact) =>
   a.target === b.target;
 
 /**
- * The steps' groups. With the previous grouping of the same log, only the groups from the first
+ * One run's rows: the steps that finished as one group, then each step still in flight as its
+ * own row, so what already ran stays in view. Commands left running in the background stay one
+ * card (Stop and all), running or not.
+ */
+function runGroups(run: readonly StepFact[]): StepGroup[] {
+  if (run[0]?.kind === "background" || !run.some((fact) => fact.running)) return [makeGroup(run)];
+  const done = run.filter((fact) => !fact.running);
+  const rows = done.length ? [makeGroup(done)] : [];
+  for (const fact of run) if (fact.running) rows.push(makeGroup([fact]));
+  return rows;
+}
+
+/**
+ * The steps' groups. With the previous grouping of the same log, only the runs from the first
  * changed step on are built again; earlier groups are the same objects, so their rows skip
  * rendering.
  */
 export function groupSteps(facts: readonly StepFact[], previous?: GroupedSteps): GroupedSteps {
   let groups: StepGroup[] = [];
+  const runs: StepRun[] = [];
   let from = 0;
   if (previous) {
-    // The first changed step; everything before its group stands.
+    // The first changed step; everything before its run stands.
     let changed = 0;
     const limit = Math.min(previous.facts.length, facts.length);
     while (changed < limit) {
@@ -362,27 +386,33 @@ export function groupSteps(facts: readonly StepFact[], previous?: GroupedSteps):
     }
     if (changed === facts.length && changed === previous.facts.length) return previous;
     let start = 0;
-    for (const group of previous.groups) {
-      if (start + group.ids.length > changed) break;
-      // The last kept group may grow, so it is built again too.
-      if (start + group.ids.length === changed && changed < facts.length) break;
-      groups.push(group);
-      start += group.ids.length;
+    let made = 0;
+    for (const run of previous.runs) {
+      if (start + run.steps > changed) break;
+      // The last kept run may grow, so it is built again too.
+      if (start + run.steps === changed && changed < facts.length) break;
+      runs.push(run);
+      start += run.steps;
+      made += run.groups;
     }
+    groups = previous.groups.slice(0, made);
     from = start;
   }
   const kept = groups.length;
   let open: StepFact[] = [];
+  const close = () => {
+    const rows = runGroups(open);
+    groups.push(...rows);
+    runs.push({ steps: open.length, groups: rows.length });
+    open = [];
+  };
   for (let index = from; index < facts.length; index++) {
     const fact = facts[index];
     if (!fact) continue;
-    if (open.length && !joins(open, fact)) {
-      groups.push(makeGroup(open));
-      open = [];
-    }
+    if (open.length && !joins(open, fact)) close();
     open.push(fact);
   }
-  if (open.length) groups.push(makeGroup(open));
+  if (open.length) close();
   if (previous) {
     // A rebuilt group that reads as before stays the same object.
     const old = new Map(previous.groups.slice(kept).map((group) => [group.key, group]));
@@ -392,7 +422,7 @@ export function groupSteps(facts: readonly StepFact[], previous?: GroupedSteps):
       return before && sameGroup(before, group) ? before : group;
     });
   }
-  return { facts, groups };
+  return { facts, groups, runs };
 }
 
 function sameGroup(a: StepGroup, b: StepGroup): boolean {
