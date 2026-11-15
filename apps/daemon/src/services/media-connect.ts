@@ -38,6 +38,18 @@ export function mediaOwner(context: SocketContext): MediaOwner | undefined {
   };
 }
 
+/**
+ * A grant as this session may use it: ace-media's listener is on loopback (TLS later), so only a
+ * session on the daemon's loopback listener gets its address. Any other session (a relayed one
+ * above all) gets none, and opens its media connection as a relay stream.
+ */
+function reachable<T extends { ok: boolean; url?: string }>(result: T, local: boolean): T {
+  if (!result.ok || local || result.url === undefined) return result;
+  const copy = { ...result };
+  delete copy.url;
+  return copy;
+}
+
 export function createMediaConnectSession(context: SocketContext): SocketService {
   let started = false;
   return {
@@ -87,7 +99,8 @@ export function createMediaConnectSession(context: SocketContext): SocketService
         delivery.sessionStarted(context.sessionId);
         started = true;
       }
-      return delivery.connect(owner).then((result) => {
+      return delivery.connect(owner).then((granted) => {
+        const result = reachable(granted, context.local === true);
         if (context.connected())
           reply({ type: "media.connect.result", requestId: request.requestId, result });
         else if (result.ok) void delivery.sessionEnded(context.sessionId);

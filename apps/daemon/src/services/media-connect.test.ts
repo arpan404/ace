@@ -1,6 +1,7 @@
 import { MediaConnections, MediaIssue } from "@ace/media/media-connections";
+import { DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { mediaAdmission } from "./media-connect.ts";
+import { createMediaConnectSession, mediaAdmission } from "./media-connect.ts";
 
 // Paired credentials' generations are hashes (`devices.ts`), not numbers.
 const before = "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f";
@@ -46,4 +47,47 @@ test("a channel left from a replaced credential can't bind views on the new one'
     admission: mediaAdmission(undefined, after),
   };
   expect(connections.owned(current, grant.connection)).toEqual(owner);
+});
+
+/** A main session asking for a media connection, on loopback or not (a relayed channel). */
+async function grantFor(local: boolean) {
+  const sent: unknown[] = [];
+  const context = {
+    sessionId: "main",
+    local,
+    socket: { bufferedAmount: 0 },
+    device: () => "phone",
+    accountDevice: () => undefined,
+    credentialGeneration: () => before,
+    authorize: () => true,
+    connected: () => true,
+    send: (message: unknown) => sent.push(message),
+    options: {
+      mediaDelivery: () => ({
+        sessionStarted() {},
+        sessionEnded() {},
+        sample() {},
+        connect: async () => ({
+          ok: true as const,
+          connection: "mc_aaaaaaaa",
+          url: "ws://127.0.0.1:41000/media",
+          ticket: "A".repeat(43),
+          expiresAt: 30_000,
+        }),
+      }),
+    },
+  } as unknown as Parameters<typeof createMediaConnectSession>[0];
+  const message = { type: "media.connect", requestId: "r1" } as const;
+  await createMediaConnectSession(context).handle?.(message, DeviceId.parse("phone"));
+  return (sent[0] as { result: Record<string, unknown> }).result;
+}
+
+test("a loopback session is told where to open its media connection", async () => {
+  expect(await grantFor(true)).toMatchObject({ ok: true, url: "ws://127.0.0.1:41000/media" });
+});
+
+test("a relayed session gets its grant without an address it can't reach", async () => {
+  const grant = await grantFor(false);
+  expect(grant).toMatchObject({ ok: true, connection: "mc_aaaaaaaa", ticket: "A".repeat(43) });
+  expect(grant).not.toHaveProperty("url");
 });

@@ -342,6 +342,17 @@ describe("media connection", () => {
     expect(JSON.parse(relays[0]!.sent[0] as string)).toEqual(ack);
   });
 
+  it("a client that reaches the daemon through the relay uses the relay even when the grant names an address", async () => {
+    // An older daemon answers a relayed session with its loopback address, which it can't reach.
+    const { media, sockets, relays } = harness([granted("mc_aaaaaaaaaa")], { relay: true });
+    media.start();
+    await flush();
+    expect(sockets).toHaveLength(0);
+    expect(relays.map((relay) => relay.ticket)).toEqual([ticket]);
+    relays[0]!.events.welcome();
+    expect(media.binding()).toEqual({ connection: "mc_aaaaaaaaaa" });
+  });
+
   it("stays legacy when the relay stream is refused before its welcome", async () => {
     const { media, relays, clock, asked } = harness([granted("mc_aaaaaaaaaa", null)], {
       relay: true,
