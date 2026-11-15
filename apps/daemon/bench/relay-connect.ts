@@ -11,7 +11,14 @@
  * - reconnect: the same client after its socket drops;
  * - relaunch: a new client on the first one's kept store, as an app started again.
  *
- *   bun apps/daemon/bench/relay-connect.ts [--profile=3g-slow] [--runs=5] [--output=FILE.json]
+ *   bun apps/daemon/bench/relay-connect.ts [--profile=3g-slow] [--runs=5] [--join-rtt=MS]
+ *     [--output=FILE.json]
+ *
+ * `--join-rtt` puts a second shaper between the daemon and the relay, with that round trip and
+ * no loss, so the daemon's `/join` dial takes as long as it does from a Mac at home: the time a
+ * client that sends its first handshake message early (ADR 0155, step 1) no longer waits for.
+ * The cold and relaunched clients connect the old way (a client without a grant learns from its
+ * first connection that the relay holds early frames); the reconnect sends early.
  *
  * Report only. The daemon-to-relay leg is loopback here, and the relay is plain `ws://`: a
  * production phone also pays a TLS round trip to the relay, the daemon's own dial to `/join`
@@ -36,6 +43,7 @@ const argument = (name: string, fallback: string) =>
 const profile = linkProfile(argument("profile", "3g-slow"));
 const runs = Number(argument("runs", "5"));
 const output = argument("output", "");
+const joinRtt = Number(argument("join-rtt", "0"));
 const timeoutMs = 120_000;
 
 const Thread = z.object({ id: z.string(), items: z.number(), turns: z.number() });
@@ -109,6 +117,9 @@ function stampedSockets(shaper: LinkShaper) {
       },
       get bufferedAmount() {
         return real.bufferedAmount;
+      },
+      get protocol() {
+        return real.protocol ?? "";
       },
       addEventListener: real.addEventListener.bind(real),
       send(data: string | Uint8Array) {
@@ -191,6 +202,8 @@ function steps(attempt: Attempt, shaper: LinkShaper) {
   return {
     open: attempt.openMs,
     // The relay's one-byte readiness marker: the daemon joined.
+    // The relay's readiness marker: the daemon joined. A client the relay let send early sent
+    // its first message before it.
     marker: attempt.received[0],
     noise1Sent: attempt.sent[0],
     noise2Received: attempt.received[1],
@@ -209,11 +222,30 @@ type Steps = ReturnType<typeof steps>;
 
 async function measure() {
   const relay = await startRelay({ port: 0, bind: "127.0.0.1" });
+  const relayAddress = new URL(relay.url);
+  // The daemon's own leg to the relay: loopback, or shaped to model its `/join` dial.
+  const daemonLeg =
+    joinRtt > 0
+      ? await startLinkShaper({
+          target: { host: relayAddress.hostname, port: Number(relayAddress.port) },
+          profile: {
+            name: `daemon-leg-${joinRtt}`,
+            downBitsPerSecond: null,
+            upBitsPerSecond: null,
+            rttMs: joinRtt,
+            loss: 0,
+            stallMs: 0,
+            queueBytes: 64 * 1024,
+          },
+        })
+      : undefined;
+  const daemonRelay = new URL(relay.url);
+  if (daemonLeg) daemonRelay.host = daemonLeg.address;
   const daemon = await startBenchDaemon({
     entry: join(import.meta.dirname, "slow-link-daemon.ts"),
     execPath: bunBinary(),
     parse: (ready) => Ready.parse(ready),
-    env: { ACE_RELAY_URL: relay.url },
+    env: { ACE_RELAY_URL: daemonRelay.toString() },
   });
   let shaper: LinkShaper | undefined;
   const clients: Client[] = [];
@@ -280,6 +312,7 @@ async function measure() {
     for (const each of clients) await each.close().catch(() => undefined);
     await shaper?.close();
     await daemon.close();
+    await daemonLeg?.close();
     await relay.close();
   }
   return results;
@@ -308,7 +341,8 @@ function table(results: Awaited<ReturnType<typeof measure>>) {
     "connections",
   ] as const;
   const lines = [
-    `step (median ms from dial, ${profile.name})`.padEnd(30) + "cold  reconnect  relaunch",
+    `step (median ms from dial, ${profile.name}, join rtt ${joinRtt})`.padEnd(30) +
+      "cold  reconnect  relaunch",
   ];
   for (const key of keys)
     lines.push(
@@ -325,6 +359,7 @@ process.stderr.write(`${table(results)}\n`);
 const result = {
   bench: "relay-connect",
   profile,
+  joinRtt,
   runs,
   startedAt: new Date().toISOString(),
   results,

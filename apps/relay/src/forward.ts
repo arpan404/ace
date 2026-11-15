@@ -16,6 +16,8 @@ export function pairStreams(
   limits: Limits,
   stats: RelayStats,
   onBackpressure: ((bytes: number) => void) | undefined,
+  /** The readiness marker: `PAIRED_MARKER`, or the early-capable one for a client that asked. */
+  marker: number = PAIRED_MARKER,
 ): void {
   const close = () => {
     client.socket.terminate();
@@ -52,7 +54,7 @@ export function pairStreams(
       close();
     }
   }
-  void sendFrame(client.socket, new Uint8Array([PAIRED_MARKER]))
+  void sendFrame(client.socket, new Uint8Array([marker]))
     .then(() => {
       void pump(client, host);
       void pump(host, client);

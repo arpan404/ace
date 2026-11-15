@@ -31,13 +31,20 @@ export const Attachment = z.discriminatedUnion("kind", [
     /** It registered with `features=media` and takes media streams (ADR 0147 §5.2). */
     media: z.literal(true).optional(),
   }),
-  /** A client waiting for its host to join `ticket`. `owner` is the host socket offered it. */
+  /**
+   * A client waiting for its host to join `ticket`. `owner` is the host socket offered it.
+   * `early` (ADR 0155): room reserved for one early frame, or that frame received and held in
+   * the object's memory, which hibernation loses; `capable`: its marker says the relay holds
+   * early frames.
+   */
   z.object({
     kind: z.literal("waiting"),
     id: z.string(),
     ticket: Ticket,
     owner: z.string(),
     expires: z.number(),
+    early: z.enum(["reserved", "held"]).optional(),
+    capable: z.literal(true).optional(),
   }),
   /** One side of a paired stream; frames go to `peer`. */
   z.object({ kind: z.literal("stream"), id: z.string(), peer: z.string() }),
@@ -64,6 +71,7 @@ export function routeFacts(attachments: readonly Attachment[]): {
         client: attachment.id,
         owner: attachment.owner,
         expires: attachment.expires,
+        ...(attachment.early ? { early: attachment.early } : {}),
       });
   }
   return { hosts, pending };
