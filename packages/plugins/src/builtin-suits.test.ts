@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { SuitManifest } from "@ace/protocol/suits";
 import { seedBuiltinSuits } from "./builtin-suits.ts";
 
+/** Every folder ace ships in builtin-suits is one Suit. */
+const shipped = new URL("../builtin-suits", import.meta.url).pathname;
+
 const homes: string[] = [];
 afterEach(async () => {
   for (const path of homes.splice(0)) await rm(path, { recursive: true, force: true });
@@ -17,14 +20,12 @@ async function home(): Promise<string> {
 
 it("a first run fills the library with the shipped Suits, each one a valid Suit in its own folder", async () => {
   const library = join(await home(), ".ace", "suits");
-  expect(await seedBuiltinSuits(library)).toEqual([
-    "arcade-cabinet",
-    "atelier-noir",
-    "field-journal",
-    "glasshouse",
-    "quest-journal",
-    "starship-bridge",
-  ]);
+  expect(await seedBuiltinSuits(library)).toEqual(
+    (await readdir(shipped, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .toSorted(),
+  );
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(
       JSON.parse(await readFile(join(library, id, "suit.json"), "utf8")),

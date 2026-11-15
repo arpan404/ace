@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { sceneRuntimeScript } from "./index.ts";
 
@@ -287,23 +287,22 @@ test("a canvas the runtime can't read (tainted by an image) answers no sample an
 });
 
 /** An offscreen canvas for scenes that paint layers once and blit them. */
+/** Every scene file a shipped Suit carries: `<suit>` for scene.js, `<suit>/<file>` for the rest. */
+const shippedRoot = new URL("../../plugins/builtin-suits/", import.meta.url);
+const shippedScenes = readdirSync(shippedRoot, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .flatMap((suit) =>
+    readdirSync(new URL(`${suit.name}/`, shippedRoot))
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => (file === "scene.js" ? suit.name : `${suit.name}/${file.slice(0, -3)}`)),
+  )
+  .toSorted();
+
 const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
 
-test.each([
-  "arcade-cabinet",
-  "atelier-noir",
-  "atelier-noir/celebration",
-  "field-journal",
-  "field-journal/celebration",
-  "glasshouse",
-  "glasshouse/celebration",
-  "quest-journal",
-  "quest-journal/celebration",
-  "starship-bridge",
-  "starship-bridge/celebration",
-])(
+test.each(shippedScenes)(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
     const source = readFileSync(
