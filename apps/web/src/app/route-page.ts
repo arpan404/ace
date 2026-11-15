@@ -43,7 +43,7 @@ export const routePages = {
   "/spade/groups/$groupId": null,
   "/usage": "usage",
   "/setup": "setup",
-  "/pair": "devices",
+  "/pair": "settings",
   "/settings": "settings",
   "/settings/": null,
   "/settings/overview": null,

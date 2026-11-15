@@ -34,6 +34,8 @@ export function Screen(
      * `data-page`, and the window's `app` part says it too (docs/design/suit-parts.md).
      */
     page?: SuitPage | undefined;
+    /** The page's `data-variant`: which kind or state of it is on screen. */
+    pageVariant?: string | undefined;
     children: ReactNode;
   },
 ) {
@@ -82,6 +84,7 @@ export function Screen(
             header={header(headerOwnsConnection)}
             contextPanel={workspace.contextPanel}
             page={props.page}
+            pageVariant={props.pageVariant}
             notice={
               <>
                 <PausedNotice />
@@ -95,7 +98,10 @@ export function Screen(
         ) : (
           <>
             {header(headerOwnsConnection)()}
-            <div {...pageAttributes(props.page)} className={`${pageCanvasClass} flex-col`}>
+            <div
+              {...pageAttributes(props.page, props.pageVariant)}
+              className={`${pageCanvasClass} flex-col`}
+            >
               {props.page && <PageScene />}
               <PausedNotice />
               {machine && <OutsideNotices />}

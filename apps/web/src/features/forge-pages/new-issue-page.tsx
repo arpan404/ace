@@ -63,13 +63,8 @@ export function NewIssuePage(props: {
   };
   const closed = list.first && (!list.first.canCreate || !can(source, "issues.write"));
   return (
-    <Screen title="New issue" crumb={choice.name(project)}>
-      <article
-        {...part("page", undefined, "new")}
-        data-page="issue"
-        aria-label="New issue"
-        className="h-full overflow-y-auto"
-      >
+    <Screen title="New issue" crumb={choice.name(project)} page="issue" pageVariant="new">
+      <article aria-label="New issue" className="h-full overflow-y-auto">
         <form
           {...part("page-body")}
           className={`${readable} pt-6 pb-16`}

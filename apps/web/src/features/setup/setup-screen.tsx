@@ -87,12 +87,8 @@ export function SetupScreen() {
         .provider;
   const current = steps[step];
   return (
-    <Screen title="Set up">
-      <div
-        {...part("page", undefined, step === 0 ? "providers" : "project")}
-        data-page="setup"
-        className="flex h-full min-h-0 flex-col"
-      >
+    <Screen title="Set up" page="setup" pageVariant={step === 0 ? "providers" : "project"}>
+      <div className="flex h-full min-h-0 flex-col">
         <div {...part("page-body")} className="min-h-0 flex-1 overflow-y-auto px-6 py-10 sm:px-10">
           <div
             key={step}

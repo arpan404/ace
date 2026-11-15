@@ -25,6 +25,10 @@ function withRepository() {
   return app;
 }
 
+/** The `data-variant` of the page named `page` (a PR's or issue's state). */
+const pageVariant = (page: string) =>
+  document.querySelector(`[data-part="page"][data-page="${page}"]`)?.getAttribute("data-variant");
+
 /** The parts drawn inside the page named `page`, missing from `parts`. */
 function missingIn(page: string, parts: readonly string[]): string[] {
   const root = document.querySelector(`[data-part="page"][data-page="${page}"]`);
@@ -111,7 +115,7 @@ test("an issue's page names its header, sections and timeline", async () => {
   const page = await screen.findByRole("article", { name: "Issue #260" });
   await within(page).findByText(/Newest: the fix in #229 looks right/);
   await waitFor(() => expect(missingIn("issue", issuePage)).toEqual([]));
-  expect(page.getAttribute("data-variant")).toBe("open");
+  expect(pageVariant("issue")).toBe("open");
 });
 
 const pullSummary = [
@@ -140,7 +144,7 @@ test("a pull request's page names its header, merge box and checks", async () =>
   const page = await screen.findByRole("article", { name: "Pull request #229" });
   await within(page).findByRole("region", { name: "Merge status" });
   await waitFor(() => expect(missingIn("pull", pullSummary)).toEqual([]));
-  expect(page.getAttribute("data-variant")).toBe("open");
+  expect(pageVariant("pull")).toBe("open");
 
   await userEvent.click(within(page).getByRole("tab", { name: /^Checks/ }));
   await waitFor(() => expect(missingIn("pull", pullChecks)).toEqual([]));
@@ -165,8 +169,7 @@ test("a pull request's timeline names its reviews and conversations on code", as
 test("a pull request's Code tab is the review page, its conversations on the lines", async () => {
   const app = withCatalog();
   await app.open(`/pulls/api/31?repo=${docsSite}&tab=code`);
-  const page = await screen.findByRole("article", { name: "Pull request #31" });
-  await waitFor(() => expect(page.getAttribute("data-page")).toBe("review"));
+  await screen.findByRole("article", { name: "Pull request #31" });
   await waitFor(() =>
     expect(missingIn("review", ["pr-header", "page-body", "review-thread"])).toEqual([]),
   );
@@ -175,8 +178,8 @@ test("a pull request's Code tab is the review page, its conversations on the lin
 test("a new pull request's page names its commits", async () => {
   const app = withCatalog();
   await app.open("/pulls/api/new?head=feature/release-notes");
-  const page = await screen.findByRole("article", { name: "New pull request" });
-  expect(page.getAttribute("data-variant")).toBe("new");
+  await screen.findByRole("article", { name: "New pull request" });
+  expect(pageVariant("pull")).toBe("new");
   await waitFor(() =>
     expect(missingIn("pull", ["page-body", "page-section", "list", "commit-row"])).toEqual([]),
   );

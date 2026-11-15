@@ -27,10 +27,22 @@ export function useAnnouncePage(page: SuitPage | undefined): void {
   }, [setPage, page]);
 }
 
-/** `part("page")` with its `data-page`, or nothing for a screen that names no page. */
-export function pageAttributes(page: SuitPage | undefined): {
+/**
+ * `part("page")` with its `data-page` and, where the screen has one, its `data-variant` (a pull
+ * request's state, a Settings page's word); nothing for a screen that names no page.
+ */
+export function pageAttributes(
+  page: SuitPage | undefined,
+  variant?: string | undefined,
+): {
   "data-part"?: "page";
   "data-page"?: SuitPage;
+  "data-variant"?: string;
 } {
-  return page ? { "data-part": "page", "data-page": page } : {};
+  if (!page) return {};
+  return {
+    "data-part": "page",
+    "data-page": page,
+    ...(variant ? { "data-variant": variant } : {}),
+  };
 }

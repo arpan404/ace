@@ -51,7 +51,8 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/spade/groups/$groupId": ["/spade/groups/group-missing", "spade"],
   "/usage": ["/usage", "usage"],
   "/setup": ["/setup", "setup"],
-  "/pair": ["/pair", "devices"],
+  // Redirects to Fleet, where pairing lives.
+  "/pair": null,
   "/settings": null,
   "/settings/": ["/settings", "settings"],
   "/settings/overview": null,
@@ -76,20 +77,10 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/remote/map": ["/settings/remote/map", "settings"],
 };
 
-/**
- * Pages whose screens other work is still naming (forge pages; settings, setup and pairing):
- * their `app` part already says the page, their canvas doesn't yet. Remove each as it lands.
- */
-const canvasPending = new Set<SuitPage>([
-  "inbox",
-  "pulls",
-  "pull",
-  "issues",
-  "issue",
-  "settings",
-  "setup",
-  "devices",
-]);
+/** Pages finer than their route's: a pull request's Code tab is its review. */
+const finer: readonly (readonly [address: string, page: SuitPage])[] = [
+  ["/pulls/relay/1?tab=code", "review"],
+];
 
 /** What the window says now: the app's page and the page parts on screen. */
 function shown() {
@@ -117,17 +108,16 @@ test("every routed screen names its Suit page on the window and on its canvas", 
   });
 
   const wrong: string[] = [];
-  for (const visit of Object.values(addresses)) {
+  for (const visit of [...Object.values(addresses), ...finer]) {
     if (visit === null) continue;
     const [address, page] = visit;
     act(() => history.push(address));
-    const canvas = !canvasPending.has(page);
     try {
       await waitFor(
         () => {
           const now = shown();
           expect(now.app).toBe(page);
-          if (canvas) expect(now.pages).toEqual([page]);
+          expect(now.pages).toEqual([page]);
         },
         { timeout: 4000 },
       );

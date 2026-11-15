@@ -129,15 +129,15 @@ export function IssuePage(props: {
   const cache = useQueryClient();
   const issue = query.data;
   return (
-    <Screen title={`#${props.number}`} crumb={choice.name(props.project)}>
+    <Screen
+      title={`#${props.number}`}
+      crumb={choice.name(props.project)}
+      page="issue"
+      pageVariant={issue?.state}
+    >
       <PullRequestPages project={props.project}>
         <IssuePages project={props.project}>
-          <article
-            {...part("page", undefined, issue?.state)}
-            data-page="issue"
-            aria-label={`Issue #${props.number}`}
-            className="h-full overflow-y-auto"
-          >
+          <article aria-label={`Issue #${props.number}`} className="h-full overflow-y-auto">
             {issue ? (
               <IssueBody
                 project={props.project}

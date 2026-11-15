@@ -53,13 +53,8 @@ export function NewPullRequestPage(props: {
   // own title and description.
   const [details, setDetails] = useState<PrDetailsDraft>(noDetails);
   return (
-    <Screen title="New pull request" crumb={choice.name(project)}>
-      <article
-        {...part("page", undefined, "new")}
-        data-page="pull"
-        aria-label="New pull request"
-        className="h-full overflow-y-auto"
-      >
+    <Screen title="New pull request" crumb={choice.name(project)} page="pull" pageVariant="new">
+      <article aria-label="New pull request" className="h-full overflow-y-auto">
         <div {...part("page-body")} className={`${readable} pt-6 pb-16`}>
           {context.data ? (
             <NewPrForm

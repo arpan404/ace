@@ -65,6 +65,10 @@ test("a Suit that needs fixes says what, and can't be used", async () => {
   const list = await screen.findByRole("list", { name: "What Faint needs fixed" });
   expect(within(list).getByText("Muted text is too faint (dark muted)")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Use Faint" })).toBeNull();
+  // A Suit can style the problems as failed rows (docs/design/suit-parts.md).
+  expect(list.getAttribute("data-part")).toBe("list");
+  const rows = within(list).getAllByRole("listitem");
+  expect(rows.map((row) => row.getAttribute("data-state"))).toEqual(rows.map(() => "failed"));
 });
 
 test("a picked Suit that later fails its checks falls back to the theme", async () => {

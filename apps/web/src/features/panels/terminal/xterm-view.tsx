@@ -1,14 +1,14 @@
-import { useEffect, useEffectEvent, useId, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useId, useRef } from "react";
 import { webgl2Available } from "@/components/gpu-text/support.ts";
 import { applePlatform } from "@/lib/keymap.ts";
-import { useTheme } from "@/theme/theme-provider.tsx";
 import { keyOwner, lineEditBytes } from "./keys.ts";
 import { joinWrapped } from "./search.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { scrollbackRows, type TerminalSurface } from "./surface.ts";
 import { themeFor } from "./xterm-theme.ts";
-import { loadFaces, terminalFont, terminalFontFamily } from "./fonts.ts";
-import { terminalLook, type TerminalLook } from "./suit-terminal.ts";
+import { loadFaces } from "./fonts.ts";
+import type { TerminalLook } from "./suit-terminal.ts";
+import { lookFont, useTerminalLook } from "./terminal-look.ts";
 
 /*
  * A terminal drawn by xterm.js with its WebGL renderer (ADR 0056): full-screen programs,
@@ -30,17 +30,9 @@ function estimateCell(fontFamily: string, size: number, letterSpacing: number): 
   return (context.measureText("W").width || size * 0.6) + letterSpacing;
 }
 
-/** The font stack xterm draws `look` with: the Suit's family first, then the app's monospace. */
-const fontFor = (element: Element, look: TerminalLook) =>
-  look.fontFamily
-    ? terminalFontFamily(
-        `${look.fontFamily}, ${getComputedStyle(element).fontFamily || "monospace"}`,
-      )
-    : terminalFont(element);
-
 /** xterm's options that follow the Suit (`TerminalLook`), applied at start and on every change. */
 const lookOptions = (element: Element, look: TerminalLook) => ({
-  fontFamily: fontFor(element, look),
+  fontFamily: lookFont(element, look),
   fontSize: look.fontSize,
   letterSpacing: look.letterSpacing,
   cursorBlink: look.cursorBlink,
@@ -74,8 +66,7 @@ export function XtermView(props: {
   const focusFirst = useEffectEvent(() => props.autoFocus);
   const startReadOnly = useEffectEvent(() => props.readOnly);
   // The Suit on screen: its font, cursor and colours apply live, to the same xterm and session.
-  const { suit, resolved } = useTheme();
-  const look = useMemo(() => terminalLook(suit, resolved.scheme), [suit, resolved.scheme]);
+  const look = useTerminalLook();
   const currentLook = useEffectEvent(() => look);
   const restyle = useRef<((look: TerminalLook) => void) | null>(null);
   useEffect(() => {

@@ -577,11 +577,6 @@ export function PrDetail(props: {
     : undefined;
   return (
     <article
-      // On a page, the page: a pull request's, or its Code tab's review.
-      {...(props.page ? part("page", undefined, detail?.status.state) : {})}
-      data-page={
-        props.page ? (prWorkspaceTab(props.tab) === "code" ? "review" : "pull") : undefined
-      }
       aria-label={`Pull request #${props.number}`}
       className={cn(
         "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",

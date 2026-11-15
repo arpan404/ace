@@ -42,8 +42,6 @@ export function ListFrame(props: {
   return (
     <div
       ref={ref}
-      {...part("page")}
-      data-page={props.kind}
       className={cn("@container/page flex h-full flex-col overflow-y-auto", forgeGutter)}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >

@@ -161,6 +161,7 @@ export function Workspace(props: {
   contextPanel?: ReactNode;
   /** The canvas's `page` part and `data-page` (docs/design/suit-parts.md). */
   page?: SuitPage | undefined;
+  pageVariant?: string | undefined;
 }) {
   const { scope, definition } = props;
   const store = useWorkspaceStore();
@@ -301,7 +302,10 @@ export function Workspace(props: {
               className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               {props.header(topBar ? undefined : controls("header"))}
-              <div {...pageAttributes(props.page)} className={`${canvasClass} flex-col`}>
+              <div
+                {...pageAttributes(props.page, props.pageVariant)}
+                className={`${canvasClass} flex-col`}
+              >
                 <div className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col">
                   {props.notice}
                   {props.contextPanel ? (
