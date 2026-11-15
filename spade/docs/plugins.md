@@ -51,6 +51,12 @@ Decided in `plugins/view.rs` from the daemon's answer alone:
 | Commands           | Manual store skills with origin `plugin`: only the person starts one; the bot never finds, indexes or loads one                                            |
 | Agents             | Helper profiles of the bots allowed the plugin (ADR 0152, [helpers.md](helpers.md)): instructions, `tools` and `model` from the agent's file               |
 
+An agent's `tools` may name the coding CLIs' tools; each stands for Spade's tools that do the same
+job: `Read` for `workspace_read` and `document_read`, `Grep` for `workspace_search`, `Glob` and
+`LS` for `workspace_list`, `Write` for `workspace_write`, `Edit` and `MultiEdit` for
+`workspace_edit`, `Bash` for `shell`, `WebFetch` for `web_fetch`, `WebSearch` for `web_search` and
+`TodoWrite` for `todo`. Other names are kept as written.
+
 Anything ace could not import (`unsupported`) and any execution of a kind this Spade doesn't
 know is listed too. The settings page shows all of these as "Not used by Spade", each with its
 reason.

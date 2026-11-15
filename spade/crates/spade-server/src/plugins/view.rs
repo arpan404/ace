@@ -280,7 +280,39 @@ fn tool_list(front: &str) -> Option<Vec<String>> {
             .filter(|t| !t.is_empty())
             .collect();
     }
-    (!tools.is_empty()).then_some(tools)
+    (!tools.is_empty()).then(|| spade_tools(&tools))
+}
+
+/// Plugin agents are written for the coding CLIs and usually name those CLIs' tools (`Read`,
+/// `Grep`, `Bash`). Each such name stands for the Spade tools that do the same job in the bot's
+/// workspace and on the web; any other name is kept as written. In order, without repeats.
+fn spade_tools(named: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in named {
+        let mapped: &[&str] = match name.as_str() {
+            "Read" => &["workspace_read", "document_read"],
+            "Grep" => &["workspace_search"],
+            "Glob" | "LS" => &["workspace_list"],
+            "Write" => &["workspace_write"],
+            "Edit" | "MultiEdit" => &["workspace_edit"],
+            "Bash" => &["shell"],
+            "WebFetch" => &["web_fetch"],
+            "WebSearch" => &["web_search"],
+            "TodoWrite" => &["todo"],
+            other => {
+                if !out.iter().any(|t| t == other) {
+                    out.push(other.to_owned());
+                }
+                continue;
+            }
+        };
+        for tool in mapped {
+            if !out.iter().any(|t| t == tool) {
+                out.push((*tool).to_owned());
+            }
+        }
+    }
+    out
 }
 
 /// A skill's folder in the plugin, from its SKILL.md's path.
@@ -406,6 +438,34 @@ mod tests {
                 profiles[2].instructions.as_str()
             ),
             (None, "Just do it.")
+        );
+    }
+
+    #[test]
+    fn an_agent_naming_the_coding_clis_tools_gets_spades_tools_for_the_same_jobs() {
+        let style = plugin(
+            json!([
+                {"kind": "agent", "name": "explorer", "path": "agents/explorer.md",
+                 "description": "Looks around",
+                 "text": "---\ntools: Read, Grep, Glob, LS, WebFetch, lookup\n---\nLook.\n"},
+            ]),
+            json!([]),
+        );
+        let profiles = usable(&style, false).profiles;
+        assert_eq!(
+            profiles[0].tools,
+            Some(
+                [
+                    "workspace_read",
+                    "document_read",
+                    "workspace_search",
+                    "workspace_list",
+                    "web_fetch",
+                    "lookup"
+                ]
+                .map(String::from)
+                .to_vec()
+            )
         );
     }
 
