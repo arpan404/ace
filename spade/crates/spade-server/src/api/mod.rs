@@ -120,6 +120,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
+        .route("/conversations/{id}/seen", put(seen))
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
@@ -323,6 +324,35 @@ async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response
 }
 
 #[derive(Deserialize, Default)]
+struct Seen {
+    /// The last event the person saw; the conversation's last when absent.
+    #[serde(default)]
+    seq: Option<i64>,
+}
+
+/// Marks a bot's or a group's conversation seen (the list's "finished, not seen"). The body is
+/// optional: `{}` or none at all is "up to now". The cursor never moves back.
+async fn seen(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let body: Seen = if body.iter().all(u8::is_ascii_whitespace) {
+        Seen::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(body) => body,
+            Err(error) => return problem(StatusCode::BAD_REQUEST, &error.to_string()),
+        }
+    };
+    match state.engine.mark_seen(&id, body.seq) {
+        Ok(Some(seq)) => Json(json!({ "seen_seq": seq })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+#[derive(Deserialize, Default)]
 struct Focus {
     #[serde(default)]
     focus: Option<String>,
@@ -449,6 +479,11 @@ async fn live(
                     SseEvent::default()
                         .event("delta")
                         .data(json!({ "reply": reply, "text": text }).to_string()),
+                ),
+                Ok(Frame::Seen { seq }) => Some(
+                    SseEvent::default()
+                        .event("seen")
+                        .data(json!({ "seq": seq }).to_string()),
                 ),
                 Ok(Frame::Status {
                     state,

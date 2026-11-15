@@ -187,6 +187,21 @@ impl Store {
         rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
     }
 
+    /// The bots that loaded each skill, by the skill's name, each list in id order.
+    pub fn skill_users(&self) -> Result<HashMap<String, Vec<String>>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT name, agent_id FROM skill_uses WHERE loads > 0 ORDER BY name, agent_id",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))?;
+        let mut users: HashMap<String, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (name, agent) = row?;
+            users.entry(name).or_default().push(agent);
+        }
+        Ok(users)
+    }
+
     /// `agent` loaded the skill named `name` once more.
     pub fn record_skill_load(&self, agent: &str, name: &str) -> Result<()> {
         self.lock()?.execute(

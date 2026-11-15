@@ -14,9 +14,18 @@ pub struct LastMessage {
     /// Whether this agent wrote it (`agent`), or it came to the agent (`person`, or another bot
     /// when `from_agent` is set).
     pub by_agent: bool,
+    /// Its plain-text preview ([`preview`]): no markdown, links as their words.
     pub text: String,
     pub at_ms: i64,
+    /// The event it is, for the seen cursor.
+    pub seq: i64,
     pub from_agent: Option<FromAgent>,
+}
+
+/// The agent finished and the person hasn't seen what it said: it is idle, and its own latest
+/// message is past the conversation's seen cursor. Never while any of its work runs or waits.
+pub fn unseen(state: State, last: Option<&LastMessage>, seen: Option<i64>) -> bool {
+    state == State::Idle && last.is_some_and(|m| m.by_agent && m.seq > seen.unwrap_or(0))
 }
 
 /// What the agent is doing, for the roster.
@@ -86,11 +95,12 @@ pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
             | Known::ReplyInterrupted { text, .. } => (true, text.clone(), None),
             _ => return None,
         };
-        let text = plain(&text, PREVIEW);
+        let text = preview(&text, PREVIEW);
         (!text.is_empty()).then_some(LastMessage {
             by_agent,
             text,
             at_ms: stored.at_ms,
+            seq: stored.seq,
             from_agent,
         })
     })
@@ -118,6 +128,81 @@ pub fn plain(text: &str, longest: usize) -> String {
     if out.chars().count() > longest {
         out = out.chars().take(longest - 1).collect::<String>() + "…";
     }
+    out
+}
+
+/// A message as the list previews it: [`plain`], and links and images as their words, list
+/// marks, strike-through and underscore emphasis gone. Only for the app; the model never reads
+/// it, so it may change freely ([`plain`] reaches the model through `bots_list`).
+pub fn preview(text: &str, longest: usize) -> String {
+    let mut lines = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        let trimmed = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+            .or_else(|| trimmed.strip_prefix("+ "))
+            .or_else(|| {
+                let digits = trimmed.find(|c: char| !c.is_ascii_digit())?;
+                (digits > 0)
+                    .then(|| trimmed[digits..].strip_prefix(". "))
+                    .flatten()
+            })
+            .unwrap_or(trimmed);
+        let trimmed = trimmed
+            .strip_prefix("[ ] ")
+            .or_else(|| trimmed.strip_prefix("[x] "))
+            .unwrap_or(trimmed);
+        let linked = links_as_words(trimmed);
+        let words: Vec<&str> = linked
+            .split_whitespace()
+            .map(|word| {
+                let inner = word.trim_matches('_');
+                // `_emphasis_`, `__strong__`; never `snake_case` or a lone `_`.
+                if !inner.is_empty() && word.starts_with('_') && word.ends_with('_') {
+                    inner
+                } else {
+                    word
+                }
+            })
+            .collect();
+        lines.push_str(&words.join(" ").replace("~~", ""));
+        lines.push('\n');
+    }
+    plain(&lines, longest)
+}
+
+/// `[words](url)` → `words`, `![alt](url)` → `alt`.
+fn links_as_words(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('[') {
+        let image = open > 0 && rest[..open].ends_with('!');
+        let before = if image {
+            &rest[..open - 1]
+        } else {
+            &rest[..open]
+        };
+        let after = &rest[open + 1..];
+        let link = after.find("](").and_then(|close| {
+            let target = &after[close + 2..];
+            target.find(')').map(|end| (close, close + 2 + end + 1))
+        });
+        // `[a] and [b](u)`: the first bracket is not the link's.
+        let link = link.filter(|(close, _)| !after[..*close].contains(']'));
+        match link {
+            Some((close, end)) => {
+                out.push_str(before);
+                out.push_str(&after[..close]);
+                rest = &after[end..];
+            }
+            None => {
+                out.push_str(&rest[..=open]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
     out
 }
 
@@ -198,6 +283,56 @@ mod tests {
         assert_eq!(
             last.map(|m| (m.by_agent, m.text)),
             Some((true, "Found code Two options.".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_preview_is_plain_text_with_links_as_their_words() {
+        let cases = [
+            (
+                "See [the plan](https://x.dev/p) and ![chart](c.png).",
+                "See the plan and chart.",
+            ),
+            ("- first\n2. second\n- [x] done", "first second done"),
+            (
+                "~~old~~ _new_ and __bold__ but snake_case stays",
+                "old new and bold but snake_case stays",
+            ),
+            ("A [lone] bracket [stays", "A [lone] bracket [stays"),
+            ("[a] and [b](https://x.dev)", "[a] and b"),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(preview(text, PREVIEW), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn finished_and_not_seen_holds_only_while_idle_with_its_own_reply_past_the_cursor() {
+        let mine = |seq| LastMessage {
+            by_agent: true,
+            text: "Done".into(),
+            at_ms: 0,
+            seq,
+            from_agent: None,
+        };
+        assert!(unseen(State::Idle, Some(&mine(5)), Some(4)));
+        assert!(unseen(State::Idle, Some(&mine(5)), None));
+        assert!(!unseen(State::Idle, Some(&mine(5)), Some(5)));
+        assert!(
+            !unseen(State::Working, Some(&mine(5)), Some(4)),
+            "still working"
+        );
+        assert!(
+            !unseen(State::Waiting, Some(&mine(5)), Some(4)),
+            "waiting on you"
+        );
+        let yours = LastMessage {
+            by_agent: false,
+            ..mine(5)
+        };
+        assert!(
+            !unseen(State::Idle, Some(&yours), Some(4)),
+            "the person's own message"
         );
     }
 

@@ -16,7 +16,7 @@ with (kept for a bot whose machine is away). `away` is true while a member's mac
 reached.
 
 **Group** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
-"updated_at", "last_activity", "state", "status", "last_message"}`.
+"updated_at", "last_activity", "state", "status", "last_message", "seen_seq", "unseen"}`.
 
 - `members` includes the lead, in the order the person chose.
 - `conversation` is the group's transcript: read it with `GET /v1/conversations/{id}/events` and
@@ -24,8 +24,12 @@ reached.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
 answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
-- `last_message`: `{"from": "person"|"agent", "text", "at", "agent": {"id", "name",
-"machine"}|null}` or null; plain text, at most 200 characters.
+- `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
+"machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
+([agents.md](agents.md)).
+- `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
+  last saw it while nothing in the group runs or waits; marked with
+  `PUT /v1/conversations/{conversation}/seen` (see Seen in [agents.md](agents.md)).
 
 | Method and path              | Body                                          | Answer                                   |
 | ---------------------------- | --------------------------------------------- | ---------------------------------------- |
@@ -35,7 +39,16 @@ answering`, `Research is waiting for you`, `Waiting for Studio to come online`),
 | `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped         |
 | `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                            |
 | `POST /groups/{id}/stop`     |                                               | `204`                                    |
+| `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`          |
 
+- `GET /groups/{id}/files` is the group's Library: every file its members on this machine made
+  answering it, newest first, once per member and path. A member's reply counts when a message
+  from the group started or steered it; a file counts when its `workspace_write` or
+  `workspace_edit` ran without error, or a background job of that reply kept it (a report). `at`
+  is when it was last written there; one since removed from the workspace is left out. A file
+  opens with `GET /v1/agents/{agent}/workspace/file?path=…`. Group messages carry no attachments,
+  so this is the only list; members on other machines keep their files there. `404` for no such
+  group.
 - `name`: 1 to 60 characters, one line. `lead` is a member's `agent` id on this machine. Without
   `lead`, Spade leads (and is added as a member when it isn't one); with Spade switched off on
   this machine, the first member of this machine leads. `members` (lead counted) is 2 to 8

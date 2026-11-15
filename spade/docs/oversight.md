@@ -78,9 +78,21 @@ Folded on each request from the conversation's events; nothing more is stored. A
 
 ```
 {"id": "41-0", "seq": 41, "at": 1794193200000, "kind": "tool", "name": "web_fetch",
- "summary": "url: https://example.com/page", "outcome": "ok", "reply": "r7",
- "cost_micros": null}
+ "summary": "url: https://example.com/page", "sentence": "Read a web page",
+ "detail": "https://example.com/page", "outcome": "ok", "reply": "r7", "cost_micros": null}
 ```
+
+`sentence` and `detail` are what the app shows: the entry in Spade's words, so no app prints a
+tool's name or its arguments. `sentence` is set on every entry ("Ran a command", "Searching the
+web" while it runs, "Used create issue in Linear", "You declined: send an email", "The reviewer
+asked you: run a command", "Daily briefing ran", "Access changed to Auto-review"). `detail` is one
+line (the same 160 characters and redaction as `summary`), or null when the sentence says it all:
+for a call, the part that matters for its kind (a command, a file's path, a note's text, a search's
+words, a page's address, `To Research: …` for a message to a bot, `To Marta and 2 others · Plan`
+for an email), else its fields as `Label: value; …` with hidden secrets left out; for other kinds,
+the `summary`. `memory_forget` has none (only the note's id). `access`, `task` and `hook` entries
+carry the whole of it in the sentence. The words live in `spade-core` `activity::words`, the
+server's copy of the app's tool words; `summary` stays for older apps and for search.
 
 | `kind`      | One per                                                              | `name`              | `summary`                | `outcome`                                                    |
 | ----------- | -------------------------------------------------------------------- | ------------------- | ------------------------ | ------------------------------------------------------------ |
@@ -114,7 +126,7 @@ single-case hex such as commit hashes stays). A shell command is its own summary
 redaction. `spend` and `review` carry `cost_micros`.
 
 `GET /v1/agents/{id}/activity` takes `kind` (comma-separated kinds), `day` (`YYYY-MM-DD` in the
-person's zone), `q` (words, case-insensitive, all must appear in `name` or `summary`), `before`
+person's zone), `q` (words, case-insensitive, all must appear in `name`, `summary`, `sentence` or `detail`), `before`
 (an event `seq`; entries before it) and `limit` (1 to 500, default 200). Answer:
 `{"entries": [Entry], "more": bool, "next_before": seq|null}`, newest first. Spade reads the
 history in windows of 2,000 events from the newest, SQLite filtering by event type and day and

@@ -176,7 +176,9 @@ All under `/v1` with Spade's bearer token, except the callback.
 | `GET /v1/connectors/callback[/{id}]` | query `code`, `state`, `iss`, `error`                                                  | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing                             |
 
 A connector: `{id, name, url, catalogue, local, sign_in: "oauth"|"token"|"none", state, account, tools,
-problem, device?}`, where `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
+problem, device?, bots}`, where `bots` (in `GET /v1/connectors` and `GET /v1/connectors/{id}`) is the
+ids of the bots allowed to use it, in roster order: Spade, the main bot, uses every connector until
+the person narrows it (and none while it is switched off); a bot only those the person allowed. `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
 `signing_in`, and `device` is `{code, url, state: "waiting"|"expired"|"denied"|"failed",
 expires_at_ms}` during a device sign-in and for ten minutes after it ended without connecting. Errors are `{error}`, with `needs: "client_id"` (`409`, register a client with the
 maker) or `needs: "token"` (`422`, the server refused the token). `422` without `needs`: the
