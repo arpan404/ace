@@ -15,7 +15,7 @@ const hand: readonly Vertex[] = [
 
 /** A fist with its thumb up, and its cuff; `down` turns it over. */
 export const thumb = (down: boolean): Part[] => {
-  const flip = (v: Vertex): Vertex => (down ? [v[0], 24 - v[1], v[2]] : v);
+  const flip = (v: Vertex): Vertex => (down ? [v[0], 24 - v[1], v[2] ?? 0] : v);
   return [
     shape(down ? rect(3.25, 3.75, 3.5, 10, 1.25) : rect(3.25, 10.25, 3.5, 10, 1.25)),
     shape(polygon(hand.map(flip))),
