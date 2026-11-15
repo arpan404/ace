@@ -39,6 +39,7 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useRailPins } from "@/lib/rail-pins.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
+import { part } from "@/lib/suit-part.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { LimitsView } from "./limits-view.tsx";
@@ -214,14 +215,20 @@ export function UsagePage() {
         )
       : undefined;
   return (
-    <Screen title="Usage">
-      <div className="h-full overflow-auto">
+    <Screen page="usage" title="Usage">
+      <div {...part("scrollbar")} className="h-full overflow-auto">
         <div
+          {...part("page-body")}
           className="@container/usage mx-auto px-4 pt-6 pb-20 sm:px-10"
           style={{ maxWidth: 960 }}
         >
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h2 className="mr-auto text-2xl leading-8 font-semibold tracking-title">Usage</h2>
+          <div {...part("page-header")} className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h2
+              {...part("page-title")}
+              className="mr-auto text-2xl leading-8 font-semibold tracking-title"
+            >
+              Usage
+            </h2>
             <FilterMenu
               label="Machine"
               value={environmentId}
@@ -268,7 +275,11 @@ export function UsagePage() {
               <ArrowsClockwiseIcon size={14} aria-hidden />
             </button>
           </SectionHeading>
-          <div aria-labelledby="usage-limits" role="region">
+          <div
+            {...part("page-section", undefined, "limits")}
+            aria-labelledby="usage-limits"
+            role="region"
+          >
             {accountsFailed ? (
               <Failed error={accountsFailed} retry={() => void refresh()} />
             ) : !accountsLoaded ? (
@@ -331,7 +342,7 @@ export function UsagePage() {
               onValueChange={(next) => setMetric(next)}
             />
           </SectionHeading>
-          <section aria-labelledby="usage-spend">
+          <section {...part("page-section", undefined, "spend")} aria-labelledby="usage-spend">
             {usage.error ? (
               <Failed error={usage.error} retry={usage.retry} />
             ) : !report ? (
@@ -339,6 +350,7 @@ export function UsagePage() {
             ) : (
               <>
                 <p
+                  {...part("stat", undefined, "total")}
                   data-testid="usage-total"
                   className="mb-5 flex flex-wrap items-baseline gap-x-2.5"
                 >

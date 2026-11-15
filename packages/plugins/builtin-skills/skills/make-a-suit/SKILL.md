@@ -57,8 +57,8 @@ Start from a shipped Suit: copy its folder to the new id and change `id`. `warm-
 | `layout`              | `sidebar` `left`/`right`; `rail` `shown`/`hidden`/`merged`; `sidebarWidth` 200–480; `transcriptWidth` 560–1400; `composer` `docked`/`floating`; `header` `bar`/`minimal`/`hidden`; `messages` `bubbles`/`flat`/`cards`; `toolRows` `compact`/`detailed`/`terminal`. |
 | `labels`              | Up to 40 characters each: `composer-placeholder`, `empty-transcript`, `empty-sidebar`, `working-word`, `send`. Status words are never replaceable.                                                                                                                  |
 | `ornaments`           | Up to 16 `{ slot, asset }`. Slots: `sidebar-header`, `sidebar-footer`, `transcript-top`, `empty-state`, `composer-top`, `corner-top-left`, `corner-top-right`, `corner-bottom-left`, `corner-bottom-right`.                                                         |
-| `scenes`              | Region → `.js` file at the Suit's root, for `app`, `sidebar`, `header`, `composer`. `scene.js` alone means `{ "app": "scene.js" }`.                                                                                                                                 |
-| `reveal`              | Region → 0–1: how much of its scene or background shows through its surface (`app`, `rail`, `sidebar`, `header`, `transcript`, `composer`).                                                                                                                         |
+| `scenes`              | Region → `.js` file at the Suit's root, for `app`, `sidebar`, `header`, `composer`, `right-panel` (the side panel), `page` (behind full pages). `scene.js` alone means `{ "app": "scene.js" }`.                                                                     |
+| `reveal`              | Region → 0–1: how much of its scene or background shows through its surface (`app`, `rail`, `sidebar`, `header`, `transcript`, `composer`, `right-panel`, `page`).                                                                                                  |
 | `scene`               | Don't write it: ace sets it.                                                                                                                                                                                                                                        |
 
 Palette fields per scheme: surfaces `canvas`, `sidebar`, `surface`, `raised`, `hover`, `active`, `code`; lines `border`, `borderStrong`; text `text`, `muted`, `subtle`, `faint` (icons only); accent `accent`, `accentHover`, `accentFg` (labels on an accent fill), `accentText` (links); diff `diffAdd`, `diffDel`, `diffAddFg`, `diffDelFg`; `syntax.kw/fn/str/num/type/com/punc`; `glass: { blur 0–64, saturate 100–300 }` or `null` for solid floating layers. Set surfaces and text levels together, as one ramp.
@@ -67,10 +67,10 @@ Palette fields per scheme: surfaces `canvas`, `sidebar`, `surface`, `raised`, `h
 
 Every region and repeated element of ace carries `data-part="<name>"`, its state in `data-state` (`active`, `selected`, `open`, `closed`, `disabled`, `checked`, `hover`, `working`, `waiting`, `done`, `failed`, `unread`) and its variant in `data-variant`. The parts and what each one is are in `docs/design/suit-parts.md`; they are the only names suit.css may use.
 
-- **Selectors** are built only from `[data-part]`, `[data-state]`, `[data-variant]`, `[data-scheme]`, pseudo-classes (`:hover`, `:focus-within`) and pseudo-elements (`::before`, `::after`). A selector naming a class, an id or an element is refused. ace scopes every rule to your Suit and puts it in `@layer suit`.
+- **Selectors** are built only from `[data-part]`, `[data-page]`, `[data-state]`, `[data-variant]`, `[data-scheme]`, pseudo-classes (`:hover`, `:focus-within`) and pseudo-elements (`::before`, `::after`). A selector naming a class, an id or an element is refused. ace scopes every rule to your Suit and puts it in `@layer suit`.
 - **Allowed**: anything visual. Backgrounds (gradients, patterns, your own `assets/` images), borders, radius, shadows, filters, backdrop filters, fonts, letter spacing, text transform, `::before`/`::after` decoration, transitions and keyframe animations. Use ace's colour variables (`var(--color-foreground)`, `var(--color-border-strong)`) so one rule works in both schemes.
 - **Refused**: `@import`, `url()` to anything but your `assets/`, `expression`, `behavior`, `-moz-binding`, `content: attr(...)`. Each refusal comes back as a `css` problem with its line.
-- **Region backgrounds without CSS**: the sidebar, rail, header, transcript, composer and floating layers read `--suit-<part>-background`; set it on `[data-part="app"]`. `--suit-<part>-scene-opacity` sets how much of a region's scene shows, within what readability allows.
+- **Region backgrounds without CSS**: the sidebar, rail, header, transcript, composer, side panel (`right-panel`), full pages (`page`) and floating layers read `--suit-<part>-background`; set it on `[data-part="app"]`. `--suit-<part>-scene-opacity` sets how much of a region's scene shows, within what readability allows.
 
 ```css
 [data-part="transcript"] {
@@ -94,7 +94,43 @@ Every region and repeated element of ace carries `data-part="<name>"`, its state
 }
 ```
 
+**The side panel's tabs** carry their kind as `data-variant` on `panel-tab` (the strip tab) and `panel-body` (its content), so `[data-part="panel-body"][data-variant="terminal"]` styles one tool. Inside them: `panel-toolbar`, `list`, `list-row`, `card`, `file-tree`, `diff-file`, `diff-line`, `terminal-tab`.
+
+### Pages
+
+Every full page (Usage, Skills, Automations, Spade, History, Chats, pull requests, Settings, …) is built from the same page parts: its canvas is `page`, then `page-header`, `page-title`, `page-toolbar`, `page-body`, `page-section`, and inside them `list`, `list-group`, `list-row`, `card`, `table`, `table-row`, `stat`, `filter-bar`, `search-field`, `avatar`, `label-chip`, `progress` and `chart`. Style those once and every page follows.
+
+`data-page` names which page is on screen, on the `page` part and on `app`, from the list in `docs/design/suit-parts.md` (`thread`, `chat`, `usage`, `skills`, `pulls`, …). Use it to give one page its own look, anywhere in the window:
+
+```css
+[data-page="usage"] [data-part="stat"] {
+  border-left: 3px solid var(--color-primary);
+}
+[data-page="chat"] [data-part="sidebar"] {
+  --suit-sidebar-background: var(--color-background);
+}
+```
+
+The `page` region reads `--suit-page-background`, `-border`, `-shadow` and `-backdrop-filter` like the others, lets `reveal.page` of the app's scene through (0.3 unless you set it), and may run its own scene (`scenes.page`) behind a full page's content. A thread's canvas is a `page` too (`data-page="thread"` or `chat`), but it shows the transcript's reveal and no page scene.
+
 **Ornaments** are static SVG or HTML in `assets/`: no script, no event handlers, no external references. They are inserted inline, so `fill="currentColor"` and `stroke="currentColor"` follow the scheme.
+
+## The terminal
+
+The terminal draws on a canvas: suit.css can frame it (`terminal`, `terminal-tab`) but not reach its text. Set it in `suit.json`:
+
+```json
+"terminal": {
+  "fontFamily": "VT323", "fontSize": 15, "lineHeight": 1.4, "letterSpacing": 0.5,
+  "cursorStyle": "underline", "cursorBlink": true, "reveal": 0.3,
+  "dark": { "background": "#001100", "foreground": "#33ff66", "selection": "#33ff6640",
+            "ansi": { "green": "#33ff66", "brightGreen": "#88ff88" } }
+}
+```
+
+- `fontFamily` is a bundled font's `family` from `fonts` (ace loads the file first) or a system stack.
+- Colours are per scheme; unset ones come from your palette. ANSI colours are lifted until they read on the background, so pick hues, not exact contrast. A foreground under 4.5:1 on its background is a `contrast` problem at `terminal.<scheme>.foreground`.
+- `reveal` 0–1 lets the side panel's background or scene show behind the text, held to what keeps it readable.
 
 ## What a Suit can never change
 

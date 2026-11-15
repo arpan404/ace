@@ -26,6 +26,7 @@ import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -341,6 +342,7 @@ export function ModelPickerPanel(props: {
             <div
               key={group.id}
               role="group"
+              {...part("list-group", group.refreshing ? "working" : undefined, group.provider)}
               aria-label={
                 group.label ??
                 accounts.data?.find((account) => account.id === selected?.instance)?.label ??
@@ -399,7 +401,10 @@ export function ModelPickerPanel(props: {
         className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
         <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring/40">
-          <label className="flex h-full min-w-0 flex-1 items-center gap-2">
+          <label
+            {...part("search-field")}
+            className="flex h-full min-w-0 flex-1 items-center gap-2"
+          >
             <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
             <input
               ref={search}
@@ -436,6 +441,7 @@ export function ModelPickerPanel(props: {
           ref={list}
           role="listbox"
           id={listId}
+          {...part("list", undefined, "models")}
           aria-label="Models"
           aria-busy={loading || undefined}
           className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-1 [scrollbar-width:thin]"

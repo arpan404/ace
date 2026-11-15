@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { setAccess, useConnectorAccess, useSpadeConnectors } from "./spade-connector-api.ts";
 import type { SpadeTarget } from "./spade-requests.ts";
 
@@ -61,7 +62,7 @@ export function ConnectorChoice(props: {
   // turning one off narrows it to the rest.
   const allowed = current.all ? ids : current.connectors;
   return (
-    <ul className="flex flex-col gap-2">
+    <ul {...part("list", undefined, "connectors")} className="flex flex-col gap-2">
       {choice.connectors.map((connector) => (
         <ConnectorSwitch
           key={connector.id}
@@ -109,7 +110,10 @@ function SwitchRow(props: {
   onChange(on: boolean): void;
 }) {
   return (
-    <li className="flex items-center justify-between gap-3">
+    <li
+      {...part("list-row", props.disabled ? "disabled" : props.checked && "checked")}
+      className="flex items-center justify-between gap-3"
+    >
       <label htmlFor={props.id} className="text-ui text-foreground">
         {props.label}
       </label>

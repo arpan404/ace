@@ -45,3 +45,12 @@ test("a Nerd Font the app already names stays where it is and isn't listed twice
   expect(stack.filter((face) => face === "MesloLGS NF")).toHaveLength(1);
   expect(position(stack, "Symbols Nerd Font Mono")).toBeGreaterThan(0);
 });
+
+test("a Suit's family ahead of a stack that repeats it lists each face once, in first place", () => {
+  const stack = faces(
+    terminalFontFamily('"SF Mono", Menlo, monospace, "SF Mono", Menlo, monospace'),
+  );
+  expect(stack.filter((face) => face === "SF Mono")).toHaveLength(1);
+  expect(stack.filter((face) => face === "monospace")).toHaveLength(1);
+  expect(stack.slice(0, 2)).toEqual(["SF Mono", "Menlo"]);
+});

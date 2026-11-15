@@ -3,6 +3,7 @@ import type { Mode } from "@/theme/appearance.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const modes: { value: Mode; label: string }[] = [
   { value: "system", label: "System" },
@@ -16,6 +17,7 @@ export function ModePicker() {
   return (
     <div
       role="radiogroup"
+      {...part("list", undefined, "mode")}
       aria-label="Mode"
       onKeyDown={onRadioKeys}
       className="grid w-full grid-cols-3 gap-4 @min-[420px]:gap-5"

@@ -16,6 +16,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { PrTime } from "./pr-presentation.tsx";
@@ -146,7 +147,7 @@ function CommitLine(props: { commit: ForgeCommit; onOpen?: ((sha: string) => voi
   const { commit, onOpen } = props;
   const headline = commit.message.split("\n")[0];
   return (
-    <li className="flex min-w-0 items-baseline gap-3 py-0.5">
+    <li {...part("commit-row")} className="flex min-w-0 items-baseline gap-3 py-0.5">
       {onOpen ? (
         <button
           type="button"
@@ -179,11 +180,15 @@ function PushStop(props: {
   const { push } = props;
   const count = push.commits.length;
   return (
-    <TimelineStop marker={<TimelineIcon icon={GitCommitIcon} />}>
+    <TimelineStop variant="push" marker={<TimelineIcon icon={GitCommitIcon} />}>
       <TimelineWords actor={push.author} at={push.at}>
         <span>{count === 1 ? "pushed 1 commit" : `pushed ${count} commits`}</span>
       </TimelineWords>
-      <ul aria-label="Commits" className="mt-1.5 list-none p-0">
+      <ul
+        {...part("list", undefined, "commits")}
+        aria-label="Commits"
+        className="mt-1.5 list-none p-0"
+      >
         {push.commits.map((commit) => (
           <CommitLine key={commit.sha} commit={commit} onOpen={props.onOpenCommit} />
         ))}
@@ -227,6 +232,7 @@ export function PrTimelineRow(props: {
         const mark = verdictIcon[item.verdict];
         return (
           <TimelineStop
+            variant="review"
             className={item.stale ? "opacity-55" : undefined}
             marker={<TimelineIcon icon={mark.icon} tone={words.tone} solid={mark.solid} />}
           >
@@ -257,6 +263,7 @@ export function PrTimelineRow(props: {
       return (
         <>
           <TimelineStop
+            variant="comments"
             marker={<TimelineIcon icon={ChatCircleIcon} />}
             className={open ? undefined : "opacity-70"}
           >
@@ -282,7 +289,7 @@ export function PrTimelineRow(props: {
       const only = item.references.length === 1 ? item.references[0] : undefined;
       const open = expansion.isOpen(item.id);
       return (
-        <TimelineStop marker={<TimelineIcon icon={LinkSimpleIcon} />}>
+        <TimelineStop variant="references" marker={<TimelineIcon icon={LinkSimpleIcon} />}>
           {only ? (
             <TimelineWords actor={only.actor} at={only.at}>
               <ReferenceLine reference={only} />
@@ -314,6 +321,7 @@ export function PrTimelineRow(props: {
       const ended = item.state === "merged" || item.state === "closed";
       return (
         <TimelineStop
+          variant={item.state}
           marker={
             <TimelineIcon
               icon={item.state === "merged" ? GitMergeIcon : GitPullRequestIcon}
@@ -330,7 +338,7 @@ export function PrTimelineRow(props: {
     }
     case "event":
       return (
-        <TimelineStop marker={<TimelineIcon icon={eventIcon(item.event.event)} />}>
+        <TimelineStop variant="event" marker={<TimelineIcon icon={eventIcon(item.event.event)} />}>
           <TimelineWords actor={item.event.actor} at={item.at}>
             <EventWords event={item.event} />
           </TimelineWords>

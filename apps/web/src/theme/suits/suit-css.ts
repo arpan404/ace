@@ -41,7 +41,7 @@ export function suitPalette(manifest: SuitManifest, wanted: Scheme): Palette {
 }
 
 /** An internal family name per slot, so a bundled font never shadows an installed one. */
-const faceName = (id: string, slot: keyof ThemeFonts) => `ace-suit-${id}-${slot}`;
+export const suitFaceName = (id: string, slot: keyof ThemeFonts) => `ace-suit-${id}-${slot}`;
 
 /** A served URL a stylesheet may load: http(s) or a same-origin path, nothing that breaks out. */
 function safeUrl(url: string): string | undefined {
@@ -66,7 +66,7 @@ const formats: Record<string, string> = {
 const stackPart = /^(?:"[A-Za-z0-9 ._-]+"|'[A-Za-z0-9 ._-]+'|[A-Za-z0-9-]+(?: [A-Za-z0-9-]+)*)$/;
 
 /** A system font stack as given, if every family in it is safe to place in a stylesheet. */
-function systemStack(stack: string): string | undefined {
+export function systemStack(stack: string): string | undefined {
   const parts = stack.split(",").map((part) => part.trim());
   return parts.length > 0 && parts.every((part) => stackPart.test(part))
     ? parts.join(", ")
@@ -94,7 +94,7 @@ function fontPlan(detail: Pick<SuitDetail, "manifest" | "assets">): FontPlan {
     if (!url) return base[slot];
     const extension = font.asset.split(".").pop()?.toLowerCase() ?? "";
     const format = formats[extension];
-    const name = faceName(manifest.id, slot);
+    const name = suitFaceName(manifest.id, slot);
     faces.push(
       `@font-face{font-family:"${name}";src:url("${url}")${format ? ` format("${format}")` : ""};font-display:swap}`,
     );

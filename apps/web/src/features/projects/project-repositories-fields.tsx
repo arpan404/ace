@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { listDivider } from "@/components/ui/rules.ts";
 import { CommandRefused } from "@/lib/daemon-command.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import {
   useProjectRepositoryLists,
   useSaveProjectRepositories,
@@ -65,7 +66,7 @@ export function ProjectRepositoriesFields(props: { projectId: string; onLeave():
       <h3 className="text-sm font-medium text-muted-foreground">Repositories</h3>
       {value ? (
         value.repositories.length > 0 && (
-          <ul className={listDivider}>
+          <ul {...part("list", undefined, "repositories")} className={listDivider}>
             {value.repositories.map((entry) => (
               <RepositoryRow
                 key={repositoryKey(entry.repository)}
@@ -130,7 +131,7 @@ function RepositoryRow(props: {
     </Button>
   );
   return (
-    <li aria-label={label} className="flex items-center gap-2.5 py-2">
+    <li {...part("list-row")} aria-label={label} className="flex items-center gap-2.5 py-2">
       <ForgeIcon
         forge={entry.repository.forge}
         size={16}

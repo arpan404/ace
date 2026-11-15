@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** A group of rows under a heading band (the inbox's Today, or a repository). */
 export interface ForgeGroup<R> {
@@ -112,6 +113,7 @@ export function ForgeList<R>(props: {
   };
   return (
     <nav
+      {...part("list")}
       aria-label={props.label}
       aria-busy={props.stale}
       ref={(element) => {
@@ -134,7 +136,10 @@ export function ForgeList<R>(props: {
         estimate={(entry) => (entry.kind === "group" ? headingHeight : props.estimate)}
         render={(entry) =>
           entry.kind === "group" ? (
-            <h3 className="border-b border-border bg-muted px-4 py-2 text-xs font-semibold text-foreground">
+            <h3
+              {...part("list-group")}
+              className="border-b border-border bg-muted px-4 py-2 text-xs font-semibold text-foreground"
+            >
               {entry.group.label}
             </h3>
           ) : (

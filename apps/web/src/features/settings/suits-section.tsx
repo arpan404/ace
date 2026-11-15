@@ -6,6 +6,7 @@ import { suitReady } from "@/theme/suits/applied-suit.ts";
 import { suitPalette } from "@/theme/suits/suit-css.ts";
 import { useSuitDetail, useSuitLibrary } from "@/theme/suits/suit-library.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { settingRow } from "./settings-index.ts";
 
 /*
@@ -28,15 +29,15 @@ function Swatch(props: { summary: SuitSummary; scheme: Scheme }) {
         ["accent", palette.accent],
         ["text", palette.t1],
       ]
-    : ["page", "sidebar", "accent", "text"].map((part) => [part, "var(--skel)"]);
+    : ["page", "sidebar", "accent", "text"].map((region) => [region, "var(--skel)"]);
   return (
     <span
       aria-hidden
       data-testid="suit-swatch"
       className="flex h-4 w-12 shrink-0 overflow-hidden rounded-xs shadow-[0_0_0_1px_var(--border)]"
     >
-      {colours.map(([part, colour]) => (
-        <span key={part} className="flex-1" style={{ background: colour }} />
+      {colours.map(([region, colour]) => (
+        <span key={region} className="flex-1" style={{ background: colour }} />
       ))}
     </span>
   );
@@ -57,6 +58,8 @@ function SuitRow(props: { summary: SuitSummary }) {
     .join(" · ");
   return (
     <SettingRow
+      variant="suit"
+      state={picked ? "selected" : ready ? undefined : "failed"}
       title={
         <span className="flex items-center gap-2">
           <Swatch summary={summary} scheme={resolved.scheme} />
@@ -70,10 +73,15 @@ function SuitRow(props: { summary: SuitSummary }) {
           {!ready && (
             <span className="flex flex-col gap-0.5">
               <span className="text-foreground">Needs fixes before it can be used:</span>
-              <ul aria-label={`What ${summary.name} needs fixed`} className="list-disc pl-4">
+              <ul
+                aria-label={`What ${summary.name} needs fixed`}
+                {...part("list", undefined, "problems")}
+                className="list-disc pl-4"
+              >
                 {summary.problems.map((problem) => (
                   <li
                     key={`${problem.check}:${problem.scheme}:${problem.field}:${problem.message}`}
+                    {...part("list-row", "failed", "problem")}
                   >
                     {problemText(problem)}
                   </li>

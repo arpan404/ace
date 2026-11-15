@@ -83,8 +83,8 @@ export const suitParts = [
   "empty-state",
   "scrollbar",
   "divider",
-  // Every full page (PRs, issues, inbox, automations, skills, usage, Spade, projects, devices,
-  // settings, sign-in, …) is built from these, with `data-page` on its `page` naming which.
+  // Every full page (PRs, issues, inbox, automations, skills, usage, Spade, settings, setup,
+  // sign-in, connect, …) is built from these, with `data-page` on its `page` naming which.
   "page",
   "page-header",
   "page-title",
@@ -177,16 +177,11 @@ export const suitPages = [
   "skill",
   "usage",
   "spade",
-  "projects",
-  "project",
-  "devices",
   "history",
-  "notifications",
   "settings",
   "sign-in",
   "setup",
   "connect",
-  "search",
 ] as const;
 export const SuitPage = z.enum(suitPages);
 export type SuitPage = z.infer<typeof SuitPage>;

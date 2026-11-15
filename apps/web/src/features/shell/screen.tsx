@@ -6,7 +6,10 @@ import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
-import { canvasClass } from "./canvas.ts";
+import type { SuitPage } from "@ace/protocol/suit-parts";
+import { pageCanvasClass } from "./canvas.ts";
+import { pageAttributes, useAnnouncePage } from "./page-on-screen.tsx";
+import { PageScene } from "./page-scene.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
 import { ConnectionOwner } from "./connection-owner.tsx";
 import { Workspace } from "./workspace/workspace.tsx";
@@ -26,10 +29,18 @@ export interface ScreenWorkspace {
 export function Screen(
   props: HeaderProps & {
     workspace?: ScreenWorkspace | undefined;
+    /**
+     * Which page this is, from `suitPages`: its canvas becomes the `page` part with this
+     * `data-page`, and the window's `app` part says it too (docs/design/suit-parts.md).
+     */
+    page?: SuitPage | undefined;
+    /** The page's `data-variant`: which kind or state of it is on screen. */
+    pageVariant?: string | undefined;
     children: ReactNode;
   },
 ) {
   const pane = useToastAnchor();
+  useAnnouncePage(props.page);
   // With no machine there is no connection to report on, and no machine for outside apps to ask about.
   const machine = useOptionalClient() !== undefined;
   const main = (
@@ -72,6 +83,8 @@ export function Screen(
             title={props.title}
             header={header(headerOwnsConnection)}
             contextPanel={workspace.contextPanel}
+            page={props.page}
+            pageVariant={props.pageVariant}
             notice={
               <>
                 <PausedNotice />
@@ -85,7 +98,11 @@ export function Screen(
         ) : (
           <>
             {header(headerOwnsConnection)()}
-            <div className={`${canvasClass} flex-col`}>
+            <div
+              {...pageAttributes(props.page, props.pageVariant)}
+              className={`${pageCanvasClass} flex-col`}
+            >
+              {props.page && <PageScene />}
               <PausedNotice />
               {machine && <OutsideNotices />}
               <SandboxNotice />

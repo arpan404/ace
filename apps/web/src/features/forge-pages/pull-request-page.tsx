@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useRef } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
@@ -41,12 +41,15 @@ export function PullRequestPage(props: {
   const repository = repositoryFromParam(props.repo);
   const seed = cachedRow(cache, project, "prList", props.number, repository);
   const seen = useRef<string | undefined>(undefined);
+  // The PR's state, once read, is the page's `data-variant` (a merged PR can look settled).
+  const [shownState, setShownState] = useState<string | undefined>(seed?.state);
   // A PR that merged, closed or reopened here moves between the list's states: read it again.
   const onState = useCallback(
     (state: string) => {
       if (seen.current !== undefined && seen.current !== state)
         void cache.invalidateQueries({ queryKey: ["forge", project, "browse"] });
       seen.current = state;
+      setShownState(state);
     },
     [cache, project],
   );
@@ -60,7 +63,13 @@ export function PullRequestPage(props: {
       },
     });
   return (
-    <Screen title={`#${props.number}`} crumb={choice.name(project)}>
+    <Screen
+      title={`#${props.number}`}
+      crumb={choice.name(project)}
+      // Its Code tab is the review of its changes.
+      page={props.tab === "code" ? "review" : "pull"}
+      pageVariant={shownState}
+    >
       <BackLabel value={backLabel(props.back, "Pull requests")}>
         <PullRequestOpener value={(pr: ForgePrRef) => open(pr.number, pr.repository)}>
           <IssuePages project={project}>

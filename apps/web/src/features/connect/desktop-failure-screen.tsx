@@ -6,6 +6,7 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { startupCause, startupCheck, startupFailure } from "./startup-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const busyStates = new Set(["starting", "restarting"]);
 
@@ -64,8 +65,17 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
   // While ace is on its way back only a known cause is worth reading; the rest is noise.
   const copy = busy ? startupCause(status.cause) : startupFailure(reason, status?.cause);
   return (
-    <ConnectCard labelledBy="desktop-failure-title" wide={Array.isArray(checks)}>
-      <h1 id="desktop-failure-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard
+      page="connect"
+      variant="desktop-failure"
+      labelledBy="desktop-failure-title"
+      wide={Array.isArray(checks)}
+    >
+      <h1
+        id="desktop-failure-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         {retry
           ? "ace is retrying"
           : waiting

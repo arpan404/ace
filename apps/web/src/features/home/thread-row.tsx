@@ -90,6 +90,8 @@ export function ThreadRow(props: {
   compactActions?: boolean | undefined;
   /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
+  /** The row's Suit part (docs/design/suit-parts.md): a chat's is `chat-row`. */
+  part?: "thread-row" | "chat-row" | undefined;
   /**
    * What a one-line row ends with: its status mark (a chat's), or its work (`work`: the pull
    * request and lines changed, a snoozed or settled row's), unless it needs the person.
@@ -239,7 +241,10 @@ export function ThreadRow(props: {
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
-              <div {...part("thread-row", rowState)} className={cn(row, task && taskRowHeight)}>
+              <div
+                {...part(props.part ?? "thread-row", rowState)}
+                className={cn(row, task && taskRowHeight)}
+              >
                 {body}
               </div>
             ) : (
@@ -247,7 +252,7 @@ export function ThreadRow(props: {
                 {...threadOn(machine?.id, entry.id)}
                 aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${spoken.join(", ")}`}
                 data-row-focus=""
-                {...part("thread-row", rowState)}
+                {...part(props.part ?? "thread-row", rowState)}
                 draggable={false}
                 className={cn(
                   row,

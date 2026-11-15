@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * The top of a pull request's or issue's page, one level per line: "← Pull requests" with the
@@ -36,13 +37,18 @@ export function WorkHeading(props: {
             </button>
           )}
           {props.actions && (
-            <div className="-mr-1 ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1">
+            <div
+              {...part("page-toolbar")}
+              className="-mr-1 ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1"
+            >
               {props.actions}
             </div>
           )}
         </div>
       )}
-      <div className="min-w-0">{props.title}</div>
+      <div {...part("page-title")} className="min-w-0">
+        {props.title}
+      </div>
       {(props.badge || props.byline) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
           {props.badge}

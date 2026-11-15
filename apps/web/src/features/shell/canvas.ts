@@ -5,11 +5,18 @@
  * main column draws one hairline where it meets the panel; with the sidebar hidden or in a sheet
  * it runs to the window's edge and keeps only its top hairline. A side panel docked beside the
  * column runs the window's height, its strip in the top bar, and its body carries the canvas on
- * with the same top hairline. Over a Suit's scene the canvas lets `--suit-transcript-reveal`
- * of it through (theme/suits/suit-layers.ts), and the panel `--suit-sidebar-reveal`.
+ * with the same top hairline. Over a Suit's scene a thread's canvas lets `--suit-transcript-reveal`
+ * of it through (theme/suits/suit-layers.ts), a full page's `--suit-page-reveal`, and the panel
+ * `--suit-sidebar-reveal`.
  */
-export const canvasClass =
-  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-l-0 [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-r [[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--background)_calc(100%_-_var(--suit-transcript-reveal,0.3)*100%),transparent)]";
+const canvasFrame =
+  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-l-0 [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-r";
+
+/** A thread's canvas, under its transcript. */
+export const canvasClass = `${canvasFrame} [[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--background)_calc(100%_-_var(--suit-transcript-reveal,0.3)*100%),transparent)]`;
+
+/** A full page's canvas (Usage, Skills, History, …). */
+export const pageCanvasClass = `${canvasFrame} [[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--background)_calc(100%_-_var(--suit-page-reveal,0.3)*100%),transparent)]`;
 
 /**
  * The sidebar's panel as the start of the canvas, with its rounded corner: darker than

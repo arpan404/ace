@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * One choice in the mode or theme picker: a radio that is its preview, its name centred beneath.
@@ -24,9 +25,11 @@ export function PickerCard(props: {
       aria-description={props.description}
       tabIndex={props.checked ? 0 : -1}
       onClick={props.onChoose}
+      {...part("card", props.checked && "checked", "picker")}
       className="group flex min-w-0 flex-col items-stretch gap-2 text-center outline-none"
     >
       <span
+        {...part("card", props.checked && "checked", "preview")}
         className={
           "block rounded-lg shadow-(--depth-raise) transition-[translate,box-shadow] duration-(--motion-base) motion-safe:group-hover:-translate-y-px " +
           "group-hover:shadow-[0_6px_16px_-8px_rgb(0_0_0/0.35)] " +

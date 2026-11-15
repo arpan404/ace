@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * One block of the sidebar: "Reviewers", "Labels", "Milestone"… as a small heading with its
@@ -6,7 +7,10 @@ import type { ReactNode } from "react";
  */
 export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="border-b border-border py-3 text-ui first:pt-0 last:border-b-0">
+    <div
+      {...part("page-section")}
+      className="border-b border-border py-3 text-ui first:pt-0 last:border-b-0"
+    >
       <div className="flex h-6 items-center gap-2">
         <h4 className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">
           {props.label}

@@ -12,6 +12,7 @@ import { SignInButton } from "@/features/sign-in/index.ts";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useInstall } from "./use-install.ts";
 
 const progressNames: Record<ProviderInstallProgress["state"], string> = {
@@ -115,7 +116,14 @@ export function ProviderSetupRow({
           ? "Cancelled"
           : undefined;
   return (
-    <div className="flex min-w-0 flex-col">
+    <div
+      {...part(
+        "list-row",
+        busy ? "working" : failed ? "failed" : missing ? "disabled" : undefined,
+        "provider",
+      )}
+      className="flex min-w-0 flex-col"
+    >
       <div className="flex min-h-9 min-w-0 items-center gap-2 text-sm">
         {!props.heading && (
           <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />

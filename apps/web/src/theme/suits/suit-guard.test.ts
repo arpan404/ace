@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeSuit } from "@/test/fake-suits.ts";
 import { suitSheets } from "./suit-css.ts";
-import { regionRules } from "./suit-layers.ts";
+import { revealCeiling } from "@ace/suits";
+import { themes } from "@ace/themes";
+import { regionRules, revealDeclarations } from "./suit-layers.ts";
 
 /*
  * The guard against a Suit's CSS. The daemon already refuses these rules in suit.css; here they
@@ -106,5 +108,27 @@ describe("region backgrounds", () => {
       `[data-suit="neon"] [data-part="sidebar"]{background:var(--suit-sidebar-background)}`,
     ]);
     expect(regionRules("neon", `[data-suit="neon"] [data-part=app]{color:red}`)).toEqual([]);
+  });
+  it("gives the side panel its background, border, shadow and backdrop filter", () => {
+    const css = `[data-suit="neon"] [data-part=app]{--suit-right-panel-background:url(a.png);--suit-right-panel-border:1px solid red;--suit-right-panel-shadow:none;--suit-right-panel-backdrop-filter:blur(4px)}`;
+    expect(regionRules("neon", css)).toEqual([
+      `[data-suit="neon"] [data-part="right-panel"]{background:var(--suit-right-panel-background);border:var(--suit-right-panel-border);box-shadow:var(--suit-right-panel-shadow);backdrop-filter:var(--suit-right-panel-backdrop-filter)}`,
+    ]);
+  });
+
+  it("keeps the side panel solid by default and holds a Suit's reveal to what its text allows", () => {
+    const palette = themes.ace.dark;
+    expect(revealDeclarations({}, palette)["--suit-right-panel-reveal"]).toBe("0");
+    const wanted = Number(
+      revealDeclarations({ reveal: { "right-panel": 0.4 } }, palette)["--suit-right-panel-reveal"],
+    );
+    expect(wanted).toBeGreaterThan(0);
+    expect(wanted).toBeLessThanOrEqual(0.4);
+    const ceiling = revealCeiling({ text: palette.t1, surface: palette.sidebar });
+    const all = Number(
+      revealDeclarations({ reveal: { "right-panel": 1 } }, palette)["--suit-right-panel-reveal"],
+    );
+    expect(all).toBe(ceiling);
+    expect(all).toBeLessThan(1);
   });
 });

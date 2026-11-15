@@ -115,3 +115,176 @@
 [data-part="empty-state"] {
   letter-spacing: 0.04em;
 }
+
+/* Pages: a dark storefront window over the street, lit from below by a magenta strip. */
+[data-part="app"] {
+  --suit-page-background: linear-gradient(
+    180deg,
+    rgba(11, 9, 18, 0.9) 0%,
+    rgba(11, 9, 18, 0.84) 70%,
+    rgba(36, 10, 30, 0.86) 100%
+  );
+  --suit-page-shadow: inset 0 -1px 0 rgba(255, 45, 149, 0.35);
+  --suit-right-panel-background: rgba(10, 8, 17, 0.9);
+  --suit-right-panel-border: 0 solid transparent;
+  --suit-right-panel-shadow:
+    inset 1px 0 0 rgba(255, 45, 149, 0.35), inset 2px 0 14px -10px rgba(61, 242, 255, 0.5);
+  --suit-right-panel-backdrop-filter: blur(18px) saturate(160%);
+}
+
+[data-part="page-header"] {
+  border-block-end: 1px solid rgba(61, 242, 255, 0.28);
+  box-shadow: 0 1px 14px -6px rgba(61, 242, 255, 0.35);
+}
+
+[data-part="page-title"] {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 8px rgba(255, 45, 149, 0.55),
+    0 0 1px rgba(255, 111, 184, 0.9);
+}
+
+[data-part="page-toolbar"],
+[data-part="filter-bar"] {
+  border-block-end: 1px solid #2a2140;
+}
+
+[data-part="page-section"] {
+  border-block-start: 1px solid rgba(61, 242, 255, 0.14);
+}
+
+/* Lists and tables: rows on a wire, the open one gets the same neon bar as a thread. */
+[data-part="list"],
+[data-part="table"] {
+  border: 1px solid #2a2140;
+  border-radius: 6px;
+  background: rgba(14, 11, 23, 0.72);
+}
+
+[data-part="list-group"] {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9d93b4;
+}
+
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-block-end: 1px solid rgba(42, 33, 64, 0.8);
+  transition:
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+[data-part="list-row"]:last-child,
+[data-part="table-row"]:last-child {
+  border-block-end-color: transparent;
+}
+
+[data-part="list-row"]:hover,
+[data-part="table-row"]:hover {
+  background: rgba(36, 27, 54, 0.75);
+  box-shadow: inset 2px 0 0 rgba(61, 242, 255, 0.6);
+}
+
+[data-part="list-row"][data-state="active"],
+[data-part="list-row"][data-state="selected"],
+[data-part="table-row"][data-state="selected"] {
+  background: #241b36;
+  box-shadow:
+    inset 2px 0 0 #ff2d95,
+    inset 6px 0 10px -6px rgba(255, 45, 149, 0.6);
+}
+
+[data-part="card"],
+[data-part="stat"] {
+  border: 1px solid rgba(61, 242, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(21, 17, 31, 0.88);
+  box-shadow: 0 0 18px -10px rgba(61, 242, 255, 0.5);
+}
+
+[data-part="card"]:hover {
+  border-color: rgba(255, 45, 149, 0.45);
+  box-shadow: 0 0 18px -8px rgba(255, 45, 149, 0.55);
+}
+
+[data-part="stat"] {
+  border-inline-start: 2px solid #ff2d95;
+}
+
+[data-part="search-field"] {
+  border: 1px solid rgba(61, 242, 255, 0.3);
+  background: rgba(14, 11, 23, 0.9);
+}
+
+[data-part="search-field"]:focus-within {
+  border-color: #3df2ff;
+  box-shadow: 0 0 14px -4px rgba(61, 242, 255, 0.55);
+}
+
+[data-part="label-chip"] {
+  border: 1px solid rgba(255, 45, 149, 0.45);
+  letter-spacing: 0.04em;
+}
+
+[data-part="progress"] {
+  background: #15111f;
+  box-shadow: 0 0 10px -4px rgba(255, 45, 149, 0.6);
+}
+
+[data-part="avatar"] {
+  box-shadow:
+    0 0 0 1px rgba(255, 45, 149, 0.6),
+    0 0 8px rgba(255, 45, 149, 0.35);
+}
+
+[data-page="pulls"] [data-part="list-row"][data-state="selected"],
+[data-page="issues"] [data-part="list-row"][data-state="selected"] {
+  box-shadow:
+    inset 2px 0 0 #3df2ff,
+    inset 6px 0 10px -6px rgba(61, 242, 255, 0.6);
+}
+
+/* Side panel: a cyan-ruled booth beside the street. */
+[data-part="panel-header"] {
+  border-block-end: 1px solid rgba(61, 242, 255, 0.28);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+[data-part="panel-toolbar"] {
+  border-block-end: 1px solid #2a2140;
+  background: rgba(14, 11, 23, 0.8);
+}
+
+[data-part="panel-body"] {
+  background: transparent;
+}
+
+[data-part="panel-tab"],
+[data-part="terminal-tab"] {
+  border-block-end: 2px solid transparent;
+  letter-spacing: 0.04em;
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+[data-part="panel-tab"]:hover,
+[data-part="terminal-tab"]:hover {
+  border-block-end-color: rgba(61, 242, 255, 0.45);
+}
+
+[data-part="panel-tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="active"],
+[data-part="terminal-tab"][data-state="selected"],
+[data-part="terminal-tab"][data-state="active"] {
+  border-block-end-color: #ff2d95;
+  box-shadow: 0 6px 10px -8px rgba(255, 45, 149, 0.8);
+}
+
+[data-part="terminal"] {
+  border: 1px solid #2a2140;
+  box-shadow: inset 0 0 24px rgba(61, 242, 255, 0.06);
+}

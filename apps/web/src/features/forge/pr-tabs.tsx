@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 export type PrTab = "summary" | "timeline" | "code" | "checks";
 
@@ -95,6 +96,7 @@ export function PrTabs(props: {
                 {names[tab]}
                 {!!props.counts[tab] && (
                   <span
+                    {...part("badge")}
                     aria-hidden
                     className="ml-0.5 inline-flex h-4.5 min-w-5 items-center justify-center rounded-full bg-fill-strong px-1.5 text-xs font-normal text-muted-foreground tabular-nums"
                   >

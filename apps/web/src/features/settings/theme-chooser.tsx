@@ -3,6 +3,7 @@ import { themeIds, themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * Every theme as the app in miniature, in the scheme on screen now: switching Light or Dark above
@@ -14,6 +15,7 @@ export function ThemeChooser() {
   return (
     <div
       role="radiogroup"
+      {...part("list", undefined, "theme")}
       aria-label="Theme"
       onKeyDown={onRadioKeys}
       className="grid w-full grid-cols-2 gap-x-4 gap-y-5 @min-[420px]:grid-cols-3 @min-[420px]:gap-x-5"

@@ -3,7 +3,7 @@
   "id": "blueprint",
   "name": "Blueprint",
   "description": "A technical drawing: grid paper in every region, chalk-white linework on drafting blue, dimension lines and a title block. Whiteprint by day.",
-  "version": "1",
+  "version": "2",
   "base": "midnight",
   "light": {
     "canvas": "#F3F6FA",
@@ -59,6 +59,64 @@
     "header": "bar",
     "messages": "flat",
     "toolRows": "detailed"
+  },
+  "terminal": {
+    "light": {
+      "background": "#F3F6FA",
+      "foreground": "#12243D",
+      "cursor": "#2E3A48",
+      "cursorAccent": "#F3F6FA",
+      "selection": "#9FB3CC66",
+      "ansi": {
+        "black": "#12243D",
+        "red": "#B3261E",
+        "green": "#1F6B3A",
+        "yellow": "#835500",
+        "blue": "#1F4E99",
+        "magenta": "#7A3E9D",
+        "cyan": "#0F6A78",
+        "white": "#4A607D",
+        "brightBlack": "#6B819E",
+        "brightRed": "#C2352B",
+        "brightGreen": "#2A7D47",
+        "brightYellow": "#946100",
+        "brightBlue": "#2E5FB3",
+        "brightMagenta": "#8C4AB2",
+        "brightCyan": "#13798A",
+        "brightWhite": "#2E3A48"
+      }
+    },
+    "dark": {
+      "background": "#0B1F3B",
+      "foreground": "#F2F6FB",
+      "cursor": "#F5F1E6",
+      "cursorAccent": "#10294A",
+      "selection": "#3E68A388",
+      "ansi": {
+        "black": "#0C2240",
+        "red": "#FF8A80",
+        "green": "#8FE3A6",
+        "yellow": "#F5D78A",
+        "blue": "#8FB8F2",
+        "magenta": "#D9A8F0",
+        "cyan": "#8EE0EA",
+        "white": "#C8D8EC",
+        "brightBlack": "#7F9CC4",
+        "brightRed": "#FFB3AB",
+        "brightGreen": "#B5F0C6",
+        "brightYellow": "#FFE8B0",
+        "brightBlue": "#B8D3F8",
+        "brightMagenta": "#EAC9F7",
+        "brightCyan": "#B9EEF4",
+        "brightWhite": "#FFFFFF"
+      }
+    },
+    "fontFamily": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace",
+    "fontSize": 13,
+    "lineHeight": 1.4,
+    "letterSpacing": 0.2,
+    "cursorStyle": "underline",
+    "cursorBlink": false
   },
   "labels": {
     "composer-placeholder": "Specify the next change…",

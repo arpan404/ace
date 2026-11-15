@@ -71,6 +71,9 @@ export function BottomTabs(props: {
         return (
           <div
             key={tab.key}
+            data-part="panel-tab"
+            data-state={active ? "selected" : undefined}
+            data-variant={tab.kind}
             className="group/tab relative flex h-7 max-w-[200px] min-w-0 shrink-0 items-center"
           >
             <button

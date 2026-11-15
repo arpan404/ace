@@ -18,6 +18,7 @@ import { memo, useEffect, useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
@@ -166,6 +167,9 @@ export function SpadeChat(props: {
   );
 }
 
+/** Who wrote a bubble of the bot's, for its `spade-message` variant: Spade itself or a bot. */
+const sender = (bot: ChatBot) => (bot.avatar.kind === "spade" ? "spade" : "bot");
+
 const botSide = (item: SpadeChatItem) =>
   item.kind === "bot" || item.kind === "ask" || item.kind === "skill" || item.kind === "files";
 
@@ -200,7 +204,7 @@ const Bubble = memo(function Bubble(props: {
           {item.images.length > 0 && <Pictures images={item.images} side="person" />}
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (
-            <div className={cn(bubble, "bg-active")}>
+            <div {...part("spade-message", undefined, "user")} className={cn(bubble, "bg-active")}>
               <SpadeBubbleText text={item.text} />
               {/* A voice message: its transcript, and the recording to play. */}
               {item.voice && (
@@ -258,7 +262,7 @@ const Bubble = memo(function Bubble(props: {
             ) : (
               <span aria-hidden className={faceRoom} />
             )}
-            <div className={botBubble}>
+            <div {...part("spade-message", undefined, "other")} className={botBubble}>
               <SpadeBubbleText text={item.text} />
             </div>
           </div>
@@ -289,7 +293,14 @@ const Bubble = memo(function Bubble(props: {
           {/* The column beside the face, so a bubble's width is as before. */}
           <div className="flex min-w-0 flex-1 flex-col items-start">
             {words ? (
-              <div className={botBubble}>
+              <div
+                {...part(
+                  "spade-message",
+                  item.live ? "working" : item.end === "failed" && "failed",
+                  sender(bot),
+                )}
+                className={botBubble}
+              >
                 {item.text && <SpadeBubbleText text={item.text} />}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -320,7 +331,7 @@ const Bubble = memo(function Bubble(props: {
     case "files":
       return (
         <BotRow bot={bot} face={props.face}>
-          <div className={botBubble}>
+          <div {...part("spade-message", undefined, sender(bot))} className={botBubble}>
             <FileChips paths={item.paths} onOpen={props.onOpenFile} first />
           </div>
         </BotRow>

@@ -1,6 +1,8 @@
 import { SuitManifest, type SuitProblem } from "@ace/protocol/suits";
 import {
+  contrastRatio,
   contrastWarnings,
+  parseOpaqueColor,
   nearStatus,
   statusDistance,
   statusGap,
@@ -153,6 +155,36 @@ function glassProblems(palette: Palette, scheme: Scheme): SuitProblem[] {
   ];
 }
 
+/** The terminal's text must read as body text does. */
+export const terminalMinContrast = 4.5;
+
+/** `#rrggbb` of a terminal colour, which may carry an alpha byte the check ignores. */
+const opaqueHex = (value: string) => parseOpaqueColor(value.slice(0, 7));
+
+/**
+ * The terminal's foreground on its background, when the Suit sets either for `scheme`. An unset
+ * one is ace's (the panel's colour behind the terminal, the palette's text); with neither set,
+ * ace derives both and they always read.
+ */
+function terminalProblems(manifest: SuitManifest, palette: Palette, scheme: Scheme): SuitProblem[] {
+  const colours = manifest.terminal?.[scheme];
+  if (colours?.foreground === undefined && colours?.background === undefined) return [];
+  const foreground = opaqueHex(colours.foreground ?? palette.t1);
+  const background = opaqueHex(colours.background ?? palette.sidebar);
+  if (!foreground || !background) return [];
+  const ratio = contrastRatio(foreground, background);
+  if (ratio >= terminalMinContrast) return [];
+  const field = colours.foreground === undefined ? "background" : "foreground";
+  return [
+    problem(
+      "contrast",
+      `the terminal's text reads at ${ratio.toFixed(2)}:1 on its background, under ${terminalMinContrast}:1; change terminal.${scheme}.${field}`,
+      `terminal.${scheme}.${field}`,
+      scheme,
+    ),
+  ];
+}
+
 /** The readability checks for every scheme the Suit has. */
 export function readabilityProblems(manifest: SuitManifest): SuitProblem[] {
   return suitSchemes(manifest).flatMap((scheme) => {
@@ -160,6 +192,7 @@ export function readabilityProblems(manifest: SuitManifest): SuitProblem[] {
     return contrastProblems(palette, scheme).concat(
       accentProblems(manifest, palette, scheme),
       glassProblems(palette, scheme),
+      terminalProblems(manifest, palette, scheme),
     );
   });
 }

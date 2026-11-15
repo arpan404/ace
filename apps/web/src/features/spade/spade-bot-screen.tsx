@@ -80,6 +80,7 @@ export function BotScreen(props: {
   );
   return (
     <Screen
+      page="spade"
       title={
         props.page ? (
           <span className="flex min-w-0 items-baseline gap-2">{name}</span>

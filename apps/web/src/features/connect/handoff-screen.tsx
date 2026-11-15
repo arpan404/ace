@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ConnectCard } from "./connect-card.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A link asked to connect this window to a daemon it can't vouch for: one on another machine,
@@ -45,8 +46,12 @@ export function HandoffScreen(props: {
     </Button>
   );
   return (
-    <ConnectCard labelledBy="handoff-title">
-      <h1 id="handoff-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="connect" variant="handoff" labelledBy="handoff-title">
+      <h1
+        id="handoff-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         Connect to ace on this machine?
       </h1>
       <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
@@ -77,9 +82,10 @@ export function HandoffScreen(props: {
             <div className="flex flex-1 flex-col">{connect}</div>
           </>
         ) : (
+          // Buttons don't shrink: each takes half the row, not the whole card's width.
           <>
-            {connect}
-            {decline}
+            <div className="flex flex-1 flex-col">{connect}</div>
+            <div className="flex flex-1 flex-col">{decline}</div>
           </>
         )}
       </div>

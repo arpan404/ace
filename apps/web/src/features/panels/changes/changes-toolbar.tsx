@@ -116,6 +116,8 @@ export function ChangesToolbar(props: {
     <div
       role="toolbar"
       aria-label="Changes"
+      data-part="panel-toolbar"
+      data-variant="changes"
       className={cn("flex h-10 shrink-0 items-center gap-1 bg-panel pr-2 pl-1.5", toolbarEdge)}
     >
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />
