@@ -93,9 +93,3 @@ export const ScreenStreamSettings = z.object({
   bitrate: z.number().int().min(128000).max(20000000),
 });
 export type ScreenStreamSettings = z.infer<typeof ScreenStreamSettings>;
-/** ace-media's ingest socket and a screen source's single-use token (base64 of 32 bytes). */
-export const ScreenStreamIngest = z.object({
-  socket: z.string().min(1).max(1024),
-  token: z.string().length(44),
-});
-export type ScreenStreamIngest = z.infer<typeof ScreenStreamIngest>;

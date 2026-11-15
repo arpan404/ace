@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { removeWhenFree } from "./supervisor-test-support.ts";
 import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts";
 import { encodeMediaFrame } from "./frame.ts";
 import { RouteWatch } from "./route-watch.ts";
@@ -29,9 +30,9 @@ const processBudgetMs = 30_000;
 const cleanupBudgetMs = 5_000;
 const progress = new EventEmitter();
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 function until(condition: () => boolean, end: number, description: string): Promise<void> {
@@ -178,9 +179,10 @@ it.runIf(real)(
       capabilities: () => capabilities,
       onChange: (routes) => void changes.push({ at: performance.now(), routes }),
     });
-    cleanups.push(() => {
+    cleanups.push(async () => {
       supervisor.dispose();
-      rmSync(runtimeDir, { recursive: true, force: true });
+      // Windows frees the named pipes' folder a moment after the process exits.
+      await removeWhenFree(runtimeDir, cleanupBudgetMs - 1_000);
     });
 
     // Before ace-media is up the producer streams to the daemon.

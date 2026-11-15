@@ -12,14 +12,39 @@ import type { HelperPort } from "./helper-session.ts";
 import { PathMerge } from "@ace/media/path-merge";
 
 /**
- * A Mac (E3) or Linux (E2) screen session as an ace-media producer (docs/media/plan.md). When
- * the route sends screens to ace-media, the helper is given the ingest socket with each
- * `stream.configure` and writes its H.264 there. On Linux the daemon's path keeps today's
+ * A Mac, Windows or Linux screen session as an ace-media producer (docs/media/plan.md, E3, E1,
+ * E2). When the route sends screens to ace-media, the helper is given the ingest socket with
+ * each `stream.configure` and writes its H.264 there. On Linux the daemon's path keeps today's
  * JPEG pictures, which the daemon encodes for viewers as before, so only the ace-media route
  * runs the helper's encoder; ace-media's egress brings the units back as the frames the helper's
  * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
  * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
  */
+
+/**
+ * Whether a screen helper makes its own video: the Mac's (VideoToolbox), Windows' where its
+ * start-up trial found a Media Foundation H.264 encoder, and Linux's where one of its encoders
+ * (VA-API, NVENC or the last resort) worked. A helper offering only JPEG gets its video from the
+ * daemon's last-resort encoder instead.
+ */
+export function helperEncodesVideo(
+  capabilities: { platform: string; codecs: readonly string[] } | undefined,
+): boolean {
+  return (
+    (capabilities?.platform === "macos" ||
+      capabilities?.platform === "windows" ||
+      capabilities?.platform.startsWith("linux") === true) &&
+    capabilities.codecs.includes("h264")
+  );
+}
+
+/**
+ * Whether a helper's video goes to ace-media only (Linux, E2): on the daemon's path it sends the
+ * JPEG pictures the daemon has always encoded itself, so `media.encode: legacy` keeps today's path.
+ */
+export function videoOnlyToMedia(capabilities: { platform: string } | undefined): boolean {
+  return capabilities?.platform.startsWith("linux") === true;
+}
 
 /** Where screen sources are opened in ace-media: the daemon's `IngestSources`. */
 export type ScreenMedia = { add(producer: IngestProducer): IngestSource };
@@ -62,8 +87,9 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
 
 export type ScreenMediaSourceOptions = {
   sessionId: string;
-  /** The helper's platform: ace-media's origin, and whether the daemon's path carries video. */
-  platform: "macos" | "linux";
+  /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's
+   * origin, and whether the daemon's path carries video (`videoOnlyToMedia`). */
+  platform: string;
   helper: HelperPort;
   media: ScreenMedia;
   /** A frame from either path, video in sequence order and stills in theirs. */
@@ -211,7 +237,11 @@ export class ScreenMediaSource {
   #point(address: IngestAddress | undefined): Promise<void> {
     return this.#serial(async () => {
       this.#address = address && {
-        ingest: { socket: address.socket, token: Buffer.from(address.token).toString("base64") },
+        ingest: {
+          socket: address.socket,
+          token: Buffer.from(address.token).toString("base64"),
+          ...(address.pid ? { pid: address.pid } : {}),
+        },
         path: address.path,
       };
       // No live video yet: the next `stream.configure` carries the address.
@@ -241,9 +271,7 @@ export class ScreenMediaSource {
           // A Linux helper's video goes to ace-media only: on the daemon's path it sends the
           // JPEG pictures the daemon has always encoded itself.
           settings:
-            address || this.#options.platform === "macos"
-              ? settings
-              : { ...settings, codec: "jpeg" },
+            address || !videoOnlyToMedia(this.#options) ? settings : { ...settings, codec: "jpeg" },
           epoch: screenOpeningEpoch,
           ...(address ? { ingest: address.ingest } : {}),
         }),

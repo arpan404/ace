@@ -103,6 +103,15 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get itemsBefore() {
     return this.#view?.itemsBefore;
   }
+  /**
+   * The store holds only a small tail of the thread (`ThreadView.partial`) until the daemon's
+   * full snapshot replaces it (`ThreadReader.filling`). Select with `filling`.
+   */
+  get filling(): boolean {
+    return this.#partial !== undefined;
+  }
+  /** What the tail snapshot held lacked: the items it sent only as previews. */
+  #partial: { previews: string[] } | undefined;
   agentIds(): readonly string[] {
     return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
@@ -196,6 +205,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         usageSnapshots: view.usageSnapshots,
         ...(view.queue && { queue: view.queue }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
+        // Only a tail: a tab's mirror shows it as owed too. Never written to disk (`#bind`).
+        ...(this.#partial && { partial: { previews: [...this.#partial.previews] } }),
       },
       truncated: [...this.#clipped],
       deleted: [...this.#deleted],
@@ -294,6 +305,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemsBefore = resumed.before;
     }
     this.#view = view;
+    // Only a full snapshot clears the mark: a tail, from the wire or from disk, sets it.
+    this.#partial = view.partial ? { previews: [...view.partial.previews] } : undefined;
+    delete view.partial;
     this.#failure = undefined;
     this.#replace = false;
     this.#journal.reset(view.seq);
@@ -305,6 +319,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
+    // Sent only as a preview, its whole body comes with the full snapshot: shown cut until then.
+    for (const id of this.#partial?.previews ?? []) if (this.item(id)) this.#clipped.add(id);
   }
   /** What a held transcript keeps of itself when `view` arrives for the same thread. */
   #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {

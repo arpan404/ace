@@ -106,7 +106,11 @@ fn a_jpeg_source_is_encoded_on_videotoolbox_and_returned_on_egress_under_its_han
     else {
         panic!("expected ready");
     };
-    let hardware_jpeg = observed_hardware_jpeg(&capabilities);
+    let _ = capabilities;
+    // Decide from what the probe finally found: on a busy machine VideoToolbox's encode may
+    // only arrive after `ready`, and a source opened before it couldn't take it.
+    media.settle_probe();
+    let hardware_jpeg = observed_hardware_jpeg(&media.capabilities);
     let Some(_priority) = lane(&control.socket, 1, SECRET) else {
         panic!("priority lane refused");
     };

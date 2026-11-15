@@ -102,6 +102,8 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
           message.paced,
           encoder,
           options.sidebarPlacement ?? storePlacement(options.store, options.now ?? Date.now),
+          message.tail,
+          device,
         );
         subscriptions.set(message.subscriptionId, stop);
       } catch {

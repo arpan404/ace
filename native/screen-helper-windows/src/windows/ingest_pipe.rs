@@ -16,7 +16,7 @@ use windows::{
             OPEN_EXISTING, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
         },
         System::{
-            Pipes::{PeekNamedPipe, WaitNamedPipeW},
+            Pipes::{GetNamedPipeServerProcessId, PeekNamedPipe, WaitNamedPipeW},
             IO::CancelIoEx,
         },
     },
@@ -55,7 +55,11 @@ impl Cancel for PipeCancel {
     }
 }
 
-pub fn dial(name: &str) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
+/// Opens ace-media's ingest pipe. `server` is the ace-media process the daemon started; the pipe
+/// is refused unless that process serves it, checked before a single byte (the hello carries the
+/// source's token) is written. Any process of this user may create another instance of the
+/// name, and a client is connected to whichever instance is listening.
+pub fn dial(name: &str, server: Option<u32>) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
     let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
     let mut attempts = 0;
     let handle = loop {
@@ -84,5 +88,127 @@ pub fn dial(name: &str) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
         }
     };
     let pipe = Arc::new(Pipe(unsafe { File::from_raw_handle(handle.0) }));
+    let Some(trusted) = server else {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "ace-media's process id is needed to check the ingest pipe's server",
+        ));
+    };
+    let mut actual = 0u32;
+    unsafe { GetNamedPipeServerProcessId(pipe.handle(), &mut actual) }
+        .map_err(|error| io::Error::from_raw_os_error(error.code().0 & 0xffff))?;
+    if actual != trusted {
+        // Dropping the handle disconnects from the squatting instance, having sent nothing.
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("the ingest pipe is served by process {actual}, not ace-media ({trusted})"),
+        ));
+    }
     Ok((Box::new(PipeLink(pipe.clone())), Arc::new(PipeCancel(pipe))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::{
+        Foundation::{CloseHandle, ERROR_BROKEN_PIPE, ERROR_PIPE_LISTENING},
+        Storage::FileSystem::{ReadFile, PIPE_ACCESS_DUPLEX},
+        System::Pipes::{CreateNamedPipeW, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
+    };
+
+    /// A server instance of `name` that this test process owns: a squatter, for any other pid.
+    fn serve(name: &str) -> HANDLE {
+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let handle = unsafe {
+            CreateNamedPipeW(
+                PCWSTR(wide.as_ptr()),
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_BYTE | PIPE_WAIT,
+                PIPE_UNLIMITED_INSTANCES,
+                0,
+                65_536,
+                0,
+                None,
+            )
+        };
+        assert!(!handle.is_invalid());
+        handle
+    }
+
+    /// Bytes the server got before its client went away.
+    fn received(server: HANDLE) -> usize {
+        let mut buffer = [0u8; 256];
+        let mut read = 0u32;
+        match unsafe { ReadFile(server, Some(&mut buffer), Some(&mut read), None) } {
+            Ok(()) => read as usize,
+            // Never connected, or connected and gone with nothing written.
+            Err(error) => {
+                let code = error.code();
+                assert!(
+                    [ERROR_BROKEN_PIPE.0, ERROR_PIPE_LISTENING.0]
+                        .iter()
+                        .any(|e| code == windows::core::HRESULT::from_win32(*e)),
+                    "{error}"
+                );
+                0
+            }
+        }
+    }
+
+    #[test]
+    fn a_pipe_served_by_another_process_is_refused_before_any_byte_is_sent() {
+        let name = format!(r"\\.\pipe\ace-e1-squat-{}", std::process::id());
+        let squatter = serve(&name);
+        // The daemon says ace-media is pid 4, the System process: this server is not it.
+        let refused = dial(&name, Some(4));
+        assert!(
+            refused.is_err(),
+            "connected to a server that is not ace-media"
+        );
+        assert_eq!(received(squatter), 0);
+        unsafe {
+            let _ = CloseHandle(squatter);
+        }
+    }
+
+    #[test]
+    fn the_trusted_server_is_accepted_and_gets_the_bytes() {
+        let name = format!(r"\\.\pipe\ace-e1-trusted-{}", std::process::id());
+        let server = serve(&name);
+        let (mut link, _cancel) = dial(&name, Some(std::process::id())).expect("trusted server");
+        link.write_all(b"hello").unwrap();
+        assert_eq!(received(server), 5);
+        drop(link);
+        unsafe {
+            let _ = CloseHandle(server);
+        }
+    }
+
+    #[test]
+    fn a_flush_to_a_reader_that_stopped_reading_ends_when_cancelled() {
+        let name = format!(r"\\.\pipe\ace-e1-flush-{}", std::process::id());
+        let server = serve(&name);
+        let (mut link, cancel) = dial(&name, Some(std::process::id())).expect("trusted server");
+        link.write_all(b"end frame").unwrap();
+        // The server never reads: the flush waits for it.
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let flushing = std::thread::spawn(move || {
+            link.finish();
+            let _ = done_tx.send(());
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            done.try_recv().is_err(),
+            "the flush did not wait for the reader"
+        );
+        cancel.cancel();
+        assert!(
+            done.recv_timeout(std::time::Duration::from_secs(2)).is_ok(),
+            "a cancel did not end the flush"
+        );
+        let _ = flushing.join();
+        unsafe {
+            let _ = CloseHandle(server);
+        }
+    }
 }

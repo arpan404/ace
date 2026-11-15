@@ -51,6 +51,7 @@ function media(settings: MediaSettings) {
     random: Math.random,
     listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
     id: () => `source-${++ids}`,
+    platform: process.platform,
     log: () => {},
     onMessage: (message) => {
       if (message.type === "source.status") statuses.push(message);

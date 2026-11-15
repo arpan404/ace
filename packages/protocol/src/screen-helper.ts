@@ -7,11 +7,9 @@ import {
   ScreenAction,
   ScreenBundle,
   ScreenId,
-  ScreenStreamIngest,
   ScreenStreamSettings,
   ScreenTarget,
 } from "./screen-base.ts";
-export { ScreenStreamIngest } from "./screen-base.ts";
 import {
   ScreenError,
   ScreenAppURL,
@@ -20,6 +18,7 @@ import {
   ScreenUIActOptions,
   ScreenUIFindOptions,
   ScreenUITreeOptions,
+  ScreenStreamIngest,
 } from "./screen-v2.ts";
 
 import { ScreenMeasurementOptions } from "./interaction-measurement.ts";

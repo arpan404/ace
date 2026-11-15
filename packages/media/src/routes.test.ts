@@ -224,17 +224,38 @@ describe("named routes", () => {
       expect(
         mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
       ).toMatchObject({ producer: "ace-media", egress: true });
-    // Linux screens stream into ace-media (E2); its emulators and Windows' screens don't yet.
+    // Linux screens stream into ace-media (E2); its emulators and simulators don't.
     expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("linux")).screen).toEqual(
       mac.screen,
     );
-    for (const [platform, kind] of [
-      ["linux", "emulator-frames"],
-      ["win32", "screen"],
-      ["win32", "emulator-frames"],
+    for (const [platform, kinds] of [
+      ["linux", ["emulator-frames"]],
+      ["win32", ["emulator-frames", "simulator"]],
     ] as const)
-      expect(mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind]).toMatchObject(
-        { producer: "daemon", tee: false, egress: false },
+      for (const kind of kinds)
+        expect(
+          mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
+        ).toMatchObject({ producer: "daemon", tee: false, egress: false });
+  });
+
+  it("on Windows the screen helper's Media Foundation video streams into ace-media, with egress feeding its legacy consumers", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "legacy",
+      recordings: "legacy",
+      stills: "legacy",
+    };
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("win32")).screen).toEqual({
+      producer: "ace-media",
+      tee: false,
+      egress: true,
+      deliverer: "legacy",
+      recorder: "legacy",
+      stills: "legacy",
+    });
+    for (const health of ["restarting", "unavailable"] as const)
+      expect(mediaRoutes(auto, health, platformRouteCapabilities("win32")).screen.producer).toBe(
+        "daemon",
       );
   });
 });

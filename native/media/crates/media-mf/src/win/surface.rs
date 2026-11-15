@@ -16,6 +16,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
 };
+use windows_core::Interface;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MfFormat {

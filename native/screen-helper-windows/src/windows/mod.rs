@@ -273,6 +273,7 @@ impl DesktopHost {
     fn ingest_shell(&self, stream: &Arc<Mutex<Stream>>) -> IngestShell {
         let (legacy_stream, keyframe_stream, writer) =
             (stream.clone(), stream.clone(), self.writer.clone());
+        let closed_stream = stream.clone();
         let session = stream
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -296,6 +297,11 @@ impl DesktopHost {
                     }
                 }),
                 closed: Box::new(move |boundary| {
+                    // Back on the daemon's pipe after a cut: that path starts at a keyframe.
+                    closed_stream
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .request_keyframe();
                     crate::codec::event(&serde_json::json!({"event":"stream.ingest",
                         "sessionId":session,"state":"closed","boundary":boundary}));
                 }),
@@ -321,17 +327,31 @@ impl DesktopHost {
         stream
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .configure(settings, configure.epoch);
+            // Applied now, in raw counter ticks: pictures captured before keep the old epoch.
+            .configure(
+                settings,
+                configure.epoch,
+                capture::qpc().map_or(0, |(ticks, _)| ticks),
+            );
         let shell = self
             .shell
             .clone()
             .ok_or_else(|| Error::new(Code::TargetGone, "No active stream"))?;
-        let routed = shell.configure(configure.ingest).map_err(|error| {
-            Error::new(
-                Code::TargetGone,
-                format!("Cannot connect to ace-media's ingest: {error}"),
-            )
-        })?;
+        let routed = shell
+            .configure(configure.ingest, configure.server)
+            .map_err(|error| {
+                Error::new(
+                    Code::TargetGone,
+                    format!("Cannot connect to ace-media's ingest: {error}"),
+                )
+            })?;
+        if routed.switched {
+            // Each path starts at a keyframe, as on the Mac: a viewer never waits for one.
+            stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .request_keyframe();
+        }
         self.refresh();
         Ok(serde_json::json!({
             "codec": if settings.codec == StreamCodec::H264 { "h264" } else { "jpeg" },

@@ -3,7 +3,7 @@ import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { FrameDecoder, framePacket, wireFrame, type Frame } from "./frames.ts";
-import { egressScreenFrame, ScreenMediaSource } from "./media-source.ts";
+import { egressScreenFrame, helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
 
 const settings: ScreenStreamSettings = {
   codec: "h264",
@@ -95,10 +95,10 @@ it("an egress unit without the helper's stamp, or not H.264, is no screen frame"
 });
 
 /** A screen session's media source with a scripted helper and a stand-in for ace-media. */
-function session(platform: "macos" | "linux" = "macos") {
+function session(platform = "macos") {
   const accepted: Frame[] = [];
-  const sent: { settings?: ScreenStreamSettings; ingest?: unknown }[] = [];
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
+  const sent: unknown[] = [];
   let producer: IngestProducer | undefined;
   const source = new ScreenMediaSource({
     sessionId: "s1",
@@ -109,7 +109,7 @@ function session(platform: "macos" | "linux" = "macos") {
       requestV2: async () => ({}),
       request: async (command) => {
         if (command.op !== "stream.configure") return {};
-        sent.push({ settings: command.settings, ingest: command.ingest });
+        sent.push(command);
         const reply = replies.shift() ?? { ingest: "off", boundary: null };
         return { codec: command.settings.codec, ...reply, switched: true };
       },
@@ -236,16 +236,16 @@ it("a flip back to the helper socket while ace-media still has the old path's un
 });
 
 it("a Linux helper is asked for H.264 only toward ace-media and keeps its JPEG pictures on the daemon's path", async () => {
-  const s = session("linux");
-  expect(s.producer().origin).toEqual({ kind: "screen", platform: "linux" });
+  const s = session("linux-wayland");
+  expect(s.producer().origin).toEqual({ kind: "screen", platform: "linux-wayland" });
   expect(await s.source.configure(settings)).toEqual({ codec: "jpeg" });
-  expect(s.sent.at(-1)).toEqual({ settings: { ...settings, codec: "jpeg" }, ingest: undefined });
+  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
+  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
   expect(s.source.ingesting).toBe(false);
   // The route moves the screen to ace-media: the view's own H.264 request, with the address.
   s.replies.push({ ingest: "on", boundary: null });
   await s.producer().point(s.address("p1"));
-  expect(s.sent.at(-1)?.settings).toEqual(settings);
-  expect(s.sent.at(-1)?.ingest).toMatchObject({ socket: "/run/m1i.sock" });
+  expect(s.sent.at(-1)).toMatchObject({ settings, ingest: { socket: "/run/m1i.sock" } });
   expect(s.source.ingesting).toBe(true);
   // No video ever went to the daemon's path, so ace-media's units are handed on at once.
   s.egress("p1", 4, true);
@@ -253,11 +253,35 @@ it("a Linux helper is asked for H.264 only toward ace-media and keeps its JPEG p
   expect(order(s.accepted, "h264")).toEqual([4, 5]);
   // And back: JPEG pictures on the daemon's path again.
   await s.producer().point(undefined);
-  expect(s.sent.at(-1)).toEqual({ settings: { ...settings, codec: "jpeg" }, ingest: undefined });
+  expect(s.sent.at(-1)).toMatchObject({ settings: { ...settings, codec: "jpeg" } });
+  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
 });
 
 it("a Mac helper is asked for H.264 on either path", async () => {
   const s = session("macos");
   expect(await s.source.configure(settings)).toEqual({ codec: "h264" });
-  expect(s.sent.at(-1)?.settings).toEqual(settings);
+  expect(s.sent.at(-1)).toMatchObject({ settings });
+});
+
+const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
+
+it("a helper streams its own video only where it encodes H.264: the Mac, Windows with a Media Foundation encoder, and Linux with an encoder that worked", () => {
+  expect(helperEncodesVideo(helper("macos", ["jpeg", "h264"]))).toBe(true);
+  expect(helperEncodesVideo(helper("windows", ["jpeg", "h264"]))).toBe(true);
+  // No MFT: JPEG only, so the daemon's last-resort encoder makes the video.
+  expect(helperEncodesVideo(helper("windows", ["jpeg"]))).toBe(false);
+  expect(helperEncodesVideo(helper("linux-wayland", ["jpeg", "h264"]))).toBe(true);
+  expect(helperEncodesVideo(helper("linux-wayland", ["jpeg"]))).toBe(false);
+  expect(helperEncodesVideo(undefined)).toBe(false);
+});
+
+it("the helper is told which process serves ace-media's ingest, so it can refuse any other", async () => {
+  const s = session();
+  await s.source.configure(settings);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point({ ...s.address("p1"), pid: 4242 });
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    ingest: { socket: "/run/m1i.sock", pid: 4242 },
+  });
 });

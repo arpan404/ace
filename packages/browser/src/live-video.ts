@@ -1,4 +1,4 @@
-import type { BrowserVideoStatus } from "@ace/protocol";
+import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { AudioFanout, listens, type AudioSink } from "./audio-fanout.ts";
 import type {
   BrowserCdp,
@@ -211,6 +211,10 @@ export class LiveVideo {
     if (!this.failures) return undefined;
     return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
+  /** What ace-media runs the video on while it carries it (`BrowserState.acceleration`). */
+  acceleration(): MediaAcceleration | undefined {
+    return this.capture?.handle.acceleration?.();
+  }
   /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
     this.generation++;
@@ -358,6 +362,9 @@ export class LiveVideo {
         failed: (encode) => {
           const codec = encode.split("/")[0];
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
+        },
+        accelerated: () => {
+          if (generation === this.generation) this.statusChanged();
         },
         ended: (reason) => {
           if (generation !== this.generation) return;

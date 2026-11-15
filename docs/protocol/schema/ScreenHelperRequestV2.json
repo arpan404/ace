@@ -28,6 +28,93 @@
     },
     {
       "properties": {
+        "epoch": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "epochPrivate": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "ingest": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamIngest.json"
+        },
+        "op": {
+          "const": "stream.configure",
+          "type": "string"
+        },
+        "person": {
+          "type": "boolean"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stream.keyframe",
+          "type": "string"
+        },
+        "person": {
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stream.image",
+          "type": "string"
+        },
+        "person": {
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
@@ -752,90 +839,6 @@
         "op",
         "dx",
         "dy"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "epoch": {
-          "maximum": 4294967295,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "id": {
-          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
-        },
-        "ingest": {
-          "$ref": "https://ace.local/protocol/v1/ScreenStreamIngest.json"
-        },
-        "op": {
-          "const": "stream.configure",
-          "type": "string"
-        },
-        "person": {
-          "type": "boolean"
-        },
-        "settings": {
-          "$ref": "https://ace.local/protocol/v1/ScreenStreamSettings.json"
-        },
-        "version": {
-          "const": 2,
-          "type": "number"
-        }
-      },
-      "required": [
-        "version",
-        "id",
-        "op",
-        "settings"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
-        },
-        "op": {
-          "const": "stream.keyframe",
-          "type": "string"
-        },
-        "person": {
-          "type": "boolean"
-        },
-        "version": {
-          "const": 2,
-          "type": "number"
-        }
-      },
-      "required": [
-        "version",
-        "id",
-        "op"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
-        },
-        "op": {
-          "const": "stream.image",
-          "type": "string"
-        },
-        "person": {
-          "type": "boolean"
-        },
-        "version": {
-          "const": 2,
-          "type": "number"
-        }
-      },
-      "required": [
-        "version",
-        "id",
-        "op"
       ],
       "type": "object"
     }
