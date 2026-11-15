@@ -508,6 +508,13 @@ impl Engine {
     /// their events once Spade opens for work (`fill_slots`), rather than ending "unknown".
     pub(super) fn settle_helpers_after_restart(&self) -> Result<(), StoreError> {
         for helper in self.store.helpers()? {
+            // A stop the bot stored that names this helper's job or reply holds, even when the
+            // job's end was stored and the helper's own stop was not (a crash between the two):
+            // recovery by the bot's open jobs alone never sees such a helper.
+            let parent = self.load(&helper.parent)?;
+            if spade_core::turn::job_stopped(&parent, &helper.job) {
+                self.stop_helper_after_restart(&helper)?;
+            }
             let events = self.load(&helper.conversation)?;
             let transcript = Transcript::fold(&events);
             if transcript.stopping

@@ -653,3 +653,70 @@ async fn a_stop_stored_just_before_a_restart_holds_for_the_helpers_after_it() ->
     assert_eq!(count(&events, "job_finished"), 1);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_stop_whose_job_end_was_stored_before_a_restart_still_stops_the_helper() -> Result {
+    use spade_core::event::{Event, Known};
+    let mut scripts = warm_up();
+    scripts.extend([
+        starts(&[helper_call("h1", "Read the server log", None)]),
+        Script::reply("never").held(Duration::from_secs(30)),
+        Script::reply("A helper is reading the log."),
+    ]);
+    let spade = Spade::start(scripts, tools(vec![pause()])).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Read the server log").await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    wait_helpers(&spade, &conversation, |h| {
+        h.first().is_some_and(|h| h["state"] == "working")
+    })
+    .await?;
+    let reply = events
+        .iter()
+        .find(|e| e["type"] == "job_started")
+        .and_then(|e| e["reply"].as_str())
+        .ok_or("no job started")?
+        .to_owned();
+    // Spade stored the Stop and the job's end, then went away before it stopped the helper.
+    let store = spade_store::Store::open(&spade.database())?;
+    store.append(
+        &conversation,
+        &Event::Known(Known::StopRequested {
+            reply: Some(reply),
+            jobs: vec!["h1".to_owned()],
+        }),
+        0,
+    )?;
+    store.append(
+        &conversation,
+        &Event::Known(Known::JobFinished {
+            job: "h1".to_owned(),
+            name: "helper".to_owned(),
+            content: "Stopped by the person.".to_owned(),
+            is_error: true,
+            uncertain: false,
+            files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
+        }),
+        0,
+    )?;
+    drop(store);
+
+    let spade = spade
+        .restart(
+            tools(vec![pause()]),
+            vec![Script::reply("This must not be asked for.")],
+        )
+        .await?;
+    let found = helpers(&spade, &conversation).await?;
+    let helper = found[0]["conversation"].as_str().unwrap_or_default();
+    spade.wait_for(helper, "reply_stopped").await?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(spade.fake.seen().is_empty(), "the stopped helper resumed");
+    let events = spade.events(&conversation).await?;
+    assert_eq!(count(&events, "job_finished"), 1);
+    Ok(())
+}
