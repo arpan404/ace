@@ -119,11 +119,11 @@ skill's other files, and a row in Spade's SQLite (`skills`: id, origin, name, de
 manual, body, SKILL.md hash, the other files as `[{path, size, hash, executable}]`, source,
 updated). Origins:
 
-| Origin   | Id                    | What it is                                                                                  |
-| -------- | --------------------- | ------------------------------------------------------------------------------------------- |
-| `ace`    | the library's `skl_…` | A copy of a skill in ace's library; `source` is its scope; read only                        |
-| `spade`  | `sks_` + 20 hex       | Written in Spade while ace was away, from a bot's saved proposal                            |
-| `plugin` | (the plugin work's)   | A plugin's skill; listed and loaded like the rest, read only. Nothing writes these rows yet |
+| Origin   | Id                    | What it is                                                                              |
+| -------- | --------------------- | --------------------------------------------------------------------------------------- |
+| `ace`    | the library's `skl_…` | A copy of a skill in ace's library; `source` is its scope; read only                    |
+| `spade`  | `sks_` + 20 hex       | Written in Spade while ace was away, from a bot's saved proposal                        |
+| `plugin` | `plg_` + 20 hex       | A plugin's skill or command ([plugins.md](plugins.md)); offered only to bots allowed it |
 
 A folder is always replaced whole: written as `.stage-<id>-<random>`, the old one moved to
 `.old-<id>-<random>`, the new one renamed into place, the old one removed. On start, a

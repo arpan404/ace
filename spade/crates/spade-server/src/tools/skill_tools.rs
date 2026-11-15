@@ -116,7 +116,7 @@ impl Tool for SkillSearch {
                 Ok(args) => args,
                 Err(output) => return output,
             };
-            let all = match library.list().await {
+            let all = match library.list_for(agent.as_deref()).await {
                 Ok(all) => all,
                 Err(error) => {
                     return ToolOutput::error(format!("The skill library is unavailable: {error}"));
@@ -157,7 +157,7 @@ impl Tool for SkillLoad {
                 Ok(args) => args,
                 Err(output) => return output,
             };
-            let all = match library.list().await {
+            let all = match library.list_for(agent.as_deref()).await {
                 Ok(all) => all,
                 Err(error) => {
                     return ToolOutput::error(format!("The skill library is unavailable: {error}"));

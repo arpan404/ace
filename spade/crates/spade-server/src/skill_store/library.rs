@@ -31,14 +31,40 @@ fn rank(row: &StoredSkill) -> u8 {
     }
 }
 
+/// One row per name: the one [`rank`] puts first.
+fn one_per_name(mut rows: Vec<StoredSkill>) -> Vec<StoredSkill> {
+    rows.sort_by(|a, b| a.name.cmp(&b.name).then(rank(a).cmp(&rank(b))));
+    let mut seen = HashSet::new();
+    rows.retain(|row| seen.insert(row.name.clone()));
+    rows
+}
+
+fn entry(row: StoredSkill) -> SkillEntry {
+    SkillEntry {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        manual: row.manual,
+        body: row.body,
+    }
+}
+
 impl SkillStore {
-    /// One row per name: the one [`rank`] puts first.
+    /// Every skill, one per name, plugins' included: what a new skill's name must not take.
     fn offered(&self) -> Result<Vec<StoredSkill>, String> {
+        Ok(one_per_name(self.rows()?))
+    }
+
+    /// What `agent` is offered, one per name: every skill but those of plugins it may not use
+    /// now (all plugins' without an agent).
+    fn offered_to(&self, agent: Option<&str>) -> Result<Vec<StoredSkill>, String> {
+        let plugins = self.plugins_for(agent);
         let mut rows = self.rows()?;
-        rows.sort_by(|a, b| a.name.cmp(&b.name).then(rank(a).cmp(&rank(b))));
-        let mut seen = HashSet::new();
-        rows.retain(|row| seen.insert(row.name.clone()));
-        Ok(rows)
+        rows.retain(|row| {
+            row.origin != SkillOrigin::Plugin
+                || row.source.as_ref().is_some_and(|p| plugins.contains(p))
+        });
+        Ok(one_per_name(rows))
     }
 
     fn source_here(&self, name: &str) -> Result<Option<SkillSource>, String> {
@@ -65,18 +91,23 @@ impl SkillStore {
 
 impl SkillLibrary for SkillStore {
     fn list(&self) -> LibraryFuture<Vec<SkillEntry>> {
-        let listed = self.offered().map(|rows| {
-            rows.into_iter()
-                .map(|row| SkillEntry {
-                    id: row.id,
-                    name: row.name,
-                    description: row.description,
-                    manual: row.manual,
-                    body: row.body,
-                })
-                .collect()
-        });
+        let listed = self
+            .offered_to(None)
+            .map(|rows| rows.into_iter().map(entry).collect());
         Box::pin(async move { listed })
+    }
+
+    fn list_for(&self, agent: Option<&str>) -> LibraryFuture<Vec<SkillEntry>> {
+        let (this, agent) = (self.handle(), agent.map(str::to_owned));
+        Box::pin(async move {
+            let this = this.ok_or_else(|| "the skill store closed".to_owned())?;
+            // A plugin turned off in ace since the last reading is dropped first.
+            if let Some(access) = this.plugin_access() {
+                access.refresh().await;
+            }
+            this.offered_to(agent.as_deref())
+                .map(|rows| rows.into_iter().map(entry).collect())
+        })
     }
 
     fn read(&self, id: &str) -> LibraryFuture<String> {

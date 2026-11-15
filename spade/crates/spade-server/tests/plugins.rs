@@ -24,14 +24,24 @@ use support::{FakeTool, Options, Result, Spade, types};
 struct FakeAce {
     plugins: Mutex<Vec<SpadePlugin>>,
     off: Mutex<BTreeSet<String>>,
+    /// The accepted plugins' files, by `<plugin>/<path>`.
+    files: Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
 }
 
 impl FakeAce {
     fn with(plugins: Vec<SpadePlugin>) -> Arc<Self> {
         Arc::new(Self {
             plugins: Mutex::new(plugins),
-            off: Mutex::default(),
+            ..Self::default()
         })
+    }
+
+    fn with_file(self: Arc<Self>, plugin: &str, path: &str, bytes: &[u8]) -> Arc<Self> {
+        self.files
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(format!("{plugin}/{path}"), bytes.to_vec());
+        self
     }
 
     fn turn_off(&self, name: &str) {
@@ -90,6 +100,22 @@ impl Daemon for FakeAce {
             plugin.enabled = self.enabled(name);
             Ok(plugin)
         })
+    }
+
+    fn file<'a>(
+        &'a self,
+        name: &'a str,
+        path: &'a str,
+    ) -> BoxFuture<'a, std::result::Result<Vec<u8>, String>> {
+        let found = self
+            .files
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&format!("{name}/{path}"))
+            .cloned();
+        Box::pin(
+            async move { found.ok_or_else(|| "Not a file of this plugin's skills".to_owned()) },
+        )
     }
 }
 
@@ -643,5 +669,172 @@ async fn a_plugin_turned_off_in_ace_stops_its_hooks_once_the_last_reading_is_sta
         "{:?}",
         types(&events)
     );
+    Ok(())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A plugin with a skill (and its guide) and a command, the skill store and skill tools, and
+/// two bots, one allowed the plugin.
+#[tokio::test]
+async fn a_plugins_skills_reach_only_the_bots_allowed_it_and_its_commands_are_never_loaded()
+-> Result {
+    use spade_server::skill_store::{AceSwitch, SkillStore};
+    use spade_server::tools::{EngineHandle, SkillLibrary, SkillLoad, SkillSearch};
+    use spade_server::workspace::Workspaces;
+
+    let guide = b"Tidy imports first.";
+    let kit = plugin(
+        "kit",
+        &"f".repeat(64),
+        "/nowhere",
+        json!([
+            { "kind": "skill", "name": "tidy", "path": "skills/tidy/SKILL.md",
+              "description": "Tidy a codebase",
+              "text": "---\nname: tidy\ndescription: Tidy a codebase\n---\nRead guide.md.\n",
+              "files": [{ "path": "guide.md", "bytes": guide.len(), "hash": sha256_hex(guide),
+                          "executable": false }] },
+            { "kind": "command", "name": "ship", "path": "commands/ship.md",
+              "description": "Ship the release", "text": "Ship it." },
+        ]),
+        json!([]),
+    );
+    let ace = FakeAce::with(vec![kit]).with_file("kit", "skills/tidy/guide.md", guide);
+    let dir = tempfile::tempdir()?;
+    let store = SkillStore::open(
+        dir.path().join("skills"),
+        Store::open(&dir.path().join("spade.sqlite"))?,
+        Arc::new(spade_server::clock::SystemClock),
+        Some(Arc::new(AceSwitch::new(None))),
+    );
+    let library: Arc<dyn SkillLibrary> = store.clone();
+    let workspaces = Workspaces::new(dir.path().join("workspace"));
+    let bots = EngineHandle::default();
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(SkillSearch::new(library.clone()).with_uses(bots.clone())),
+        Arc::new(SkillLoad::new(library.clone()).with_workspaces(workspaces.clone(), bots.clone())),
+    ];
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("s1", "skill_search", json!({ "query": "tidy" })),
+            Script::reply("").call("l1", "skill_load", json!({ "name": "tidy" })),
+            Script::reply("").call("l2", "skill_load", json!({ "name": "ship" })),
+            Script::reply("Tidied."),
+            Script::reply("").plain(r#"{"title":"Tidy"}"#),
+            Script::reply("").call("l3", "skill_load", json!({ "name": "tidy" })),
+            Script::reply("No such skill."),
+            Script::reply("").plain(r#"{"title":"Tidy"}"#),
+        ],
+        tools,
+        Options {
+            skills: Some(library.clone()),
+            skill_store: Some(store.clone()),
+            workspaces: Some(workspaces),
+            ..options(ace.clone())
+        },
+    )
+    .await?;
+    bots.set(&spade.engine);
+    let (allowed, allowed_chat) = bot(&spade, "Tidier", &["kit"]).await?;
+    let (_, other_chat) = bot(&spade, "Other", &[]).await?;
+
+    spade.say(&allowed_chat, "Tidy the repo").await?;
+    let events = wait(&spade, &allowed_chat, "reply_finished", 1).await?;
+    let result = |call: &str| {
+        events
+            .iter()
+            .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
+            .and_then(|e| e["content"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let index = of_type(&events, "skills_indexed");
+    let index = index
+        .first()
+        .map(|e| e["text"].to_string())
+        .unwrap_or_default();
+    assert!(index.contains("tidy") && !index.contains("ship"), "{index}");
+    assert!(
+        result("s1").contains("tidy: Tidy a codebase"),
+        "{}",
+        result("s1")
+    );
+    let loaded = result("l1");
+    assert!(
+        loaded.contains("Read guide.md.") && loaded.contains("skills/tidy/"),
+        "{loaded}"
+    );
+    let placed = dir
+        .path()
+        .join("workspace")
+        .join(&allowed)
+        .join("skills/tidy/guide.md");
+    assert_eq!(std::fs::read(placed)?, guide);
+    assert!(
+        result("l2").contains("There is no skill named ship"),
+        "a command was loaded"
+    );
+    let views = store.views()?;
+    let ship = views
+        .iter()
+        .find(|v| v.name == "ship")
+        .ok_or("no command row")?;
+    assert!(ship.manual && ship.origin == "plugin");
+
+    spade.say(&other_chat, "Tidy the repo").await?;
+    let events = wait(&spade, &other_chat, "reply_finished", 1).await?;
+    let other = of_type(&events, "tool_finished");
+    let content = other
+        .first()
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default();
+    assert!(
+        content.contains("There is no skill named tidy"),
+        "{content}"
+    );
+    let index = of_type(&events, "skills_indexed");
+    assert!(
+        !index
+            .first()
+            .map(|e| e["text"].to_string())
+            .unwrap_or_default()
+            .contains("tidy"),
+        "a bot not allowed the plugin was offered its skill"
+    );
+
+    // Turned off for the bot: it is offered them no more; on again, they are back.
+    let names = |list: Vec<spade_core::skills::SkillEntry>| -> Vec<String> {
+        list.into_iter().map(|s| s.name).collect()
+    };
+    spade
+        .put(
+            &format!("/v1/agents/{allowed}/plugins"),
+            json!({ "plugins": [] }),
+        )
+        .await?;
+    assert!(names(library.list_for(Some(&allowed)).await?).is_empty());
+    spade
+        .put(
+            &format!("/v1/agents/{allowed}/plugins"),
+            json!({ "plugins": ["kit"] }),
+        )
+        .await?;
+    assert_eq!(
+        names(library.list_for(Some(&allowed)).await?),
+        ["ship", "tidy"]
+    );
+
+    // Turned off in ace: its skills and commands go.
+    ace.turn_off("kit");
+    let plugins = spade.engine.plugins().cloned().ok_or("no plugins")?;
+    plugins.refresh_now().await;
+    assert!(library.list_for(Some(&allowed)).await?.is_empty());
+    assert!(store.views()?.iter().all(|v| v.origin != "plugin"));
     Ok(())
 }

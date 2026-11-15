@@ -60,6 +60,11 @@ pub struct SkillFileData {
 pub trait SkillLibrary: Send + Sync {
     /// Every skill, with its id.
     fn list(&self) -> LibraryFuture<Vec<SkillEntry>>;
+    /// The skills `agent` is offered: a plugin's only to bots the person allowed it. Every skill
+    /// [`SkillLibrary::list`] has unless the library keeps plugins' skills apart.
+    fn list_for(&self, _agent: Option<&str>) -> LibraryFuture<Vec<SkillEntry>> {
+        self.list()
+    }
     /// The full SKILL.md text of the skill with `id`.
     fn read(&self, id: &str) -> LibraryFuture<String>;
     /// The skill named `name`, as an edit starts from; `None` when no skill has that name.

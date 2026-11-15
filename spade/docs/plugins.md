@@ -3,7 +3,7 @@
 Date: 2026-11-14. How Spade's bots use the plugins the person accepted in ace
 ([ADR 0151](../../docs/adr/0151-spade-skills-and-plugins.md), points 8–13; plugins themselves are
 [ADR 0014](../../docs/adr/0014-plugins.md)). Built in `packages/plugins` (the daemon's
-`plugins.spade`), `spade-ace` (the requests), `spade-mcp` (the stdio transport), `spade-core`
+`plugins.spade` and `plugins.spadeFile`), `spade-ace` (the requests), `spade-mcp` (the stdio transport), `spade-core`
 (`hooks`, the two events) and `spade-server` (`plugins/`, `engine/plugin_hooks.rs`,
 `tools/plugins.rs`, `api/plugins.rs`). Extends [harness.md](harness.md) and
 [connectors.md](connectors.md).
@@ -47,15 +47,33 @@ Decided in `plugins/view.rs` from the daemon's answer alone:
 | Hooks              | Run at the six events below; a hook at any other event is not used                                                                                         |
 | Local MCP servers  | Started by Spade (below)                                                                                                                                   |
 | Remote MCP servers | Listed for the person to add as an app by URL, signed in like any connector; the plugin's headers are not sent                                             |
-| Skills             | Already reached through ace's skill library; the skill store will copy them                                                                                |
-| Commands, agents   | Listed as not used yet: commands wait for the composer's command picker, agents for helper profiles (ADR 0152)                                             |
+| Skills             | Store skills with origin `plugin` (below): searched, indexed and loaded, with their files, by the bots allowed the plugin                                  |
+| Commands           | Manual store skills with origin `plugin`: only the person starts one; the bot never finds, indexes or loads one                                            |
+| Agents             | Listed as not used yet: they wait for helper profiles (ADR 0152)                                                                                           |
 
 Anything ace could not import (`unsupported`) and any execution of a kind this Spade doesn't
 know is listed too. The settings page shows all of these as "Not used by Spade", each with its
 reason.
 
-A bot on a subscription (ADR 0133) gets only rules: its CLI runs the plugin's servers and hooks
-itself, and ace already gives the CLI the person's plugins.
+A bot on a subscription (ADR 0133) gets only rules, skills and commands: its CLI runs the
+plugin's servers and hooks itself, and ace already gives the CLI the person's plugins.
+
+## Skills and commands
+
+`plugins.spade` sends each skill's SKILL.md with the list of its other files (path in the skill's
+folder, size, hash, executable bit; hidden entries and files past 1 MB or 200 left out), and each
+command's file. After each reading, every plugin ace has on has its skills and commands in the
+skill store as rows of origin `plugin` (`plg_` and 20 hex digits of the SHA-256 of plugin, kind
+and name; `source` is the plugin). A new or changed one is copied with its files, each fetched
+with `plugins.spadeFile {name, path}` (the daemon reads it from the accepted version and checks
+it against the accepted hash; Spade checks the hash again) and replaced whole like any store
+skill; a skill whose files could not be read keeps its last copy. A plugin turned off in ace, or
+removed, loses its rows at that reading.
+
+Each bot is offered only the rows of the plugins it may use now: `skill_search`, `skill_load` and
+the index read the store for the calling bot, reading ace's plugins again first when the last
+reading is stale. Turning a plugin off for a bot hides its skills from that bot at once. A
+command is a manual skill: never searched, indexed or loaded by the bot.
 
 ## Rules
 
@@ -156,7 +174,8 @@ Under `/v1` with Spade's bearer token. `503` when Spade isn't set up with ace.
 | `GET /agents/{id}/plugins` |                     | `{plugins: [Plugin], cli, problem}`; reads ace's plugins again first   |
 | `PUT /agents/{id}/plugins` | `{plugins: [name]}` | The same, after storing; `400` for a plugin not accepted in ace, `404` |
 
-A Plugin is `{name, version, enabled_in_ace, allowed, rules: [name], hooks: [event], servers:
+A Plugin is `{name, version, enabled_in_ace, allowed, rules: [name], skills: [name], commands:
+[name], hooks: [event], servers:
 [{name, state, tools, problem}], remote: [{name, url}], not_used: [{what, reason}]}`, where a
 server's `state` is `not_started`, `running`, `stopped` (idle) or `failed`.
 
@@ -165,7 +184,8 @@ what it brings, a remote server's address to add in Apps, and the "Not used by S
 
 ## Not yet
 
-- Plugin skills and commands in Spade's own skill store, commands from the composer, and agents
-  as helper profiles: the components are exposed by `plugins.spade` for that work.
+- Starting a command from the composer: commands are in the store as manual skills, but the
+  composer has no command picker yet. Agents as helper profiles: exposed by `plugins.spade` for
+  that work.
 - Remote servers are not added as connectors by themselves: the person adds the address.
 - A server's `cwd` from the plugin is not used: every server runs in the bot's workspace.

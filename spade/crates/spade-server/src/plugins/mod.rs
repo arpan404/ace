@@ -37,6 +37,24 @@ pub trait Daemon: Send + Sync {
     fn installed(&self) -> BoxFuture<'_, Result<Vec<Installed>, String>>;
     /// One accepted plugin as Spade uses it.
     fn plugin<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<SpadePlugin, String>>;
+    /// One file of an accepted plugin's skill, by its path in the plugin, as accepted.
+    fn file<'a>(&'a self, name: &'a str, path: &'a str) -> BoxFuture<'a, Result<Vec<u8>, String>> {
+        let _ = (name, path);
+        Box::pin(async { Err("this daemon can't send a plugin's files".to_owned()) })
+    }
+}
+
+/// The daemon as the skill store reads plugin skills' files.
+struct DaemonFiles<'a>(&'a dyn Daemon);
+
+impl crate::skill_store::PluginFiles for DaemonFiles<'_> {
+    fn file<'a>(
+        &'a self,
+        plugin: &'a str,
+        path: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<u8>, String>> {
+        self.0.file(plugin, path)
+    }
 }
 
 /// How long a reading of the daemon's plugins is used before it is read again.
@@ -57,6 +75,8 @@ pub struct Plugins {
     fresh_for: std::sync::atomic::AtomicU64,
     /// How long one hook may run, in milliseconds ([`hooks::LIMIT`] unless a test shortens it).
     hook_limit: std::sync::atomic::AtomicU64,
+    /// Where the plugins' skills and commands go, once set.
+    skill_store: std::sync::OnceLock<Arc<crate::skill_store::SkillStore>>,
 }
 
 #[derive(Default)]
@@ -79,6 +99,9 @@ pub struct PluginView {
     /// The person allowed it for this bot.
     pub allowed: bool,
     pub rules: Vec<String>,
+    /// Skills its bots may load, and commands (manual skills only the person starts).
+    pub skills: Vec<String>,
+    pub commands: Vec<String>,
     pub hooks: Vec<String>,
     pub servers: Vec<ServerState>,
     /// Remote servers, added as connectors by URL.
@@ -117,7 +140,34 @@ impl Plugins {
             hook_limit: std::sync::atomic::AtomicU64::new(
                 u64::try_from(hooks::LIMIT.as_millis()).unwrap_or(10_000),
             ),
+            skill_store: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Keeps the plugins' skills and commands in `store`, offered to the bots allowed them.
+    pub fn set_skill_store(self: &Arc<Self>, store: Arc<crate::skill_store::SkillStore>) {
+        let access: Arc<dyn crate::skill_store::PluginAccess> = self.clone();
+        store.set_plugins(Arc::downgrade(&access));
+        let _ = self.skill_store.set(store);
+    }
+
+    /// Brings the store's plugin skills in step with the plugins ace has on.
+    async fn sync_skills(&self) {
+        let Some(store) = self.skill_store.get() else {
+            return;
+        };
+        let plugins: Vec<Arc<SpadePlugin>> = lock(&self.known).plugins.values().cloned().collect();
+        let wanted: Vec<crate::skill_store::PluginSkill> = plugins
+            .iter()
+            .filter(|plugin| plugin.enabled)
+            .flat_map(|plugin| view::usable(plugin, false).skills)
+            .collect();
+        if let Err(error) = store
+            .sync_plugins(&wanted, &DaemonFiles(&*self.daemon))
+            .await
+        {
+            tracing::warn!(%error, "the plugins' skills were not brought in step");
+        }
     }
 
     /// Makes local servers stop after `idle` unused, for tests.
@@ -200,6 +250,7 @@ impl Plugins {
             self.usable_plugin(agent, plugin)
                 .is_some_and(|p| p.install.hash == hash)
         });
+        self.sync_skills().await;
     }
 
     /// [`Plugins::refresh`], waiting at most a moment: a daemon that doesn't answer leaves the
@@ -299,6 +350,8 @@ impl Plugins {
                     enabled_in_ace: entry.enabled,
                     allowed: allowed.contains(name),
                     rules: usable.rules.iter().map(|r| r.name.clone()).collect(),
+                    skills: names(&usable.skills, false),
+                    commands: names(&usable.skills, true),
                     hooks: usable.hooks.iter().map(|h| h.event.clone()).collect(),
                     servers: usable
                         .local
@@ -329,12 +382,34 @@ impl Plugins {
     }
 }
 
+impl crate::skill_store::PluginAccess for Plugins {
+    fn plugins_for(&self, agent: &str) -> Vec<String> {
+        self.for_agent(agent)
+            .iter()
+            .map(|plugin| plugin.install.name.clone())
+            .collect()
+    }
+
+    fn refresh(&self) -> BoxFuture<'_, ()> {
+        Box::pin(self.refresh_briefly())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AllowError {
     #[error("no accepted plugin is called {0}")]
     Unknown(String),
     #[error("{0}")]
     Store(String),
+}
+
+/// The names of a plugin's commands (`manual`) or skills.
+fn names(skills: &[crate::skill_store::PluginSkill], manual: bool) -> Vec<String> {
+    skills
+        .iter()
+        .filter(|skill| skill.manual == manual)
+        .map(|skill| skill.name.clone())
+        .collect()
 }
 
 /// The variables naming a plugin's folder, as ADR 0014's placeholders do, so a command's

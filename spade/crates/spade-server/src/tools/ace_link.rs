@@ -520,6 +520,21 @@ impl crate::plugins::Daemon for AceLink {
                 .map_err(|e| e.to_string())
         })
     }
+
+    fn file<'a>(
+        &'a self,
+        name: &'a str,
+        path: &'a str,
+    ) -> crate::plugins::BoxFuture<'a, Result<Vec<u8>, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills
+                .plugin_file(name, path)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
 }
 
 /// Each bot's browser and screen through the daemon (ADR 0142).

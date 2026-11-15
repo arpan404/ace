@@ -50,6 +50,9 @@ pub struct NotUsed {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Usable {
     pub rules: Vec<Rule>,
+    /// Skills (a bot loads them) and commands (manual skills only the person starts), for the
+    /// skill store.
+    pub skills: Vec<crate::skill_store::PluginSkill>,
     pub hooks: Vec<Hook>,
     pub local: Vec<LocalServer>,
     pub remote: Vec<RemoteServer>,
@@ -86,13 +89,28 @@ to."
                     text: body(text).trim().to_owned(),
                 }),
             },
-            // Bots already find plugin skills in ace's skill library.
-            "skill" => {}
-            "command" => out.seams.push(NotUsed {
-                what,
-                reason: "Starting a plugin's command from the composer is not built yet."
-                    .to_owned(),
-            }),
+            "skill" | "command" => match &component.text {
+                Some(text) => out.skills.push(crate::skill_store::PluginSkill {
+                    plugin: name.clone(),
+                    name: component.name.clone(),
+                    description: component.description.clone(),
+                    text: text.clone(),
+                    manual: component.kind == "command",
+                    folder: skill_folder(&component.path),
+                    files: if component.kind == "skill" {
+                        component.files.clone()
+                    } else {
+                        Vec::new()
+                    },
+                }),
+                None => out.not_used.push(NotUsed {
+                    what,
+                    reason: component
+                        .omitted
+                        .clone()
+                        .unwrap_or_else(|| "Its text did not arrive.".to_owned()),
+                }),
+            },
             "agent" => out.seams.push(NotUsed {
                 what,
                 reason: "Helpers from a plugin's agents are not built yet.".to_owned(),
@@ -194,6 +212,11 @@ plugin's headers are not sent."
         });
     }
     out
+}
+
+/// A skill's folder in the plugin, from its SKILL.md's path.
+fn skill_folder(path: &str) -> String {
+    path.strip_suffix("/SKILL.md").unwrap_or("").to_owned()
 }
 
 /// Whether a rule's frontmatter limits it to some files: `globs`, or not `alwaysApply: true`

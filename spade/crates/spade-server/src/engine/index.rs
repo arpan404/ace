@@ -28,11 +28,12 @@ pub(super) async fn if_needed(engine: &Arc<Engine>, id: &str, events: &[Event]) 
     if begun {
         return false;
     }
-    let uses = engine
-        .agent_of(id)
-        .map(|agent| library.uses(&agent))
+    let agent = engine.agent_of(id);
+    let uses = agent
+        .as_ref()
+        .map(|agent| library.uses(agent))
         .unwrap_or_default();
-    let text = match tokio::time::timeout(WAIT, library.list()).await {
+    let text = match tokio::time::timeout(WAIT, library.list_for(agent.as_deref())).await {
         Ok(Ok(list)) => skills::index(&list, &uses),
         Ok(Err(error)) => {
             tracing::warn!(%error, "no skill index for this conversation");

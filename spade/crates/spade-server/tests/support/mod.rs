@@ -530,6 +530,9 @@ impl Spade {
                 .with_hook_limit(options.plugin_hook_limit)
                 .with_server_idle(options.plugin_server_idle)
                 .with_fresh_for(options.plugin_fresh_for);
+                if let Some(store) = &options.skill_store {
+                    plugins.set_skill_store(store.clone());
+                }
                 tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
                     plugins.clone(),
                     Store::open(&dir.path().join("spade.sqlite"))?,

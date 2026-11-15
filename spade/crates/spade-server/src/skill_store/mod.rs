@@ -5,8 +5,8 @@
 //! - `ace`: a copy of a skill in ace's library, kept in step by [`SkillStore::mirror_now`] and
 //!   [`SkillStore::run_mirror`]; read only here.
 //! - `spade`: written in Spade while ace was away (or on Spade Cloud, where ace never is).
-//! - `plugin`: a plugin's skill, for a bot the person allowed the plugin. Filled by the plugin
-//!   work (point 8); this store lists and loads such rows like any other, read only.
+//! - `plugin`: a plugin's skill or command, offered only to bots the person allowed the plugin
+//!   ([`plugin_rows`]); read only.
 //!
 //! The store answers [`SkillLibrary`], so `skill_search`, `skill_load`, the frozen index and
 //! proposals all read it. A proposal goes to ace while ace is there and to the store otherwise.
@@ -14,6 +14,7 @@
 mod folders;
 mod library;
 mod mirror;
+mod plugin_rows;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ use crate::clock::Clock;
 use crate::tools::{AceLibrary, SkillLibrary, WriteError};
 
 pub use mirror::Mirrored;
+pub use plugin_rows::{PluginAccess, PluginFiles, PluginSkill};
 
 /// Where ace's library is, while Spade is connected to it.
 pub trait Upstream: Send + Sync {
@@ -125,6 +127,8 @@ pub struct SkillStore {
     writing: tokio::sync::Mutex<()>,
     /// This store, for futures that outlive a borrow of it.
     me: std::sync::Weak<SkillStore>,
+    /// Which plugins each bot may use, once the person's plugins are known.
+    plugins: std::sync::OnceLock<std::sync::Weak<dyn PluginAccess>>,
 }
 
 impl SkillStore {
@@ -145,6 +149,7 @@ impl SkillStore {
             ace,
             writing: tokio::sync::Mutex::new(()),
             me: me.clone(),
+            plugins: std::sync::OnceLock::new(),
         })
     }
 

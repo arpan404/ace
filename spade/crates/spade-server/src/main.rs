@@ -347,6 +347,8 @@ async fn run() -> Result<(), Failure> {
                 plugins.clone(),
                 Store::open(&home.database()).map_err(other)?,
             )));
+            // Their skills and commands are store skills, offered to the bots allowed them.
+            plugins.set_skill_store(skill_store.clone());
             Some(plugins)
         }
         None => None,
