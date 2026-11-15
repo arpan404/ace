@@ -1,8 +1,11 @@
-import { ThreadId, type MachineThreadView, type McpAttribution } from "@ace/protocol";
+import { Command, ThreadId, type MachineThreadView, type McpAttribution } from "@ace/protocol";
 import { agentForest, type ThreadWork } from "@ace/ui-core";
 import { setup } from "../agent-control/test-support.ts";
 import type { Engine } from "../engine/index.ts";
-import { MachineChildren } from "./children.ts";
+import type { Store } from "../store.ts";
+import { STOP_TRACKING } from "./child-lost.ts";
+import { MachineChildren, UNREACHABLE_RETRY_CAP_MS } from "./children.ts";
+import { REMOTE_CHILD_LEASE_MS } from "../liveness/lease.ts";
 import { RequestMirror } from "./mirror.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -34,10 +37,11 @@ export function children(
   rijan: Rijan,
   leaseMs?: number,
   engine: () => Engine = () => f.engine,
+  store: Store = f.store,
 ) {
   return new MachineChildren({
     ...(leaseMs ? { leaseMs } : {}),
-    store: f.store,
+    store,
     engine,
     now: f.clock.now,
     schedule: (ms, run) => f.clock.setTimer(run, ms),
@@ -132,4 +136,70 @@ export function parentView(f: Awaited<ReturnType<typeof setup>>, parent: McpAttr
   const rows = flat.filter((node) => node.kind === "agent" && node.agent.childThreadId);
   const holds = Object.values(snapshot.backgroundTasks).filter((task) => task.kind === "subagent");
   return { forest, rows, holds, status: snapshot.thread.status };
+}
+
+export type Fixture = Awaited<ReturnType<typeof setup>>;
+
+/** The parent's open questions. */
+export const asks = (f: Fixture, parent: McpAttribution) =>
+  Object.values(f.store.snapshotThread(parent.threadId).interactions).filter(
+    (interaction) => interaction.state === "pending",
+  );
+
+/** The person answers the question about the child: stop tracking it. */
+export function stopTracking(ledger: MachineChildren, interactionId: string) {
+  return ledger.resolve(
+    Command.parse({
+      id: `stop-tracking-${interactionId}`,
+      deviceId: "person",
+      payload: {
+        type: "interaction.resolve",
+        interactionId,
+        resolution: { kind: "approval", optionId: STOP_TRACKING },
+      },
+    }),
+  );
+}
+
+/**
+ * Its machine answers again. It failed every read while silent, so the next read waits out that
+ * machine's backoff, never longer than its cap; polls come once a second meanwhile.
+ */
+export async function answersAgain(
+  fixture: Awaited<ReturnType<typeof parentWithChildren>>,
+  id: ThreadId,
+  on: MachineChildren = fixture.ledger,
+) {
+  const { f, rijan, at } = fixture;
+  rijan.silent = false;
+  const answered = f.clock.now();
+  while (
+    on.watched(id)?.view.contact === "lost" &&
+    f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS
+  )
+    await at(f.clock.now() + 1_000, on);
+}
+
+/** A working child, its parent's own turn over, then its machine goes silent past the lease. */
+export async function silentChild(leaseMs?: number) {
+  const fixture = await parentWithChildren(1, leaseMs);
+  const { f, parent, rijan, at } = fixture;
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
+  await at(f.clock.now() + 1_000);
+  // The parent's own turn ends: only its child keeps it open.
+  await f.complete(parent.threadId, "Delegated the review.");
+  if (!live.includes(parentView(f, parent).status.state)) throw new Error("parent not held");
+
+  rijan.silent = true;
+  const quiet = f.clock.now();
+  // Asked and not answered: its lease runs from this read.
+  await at(quiet);
+  await at(quiet + (leaseMs ?? REMOTE_CHILD_LEASE_MS) + 1_000);
+  return { ...fixture, id, quiet };
 }

@@ -1,17 +1,16 @@
 import { expect, it } from "vitest";
-import { Command, type McpAttribution, type ThreadId } from "@ace/protocol";
-import type { setup } from "../agent-control/test-support.ts";
-import { REMOTE_CHILD_LEASE_MS } from "../liveness/lease.ts";
 import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
-import { STOP_TRACKING } from "./child-lost.ts";
-import { UNREACHABLE_RETRY_CAP_MS, type MachineChildren } from "./children.ts";
 import {
+  answersAgain,
+  asks,
   children,
   ids,
   live,
   notSent,
   parentView,
   parentWithChildren,
+  silentChild,
+  stopTracking,
 } from "./remote-child-test-support.ts";
 
 /*
@@ -20,72 +19,6 @@ import {
  * (ADR 0153). Lost contact is not knowing: the parent is never read done on the strength of a
  * lease running out, and the person is asked, as for a child whose machine was unpaired.
  */
-
-type Fixture = Awaited<ReturnType<typeof setup>>;
-
-/** The parent's open questions. */
-const asks = (f: Fixture, parent: McpAttribution) =>
-  Object.values(f.store.snapshotThread(parent.threadId).interactions).filter(
-    (interaction) => interaction.state === "pending",
-  );
-
-/** The person answers the question about the child: stop tracking it. */
-function stopTracking(ledger: MachineChildren, interactionId: string) {
-  return ledger.resolve(
-    Command.parse({
-      id: `stop-tracking-${interactionId}`,
-      deviceId: "person",
-      payload: {
-        type: "interaction.resolve",
-        interactionId,
-        resolution: { kind: "approval", optionId: STOP_TRACKING },
-      },
-    }),
-  );
-}
-
-/**
- * Its machine answers again. It failed every read while silent, so the next read waits out that
- * machine's backoff, never longer than its cap; polls come once a second meanwhile.
- */
-async function answersAgain(
-  fixture: Awaited<ReturnType<typeof parentWithChildren>>,
-  id: ThreadId,
-  on: MachineChildren = fixture.ledger,
-) {
-  const { f, rijan, at } = fixture;
-  rijan.silent = false;
-  const answered = f.clock.now();
-  while (
-    on.watched(id)?.view.contact === "lost" &&
-    f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS
-  )
-    await at(f.clock.now() + 1_000, on);
-}
-
-/** A working child, its parent's own turn over, then its machine goes silent past the lease. */
-async function silentChild(leaseMs?: number) {
-  const fixture = await parentWithChildren(1, leaseMs);
-  const { f, parent, rijan, at } = fixture;
-  const [id] = ids;
-  if (!id) throw new Error("no child");
-  rijan.views.set(id, {
-    ...notSent(id),
-    state: "working",
-    status: { state: "working", agents: 1 },
-  });
-  await at(f.clock.now() + 1_000);
-  // The parent's own turn ends: only its child keeps it open.
-  await f.complete(parent.threadId, "Delegated the review.");
-  expect(live).toContain(parentView(f, parent).status.state);
-
-  rijan.silent = true;
-  const quiet = f.clock.now();
-  // Asked and not answered: its lease runs from this read.
-  await at(quiet);
-  await at(quiet + (leaseMs ?? REMOTE_CHILD_LEASE_MS) + 1_000);
-  return { ...fixture, id, quiet };
-}
 
 it("a working child whose machine goes silent past the lease keeps its parent from reading done, and the person is asked", async () => {
   const { f, parent, ledger, id } = await silentChild();
