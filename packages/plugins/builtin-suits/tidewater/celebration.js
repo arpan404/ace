@@ -66,7 +66,7 @@ function build(view) {
   seed = 9;
   sparkles.length = 0;
   for (let i = 0; i < 40; i++)
-    sparkles.push({ x: random(), y: random(), s: 8 + random() * 14, d: random() * 0.5, big: random() < 0.6 });
+    sparkles.push({ x: random(), y: random(), s: 11 + random() * 15, p: random() * 6.28, big: random() < 0.6 });
   bubbles.length = 0;
   for (let i = 0; i < 70; i++) bubbles.push({ x: random(), o: random() * 18, r: 1 + random() * 3.2 });
 }
@@ -113,7 +113,7 @@ function draw(t) {
     const yTop = height * (1 - highest);
     const sheen = ctx.createLinearGradient(0, yTop, 0, height);
     sheen.addColorStop(0, `rgba(${dark ? "140,190,210" : "120,170,185"},0)`);
-    sheen.addColorStop(0.25, `rgba(${dark ? "140,190,210" : "120,170,185"},${0.12 * wet})`);
+    sheen.addColorStop(0.25, `rgba(${dark ? "140,190,210" : "120,170,185"},${0.18 * wet})`);
     sheen.addColorStop(1, `rgba(${dark ? "140,190,210" : "120,170,185"},${0.06 * wet})`);
     ctx.fillStyle = sheen;
     ctx.fillRect(0, yTop, width, height - yTop);
@@ -150,6 +150,19 @@ function draw(t) {
     ctx.lineWidth = 2;
     ctx.stroke();
 
+    // Lace of foam a little behind the crest.
+    ctx.beginPath();
+    for (let x = 0; x <= width + step; x += step) {
+      const y = edge(x, level, t) + 14 + Math.sin(x * 0.05 + t * 0.003) * 3;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.setLineDash([3, 7]);
+    ctx.strokeStyle = dark ? "rgba(210,236,244,0.35)" : "rgba(255,255,255,0.75)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     // Bubbles riding just under the crest.
     ctx.fillStyle = dark ? "rgba(225,242,248,0.5)" : "rgba(255,255,255,0.85)";
     for (const b of bubbles) {
@@ -161,22 +174,21 @@ function draw(t) {
     }
   }
 
-  // Sparkles on the wet sand, where the wave has drawn back from.
+  // Sparkles on the wet sand: each lights as the water uncovers it and twinkles until the end.
   if (t > turnMs) {
-    const count = merged ? sparkles.length : 26;
+    const count = merged ? sparkles.length : 28;
+    const appear = clamp((t - turnMs) / 260);
     for (let i = 0; i < count; i++) {
       const s = sparkles[i];
-      const sy = height * (1 - highest * (0.12 + s.y * 0.85));
-      if (sy < edge(s.x * width, level, t) - 4) {
-        const age = (t - turnMs) / (endMs - turnMs) - s.d * 0.5;
-        if (age <= 0) continue;
-        const twinkle = Math.sin(clamp(age * 1.6) * Math.PI);
-        const a = twinkle * fade;
-        if (a < 0.02) continue;
-        ctx.globalAlpha = a * (dark ? 0.85 : 1);
-        const size = s.s * (0.6 + twinkle * 0.5) * (s.big ? 1 : 0.6);
-        ctx.drawImage(sparkle, s.x * width - size, sy - size, size * 2, size * 2);
-      }
+      const x = s.x * width;
+      const sy = height * (1 - highest * (0.1 + s.y * 0.86));
+      if (sy > edge(x, level, t) - 6) continue;
+      const twinkle = 0.55 + 0.45 * Math.sin(t * 0.012 + s.p);
+      const a = appear * fade * twinkle;
+      if (a < 0.02) continue;
+      ctx.globalAlpha = Math.min(1, a * (dark ? 0.95 : 1));
+      const size = s.s * (0.7 + twinkle * 0.45) * (s.big ? 1 : 0.6);
+      ctx.drawImage(sparkle, x - size, sy - size, size * 2, size * 2);
     }
     ctx.globalAlpha = 1;
   }

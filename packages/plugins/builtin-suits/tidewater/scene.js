@@ -23,8 +23,8 @@ const palette = {
     top: "#0d1820",
     bottom: "#0b1a22",
     sun: "120,160,190",
-    swells: ["rgba(26,60,76,0.7)", "rgba(22,54,70,0.7)", "rgba(18,48,64,0.75)"],
-    crest: "rgba(150,195,210,0.22)",
+    swells: ["rgba(34,74,92,0.8)", "rgba(28,66,84,0.8)", "rgba(22,58,76,0.85)"],
+    crest: "rgba(160,205,220,0.35)",
     glint: "214,236,244",
   },
 };
@@ -43,6 +43,7 @@ let reduce = false;
 
 let sun = null;
 let beam = null;
+let ground = null; // the still backdrop (sea paper and sun), built once per size and scheme
 const glints = [];
 
 let seed = 3;
@@ -79,8 +80,8 @@ function build(view) {
   beam = canvas(512, 128);
   const b = beam.getContext("2d");
   const along = b.createLinearGradient(0, 0, 512, 0);
-  along.addColorStop(0, "rgba(255,236,190,0.16)");
-  along.addColorStop(0.5, "rgba(255,236,190,0.06)");
+  along.addColorStop(0, "rgba(255,236,190,0.3)");
+  along.addColorStop(0.5, "rgba(255,236,190,0.11)");
   along.addColorStop(1, "rgba(255,236,190,0)");
   b.fillStyle = along;
   b.beginPath();
@@ -90,6 +91,20 @@ function build(view) {
   b.lineTo(0, 68);
   b.closePath();
   b.fill();
+
+  // The still part of every frame, composed once at a quarter of the window's size: it is all
+  // soft gradient, so the stretch costs nothing visible.
+  ground = canvas(Math.max(1, Math.ceil(width / 4)), Math.max(1, Math.ceil(height / 4)));
+  const gr = ground.getContext("2d");
+  const gw = ground.width;
+  const gh = ground.height;
+  const fill = gr.createLinearGradient(0, 0, 0, gh);
+  fill.addColorStop(0, p.top);
+  fill.addColorStop(1, p.bottom);
+  gr.fillStyle = fill;
+  gr.fillRect(0, 0, gw, gh);
+  const r = Math.max(gw, gh) * 0.9;
+  gr.drawImage(sun, -r * 0.45, -r * 0.55, r, r);
 
   seed = 3;
   glints.length = 0;
@@ -120,15 +135,8 @@ function swell(i, x, t) {
 function draw(t) {
   const p = palette[scheme];
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  const fill = ctx.createLinearGradient(0, 0, 0, height);
-  fill.addColorStop(0, p.top);
-  fill.addColorStop(1, p.bottom);
-  ctx.fillStyle = fill;
-  ctx.fillRect(0, 0, width, height);
-
-  // Morning sun from the upper left; at night, a faint sky glow there instead.
-  const r = Math.max(width, height) * 0.9;
-  ctx.drawImage(sun, -r * 0.45, -r * 0.55, r, r);
+  // Sea paper and the morning sun from the upper left (at night, a faint sky glow there).
+  ctx.drawImage(ground, 0, 0, width, height);
 
   // Night: the lighthouse beam, sweeping a slow arc from beyond the upper right corner.
   if (scheme === "dark") {
@@ -145,7 +153,7 @@ function draw(t) {
   }
 
   // The swells along the bottom edge, back to front.
-  const step = Math.max(12, width / 80);
+  const step = Math.max(16, width / 64);
   for (let i = 2; i >= 0; i--) {
     ctx.beginPath();
     ctx.moveTo(0, height);
@@ -206,9 +214,9 @@ ace.scene({
     now = time;
     if (view.width !== width || view.height !== height || (view.scheme === "dark") !== (scheme === "dark"))
       build(view);
-    // The water moves slowly; every other tick is enough, and a still frame under Reduce motion.
+    // The water moves slowly; every third tick is enough, and a still frame under Reduce motion.
     tick++;
-    if (!fresh && (tick % 2 === 1 || reduce || view.reduceMotion)) return;
+    if (!fresh && (tick % 3 !== 0 || reduce || view.reduceMotion)) return;
     fresh = false;
     draw(view.reduceMotion ? 0 : time);
   },

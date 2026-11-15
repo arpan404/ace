@@ -55,6 +55,7 @@
   --suit-rope: #b39668;
   --suit-rope-dark: #8a6f45;
   --suit-rope-light: #d6c098;
+  --suit-brass: #b58a4c;
   --suit-paper: var(--color-surface-2);
   --suit-ink: var(--color-foreground);
   --suit-lamp: color-mix(in oklab, var(--color-tint) 22%, transparent);
@@ -97,6 +98,7 @@
   --suit-rope: #8f7a55;
   --suit-rope-dark: #5e4d33;
   --suit-rope-light: #b49c72;
+  --suit-brass: #9c7642;
   --suit-wash: color-mix(in oklab, var(--suit-sea) 7%, transparent);
   --suit-hairline: color-mix(in oklab, var(--suit-sea) 18%, var(--color-border));
   --suit-contours: url("assets/textures/contours-dark.svg");
@@ -577,9 +579,9 @@
 [data-part="tool-row"]::before {
   content: "";
   position: absolute;
-  left: 13px;
-  top: -4px;
-  bottom: -4px;
+  left: 19.5px;
+  top: -6px;
+  bottom: -6px;
   width: 0;
   border-left: 1.5px dashed color-mix(in oklab, var(--suit-sea) 38%, transparent);
   pointer-events: none;
@@ -994,7 +996,7 @@
   background: var(--color-surface-2);
   box-shadow:
     inset 0 0 0 3px var(--color-surface-2),
-    inset 0 0 0 4px var(--suit-hairline),
+    inset 0 0 0 4px color-mix(in oklab, var(--suit-sea) 32%, transparent),
     0 18px 44px -18px rgb(14 36 48 / 0.45);
 }
 [data-part="menu"],
@@ -1111,8 +1113,33 @@
   counter-increment: store;
   position: relative;
   padding-bottom: 20px;
+  border-radius: 5px;
   border-color: var(--color-border-strong);
   box-shadow: var(--suit-shadow);
+}
+/* A sea chest's brass corner fittings, one at each corner, drawn over the edge. */
+[data-part="card"][data-variant="settings-group"]::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background:
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 0 0 / 14px 3px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 0 0 / 3px 14px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 100% 0 / 14px 3px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 100% 0 / 3px 14px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 0 100% / 14px 3px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 0 100% / 3px 14px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 100% 100% / 14px 3px no-repeat,
+    linear-gradient(var(--suit-brass), var(--suit-brass)) 100% 100% / 3px 14px no-repeat;
+  pointer-events: none;
+}
+[data-page="settings"] [data-part="page-header"] [data-part="page-title"] {
+  font-size: 30px;
+  line-height: 1.15;
+}
+[data-page="settings"] [data-part="sidebar-header"]::after {
+  content: none;
 }
 [data-part="card"][data-variant="settings-group"]::after {
   content: "Locker " counter(store, decimal-leading-zero);
@@ -1286,7 +1313,7 @@
 }
 [data-page="pull"] [data-part="page-title"],
 [data-page="issue"] [data-part="page-title"] {
-  font-size: 28px;
+  font-size: 31px;
   line-height: 1.2;
 }
 /* A kicker over the title names the sheet and where the vessel stands. */
@@ -1334,24 +1361,29 @@
     var(--suit-contours) left -640px bottom -620px / 900px 900px no-repeat;
 }
 
-/* The description is the chart's legend; a compass rose sits in its corner as the cartouche. */
+/* The description is the chart's legend, ruled off from the sheet. */
 [data-part="card"][data-variant="description"] {
-  position: relative;
   border-color: var(--color-border-strong);
   box-shadow: var(--suit-shadow);
   font-size: 14px;
   line-height: 1.65;
 }
-[data-part="card"][data-variant="description"]::after {
+/* The sheet's cartouche: a compass rose at the heading's lower right. */
+[data-page="pull"] [data-part="page-header"]::before,
+[data-page="issue"] [data-part="page-header"]::before {
   content: "";
   position: absolute;
-  right: -14px;
-  top: -40px;
-  width: 72px;
-  height: 80px;
-  background: color-mix(in oklab, var(--suit-sea) 60%, transparent);
+  right: 6px;
+  bottom: 14px;
+  width: 64px;
+  height: 70px;
+  background: color-mix(in oklab, var(--suit-sea) 70%, transparent);
   mask: url("assets/ornaments/compass-rose.svg") no-repeat center / contain;
   pointer-events: none;
+}
+[data-page="pull"] [data-part="page-header"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"] {
+  padding-right: 84px;
 }
 [data-part="review-comment"] {
   font-size: 14px;
@@ -1364,13 +1396,19 @@
  */
 [data-part="merge-box"] {
   position: relative;
-  padding-top: 34px;
+  padding-top: 40px;
   border: 1px solid color-mix(in oklab, var(--suit-rope) 75%, var(--color-border-strong));
   border-radius: 4px 4px 10px 10px;
+  /* A ticket stub: notches at both edges and a dashed tear line under the heading. */
   background:
-    radial-gradient(circle at 50% 0, var(--color-background) 3px, transparent 3.5px) 0 -3px / 12px
-      8px repeat-x,
-    linear-gradient(var(--suit-hairline), var(--suit-hairline)) 0 28px / 100% 1px no-repeat,
+    radial-gradient(circle at 0 36px, var(--color-background) 6px, transparent 6.5px),
+    radial-gradient(circle at 100% 36px, var(--color-background) 6px, transparent 6.5px),
+    repeating-linear-gradient(
+        90deg,
+        var(--color-border-strong) 0 5px,
+        transparent 5px 9px
+      )
+      10px 36px / calc(100% - 20px) 1px no-repeat,
     var(--color-surface-2);
   box-shadow: var(--suit-shadow);
 }
@@ -1528,8 +1566,28 @@
   background: var(--color-tint);
   box-shadow: 0 0 6px color-mix(in oklab, var(--color-tint) 60%, transparent);
 }
+/* Each drawer's body is a chart sheet laid on the teak: a neatline inside the table's edge. */
+[data-part="right-panel"],
+[data-part="panel-body"] {
+  --suit-teak: #dcc9a6;
+}
+[data-scheme="dark"] [data-part="right-panel"],
+[data-scheme="dark"] [data-part="panel-body"] {
+  --suit-teak: #1d1712;
+}
 [data-part="panel-body"][data-state="active"] {
-  background: var(--color-surface-2);
+  background:
+    var(--suit-contours) right -620px bottom -640px / 900px 900px no-repeat,
+    var(--color-surface-2);
+  box-shadow:
+    inset 0 0 0 4px var(--suit-teak),
+    inset 0 0 0 5px color-mix(in oklab, var(--suit-sea) 40%, transparent),
+    inset 0 0 0 8px var(--color-surface-2),
+    inset 0 0 0 9px var(--suit-hairline);
+}
+[data-part="panel-body"][data-variant="terminal"][data-state="active"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 0 0 0 4px var(--suit-teak);
 }
 [data-part="panel-toolbar"] {
   font-size: 12.5px;
@@ -1592,10 +1650,7 @@
 
 /* ------------------------------------------------------------------ empty states */
 
+/* An empty view keeps the reading face; the compass rose above it is the Suit's mark. */
 [data-part="empty-state"] {
-  font-family: var(--suit-display);
-  font-size: 18px;
-  font-style: italic;
-  font-weight: 500;
   color: var(--color-muted-foreground);
 }
