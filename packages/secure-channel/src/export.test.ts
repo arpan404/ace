@@ -75,7 +75,7 @@ it("a cipher refuses key and nonce ranges that overlap, writes nothing, and stay
     [0, 0],
     [0, 24],
     [32, 31],
-    [8, 0],
+    [7, 0],
   ] as const) {
     const block = new Uint8Array(120);
     expect(() => sender.exportInto(block, keyAt, nonceAt)).toThrow();
