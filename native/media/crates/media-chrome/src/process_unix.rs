@@ -89,6 +89,8 @@ pub fn spawn(executable: &Path, args: Vec<String>) -> Result<Spawned, CodecError
                 }
             };
             let guard = std::process::Command::new("/bin/sh")
+                // Survive a supervisor killing the owner's entire process group.
+                .process_group(0)
                 .args([
                     "-c",
                     "if ! IFS= read -r done; then /bin/kill -KILL -$1; fi",
