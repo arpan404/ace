@@ -147,3 +147,18 @@ through a real socket and fails on any reply over its bound or any content lost.
 windows, turn steps, the snapshot window (1 MiB each) and entity pages are not bounded this way
 yet: a page smaller than an item would show it reduced, so they need the same reading on and a
 whole-item read first.
+
+### Pacing a resume's replay, and entity pages (2026-11-15)
+
+- An `item.raw` reply's ceiling (`itemRawReplyBytes`, 72 KiB) is on the whole reply as sent,
+  envelope included; entity pages hold at most 64 KiB of entries unless one entry alone is more.
+- A replay can be made one acknowledged piece at a time (`apps/daemon/src/replay-pacer.ts`):
+  for a remote client whose hello asks for `framing: paced-replay`, each piece is an events
+  message marked `ack`, the client answers `events.received`, and the next piece is made only
+  when what is unacknowledged is under about 400 ms of the link's measured rate. Whatever is
+  produced meanwhile is queued ahead of the pieces not yet made; nothing already queued moves,
+  and the subscription's own live events still follow the replay. The shared client does not ask
+  for it yet: measured on 3g-slow, other threads' approvals and receipts got through sooner
+  (0.65 s to 0.36 s on the relay), but the replay finished later, and an approval on the
+  replaying thread, which must follow the whole replay, waited 1.6 s instead of 0.76 s. It waits
+  for a pacer that keeps the link full (an estimate of the round trip, not only of the rate).
