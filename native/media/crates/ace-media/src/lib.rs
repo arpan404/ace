@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! ace-media, the media process (ADR 0147). Pure decisions live in [`engine`], [`auth`] and
 //! [`probe`]'s merge rules; [`shell`] is the thin I/O around them.
+pub mod acceleration;
 pub mod auth;
 pub mod encode;
 pub mod engine;

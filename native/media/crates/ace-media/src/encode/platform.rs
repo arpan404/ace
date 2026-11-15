@@ -107,10 +107,7 @@ impl Backends for Platform {
         self.cpu_decode(jpeg, size)
     }
 
-    fn jpeg_hardware_expected(&self) -> bool {
-        let capabilities = self.capabilities();
-        [Backend::Vt, Backend::Mf, Backend::Vaapi]
-            .into_iter()
-            .any(|backend| jpeg_decode_hardware(&capabilities, backend))
+    fn probed(&self) -> Vec<Capability> {
+        self.capabilities()
     }
 }

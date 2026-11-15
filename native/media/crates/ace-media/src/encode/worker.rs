@@ -9,7 +9,7 @@ use media_codec::{
     BitstreamFormat, Codec, CodecError, EncodeSpec as Spec, EncodedUnit, Encoder, Picture,
     RateControl, Size, jpeg_size,
 };
-use media_wire::capability::{Acceleration, Backend, SourceStep, Step};
+use media_wire::capability::{Acceleration, Backend, Capability, SourceStep, Step};
 use media_wire::control::EncodeSpec;
 use media_wire::frame::MediaFrame;
 use std::collections::{BTreeMap, VecDeque};
@@ -74,8 +74,8 @@ pub trait Backends: Send {
     fn encoder(&mut self, codec: Codec) -> Result<Chosen, CodecError>;
     /// `jpeg` at `size`, in the memory the encoder on `encoder` takes.
     fn decode(&mut self, jpeg: &[u8], size: Size, encoder: Backend) -> Result<Decoded, CodecError>;
-    /// The probe observed a hardware JPEG decoder: decoding on the CPU is then degraded.
-    fn jpeg_hardware_expected(&self) -> bool;
+    /// What the probe found, which decides whether a step on the CPU is degraded.
+    fn probed(&self) -> Vec<Capability>;
 }
 
 /// A boxed backend is one: the shell picks the codecs per thread.
@@ -86,8 +86,8 @@ impl Backends for Box<dyn Backends> {
     fn decode(&mut self, jpeg: &[u8], size: Size, encoder: Backend) -> Result<Decoded, CodecError> {
         (**self).decode(jpeg, size, encoder)
     }
-    fn jpeg_hardware_expected(&self) -> bool {
-        (**self).jpeg_hardware_expected()
+    fn probed(&self) -> Vec<Capability> {
+        (**self).probed()
     }
 }
 
@@ -363,23 +363,7 @@ impl<B: Backends> Worker<B> {
         else {
             return;
         };
-        let software_encode = steps.iter().any(|s| s.step == Step::Encode && !s.hardware);
-        let cpu_jpeg = self.backends.jpeg_hardware_expected()
-            && steps
-                .iter()
-                .any(|s| s.step == Step::JpegDecode && !s.hardware);
-        let reason = if software_encode {
-            Some("Video runs on the processor here: this computer has no hardware video encoder.")
-        } else if cpu_jpeg {
-            Some("Pictures are decoded on the processor here: the hardware decoder failed.")
-        } else {
-            None
-        };
-        let acceleration = Acceleration {
-            steps,
-            degraded: reason.is_some(),
-            reason: reason.map(Into::into),
-        };
+        let acceleration = crate::acceleration::assess(&self.backends.probed(), steps);
         if self.reported.as_ref() != Some(&acceleration) {
             self.reported = Some(acceleration.clone());
             out.push(Output::Report(acceleration));
