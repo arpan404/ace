@@ -48,8 +48,10 @@ impl Tool for WebSearch {
             spec: ToolSpec {
                 name: "web_search".to_owned(),
                 description:
-                    "Search the web. Returns titles, addresses and short snippets; read a \
-                              page in full with web_fetch."
+                    "Search the web for current facts, pages and sources. Returns titles, \
+                              addresses and short snippets; read the pages that matter in full \
+                              with web_fetch before relying on them. For a question needing many \
+                              sources, research (when you have it) writes a cited report."
                         .to_owned(),
                 schema: json!({ "type": "object",
                                 "properties": { "query": { "type": "string" },
