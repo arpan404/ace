@@ -31,12 +31,18 @@ export interface WorktreeCreationState {
   sending: WorktreeAction | undefined;
   /** Why the last action didn't happen. */
   refused: WorktreeRefusal | undefined;
+  /**
+   * The daemon no longer has this create (dismissed, expired, or never kept): its last
+   * progress is all there is. Cleared by any newer progress.
+   */
+  gone: boolean;
 }
 
 const nothing: WorktreeCreationState = {
   progress: undefined,
   sending: undefined,
   refused: undefined,
+  gone: false,
 };
 
 const settledStates = new Set<WorktreeCreationProgress["state"]>([
@@ -77,6 +83,8 @@ export class WorktreeCreations {
     "request" | "onMessage" | "connectionState" | "connectionGeneration"
   >;
   private states = new Map<string, WorktreeCreationState>();
+  /** Progress reports accepted per create, so an answer older than one of them is told apart. */
+  private heard = new Map<string, number>();
   private watched = new Map<string, number>();
   private notifications = new Notifications(256);
   private stops: (() => void)[] = [];
@@ -152,7 +160,12 @@ export class WorktreeCreations {
     } catch {
       refused = "offline";
     }
-    this.patch(commandId, { sending: undefined, refused });
+    this.patch(commandId, {
+      sending: undefined,
+      refused,
+      // Taken or not found, a dismissed create is no longer the daemon's.
+      ...(refused === "not_found" || (action === "dismiss" && !refused) ? { gone: true } : {}),
+    });
     return refused ?? "accepted";
   }
 
@@ -172,11 +185,20 @@ export class WorktreeCreations {
     } catch {
       return;
     }
+    const asked = this.heard.get(commandId) ?? 0;
     this.client
       .request({ type: "worktree.creation.request", commandId: parsed, action: "get" })
       .then(
         (reply) => {
           if (reply.ok && reply.progress) this.accept(reply.progress);
+          // Back after a reconnect to find the daemon forgot it: what the phone holds is stale.
+          // Progress heard since the question was asked is newer than this answer.
+          else if (
+            !reply.ok &&
+            reply.error === "not_found" &&
+            (this.heard.get(commandId) ?? 0) === asked
+          )
+            this.patch(commandId, { gone: true });
         },
         () => {},
       );
@@ -185,7 +207,8 @@ export class WorktreeCreations {
   private accept(progress: WorktreeCreationProgress): void {
     const current = this.read(progress.commandId);
     if (!supersedes(progress, current.progress)) return;
-    this.patch(progress.commandId, { progress });
+    this.heard.set(progress.commandId, (this.heard.get(progress.commandId) ?? 0) + 1);
+    this.patch(progress.commandId, { progress, gone: false });
   }
 
   private patch(commandId: string, change: Partial<WorktreeCreationState>): void {
@@ -204,6 +227,7 @@ export class WorktreeCreations {
       if (this.watched.has(id) || state.sending) continue;
       if (state.progress && !isSettled(state.progress)) continue;
       this.states.delete(id);
+      this.heard.delete(id);
     }
   }
 }

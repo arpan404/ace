@@ -11,6 +11,7 @@ type Reply = { ok: boolean; error?: string };
 
 function daemon() {
   const asked: { action: string; answer: (reply: Reply) => void; fail: () => void }[] = [];
+  const listeners: ((message: unknown) => void)[] = [];
   const quiet = { getSnapshot: () => "ready" as const, subscribe: () => () => {} };
   const store = new WorktreeCreations({
     request: (message: { action: string }) =>
@@ -21,11 +22,31 @@ function daemon() {
           fail: () => reject(new Error("socket closed")),
         }),
       ),
-    onMessage: () => () => {},
+    onMessage: (listener: (message: unknown) => void) => {
+      listeners.push(listener);
+      return () => {};
+    },
     connectionState: () => quiet,
     connectionGeneration: () => ({ getSnapshot: () => 1, subscribe: () => () => {} }),
   } as never);
-  return { store, asked };
+  /** The daemon pushes progress for the create, as it does while making it. */
+  const push = () =>
+    listeners.forEach((listener) =>
+      listener({
+        type: "worktree.creation.progress",
+        commandId: id,
+        attempt: 1,
+        state: "running",
+        step: "preparing",
+        startedAt: 1,
+        elapsedMs: 0,
+        steps: [],
+        details: [],
+        cleanupComplete: false,
+        actions: ["cancel", "local"],
+      }),
+    );
+  return { store, asked, push };
 }
 
 const id = "start-command-1";
@@ -44,6 +65,8 @@ test("an action the daemon takes is accepted; one it turns down says why", async
   const taken = store.act(id, "dismiss");
   asked[0]?.answer({ ok: true });
   expect(await taken).toBe("accepted");
+  // A dismissal it took leaves the daemon without the create.
+  expect(store.state(id).getSnapshot().gone).toBe(true);
   const refused = store.act(id, "dismiss");
   asked[1]?.answer({ ok: false, error: "busy" });
   expect(await refused).toBe("busy");
@@ -55,4 +78,34 @@ test("an action the daemon can't be asked about is reported offline", async () =
   const lost = store.act(id, "dismiss");
   asked[0]?.fail();
   expect(await lost).toBe("offline");
+});
+
+test("a start the daemon no longer knows reads as gone, from its refresh or from an action", async () => {
+  const { store, asked } = daemon();
+  const watched = store.state(id);
+  const stop = watched.subscribe(() => {});
+  // Watching asks the daemon for the start, as after a reconnect.
+  expect(asked.map((request) => request.action)).toEqual(["get"]);
+  asked[0]?.answer({ ok: false, error: "not_found" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(watched.getSnapshot().gone).toBe(true);
+  stop();
+  const other = daemon();
+  const lost = other.store.act(id, "dismiss");
+  other.asked[0]?.answer({ ok: false, error: "not_found" });
+  expect(await lost).toBe("not_found");
+  expect(other.store.state(id).getSnapshot().gone).toBe(true);
+});
+
+test("a not-found answer older than progress heard since doesn't make a live create gone", async () => {
+  const { store, asked, push } = daemon();
+  const watched = store.state(id);
+  const stop = watched.subscribe(() => {});
+  // Asked before the daemon made it; the create's progress arrives before that answer.
+  push();
+  asked[0]?.answer({ ok: false, error: "not_found" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(watched.getSnapshot().gone).toBe(false);
+  expect(watched.getSnapshot().progress?.state).toBe("running");
+  stop();
 });
