@@ -165,7 +165,7 @@ const owner: MediaOwner = {
   admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
 };
 
-function intents(connection: string): ViewIntent[] {
+function intents(connection: string): Omit<ViewIntent, "viewer">[] {
   const base = {
     requester: owner,
     connection,
@@ -177,19 +177,16 @@ function intents(connection: string): ViewIntent[] {
   return [
     {
       ...base,
-      viewer: "tab",
       target: { kind: "browser", threadId: "t1" },
       shows: (p) => p.threadId === "t1",
     },
     {
       ...base,
-      viewer: "screen",
       target: { kind: "screen", sessionId: "screen-1" },
       shows: (p) => p.sessionId === "screen-1",
     },
     {
       ...base,
-      viewer: "device",
       target: { kind: "device", deviceId: "android:emulator-5554" },
       shows: (p) => p.deviceId === "android:emulator-5554",
     },
@@ -209,7 +206,8 @@ async function watch(runtime: MediaRuntime) {
     },
   });
   cleanups.push(() => client.close());
-  for (const intent of intents(grant.connection)) expect(runtime.viewers.bind(intent)).toBe(true);
+  for (const intent of intents(grant.connection))
+    expect(runtime.viewers.bind(intent)).toBeDefined();
   return { client, kinds, first: () => first };
 }
 
@@ -227,17 +225,15 @@ it.skipIf(!binary)(
     // Another device can't bind a view onto this connection, from any session of its own.
     const stranger = {
       ...intents(client.connection)[0]!,
-      viewer: "x",
       requester: { ...owner, session: "laptop-channel", device: "laptop" },
     };
-    expect(runtime.viewers.bind(stranger)).toBe(false);
+    expect(runtime.viewers.bind(stranger)).toBeUndefined();
     // The same device's own channel can (iOS subscribes to screens and devices on channels).
     const channel = {
       ...intents(client.connection)[1]!,
-      viewer: "y",
       requester: { ...owner, session: "screen-channel" },
     };
-    expect(runtime.viewers.bind(channel)).toBe(true);
+    expect(runtime.viewers.bind(channel)).toBeDefined();
   },
 );
 

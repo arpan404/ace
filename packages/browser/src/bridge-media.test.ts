@@ -3,14 +3,16 @@ import { expect, test } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { idleThread } from "./idle-test-support.ts";
 
-/** A delivery that serves every kind and records each view it holds. */
+/** A delivery that serves every kind and holds the views it granted, by the id it gave. */
 function delivery() {
-  const views = new Map<string, ViewIntent>();
+  const views = new Map<string, Omit<ViewIntent, "viewer">>();
+  let ids = 0;
   const port: MediaDeliveryPort = {
     serves: () => true,
     bind: (intent) => {
-      views.set(intent.viewer, intent);
-      return true;
+      const viewer = `view-${++ids}`;
+      views.set(viewer, intent);
+      return viewer;
     },
     granted: () => true,
     poster: () => Promise.resolve(undefined),
@@ -22,14 +24,14 @@ function delivery() {
 }
 
 const owner = {
-  session: "main",
+  session: "main-0d8c7a3e-4b1f-4e2a-9c5d-6f7a8b9c0d1e",
   device: "phone",
   admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
 } as const;
 
-const subscribe = (subscriberId: string, connection?: string) => ({
+const subscribe = (subscriberId: string, connection?: string, threadId = "thread") => ({
   type: "browser.subscribe",
-  threadId: "thread",
+  threadId,
   requestId: `subscribe-${subscriberId}`,
   subscriberId,
   binaryFrames: true,
@@ -37,35 +39,96 @@ const subscribe = (subscriberId: string, connection?: string) => ({
   video: { codecs: ["vp8"] },
   ...(connection ? { media: { connection } } : {}),
 });
+const unsubscribe = (subscriberId: string) => ({
+  type: "browser.unsubscribe",
+  threadId: "thread",
+  requestId: `unsubscribe-${subscriberId}`,
+  subscriberId,
+});
 
-test("each subscriber holds its own view, and a resubscribe or unsubscribe retires exactly it", async () => {
+async function bridge() {
   const t = await idleThread();
-  const { port, views } = delivery();
-  const bridge = connectBrowser(t.service, {
+  const d = delivery();
+  const results: unknown[] = [];
+  const failing = { state: false };
+  const b = connectBrowser(t.service, {
     connectionId: "viewer",
     authorize: () => true,
-    send: () => true,
+    send: (message) => {
+      if (failing.state && message.type === "browser.state") throw new Error("socket gone");
+      results.push(message);
+      return true;
+    },
     sendStream: () => true,
-    media: { owner: () => owner, delivery: () => port },
+    media: { owner: () => owner, delivery: () => d.port },
   });
-  await bridge.handle(subscribe("a", "mc_aaaaaaaaaaaa"));
-  await bridge.handle(subscribe("b", "mc_aaaaaaaaaaaa"));
-  expect(views.size).toBe(2);
-  // `a` resubscribes without a media connection: its view goes, `b`'s stays.
-  await bridge.handle(subscribe("a"));
-  expect([...views.keys()].every((viewer) => viewer.endsWith("/b"))).toBe(true);
+  return { ...d, bridge: b, results, failing, service: t.service };
+}
+
+// UUID-sized subscriber ids, as clients make them: any id built by slicing names would collide.
+const a = "subscriber-1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+const b = "subscriber-6fa459ea-ee8a-3ca4-894e-db77e160355e";
+
+test("subscribers of one thread on one connection share its one view, which the last one closes", async () => {
+  const { bridge: client, views } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  await client.handle(subscribe(b, "mc_aaaaaaaaaaaa"));
   expect(views.size).toBe(1);
-  // `a` comes back on media, then leaves: only its own view goes.
-  await bridge.handle(subscribe("a", "mc_aaaaaaaaaaaa"));
-  expect(views.size).toBe(2);
-  await bridge.handle({
-    type: "browser.unsubscribe",
-    threadId: "thread",
-    requestId: "unsubscribe-a",
-    subscriberId: "a",
-  });
-  expect([...views.keys()].every((viewer) => viewer.endsWith("/b"))).toBe(true);
+  await client.handle(unsubscribe(a));
   expect(views.size).toBe(1);
-  bridge.close();
+  await client.handle(unsubscribe(b));
+  expect(views.size).toBe(0);
+});
+
+test("a resubscribe on the main socket leaves the media view to whoever still holds it", async () => {
+  const { bridge: client, views } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  await client.handle(subscribe(b, "mc_aaaaaaaaaaaa"));
+  await client.handle(subscribe(a));
+  expect(views.size).toBe(1);
+  await client.handle(subscribe(b));
+  expect(views.size).toBe(0);
+  client.close();
+});
+
+test("a subscribe refused at a limit, or failing after its grant, leaves no grant behind", async () => {
+  const { bridge: client, views, service } = await bridge();
+  for (let n = 1; n <= 8; n++)
+    await service.open({ threadId: `thread-${n}`, workspaceId: "workspace" });
+  for (let n = 0; n < 64; n++) await client.handle(subscribe(`s${n}`, "mc_aaaaaaaaaaaa"));
+  expect(views.size).toBe(1);
+  // The 65th subscriber of the thread is refused before anything is granted for it.
+  await client.handle(subscribe("s64", "mc_bbbbbbbbbbbb"));
+  expect(views.size).toBe(1);
+  // Eight threads at most: the ninth is refused, and granted nothing.
+  for (let n = 1; n < 8; n++)
+    await client.handle(subscribe(`t${n}`, "mc_aaaaaaaaaaaa", `thread-${n}`));
+  expect(views.size).toBe(8);
+  await client.handle(subscribe("t8", "mc_aaaaaaaaaaaa", "thread-8"));
+  expect(views.size).toBe(8);
+  // A thread the service doesn't have fails after its grant was made: that grant is undone.
+  await client.handle({ ...unsubscribe("t7"), threadId: "thread-7" });
+  expect(views.size).toBe(7);
+  await client.handle(subscribe("x", "mc_aaaaaaaaaaaa", "no-such-thread"));
+  expect(views.size).toBe(7);
+  client.close();
+  expect(views.size).toBe(0);
+});
+
+test("a subscribe that fails partway leaves the thread's subscription as it was", async () => {
+  const { bridge: client, views, failing } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  expect(views.size).toBe(1);
+  // `b` names another connection, and its setup fails after its view was granted.
+  failing.state = true;
+  await client.handle(subscribe(b, "mc_bbbbbbbbbbbb"));
+  failing.state = false;
+  expect(views.size).toBe(1);
+  // A later subscriber on that connection gets a live view, never the failed one's dead id.
+  await client.handle(subscribe("c", "mc_bbbbbbbbbbbb"));
+  expect(views.size).toBe(2);
+  // `b` was never added: once `a` and `c` leave, nothing is left.
+  await client.handle(unsubscribe(a));
+  await client.handle(unsubscribe("c"));
   expect(views.size).toBe(0);
 });

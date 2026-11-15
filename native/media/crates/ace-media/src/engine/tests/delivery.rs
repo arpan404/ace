@@ -186,7 +186,7 @@ fn the_plan_is_the_viewers_size_and_its_bit_rate_halves_while_the_session_round_
         panic!("the first unit's size plans the view");
     };
     assert_eq!(plan.len(), 1);
-    assert_eq!((plan[0].id, plan[0].width, plan[0].height), (0, 1170, 2532));
+    assert_eq!((plan[0].width, plan[0].height), (1170, 2532));
     let calm = plan[0].bitrate;
     for (n, rtt) in [(0, 300), (1, 310), (2, 305)] {
         let quiet = send(
@@ -413,4 +413,155 @@ fn the_wanted_bit_rate_follows_the_share_below_the_planners_floor_down_to_150_kb
     let cut = wants(&inflate(&mut engine)).pop();
     // 35 % of 400 kbit/s is 140 kbit/s: held at the 150 kbit/s floor.
     assert_eq!(cut.map(|w| w[0].bitrate), Some(150_000));
+}
+
+#[test]
+fn one_connection_holds_one_view_of_a_target_and_acks_reach_it() {
+    // A client can't tell two views of one thread on one connection apart (their pieces name the
+    // same thread), so a second grant for the same connection and target replaces the first.
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(engine.counts().viewers, 1);
+    let mut effects = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..80 {
+        effects.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let first = binaries(&effects).len();
+    // Each unit goes once: never twice for two views of the same thread.
+    assert!(first <= 60, "{first} pieces");
+    // An ack frees the one view's window.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": first, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let mut later = ingest(&mut engine, 1, h264(true, 90, 1, Vec::new()), NOW);
+    later.extend(engine.effects());
+    assert!(
+        !binaries(&later).is_empty(),
+        "the acked view takes the next keyframe"
+    );
+}
+
+#[test]
+fn a_keyframe_past_the_coupled_cap_still_goes_once_and_the_producer_is_asked_for_less() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // A 400 kbit/s link: video's share is 280 kbit/s, so a keyframe should be at most about
+    // half a second of it, 17.5 KB.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false, "link": { "downlinkKbps": 400 } }),
+        &[],
+        NOW,
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The first is acked: the window is empty.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 1, "video": true })
+            .to_string(),
+        NOW,
+    );
+    engine.effects().for_each(drop);
+    // The producer sends a 500 KB keyframe all the same.
+    let mut big = h264(true, 1, 1, Vec::new());
+    big.payload.resize(500_000, 1);
+    let effects = ingest(&mut engine, 1, big, NOW);
+    // An empty window takes it, so nothing deadlocks...
+    assert!(
+        !binaries(&effects).is_empty(),
+        "the oversized keyframe still went"
+    );
+    // ...and the producer is reconfigured to make smaller ones.
+    let Some(after) = wants(&effects).pop() else {
+        panic!("the producer was not asked for less");
+    };
+    assert!(
+        after[0].bitrate < before[0].bitrate,
+        "{} vs {}",
+        after[0].bitrate,
+        before[0].bitrate
+    );
+    assert!(after[0].bitrate >= 150_000, "never below the floor");
+}
+
+#[test]
+fn a_late_ack_from_a_replaced_view_releases_nothing_of_its_successor() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let mut first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..5 {
+        first.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    // The client resubscribes: a new view of the same target on the same connection.
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": true, "audio": false }),
+        &[],
+        NOW,
+    );
+    // Exactly a full window: 60 units in flight, none dropped.
+    let mut fill = ingest(&mut engine, 1, h264(true, 10, 1, Vec::new()), NOW);
+    for n in 11..70 {
+        fill.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let sent = binaries(&fill).len();
+    assert_eq!(sent, 60, "a full window");
+    // The old view's last ack arrives late: sequences 1 to 5 were its own, never the new view's.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": 5, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let mut after: Vec<Effect> = engine.effects().collect();
+    // The next unit still finds the window full: it waits for the new view's own acks.
+    after.extend(ingest(&mut engine, 1, h264(false, 70, 1, Vec::new()), NOW));
+    assert!(
+        binaries(&after).is_empty(),
+        "a stale ack opened the new view's window"
+    );
+}
+
+#[test]
+fn a_new_encode_never_takes_an_id_whose_units_may_still_be_on_the_way() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(before) = wants(&first).pop() else {
+        panic!("no plan");
+    };
+    // The pane changes size: a new encode replaces the old one at once.
+    let resized = send(
+        &mut engine,
+        json!({ "type": "viewer.configure", "viewer": "v1",
+                "viewport": { "width": 200, "height": 300, "dpr": 1, "scale": 1 },
+                "audio": false }),
+        &[],
+        at(1_100),
+    );
+    let Some(after) = wants(&resized).pop() else {
+        panic!("no new plan");
+    };
+    // Units of the old encode may still be queued at the producer: its successor gets another.
+    assert_ne!(after[0].id, before[0].id);
 }

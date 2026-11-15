@@ -49,7 +49,9 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let route = IngestRoute(legacy: { [weak self] unit in
             guard let self, let packet = legacyFramePacket(unit, sessionId: self.sessionId, version: self.version) else { return }
             self.writer.publish(packet, sessionId: self.sessionId)
-        }, now: { [runtime] in runtime.nanos() })
+        }, now: { [runtime] in runtime.nanos() }, beforeSwitch: { [weak self] in
+            self?.video.drain(); self?.video.requestKeyframe()
+        }, recover: { [weak self] work in self?.queue.async(execute: work) })
         route.onKeyframe = { [weak self] in self?.requestKeyframe() }
         // The connection to ace-media failed: video is back on the daemon's socket, and the
         // daemon hears it with the boundary, so it stops waiting for egress.
@@ -68,9 +70,11 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     /// Points video at ace-media (`target`) or the daemon's socket (nil). After a switch, the
     /// last sequence the previous path took; the new path starts at a keyframe.
     func routeVideo(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
-        let moved = try ingest.route(to: target)
-        if moved.switched { requestKeyframe() }
-        return moved
+        try queue.sync {
+            let moved = try ingest.route(to: target)
+            if moved.switched { requestKeyframe() }
+            return moved
+        }
     }
     var ingesting: Bool { ingest.ingesting }
     func closeIngest() { ingest.close() }

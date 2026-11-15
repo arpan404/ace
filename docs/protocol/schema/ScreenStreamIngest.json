@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/ScreenStreamIngest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "pid": {
+      "exclusiveMinimum": 0,
+      "maximum": 4294967295,
+      "type": "integer"
+    },
     "socket": {
       "maxLength": 1024,
       "minLength": 1,

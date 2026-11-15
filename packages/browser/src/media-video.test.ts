@@ -11,7 +11,7 @@ import type {
   VideoIngestTarget,
   VideoMediaKind,
 } from "./backend.ts";
-import { mediaVideoHost, type BrowserMedia } from "./media-video.ts";
+import { mediaVideoHost, nextEncodeId, type BrowserMedia } from "./media-video.ts";
 import type { VideoEncode } from "./video-policy.ts";
 
 const page = {} as BrowserCdp;
@@ -338,4 +338,32 @@ it("ace-media's plan becomes the capture's, under ace-media's own ids", async ()
   const ids = captures[0]?.encodes[0]?.map((s) => s.id);
   expect(ids?.[1]).toBe(0);
   expect(ids?.[0]).not.toBe(0);
+});
+
+it("an encode id is never given to another encode while the capture lives", async () => {
+  const { media } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
+  // A capture replanned thousands of times, faster than its queued units can drain.
+  for (let n = 0; n < 5_000; n++) handle.encodes([spec(`avc1/${n}`), spec(`vp8/${n}`)]);
+  const plans = captures[0]?.encodes ?? [];
+  const byId = new Map<number, string>();
+  for (const plan of plans)
+    for (const encode of plan) {
+      const id = encode.id ?? -1;
+      // A late unit of an encode can never be taken for a later one's.
+      expect(byId.get(id) ?? encode.key).toBe(encode.key);
+      byId.set(id, encode.key);
+    }
+  expect(byId.size).toBe(10_000);
+});
+
+it("at the end of the id space, ids wrap back past the ones still running", () => {
+  const top = 0xffff_ffff;
+  expect(nextEncodeId(top, new Set())).toEqual({ id: top, next: 2 ** 20 });
+  // Past the end: back to the base, skipping ids running now.
+  expect(nextEncodeId(2 ** 20, new Set([2 ** 20, 2 ** 20 + 1]))).toEqual({
+    id: 2 ** 20 + 2,
+    next: 2 ** 20 + 3,
+  });
 });
