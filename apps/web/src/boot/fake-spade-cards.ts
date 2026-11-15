@@ -12,7 +12,6 @@ export function seedFakeCards(here: FakeSpadeApi) {
     id: "trips",
     name: "Trips",
     task: "Plan the Lisbon trip in May.",
-    access: "ask",
   });
   here.store(trips.conversation, {
     type: "user_message",
@@ -115,7 +114,6 @@ export function seedFakeCards(here: FakeSpadeApi) {
     id: "watcher",
     name: "Watcher",
     task: "Watch my pull requests.",
-    access: "ask",
   });
   here.store(watcher.conversation, { type: "user_message", text: "What's open on ace?" });
   here.store(watcher.conversation, { type: "reply_started", reply: "r-watch-list" });

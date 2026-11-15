@@ -9,7 +9,7 @@ export function ProfileSection(props: {
   label: string;
   actions?: ReactNode;
   children: ReactNode;
-  /** Rows that aren't on the group's surface (the access choice, the foot). */
+  /** Rows that aren't on the group's surface (an activity list, the foot). */
   bare?: boolean;
 }) {
   const id = useId();

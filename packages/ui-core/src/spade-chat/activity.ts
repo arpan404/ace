@@ -1,4 +1,3 @@
-import { spadeAccessLabel, parseSpadeAccess } from "./autonomy.ts";
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeMoney } from "./oversight.ts";
@@ -201,13 +200,12 @@ function sentenceOf(entry: SpadeActivityEntry): {
         sentence: `The reviewer ${reviewVerdicts[outcome] ?? "approved"}: ${words.base}`,
         detail: reasonOf(entry),
       };
-    case "access": {
-      const access = parseSpadeAccess(name);
+    case "access":
+      // Spade has one level now (ADR 0163); a log from an older Spade may name another.
       return {
-        sentence: access ? `Access changed to ${spadeAccessLabel(access)}` : "Access changed",
+        sentence: name === "auto_review" ? "Access changed to Auto-review" : "Access changed",
         detail: "",
       };
-    }
     case "task":
       // Spade names it `continued` or `paused`, and its summary is the whole sentence ("carried
       // on by itself, step 4", "Paused after 25 steps on its own. …").

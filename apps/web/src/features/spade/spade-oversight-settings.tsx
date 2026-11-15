@@ -48,7 +48,7 @@ export function ReviewRows(props: { settings: OversightSettings }) {
     <>
       <ModelSettingRow
         title="Review model"
-        description="Checks steps for bots on Auto-review"
+        description="Checks the steps a bot would need you for"
         value={oversight.data.reviewModel}
         none="Same as fast model"
         save={(model) => change({ review_model: model })}

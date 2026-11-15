@@ -1,9 +1,7 @@
 import type { ClientApi } from "@ace/client";
-import { spadeAccessChoices, type SpadeAccess, type SpadeTemplate } from "@ace/ui-core/spade-chat";
+import type { SpadeTemplate } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { BotFace } from "@/components/bot-face.tsx";
-import { ConfirmDialog } from "@/components/confirm-dialog.tsx";
 import {
   Menu,
   MenuContent,
@@ -23,8 +21,8 @@ const quiet =
   "-mx-0.5 flex h-6 max-w-full min-w-0 items-center rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground";
 
 /**
- * The one quiet line under a new bot's name: its model, access and machine, each opening its own
- * choice where it shows. A single machine is said, not offered.
+ * The one quiet line under a new bot's name: its model and machine, each opening its own choice
+ * where it shows. A single machine is said, not offered.
  */
 export function RunsWith(props: {
   hosts: readonly SpadeHost[];
@@ -34,13 +32,8 @@ export function RunsWith(props: {
   model: string;
   newBotModel: string | undefined;
   onModel(model: string): void;
-  access: SpadeAccess;
-  onAccess(access: SpadeAccess): void;
   onMachine(host: SpadeHost): void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const accessLabel =
-    spadeAccessChoices.find((choice) => choice.value === props.access)?.label ?? props.access;
   const machineName = props.host.machine.primary ? "This machine" : props.host.machine.name;
   const dot = (
     <span aria-hidden className="text-subtle-foreground">
@@ -60,29 +53,6 @@ export function RunsWith(props: {
           "w-auto max-w-64 justify-start gap-0 bg-transparent pr-1.5 pl-1.5 @max-[440px]:w-auto [&>span>span]:hidden [&>svg]:hidden",
         )}
       />
-      {dot}
-      <Menu>
-        <MenuTrigger aria-label={`Access: ${accessLabel}`} className={quiet}>
-          {accessLabel}
-        </MenuTrigger>
-        <MenuContent align="center">
-          <MenuRadioGroup
-            value={props.access}
-            onValueChange={(next: unknown) => {
-              const picked = spadeAccessChoices.find((choice) => choice.value === next);
-              if (!picked || picked.value === props.access) return;
-              if (picked.value === "full_access") setConfirming(true);
-              else props.onAccess(picked.value);
-            }}
-          >
-            {spadeAccessChoices.map((choice) => (
-              <MenuRadioItem key={choice.value} value={choice.value}>
-                {choice.label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
       {dot}
       {props.hosts.length > 1 ? (
         <Menu>
@@ -108,19 +78,6 @@ export function RunsWith(props: {
       ) : (
         <span className="px-1 text-ui text-muted-foreground">{machineName}</span>
       )}
-      <ConfirmDialog
-        confirming={
-          confirming
-            ? {
-                title: `Give ${props.name} full access?`,
-                body: "It will never ask before it acts, even to pay, send as you, publish or delete. You keep Stop, spend limits and the activity log.",
-                confirm: "Give full access",
-                run: () => props.onAccess("full_access"),
-              }
-            : undefined
-        }
-        onDone={() => setConfirming(false)}
-      />
     </div>
   );
 }

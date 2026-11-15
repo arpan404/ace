@@ -12,7 +12,6 @@ export function seedFakeTranscript(here: FakeSpadeApi, rewind: (minutes: number)
     id: "github",
     name: "Github watcher",
     task: "Watch arpan404/ace and tell me what needs my review each weekday at 9.",
-    access: "ask",
   });
   const c = bot.conversation;
   const say = (text: string) => here.store(c, { type: "user_message", text });

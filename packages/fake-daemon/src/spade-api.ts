@@ -50,8 +50,8 @@ export interface FakeSpadeAgent {
   /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
   review?: boolean | null;
-  /** How much it may do without asking; left out, as a Spade before access levels does. */
-  access?: "ask" | "auto_review" | "full_access";
+  /** Spade's one level (ADR 0163); left out, as a Spade before access levels does. */
+  access?: "auto_review";
   /** Its task: on it, waiting on the person, or done; with whether it carries on by itself. */
   task_state?: {
     status: "working" | "waiting" | "blocked_on_person" | "done";
@@ -569,6 +569,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
           Object.assign({}, agent, { computer: this.computer.of(agent.id) }),
         ),
       });
+    // As Spade: the auto-review is the one level; any other is refused.
+    if (body.access !== undefined && body.access !== "auto_review")
+      return problem(400, "access must be auto_review.");
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
       const agent = this.addAgent({
@@ -576,8 +579,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         task: String(body.task ?? ""),
         // As Spade: a new bot with no model named starts on the model for new bots.
         model: String(body.model ?? this.newBotModel ?? ""),
-        // A new bot starts on Auto-review unless the person picked another level.
-        access: accessOf(body.access) ?? "auto_review",
+        access: "auto_review",
         ...(avatar?.kind === "image"
           ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
           : avatar?.kind === "character"
@@ -596,8 +598,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
-      const access = accessOf(body.access);
-      if (access) agent.access = access;
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
@@ -880,9 +880,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 }
-
-const accessLevels = ["ask", "auto_review", "full_access"] as const;
-const accessOf = (value: unknown) => accessLevels.find((level) => level === value);
 
 /** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
 function uploadIdentity(data: unknown) {
