@@ -29,9 +29,10 @@ import { RequestAnswer, requestResolution } from "./thread-requests.ts";
  *
  * Guarantee: every request pending both when a read starts and when it ends is shown, within
  * `readsMost` pages. One opened during a read changes the thread's count, and that change reads
- * again. The total is the daemon's count, never the number read; a read that stops at the cap
- * before finding them all says so (`more`, with `loaded`), so the row reads "1 of 231, 200 read". A row's
- * requests change only when the
+ * again. The total is the daemon's count, never the number read. It counts the thread's whole
+ * tree, so it can hold requests waiting in delegated threads that this row can't show: a read
+ * that found everything says how many (`elsewhere`), and one that stopped at the cap before
+ * finding them all says so (`more`, with `loaded`). A row's requests change only when the
  * daemon's read says so, never on this phone's guess. Answers re-read the request first and go
  * through the durable command path (ADR 0012), as notification actions do.
  */
@@ -249,11 +250,13 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     pump.put(`needs:${threadId}`, () => ({
       type: "inbox.needs",
       id: threadId,
-      // What the daemon counts as waiting, never fewer than were read.
+      // What the daemon counts as waiting in the thread's tree, never fewer than were read.
       total: Math.max(waitingCount(threadId), requests.length),
       // How many were read, and whether the read stopped before finding them all.
       loaded: requests.length,
       more,
+      // After a read that found all this thread holds: what waits in its delegated threads.
+      elsewhere: more ? 0 : Math.max(0, waitingCount(threadId) - requests.length),
       requests: requests
         .slice(0, shownPerThread)
         .map((interaction) =>
@@ -278,6 +281,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       total: 0,
       loaded: 0,
       more: false,
+      elsewhere: 0,
       requests: [],
     }));
   };
