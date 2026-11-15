@@ -1840,11 +1840,16 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
 - **The ingest pipe's server is checked.** The daemon passes the ace-media process it started
   with each ingest address (`IngestAddress.pid`, `ScreenStreamIngest.pid`). The Windows helper
   requires it and compares `GetNamedPipeServerProcessId` before writing the hello, so a squatting
-  instance of the name gets nothing. Not done: the daemon's lane clients make no such check
-  (Node's and Bun's pipe sockets don't expose the handle), and the pipes' DACL still grants
-  `FILE_CREATE_PIPE_INSTANCE`, which ace-media itself needs for each further instance it creates
-  (checked on the VM: without it, ace-media's second instance is refused). See the PR for the
-  options.
+  instance of the name gets nothing.
+- **Threat model for the named pipes (accepted).** The DACL admits only the current user and
+  keeps `FILE_CREATE_PIPE_INSTANCE`, which ace-media needs for every further instance it creates
+  (checked on the VM: without it, ace-media's own second instance is refused). So a process
+  running as the same user can create an instance of the name and attract a connection. It
+  cannot get a secret or a frame out of one: every client verifies the server before it sends
+  anything. Producers check `GetNamedPipeServerProcessId` against the ace-media the daemon
+  started, and the daemon's lanes check a proof of the lane secret (separate PR, "ace-media:
+  lanes prove the server before the daemon speaks"). The listener stays as it is: no pool of
+  pre-created instances.
 - **One shared writer and route: `media-ingest`** (`native/media/crates/media-ingest`). It is
   sans-IO and table-tested, and the Linux helper (E2) takes it too: MediaFrame framing with the
   producer stamp, one connection's writer (`open` → `finishing` → `ended` | `cut`, the rules of
