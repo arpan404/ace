@@ -26,6 +26,7 @@ import {
   withHardBreaks,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { threadEventRow } from "./event-threads.ts";
 
 /*
  * What the phone's message rows show beyond an item's text, from the same `@ace/ui-core`
@@ -258,6 +259,9 @@ function flatten(view: EventView, item: Item | undefined) {
           bubble: textBubble(view.text, sentFold, storedLonger(item)),
         },
       };
+    case "task":
+    case "merged":
+      return { ...row, ...threadEventRow(view) };
     default:
       return row;
   }
