@@ -41,6 +41,8 @@ import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
 import { liveIndicatorsHeld } from "./live-motion.ts";
 import { AppliedSuitBackdrop } from "@/features/suits/index.ts";
+import { layoutAttributes } from "@/theme/suits/suit-layout.ts";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 
 const FloatingBrowsers = lazy(loadFloatingBrowsers);
 
@@ -60,6 +62,8 @@ export function AppShell() {
   const [sceneShowing, setSceneShowing] = useState(false);
   useSeenWhileOpen();
   const connection = useConnectionState();
+  // A Suit's layout as attributes the shell's parts read (styles/suit-layout.css).
+  const layout = layoutAttributes(useSuitLayout());
   // The startup screen stays over the shell until its route has resolved and every view has
   // its first data, then cross-fades to it: boot never shows a skeleton.
   useStartupShell(useRouterState({ select: (state) => !state.isLoading }));
@@ -75,6 +79,7 @@ export function AppShell() {
                 data-connection={connection}
                 data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
                 data-suit-scene={sceneShowing ? "" : undefined}
+                {...layout}
                 className={cn(
                   // Focus belongs to the inner panes; the shell must never become a scrollport.
                   // iOS lays its keyboard over the page: the shell ends above it (--visible-height).

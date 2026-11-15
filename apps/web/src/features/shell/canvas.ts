@@ -8,11 +8,11 @@
  * with the same top hairline.
  */
 export const canvasClass =
-  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-suit-scene]_&]:bg-background/70";
+  "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-l-0 [[data-layout-sidebar=right]_[data-sidebar=shown]_&]:border-r [[data-suit-scene]_&]:bg-background/70";
 
 /**
  * The sidebar's panel as the start of the canvas, with its rounded corner: darker than
  * the chat (`--sidebar-panel`), so the list and the conversation read as separate areas.
  */
 export const panelCanvasClass =
-  "overflow-clip rounded-tl-lg border-t border-l border-border bg-(--sidebar-panel)";
+  "overflow-clip rounded-tl-lg border-t border-l border-border bg-(--sidebar-panel) [[data-layout-sidebar=right]_&]:rounded-tl-none [[data-layout-sidebar=right]_&]:rounded-tr-lg [[data-layout-sidebar=right]_&]:border-l-0 [[data-layout-sidebar=right]_&]:border-r";

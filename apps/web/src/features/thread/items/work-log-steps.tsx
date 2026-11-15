@@ -194,6 +194,7 @@ export function StepRow(
       aria-controls={toggles ? props.panel : undefined}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
+      data-part="tool-row"
       onClick={props.onOpen ?? (toggles ? props.onToggle : undefined)}
       className={cn(
         props.onOpen || toggles ? pressableRowClass : rowClass,

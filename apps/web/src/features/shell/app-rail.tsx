@@ -85,7 +85,10 @@ export function AppRail(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
   /** Spade's place, which knows when an approval waits; where it goes is the rail's. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
+  /** A Suit merged the rail into the sidebar: its places run as a row along the panel's top. */
+  merged?: boolean | undefined;
 }) {
+  const merged = props.merged === true;
   const current = useRailPlace();
   const signals = usePlaceSignals();
   const threads = useLastPlace(current === "home", "/new");
@@ -97,9 +100,14 @@ export function AppRail(props: {
     <nav
       aria-label="App"
       data-slot="rail"
-      className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
+      data-variant={merged ? "merged" : undefined}
+      className={
+        merged
+          ? "no-scrollbar flex h-11 shrink-0 items-center gap-1 overflow-x-auto px-2"
+          : "flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
+      }
     >
-      <TooltipSide value="right">
+      <TooltipSide value={merged ? "bottom" : "right"}>
         <ThreadPlace
           label="Threads"
           icon={FoldersIcon}
@@ -123,7 +131,12 @@ export function AppRail(props: {
         ) : (
           <SpadeComingSoon />
         )}
-        <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
+        <span
+          aria-hidden
+          className={
+            merged ? "mx-1.5 h-5 w-px shrink-0 bg-border" : "my-1.5 h-px w-5 shrink-0 bg-border"
+          }
+        />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
           <Tip key={view.id} label={view.label} {...(view.shortcut && { shortcut: view.shortcut })}>

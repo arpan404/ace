@@ -5,6 +5,7 @@ import { AppRail } from "./app-rail.tsx";
 import { panelCanvasClass } from "./canvas.ts";
 import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
+import { useSuitLayout } from "@/theme/suits/use-suit-layout.ts";
 import { useSpadeFollow } from "./use-spade-follow.ts";
 import { activeView } from "./views.ts";
 
@@ -27,7 +28,19 @@ export function AppSidebar(props: {
   /** Spade's place in the rail. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
 }) {
-  const { setBody, bodyClaimed, sheet } = useViewFrame();
+  const { setBody, bodyClaimed, sheet, setTitleSlot } = useViewFrame();
+  // A Suit may hide the rail (its places stay in the palette and their shortcuts) or merge it
+  // into the panel as a row, and may hide the header bar, whose title then shows up here.
+  const suitLayout = useSuitLayout();
+  const railShape = suitLayout?.rail ?? "shown";
+  const rail = (
+    <AppRail
+      forge={props.forge}
+      usage={props.usage}
+      spade={props.spade}
+      merged={railShape === "merged"}
+    />
+  );
   // Spade's eyes follow the pointer while it is over the rail or the panel beside it.
   const followRef = useRef<HTMLDivElement>(null);
   useSpadeFollow(followRef);
@@ -42,13 +55,21 @@ export function AppSidebar(props: {
       >
         {/* The sheet has its own way to close at this row's end; the header keeps navigation. */}
         {!sheet && <NavButtons />}
+        {suitLayout?.header === "hidden" && (
+          <div
+            ref={setTitleSlot}
+            data-slot="sidebar-title"
+            className="ml-1.5 min-w-0 flex-1 truncate text-md font-medium"
+          />
+        )}
       </div>
       <div ref={followRef} data-slot="sidebar-body" className="flex min-h-0 flex-1">
-        <AppRail forge={props.forge} usage={props.usage} spade={props.spade} />
+        {railShape === "shown" && rail}
         <div
           data-slot="sidebar-panel"
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
         >
+          {railShape === "merged" && rail}
           {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
           <div ref={setBody} className="contents" />
         </div>
