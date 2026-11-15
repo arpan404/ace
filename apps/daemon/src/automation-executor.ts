@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { CommandId, ThreadId, WorkspaceId, DeviceId, type AccessMode } from "@ace/protocol";
+import {
+  CommandId,
+  ThreadId,
+  WorkspaceId,
+  DeviceId,
+  type AccessMode,
+  type PermissionState,
+} from "@ace/protocol";
 import type { Admission, AutomationExecutor, ExecutionInput } from "@ace/automations";
 import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
@@ -64,7 +71,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
         const own = ownThread(input.automationId);
         // A webhook run never goes into a thread wider than its automation allows.
         const existing =
-          own && withinCeiling(store.getThread(own)?.permission?.effective, input.accessCeiling)
+          own && withinCeiling(store.getThread(own)?.permission, input.accessCeiling)
             ? own
             : undefined;
         const origin = { kind: "automation" as const, role: input.automationId };
@@ -162,15 +169,18 @@ export function automationThreadTitle(name: string | undefined): string {
 }
 
 const widths = ["read-only", "ask", "auto-review", "full-access"] as const;
+const within = (access: AccessMode | null | undefined, ceiling: AccessMode) =>
+  access !== null && access !== undefined && widths.indexOf(access) <= widths.indexOf(ceiling);
 /**
- * Whether a thread running at `effective` stays within `ceiling`. No ceiling allows anything;
- * an access ace can't place (unknown, or a provider's own mode) is never within one.
+ * Whether a thread stays within `ceiling`, both as it runs now and as it was asked to run, since
+ * a widening still pending applies at its next turn. No ceiling allows anything. A thread that
+ * follows the defaults, runs a provider's own mode, or whose access ace can't read never is.
  */
 export function withinCeiling(
-  effective: AccessMode | null | undefined,
+  permission: PermissionState | undefined,
   ceiling: AccessMode | undefined,
 ): boolean {
   if (ceiling === undefined) return true;
-  if (effective === null || effective === undefined) return false;
-  return widths.indexOf(effective) <= widths.indexOf(ceiling);
+  if (!permission || permission.custom !== undefined) return false;
+  return within(permission.effective, ceiling) && within(permission.override, ceiling);
 }

@@ -13,7 +13,7 @@ import {
 } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { connectAutomations } from "./automation-socket-test-support.ts";
-import { answer } from "./automation-one-thread-test-support.ts";
+import { answer, personCommand } from "./automation-one-thread-test-support.ts";
 
 // Webhook automations (ADR 0158) on a real daemon: the person's socket, the automation store on
 // disk, a restart, and the handler ace's relay forwards `/m/<hostId>/hooks/…` to. ace cloud's
@@ -480,6 +480,45 @@ test("a webhook run never lands in a thread with more access than the automation
       .poll(() => JSON.stringify(f.h.inputs.get(ThreadId.parse(second)) ?? []), wait)
       .toContain("Check the prod deploy");
     expect(JSON.stringify(f.h.inputs.get(ThreadId.parse(first)) ?? [])).not.toContain("prod");
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});
+
+test("a webhook run doesn't reuse its thread once the person has asked to widen it", async () => {
+  const { f, app, webhook } = await setUp();
+  const threads = () =>
+    f.daemon.store.listThreads().filter((thread) => thread.title.includes("Deploy check"));
+  try {
+    await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
+    const made = await webhook("rotate", "rotate");
+    const send = (id: string) =>
+      deliver(f.daemon, () => f.h.clock.now(), hookIdOf(made), made.secret ?? "", { id });
+    expect((await send("evt_1")).status).toBe(202);
+    await expect.poll(() => threads().length, wait).toBe(1);
+    const first = ThreadId.parse(threads()[0]?.id);
+    await answer(f, first, 1, "first-answer", "Checked.");
+    // While it stays read-only, the next delivery goes into the same thread.
+    expect((await send("evt_1b")).status).toBe(202);
+    await expect.poll(() => f.h.inputs.get(first)?.length ?? 0, wait).toBe(2);
+    expect(threads()).toHaveLength(1);
+    await answer(f, first, 2, "second-answer", "Checked again.");
+    // Asked for while the thread is idle, so the new access may still be pending.
+    expect(
+      personCommand(f, "widen", {
+        type: "thread.permission.set",
+        threadId: first,
+        access: "full-access",
+      })?.ok,
+    ).toBe(true);
+    expect((await send("evt_2")).status).toBe(202);
+    await expect.poll(() => threads().length, wait).toBe(2);
+    const second = ThreadId.parse(threads().find((thread) => thread.id !== first)?.id);
+    await expect
+      .poll(() => f.daemon.store.getThread(second)?.permission?.effective, wait)
+      .toBe("read-only");
   } finally {
     await app.client.close();
     await f.daemon.close();
