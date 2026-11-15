@@ -90,8 +90,11 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// The list's compose button: the round header button (the tab bar's prominent one on iOS 27).
-    var newThreadButton: XCUIElement { buttons["inbox.compose"].firstMatch }
+    /// The list's compose button: the round header button, or on iOS 27 the tab bar's prominent
+    /// one, which carries no identifier, so it's found by its label.
+    var newThreadButton: XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier == 'inbox.compose' OR (identifier != 'inbox.empty.compose' AND label IN {'New thread', 'New chat'})")).firstMatch
+    }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {
         XCTAssertTrue(waitForInbox(timeout: timeout), "the Threads list never showed its Inbox control")
