@@ -1,17 +1,19 @@
 //! A bot's task that a spending cap stopped waits for the cap's reset instead of being dropped
-//! (ADR 0158, `spade_core::park`). It is stored as `task_parked`, so the bot reads as waiting with
-//! the reason; at the reset, when the person raises the cap, or when Spade reopens, the task's
-//! next step is planned again.
+//! (ADR 0158). The wait is a wake (`wake_set {purpose: park, reason: cap}`, ADR 0160), so it is
+//! shown, kept across a restart and fired once like any other: at the reset, when the person
+//! raises the cap, when Spade reopens with the cap lifted, or early by the person. A message
+//! settles it (its reply meets the cap again if it still holds); Stop cancels it. When it fires
+//! the task's next step, or its check of done, is planned again.
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use spade_core::event::{Event, Known};
 use spade_core::oversight;
-use spade_core::park::{self, ParkReason};
+use spade_core::wake::{Cause, ParkReason, Purpose};
 
 use super::Engine;
-use super::continuation::LOOK_AGAIN;
+
+/// What a cap wake that fires because the cap no longer holds says happened.
+const LIFTED: &str = "the spending cap no longer holds";
 
 impl Engine {
     /// The cap that stops the conversation's next model call, as when it lifts and the words the
@@ -35,52 +37,18 @@ impl Engine {
         ))
     }
 
-    /// Parks the bot's task: stores it once (unless the same park is already in effect), then
-    /// plans the next step again at `until_ms`. A Stop or a new message calls the wait off.
+    /// Parks the bot's task on a cap until `until_ms`, unless it is parked on one already.
     pub(super) fn park_task(self: &Arc<Self>, id: &str, until_ms: Option<i64>, why: &str) {
-        let token = self.ids.next("k");
-        {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let Ok(events) = self.load(id) else { return };
-            let same =
-                park::parked(events.iter()).is_some_and(|p| p.until_ms == until_ms && p.why == why);
-            if !same
-                && let Err(error) = self.append(
-                    id,
-                    &Event::Known(Known::TaskParked {
-                        reason: ParkReason::Cap,
-                        until_ms,
-                        why: why.to_owned(),
-                    }),
-                )
-            {
-                tracing::error!(%error, "could not store that a task waits for its cap");
-                return;
-            }
-            self.continuations
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(id.to_owned(), token.clone());
+        if !self.cap_wakes(id).is_empty() {
+            return;
         }
-        self.announce(id);
-        // Without a reset time, only a raised cap or a message carries it on.
-        let Some(until_ms) = until_ms else { return };
-        let (engine, id) = (self.clone(), id.to_owned());
-        tokio::spawn(async move {
-            // The engine's clock, so a test moves time instead of waiting.
-            loop {
-                let left = until_ms - engine.now_ms();
-                if left <= 0 {
-                    break;
-                }
-                let left = Duration::from_millis(u64::try_from(left).unwrap_or(0));
-                tokio::time::sleep(left.min(LOOK_AGAIN)).await;
-                if !engine.is_planned(&id, &token) {
-                    return;
-                }
-            }
-            engine.wake_parked(&id, &token);
-        });
+        let purpose = Purpose::Park {
+            reason: ParkReason::Cap,
+            attempt: 0,
+        };
+        if let Err(error) = self.set_wake(id, purpose, until_ms, None, why) {
+            tracing::error!(%error, "could not store that a task waits for its cap");
+        }
     }
 
     /// The person raised (or removed) a cap of `agent`'s: a task waiting for it carries on now.
@@ -89,31 +57,47 @@ impl Engine {
             return;
         };
         let id = view.agent.conversation;
-        let waiting = self
-            .load(&id)
-            .is_ok_and(|e| park::parked(e.iter()).is_some());
-        if waiting {
-            self.drop_parked(&id);
-            self.carry_on(&id);
-        }
-    }
-
-    fn wake_parked(self: &Arc<Self>, id: &str, token: &str) {
-        let current = {
-            let mut pending = self.continuations.lock().unwrap_or_else(|p| p.into_inner());
-            let current = pending.get(id).is_some_and(|t| t == token);
-            if current {
-                pending.remove(id);
+        if self.cap_park(&id).is_none() {
+            for wake in self.cap_wakes(&id) {
+                self.fire_wake(&id, &wake, Cause::Condition, Some(LIFTED), Vec::new());
             }
-            current
-        };
-        if current {
-            self.carry_on(id);
         }
     }
 
-    fn drop_parked(&self, id: &str) {
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        self.drop_continuation(id);
+    /// When Spade opens, once the wakes are armed: a task parked on a cap that was raised or
+    /// removed meanwhile carries on.
+    pub(super) fn unpark_lifted_caps(self: &Arc<Self>) {
+        let parked = self.armed_where(|a| {
+            matches!(
+                a.open.purpose,
+                Purpose::Park {
+                    reason: ParkReason::Cap,
+                    ..
+                }
+            )
+        });
+        for (id, wake) in parked {
+            if self.cap_park(&id).is_none() {
+                self.fire_wake(&id, &wake, Cause::Condition, Some(LIFTED), Vec::new());
+            }
+        }
+    }
+
+    /// The conversation's open cap wakes.
+    fn cap_wakes(&self, id: &str) -> Vec<String> {
+        self.wakes(id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|o| {
+                matches!(
+                    o.purpose,
+                    Purpose::Park {
+                        reason: ParkReason::Cap,
+                        ..
+                    }
+                )
+            })
+            .map(|o| o.wake)
+            .collect()
     }
 }

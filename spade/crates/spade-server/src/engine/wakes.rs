@@ -237,8 +237,11 @@ impl Engine {
         };
         self.disarm(id, wake);
         if stored {
-            if let Purpose::Retry { job: Some(job), .. } = &open.purpose {
-                super::jobs::rerun(self, id, job);
+            match &open.purpose {
+                Purpose::Retry { job: Some(job), .. } => super::jobs::rerun(self, id, job),
+                // A parked task carries on: its next step, or its check of done (ADR 0158).
+                Purpose::Park { .. } => self.carry_on(id),
+                _ => {}
             }
             self.announce(id);
         }
@@ -358,24 +361,6 @@ impl Engine {
         self.stop_services(id) || any
     }
 
-    /// A reply failed for a while after its retries: parked, it is tried again later.
-    pub(super) fn park_reply(self: &Arc<Self>, id: &str, error: &str) {
-        if self.helper_of(id).is_some() || self.deleting(id) {
-            return;
-        }
-        let Ok(events) = self.load(id) else { return };
-        let attempt = wake::next_reply_attempt(&events);
-        let due = self.now_ms() + wake::retry_after_ms(attempt, None);
-        let purpose = Purpose::Retry {
-            attempt,
-            job: None,
-            error: short(error),
-        };
-        if let Err(error) = self.set_wake(id, purpose, Some(due), None, "") {
-            tracing::error!(%error, "could not park a failed reply for a retry");
-        }
-    }
-
     /// A background job failed for a while: parked, the same call runs again later. Whether it
     /// was parked (else its failure is stored as its result).
     pub(super) fn park_job(self: &Arc<Self>, id: &str, job: &str, error: &str) -> bool {
@@ -449,6 +434,8 @@ impl Engine {
         }
         start_timer(self);
         self.restore_services();
+        // A task parked on a cap that no longer holds (raised while Spade was closed) carries on.
+        self.unpark_lifted_caps();
     }
 
     /// An ace thread changed (`state`: done, failed, needs_you): the waits on it fire.
@@ -525,7 +512,7 @@ impl Engine {
     }
 
     /// The armed wakes `keep` accepts, as (conversation, wake).
-    fn armed_where(&self, keep: impl Fn(&Armed) -> bool) -> Vec<(String, String)> {
+    pub(super) fn armed_where(&self, keep: impl Fn(&Armed) -> bool) -> Vec<(String, String)> {
         lock(&self.wakes.armed)
             .iter()
             .flat_map(|(id, list)| {
@@ -543,6 +530,8 @@ impl Engine {
             Purpose::Sleep => "sleep",
             Purpose::Wait => "wait",
             Purpose::Retry { .. } => "retry",
+            Purpose::Outage { .. } => "outage",
+            Purpose::Park { .. } => "park",
         };
         let (attempt, job, error) = match &open.purpose {
             Purpose::Retry {
@@ -550,7 +539,13 @@ impl Engine {
                 job,
                 error,
             } => (Some(*attempt), job.clone(), Some(error.clone())),
+            Purpose::Outage { attempt, error } => (Some(*attempt), None, Some(error.clone())),
+            Purpose::Park { attempt, .. } => (Some(*attempt).filter(|a| *a > 0), None, None),
             _ => (None, None, None),
+        };
+        let parked = match &open.purpose {
+            Purpose::Park { reason, .. } => serde_json::to_value(reason).ok(),
+            _ => None,
         };
         serde_json::json!({
             "id": open.wake,
@@ -562,6 +557,7 @@ impl Engine {
             "attempt": attempt,
             "job": job,
             "error": error,
+            "parked": parked,
         })
     }
 
@@ -637,7 +633,7 @@ fn loopback(url: &str) -> bool {
 }
 
 /// An error in a few words for a retry's record.
-fn short(error: &str) -> String {
+pub(super) fn short(error: &str) -> String {
     let line: String = error.split_whitespace().collect::<Vec<_>>().join(" ");
     line.chars().take(160).collect()
 }

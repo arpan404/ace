@@ -13,6 +13,7 @@ use spade_core::goal::verify::{self, Answer};
 use spade_core::goal::view::{self, TaskView};
 use spade_core::goal::{Author, TASK_GOAL, Task};
 use spade_core::turn::stop_requested;
+use spade_core::wake::{self, ParkReason, Purpose};
 use spade_store::StoreError;
 
 use super::Engine;
@@ -101,6 +102,14 @@ impl Engine {
             .admit_waiting(id, &model, &prompt, super::ledger::Hint::default())
             .await;
         let verdict = match admission {
+            // At a cap the check waits for the reset, like a step (ADR 0158).
+            Err(_) if let Some((until_ms, why)) = self.cap_park(id) => {
+                if self.take_token(id, token) {
+                    self.set_status(id, None);
+                    self.park_task(id, until_ms, &why);
+                }
+                return;
+            }
             Err(refused) => verify::unchecked(
                 &task,
                 claim,
@@ -122,6 +131,15 @@ impl Engine {
                         let cost = admitted.settle(&generated.usage);
                         verify::verdict(&task, claim, generated.value, &model, cost)
                     }
+                    // The check's model is down for a while: it waits it out and runs again.
+                    Ok(Err(error)) if error.transient() => {
+                        admitted.settle_if(error.usage());
+                        if self.take_token(id, token) {
+                            self.set_status(id, None);
+                            self.park_check(id, &error);
+                        }
+                        return;
+                    }
                     Ok(Err(error)) => {
                         let cost = admitted.settle_if(error.usage());
                         let why = format!("The check couldn't run: {error}");
@@ -135,15 +153,7 @@ impl Engine {
         };
         let stored = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let current = {
-                let mut pending = self.continuations.lock().unwrap_or_else(|p| p.into_inner());
-                let current = pending.get(id).is_some_and(|t| t == token);
-                if current {
-                    pending.remove(id);
-                }
-                current
-            };
-            current
+            self.drop_token(id, token)
                 && match self.append(id, &Event::Known(verdict)) {
                     Ok(_) => true,
                     Err(error) => {
@@ -155,6 +165,46 @@ impl Engine {
         self.set_status(id, None);
         if stored {
             self.carry_on(id);
+        }
+    }
+
+    /// Forgets the planned check `token`; whether it was still the plan (a Stop calls it off).
+    /// The caller holds `record_lock`.
+    fn drop_token(&self, id: &str, token: &str) -> bool {
+        let mut pending = self.continuations.lock().unwrap_or_else(|p| p.into_inner());
+        let current = pending.get(id).is_some_and(|t| t == token);
+        if current {
+            pending.remove(id);
+        }
+        current
+    }
+
+    /// [`Engine::drop_token`] under `record_lock`.
+    fn take_token(&self, id: &str, token: &str) -> bool {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.drop_token(id, token)
+    }
+
+    /// Parks the task's check of done after its model failed in a way that may pass: a wake
+    /// fires at the backoff (1, 2, 4 … minutes, at most an hour, or the endpoint's longer
+    /// `retry-after`), and the check runs again. Until then the task reads as checking, never
+    /// done.
+    fn park_check(self: &Arc<Self>, id: &str, error: &spade_models::ModelError) {
+        let Ok(events) = self.load(id) else { return };
+        let attempt = wake::next_park_attempt(&events);
+        let asked = error
+            .retry_after()
+            .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        let due = self
+            .now_ms()
+            .saturating_add(wake::retry_after_ms(attempt, asked));
+        let purpose = Purpose::Park {
+            reason: ParkReason::Check,
+            attempt,
+        };
+        let why = super::wakes::short(&error.to_string());
+        if let Err(error) = self.set_wake(id, purpose, Some(due), None, &why) {
+            tracing::error!(%error, "could not park a task's check of done");
         }
     }
 

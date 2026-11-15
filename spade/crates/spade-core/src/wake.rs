@@ -1,7 +1,17 @@
-//! Wakes (ADR 0160): a bot sleeps until a time, waits for an event, or has a failed step parked
-//! for a retry. Each is a `wake_set` event; it stays open until a `wake_fired` or a
-//! `wake_cancelled` names it. Which wakes are open, which event settles which wait, what the
-//! model reads when one fires and when a retry or a check-in is due are all decided here. Pure.
+//! Wakes (ADR 0160): every timed or event-driven resume of a bot's work. A bot sleeps until a
+//! time or waits for an event; a turn waits out its endpoint's outage; a background job that
+//! failed for a while is parked for a retry; a task waits for a spending cap's reset or for its
+//! check of done to reach its model (ADR 0158). Each is a `wake_set` event; it stays open until
+//! a `wake_fired` or a `wake_cancelled` names it. Which wakes are open, which event settles
+//! which, what the model reads when one fires and when a retry or a check-in is due are all
+//! decided here. Pure.
+
+mod retry;
+
+pub use retry::{
+    Ended, ended, legacy_turn_wait, next_job_attempt, next_outage_attempt, next_park_attempt,
+    next_reply_attempt, open_outage, retry_after_ms,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +35,9 @@ pub enum Purpose {
     Sleep,
     /// `wait_for`: the bot wakes on an event, or at its timeout.
     Wait,
-    /// A step that failed for a while is tried again (`attempt` counts from 1): the reply when
-    /// `job` is `None`, else that background job's call.
+    /// A background job that failed for a while runs its call again (`attempt` counts from 1).
+    /// With no `job` it is a closed reply's retry stored by an earlier build, which opens a reply
+    /// with a note when it fires; replies now wait in their turn instead ([`Purpose::Outage`]).
     Retry {
         attempt: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35,6 +46,35 @@ pub enum Purpose {
         #[serde(default)]
         error: String,
     },
+    /// The open reply (the wake's `reply`) waits out its endpoint's outage and sends its step
+    /// again when this fires. The reply stays open; nothing is added for the model to read.
+    Outage {
+        attempt: u32,
+        /// What went wrong, in a few words.
+        #[serde(default)]
+        error: String,
+    },
+    /// The bot's task waits before its next step or its check of done: for a spending cap's
+    /// reset, or for the check's model to answer again. When it fires the task carries on; the
+    /// wake's `reason` is what the person reads.
+    Park {
+        reason: ParkReason,
+        #[serde(default)]
+        attempt: u32,
+    },
+}
+
+/// Why a task waits ([`Purpose::Park`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParkReason {
+    /// A spending cap: the service's, or one of the bot's own.
+    Cap,
+    /// The check of done could not reach its model for a while.
+    Check,
+    /// A kind a later build adds.
+    #[serde(other)]
+    Other,
 }
 
 /// What a `wait_for` waits for.
@@ -189,9 +229,10 @@ pub fn parked(events: &[Event], job: &str) -> bool {
 }
 
 /// The `wake_fired` events (with no note) that `event`, about to be delivered, settles: a job's
-/// end settles the waits on it; the person's message settles waits for the person and a parked
-/// reply retry (their message opens a reply anyway); another bot's message settles the waits for
-/// it. The model reads `event` itself, so these say nothing more.
+/// end settles the waits on it; the person's message settles waits for the person and a turn
+/// waiting out an outage (its step is sent again now, with the message); any message settles a
+/// parked task (the reply it opens carries the task on); another bot's message settles the waits
+/// for it. The model reads `event` itself, so these say nothing more.
 pub fn settled_by(events: &[Event], event: &Event) -> Vec<Event> {
     let Event::Known(known) = event else {
         return Vec::new();
@@ -212,8 +253,15 @@ pub fn settled_by(events: &[Event], event: &Event) -> Vec<Event> {
                 purpose,
             ) => {
                 matches!(condition, Some(Condition::Person))
-                    || matches!(purpose, Purpose::Retry { job: None, .. })
+                    || matches!(
+                        purpose,
+                        Purpose::Retry { job: None, .. }
+                            | Purpose::Outage { .. }
+                            | Purpose::Park { .. }
+                    )
             }
+            // Any message opens a reply, which meets the cap again if it still holds.
+            (Known::UserMessage { .. }, _, Purpose::Park { .. }) => true,
             (
                 Known::UserMessage {
                     from_agent: Some(from),
@@ -250,7 +298,8 @@ pub fn fired(wake: &str, cause: Cause, note: Option<String>, data: Vec<String>) 
 
 /// What the bot reads when `open` fires for `cause`. `what` says what happened when a condition
 /// fired it (`service web printed a line matching ready`). `None` for a parked job's retry, which
-/// runs the job again and tells the model nothing until its result.
+/// runs the job again and tells the model nothing until its result, for a turn's outage wait,
+/// whose step is simply sent again, and for a parked task, which carries on with its own note.
 pub fn note(open: &Open, cause: Cause, what: Option<&str>) -> Option<String> {
     let reason = if open.reason.is_empty() {
         String::new()
@@ -258,7 +307,10 @@ pub fn note(open: &Open, cause: Cause, what: Option<&str>) -> Option<String> {
         format!(" You gave this reason: {}.", open.reason)
     };
     let body = match (&open.purpose, cause) {
-        (Purpose::Retry { job: Some(_), .. }, _) => return None,
+        (
+            Purpose::Retry { job: Some(_), .. } | Purpose::Outage { .. } | Purpose::Park { .. },
+            _,
+        ) => return None,
         (Purpose::Retry { attempt, error, .. }, _) => format!(
             "Your last reply failed ({error}), so Spade parked it and is trying again \
              (attempt {attempt}). Carry on where you left off."
@@ -354,51 +406,6 @@ pub fn progress_text(job: &str, name: &str, minutes: u32, tail: &str) -> String 
     text
 }
 
-/// When a parked retry's attempt `attempt` (from 1) is tried: 1, 2, 4 … minutes after the
-/// failure, at most an hour, or later if the endpoint asked for longer.
-pub fn retry_after_ms(attempt: u32, asked_ms: Option<i64>) -> i64 {
-    let backoff = MINUTE_MS
-        .saturating_mul(1_i64 << attempt.saturating_sub(1).min(10))
-        .min(HOUR_MS);
-    asked_ms.map_or(backoff, |asked| backoff.max(asked.min(HOUR_MS)))
-}
-
-/// The attempt a new parked reply retry is: one more than the parked retries fired since the
-/// last reply that finished.
-pub fn next_reply_attempt(events: &[Event]) -> u32 {
-    let since = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::ReplyFinished { .. })))
-        .map_or(0, |at| at + 1);
-    let retries: Vec<&str> = events[since..]
-        .iter()
-        .filter_map(|e| match e {
-            Event::Known(Known::WakeSet {
-                wake,
-                purpose: Purpose::Retry { job: None, .. },
-                ..
-            }) => Some(wake.as_str()),
-            _ => None,
-        })
-        .collect();
-    u32::try_from(retries.len())
-        .unwrap_or(u32::MAX)
-        .saturating_add(1)
-}
-
-/// The attempt a new retry of parked job `job` is.
-pub fn next_job_attempt(events: &[Event], job: &str) -> u32 {
-    let tries = events
-        .iter()
-        .filter(|e| {
-            matches!(e, Event::Known(Known::WakeSet {
-                purpose: Purpose::Retry { job: Some(j), .. }, ..
-            }) if j == job)
-        })
-        .count();
-    u32::try_from(tries).unwrap_or(u32::MAX).saturating_add(1)
-}
-
 /// When a job's check-in `check` (from 1) is due, in minutes after it started: 15, 30, 60, 120,
 /// then every two hours.
 pub fn check_in_minutes(check: u32) -> u32 {
@@ -481,7 +488,25 @@ pub fn words(open: &Open, at: impl Fn(i64) -> String) -> String {
         (Purpose::Retry { error, .. }, Some(due)) => {
             format!("Trying again at {} ({error})", at(due))
         }
-        (Purpose::Retry { error, .. }, None) => format!("Waiting to try again ({error})"),
+        (Purpose::Retry { error, .. } | Purpose::Outage { error, .. }, None) => {
+            format!("Waiting to try again ({error})")
+        }
+        (Purpose::Outage { error, .. }, Some(due)) => {
+            format!(
+                "The model is not answering; trying again at {} ({error})",
+                at(due)
+            )
+        }
+        (
+            Purpose::Park {
+                reason: ParkReason::Check,
+                ..
+            },
+            Some(due),
+        ) => format!("Checking the work again at {} ({})", at(due), open.reason),
+        (Purpose::Park { .. }, _) if !open.reason.is_empty() => open.reason.clone(),
+        (Purpose::Park { .. }, Some(due)) => format!("Waiting until {}", at(due)),
+        (Purpose::Park { .. }, None) => "Waiting".to_owned(),
         (Purpose::Sleep, Some(due)) => format!("Sleeping until {}{reason}", at(due)),
         (Purpose::Sleep, None) => format!("Sleeping{reason}"),
         (Purpose::Wait, _) => format!(

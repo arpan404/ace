@@ -1,7 +1,7 @@
 //! Wakes (ADR 0160) through the real engine and API on a scripted endpoint and a clock the test
 //! moves: a bot sleeps and wakes once at its time, across a restart too; the person wakes it
-//! early or cancels; a wait ends with the job it waits on; a failure that may pass is parked and
-//! tried again; a long job gets one check-in per slot.
+//! early or cancels; a wait ends with the job it waits on; a turn waits out an outage on a wake
+//! and a failed job is parked and tried again; a long job gets one check-in per slot.
 
 mod support;
 
@@ -376,14 +376,14 @@ fn retrying(clock: &Arc<ManualClock>) -> Options {
 }
 
 #[tokio::test]
-async fn a_reply_that_fails_for_a_while_is_parked_and_tried_again_later() -> Result {
+async fn a_reply_that_fails_for_a_while_waits_on_a_wake_and_its_step_is_sent_again() -> Result {
     let clock = ManualClock::at(T0);
     let spade = Spade::start_with(
         vec![
             Script::failing(503),
             Script::failing(503),
-            title(),
             Script::reply("Back again."),
+            title(),
         ],
         Vec::new(),
         retrying(&clock),
@@ -395,16 +395,64 @@ async fn a_reply_that_fails_for_a_while_is_parked_and_tried_again_later() -> Res
         .unwrap_or_default()
         .to_owned();
     spade.say(&conversation, "Hello").await?;
-    spade.wait_for(&conversation, "reply_failed").await?;
     let shown = state_reads(&spade, &conversation, "sleeping").await?;
-    assert_eq!(shown["wake"]["purpose"], "retry");
+    assert_eq!(shown["wake"]["purpose"], "outage");
     assert_eq!(shown["wake"]["attempt"], 1);
     assert_eq!(shown["wake"]["due_at"], T0 + MINUTE);
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "reply_failed"),
+        0,
+        "the reply stays open"
+    );
 
     at(&spade, &clock, T0 + MINUTE).await;
-    spade.wait_for(&conversation, "reply_finished").await?;
-    assert!(last_prompt(&spade).contains("Your last reply failed"));
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert_eq!(count(&events, "reply_started"), 1);
+    assert_eq!(count(&events, "wake_fired"), 1);
+    assert!(
+        !last_prompt(&spade).contains("<wake"),
+        "the step is sent again as it was; nothing is added for the model"
+    );
     state_reads(&spade, &conversation, "idle").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_person_writing_ends_an_outage_wait_and_the_step_goes_again_with_their_message()
+-> Result {
+    let clock = ManualClock::at(T0);
+    let spade = Spade::start_with(
+        vec![
+            Script::failing(503),
+            Script::failing(503),
+            Script::reply("Here, with your note."),
+            title(),
+        ],
+        Vec::new(),
+        retrying(&clock),
+    )
+    .await?;
+    let agent = spade.new_agent("Deployer", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Hello").await?;
+    state_reads(&spade, &conversation, "sleeping").await?;
+    spade.say(&conversation, "Also mention the date").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert_eq!(
+        count(&events, "reply_started"),
+        1,
+        "the same reply answered"
+    );
+    let fired: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "wake_fired")
+        .collect();
+    assert_eq!(fired.len(), 1);
+    assert_eq!(fired[0]["cause"], "message");
+    assert!(last_prompt(&spade).contains("Also mention the date"));
     Ok(())
 }
 

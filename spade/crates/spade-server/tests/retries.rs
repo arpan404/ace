@@ -137,6 +137,24 @@ fn retry_at(clock: &Arc<ManualClock>) -> Options {
     }
 }
 
+/// Waits until the open turn waits out its endpoint on an outage wake: that `wake_set`.
+async fn outage_parked(spade: &Spade, id: &str) -> Result<Value> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let events = spade.wait_for(id, "wake_set").await?;
+        if let Some(set) = events
+            .iter()
+            .find(|e| e["type"] == "wake_set" && e["purpose"]["kind"] == "outage")
+        {
+            return Ok(set.clone());
+        }
+        if Instant::now() > deadline {
+            return Err("the turn never waited out the outage".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 fn down_three_times() -> Vec<Script> {
     vec![
         Script::failing(503),
@@ -153,21 +171,26 @@ async fn an_outage_past_the_quick_tries_parks_the_turn_and_it_answers_once_the_e
     scripts.extend([Script::reply("Back."), title()]);
     let spade = Spade::start_with(scripts, Vec::new(), retry_at(&clock)).await?;
     let id = spade.ask("Hello").await?;
-    let events = spade.wait_for(&id, "turn_parked").await?;
-    let parked = events
-        .iter()
-        .find(|e| e["type"] == "turn_parked")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(parked["until_ms"], NOON + 60_000, "{parked}");
+    let parked = outage_parked(&spade, &id).await?;
+    assert_eq!(parked["due_ms"], NOON + 60_000, "{parked}");
+    assert_eq!(parked["purpose"]["attempt"], 1, "{parked}");
     assert!(
-        parked["why"].as_str().is_some_and(|w| w.contains("503")),
+        parked["purpose"]["error"]
+            .as_str()
+            .is_some_and(|w| w.contains("503")),
         "{parked}"
     );
+    let events = spade.events(&id).await?;
     assert!(!events.iter().any(|e| e["type"] == "reply_failed"));
     let shown = bot(&spade, &id).await?;
-    assert_eq!(shown["state"], "working", "the turn is not over: {shown}");
-    status_reads(&spade, &id, "Waiting for fake; trying again in a minute").await?;
+    assert_eq!(shown["state"], "sleeping", "not done, not running: {shown}");
+    assert_eq!(shown["wake"]["purpose"], "outage", "{shown}");
+    assert!(
+        shown["status"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("The model is not answering; trying again at")),
+        "{shown}"
+    );
     assert_eq!(streamed(&spade), 3);
 
     clock.set(NOON + 61_000);
@@ -178,6 +201,18 @@ async fn an_outage_past_the_quick_tries_parks_the_turn_and_it_answers_once_the_e
             .any(|e| e["type"] == "reply_finished" && e["text"] == "Back."),
         "{events:?}"
     );
+    assert_eq!(
+        events.iter().filter(|e| e["type"] == "wake_fired").count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "reply_started")
+            .count(),
+        1,
+        "one reply, kept open through the outage"
+    );
     Ok(())
 }
 
@@ -186,7 +221,7 @@ async fn a_turn_waiting_for_its_endpoint_keeps_waiting_through_a_restart() -> Re
     let clock = ManualClock::at(NOON);
     let spade = Spade::start_with(down_three_times(), Vec::new(), retry_at(&clock)).await?;
     let id = spade.ask("Hello").await?;
-    spade.wait_for(&id, "turn_parked").await?;
+    outage_parked(&spade, &id).await?;
     let spade = spade
         .restart_after_stop_with(
             Duration::from_secs(1),
@@ -197,7 +232,7 @@ async fn a_turn_waiting_for_its_endpoint_keeps_waiting_through_a_restart() -> Re
         .await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(streamed(&spade), 0, "not sent again before its time");
-    assert_eq!(bot(&spade, &id).await?["state"], "working");
+    assert_eq!(bot(&spade, &id).await?["state"], "sleeping");
     clock.set(NOON + 61_000);
     let events = spade.wait_for(&id, "reply_finished").await?;
     assert!(
@@ -215,12 +250,18 @@ async fn stop_ends_a_turn_waiting_for_its_endpoint() -> Result {
     let clock = ManualClock::at(NOON);
     let spade = Spade::start_with(down_three_times(), Vec::new(), retry_at(&clock)).await?;
     let id = spade.ask("Hello").await?;
-    spade.wait_for(&id, "turn_parked").await?;
+    outage_parked(&spade, &id).await?;
     let (status, _) = spade
         .post(&format!("/v1/conversations/{id}/stop"), json!({}))
         .await?;
     assert_eq!(status, 202);
-    spade.wait_for(&id, "reply_stopped").await?;
+    let events = spade.wait_for(&id, "reply_stopped").await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "wake_cancelled" && e["by"] == "stop"),
+        "{events:?}"
+    );
     clock.set(NOON + 61_000);
     tokio::time::sleep(Duration::from_millis(1_200)).await;
     assert_eq!(streamed(&spade), 3, "nothing is sent after Stop");

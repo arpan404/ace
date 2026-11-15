@@ -1,17 +1,18 @@
 //! Sending a model step again when it failed before anything streamed (docs/harness.md, Model
 //! calls). A request the endpoint never answered was never billed, so trying it again costs
 //! nothing; once output has started, a cut stream is handled by the turn as before. When the
-//! quick tries are used up on an outage, the turn waits for the endpoint (`turn_parked`, ADR
-//! 0158), minutes and then hours apart, until it answers or the person presses Stop.
+//! quick tries are used up on an outage, the turn waits out the endpoint on an outage wake
+//! (ADR 0158, ADR 0160): 1, 2, 4 … minutes apart, at most an hour, longer when the endpoint asks,
+//! for as long as it takes. The reply stays open; Stop, the person cancelling the wake and a
+//! pause end the wait, the person waking it or writing ends it early, and a restart resumes it.
 
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{Stream, StreamExt};
-use spade_core::event::{Event, Known};
 use spade_core::maintenance::{Pause, Point};
-use spade_core::park;
+use spade_core::wake::{self, Cause, Ended, Purpose};
 use spade_models::{Delta, ModelError, Prompt};
 use tokio::sync::watch;
 
@@ -72,8 +73,8 @@ pub(super) enum Opened {
 
 /// Opens the step's stream and waits for its first item, sending the request again while it
 /// fails before anything streamed and the failure may pass. The status reads "Retrying"
-/// meanwhile; Stop and a pause end the wait. Once the quick tries are used up the turn waits for
-/// the endpoint and tries again, as long as it takes.
+/// meanwhile; Stop and a pause end the wait. Once the quick tries are used up the turn waits out
+/// the endpoint on an outage wake and tries again, as long as it takes.
 pub(super) async fn open(
     engine: &Arc<Engine>,
     id: &str,
@@ -86,15 +87,11 @@ pub(super) async fn open(
     let policy = engine.limits.retry;
     let mut waited = Duration::ZERO;
     let mut tries = 1;
-    // A turn resumed after a restart (or an update) keeps waiting until its stored time.
-    let resumed = engine
-        .load(id)
-        .ok()
-        .and_then(|events| park::turn_wait(events.iter(), reply));
-    if let Some((until_ms, _)) = resumed
-        && let Some(end) = wait_for_endpoint(engine, id, model, until_ms, stop, pause).await
-    {
-        return end;
+    // A turn resumed after a restart (or an update) keeps waiting out its outage.
+    match resume(engine, id, reply, stop, pause).await {
+        Waited::Again => {}
+        Waited::Stopped => return Opened::Stopped,
+        Waited::Paused => return Opened::Paused,
     }
     loop {
         let first = tokio::select! {
@@ -115,28 +112,22 @@ pub(super) async fn open(
                 // A refused key, a used-up quota or a bad request: the person has to act.
                 return Opened::Failed(error);
             }
-            // An outage: wait for the endpoint, then start the quick tries again.
-            let round = engine
-                .load(id)
-                .map_or(0, |events| park::turn_rounds(events.iter(), reply))
-                + 1;
-            let wait = park::wait(&engine.limits.outage, round, error.retry_after());
-            let until_ms = engine
-                .now_ms()
-                .saturating_add(i64::try_from(wait.as_millis()).unwrap_or(i64::MAX));
-            tracing::warn!(%error, round, ?wait, "the endpoint is down; the turn waits for it");
-            let parked = Event::Known(Known::TurnParked {
-                reply: reply.to_owned(),
-                until_ms,
-                round,
-                why: error.to_string(),
-            });
-            if let Err(stored) = engine.record(id, &parked) {
-                tracing::error!(error = %stored, "could not store that a turn waits");
-                return Opened::Failed(error);
-            }
-            if let Some(end) = wait_for_endpoint(engine, id, model, until_ms, stop, pause).await {
-                return end;
+            // An outage: wait it out, then start the quick tries again.
+            tracing::warn!(%error, "the endpoint is down; the turn waits for it");
+            match wait_out(
+                engine,
+                id,
+                reply,
+                &error.to_string(),
+                error.retry_after(),
+                stop,
+                pause,
+            )
+            .await
+            {
+                Waited::Again => {}
+                Waited::Stopped => return Opened::Stopped,
+                Waited::Paused => return Opened::Paused,
             }
             waited = Duration::ZERO;
             tries = 1;
@@ -155,34 +146,133 @@ pub(super) async fn open(
     }
 }
 
-/// Waits on the engine's clock until `until_ms`, the status saying what for. `None` once it is
-/// time to try again; Stop and a pause end the wait.
-async fn wait_for_endpoint(
+/// How waiting out an outage ended.
+pub(super) enum Waited {
+    /// Time to send the step again.
+    Again,
+    /// Stop, or the person called the wait off: the reply ends stopped.
+    Stopped,
+    Paused,
+}
+
+/// Parks the open turn of `reply` on an outage wake and waits until it fires. `asked` is the
+/// endpoint's `retry-after`.
+pub(super) async fn wait_out(
     engine: &Arc<Engine>,
     id: &str,
-    model: &str,
+    reply: &str,
+    error: &str,
+    asked: Option<Duration>,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Waited {
+    let attempt = engine
+        .load(id)
+        .map_or(1, |events| wake::next_outage_attempt(&events, reply));
+    let asked_ms = asked.map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+    let due_ms = engine
+        .now_ms()
+        .saturating_add(wake::retry_after_ms(attempt, asked_ms));
+    let purpose = Purpose::Outage {
+        attempt,
+        error: super::wakes::short(error),
+    };
+    match engine.set_wake(id, purpose, Some(due_ms), None, "") {
+        Ok(_) => resume(engine, id, reply, stop, pause).await,
+        Err(stored) => {
+            // Not stored, so not shown or kept across a restart; the turn still waits.
+            tracing::error!(error = %stored, "could not store that a turn waits out an outage");
+            until(engine, due_ms, stop, pause).await
+        }
+    }
+}
+
+/// Waits on the open outage wake of `reply`, if there is one (and on a `turn_parked` an earlier
+/// build stored). [`Waited::Again`] at once when there is none.
+async fn resume(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Waited {
+    let Ok(events) = engine.load(id) else {
+        return Waited::Again;
+    };
+    if let Some((from, open)) = wake::open_outage(&events, reply) {
+        let (wake, due_ms) = (open.wake.clone(), open.due_ms.unwrap_or(0));
+        // Armed here too, so a turn resumed before the wakes are restored still sees it fire.
+        engine.arm(id, open);
+        drop(events);
+        return on_wake(engine, id, &wake, from, due_ms, stop, pause).await;
+    }
+    match wake::legacy_turn_wait(&events, reply) {
+        Some(until_ms) => until(engine, until_ms, stop, pause).await,
+        None => Waited::Again,
+    }
+}
+
+/// Waits until `wake` (stored at `from`) fires or is cancelled, firing it itself once it is due,
+/// so the wait never hangs on the timer. Looks at the clock and the turn's new events each
+/// second; while a turn runs a read takes only what was stored since.
+async fn on_wake(
+    engine: &Arc<Engine>,
+    id: &str,
+    wake: &str,
+    from: usize,
+    due_ms: i64,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Waited {
+    loop {
+        if let Ok(events) = engine.load(id) {
+            let since = events.get(from..).unwrap_or_default();
+            match wake::ended(since, wake) {
+                Some(Ended::Fired) => {
+                    engine.set_status(id, Some(THINKING.to_owned()));
+                    return Waited::Again;
+                }
+                // Stop, or the person called the wait off: the reply ends stopped.
+                Some(Ended::Cancelled(_)) => {
+                    return Waited::Stopped;
+                }
+                None => {}
+            }
+        }
+        let left = due_ms - engine.now_ms();
+        if left <= 0 {
+            engine.fire_wake(id, wake, Cause::Time, None, Vec::new());
+            continue;
+        }
+        let left = Duration::from_millis(u64::try_from(left).unwrap_or(0));
+        // The engine's clock, so a test moves time instead of waiting.
+        tokio::select! {
+            () = tokio::time::sleep(left.min(Duration::from_secs(1))) => {}
+            _ = super::turn::stopped(stop) => return Waited::Stopped,
+            _ = super::turn::pausing(pause, Point::Streaming) => return Waited::Paused,
+        }
+    }
+}
+
+/// Waits on the engine's clock until `until_ms`, with no wake to show for it.
+async fn until(
+    engine: &Arc<Engine>,
     until_ms: i64,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
-) -> Option<Opened> {
-    let endpoint = model.split('/').next().unwrap_or(model);
+) -> Waited {
     loop {
         let left = until_ms - engine.now_ms();
         if left <= 0 {
-            break;
+            return Waited::Again;
         }
-        let minutes = (left + 59_999) / 60_000;
-        engine.set_status(id, Some(park::turn_words(endpoint, minutes)));
         let left = Duration::from_millis(u64::try_from(left).unwrap_or(0));
-        // The engine's clock is looked at every second, so a test moves time instead of waiting.
         tokio::select! {
             () = tokio::time::sleep(left.min(Duration::from_secs(1))) => {}
-            _ = super::turn::stopped(stop) => return Some(Opened::Stopped),
-            _ = super::turn::pausing(pause, Point::Streaming) => return Some(Opened::Paused),
+            _ = super::turn::stopped(stop) => return Waited::Stopped,
+            _ = super::turn::pausing(pause, Point::Streaming) => return Waited::Paused,
         }
     }
-    engine.set_status(id, Some(THINKING.to_owned()));
-    None
 }
 
 /// The stream with its first item read, or the error that came before anything else.

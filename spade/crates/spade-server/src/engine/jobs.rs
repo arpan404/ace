@@ -20,6 +20,7 @@ use spade_store::StoreError;
 use tokio::sync::watch;
 
 use super::Engine;
+use super::wakes::job_name;
 use crate::tools::ToolOutput;
 
 /// A job in the live map, with the reply that started it.
@@ -470,16 +471,6 @@ impl Engine {
             }
         }
     }
-}
-
-fn job_name(events: &[Event], job: &str) -> String {
-    events
-        .iter()
-        .find_map(|event| match event {
-            Event::Known(Known::JobStarted { job: j, name, .. }) if j == job => Some(name.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

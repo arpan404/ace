@@ -29,7 +29,8 @@ pub enum Claim {
 }
 
 /// Whether the bot's latest claim of done needs a check now: the reply ended finished, nobody
-/// stopped it, no background job runs, a goal is open, and this claim has no verdict yet.
+/// stopped it, no background job runs, no wake is open, a goal is open, and this claim has no
+/// verdict yet.
 pub fn claim(events: &[Event]) -> Claim {
     let Some(task) = Task::fold(events).filter(|t| t.goal.closed.is_none()) else {
         return Claim::None;
@@ -41,6 +42,8 @@ pub fn claim(events: &[Event]) -> Claim {
         || !crate::task::ended_finished(events)
         || crate::task::stopped_since_last_reply(events)
         || crate::task::jobs_running(events)
+        // A task parked on a cap or an outage (or sleeping) is checked once its wake fires.
+        || crate::task::sleeping(events)
     {
         return Claim::None;
     }

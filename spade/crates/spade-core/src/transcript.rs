@@ -40,6 +40,9 @@ pub struct Transcript {
     pub jobs: Vec<String>,
     /// Wakes still open (ADR 0160): the bot sleeps or waits on them, so it is not idle.
     pub wakes: Vec<String>,
+    /// The open reply's turn waits out its endpoint's outage on this wake (ADR 0158, 0160): the
+    /// reply is open but runs nothing until it fires.
+    pub outage: Option<String>,
     /// The person pressed Stop while the open reply ran; it ends as stopped.
     pub stopping: bool,
     /// The open reply was paused for a planned restart and nothing of it has run since. It is
@@ -234,13 +237,29 @@ impl Transcript {
                 // A helper that ended asks nothing more.
                 self.helper_awaiting.retain(|(_, j)| j != job);
             }
-            Known::WakeSet { wake, .. } => {
+            Known::WakeSet {
+                wake,
+                reply,
+                purpose,
+                ..
+            } => {
                 if !self.wakes.contains(wake) {
                     self.wakes.push(wake.clone());
+                }
+                // A turn waiting out an outage runs nothing either: a restart resumes it.
+                let open = self.open_reply().and_then(|m| m.reply.as_deref());
+                if matches!(purpose, crate::wake::Purpose::Outage { .. })
+                    && open == Some(reply.as_str())
+                {
+                    self.paused = true;
+                    self.outage = Some(wake.clone());
                 }
             }
             Known::WakeFired { wake, .. } | Known::WakeCancelled { wake, .. } => {
                 self.wakes.retain(|w| w != wake);
+                if self.outage.as_ref() == Some(wake) {
+                    self.outage = None;
+                }
             }
             Known::StopRequested { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.clone());
@@ -286,6 +305,7 @@ impl Transcript {
             self.awaiting.clear();
             self.questions.clear();
             self.paused = false;
+            self.outage = None;
         }
     }
 

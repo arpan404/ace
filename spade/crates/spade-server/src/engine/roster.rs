@@ -35,7 +35,8 @@ pub enum State {
     Working,
     /// Needs the person: an approval is pending.
     Waiting,
-    /// Sleeps or waits on a wake (ADR 0160): not idle, not done.
+    /// Sleeps or waits on a wake (ADR 0160): not idle, not done. A turn waiting out an outage
+    /// and a task parked on a cap or for its check read this way too.
     Sleeping,
 }
 
@@ -55,6 +56,9 @@ impl State {
         // A helper waiting on the person (ADR 0152) counts, even after the reply that started it.
         if transcript.waiting_on_you() {
             Self::Waiting
+        } else if transcript.outage.is_some() && transcript.jobs.is_empty() {
+            // The open turn waits out its endpoint's outage (ADR 0158): not done, not running.
+            Self::Sleeping
         } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
             Self::Working
         } else if !transcript.wakes.is_empty() {

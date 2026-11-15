@@ -1,7 +1,8 @@
-//! Work that waits instead of ending (ADR 0158): a working task stopped by a spending cap carries
-//! on at the cap's reset or once the cap is raised, across a restart, and reads as waiting
-//! meanwhile. Through the API with a real database, a scripted fake model and a manual clock.
-//! Each model call costs 92 micros, so a cap of 50 holds after one call.
+//! Work that waits instead of ending (ADR 0158): a working task stopped by a spending cap is
+//! parked on a wake (ADR 0160) and carries on at the cap's reset or once the cap is raised,
+//! across a restart, and reads as sleeping with the reason meanwhile. Through the API with a real
+//! database, a scripted fake model and a manual clock. Each model call costs 92 micros, so a cap
+//! of 50 holds after one call.
 
 mod support;
 
@@ -70,16 +71,52 @@ fn count(events: &[Value], kind: &str) -> usize {
     events.iter().filter(|e| e["type"] == kind).count()
 }
 
+/// The cap parks among `events`.
+fn cap_parks(events: &[Value]) -> Vec<&Value> {
+    events
+        .iter()
+        .filter(|e| {
+            e["type"] == "wake_set"
+                && e["purpose"]["kind"] == "park"
+                && e["purpose"]["reason"] == "cap"
+        })
+        .collect()
+}
+
+/// Waits until the task is parked on its cap.
+async fn parked(spade: &Spade, chat: &str) -> Result<Vec<Value>> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let events = spade.wait_for(chat, "wake_set").await?;
+        if !cap_parks(&events).is_empty() {
+            return Ok(events);
+        }
+        if std::time::Instant::now() > deadline {
+            return Err("the task never parked on its cap".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+/// Moves the clock to `ms` and lets the wake timer look.
+async fn move_to(spade: &Spade, clock: &ManualClock, ms: i64) {
+    clock.set(ms);
+    spade.engine.kick_wakes();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+}
+
 #[tokio::test]
 async fn a_task_stopped_by_its_cap_waits_through_a_restart_and_carries_on_at_the_reset() -> Result {
     let clock = ManualClock::at(LATE_EVENING);
     let spade = Spade::start_with(vec![working()], tools(), at(&clock)).await?;
     let (agent, chat) = capped_bot(&spade).await?;
-    let events = spade.wait_for(&chat, "task_parked").await?;
-    let parked = events.iter().find(|e| e["type"] == "task_parked");
-    assert_eq!(parked.map(|p| p["until_ms"].clone()), Some(json!(MIDNIGHT)));
+    let events = parked(&spade, &chat).await?;
+    let park = cap_parks(&events).first().map(|p| p["due_ms"].clone());
+    assert_eq!(park, Some(json!(MIDNIGHT)));
     let shown = roster_entry(&spade, &agent).await?;
-    assert_eq!(shown["state"], "waiting", "{shown}");
+    assert_eq!(shown["state"], "sleeping", "{shown}");
+    assert_eq!(shown["wake"]["purpose"], "park", "{shown}");
+    assert_eq!(shown["wake"]["parked"], "cap", "{shown}");
     assert!(
         shown["status"]
             .as_str()
@@ -101,10 +138,11 @@ async fn a_task_stopped_by_its_cap_waits_through_a_restart_and_carries_on_at_the
         .await?;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let events = spade.events(&chat).await?;
-    assert_eq!(count(&events, "task_parked"), 1);
+    assert_eq!(cap_parks(&events).len(), 1);
     assert_eq!(count(&events, "task_continued"), 0, "not before midnight");
+    assert_eq!(roster_entry(&spade, &agent).await?["state"], "sleeping");
 
-    clock.set(MIDNIGHT + 60_000);
+    move_to(&spade, &clock, MIDNIGHT + 60_000).await;
     let events = spade.wait_for(&chat, "task_continued").await?;
     assert_eq!(count(&events, "task_continued"), 1);
     let events = spade.wait_for_count(&chat, "reply_finished", 2).await?;
@@ -131,7 +169,7 @@ async fn raising_the_cap_carries_a_waiting_task_on_at_once() -> Result {
     )
     .await?;
     let (agent, chat) = capped_bot(&spade).await?;
-    spade.wait_for(&chat, "task_parked").await?;
+    parked(&spade, &chat).await?;
     let (status, body) = spade
         .put(
             &format!("/v1/agents/{agent}/oversight"),

@@ -39,9 +39,11 @@ pub(super) struct Failure {
     pub kind: FailureKind,
     /// The endpoint the call went to, when the failure was the endpoint's.
     pub endpoint: Option<String>,
-    /// It may pass (unreachable, rate limited, a `5xx`): the reply is parked for a retry (ADR
-    /// 0160).
+    /// It may pass (unreachable, rate limited, a `5xx`, a dropped stream): the turn waits it out
+    /// on an outage wake and sends the step again (ADR 0158, ADR 0160).
     pub transient: bool,
+    /// How long the endpoint asked to be left alone.
+    pub retry_after: Option<std::time::Duration>,
 }
 
 impl Failure {
@@ -60,6 +62,7 @@ impl Failure {
             kind,
             endpoint,
             transient: error.transient(),
+            retry_after: error.retry_after(),
         }
     }
 
@@ -69,6 +72,7 @@ impl Failure {
             kind: FailureKind::Cap,
             endpoint: None,
             transient: false,
+            retry_after: None,
         }
     }
 }
@@ -109,18 +113,7 @@ pub(super) async fn run(
     let paused = matches!(ended, Ended::Paused);
     // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
     // not release the reply still open. Whether it is still open is checked as it is closed.
-    let mut park: Option<String> = None;
     if let Some(reply) = driven.clone() {
-        if let Ended::FailedAs(
-            _,
-            error,
-            Failure {
-                transient: true, ..
-            },
-        ) = &ended
-        {
-            park = Some(error.clone());
-        }
         let event = match ended {
             Ended::Finished => None,
             Ended::Paused => {
@@ -151,10 +144,6 @@ pub(super) async fn run(
         if let Some(event) = event {
             close_durably(&engine, &id, &reply, &event).await;
         }
-    }
-    // A failure that may pass is tried again later instead of ending the work (ADR 0160).
-    if let Some(error) = park {
-        engine.park_reply(&id, &error);
     }
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
@@ -340,6 +329,14 @@ async fn drive(
                         Step::Paused => return Ended::Paused,
                         Step::Stopped(text) => return Ended::Stopped(text),
                         Step::Failed(text, error) => return Ended::Failed(text, error),
+                        Step::FailedAs(_, error, failure) if failure.transient => {
+                            match outage(engine, id, &reply, &error, &failure, &mut stop, pause)
+                                .await
+                            {
+                                Some(ended) => return ended,
+                                None => continue,
+                            }
+                        }
                         Step::FailedAs(text, error, failure) => {
                             return Ended::FailedAs(text, error, failure);
                         }
@@ -380,6 +377,15 @@ async fn drive(
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
+                    // A stream cut by a failure that may pass: what streamed is dropped and the
+                    // step is sent again once the outage is waited out, like a resumed pause.
+                    Step::FailedAs(_, error, failure) if failure.transient => {
+                        if let Some(ended) =
+                            outage(engine, id, &reply, &error, &failure, &mut stop, pause).await
+                        {
+                            return ended;
+                        }
+                    }
                     Step::FailedAs(text, error, failure) => {
                         return Ended::FailedAs(text, error, failure);
                     }
@@ -400,6 +406,25 @@ async fn drive(
                 }
             }
         }
+    }
+}
+
+/// Waits out an outage that cut a step (ADR 0158, ADR 0160); `None` once the step may be sent
+/// again, else how the turn ends.
+async fn outage(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    error: &str,
+    failure: &Failure,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Option<Ended> {
+    tracing::warn!(%error, "a model step was cut by a failure that may pass; the turn waits");
+    match super::retry::wait_out(engine, id, reply, error, failure.retry_after, stop, pause).await {
+        super::retry::Waited::Again => None,
+        super::retry::Waited::Stopped => Some(Ended::Stopped(String::new())),
+        super::retry::Waited::Paused => Some(Ended::Paused),
     }
 }
 

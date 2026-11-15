@@ -37,9 +37,6 @@ pub struct Limits {
     pub remote_asks_waiting: usize,
     /// Sending a model step again when it failed before anything streamed.
     pub retry: super::retry::Retry,
-    /// Once those tries are used up on an outage, the turn waits this long and sends the step
-    /// again, round after round, until it works or the person presses Stop (ADR 0158).
-    pub outage: spade_core::park::Backoff,
     /// The access level a new bot starts on (ADR 0144).
     pub new_bot_access: spade_core::autonomy::Access,
     /// How far a bot's task goes on its own (ADR 0144).
@@ -64,7 +61,6 @@ impl Default for Limits {
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
             retry: super::retry::Retry::default(),
-            outage: spade_core::park::Backoff::default(),
             new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
@@ -295,6 +291,4 @@ pub struct Activity {
     pub wake: Option<spade_core::wake::Open>,
     /// Owned services running (ADR 0160).
     pub services: usize,
-    /// Why the bot's task waits for a cap's reset (ADR 0158); the bot reads as waiting meanwhile.
-    pub parked: Option<String>,
 }

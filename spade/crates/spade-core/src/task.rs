@@ -249,7 +249,7 @@ pub(crate) fn stopped_since_last_reply(events: &[Event]) -> bool {
 }
 
 /// The bot sleeps or waits on a wake (ADR 0160): the wake is its next step.
-fn sleeping(events: &[Event]) -> bool {
+pub(crate) fn sleeping(events: &[Event]) -> bool {
     !crate::wake::open(events).is_empty()
 }
 

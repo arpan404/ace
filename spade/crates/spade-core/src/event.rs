@@ -319,18 +319,19 @@ pub enum Known {
         #[serde(default)]
         cost_micros: u64,
     },
-    /// Spade could not start the next step of the bot's working task because of a spending cap,
-    /// so the task waits (ADR 0158): it carries on at `until_ms` (the cap's reset), or sooner
-    /// when the cap is raised. Ends at the next reply or message. `why` is what the person reads.
+    /// Retired: a task waiting for a spending cap's reset, as an earlier build stored it. A task
+    /// waits as a wake now (`wake_set {purpose: park}`, ADR 0160). Still read, and ignored: when
+    /// Spade reopens the task is planned again, and parks again if the cap still holds.
     TaskParked {
-        reason: crate::park::ParkReason,
+        reason: crate::wake::ParkReason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         until_ms: Option<i64>,
         why: String,
     },
-    /// A model step of `reply` failed for a while (the endpoint unreachable, overloaded or rate
-    /// limiting), so the turn waits and sends it again at `until_ms` (ADR 0158). The reply stays
-    /// open; Stop ends the wait, and a restart resumes it. `round` counts the waits this turn.
+    /// Retired: a turn waiting for its endpoint, as an earlier build stored it. A turn waits as a
+    /// wake now (`wake_set {purpose: outage}`, ADR 0160). Still read: the open reply stays paused
+    /// across a restart, resumes waiting until `until_ms`, and its `round` counts toward the
+    /// backoff.
     TurnParked {
         reply: String,
         until_ms: i64,
