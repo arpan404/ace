@@ -1,5 +1,7 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
+import { boundedEntity } from "@ace/projection/entity-cut";
+import { entityPage } from "@ace/projection/entity-pages";
 import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
 
 const active = `CASE
@@ -11,6 +13,8 @@ const active = `CASE
 const collections = ["agents", "runs", "interactions", "backgroundTasks"] as const;
 /** The bytes of entries a page holds unless the reader asks for less (`maxBytes`). */
 export const entityPageBytes = 128 * 1024;
+/** The most one active entity may take of a snapshot; larger ones are cut (`boundedEntity`). */
+const snapshotEntityBytes = 64 * 1024;
 export class EntityWindow {
   private sql: (sql: string) => StatementSync;
   private trust: EntityTrust;
@@ -58,7 +62,13 @@ export class EntityWindow {
     for (const collection of collections) {
       const values: [string, unknown][] = [];
       for (const row of this.rows(view.thread.id, collection, "w.active=1", "ASC"))
-        values.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
+        values.push([
+          String(row.id),
+          boundedEntity(
+            storedEntity(collection, String(row.value), this.trust),
+            snapshotEntityBytes,
+          ),
+        ]);
       let bytes = 0;
       let before: number | undefined;
       let count = 0;
@@ -164,16 +174,7 @@ export class EntityWindow {
         };
     }
   }
-  /**
-   * At most 200 entries, the most a page holds, and at most `maxBytes` (128 KiB unless the reader
-   * asked for less) unless one entry is more.
-   *
-   * The newest page (`before` at the end of time) carries every active entity first, whatever
-   * its age, as a snapshot's window does (`fill`): a pending request is never behind pages of
-   * resolved ones, for a reader that stops after a few pages (installed phones read four).
-   * Older pages then hold only the inactive ones, newest first, so paging lists each entity once.
-   * More active entities than a page holds (over 200) are paged as before, oldest last.
-   */
+  /** At most `limit` (and 200) entries and `maxBytes` of them, as `entityPage` cuts pages. */
   private entries<C extends EntityCollection>(
     thread: Pick<Thread, "id">,
     collection: C,
@@ -181,55 +182,28 @@ export class EntityWindow {
     limit: number,
     maxBytes: number,
   ): { entries: StoredEntity<C>[]; entitiesBefore: number | null } {
-    const most = Math.min(limit, 200);
-    const newestPage = before >= Number.MAX_SAFE_INTEGER;
-    // Every page decides alike whether actives go first, so the pages after the newest agree.
-    const activeCount = Number(
-      this.sql(
-        "SELECT count(*) AS n FROM (SELECT 1 FROM view_entity_windows WHERE thread_id=? AND collection=? AND active=1 LIMIT 201)",
-      ).get(thread.id, collection)?.n ?? 0,
-    );
-    const activeFirst = activeCount <= 200;
-    const actives =
-      activeFirst && newestPage
-        ? [...this.rows(thread.id, collection, "w.active=1", "DESC LIMIT 201")]
-        : [];
-    const rows = actives;
-    let bytes = rows.reduce((total, row) => total + Buffer.byteLength(String(row.value)), 0);
-    let oldest = before;
-    let more = false;
-    // Inactive ones newest first while there is room; with no active-first page, every entity.
-    const room = Math.max(0, most - rows.length);
-    const rest = this.rows(
-      thread.id,
-      collection,
-      activeFirst ? "w.created_seq<? AND w.active=0" : "w.created_seq<?",
-      "DESC LIMIT ?",
-      before,
-      room + 1,
-    );
-    let taken = 0;
-    for (const row of rest) {
-      const size = Buffer.byteLength(String(row.value));
-      if (taken >= room || (rows.length && bytes + size > maxBytes)) {
-        more = true;
-        break;
-      }
-      rows.push(row);
-      bytes += size;
-      taken++;
-      oldest = Number(row.created_seq);
-    }
-    // A newest page whose actives left no room for an inactive one: those begin just below
-    // the end of time, so the next page is not the newest again.
-    if (activeFirst && newestPage && taken === 0) {
-      if (room === 0)
-        more = !this.rows(thread.id, collection, "w.active=0", "DESC LIMIT 1").next().done;
-      oldest = Number.MAX_SAFE_INTEGER - 1;
-    }
-    const entries = rows
-      .toSorted((a, b) => Number(a.created_seq) - Number(b.created_seq))
-      .map((row) => storedEntity(collection, String(row.value), this.trust));
-    return { entries, entitiesBefore: more ? oldest : null };
+    const trust = this.trust;
+    const statement = this.rows.bind(this);
+    /** Read lazily: a page stops at its first row past its bound. */
+    const rows = (active: 0 | 1) =>
+      function* (below: number, most: number) {
+        const predicate = `w.active=${active} AND w.created_seq<?`;
+        for (const row of statement(
+          thread.id,
+          collection,
+          predicate,
+          "DESC LIMIT ?",
+          below,
+          most,
+        )) {
+          const value = String(row.value);
+          yield {
+            seq: Number(row.created_seq),
+            bytes: Buffer.byteLength(value),
+            entity: () => storedEntity(collection, value, trust),
+          };
+        }
+      };
+    return entityPage({ active: rows(1), inactive: rows(0) }, before, limit, maxBytes);
   }
 }

@@ -4,8 +4,8 @@ import { fixture, token } from "./socket-test-support.ts";
 
 // A phone's inbox finds what waits on the person by reading a thread's interactions newest
 // first. Installed phones stop after four pages, so a pending request must never sit behind
-// pages of resolved ones: the newest page carries every pending interaction, whatever its age,
-// and older pages hold the rest, each entity once.
+// pages of resolved ones: pages carry every pending interaction first, whatever its age, then the
+// resolved ones, each entity once.
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -111,7 +111,7 @@ test("an installed phone that reads four pages finds the pending request, and pa
   );
 });
 
-test("pending requests that fill the newest page still lead on to the resolved ones, each once", async () => {
+test("pending requests that fill more than the newest page come first, then the resolved ones, each once", async () => {
   // Three pending of about 60 KiB (past the page's 128 KiB on their own) and two resolved.
   const f = await fixture();
   cleanups.push(() => f.close());
@@ -148,12 +148,12 @@ test("pending requests that fill the newest page still lead on to the resolved o
     do reply = await client.next();
     while (!(reply.type === "entities.page" && reply.requestId === `q${read}`));
     if (reply.page.collection !== "interactions") throw new Error("shape");
-    if (read === 0)
-      expect(reply.page.entries.map((entry) => entry.id)).toEqual(["ask-1", "ask-2", "ask-3"]);
     seen.push(...reply.page.entries.map((entry) => entry.id));
     expect(reply.page.entitiesBefore).not.toBe(before);
     before = reply.page.entitiesBefore;
   }
+  // Pending ones, over two pages, before any resolved one.
+  expect(seen.slice(0, 3).toSorted()).toEqual(["ask-1", "ask-2", "ask-3"]);
   expect(seen.toSorted()).toEqual(["ask-1", "ask-2", "ask-3", "done-1", "done-2"]);
 });
 

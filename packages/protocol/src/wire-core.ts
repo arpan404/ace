@@ -385,12 +385,17 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     threadId: ThreadId,
     collection: EntityCollection,
+    /**
+     * `Number.MAX_SAFE_INTEGER` for the newest page, else a cursor the daemon gave
+     * (`entitiesBefore`), passed back as it came.
+     */
     before: seq.positive(),
     limit: seq.positive().max(200),
     /**
-     * The most bytes of entries a page holds (16 KiB to 128 KiB) unless one entry alone is more;
-     * 128 KiB without it. Older daemons ignore it. Every pending entity is on the newest page
-     * whatever this is, so a smaller page never hides one.
+     * The most bytes of entries a page holds (16 KiB to 128 KiB); 128 KiB without it. Older
+     * daemons ignore it. Newer daemons send active entities (pending requests, working agents)
+     * first, page after page, then the rest, so a smaller page never hides one, and cut an
+     * entity larger than a page alone to fit, keeping what shows and answers it.
      */
     maxBytes: seq
       .min(16 * 1024)
