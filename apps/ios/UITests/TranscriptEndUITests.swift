@@ -48,27 +48,34 @@ import XCTest
         try await assertAtTheEnd(app, "after reading a few screens up")
     }
 
-    /// VoiceOver hears the answer still arriving as "Writing", and the same word through every
-    /// delta, while the finished answer above it reads nothing more than its words.
-    func testTheStreamingAnswerReadsAsWritingAndAFinishedOneDoesNot() async throws {
+    /// VoiceOver's first stop on the answer still arriving says "Writing", and stays the same
+    /// while the text under it grows; once the answer finishes, that status goes from the same row.
+    func testTheStreamingAnswerSaysWritingUntilItFinishes() async throws {
+        // A fresh answer, short whatever ran before, so reading its text stays quick.
+        try await post("/stream/finish", "{}")
         let app = open("ios-stream")
-        let answers = try await answerIds()
-        let tail = app.descendants(matching: .any)["message.answer.\(try XCTUnwrap(answers.last))"]
+        let id = try await lastAnswer()
+        let tail = app.descendants(matching: .any)["message.answer.\(id)"]
         XCTAssertTrue(tail.waitForExistence(timeout: 30))
-        let writing = expectation(for: NSPredicate(format: "value == %@", "Writing"), evaluatedWith: tail)
-        await fulfillment(of: [writing], timeout: 10)
-        // The fixture streams a delta every 50 ms: the value stays put through them.
-        for _ in 0..<4 {
+        let status = tail.descendants(matching: .any)["message.answer.\(id).status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10), "the live answer has a status")
+        XCTAssertEqual(status.label, "Writing")
+        XCTAssertEqual(tail.descendants(matching: .any).element(boundBy: 0).identifier, status.identifier,
+                       "the status is VoiceOver's first stop in the answer, ahead of its text")
+        // The fixture streams a delta every 50 ms: the text grows, the status stays as it was.
+        let before = spoken(tail)
+        for _ in 0..<6 {
             try await Task.sleep(for: .milliseconds(250))
-            XCTAssertEqual(tail.value as? String, "Writing", "the live answer still reads as writing")
+            XCTAssertEqual(status.label, "Writing", "the status stays the same through the deltas")
         }
-        // The live answer can fill the screen: read up until a finished one is drawn.
-        let finished = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier IN %@", answers.dropLast().map { "message.answer.\($0)" })).firstMatch
-        let transcript = app.scrollViews["transcript"]
-        for _ in 0..<8 where !finished.exists { transcript.swipeDown() }
-        XCTAssertTrue(finished.waitForExistence(timeout: 5), "a finished answer is drawn")
-        XCTAssertEqual(finished.value as? String ?? "", "", "a finished answer reads nothing more than its words")
+        XCTAssertNotEqual(spoken(tail), before, "the answer's text grew meanwhile")
+        try await post("/stream/finish", "{}")
+        XCTAssertTrue(status.waitForNonExistence(timeout: 10), "the finished answer has no status")
+        XCTAssertTrue(tail.exists, "and the answer itself stays")
+    }
+    /// What VoiceOver reads of an answer's text: each of markit's text blocks, in order.
+    private func spoken(_ answer: XCUIElement) -> [String] {
+        answer.textViews.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label }
     }
 
     /// Scrolled a little way up while the answer streams: Scroll to end shows above the composer
@@ -252,18 +259,15 @@ import XCTest
         XCTAssertLessThan(gap, 96, "the answer's end sits at the feed's end \(when), \(gap) pt above the composer")
     }
     /// The answer at the live end: the thread's own last answer, drawn as `message.answer.<item>`.
-    /// Found by its place at the end of the thread, not by its "Writing" value, so these tests
-    /// still reach the end if that value breaks.
+    /// Found by its place at the end of the thread, not by its "Writing" status, so these tests
+    /// still reach the end if that status breaks.
     private func newest(in app: XCUIApplication) async throws -> XCUIElement {
-        let answers = try await answerIds()
-        guard let last = answers.last else { throw FixtureProblem("the fixture's ios-stream thread lists no answer") }
-        return app.descendants(matching: .any)["message.answer.\(last)"]
+        app.descendants(matching: .any)["message.answer.\(try await lastAnswer())"]
     }
-    /// The answer item ids in the fixture's own view of `ios-stream`, oldest first: its last answer
-    /// is the one streaming, the ones before it are finished. Read from the fixture, not from what
-    /// the app happens to have drawn, so a test that finds its row is a test that reached the
-    /// thread's real end.
-    private func answerIds() async throws -> [String] {
+    /// The newest answer item id in the fixture's own view of `ios-stream`: its last answer, which
+    /// is the one streaming. Read from the fixture, not from what the app happens to have drawn, so
+    /// a test that finds its row is a test that reached the thread's real end.
+    private func lastAnswer() async throws -> String {
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
         guard let url = URL(string: "http://127.0.0.1:\(port)/state?thread=ios-stream") else {
             throw FixtureProblem("no fixture URL for port \(port)")
@@ -279,9 +283,10 @@ import XCTest
         } catch {
             throw FixtureProblem("couldn't read the fixture's thread: \(error)")
         }
-        let ids = view.itemOrder.filter { view.items[$0]?.isAnswer == true }
-        guard ids.count >= 2 else { throw FixtureProblem("the fixture's ios-stream thread lists \(ids.count) answers") }
-        return ids
+        guard let id = view.itemOrder.last(where: { view.items[$0]?.isAnswer == true }) else {
+            throw FixtureProblem("the fixture's ios-stream thread lists no answer")
+        }
+        return id
     }
     private func open(_ threadId: String) -> XCUIApplication {
         let app = XCUIApplication()
