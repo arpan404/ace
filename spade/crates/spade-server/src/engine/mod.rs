@@ -34,6 +34,7 @@ mod review;
 pub mod roster;
 mod routines;
 mod search;
+mod trim;
 mod turn;
 mod turn_log;
 mod types;

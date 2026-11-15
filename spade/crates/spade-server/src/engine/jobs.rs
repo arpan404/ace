@@ -158,7 +158,7 @@ fn spawn(
                 });
                 keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
-            let content = super::calls::trim(&output.content, engine.limits.result_chars);
+            let content = super::trim::trim(&output.content, engine.limits.result_chars);
             // A helper's spend shows with the turn that reads its result (ADR 0152).
             let cost_micros = if name == spade_core::helper::TOOL {
                 engine.helper_cost(&id, &job)

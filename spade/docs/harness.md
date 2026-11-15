@@ -45,7 +45,9 @@ turn's total.
   destructive calls and for any write in a turn that read untrusted output (`web_search`,
   `web_fetch`, email). That is the `ask` level; on `auto_review` and `full_access` what the gate
   would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 16 at once, or what
-  `SPADE_PARALLEL_TOOLS` sets; the rest wait their turn); results are cut to 20,000 characters. No call is timed out by the harness: one still running after the
+  `SPADE_PARALLEL_TOOLS` sets; the rest wait their turn); a result over 20,000 characters keeps its first and last
+  10,000, with a note of how much was left out between them (the end is where errors and summaries
+  usually are). No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed

@@ -733,7 +733,7 @@ async fn finish_tool(
     name: &str,
     output: ToolOutput,
 ) {
-    let mut content = trim(&output.content, engine.limits.result_chars);
+    let mut content = super::trim::trim(&output.content, engine.limits.result_chars);
     let mut images = Vec::new();
     for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {
         match engine.images.put(bytes) {
@@ -768,13 +768,4 @@ async fn finish_tool(
         engine.append_events(id, &events).map(|_| ())
     })
     .await;
-}
-
-pub(super) fn trim(text: &str, longest: usize) -> String {
-    let count = text.chars().count();
-    if count <= longest {
-        return text.to_owned();
-    }
-    let kept: String = text.chars().take(longest).collect();
-    format!("{kept}\n[… {} more characters]", count - longest)
 }
