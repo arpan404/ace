@@ -1245,8 +1245,8 @@
       "sha256": "355fa7a2779ddf8c31f12d5db7130d24569fa4eab161eb76421b40af655d946e"
     },
     "schema/EntitiesPage.json": {
-      "bytes": 3987,
-      "sha256": "7db5981a4294f67d34689a0073c5b558f0f4ce40a150a972d5728d8d790726bd"
+      "bytes": 6675,
+      "sha256": "ca1f3d4531992031b693d4b0b061159f8f391ce6529567f13d3bbd36b29c034d"
     },
     "schema/EntityCollection.json": {
       "bytes": 233,
@@ -5313,10 +5313,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1068722,
-      "sha256": "eea11a18379f63fc2a298a2c48154ea0806e5b92915a20cdd4302a7f77c5b32f"
+      "bytes": 1069774,
+      "sha256": "cd4ad4398e52d0f721b663cf20f70e1a5d32beeb8964d77961ea7f9f66dafc12"
     }
   },
-  "input": "f12f278788fdfc053bd6bcc0d2df029eee197d85f12fcfa7d326f41a7f745cf9",
+  "input": "31dc612bc9ac331ab2f12bd993be992d599bd222b46979d9a6e6697534e7351b",
   "version": 1
 }

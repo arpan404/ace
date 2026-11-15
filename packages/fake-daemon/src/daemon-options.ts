@@ -8,11 +8,14 @@ export interface FakeDaemonOptions {
   /** Finished work before this moment counts as seen when placing threads; default: all of it. */
   seenBefore?: number;
   /**
-   * How `entities.page` pages: `active-first` (default), as this daemon does, the newest page
-   * carrying every active entity first; `chronological`, as daemons before it did, newest first
-   * with no regard for state.
+   * How `entities.page` pages: `active-first` (default), as this daemon does, every active
+   * entity first, page after page; `chronological`, as daemons before it did, newest first with
+   * no regard for state. Read on every page, so a test can change it mid-read, as an upgrade
+   * or a downgrade of the daemon does.
    */
   entityPages?: "active-first" | "chronological";
+  /** The largest entity's JSON a page carries (`active-first`); larger ones are `tooLarge`. */
+  largestEntity?: number;
   /** false: speak as a daemon from before placement, sending lists without places or dots. */
   placement?: false;
   /** Keep creation visible for screenshot capture. */

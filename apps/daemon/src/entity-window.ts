@@ -1,7 +1,6 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
-import { boundedEntity } from "@ace/projection/entity-cut";
-import { entityPage } from "@ace/projection/entity-pages";
+import { entityPage, type TooLarge } from "@ace/projection/entity-pages";
 import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
 
 const active = `CASE
@@ -13,8 +12,6 @@ const active = `CASE
 const collections = ["agents", "runs", "interactions", "backgroundTasks"] as const;
 /** The bytes of entries a page holds unless the reader asks for less (`maxBytes`). */
 export const entityPageBytes = 128 * 1024;
-/** The most one active entity may take of a snapshot; larger ones are cut (`boundedEntity`). */
-const snapshotEntityBytes = 64 * 1024;
 export class EntityWindow {
   private sql: (sql: string) => StatementSync;
   private trust: EntityTrust;
@@ -62,13 +59,7 @@ export class EntityWindow {
     for (const collection of collections) {
       const values: [string, unknown][] = [];
       for (const row of this.rows(view.thread.id, collection, "w.active=1", "ASC"))
-        values.push([
-          String(row.id),
-          boundedEntity(
-            storedEntity(collection, String(row.value), this.trust),
-            snapshotEntityBytes,
-          ),
-        ]);
+        values.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
       let bytes = 0;
       let before: number | undefined;
       let count = 0;
@@ -181,9 +172,15 @@ export class EntityWindow {
     before: number,
     limit: number,
     maxBytes: number,
-  ): { entries: StoredEntity<C>[]; entitiesBefore: number | null } {
+  ): { entries: StoredEntity<C>[]; tooLarge?: TooLarge[]; entitiesBefore: number | null } {
     const trust = this.trust;
     const statement = this.rows.bind(this);
+    const kindOf = (id: string) => {
+      const row = this.sql(
+        "SELECT json_extract(value,'$.request.kind') AS kind FROM view_entities WHERE thread_id=? AND collection=? AND id=?",
+      ).get(thread.id, collection, id);
+      return typeof row?.kind === "string" ? row.kind : undefined;
+    };
     /** Read lazily: a page stops at its first row past its bound. */
     const rows = (isActive: 0 | 1) =>
       function* (below: number, most: number) {
@@ -197,13 +194,23 @@ export class EntityWindow {
           most,
         )) {
           const value = String(row.value);
+          const id = String(row.id);
           yield {
             seq: Number(row.created_seq),
+            id,
             bytes: Buffer.byteLength(value),
+            length: value.length,
             entity: () => storedEntity(collection, value, trust),
+            kind: () => kindOf(id),
           };
         }
       };
-    return entityPage({ active: rows(1), inactive: rows(0) }, before, limit, maxBytes);
+    const { tooLarge, ...page } = entityPage(
+      { active: rows(1), inactive: rows(0) },
+      before,
+      limit,
+      maxBytes,
+    );
+    return tooLarge.length ? { ...page, tooLarge } : page;
   }
 }

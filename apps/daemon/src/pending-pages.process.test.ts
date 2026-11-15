@@ -12,9 +12,9 @@ import { fixture, token } from "./socket-test-support.ts";
 import type { Store } from "./store.ts";
 
 // Pending requests come first in a thread's interaction pages, but still paged by bytes: however
-// many and however large, a reader finds every one by reading on, each page within its bound,
-// and a request too large for a page alone comes cut, still showable and answerable. A real
-// socket, because the bounds and failures are about the frames that go out.
+// many and however large, a reader finds every one by reading on, each whole. A page holds what
+// was asked, or one request larger than that alone; one too large for any reply is named in its
+// place. A real socket, because the bounds and failures are about the frames that go out.
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -119,7 +119,7 @@ async function setup() {
   return { f, client, page };
 }
 
-test("a hundred pending requests of 400 KiB each are all found, each page within its bound", async () => {
+test("a hundred pending requests of 400 KiB each are all found whole, one to a page", async () => {
   const { f, page } = await setup();
   for (let index = 0; index < 100; index++)
     f.store.appendEvents(f.thread.id, [
@@ -132,80 +132,40 @@ test("a hundred pending requests of 400 KiB each are all found, each page within
   let before: number | null = Number.MAX_SAFE_INTEGER;
   while (before !== null) {
     const { text, page: result } = await page(before, 64 * 1024);
-    // The page's entries within what was asked; the envelope around them is small.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(64 * 1024 + 1024);
+    // Larger than the 64 KiB asked for, so alone; the envelope around it is small.
+    expect(result.entries).toHaveLength(1);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(400 * 1024 + 2048);
     for (const entry of result.entries) found.set(entry.id, entry);
-    expect(result.entitiesBefore).not.toBe(before);
     before = result.entitiesBefore;
   }
   expect([...found.values()].filter((entry) => entry.state === "pending")).toHaveLength(100);
-  // Cut, never dropped: what the phone shows and answers with is whole; the rest says its size.
   const one = found.get("ask-7");
-  expect(one?.request).toMatchObject({
-    kind: "approval",
-    title: "Run ask-7",
-    target: { command: "make ask-7" },
-    options: [{ id: "ask-7:allow" }, { id: "ask-7:deny" }],
-  });
-  expect(one?.request.kind === "approval" && one.request.description).toMatch(
-    new RegExp(`\\[cut: ${400 * 1024} bytes\\]$`),
-  );
+  expect(one?.request.kind === "approval" && one.request.description).toBe("d".repeat(400 * 1024));
 });
 
-/** Subscribe `client` to the thread and wait for its snapshot, whole or in parts. */
-async function open(client: Awaited<ReturnType<typeof connect>>, threadId: ThreadId, id: string) {
-  client.send({ type: "subscribe", subscriptionId: id, scope: { kind: "thread", threadId } });
-  const parts: string[] = [];
-  for (;;) {
-    const text = await client.until((sent) => sent.includes(`"subscriptionId":"${id}"`));
-    const message = JSON.parse(text) as { type: string; data?: string; done?: boolean };
-    if (message.type === "snapshot") {
-      parts.push(text);
-      break;
-    }
-    if (message.type === "snapshot.part") {
-      parts.push(message.data ?? "");
-      if (message.done) break;
-    }
+test("a request too large for any reply is named in its place, and paging goes on", async () => {
+  const { f, page } = await setup();
+  f.store.appendEvents(f.thread.id, [
+    { type: "interaction.opened", interaction: approval(f.thread.id, "small-1", "Deploy?") },
+    {
+      type: "interaction.opened",
+      interaction: approval(f.thread.id, "huge", "h".repeat(33 * 1024 * 1024)),
+    },
+    { type: "interaction.opened", interaction: approval(f.thread.id, "small-2", "Ship?") },
+  ]);
+  const ids: string[] = [];
+  const tooLarge: unknown[] = [];
+  let before: number | null = Number.MAX_SAFE_INTEGER;
+  while (before !== null) {
+    const { page: result } = await page(before);
+    ids.push(...result.entries.map((entry) => entry.id));
+    tooLarge.push(...(result.tooLarge ?? []));
+    before = result.entitiesBefore;
   }
-  const whole = parts.length === 1 && parts[0]?.startsWith("{") ? parts[0] : parts.join("");
-  const snapshot = ServerMessage.parse(JSON.parse(whole));
-  if (snapshot.type !== "snapshot" || snapshot.view.kind !== "thread") throw new Error("shape");
-  return snapshot.view;
-}
-
-const hundredLarge = (store: Store, threadId: ThreadId) => {
-  for (let index = 0; index < 100; index++)
-    store.appendEvents(threadId, [
-      {
-        type: "interaction.opened",
-        interaction: approval(threadId, `ask-${index}`, "d".repeat(400 * 1024)),
-      },
-    ]);
-};
-
-test("a thread with a hundred pending requests of 400 KiB each still opens", async () => {
-  const { f, client } = await setup();
-  hundredLarge(f.store, f.thread.id);
-  // Whole, or in parts; never a socket closed for it.
-  const view = await open(client, f.thread.id, "open");
-  expect(
-    Object.values(view.interactions).filter((entry) => entry.state === "pending"),
-  ).toHaveLength(100);
-});
-
-test("a thread already open when a hundred 400 KiB requests arrive still opens for the next reader", async () => {
-  const { f, client } = await setup();
-  await open(client, f.thread.id, "first");
-  hundredLarge(f.store, f.thread.id);
-  const next = await connect(f.server.url);
-  const view = await open(next, f.thread.id, "second");
-  const pending = Object.values(view.interactions).filter((entry) => entry.state === "pending");
-  expect(pending).toHaveLength(100);
-  expect(pending[0]?.request).toMatchObject({
-    kind: "approval",
-    target: { command: expect.stringMatching(/^make ask-/) },
-  });
+  expect(ids.toSorted()).toEqual(["small-1", "small-2"]);
+  expect(tooLarge).toEqual([
+    { id: "huge", kind: "approval", active: true, bytes: expect.any(Number) },
+  ]);
 });
 
 test("a request answered between page reads never makes the rest of the pending ones vanish", async () => {
@@ -236,4 +196,33 @@ test("a request answered between page reads never makes the rest of the pending 
   }
   const pending = [...found.values()].filter((entry) => entry.state === "pending");
   expect(pending).toHaveLength(200);
+});
+
+test("a cursor an older daemon gave, resumed after the upgrade, reads from the start and finds every pending request", async () => {
+  const { f, page } = await setup();
+  // Ten pending requests, then sixty answered ones in front of them.
+  for (let index = 0; index < 10; index++)
+    f.store.appendEvents(f.thread.id, [
+      { type: "interaction.opened", interaction: approval(f.thread.id, `ask-${index}`, "Deploy?") },
+    ]);
+  const opened: number[] = [];
+  for (let index = 0; index < 60; index++) {
+    const [event] = f.store.appendEvents(f.thread.id, [
+      { type: "interaction.opened", interaction: approval(f.thread.id, `done-${index}`, "Done") },
+    ]);
+    opened.push(event?.seq ?? 0);
+    resolve(f.store, f.thread.id, `done-${index}`);
+  }
+  // An older daemon's first page held the newest 50, all answered; its cursor was the bare
+  // creation sequence of the oldest of them, with every pending request below it.
+  const older = opened[10] ?? 0;
+  const found = new Map<string, Interaction>();
+  let before: number | null = older;
+  while (before !== null) {
+    const next = await page(before);
+    for (const entry of next.page.entries) found.set(entry.id, entry);
+    before = next.page.entitiesBefore;
+  }
+  expect([...found.values()].filter((entry) => entry.state === "pending")).toHaveLength(10);
+  expect(found.size).toBe(70);
 });

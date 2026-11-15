@@ -1019,6 +1019,7 @@ export class FakeDaemon implements Host {
         limit,
         maxBytes,
         this.options.entityPages ?? "active-first",
+        this.options.largestEntity,
       ),
     });
   }
