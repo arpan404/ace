@@ -78,7 +78,7 @@ import XCTest
         screenshot("offline")
         app.terminate()
         try await control(true)
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         let request = try XCTUnwrap(URL(string: "http://127.0.0.1:9841/state"))
         let clock = ContinuousClock()
@@ -126,7 +126,7 @@ import XCTest
         XCTAssertEqual(admitted, 1)
         app.terminate()
         try await control(true)
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
         let replay = try await waitForReceipt { $0.delivered >= 1 }
         XCTAssertGreaterThanOrEqual(replay.attempts, 2)
@@ -163,7 +163,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-metrics"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

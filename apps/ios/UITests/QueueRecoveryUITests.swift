@@ -130,7 +130,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
             + (viewOnly ? ["--spike-view-only"] : [])
-        app.launch()
+        app.launchWithArguments()
         app.revealRow("thread.\(thread)").tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         return app

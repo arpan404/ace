@@ -267,7 +267,7 @@ import XCTest
         let app = XCUIApplication()
         // A fresh install: no computer paired, no fixture connected.
         app.launchArguments = ["--spike", "--spike-unpaired"]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         let review = app.tabBars.firstMatch.buttons["Code review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
@@ -281,7 +281,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
         if let appearance = ProcessInfo.processInfo.environment["ACE_SHOT_APPEARANCE"] { app.launchArguments += ["-ace.appearance", appearance] }
-        app.launch()
+        app.launchWithArguments()
         allowNotifications()
         return app
     }

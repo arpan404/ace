@@ -12,7 +12,7 @@ import XCTest
                                  "Set TEST_RUNNER_ACE_PAIR_LINK to a link from `ace pair`")
         let app = XCUIApplication()
         app.launchArguments += ["-ace-host-trace"]
-        app.launch()
+        app.launchWithArguments()
         // With nothing paired the inbox opens on Add device.
         let add = app.buttons["inbox.empty.pair"]
         XCTAssertTrue(add.waitForExistence(timeout: 20))

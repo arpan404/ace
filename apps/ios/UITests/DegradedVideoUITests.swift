@@ -9,7 +9,7 @@ final class DegradedVideoUITests: XCTestCase {
     @MainActor func testADegradedTabSaysItsVideoRunsOnTheProcessor() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         let row = app.buttons["thread.ios-browser"]
         app.bringToMiddle(row)
         row.tap()
