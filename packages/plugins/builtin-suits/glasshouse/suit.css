@@ -1,0 +1,1046 @@
+/*
+ * Glasshouse: ace as panes of glass in a sunlit conservatory. Every selector names a published
+ * part (docs/design/suit-parts.md).
+ *
+ * The pane. A surface is a sheet of frosted glass: a translucent fill (--suit-fill), a sheen that
+ * falls from its top edge (--suit-sheen), a bright specular line along the top, fainter catch
+ * lights on its sides and bottom (the refraction at a thick edge), and two soft shadows that put
+ * it at a height above the light field (--suit-lift). Panes float with gaps between them. Parts
+ * set the variables; one rule draws every pane, so hover and state only change a variable.
+ */
+
+@font-face {
+  font-family: "Glasshouse Display";
+  src: url("assets/fonts/Manrope.ttf") format("truetype");
+  font-weight: 200 800;
+  font-display: fallback;
+}
+
+/* ------------------------------------------------------------------ the Suit's variables */
+
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-display: "Glasshouse Display", var(--font-sans);
+  --suit-gap: 10px;
+  --suit-r-pane: 20px;
+  --suit-r-tile: 13px;
+  --suit-r-chip: 10px;
+
+  /* Daylight glass: clear, cool, lit from above. */
+  --suit-glass: rgb(255 255 255 / 0.56);
+  --suit-glass-strong: rgb(255 255 255 / 0.8);
+  --suit-glass-clear: rgb(255 255 255 / 0.7);
+  --suit-glass-tinted: rgb(226 240 242 / 0.82);
+  --suit-glass-well: rgb(236 243 242 / 0.7);
+  --suit-sheen: linear-gradient(
+    172deg,
+    rgb(255 255 255 / 0.7) 0%,
+    rgb(255 255 255 / 0.12) 34%,
+    rgb(255 255 255 / 0) 60%
+  );
+  --suit-rim: rgb(255 255 255 / 0.98);
+  --suit-rim-side: rgb(255 255 255 / 0.5);
+  --suit-rim-under: rgb(255 255 255 / 0.32);
+  --suit-edge: rgb(24 64 74 / 0.13);
+  --suit-edge-strong: rgb(24 64 74 / 0.24);
+  --suit-shade-near: rgb(22 60 70 / 0.07);
+  --suit-shade-far: rgb(22 60 70 / 0.11);
+  --suit-glow: color-mix(in oklab, var(--color-tint) 30%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 10%, transparent);
+  --suit-lift: 0 1px 2px var(--suit-shade-near), 0 8px 22px var(--suit-shade-far);
+  --suit-lift-high:
+    0 2px 4px var(--suit-shade-near), 0 18px 44px var(--suit-shade-far),
+    0 4px 14px var(--suit-shade-near);
+  --suit-edges:
+    inset 0 1px 0 var(--suit-rim), inset 1px 0 0 var(--suit-rim-side),
+    inset -1px 0 0 var(--suit-rim-under), inset 0 -1px 0 var(--suit-rim-under);
+  --suit-fill: var(--suit-glass);
+  --suit-frost: blur(22px) saturate(170%);
+}
+
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  /* Night glass: smoked, cool, lit by moonlight along its upper edge. */
+  --suit-glass: rgb(20 32 39 / 0.6);
+  --suit-glass-strong: rgb(24 37 45 / 0.86);
+  --suit-glass-clear: rgb(22 35 42 / 0.74);
+  --suit-glass-tinted: rgb(30 52 60 / 0.82);
+  --suit-glass-well: rgb(10 18 22 / 0.55);
+  --suit-sheen: linear-gradient(
+    172deg,
+    rgb(220 240 245 / 0.09) 0%,
+    rgb(220 240 245 / 0.02) 36%,
+    rgb(220 240 245 / 0) 60%
+  );
+  --suit-rim: rgb(225 245 250 / 0.2);
+  --suit-rim-side: rgb(225 245 250 / 0.08);
+  --suit-rim-under: rgb(225 245 250 / 0.05);
+  --suit-edge: rgb(200 230 238 / 0.1);
+  --suit-edge-strong: rgb(200 230 238 / 0.18);
+  --suit-shade-near: rgb(0 6 10 / 0.3);
+  --suit-shade-far: rgb(0 6 10 / 0.38);
+  --suit-glow: color-mix(in oklab, var(--color-tint) 26%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 12%, transparent);
+  --suit-frost: blur(26px) saturate(150%);
+  --suit-sheet: rgb(12 21 26 / 0.42);
+}
+
+[data-part="app"] {
+  /* The regions: the sidebar, header, composer and side panel are panes over the light. */
+  --suit-app-background: transparent;
+  --suit-rail-background: transparent;
+  --suit-sidebar-background: var(--suit-sheen), var(--suit-glass);
+  --suit-sidebar-border: 1px solid var(--suit-edge);
+  --suit-sidebar-shadow: var(--suit-edges), var(--suit-lift);
+  --suit-header-background: var(--suit-sheen), var(--suit-glass);
+  --suit-header-border: 1px solid var(--suit-edge);
+  --suit-header-shadow: var(--suit-edges), var(--suit-lift);
+  --suit-page-background: transparent;
+  /* The reading column stands on one tall sheet of clear glass; the light field shows either
+   * side of it and between the panes above. */
+  --suit-sheet: rgb(250 253 252 / 0.5);
+  --suit-transcript-background: linear-gradient(var(--suit-sheet), var(--suit-sheet)) center top /
+    min(100%, 880px) 100% no-repeat;
+  --suit-composer-background: var(--suit-sheen), var(--suit-glass-strong);
+  --suit-composer-border: 1px solid var(--suit-edge);
+  --suit-composer-shadow: var(--suit-edges), var(--suit-lift-high);
+  --suit-right-panel-background: var(--suit-sheen), var(--suit-glass-strong);
+  --suit-right-panel-border: 1px solid var(--suit-edge);
+  --suit-right-panel-shadow: var(--suit-edges), var(--suit-lift);
+  font-family: var(--font-sans);
+  letter-spacing: 0.005em;
+}
+
+/* ------------------------------------------------------------------ the pane rule */
+
+[data-part="message-agent"],
+[data-part="message-user"],
+[data-part="tool-row"],
+[data-part="thread-row"],
+[data-part="card"],
+[data-part="pr-row"],
+[data-part="issue-row"],
+[data-part="code-block"],
+[data-part="merge-box"],
+[data-part="diff-file"],
+[data-part="terminal-tab"],
+[data-part="timeline-item"],
+[data-part="check-row"],
+[data-part="page-header"],
+[data-part="nav-item"],
+[data-part="list-row"],
+[data-part="panel-tab"],
+[data-part="rail-item"],
+[data-part="model-picker"],
+[data-part="button"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="tooltip"] {
+  --suit-fill: var(--suit-glass);
+  --suit-shine: var(--suit-sheen);
+  --suit-line: var(--suit-edge);
+  --suit-height: var(--suit-lift);
+  background: var(--suit-shine), var(--suit-fill);
+  border-color: var(--suit-line);
+  box-shadow: var(--suit-edges), var(--suit-height);
+  transition:
+    background-color 160ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease,
+    border-color 160ms ease;
+}
+
+/* Rows that are only panes on hover or when chosen. */
+[data-part="nav-item"],
+[data-part="list-row"],
+[data-part="panel-tab"],
+[data-part="rail-item"],
+[data-part="button"][data-variant="ghost"] {
+  --suit-fill: transparent;
+  --suit-shine: linear-gradient(transparent, transparent);
+  --suit-height: 0 0 0 transparent;
+  --suit-line: transparent;
+  box-shadow: none;
+}
+[data-part="nav-item"]:hover,
+[data-part="list-row"]:hover,
+[data-part="panel-tab"]:hover,
+[data-part="rail-item"]:hover,
+[data-part="button"][data-variant="ghost"]:hover {
+  --suit-fill: var(--suit-glass);
+  --suit-shine: var(--suit-sheen);
+  box-shadow: var(--suit-edges);
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"],
+[data-part="sidebar-header"],
+[data-part="settings-section"] {
+  font-family: var(--suit-display);
+}
+
+[data-part="page-title"] {
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+[data-part="message-agent"],
+[data-part="message-user"] {
+  font-family: var(--font-prose);
+  letter-spacing: 0.003em;
+  line-height: 1.68;
+}
+
+[data-part="link"] {
+  color: var(--color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 45%, transparent);
+}
+[data-part="link"]:hover {
+  text-decoration-color: var(--color-link);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"],
+[data-part="menu"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--suit-edge-strong) transparent;
+}
+
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 30%, transparent);
+}
+
+/* ------------------------------------------------------------------ window: panes over light */
+
+[data-part="rail"] {
+  padding-top: 4px;
+}
+
+[data-part="rail-item"] {
+  border-radius: 14px;
+  border: 1px solid transparent;
+}
+[data-part="rail-item"][data-state="active"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-shine: var(--suit-sheen);
+  --suit-line: var(--suit-edge);
+  color: var(--color-link);
+  box-shadow:
+    var(--suit-edges),
+    0 0 0 1px var(--suit-glow),
+    0 6px 16px var(--suit-shade-far);
+}
+
+/* The sidebar is a pane of its own, with gaps to the window's edge and to the page. */
+[data-part="sidebar"] {
+  margin: 6px 10px 10px 2px;
+  border-radius: var(--suit-r-pane);
+  overflow: hidden;
+}
+
+[data-part="sidebar-header"] {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+[data-part="project-header"] {
+  color: var(--color-muted-foreground);
+}
+
+[data-part="sidebar-tabs"] {
+  border-radius: 999px;
+  border: 1px solid var(--suit-edge);
+  background: var(--suit-sheen), var(--suit-glass-strong);
+  box-shadow: var(--suit-edges), var(--suit-lift);
+  backdrop-filter: var(--suit-frost);
+}
+[data-part="sidebar-tabs"] [data-part="tab"] {
+  border-radius: 999px;
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  background: var(--suit-wash);
+  color: var(--color-link);
+  box-shadow: inset 0 0 0 1px var(--suit-glow);
+}
+
+/* ------------------------------------------------------------------ thread rows: stacked tiles */
+
+[data-part="thread-list"] {
+  padding-inline: 2px;
+}
+
+[data-part="thread-row"] {
+  --suit-fill: rgb(255 255 255 / 0.3);
+  --suit-height: 0 1px 2px var(--suit-shade-near);
+  border: 1px solid var(--suit-line);
+  border-radius: var(--suit-r-tile);
+  margin-block: 5px;
+}
+[data-scheme="dark"] [data-part="thread-row"] {
+  --suit-fill: rgb(30 46 54 / 0.4);
+}
+[data-part="thread-row"]:hover {
+  --suit-fill: var(--suit-glass-clear);
+  --suit-height: var(--suit-lift);
+  transform: translateY(-1px);
+}
+/* The open thread: the tile raised out of the stack and lit, an accent filament on its edge. */
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-line: color-mix(in oklab, var(--color-tint) 38%, var(--suit-edge));
+  --suit-height:
+    0 0 0 1px var(--suit-glow), 0 3px 6px var(--suit-shade-near), 0 14px 30px var(--suit-shade-far);
+  transform: translateY(-1px);
+}
+[data-part="thread-row"][data-state="active"] {
+  box-shadow:
+    inset 3px 0 0 var(--color-tint),
+    var(--suit-edges),
+    var(--suit-height);
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+[data-part="thread-title"] {
+  font-weight: 550;
+}
+[data-part="thread-meta"] {
+  font-size: 11.5px;
+}
+
+/* Status glyphs keep ace's colours; the Suit only seats them in a thin glass ring. */
+[data-part="status-icon"] {
+  border-radius: 999px;
+}
+
+/* ------------------------------------------------------------------ header: a thin glass strip */
+
+[data-part="header"] {
+  margin: 6px 10px 0 0;
+  border-radius: 16px;
+  min-height: 40px;
+}
+
+[data-part="header-title"] {
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+[data-part="header"] [data-part="icon-button"] {
+  border-radius: 10px;
+}
+
+/* ------------------------------------------------------------------ transcript */
+
+/* The agent's answer: a large, clear pane. */
+[data-part="message-agent"] {
+  --suit-fill: var(--suit-glass-clear);
+  border: 1px solid var(--suit-line);
+  border-radius: var(--suit-r-pane);
+  padding: 16px 22px 18px;
+  margin-block: 10px;
+  font-size: 14.5px;
+}
+
+/* The person's message: a smaller pane tinted with the accent's light. */
+[data-part="message-user"] {
+  --suit-fill: var(--suit-glass-tinted);
+  --suit-line: color-mix(in oklab, var(--color-tint) 26%, var(--suit-edge));
+  border: 1px solid var(--suit-line);
+  border-radius: 20px 20px 6px 20px;
+  padding: 10px 18px;
+}
+
+[data-part="message-meta"] {
+  font-size: 11.5px;
+  color: var(--color-subtle-foreground);
+}
+
+[data-part="turn-divider"] {
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--color-subtle-foreground);
+}
+
+[data-part="inline-code"] {
+  background: var(--suit-glass-well);
+  border: 1px solid var(--suit-edge);
+  border-radius: 6px;
+  padding: 0 0.32em;
+  font-size: 0.9em;
+}
+
+[data-part="code-block"] {
+  --suit-fill: color-mix(in oklab, var(--color-code) 86%, transparent);
+  --suit-height: inset 0 1px 3px var(--suit-shade-near);
+  border: 1px solid var(--suit-line);
+  border-radius: 14px;
+}
+
+/* Work log: each step a small glass chip. Its kind sits in a little glass lens at its head,
+ * drawn as a crisp line icon (the lens covers ace's own glyph; the words are untouched). */
+[data-part="tool-row"] {
+  --suit-fill: var(--suit-glass);
+  --suit-height: 0 1px 2px var(--suit-shade-near), 0 4px 12px var(--suit-shade-near);
+  --suit-lens: var(--color-surface-2);
+  position: relative;
+  border: 1px solid var(--suit-line);
+  border-radius: var(--suit-r-chip);
+  margin: 5px 0;
+  width: 100%;
+  font-size: 13px;
+}
+[data-part="tool-row"]:hover {
+  --suit-fill: var(--suit-glass-clear);
+  --suit-height: var(--suit-lift);
+}
+[data-part="tool-row"][data-state="open"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-line: color-mix(in oklab, var(--color-tint) 30%, var(--suit-edge));
+}
+[data-part="tool-row"][data-state="failed"] {
+  --suit-line: var(--suit-edge-strong);
+}
+[data-part="tool-row"]::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  border-radius: 999px;
+  border: 1px solid var(--suit-edge);
+  background:
+    radial-gradient(circle at 35% 25%, var(--suit-rim) 0, transparent 55%), var(--suit-lens);
+  box-shadow:
+    inset 0 -1px 2px var(--suit-shade-near),
+    0 1px 3px var(--suit-shade-near);
+  pointer-events: none;
+}
+[data-part="tool-row"]::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--color-link);
+  mask: url("assets/icons/tool.svg") no-repeat center / 14px 14px;
+  pointer-events: none;
+}
+[data-part="tool-row"][data-variant="read"]::after {
+  mask-image: url("assets/icons/read.svg");
+}
+[data-part="tool-row"][data-variant="search"]::after {
+  mask-image: url("assets/icons/search.svg");
+}
+[data-part="tool-row"][data-variant="list"]::after {
+  mask-image: url("assets/icons/list.svg");
+}
+[data-part="tool-row"][data-variant="shell"]::after {
+  mask-image: url("assets/icons/shell.svg");
+}
+[data-part="tool-row"][data-variant="edit"]::after {
+  mask-image: url("assets/icons/edit.svg");
+}
+[data-part="tool-row"][data-variant="web"]::after {
+  mask-image: url("assets/icons/web.svg");
+}
+[data-part="tool-row"][data-variant="think"]::after {
+  mask-image: url("assets/icons/think.svg");
+}
+[data-part="tool-row"][data-variant="note"]::after {
+  mask-image: url("assets/icons/note.svg");
+}
+
+[data-part="tool-output"],
+[data-part="diff"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-edge);
+  background: color-mix(in oklab, var(--color-code) 88%, transparent);
+  box-shadow: inset 0 1px 3px var(--suit-shade-near);
+}
+
+[data-part="attachment"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-edge);
+  box-shadow: var(--suit-edges), var(--suit-lift);
+}
+
+/* The Working line keeps ace's words and colours; the Suit sets it in the pane's type. */
+[data-part="working-line"] {
+  font-family: var(--font-sans);
+  font-weight: 550;
+}
+
+/* Approvals and questions keep ace's colours; the Suit gives them a pane's soft corners. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 16px;
+  font-family: var(--font-sans);
+}
+
+/* ------------------------------------------------------------------ composer: a floating glass bar */
+
+[data-part="composer"] {
+  position: relative;
+  border-radius: 24px;
+  backdrop-filter: var(--suit-frost);
+}
+[data-part="composer"]:focus-within {
+  border-color: color-mix(in oklab, var(--color-tint) 45%, var(--suit-edge));
+  box-shadow:
+    var(--suit-edges),
+    0 0 0 3px var(--suit-wash),
+    var(--suit-lift-high);
+}
+/* Light along the bar's top edge, as on a thick sheet. */
+[data-part="composer"]::before {
+  content: "";
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--suit-rim) 30%,
+    color-mix(in oklab, var(--color-tint) 60%, var(--suit-rim)) 55%,
+    transparent
+  );
+}
+
+[data-part="composer-input"] {
+  caret-color: var(--color-tint);
+  font-family: var(--font-prose);
+}
+[data-part="composer-input"]::placeholder {
+  color: var(--color-subtle-foreground);
+}
+
+/* Send is a luminous orb: a glass bead lit from within by the accent. */
+[data-part="composer-send"] {
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--color-tint) 60%, white);
+  color: var(--color-tint-foreground);
+  background:
+    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.85) 0, rgb(255 255 255 / 0) 34%),
+    radial-gradient(
+      circle at 50% 60%,
+      var(--color-tint-hover) 0,
+      var(--color-tint) 62%,
+      color-mix(in oklab, var(--color-tint) 70%, black) 100%
+    );
+  box-shadow:
+    inset 0 -2px 4px color-mix(in oklab, var(--color-tint) 60%, black),
+    0 0 0 3px var(--suit-wash),
+    0 4px 14px var(--suit-glow),
+    0 0 22px var(--suit-glow);
+  transition:
+    box-shadow 200ms ease,
+    transform 160ms ease;
+}
+[data-part="composer-send"]:hover {
+  transform: scale(1.05);
+  box-shadow:
+    inset 0 -2px 4px color-mix(in oklab, var(--color-tint) 60%, black),
+    0 0 0 4px var(--suit-wash),
+    0 6px 18px var(--suit-glow),
+    0 0 30px var(--suit-glow);
+}
+[data-part="composer-send"]:active {
+  transform: scale(0.96);
+}
+[data-part="composer-send"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+  border-color: var(--suit-edge-strong);
+  background:
+    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.55) 0, rgb(255 255 255 / 0) 36%),
+    var(--suit-glass-strong);
+  box-shadow:
+    var(--suit-edges),
+    0 2px 6px var(--suit-shade-near);
+  transform: none;
+}
+
+[data-part="model-picker"] {
+  --suit-fill: transparent;
+  --suit-shine: linear-gradient(transparent, transparent);
+  --suit-height: 0 0 0 transparent;
+  border-radius: 999px;
+  box-shadow: none;
+}
+[data-part="model-picker"]:hover,
+[data-part="model-picker"][data-state="open"] {
+  --suit-fill: var(--suit-glass);
+  --suit-shine: var(--suit-sheen);
+  box-shadow: var(--suit-edges);
+}
+
+[data-part="composer-toolbar"] [data-part="icon-button"],
+[data-part="composer-toolbar"] [data-part="button"] {
+  border-radius: 999px;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-line);
+  font-weight: 600;
+}
+[data-part="button"]:hover {
+  --suit-fill: var(--suit-glass-strong);
+}
+[data-part="button"][data-variant="primary"] {
+  --suit-fill: var(--color-tint);
+  --suit-shine: linear-gradient(180deg, rgb(255 255 255 / 0.28), rgb(255 255 255 / 0) 55%);
+  --suit-line: color-mix(in oklab, var(--color-tint) 70%, black);
+  --suit-height: 0 2px 10px var(--suit-glow);
+  color: var(--color-tint-foreground);
+}
+[data-part="button"][data-variant="primary"]:hover {
+  --suit-fill: var(--color-tint-hover);
+}
+[data-part="button"][data-state="disabled"] {
+  --suit-height: 0 0 0 transparent;
+  opacity: 0.6;
+}
+
+[data-part="icon-button"] {
+  border-radius: 10px;
+  transition: background-color 140ms ease;
+}
+[data-part="icon-button"]:hover,
+[data-part="icon-button"][data-state="active"] {
+  background: var(--suit-glass);
+  box-shadow: var(--suit-edges);
+}
+
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-edge-strong);
+  background: var(--suit-glass-well);
+  box-shadow: inset 0 1px 3px var(--suit-shade-near);
+  caret-color: var(--color-tint);
+}
+[data-part="input"]:focus-within,
+[data-part="select"]:focus-within,
+[data-part="search-field"]:focus-within {
+  border-color: color-mix(in oklab, var(--color-tint) 55%, var(--suit-edge));
+  box-shadow:
+    inset 0 1px 3px var(--suit-shade-near),
+    0 0 0 3px var(--suit-wash);
+}
+
+[data-part="switch"] {
+  border-radius: 999px;
+  box-shadow:
+    inset 0 1px 3px var(--suit-shade-near),
+    0 0 0 1px var(--suit-edge);
+}
+[data-part="switch"][data-state="checked"] {
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.15),
+    0 0 0 1px color-mix(in oklab, var(--color-tint) 60%, transparent),
+    0 0 12px var(--suit-glow);
+}
+[data-part="checkbox"] {
+  border-radius: 6px;
+}
+
+[data-part="tabs"] {
+  border-radius: 14px;
+}
+[data-part="tab"] {
+  border-radius: 10px;
+}
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  background: var(--suit-sheen), var(--suit-glass-strong);
+  box-shadow:
+    var(--suit-edges),
+    0 1px 4px var(--suit-shade-near);
+}
+
+[data-part="badge"],
+[data-part="label-chip"] {
+  border-radius: 999px;
+}
+[data-part="kbd"] {
+  border-radius: 6px;
+  border: 1px solid var(--suit-edge-strong);
+  background: var(--suit-glass-strong);
+  box-shadow:
+    inset 0 1px 0 var(--suit-rim),
+    0 1px 0 var(--suit-edge-strong);
+}
+[data-part="branch-chip"] {
+  border-radius: 999px;
+  border: 1px solid var(--suit-edge);
+  background: var(--suit-glass-well);
+  padding-inline: 8px;
+  font-family: var(--font-mono);
+}
+[data-part="progress"] {
+  border-radius: 999px;
+}
+[data-part="divider"] {
+  background: linear-gradient(90deg, transparent, var(--suit-edge-strong), transparent);
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ floating layers */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="dialog"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-height: var(--suit-lift-high);
+  border: 1px solid var(--suit-line);
+  border-radius: 16px;
+  backdrop-filter: var(--suit-frost);
+}
+[data-part="dialog"],
+[data-part="command-palette"] {
+  border-radius: 22px;
+}
+[data-part="tooltip"] {
+  --suit-fill: var(--suit-glass-strong);
+  border: 1px solid var(--suit-line);
+  border-radius: 9px;
+  color: var(--color-foreground);
+  backdrop-filter: var(--suit-frost);
+}
+[data-part="menu-item"] {
+  border-radius: 9px;
+  transition: background-color 120ms ease;
+}
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus-visible {
+  background: var(--suit-wash);
+  box-shadow: inset 0 0 0 1px var(--suit-glow);
+}
+[data-part="menu-item"][data-state="checked"] {
+  color: var(--color-link);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="page-body"] {
+  padding-bottom: 24px;
+}
+
+[data-part="page-header"] {
+  --suit-fill: transparent;
+  --suit-shine: linear-gradient(transparent, transparent);
+  --suit-height: 0 0 0 transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+
+[data-part="card"] {
+  border: 1px solid var(--suit-line);
+  border-radius: 18px;
+}
+
+[data-part="stat"] {
+  font-family: var(--suit-display);
+}
+
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-shine: var(--suit-sheen);
+  box-shadow:
+    inset 3px 0 0 var(--color-tint),
+    var(--suit-edges),
+    0 2px 8px var(--suit-shade-near);
+}
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 12px;
+}
+
+[data-part="avatar"] {
+  box-shadow: 0 0 0 1px var(--suit-edge-strong);
+}
+
+[data-part="empty-state"] {
+  font-family: var(--suit-display);
+  color: var(--color-muted-foreground);
+}
+
+/* ------------------------------------------------------------------ Settings: grouped panes */
+
+[data-part="settings-nav"] {
+  padding-inline: 4px;
+}
+[data-part="nav-item"] {
+  border-radius: 12px;
+  border: 1px solid var(--suit-line);
+}
+[data-part="nav-item"][data-state="active"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-shine: var(--suit-sheen);
+  --suit-line: color-mix(in oklab, var(--color-tint) 34%, var(--suit-edge));
+  color: var(--color-foreground);
+  box-shadow:
+    inset 3px 0 0 var(--color-tint),
+    var(--suit-edges),
+    0 4px 12px var(--suit-shade-near);
+}
+
+[data-page="settings"] [data-part="page-title"] {
+  font-size: 26px;
+}
+[data-part="settings-section"] {
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+[data-part="card"][data-variant="settings-group"] {
+  --suit-fill: var(--suit-glass-clear);
+  border-radius: 20px;
+  margin-block: 4px 18px;
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px solid var(--suit-edge);
+}
+[data-part="card"][data-variant="picker"][data-state="checked"],
+[data-part="card"][data-variant="preview"][data-state="checked"] {
+  --suit-line: var(--color-tint);
+  box-shadow:
+    0 0 0 2px var(--suit-glow),
+    var(--suit-edges),
+    var(--suit-lift);
+}
+
+/* ------------------------------------------------------------------ pull requests */
+
+/* The list's box dissolves; each pull request becomes its own glass card in a stack. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"],
+[data-page="inbox"] [data-part="card"] {
+  --suit-fill: transparent;
+  --suit-shine: linear-gradient(transparent, transparent);
+  --suit-height: 0 0 0 transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-page="pulls"] [data-part="filter-bar"],
+[data-page="issues"] [data-part="filter-bar"],
+[data-page="inbox"] [data-part="filter-bar"] {
+  border-radius: 16px;
+  border: 1px solid var(--suit-edge);
+  background: var(--suit-sheen), var(--suit-glass);
+  box-shadow: var(--suit-edges), var(--suit-lift);
+  margin-bottom: 6px;
+}
+
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  --suit-fill: var(--suit-glass);
+  position: relative;
+  border: 1px solid var(--suit-line);
+  border-radius: 16px;
+  margin-block: 8px;
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-height: var(--suit-lift-high);
+  transform: translateY(-1px);
+}
+[data-part="pr-row"][data-state="selected"] {
+  --suit-line: color-mix(in oklab, var(--color-tint) 45%, var(--suit-edge));
+  --suit-height: 0 0 0 2px var(--suit-glow), var(--suit-lift);
+}
+/* A merged or closed pull request is glass gone quiet: clearer, flatter. */
+[data-part="pr-row"][data-variant="merged"],
+[data-part="pr-row"][data-variant="closed"],
+[data-part="issue-row"][data-variant="closed"] {
+  --suit-fill: rgb(255 255 255 / 0.32);
+  --suit-height: 0 1px 2px var(--suit-shade-near);
+}
+[data-scheme="dark"] [data-part="pr-row"][data-variant="merged"],
+[data-scheme="dark"] [data-part="pr-row"][data-variant="closed"],
+[data-scheme="dark"] [data-part="issue-row"][data-variant="closed"] {
+  --suit-fill: rgb(20 32 39 / 0.45);
+}
+
+/* One pull request: a hero pane at the top, then panes for everything under it. */
+[data-page="pull"] [data-part="page-header"],
+[data-page="issue"] [data-part="page-header"] {
+  --suit-fill: var(--suit-glass-clear);
+  --suit-shine: var(--suit-sheen);
+  --suit-line: var(--suit-edge);
+  --suit-height: var(--suit-lift-high);
+  position: relative;
+  border: 1px solid var(--suit-line);
+  border-radius: 24px;
+  padding: 22px 26px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--suit-edges), var(--suit-height);
+}
+/* A filament of light along the hero's top edge, bending to the accent near its centre. */
+[data-page="pull"] [data-part="page-header"]::before,
+[data-page="issue"] [data-part="page-header"]::before {
+  content: "";
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  top: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--suit-rim) 25%,
+    color-mix(in oklab, var(--color-tint) 70%, var(--suit-rim)) 50%,
+    var(--suit-rim) 75%,
+    transparent
+  );
+}
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-part="card"][data-variant="description"] {
+  --suit-fill: var(--suit-glass-clear);
+  border-radius: 20px;
+  font-family: var(--font-prose);
+  line-height: 1.68;
+}
+[data-part="merge-box"] {
+  --suit-fill: var(--suit-glass-strong);
+  border: 1px solid var(--suit-line);
+  border-radius: 20px;
+  --suit-height: var(--suit-lift-high);
+}
+[data-part="merge-box"][data-state="done"] {
+  --suit-line: color-mix(in oklab, var(--color-tint) 40%, var(--suit-edge));
+}
+
+[data-part="timeline-item"] {
+  --suit-fill: var(--suit-glass);
+  border: 1px solid var(--suit-line);
+  border-radius: 16px;
+}
+[data-part="review-comment"] {
+  font-family: var(--font-prose);
+  line-height: 1.65;
+}
+[data-part="review-thread"] {
+  border-radius: 16px;
+  border: 1px solid var(--suit-edge);
+}
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 12px;
+}
+[data-part="check-row"] {
+  --suit-fill: transparent;
+  --suit-shine: linear-gradient(transparent, transparent);
+  --suit-height: 0 0 0 transparent;
+  box-shadow: none;
+}
+[data-part="check-row"]:hover,
+[data-part="check-row"][data-state="selected"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-shine: var(--suit-sheen);
+  box-shadow: var(--suit-edges);
+}
+[data-part="diff-file"] {
+  border: 1px solid var(--suit-line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ side panel: its own pane */
+
+[data-part="right-panel"] {
+  margin: 0 10px 10px 0;
+  border-radius: var(--suit-r-pane);
+  overflow: hidden;
+}
+
+[data-part="panel-header"] {
+  border-bottom: 1px solid var(--suit-edge);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0));
+}
+
+[data-part="panel-tab"] {
+  border-radius: 11px;
+  border: 1px solid var(--suit-line);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  --suit-fill: var(--suit-glass-strong);
+  --suit-shine: var(--suit-sheen);
+  --suit-line: var(--suit-edge-strong);
+  color: var(--color-foreground);
+  box-shadow:
+    inset 0 -2px 0 var(--color-tint),
+    var(--suit-edges),
+    0 3px 10px var(--suit-shade-near);
+}
+
+[data-part="panel-toolbar"] {
+  border-bottom: 1px solid var(--suit-edge);
+}
+
+[data-part="file-tree"] [data-part="list-row"] {
+  border-radius: 9px;
+}
+
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+
+[data-part="terminal-tab"] {
+  --suit-fill: color-mix(in oklab, var(--color-code) 92%, transparent);
+  --suit-height: inset 0 1px 4px var(--suit-shade-near);
+  border: 1px solid var(--suit-line);
+  border-radius: 16px;
+  margin: 8px;
+  overflow: hidden;
+}
+
+[data-part="browser-panel"] {
+  border-radius: 14px;
+}
