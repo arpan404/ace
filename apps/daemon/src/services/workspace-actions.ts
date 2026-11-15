@@ -124,10 +124,10 @@ export async function startWorkspaceActions({
   // send. The lease sweep, which spawns Git in every project, waits until a starting daemon has
   // served its clients; it settles again after, should a stale lease have held a move.
   let sweep = settle();
-  const first = setTimeout(() => {
+  const firstHeal = setTimeout(() => {
     sweep = sweep.then(heal);
   }, startupQuietMs);
-  first.unref();
+  firstHeal.unref();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
   // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
@@ -135,7 +135,7 @@ export async function startWorkspaceActions({
   }, 60_000);
   healing.unref();
   resources.own(() => {
-    clearTimeout(first);
+    clearTimeout(firstHeal);
     clearInterval(healing);
     return sweep;
   }, "Git lock sweep");
