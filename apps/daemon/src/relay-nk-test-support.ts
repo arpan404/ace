@@ -125,8 +125,10 @@ export function newClient(
   });
   cleanup.push(() => client.close());
   /** Resolves once the route holds its `n`th handed ticket. */
-  const ticketsHanded = async (n: number) => {
-    while (handed < n) await new Promise<void>((resolve) => waiters.push(resolve));
+  const ticketsHanded = async (n: number): Promise<void> => {
+    if (handed >= n) return;
+    await new Promise<void>((resolve) => waiters.push(resolve));
+    return ticketsHanded(n);
   };
   return Object.assign(client, { ticketsHanded });
 }
