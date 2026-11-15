@@ -82,6 +82,19 @@
   --suit-cream-edge: color-mix(in oklab, #eadfc6 34%, transparent);
   --suit-lift: 0 22px 50px -24px rgb(0 0 0 / 0.85), 0 2px 8px -2px rgb(0 0 0 / 0.5);
 }
+/* By night the rules and ornaments take a warmer, brighter gold than the accent's text tone. */
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-gold: #d4b07a;
+  --suit-gold-soft: color-mix(in oklab, #d4b07a 58%, transparent);
+  --suit-gold-faint: color-mix(in oklab, #d4b07a 28%, transparent);
+  --suit-gold-wash: color-mix(in oklab, #d4b07a 11%, transparent);
+}
 [data-scheme="light"] [data-part="app"],
 [data-scheme="light"] [data-part="menu"],
 [data-scheme="light"] [data-part="popover"],
@@ -408,6 +421,27 @@
  * for its kind on a patch of the page (over ace's own glyph), the entry, a dotted leader and the
  * result at the right. The row is a grid so the leader sits between the entry and the result.
  */
+/* A group of steps opens under the ledger's heading: book-face small capitals over a gold rule,
+   and its entries are numbered from i. again. */
+[data-part="tool-group-header"] {
+  counter-reset: ledger;
+  border-radius: 0;
+  font-family: var(--font-prose);
+  font-variant-caps: all-small-caps;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: var(--color-muted-foreground);
+  background: transparent;
+  box-shadow:
+    inset 0 -1px 0 var(--suit-gold-soft),
+    inset 0 -4px 0 var(--color-background),
+    inset 0 -5px 0 var(--suit-gold-faint);
+}
+[data-part="tool-group-header"]:hover,
+[data-part="tool-group-header"][data-state="open"] {
+  color: var(--color-foreground);
+  background: linear-gradient(90deg, var(--suit-gold-wash), transparent 80%);
+}
 [data-part="tool-row"] {
   counter-increment: ledger;
   position: relative;
@@ -635,6 +669,42 @@
   letter-spacing: 0.01em;
 }
 
+/* The queue is a correspondence slip clipped above the card: a gold hairline inside its edge,
+   its heading in spaced capitals, each waiting message on a ruled line. */
+[data-part="composer-strip"][data-variant="queue"]::after {
+  content: "";
+  position: absolute;
+  inset: 4px 4px 14px;
+  border: 1px solid var(--suit-gold-faint);
+  border-radius: 2px;
+  pointer-events: none;
+}
+[data-part="queue-strip"] {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-link);
+}
+[data-part="queue-item"] {
+  font-family: var(--font-prose);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-foreground);
+  border-radius: 0;
+  box-shadow: inset 0 -1px 0 var(--suit-gold-faint);
+}
+[data-part="queue-item"]:hover {
+  background: var(--suit-gold-wash);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--suit-gold-wash);
+  box-shadow: inset 1px 0 0 var(--suit-gold);
+}
+
 /* ------------------------------------------------------------------ controls */
 
 [data-part="button"] {
@@ -687,11 +757,47 @@
 [data-part="checkbox"] {
   border-radius: 1px;
 }
+/* A switch is a slim lacquer track with an ivory bead in a gold bezel; on, the track is gold. */
 [data-part="switch"] {
-  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+  background: var(--color-sidebar);
+  box-shadow: inset 0 0 0 1px var(--suit-gold-faint);
 }
 [data-part="switch"][data-state="checked"] {
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  background: linear-gradient(
+    180deg,
+    var(--suit-gold),
+    color-mix(in oklab, var(--suit-gold) 70%, #000)
+  );
+  box-shadow: inset 0 0 0 1px var(--suit-gold-soft);
+}
+[data-part="switch-thumb"] {
+  background: radial-gradient(circle at 40% 35%, #fffaf0, #e9dfc9 70%);
+  box-shadow:
+    0 0 0 1px var(--suit-gold-soft),
+    0 1px 3px var(--suit-ink-shadow);
+}
+/* One-of-n is a row of index words; the chosen word sits on a lacquer plate with a gold rule. */
+[data-part="segmented"] {
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--suit-gold-faint);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 1px;
+  background: var(--color-surface-2);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-gold),
+    0 0 0 1px var(--suit-gold-soft);
+}
+[data-part="segment"] {
+  border-radius: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+[data-part="segment"][data-state="selected"] {
+  color: var(--color-foreground);
 }
 
 [data-part="tabs"] {
@@ -936,20 +1042,96 @@
   color: var(--color-muted-foreground);
 }
 
-/* One pull request: an article. */
-[data-page="pull"] [data-part="page-title"],
-[data-page="issue"] [data-part="page-title"] {
-  font-size: 30px;
+/* One pull request: an entry in the catalogue, set as an article under folio rules. */
+[data-page="pull"] [data-part="pr-header"],
+[data-page="issue"] [data-part="pr-header"] {
+  padding-bottom: 14px;
+  background:
+    linear-gradient(var(--suit-gold-soft), var(--suit-gold-soft)) left bottom / 100% 1px no-repeat,
+    linear-gradient(var(--suit-gold-faint), var(--suit-gold-faint)) left calc(100% - 4px) / 100% 1px
+      no-repeat;
 }
 [data-page="pull"] [data-part="page-header"],
 [data-page="issue"] [data-part="page-header"] {
-  box-shadow: inset 0 -1px 0 var(--suit-gold-faint);
+  box-shadow: none;
 }
-[data-page="pull"][data-variant="merged"] [data-part="page-title"]::after {
-  content: " · sealed";
-  font-style: italic;
-  font-weight: 400;
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 30px;
+  line-height: 1.18;
+}
+/* The kicker: the catalogue's running head over the title. */
+[data-page="pull"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-title"]::before {
+  content: "The catalogue \00B7  Pull request";
+  display: block;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
   color: var(--color-link);
+  background: linear-gradient(90deg, var(--suit-gold-soft), transparent 60%) left bottom / 100% 1px
+    no-repeat;
+}
+[data-page="issue"] [data-part="page-title"]::before {
+  content: "The catalogue \00B7  Issue";
+}
+[data-page="pull"][data-variant="merged"] [data-part="page-title"]::before {
+  content: "The catalogue \00B7  Sealed";
+}
+[data-page="pull"][data-variant="closed"] [data-part="page-title"]::before {
+  content: "The catalogue \00B7  Withdrawn";
+}
+/* The number is a plate: engraved in the header inside a double gold rule. */
+[data-part="app"][data-page="pull"] [data-part="header-title"],
+[data-part="app"][data-page="issue"] [data-part="header-title"] {
+  padding: 0 12px;
+  line-height: 24px;
+  font-family: var(--suit-display);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: lining-nums;
+  color: var(--color-foreground);
+  border: 1px solid var(--suit-gold-soft);
+  border-radius: 1px;
+  box-shadow:
+    inset 0 0 0 2px var(--color-background),
+    inset 0 0 0 3px var(--suit-gold-faint);
+}
+[data-part="app"][data-page="pull"] [data-part="header-title"]::before,
+[data-part="app"][data-page="issue"] [data-part="header-title"]::before {
+  content: "Plate ";
+  display: inline;
+  width: auto;
+  height: auto;
+  margin-right: 2px;
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  color: var(--color-link);
+}
+/* The description reads as the article's body: no box, a gold rule over it. */
+[data-page="pull"] [data-part="card"][data-variant="description"],
+[data-page="issue"] [data-part="card"][data-variant="description"] {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 var(--suit-gold-faint);
+}
+[data-page="pull"] [data-part="page-section"],
+[data-page="issue"] [data-part="page-section"] {
+  box-shadow: inset 0 1px 0 var(--suit-gold-faint);
 }
 [data-part="card"][data-variant="description"],
 [data-part="review-comment"] {
@@ -957,12 +1139,52 @@
   font-size: 15px;
   line-height: 1.65;
 }
+/* The merge box is a certificate: a double gold frame, its title set in the display italic and a
+   signature line at its foot. */
 [data-part="merge-box"] {
-  border-radius: 3px;
+  border-radius: 2px;
+  border-color: var(--suit-gold-soft);
+  background:
+    radial-gradient(120% 60% at 50% 0%, var(--suit-gold-wash), transparent 70%),
+    var(--color-surface-1);
   box-shadow:
-    inset 0 0 0 1px var(--color-border-strong),
     inset 0 0 0 4px var(--color-surface-1),
-    inset 0 0 0 5px var(--suit-gold-faint);
+    inset 0 0 0 5px var(--suit-gold-faint),
+    var(--suit-lift);
+}
+[data-part="merge-box"]::before {
+  content: "Certificate of merge";
+  display: block;
+  padding: 18px 16px 12px;
+  text-align: center;
+  font-family: var(--suit-display);
+  font-style: italic;
+  font-size: 21px;
+  line-height: 1.1;
+  color: var(--color-link);
+  background: linear-gradient(90deg, transparent, var(--suit-gold-soft), transparent) center bottom
+    / 160px 1px no-repeat;
+}
+[data-part="merge-box"][data-variant="merged"]::before {
+  content: "Certificate of merge \00B7  sealed";
+}
+[data-part="merge-box"][data-variant="closed"]::before {
+  content: "Certificate withdrawn";
+}
+[data-part="merge-box"]::after {
+  content: "Signed in the atelier";
+  display: block;
+  padding: 16px 22px 14px;
+  text-align: right;
+  font-family: var(--font-prose);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+  background: linear-gradient(90deg, transparent, var(--suit-gold-soft)) right 22px top 10px / 190px
+    1px no-repeat;
+}
+[data-part="merge-box"] [data-part="list-row"] {
+  background: transparent;
 }
 [data-part="timeline-item"],
 [data-part="review-comment"],
@@ -982,30 +1204,59 @@
   font-family: var(--font-mono);
 }
 
-/* ------------------------------------------------------------------ side panel */
+/* ------------------------------------------------------------------ side panel: the register */
 
 [data-part="right-panel"] {
-  box-shadow: inset 1px 0 0 var(--color-border);
+  box-shadow: inset 1px 0 0 var(--suit-gold-faint);
 }
+/* The tabs are the register's index: book-face small capitals between gold hairlines. */
 [data-part="panel-header"] {
-  box-shadow: inset 0 -1px 0 var(--suit-gold-faint);
+  background: var(--color-sidebar);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-gold-soft),
+    inset 0 -4px 0 var(--color-sidebar),
+    inset 0 -5px 0 var(--suit-gold-faint);
 }
 [data-part="panel-tab"] {
-  border-radius: 2px 2px 0 0;
-  font-size: 11px;
-  letter-spacing: 0.06em;
+  border-radius: 0;
+  font-family: var(--font-prose);
+  font-variant-caps: all-small-caps;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+  box-shadow: inset -1px 0 0 var(--suit-gold-faint);
 }
-[data-part="panel-tab"][data-state="selected"] {
-  background: var(--suit-gold-wash);
+[data-part="panel-tab"]:hover {
   color: var(--color-foreground);
-  box-shadow: inset 0 -1px 0 var(--suit-gold);
+  background: var(--suit-gold-wash);
+}
+/* The open entry: a cream-edged index tab with a gold rule across its head. */
+[data-part="panel-tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  background: linear-gradient(180deg, var(--suit-gold-wash), transparent), var(--color-background);
+  box-shadow:
+    inset 0 2px 0 var(--suit-gold),
+    inset -1px 0 0 var(--suit-gold-soft),
+    inset 1px 0 0 var(--suit-gold-soft);
 }
 [data-part="panel-toolbar"] {
   font-size: 12px;
+  box-shadow: inset 0 -1px 0 var(--suit-gold-faint);
 }
+/* The file list is ledger paper: a gold rule under every entry and a double margin rule. */
 [data-part="file-tree"] {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-family: var(--font-prose);
+  font-size: 14px;
+  background:
+    linear-gradient(
+        90deg,
+        transparent 4px,
+        var(--suit-gold-faint) 4px 5px,
+        transparent 5px 7px,
+        var(--suit-gold-faint) 7px 8px,
+        transparent 8px
+      )
+      no-repeat,
+    repeating-linear-gradient(180deg, transparent 0 31px, var(--suit-gold-faint) 31px 32px);
 }
 [data-part="terminal-tab"] {
   box-shadow: inset 0 0 0 1px var(--color-border);
