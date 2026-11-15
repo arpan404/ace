@@ -1822,21 +1822,24 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
   daemon's pipe, video is ordered (`mailbox.rs`: never coalesced, deltas dropped up to a keyframe
   past 4 MiB) while stills stay latest-only. A still or keyframe asked for on a screen that
   doesn't change re-uses the last ring texture.
-- **Epochs by capture time.** `stream.configure` records each epoch with when it was applied on
-  the capture clock (QPC); a picture takes the epoch in force at its own `SystemRelativeTime`
-  (its arrival time when it has none), never the one current when it is dequeued, so a private
-  picture delivered after a clear epoch was installed stays private. The choice stays with the
-  picture through coalescing, the ring and refreshes.
+- **Epochs by capture time.** `stream.configure` records each epoch with when it was applied in
+  raw QPC ticks, and whether it is private (`epochPrivate`; an epoch it isn't said of counts as
+  private). A picture's 100 ns `SystemRelativeTime` is the range of ticks it may have been taken
+  at, and every epoch that may have been in force during it is a candidate: a private one wins,
+  so a picture at a switch to clear (or rounded across it) stays private. The choice stays with
+  the picture through coalescing, the ring and refreshes.
 - **Late encoder output.** `src/media/pump.rs` keeps each picture's metadata by its timestamp
   until its unit comes out. While units are owed the capture loop services the encoder every
   10 ms (`MfEncoder::service`: collect late output, then the stall watchdog), so a hardware MFT
   that finishes a keyframe after `encode` returned, on a desktop that sends no further picture,
-  still delivers it, with its own capture time, scale and epoch.
+  still delivers it, with its own capture time, scale and epoch. When the watchdog replaces a
+  stalled MFT, the pump forgets the pictures it held and capture encodes its kept picture again
+  with a keyframe.
 - **Cuts are final** (`src/media/connection.rs`). A cut drops the connection's queue, refuses
   later writes, and cancels a write in progress; since a cancel (`CancelIoEx`) only ends a write
   already started, the shell's ticker cancels again until the pump has let go, and the pump
-  checks the cut under the lock it takes each write under. A finish (its end frame handed over)
-  still waiting on its reader after 2 s is cut the same way.
+  checks the cut under the lock it takes each write under. The final flush is cancellable the
+  same way, and a finish still waiting on its reader after 2 s is cut.
 - **The ingest pipe's server is checked.** The daemon passes the ace-media process it started
   with each ingest address (`IngestAddress.pid`, `ScreenStreamIngest.pid`). The Windows helper
   requires it and compares `GetNamedPipeServerProcessId` before writing the hello, so a squatting
