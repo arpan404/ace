@@ -89,9 +89,9 @@ test("a pending request behind many large resolved ones is on the newest page", 
   const { page } = await thread(16, 40 * 1024);
   const first = await page(Number.MAX_SAFE_INTEGER);
   if (first.collection !== "interactions") throw new Error("shape");
-  expect(first.entries.filter((entry) => entry.state === "pending").map((entry) => entry.id)).toEqual(
-    ["waiting"],
-  );
+  expect(
+    first.entries.filter((entry) => entry.state === "pending").map((entry) => entry.id),
+  ).toEqual(["waiting"]);
 });
 
 test("an installed phone that reads four pages finds the pending request, and paging lists each once", async () => {
@@ -106,7 +106,9 @@ test("an installed phone that reads four pages finds the pending request, and pa
     if (read === 3) expect(seen).toContain("waiting");
     before = result.entitiesBefore;
   }
-  expect(seen.toSorted()).toEqual(["waiting", ...Array.from({ length: 16 }, (_, i) => `done-${i}`)].toSorted());
+  expect(seen.toSorted()).toEqual(
+    ["waiting", ...Array.from({ length: 16 }, (_, i) => `done-${i}`)].toSorted(),
+  );
 });
 
 test("pending requests that fill the newest page still lead on to the resolved ones, each once", async () => {
@@ -155,12 +157,16 @@ test("pending requests that fill the newest page still lead on to the resolved o
   expect(seen.toSorted()).toEqual(["ask-1", "ask-2", "ask-3", "done-1", "done-2"]);
 });
 
+/** The bytes of a page's entries, as the daemon weighs them. */
+const size = (entries: readonly unknown[]) =>
+  entries.reduce<number>((total, entry) => total + JSON.stringify(entry).length, 0);
+
 test("a reader that asks for smaller pages gets them, with the pending request still first", async () => {
   const { pageOf } = await thread(16, 40 * 1024);
   const small = await pageOf(Number.MAX_SAFE_INTEGER, 64 * 1024);
   const whole = await pageOf(Number.MAX_SAFE_INTEGER, undefined);
-  if (small.collection !== "interactions" || whole.collection !== "interactions") throw new Error("shape");
-  const size = (entries: readonly unknown[]) => entries.reduce<number>((n, entry) => n + JSON.stringify(entry).length, 0);
+  if (small.collection !== "interactions" || whole.collection !== "interactions")
+    throw new Error("shape");
   expect(small.entries.map((entry) => entry.id)).toContain("waiting");
   // Without asking, a reader keeps the page it always had.
   expect(size(whole.entries)).toBeGreaterThan(96 * 1024);

@@ -139,13 +139,29 @@ export class EntityWindow {
     // Each case narrows `collection`, so its entries are that collection's entities.
     switch (collection) {
       case "agents":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
       case "runs":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
       case "interactions":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
       case "backgroundTasks":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
+        return {
+          ...page,
+          collection,
+          ...this.entries(thread, collection, before, limit, maxBytes),
+        };
     }
   }
   /**
