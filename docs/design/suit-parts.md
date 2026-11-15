@@ -55,19 +55,19 @@ layer keeps them visible, unanimated and in ace's colours whatever `suit.css` sa
 
 ## Transcript
 
-| Part            | What and where                                                                                                      | States                                        | Variants        |
-| --------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | --------------- |
-| `message-user`  | The person's message bubble.                                                                                        |                                               |                 |
-| `message-agent` | An agent's answer, the whole prose block.                                                                           |                                               |                 |
-| `message-meta`  | The time and copy actions under a message.                                                                          |                                               |                 |
-| `turn-divider`  | A line across the transcript where the conversation changes hands: a handoff, a fork's start, "Interrupted by you". |                                               | `interrupted`   |
-| `tool-row`      | One step in the work log ("Ran …", "Edited …").                                                                     | `working`, `failed`, `open`, `closed`, `done` |                 |
-| `tool-output`   | A step's output, opened under it.                                                                                   |                                               | `raw`, `json`   |
-| `code-block`    | A fenced code block in an answer, with its copy button.                                                             |                                               |                 |
-| `inline-code`   | Inline code in an answer.                                                                                           |                                               |                 |
-| `diff`          | A file's diff, opened under an edit step.                                                                           |                                               |                 |
-| `link`          | A link in an answer, or a web link anywhere.                                                                        |                                               |                 |
-| `attachment`    | An attached image tile or file chip.                                                                                |                                               | `image`, `file` |
+| Part            | What and where                                                                                                      | States                                        | Variants                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `message-user`  | The person's message bubble.                                                                                        |                                               |                                                                                            |
+| `message-agent` | An agent's answer, the whole prose block.                                                                           |                                               |                                                                                            |
+| `message-meta`  | The time and copy actions under a message.                                                                          |                                               |                                                                                            |
+| `turn-divider`  | A line across the transcript where the conversation changes hands: a handoff, a fork's start, "Interrupted by you". |                                               | `interrupted`                                                                              |
+| `tool-row`      | One step in the work log ("Ran …", "Edited …").                                                                     | `working`, `failed`, `open`, `closed`, `done` | the step's kind: `read`, `search`, `list`, `shell`, `edit`, `web`, `tool`, `think`, `note` |
+| `tool-output`   | A step's output, opened under it.                                                                                   |                                               | `raw`, `json`                                                                              |
+| `code-block`    | A fenced code block in an answer, with its copy button.                                                             |                                               |                                                                                            |
+| `inline-code`   | Inline code in an answer.                                                                                           |                                               |                                                                                            |
+| `diff`          | A file's diff, opened under an edit step.                                                                           |                                               |                                                                                            |
+| `link`          | A link in an answer, or a web link anywhere.                                                                        |                                               |                                                                                            |
+| `attachment`    | An attached image tile or file chip.                                                                                |                                               | `image`, `file`                                                                            |
 
 ## Agent state (protected)
 
@@ -317,3 +317,5 @@ A new Suit restyles open terminals in place; their sessions and scrollback stay.
   setup included). `data-page` values no screen set (`projects`, `project`, `devices`,
   `notifications`, `search`) are removed; `review` is a pull request's Code tab, and `/pair`
   shows Settings. A Suit's needs-fixes list is `list` `problems` with `failed` rows.
+- Version 1, 2026-11-15: `tool-row` carries the step's kind as `data-variant` (`read`, `search`,
+  `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), so a Suit can mark each kind.

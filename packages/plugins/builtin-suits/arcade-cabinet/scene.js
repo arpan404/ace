@@ -69,7 +69,6 @@ function random() {
   return (seed - 1) / 2147483646;
 }
 
-
 function size(view) {
   if (typeof view.reduceMotion === "boolean") still = view.reduceMotion;
   width = view.width;
@@ -107,9 +106,9 @@ function drawSky() {
   for (let i = 1; i < sky.length; i++) {
     pix.fillStyle = sky[i - 1];
     const y = i * band;
-    for (let x = (i & 1); x < cols; x += 2) pix.fillRect(x, y, 1, 1);
+    for (let x = i & 1; x < cols; x += 2) pix.fillRect(x, y, 1, 1);
     pix.fillStyle = sky[i];
-    for (let x = ((i + 1) & 1); x < cols; x += 2) pix.fillRect(x, y - 1, 1, 1);
+    for (let x = (i + 1) & 1; x < cols; x += 2) pix.fillRect(x, y - 1, 1, 1);
   }
 }
 
@@ -142,7 +141,7 @@ function drawClouds(offset) {
     const colour = layer === 0 ? "#151140" : "#181448";
     const o = (offset * (layer === 0 ? 0.5 : 1)) % span;
     for (let k = 0; k < 5; k++) {
-      const x = ((k * span) / 5 - o + span) % span - 40;
+      const x = (((k * span) / 5 - o + span) % span) - 40;
       fill(colour, x, y, 34, 2);
       fill(colour, x + 6, y - 2, 20, 2);
       fill(colour, x + 12, y - 3, 8, 1);
@@ -257,7 +256,7 @@ function drawWaiting(since) {
   if (since > 4000) return;
   if (!still && (Math.floor(since / 250) & 1) === 1) return;
   const x = cols - 22;
-  const y = 10;
+  const y = 22; // below the header bar, which is solid
   fill("#07061a", x - 1, y, 13, 15);
   fill("#f2efff", x, y + 1, 11, 13);
   fill("#f2efff", x + 2, y + 14, 3, 2);

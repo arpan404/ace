@@ -96,14 +96,14 @@ describe("ace's guard over a Suit's CSS", () => {
   });
 });
 
-describe("colour tokens suit.css reads", () => {
-  /** A custom property on the root, following `var(--x)` the way a browser would. */
-  const token = (name: string): string => {
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const alias = /^var\((--[a-z0-9-]+)\)$/.exec(value)?.[1];
-    return alias ? token(alias) : value;
-  };
+/** A custom property on the root, following `var(--x)` the way a browser would. */
+function token(name: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const alias = /^var\((--[a-z0-9-]+)\)$/.exec(value)?.[1];
+  return alias ? token(alias) : value;
+}
 
+describe("colour tokens suit.css reads", () => {
   it("resolves every documented --color-* token to the Suit's own colours", () => {
     render(`[data-suit="neon"] [data-part=sidebar]{color:var(--color-tint)}`, {
       canvas: "#101014",

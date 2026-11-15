@@ -32,7 +32,7 @@ suit.json sets the colours; suit.css reads them so one rule works in both scheme
 | `--color-link`                               | `accentText`                            |
 | `--font-sans`, `--font-prose`, `--font-mono` | `fonts.ui`, `fonts.prose`, `fonts.mono` |
 
-Derive tints with `color-mix(in oklab, var(--color-tint) 18%, transparent)` rather than new hex values. Per-scheme values go under `[data-scheme="dark"] [data-part="composer"]`. Your own variables must start with `--suit-`: define them on `[data-part="app"]` and read them anywhere.
+Derive tints with `color-mix(in oklab, var(--color-tint) 18%, transparent)` rather than new hex values. Per-scheme values go under `[data-scheme="dark"] [data-part="composer"]`. Your own variables must start with `--suit-`. Define them on `[data-part="app"]` and on the floating parts (`menu`, `popover`, `dialog`, `tooltip`, `toast`, `command-palette`): those render outside the app part, so a variable defined only on `app` never reaches them, and a declaration that reads it there does nothing.
 
 ## Region backgrounds
 
@@ -70,7 +70,7 @@ A region over an `assets/` image is listed in `live.unchecked`: check its contra
 
 **Header.** `header`, `header-title`, `main`.
 
-**Transcript.** `transcript`, `message-user`, `message-agent`, `message-meta`, `turn-divider` (variant `interrupted`), `tool-row` (`working`, `done`, `failed`, `open`, `closed`), `tool-output` (`raw`, `json`), `code-block`, `inline-code`, `diff`, `link`, `attachment` (`image`, `file`). `layout.messages` and `layout.toolRows` pick the structure; suit.css dresses it.
+**Transcript.** `transcript`, `message-user`, `message-agent`, `message-meta`, `turn-divider` (variant `interrupted`), `tool-row` (`working`, `done`, `failed`, `open`, `closed`; variant the step's kind: `read`, `search`, `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), `tool-output` (`raw`, `json`), `code-block`, `inline-code`, `diff`, `link`, `attachment` (`image`, `file`). `layout.messages` and `layout.toolRows` pick the structure; suit.css dresses it.
 
 ```css
 [data-part="message-user"] {

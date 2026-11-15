@@ -104,7 +104,9 @@ test("a read's scenes, assets and the asset references in its CSS and ornaments 
 
 test("through a relay, where the daemon's HTTP is out of reach, a Suit applies with colours alone", async () => {
   const fake = daemon();
-  const detail = await suitTransport(daemonSuitChannel(fake.client, undefined)).read("arcade-cabinet");
+  const detail = await suitTransport(daemonSuitChannel(fake.client, undefined)).read(
+    "arcade-cabinet",
+  );
   expect(detail.sceneUrl).toBeNull();
   expect(detail.sceneUrls).toEqual({});
   expect(detail.assets).toEqual({});
