@@ -299,9 +299,7 @@ table, including timed-out trials and the ranking cache.
     Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
     The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
     `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
-  - **Not built yet, failing at once so the daemon falls back:** `relay.dial` to a `wss://`
-    relay (`relay.failed` `relay-unavailable`; D2 built `ws://`, see "D2 notes"), and, on
-    Windows, `record.start` (`record.failed`
+  - **Not built yet, failing at once so the daemon falls back:** on Windows, `record.start` (`record.failed`
     `recorder-unavailable`). F2 built `still.take`; see "F2 notes". A recording's
     frames pass through `media-core::privacy` and `record.epochs` is answered with
     `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped; the
@@ -1828,8 +1826,24 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - `FlowCredit.exportState()` gives the flow fields and throws while a fragment is queued.
   - Frame counts and the CRC are written by `handover.ts`.
 - **ace-media** (`engine/relay.rs`, `shell/relay.rs`, `shell/relay_ws.rs`).
-  - `relay.dial` takes `ws://` only. A closed stream id can't be dialed again; dialing and keyed
-    streams together stay within 1,024.
+  - `relay.dial` takes `ws://` and `wss://`. A closed stream id can't be dialed again; dialing
+    and keyed streams together stay within 1,024.
+  - **TLS** (`shell/relay_tls.rs`): rustls on ring (no aws-lc).
+    - Certificates are verified against the OS trust store, loaded once by `rustls-native-certs`
+      into rustls's webpki verifier. Like OpenSSL tools, it honours `SSL_CERT_FILE` and
+      `SSL_CERT_DIR`.
+    - Nothing is pinned, no invalid certificate is accepted, and no switch skips verification.
+      The name checked, and sent as SNI, is the URL's host.
+    - `rustls-platform-verifier` was the first choice, but its wasm32-only dependency
+      `webpki-root-certs` is CDLA-Permissive-2.0. `cargo deny` checks every target, and the
+      allowlist doesn't admit that licence (nor `webpki-roots`, the same licence).
+    - The buffered rustls connection queues a `Vec` per record, so the client drives the
+      unbuffered API instead. It encrypts into one outgoing buffer sized once for a whole frame
+      (80 KiB) and decrypts in place in a 64 KiB incoming buffer. One task owns a TLS stream's
+      socket, so reads and writes take turns there.
+    - A refusal fails the dial with `relay.failed` `tls`. A stream that fails before it was
+      joined rejects its relay ticket (`media.offer`'s `reject`), so the client is turned away at
+      once and stays on legacy delivery, rather than waiting out the ticket.
   - Before the keys, `relay.out` writes the daemon's frames once the socket is up. Each
     `relay.pull` answers with one held frame or the next to arrive. Past 64 held frames the stream
     fails with `backlog`.
@@ -1866,13 +1880,18 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - 41 revocations, each behind 8 MiB on the normal lane with a picture-carrying relay stream,
     p99 50 ms enforced below load 24.
 
+  `relay-media-tls.process.test.ts` covers `wss://`. The relay serves TLS on a second listener
+  (`startRelay({tls})`, `tlsPort`), and ace-media trusts only the fixture CA (`SSL_CERT_FILE`,
+  for that child alone; the keychain is never read or changed).
+  - A valid certificate carries a handed-over stream, with pictures from a keyframe.
+  - A certificate for another host, an expired one and one from an untrusted CA are each refused.
+    No keys go out, the client is turned away within 5 s, and ace-media stays healthy.
+
   Unit tests cover the routes, the export, the hand-over, the stream driver, the claim and the
   engine's relay streams. `apps/cloud/src/media.process.test.ts` covers the Worker, hibernation
   included.
 
 - **Owed.**
-  - A TLS client for `wss://` relays (ace's hosted relay). Until it lands, ace's hosted relay
-    falls back to legacy delivery.
   - Crossing a rekey on the real stream (2^20 frames) in the process test. The block's frame
     counts are tested, and media-noise aligns TS frames to the rekey boundary after the hand-over.
   - With the egress lane full: the revocation p99. The 50 ms p99 on an idle machine (68 ms at
