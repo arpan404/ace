@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
-import type { StreamMessage } from "@ace/browser/stream";
+import { encodePicture, streamKinds, type StreamMessage } from "@ace/browser/stream";
 import type { MediaStreamClientMessage } from "@ace/protocol";
 import type { DeviceAck, DeviceClientMessage } from "@ace/protocol/devices";
 import { DeviceClient, type DeviceTransportEvents } from "./client.ts";
@@ -33,7 +33,14 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
   const channelAcks: DeviceAck[] = [];
   let events: DeviceTransportEvents | undefined;
   let ids = 0;
-  const client = new DeviceClient({ id: () => `request_${ids++}`, schedule: () => () => {} });
+  const deadlines = new Set<() => void>();
+  const client = new DeviceClient({
+    id: () => `request_${ids++}`,
+    schedule: (run) => {
+      deadlines.add(run);
+      return () => void deadlines.delete(run);
+    },
+  });
   client.connect({
     open(next) {
       events = next;
@@ -88,6 +95,26 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     mediaAcks,
     drawn,
     reply,
+    /** Every pending request's deadline passes. */
+    timeOut() {
+      for (const run of Array.from(deadlines)) {
+        deadlines.delete(run);
+        run();
+      }
+    },
+    /** A picture on the devices channel itself (legacy delivery). */
+    onChannel(message: StreamMessage) {
+      if (message.kind !== "device.frame") return;
+      const { bytes, ...header } = message.frame;
+      for (const piece of encodePicture(
+        streamKinds.deviceFrame,
+        header.sequence,
+        deviceId,
+        header,
+        bytes,
+      ))
+        events?.message(piece);
+    },
     move(next: string | undefined) {
       connection = next;
       for (const watcher of watchers) watcher();
@@ -143,5 +170,21 @@ describe("device pictures across a media rebind", () => {
     expect(view.mediaAcks).toEqual([]);
     expect(view.channelAcks).toEqual([]);
     expect(view.client.current(view.drawn[0]!)).toBe(false);
+  });
+
+  it("a subscribe that times out stops holding pictures, and its late reply still settles delivery", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    const [subscribe] = view.subscribes;
+    view.timeOut();
+    await flush();
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    view.reply(subscribe!);
+    await flush();
+    view.deliver(frame(2));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
   });
 });

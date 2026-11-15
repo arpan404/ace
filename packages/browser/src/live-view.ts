@@ -11,6 +11,7 @@ export {
   MediaSubscriptions,
   type AckWay,
   type MediaRoute,
+  type Settled,
   type Stamped,
 } from "./media-route.ts";
 export {

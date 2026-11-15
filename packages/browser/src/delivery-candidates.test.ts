@@ -48,4 +48,23 @@ describe("pictures held until a subscribe's reply settles their way", () => {
     held.hold("channel", picture("next key", true, 20, 10));
     expect(held.settle("channel")).toMatchObject({ needsKeyframe: false });
   });
+
+  it("drops a keyframe larger than its bytes, keeping only what a fresh one is asked with", () => {
+    const held = new DeliveryCandidates<ReturnType<typeof picture>>({ bytes: 100, ms: 2_000 });
+    held.hold("channel", picture("huge key", true, 0, 101));
+    held.hold("channel", picture("delta", false, 10, 1));
+    const released = held.settle("channel");
+    expect(released.pictures).toEqual([]);
+    expect(released.needsKeyframe).toBe(true);
+    // The fresh keyframe is asked for in its name; its bytes are long gone.
+    expect(released.ask?.name).toBe("huge key");
+    expect(released.ask?.bytes.length).toBe(0);
+  });
+
+  it("asks for a fresh keyframe in the name of the one it kept when deltas overflow", () => {
+    const held = new DeliveryCandidates<ReturnType<typeof picture>>({ bytes: 100, ms: 2_000 });
+    held.hold("channel", picture("key", true, 0, 90));
+    held.hold("channel", picture("delta", false, 10, 30));
+    expect(held.settle("channel").ask?.name).toBe("key");
+  });
 });

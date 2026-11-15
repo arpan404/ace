@@ -133,13 +133,9 @@ export class MediaSubscriptions {
    * The reply to `generation`'s subscribe: delivery by the media connection only when it names
    * the one asked for. A reply to a superseded subscribe changes nothing.
    */
-  subscribed(
-    source: string,
-    generation: number,
-    media: MediaSubscribed | undefined,
-  ): { pictures: Stamped[]; needsKeyframe: boolean } {
+  subscribed(source: string, generation: number, media: MediaSubscribed | undefined): Settled {
     const delivery = this.#current(source, generation);
-    if (!delivery) return { pictures: [], needsKeyframe: false };
+    if (!delivery) return { pictures: [] };
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
     const via = bound && delivery.asked ? delivery.asked : channelPath;
     delivery.via = via;
@@ -149,8 +145,19 @@ export class MediaSubscriptions {
     this.#candidates.delete(source);
     return {
       pictures: (held?.pictures ?? []).map((frame) => ({ frame, generation })),
-      needsKeyframe: held?.needsKeyframe ?? false,
+      ...(held?.needsKeyframe && held.ask ? { ask: { frame: held.ask, generation } } : {}),
     };
+  }
+  /**
+   * `generation`'s subscribe got no answer in time. While it is still the current one and
+   * unsettled, nothing more is held for it: delivery falls back to the channel, and what was
+   * held is dropped. A late reply (`subscribed` with the same generation) still settles it.
+   */
+  abandon(source: string, generation: number): void {
+    const delivery = this.#current(source, generation);
+    if (!delivery || delivery.via !== undefined) return;
+    delivery.via = channelPath;
+    this.#candidates.delete(source);
   }
   /**
    * `generation`'s subscribe failed. True when it is still the current one, had named a media
@@ -218,6 +225,15 @@ export class MediaSubscriptions {
     const delivery = this.#deliveries.get(source);
     return delivery?.generation === generation ? delivery : undefined;
   }
+}
+
+/**
+ * What a reply settles: the pictures held for it, to show now, and, when the buffer overflowed,
+ * the keyframe to ask a fresh one in the name of (on the settled way).
+ */
+export interface Settled {
+  pictures: Stamped[];
+  ask?: Stamped;
 }
 
 /** A picture to show, with the generation of the subscribe it was delivered for. */

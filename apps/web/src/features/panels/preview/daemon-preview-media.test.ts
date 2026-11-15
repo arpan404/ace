@@ -74,7 +74,7 @@ afterEach(() => {
  * as `serves here` does, but first replays the page's last picture (a keyframe) on the socket,
  * before the reply, as the browser bridge does.
  */
-type Daemon = "binds" | "serves here" | "replays here" | "refuses";
+type Daemon = "binds" | "serves here" | "replays here" | "replays, answers later" | "refuses";
 
 function withMediaReplies(
   api: ClientApi,
@@ -82,6 +82,7 @@ function withMediaReplies(
   daemon: Daemon,
   refused: unknown[],
   replay: () => void,
+  answered: Promise<void>,
 ) {
   return new Proxy(api, {
     get(target, key) {
@@ -99,12 +100,14 @@ function withMediaReplies(
             };
           }
           const reply = await target.request(input, options);
-          if (named && daemon === "replays here") replay();
+          if (named && (daemon === "replays here" || daemon === "replays, answers later")) replay();
+          if (named && daemon === "replays, answers later") await answered;
           if (
             input.type !== "browser.subscribe" ||
             !named ||
             daemon === "serves here" ||
-            daemon === "replays here"
+            daemon === "replays here" ||
+            daemon === "replays, answers later"
           )
             return reply;
           return {
@@ -134,8 +137,19 @@ async function watching(
   const decoder = instantDecoder();
   const posters: MediaPoster[] = [];
   const refused: unknown[] = [];
+  let answerNow: (() => void) | undefined;
+  let replays = 0;
+  const answered = new Promise<void>((resolve) => (answerNow = resolve));
   const preview = daemonPreview(
-    withMediaReplies(wire.api, poster, answer, refused, () => wire.stream(video(1, true))),
+    withMediaReplies(
+      wire.api,
+      poster,
+      answer,
+      refused,
+      // Each replay a later number, so a test can tell which subscribe's it was.
+      () => wire.stream(video(++replays, true)),
+      answered,
+    ),
     {
       schedule: () => () => {},
       visibility: { visible: () => true, watch: () => () => {} },
@@ -149,8 +163,13 @@ async function watching(
     },
   );
   const stop = preview.watch(thread);
+  let watched = true;
+  const unwatch = () => {
+    if (watched) stop();
+    watched = false;
+  };
   disposers.push(() => {
-    stop();
+    unwatch();
     preview.dispose();
   });
   await preview.open(thread, failingSubagent().thread.workspaceId);
@@ -171,7 +190,18 @@ async function watching(
         "type" in message &&
         message.type === "browser.ack",
     );
-  return { preview, wire, link, subscribes, mainAcks, posters, daemon, refused };
+  return {
+    preview,
+    wire,
+    link,
+    subscribes,
+    mainAcks,
+    posters,
+    daemon,
+    refused,
+    unwatch,
+    answer: () => answerNow?.(),
+  };
 }
 
 test("the browser's video subscribes on the media connection, comes by it and is acked there", async () => {
@@ -264,4 +294,34 @@ test("a page's last picture replayed on the socket before the reply shows once t
   await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
   await waitFor(() => expect(mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })));
   expect(link.acks).toEqual([]);
+});
+
+test("pictures held for a pending subscribe die with the view: its late reply shows and acks nothing", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "replays, answers later");
+  // The replayed keyframe is held while the reply is pending; then nobody watches any more.
+  view.unwatch();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  view.answer();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(view.mainAcks()).toEqual([]);
+  expect(view.link.acks).toEqual([]);
+});
+
+test("a disposed view's pending subscribe leaves nothing behind when its reply comes", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "replays, answers later");
+  view.preview.dispose();
+  view.answer();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(view.mainAcks()).toEqual([]);
+  expect(view.preview.frame(thread)).toBeUndefined();
+});
+
+test("the reply of a subscribe a rebind replaced never shows the picture held for it", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "replays, answers later");
+  // Replay 1 is held for the subscribe naming A; the connection moves before its reply comes.
+  view.link.move("mc_bbbbbbbbbb");
+  view.answer();
+  // The subscribe again (naming B) gets replay 2, and only that one is the view's.
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
+  expect(view.mainAcks()).not.toContainEqual(expect.objectContaining({ sequence: 1 }));
 });

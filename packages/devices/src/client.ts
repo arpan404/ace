@@ -14,8 +14,8 @@ import {
   PictureQueue,
   SharedStreams,
   type MediaRoute,
+  type Settled,
   type SourcePicture,
-  type Stamped,
 } from "@ace/browser/live-view";
 import type { MediaPoster } from "@ace/protocol";
 import {
@@ -283,6 +283,12 @@ export class DeviceClient {
     return new Promise((resolve, reject) => {
       const cancel = this.options.schedule(
         () => {
+          if (
+            generation !== undefined &&
+            operation.op === "subscribe" &&
+            this.pending.has(message.requestId)
+          )
+            this.timedOut(message.requestId, operation.deviceId, generation);
           this.pending.delete(message.requestId);
           this.screenshots.cancel(message.requestId);
           reject(
@@ -401,16 +407,26 @@ export class DeviceClient {
    * What a subscribe's reply released: the pictures that came its settled way while it was on its
    * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
    */
-  private release(
-    sourceId: string,
-    released: { pictures: readonly Stamped[]; needsKeyframe: boolean },
-  ): void {
-    for (const { frame, generation } of released.pictures)
+  private release(sourceId: string, settled: Settled): void {
+    for (const { frame, generation } of settled.pictures)
       this.pictures.publish({ ...frame, sourceId, generation });
-    const first = released.pictures[0];
-    if (released.needsKeyframe && first)
-      this.ack({ ...first.frame, sourceId, generation: first.generation }, true);
+    const ask = settled.ask;
+    if (ask) this.ack({ ...ask.frame, sourceId, generation: ask.generation }, true);
   }
+  /**
+   * A subscribe got no answer in time: its source stops waiting (delivery falls back to the
+   * channel), and its reply, should it still come, is kept for (`late`), bounded.
+   */
+  private timedOut(requestId: string, sourceId: string, generation: number): void {
+    this.media.abandon(sourceId, generation);
+    this.late.set(requestId, { sourceId, generation });
+    for (const oldest of this.late.keys()) {
+      if (this.late.size <= 32) break;
+      this.late.delete(oldest);
+    }
+  }
+  /** Subscribes that timed out, by request id, whose late reply still settles their delivery. */
+  private readonly late = new Map<string, { sourceId: string; generation: number }>();
 
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
@@ -499,6 +515,16 @@ export class DeviceClient {
         for (const listener of this.logListeners.get(message.deviceId) ?? []) listener(message);
       } else {
         const pending = this.pending.get(message.requestId);
+        const late = pending ? undefined : this.late.get(message.requestId);
+        if (late) {
+          this.late.delete(message.requestId);
+          if (message.ok)
+            this.release(
+              late.sourceId,
+              this.media.subscribed(late.sourceId, late.generation, message.media),
+            );
+          return;
+        }
         if (!pending) return;
         this.pending.delete(message.requestId);
         pending.cancel();

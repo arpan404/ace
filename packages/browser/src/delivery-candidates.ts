@@ -21,14 +21,20 @@ export const candidateLimits = { bytes: 4 * 1024 * 1024, ms: 2_000 } as const;
 interface Way<T> {
   pictures: T[];
   bytes: number;
-  /** Past the bounds: only the keyframe is kept, and the next picture shown must be a new one. */
+  /** Past the bounds: only the keyframe is kept (if it fit), and a fresh one is due. */
   overflowed: boolean;
+  /** The keyframe a fresh one is asked for in the name of (bytes dropped when it didn't fit). */
+  ask: T | undefined;
 }
 
-/** What a settled way releases: its pictures, in order, and whether a fresh keyframe is due. */
+/**
+ * What a settled way releases: its pictures, in order, and whether a fresh keyframe is due, with
+ * the keyframe to ask for it in the name of (its header; the bytes may be gone).
+ */
 export interface Released<T> {
   pictures: T[];
   needsKeyframe: boolean;
+  ask?: T;
 }
 
 export class DeliveryCandidates<T extends CandidateShape> {
@@ -40,7 +46,18 @@ export class DeliveryCandidates<T extends CandidateShape> {
   /** A picture that came by `path` before the reply. */
   hold(path: string, picture: T): void {
     if (picture.key) {
-      this.#ways.set(path, { pictures: [picture], bytes: picture.bytes.length, overflowed: false });
+      if (picture.bytes.length > this.#limits.bytes) {
+        // Too large to hold: only its header is kept, to ask for a fresh one once settled.
+        const header = { ...picture, bytes: new Uint8Array(0) };
+        this.#ways.set(path, { pictures: [], bytes: 0, overflowed: true, ask: header });
+        return;
+      }
+      this.#ways.set(path, {
+        pictures: [picture],
+        bytes: picture.bytes.length,
+        overflowed: false,
+        ask: undefined,
+      });
       return;
     }
     const way = this.#ways.get(path);
@@ -56,6 +73,7 @@ export class DeliveryCandidates<T extends CandidateShape> {
       way.pictures = first ? [first] : [];
       way.bytes = first?.bytes.length ?? 0;
       way.overflowed = true;
+      way.ask = first;
       return;
     }
     way.pictures.push(picture);
@@ -65,9 +83,12 @@ export class DeliveryCandidates<T extends CandidateShape> {
   settle(path: string): Released<T> {
     const way = this.#ways.get(path);
     this.#ways.clear();
-    return way
-      ? { pictures: way.pictures, needsKeyframe: way.overflowed }
-      : { pictures: [], needsKeyframe: false };
+    if (!way) return { pictures: [], needsKeyframe: false };
+    return {
+      pictures: way.pictures,
+      needsKeyframe: way.overflowed,
+      ...(way.overflowed && way.ask ? { ask: way.ask } : {}),
+    };
   }
   clear(): void {
     this.#ways.clear();
