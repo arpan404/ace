@@ -34,6 +34,66 @@ import Testing
         return String(decoding: try! JSONSerialization.data(withJSONObject: hello), as: UTF8.self)
     }
 
+    /// Grants handed out in order; the last one repeats.
+    private final class Issued: @unchecked Sendable {
+        private let lock = NSLock()
+        private var tokens: [String]
+        private(set) var fetched = 0
+        init(_ tokens: [String]) { self.tokens = tokens }
+        func next() -> String { lock.withLock { fetched += 1; return tokens.count > 1 ? tokens.removeFirst() : tokens[0] } }
+    }
+    private func socket(on grants: AccountGrants) throws -> (RelaySocket, Recorder) {
+        let fixture = try #require(Self.fixture)
+        let recorder = Recorder()
+        return (RelaySocket(route: RelayRoute(relayURL: fixture.url, hostId: fixture.hostId, grants: grants)) { recorder.add($0, $1) }, recorder)
+    }
+    /// The hello as the bridge sends it: the grant the connection presented (`current`).
+    private func hello(grant: String) -> String {
+        let hello: [String: Any] = ["type": "hello", "protocolVersion": 1, "deviceId": "ios-live", "grant": grant, "machineCode": "2468"]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: hello), as: UTF8.self)
+    }
+    private func grants(_ issued: Issued) -> AccountGrants {
+        AccountGrants { () async throws(AccountGrantError) -> AceGrant in
+            AceGrant(token: issued.next(), expiresAt: Date().timeIntervalSince1970 * 1000 + 300_000)
+        }
+    }
+
+    @Test(.enabled(if: fixture != nil))
+    func aKeptGrantTheDaemonRefusesDropsTheChannelSoTheNextOneFetchesAGrantThatWorks() async throws {
+        let issued = Issued(["fixture-refused", "fixture-grant"])
+        let grants = grants(issued)
+        _ = try await grants.fresh() // The last connection's grant, still kept.
+        let (first, refused) = try socket(on: grants)
+        first.open()
+        try await refused.wait { $0.types.contains("open") }
+        first.send(hello(grant: try await grants.current()))
+        try await refused.wait { $0.types.contains("close") }
+        // A lost connection, which the SDK retries, and not the refusal it would take as final.
+        #expect(refused.closeCode == "1006")
+        #expect(refused.texts.isEmpty)
+        let (second, events) = try socket(on: grants)
+        defer { second.close() }
+        second.open()
+        try await events.wait { $0.types.contains("open") }
+        second.send(hello(grant: try await grants.current()))
+        try await events.wait { !$0.texts.isEmpty }
+        #expect(events.texts.first == #"{"type":"pong"}"#)
+        #expect(issued.fetched == 2)
+    }
+
+    @Test(.enabled(if: fixture != nil))
+    func aFetchedGrantTheDaemonRefusesReachesTheClientAsTheRefusal() async throws {
+        let issued = Issued(["fixture-refused"])
+        let grants = grants(issued)
+        let (socket, events) = try socket(on: grants)
+        socket.open()
+        try await events.wait { $0.types.contains("open") }
+        socket.send(hello(grant: try await grants.current()))
+        try await events.wait { $0.types.contains("close") }
+        #expect(events.texts.first?.contains(#""code":"unauthorized""#) == true)
+        #expect(issued.fetched == 1)
+    }
+
     @Test(.enabled(if: fixture != nil))
     func aDaemonThatWantsItsMachineCodeRefusesTheHelloAndClosesTheChannel() async throws {
         let (socket, events) = try socket()
