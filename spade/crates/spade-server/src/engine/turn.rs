@@ -149,7 +149,7 @@ pub(super) async fn run(
     live.waiting_on_you.store(false, Ordering::SeqCst);
     live.turn_running.store(false, Ordering::SeqCst);
     // Between turns nothing keeps the conversation's events in memory.
-    *live.log.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    *live.log.lock().unwrap_or_else(|p| p.into_inner()) = super::turn_log::Log::Empty;
     engine.set_status(&id, None);
     if paused {
         // Admission may have reopened while this worker was pausing, after reopening looked for

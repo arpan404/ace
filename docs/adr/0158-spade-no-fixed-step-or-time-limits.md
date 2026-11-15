@@ -37,7 +37,9 @@ spending caps they set (ADR 0135).
    keep whole, at a step that began once every earlier call had its result and whose prompt had
    seen everything stored before it. While a turn runs its events are kept in memory and each
    read takes only what was stored since, so a step costs what it adds and what its prompt holds,
-   not the whole history.
+   not the whole history. What a turn keeps in memory is bounded too (64 MiB of stored events):
+   a turn that outgrows it lets them go and reads them from the database for the rest of the
+   turn, so its memory stays bounded at the price of a whole read per step.
 
 Kept, because they bound one call or one exchange rather than the bot's work: single tool results
 cut to 20,000 characters, the model-step retry policy, the 60 s auto-review (it escalates to the

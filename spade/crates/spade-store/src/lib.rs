@@ -209,6 +209,16 @@ impl Store {
 
     /// The conversation's events numbered after `after`, in order.
     pub fn events(&self, conversation: &str, after: i64) -> Result<Vec<StoredEvent>> {
+        Ok(self.events_weighed(conversation, after)?.0)
+    }
+
+    /// [`Store::events`], with the stored size of what was read in bytes: a measure of what the
+    /// events take in memory, for a reader that keeps them (the engine's running turn).
+    pub fn events_weighed(
+        &self,
+        conversation: &str,
+        after: i64,
+    ) -> Result<(Vec<StoredEvent>, usize)> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT seq, at_ms, body FROM events
@@ -216,15 +226,24 @@ impl Store {
         )?;
         let rows = statement.query_map(params![conversation, after], |row| {
             let body: String = row.get(2)?;
-            Ok(StoredEvent {
+            let bytes = body.len();
+            let stored = StoredEvent {
                 seq: row.get(0)?,
                 at_ms: row.get(1)?,
                 event: Event::from_json(
                     serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
                 ),
-            })
+            };
+            Ok((stored, bytes))
         })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut events = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
+            let (stored, size) = row?;
+            events.push(stored);
+            bytes += size;
+        }
+        Ok((events, bytes))
     }
 
     /// Records what a reply cost.

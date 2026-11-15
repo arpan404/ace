@@ -34,6 +34,7 @@ pub mod roster;
 mod routines;
 mod search;
 mod turn;
+mod turn_log;
 mod types;
 
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
@@ -79,6 +80,7 @@ use crate::images::ImageStore;
 use crate::tools::{
     BotMessage, BotsList, EngineHandle, HelperTool, MemoryTool, SkillLibrary, Toolbox,
 };
+use turn_log::Stamps;
 
 /// Live state for one conversation.
 struct Live {
@@ -100,61 +102,7 @@ struct Live {
     /// True while the person has the bot's computer (ADR 0142): the turn pauses.
     hold: watch::Sender<bool>,
     /// The conversation's events while a turn runs, so each step reads only what was added.
-    log: Mutex<Option<Log>>,
-}
-
-/// A conversation's events as read so far, with each one's `(seq, at_ms)`.
-struct Log {
-    events: Events,
-    stamps: Stamps,
-}
-
-/// An event's `(seq, at_ms)`.
-type Stamp = (i64, i64);
-
-/// Each event's stamp, beside [`Events`].
-type Stamps = Arc<Vec<Stamp>>;
-
-/// A read of a conversation's events in two parts, `base` then `tail` (see `read_split`).
-struct Split {
-    base: Events,
-    stamps: Stamps,
-    tail: Vec<Event>,
-    tail_stamps: Vec<Stamp>,
-}
-
-impl Split {
-    fn whole(base: Events, stamps: Stamps) -> Self {
-        Self {
-            base,
-            stamps,
-            tail: Vec::new(),
-            tail_stamps: Vec::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.base.len() + self.tail.len()
-    }
-
-    fn iter(&self) -> impl DoubleEndedIterator<Item = &Event> + Clone {
-        self.base.iter().chain(self.tail.iter())
-    }
-
-    /// The event at `at`, with its seq and time.
-    fn at(&self, at: usize) -> (&Event, i64, i64) {
-        let (event, (seq, at_ms)) = match at.checked_sub(self.base.len()) {
-            None => (
-                &self.base[at],
-                self.stamps.get(at).copied().unwrap_or_default(),
-            ),
-            Some(i) => (
-                &self.tail[i],
-                self.tail_stamps.get(i).copied().unwrap_or_default(),
-            ),
-        };
-        (event, seq, at_ms)
-    }
+    log: Mutex<turn_log::Log>,
 }
 
 /// A conversation's events, shared without copying.
@@ -769,58 +717,6 @@ impl Engine {
     fn load_stamped(&self, id: &str) -> Result<(Events, Stamps), StoreError> {
         let read = self.read_split(id, true)?;
         Ok((read.base, read.stamps))
-    }
-
-    /// The conversation's events while a turn runs: what is kept in memory, and what was stored
-    /// since. With `join`, the new events are added to the kept ones (copying them only if a
-    /// reader still holds an earlier read) and `tail` is empty; without, a held read is never
-    /// copied and the new events come apart in `tail`, so a frequent reader like the roster
-    /// costs what was added, not the whole history.
-    fn read_split(&self, id: &str, join: bool) -> Result<Split, StoreError> {
-        let live = self
-            .live
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(id)
-            .cloned();
-        let Some(live) = live.filter(|l| l.turn_running.load(Ordering::SeqCst)) else {
-            let (events, stamps) = self.read_after(id, 0)?;
-            return Ok(Split::whole(Arc::new(events), Arc::new(stamps)));
-        };
-        let mut log = live.log.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(kept) = log.as_mut() else {
-            let (events, stamps) = self.read_after(id, 0)?;
-            let (events, stamps) = (Arc::new(events), Arc::new(stamps));
-            *log = Some(Log {
-                events: events.clone(),
-                stamps: stamps.clone(),
-            });
-            return Ok(Split::whole(events, stamps));
-        };
-        let last = kept.stamps.last().map_or(0, |(seq, _)| *seq);
-        let (events, stamps) = self.read_after(id, last)?;
-        if events.is_empty() {
-            return Ok(Split::whole(kept.events.clone(), kept.stamps.clone()));
-        }
-        let held = Arc::strong_count(&kept.events) > 1 || Arc::strong_count(&kept.stamps) > 1;
-        if join || !held {
-            Arc::make_mut(&mut kept.events).extend(events);
-            Arc::make_mut(&mut kept.stamps).extend(stamps);
-            return Ok(Split::whole(kept.events.clone(), kept.stamps.clone()));
-        }
-        Ok(Split {
-            base: kept.events.clone(),
-            stamps: kept.stamps.clone(),
-            tail: events,
-            tail_stamps: stamps,
-        })
-    }
-
-    /// The conversation's events after seq `after`, and their stamps.
-    fn read_after(&self, id: &str, after: i64) -> Result<(Vec<Event>, Vec<Stamp>), StoreError> {
-        let stored = self.store.events(id, after)?;
-        let stamps = stored.iter().map(|e| (e.seq, e.at_ms)).collect();
-        Ok((stored.into_iter().map(|e| e.event).collect(), stamps))
     }
 
     fn live(&self, id: &str) -> Arc<Live> {

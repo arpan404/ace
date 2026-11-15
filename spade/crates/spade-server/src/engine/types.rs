@@ -37,6 +37,9 @@ pub struct Limits {
     pub task: spade_core::task::Policy,
     /// Longest the auto-review may take before the call goes to the person.
     pub review_timeout: Duration,
+    /// Most of a running turn's events kept in memory, by stored size in bytes. A turn past it
+    /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
+    pub turn_log_bytes: usize,
 }
 
 impl Default for Limits {
@@ -53,6 +56,7 @@ impl Default for Limits {
             new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
+            turn_log_bytes: 64 << 20,
         }
     }
 }

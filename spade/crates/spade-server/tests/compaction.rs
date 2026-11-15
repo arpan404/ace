@@ -2,6 +2,7 @@
 
 mod support;
 
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -250,5 +251,109 @@ async fn the_summary_call_reuses_the_turns_tools_and_session_and_every_model_cal
         .sum();
     let spent = spade_store::Store::open(&spade.database())?.spent_since(0)?;
     assert_eq!(spent, steps + 92 + 92);
+    Ok(())
+}
+
+/// A read tool with a long answer that notes, at every call, how much of the running turn's
+/// events the engine keeps in memory.
+struct Probe {
+    engine: Arc<OnceLock<Arc<spade_server::engine::Engine>>>,
+    kept: Arc<Mutex<Vec<usize>>>,
+}
+
+impl spade_server::tools::Tool for Probe {
+    fn def(&self) -> spade_core::tools::ToolDef {
+        spade_core::tools::ToolDef {
+            spec: spade_models::ToolSpec {
+                name: "probe".into(),
+                description: "Reads a long page.".into(),
+                schema: json!({ "type": "object" }),
+            },
+            risk: spade_core::tools::Risk::Read,
+            untrusted_output: false,
+            deferred: false,
+            background: false,
+        }
+    }
+
+    fn run(&self, _key: &str, arguments: Value) -> spade_server::tools::ToolFuture {
+        if let (Some(engine), Ok(mut kept)) = (self.engine.get(), self.kept.lock()) {
+            kept.push(engine.kept_turn_bytes());
+        }
+        let n = arguments["n"].as_u64().unwrap_or(0);
+        Box::pin(async move {
+            spade_server::tools::ToolOutput::ok(format!("page {n}: {}", "x".repeat(3_000)))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_long_turn_that_compacts_keeps_a_bounded_share_of_its_events_in_memory() -> Result {
+    const STEPS: usize = 40;
+    const LIMIT: usize = 30_000;
+    // Every step reports a prompt past the high mark, so each next step compacts first.
+    let mut scripts = Vec::new();
+    for n in 0..STEPS {
+        scripts.push(
+            Script::reply("")
+                .call(&format!("c{n}"), "probe", json!({ "n": n }))
+                .cached(100, 0),
+        );
+        scripts.push(Script::reply("").plain(SUMMARY));
+    }
+    scripts.push(Script::reply("Read all 40."));
+    let engine = Arc::new(OnceLock::new());
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let probe = Probe {
+        engine: engine.clone(),
+        kept: kept.clone(),
+    };
+    let spade = Spade::start_with(
+        scripts,
+        vec![Arc::new(probe) as Arc<dyn spade_server::tools::Tool>],
+        Options {
+            limits: Limits {
+                context_budget: 100,
+                turn_log_bytes: LIMIT,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .await?;
+    let _ = engine.set(spade.engine.clone());
+    let id = spade.ask("Read every page").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+
+    let kinds = types(&events);
+    let compactions = kinds.iter().filter(|k| *k == "context_compacted").count();
+    assert!(
+        compactions >= STEPS - 1,
+        "{compactions} compactions: {kinds:?}"
+    );
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Read all 40."))
+    );
+    // The turn's results add up to far more than the limit, yet no more than it is ever kept.
+    let kept = kept.lock().map(|k| k.clone()).unwrap_or_default();
+    assert_eq!(kept.len(), STEPS);
+    assert!(
+        kept.iter().any(|&bytes| bytes > 0),
+        "nothing was kept: {kept:?}"
+    );
+    assert!(kept.iter().all(|&bytes| bytes <= LIMIT), "{kept:?}");
+    // Past the limit, reads still see every event: the last step read the last page.
+    let last = spade.fake.seen().into_iter().rev().find(|s| {
+        s.body["messages"]
+            .as_array()
+            .is_some_and(|m| m.iter().any(|m| m["role"] == "tool"))
+    });
+    let body = last.map(|s| s.body.to_string()).unwrap_or_default();
+    assert!(
+        body.contains(&format!("page {}:", STEPS - 1)),
+        "{body:.300}"
+    );
     Ok(())
 }
