@@ -162,6 +162,11 @@ test("an answer streams while its turn runs and stops when the turn ends", async
 });
 
 const idle = () => {};
+/** A block frame's row, or nothing when the frame removes the block. */
+const blockRow = (frame: Record<string, unknown> | undefined) =>
+  frame?.row as Record<string, unknown> | null | undefined;
+/** The row the phone last got for block `id`. */
+const shown = (id: string) => blockRow(latest("thread.block", id));
 /** Whether any answer the phone shows says Writing. */
 const writing = () =>
   rows("thread.block").some((row) => row.kind === "message" && row.writing === "Writing");
@@ -210,6 +215,29 @@ test("an answer whose turn finished while the phone was away no longer says Writ
   expect(answerBlock()?.writing).toBeUndefined();
 });
 
+test("an answer that finishes before its turn ends stops saying Writing then, and its deltas never redraw it", async () => {
+  const fake = start("early");
+  fake.apply("early", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake), "early");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  const from = native.frames.length;
+  fake.apply("early", [facts.stream("root", "reply", " on it")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working on it"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // The turn goes on; the answer itself is done.
+  fake.apply("early", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "the answer settled while its turn runs",
+  );
+});
+
 test("a reconnect redraws only the answer still arriving, never the settled ones", async () => {
   const fake = start("settled-away");
   fake.apply("settled-away", [
@@ -219,14 +247,32 @@ test("a reconnect redraws only the answer still arriving, never the settled ones
   const client = connect(fake);
   open(client, "settled-away");
   await until(() => answerBlock()?.writing === "Writing", "the first answer writing");
-  const settled = latest("thread.block");
-  if (typeof settled?.id !== "string") throw new Error("no first answer block");
+  const first = native.frames
+    .toReversed()
+    .find((frame) => frame.type === "thread.block" && blockRow(frame)?.kind === "message")?.id;
+  if (typeof first !== "string") throw new Error("no first answer block");
   // The first answer finishes; the turn goes on into a second.
   fake.apply("settled-away", [
     facts.finish("root", "first"),
     facts.message("root", "second", "assistant", "Still", false),
   ]);
-  await until(writing, "the second answer writing");
+  // Both answers as the phone shows them before the disconnect: the first one's own last patch
+  // is in, so nothing after `from` is it settling.
+  await until(
+    () => shown(first)?.streaming === false && shown(first)?.writing === undefined,
+    "the first answer settled",
+  );
+  await until(
+    () =>
+      native.frames.some(
+        (frame) =>
+          frame.type === "thread.block" &&
+          frame.id !== first &&
+          blockRow(frame)?.kind === "message" &&
+          blockRow(frame)?.writing === "Writing",
+      ),
+    "the second answer writing",
+  );
   const from = native.frames.length;
   fake.disconnectAll();
   await until(() => wentQuiet(from), "Writing gone while away");
@@ -234,7 +280,7 @@ test("a reconnect redraws only the answer still arriving, never the settled ones
   await until(writing, "Writing back once current");
   const redrawn = native.frames
     .slice(from)
-    .filter((frame) => frame.type === "thread.block" && frame.id === settled.id);
+    .filter((frame) => frame.type === "thread.block" && frame.id === first);
   expect(redrawn).toEqual([]);
 }, 20_000);
 

@@ -448,6 +448,8 @@ export function followBlocks(
   const ordered = new Set<string>();
   /** An event block's one item → that block, which redraws when the item does. */
   const single = new Map<string, string>();
+  /** A streaming answer's item → its block, which redraws once the item stops streaming. */
+  const answering = new Map<string, string>();
   const emit = (key: string) =>
     put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
@@ -464,14 +466,18 @@ export function followBlocks(
     const block = blocks.get(key);
     if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
       if (single.get(block.itemId) === key) single.delete(block.itemId);
+    if (block?.kind === "message" && answering.get(block.itemId) === key)
+      answering.delete(block.itemId);
     if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")
       following.add(block.key);
     // An answer's streaming ends with its turn; its own deltas never touch the block.
-    if (block.kind === "message" && streamingOf(store, store.item(block.itemId)))
+    if (block.kind === "message" && streamingOf(store, store.item(block.itemId))) {
       following.add(block.key);
+      answering.set(block.itemId, block.key);
+    }
     if (block.kind === "user" || block.kind === "event" || block.kind === "item") {
       single.set(block.itemId, block.key);
       if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
@@ -530,6 +536,7 @@ export function followBlocks(
       blocks = new Map();
       positions.clear();
       counted.clear();
+      answering.clear();
       following.clear();
       ordered.clear();
       single.clear();
@@ -552,6 +559,14 @@ export function followBlocks(
           const id = key.slice(5);
           for (const block of counted.get(id) ?? []) touched.add(block);
           const block = single.get(id);
+          // An answer finished before its turn: its streaming and Writing end now. Its deltas
+          // cost one lookup and never redraw it.
+          const answer = answering.get(id);
+          if (answer && !streamingOf(store, store.item(id))) {
+            answering.delete(id);
+            following.delete(answer);
+            touched.add(answer);
+          }
           if (block) touched.add(block);
           // A launch updates in place to its child's status, outcome and result: its group
           // redraws, since no receipt row says it for the group (`buildBlocks`).
