@@ -17,16 +17,25 @@ const silentContext: unknown = new Proxy(
   { get: () => () => ({ addColorStop() {} }), set: () => true },
 );
 
-/** The sandbox page's globals, as far as the runtime reaches for them. */
+/**
+ * The sandbox page's globals, as far as the runtime reaches for them. `context` is every
+ * canvas's 2D context, or a function making one per canvas.
+ */
 function sandbox(context: unknown = silentContext) {
   const replies: unknown[] = [];
   const host = { postMessage: (message: unknown) => replies.push(message) };
   const stranger = { postMessage: () => {} };
   const listeners = new Map<string, ((event: unknown) => void)[]>();
   const canvases: FakeCanvas[] = [];
+  const placed: FakeCanvas[] = [];
   const body = {
     appendChild(node: FakeCanvas) {
       node.parentNode = body;
+      placed.push(node);
+    },
+    removeChild(node: FakeCanvas) {
+      node.parentNode = null;
+      placed.splice(placed.indexOf(node), 1);
     },
   };
   const page: Record<string, unknown> = {
@@ -42,7 +51,10 @@ function sandbox(context: unknown = silentContext) {
           style: {},
           parentNode: null,
           setAttribute() {},
-          getContext: () => context,
+          getContext: () =>
+            typeof context === "function"
+              ? (context as (on: FakeCanvas) => unknown)(canvas)
+              : context,
         };
         canvases.push(canvas);
         return canvas;
@@ -61,6 +73,8 @@ function sandbox(context: unknown = silentContext) {
     ace,
     replies,
     canvas: () => canvases[0],
+    /** The canvases on the page, bottom first: the scene's, then any glass layers. */
+    placed,
     send: (data: unknown, source: unknown = host) => fire("message", { source, data }),
     throwUncaught: (error: Error) => fire("error", { error, message: error.message }),
     stranger,
@@ -283,3 +297,160 @@ test.each(["starfield", "neon-district", "neon-district/sidebar", "phosphor"])(
     ]);
   },
 );
+
+/*
+ * Glass. Node has no canvas, so `painter` stands in for a 2D context with just enough of a model
+ * to say what a canvas shows: what was drawn on it since it was last cleared, and through which
+ * filter. Where a glass layer shows is its `clip-path`, read back here as boxes.
+ */
+function painter(options: { failOn?: unknown } = {}) {
+  const painted = new Map<unknown, { source: unknown; filter: string }[]>();
+  const make = (canvas: unknown) => {
+    let filter = "none";
+    return {
+      set filter(value: string) {
+        filter = value;
+      },
+      get filter() {
+        return filter;
+      },
+      clearRect: () => painted.set(canvas, []),
+      drawImage: (source: unknown) => {
+        if (options.failOn !== undefined && source === options.failOn) throw new Error("lost");
+        painted.set(canvas, [...(painted.get(canvas) ?? []), { source, filter }]);
+      },
+    };
+  };
+  return { make, on: (canvas: unknown) => painted.get(canvas) ?? [] };
+}
+
+/** The boxes a `clip-path: path(...)` of closed shapes covers, one per shape. */
+function clipBoxes(clipPath: string | undefined) {
+  const path = /^path\('(.*)'\)$/.exec(clipPath ?? "")?.[1] ?? "";
+  return path
+    .split("M")
+    .filter(Boolean)
+    .map((shape) => {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const [, command, args] of shape.matchAll(/([A-Z]?)([^A-Z]*)/g)) {
+        const n = (args ?? "").trim().split(/\s+/).filter(Boolean).map(Number);
+        if (n.length === 0) continue;
+        if (command === "" || command === "A") {
+          xs.push(n.at(-2) ?? 0);
+          ys.push(n.at(-1) ?? 0);
+        } else if (command === "H") xs.push(n[0] ?? 0);
+        else if (command === "V") ys.push(n[0] ?? 0);
+      }
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+    });
+}
+
+const pane = { x: 10, y: 20, width: 100, height: 50, radius: 8, blur: 16, saturate: 1.5 };
+const box = (rect: typeof pane) => ({
+  x: rect.x,
+  y: rect.y,
+  width: rect.width,
+  height: rect.height,
+});
+const layers = (page: ReturnType<typeof sandbox>) => page.placed.slice(1);
+
+test("after each frame, glass shows the scene blurred inside its rectangles, over the scene", () => {
+  const paint = painter();
+  const page = sandbox(paint.make);
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "glass", rects: [pane] });
+  page.send({ type: "tick", time: 0 });
+
+  const [scene, layer] = page.placed;
+  expect(scene).toBe(page.canvas());
+  // A quarter-size copy of the scene's own canvas through the pane's blur, scaled to match.
+  expect(layer).toMatchObject({ width: 200, height: 150 });
+  expect(paint.on(layer)).toEqual([{ source: scene, filter: "blur(4px) saturate(1.5)" }]);
+  expect(clipBoxes(layer?.style["clipPath"])).toEqual([box(pane)]);
+  expect(page.replies).toEqual([{ type: "ready" }, { type: "drawn", time: 0 }]);
+});
+
+test("panes with different blurs get their own layer; an empty list takes the glass away", () => {
+  const paint = painter();
+  const page = sandbox(paint.make);
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  const soft = { ...pane, x: 300, blur: 32, saturate: 1 };
+  const lower = { ...pane, y: 200 };
+  page.send({ type: "glass", rects: [pane, soft, lower] });
+  page.send({ type: "tick", time: 0 });
+  expect(
+    layers(page).map((layer) => ({
+      clip: clipBoxes(layer.style["clipPath"]),
+      filter: paint.on(layer)[0]?.filter,
+      width: layer.width,
+    })),
+  ).toEqual([
+    { clip: [box(pane), box(lower)], filter: "blur(4px) saturate(1.5)", width: 200 },
+    { clip: [box(soft)], filter: "blur(4px) saturate(1)", width: 100 },
+  ]);
+
+  page.send({ type: "glass", rects: [] });
+  expect(layers(page)).toEqual([]);
+});
+
+test("moved rectangles take effect at once, without waiting for a frame", () => {
+  const page = sandbox(painter().make);
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "glass", rects: [pane] });
+  page.send({ type: "tick", time: 0 });
+  const moved = { ...pane, x: 400, radius: 0 };
+  page.send({ type: "glass", rects: [moved] });
+  expect(layers(page).map((layer) => clipBoxes(layer.style["clipPath"]))).toEqual([[box(moved)]]);
+});
+
+test("glass sent before the scene starts shows on its first frame", () => {
+  const paint = painter();
+  const page = sandbox(paint.make);
+  page.send({ type: "glass", rects: [pane] });
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "tick", time: 0 });
+  const [layer] = layers(page);
+  expect(paint.on(layer)).toEqual([{ source: page.canvas(), filter: "blur(4px) saturate(1.5)" }]);
+});
+
+test("a malformed glass message is ignored and the last good glass stays", () => {
+  const page = sandbox(painter().make);
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "glass", rects: [pane] });
+  page.send({ type: "glass", rects: [{ ...pane, width: Number.NaN }] });
+  page.send({ type: "glass", rects: Array.from({ length: 33 }, () => pane) });
+  page.send({ type: "glass", rects: "everything" });
+  page.send({ type: "tick", time: 0 });
+  expect(layers(page).map((layer) => clipBoxes(layer.style["clipPath"]))).toEqual([[box(pane)]]);
+  expect(page.replies).toEqual([{ type: "ready" }, { type: "drawn", time: 0 }]);
+});
+
+test("glass that fails to draw takes itself away; the scene keeps drawing and reports no error", () => {
+  const holder: { scene?: unknown } = {};
+  const paint = painter({
+    get failOn() {
+      return holder.scene;
+    },
+  });
+  const page = sandbox(paint.make);
+  holder.scene = page.canvas();
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "glass", rects: [pane] });
+  page.send({ type: "tick", time: 0 });
+  page.send({ type: "tick", time: 33 });
+  expect(layers(page)).toEqual([]);
+  expect(page.replies).toEqual([
+    { type: "ready" },
+    { type: "drawn", time: 0 },
+    { type: "drawn", time: 33 },
+  ]);
+});

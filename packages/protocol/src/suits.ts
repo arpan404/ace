@@ -198,6 +198,23 @@ export type SuitSummary = z.infer<typeof SuitSummary>;
 export const SceneSignal = z.enum(["working", "waiting", "done", "failed", "pr-merged"]);
 export type SceneSignal = z.infer<typeof SceneSignal>;
 
+/** At most this many glass rectangles in one `glass` message. */
+export const sceneGlassRectsMax = 32;
+
+/** One pane of glass over a scene: a rounded rectangle, how much it blurs and saturates. */
+export const SceneGlassRect = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  radius: z.number().nonnegative(),
+  /** Gaussian blur, CSS px, as `blur()` takes it. */
+  blur: z.number().min(0).max(64),
+  /** As `saturate()` takes it; 1 leaves colour alone. */
+  saturate: z.number().min(0).max(4).optional(),
+});
+export type SceneGlassRect = z.infer<typeof SceneGlassRect>;
+
 export const SceneHostMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("init"),
@@ -230,6 +247,13 @@ export const SceneHostMessage = z.discriminatedUnion("type", [
     columns: z.number().int().min(1).max(32),
     rows: z.number().int().min(1).max(32),
   }),
+  /**
+   * Where ace's glass sits over the scene, in the frame's CSS px. A browser's `backdrop-filter`
+   * can't reach into the sandboxed, out-of-process scene frame, so the runtime draws a blurred
+   * copy of the scene inside these rounded rectangles itself, after every frame; the host's glass
+   * keeps only its tint and edge. Sent again whenever the layout changes; an empty list clears it.
+   */
+  z.object({ type: z.literal("glass"), rects: z.array(SceneGlassRect).max(sceneGlassRectsMax) }),
 ]);
 export type SceneHostMessage = z.infer<typeof SceneHostMessage>;
 

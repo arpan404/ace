@@ -11,6 +11,7 @@ import {
   type SceneViewport,
   type Scheme,
 } from "./scene-controller.ts";
+import { watchSceneGlass } from "./scene-glass.ts";
 
 /** Where thread signals come from; `watch` returns the unsubscribe. */
 export interface SignalFeed {
@@ -171,7 +172,11 @@ function SceneFrame(props: {
       scene.setVisible(documentVisibility.visible()),
     );
     const unwatchPower = watchSavingPower(navigator, (saving) => scene.setLowPower(saving));
+    // The app's scene sits behind ace's glass, which can't blur into this frame: the runtime
+    // blurs the scene under it instead (scene-glass.ts).
+    const unwatchGlass = fill === "window" ? watchSceneGlass(element, post) : undefined;
     return () => {
+      unwatchGlass?.();
       scene.dispose();
       controller.current = undefined;
       element.removeEventListener("load", onLoad);

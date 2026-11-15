@@ -1,0 +1,13 @@
+{
+  "name": "@ace/suit-gallery",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "serve": "bun src/serve.ts",
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "@ace/suit-scene-runtime": "workspace:*"
+  }
+}

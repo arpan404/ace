@@ -1137,6 +1137,12 @@
         "@ace/browser": "workspace:*",
       },
     },
+    "tools/suit-gallery": {
+      "name": "@ace/suit-gallery",
+      "dependencies": {
+        "@ace/suit-scene-runtime": "workspace:*",
+      },
+    },
     "tools/web-e2e": {
       "name": "@ace/web-e2e",
       "dependencies": {
@@ -1316,6 +1322,8 @@
     "@ace/service": ["@ace/service@workspace:packages/service"],
 
     "@ace/settings": ["@ace/settings@workspace:packages/settings"],
+
+    "@ace/suit-gallery": ["@ace/suit-gallery@workspace:tools/suit-gallery"],
 
     "@ace/suit-scene-runtime": ["@ace/suit-scene-runtime@workspace:packages/suit-scene-runtime"],
 

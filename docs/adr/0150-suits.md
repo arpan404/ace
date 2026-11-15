@@ -68,6 +68,11 @@ A scene is the animated backdrop behind the transcript and sidebar.
   perpetual-animation rule is unchanged for app code; scenes are outside it because ace owns
   their clock.
 - Surfaces over a scene are glass by 0075's rules; text sits on the readability floor.
+- A browser's `backdrop-filter` can't reach into the sandboxed, out-of-process scene frame, so
+  glass over a scene would show it sharp. The host sends the frame `glass`, the rounded rectangles
+  its glass covers with their blur and saturation, again whenever they move; the runtime draws the
+  scene's own canvas, blurred, inside them after every frame (small copies the browser stretches
+  and clips). The host's glass keeps its tint and edge. (Added 2026-11-15.)
 
 ### Where Suits live and how they reach clients
 
