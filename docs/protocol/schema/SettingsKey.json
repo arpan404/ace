@@ -69,6 +69,7 @@
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
     "remote.relayMcp",
+    "remote.relayWebhooks",
     "remote.tailscaleMcp",
     "remote.mcpPublicUrl",
     "remote.relayUrl",

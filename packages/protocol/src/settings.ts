@@ -232,6 +232,12 @@ export const SettingsValues = z.object({
    */
   "remote.relayMcp": z.boolean(),
   /**
+   * Whether automations' signed webhooks reach this machine through ace's relay at
+   * `https://cloud.acehq.dev/m/<hostId>/hooks/<hookId>` (ADR 0158). Off by default, and separate
+   * from `remote.relayMcp`. The relay carries the request bodies in plain text, never the secret.
+   */
+  "remote.relayWebhooks": z.boolean(),
+  /**
    * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
    * on the Tailscale listener (ADR 0122). Off by default; serves only while Tailscale has issued
    * the machine's HTTPS certificate.

@@ -376,6 +376,9 @@
       "type": "string",
       "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
     },
+    "remote.relayWebhooks": {
+      "type": "boolean"
+    },
     "remote.tailscale": {
       "type": "boolean"
     },
@@ -558,6 +561,7 @@
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
     "remote.relayMcp",
+    "remote.relayWebhooks",
     "remote.tailscaleMcp",
     "remote.mcpPublicUrl",
     "remote.relayUrl",

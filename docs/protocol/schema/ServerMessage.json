@@ -135,6 +135,9 @@
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsResult.json"
     },
     {

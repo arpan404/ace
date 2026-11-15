@@ -32,6 +32,8 @@ export const AutomationTrigger = z.discriminatedUnion("kind", [
     pollIntervalMs: z.number().int().min(60_000).max(86_400_000),
   }),
   z.object({ kind: z.literal("file"), paths: z.array(text).min(1).max(100) }),
+  /** A signed POST to the automation's webhook URL (ADR 0158). The secret is never here. */
+  z.object({ kind: z.literal("webhook") }),
 ]);
 export type AutomationTrigger = z.infer<typeof AutomationTrigger>;
 export const Automation = z.object({
@@ -79,7 +81,7 @@ export const AutomationRun = z.object({
   automationId: text,
   title: text,
   eventKey: z.string().max(512),
-  trigger: z.enum(["schedule", "github", "file", "manual"]),
+  trigger: z.enum(["schedule", "github", "file", "manual", "webhook"]),
   /**
    * `queued` waits for the run before it to finish, then starts; an automation sends one message
    * at a time into its thread. `startedAt` is when it fired until it starts, then when it started.
@@ -172,6 +174,17 @@ export const AutomationTriggerError = z.object({
   at: instant,
 });
 export type AutomationTriggerError = z.infer<typeof AutomationTriggerError>;
+/**
+ * A webhook automation's address, as the person's lists show it (ADR 0158). `url` is null until
+ * the person creates its secret, or while ace's relay can't serve it (`problem` says why).
+ */
+export const AutomationWebhookState = z.object({
+  /** Whether a secret exists: false until the person creates one, and after revoking it. */
+  active: z.boolean(),
+  url: z.url().max(2048).nullable(),
+  problem: z.string().max(512).optional(),
+});
+export type AutomationWebhookState = z.infer<typeof AutomationWebhookState>;
 export const AutomationResponse = z.object({
   type: z.literal("automation.result"),
   requestId: text,
@@ -187,6 +200,7 @@ export const AutomationResponse = z.object({
         lastPollError: AutomationPollError.optional(),
         triggerError: AutomationTriggerError.optional(),
         lastRun: AutomationRun.optional(),
+        webhook: AutomationWebhookState.optional(),
       }),
     )
     .max(1000)
@@ -203,9 +217,37 @@ export const AutomationResponse = z.object({
         revision: AutomationRevision.optional(),
         triggerError: AutomationTriggerError.optional(),
         lastRun: AutomationRun.optional(),
+        webhook: AutomationWebhookState.optional(),
       }),
     )
     .max(1000)
     .optional(),
 });
 export type AutomationResponse = z.infer<typeof AutomationResponse>;
+/**
+ * The person's webhook secret controls (ADR 0158). Outside `AutomationRequest` on purpose: agents'
+ * `automation.manage` carries only those, so no agent tool can create, read or rotate a secret.
+ * `rotate` makes a secret (and the hook id, the first time) and returns it once; `revoke` deletes
+ * both, so the URL stops answering.
+ */
+export const AutomationWebhookRequest = z.object({
+  type: z.literal("automation.webhook"),
+  requestId: text,
+  id: text,
+  action: z.enum(["rotate", "revoke"]),
+  source: AutomationSource.optional(),
+});
+export type AutomationWebhookRequest = z.infer<typeof AutomationWebhookRequest>;
+export const AutomationWebhookResponse = z.object({
+  type: z.literal("automation.webhookResult"),
+  requestId: text,
+  ok: z.boolean(),
+  error: z.string().max(8192).optional(),
+  webhook: AutomationWebhookState.optional(),
+  /** With `rotate`: the new secret, shown to the person once and never sent again. */
+  secret: z
+    .string()
+    .regex(/^whsec_[A-Za-z0-9+/]{43}=$/)
+    .optional(),
+});
+export type AutomationWebhookResponse = z.infer<typeof AutomationWebhookResponse>;

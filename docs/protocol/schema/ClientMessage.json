@@ -779,6 +779,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsGet.json"
     },
     {

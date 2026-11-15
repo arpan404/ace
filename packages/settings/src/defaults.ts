@@ -82,6 +82,7 @@ export const defaults: SettingsValues = {
   "remote.transferIgnoredFiles": true,
   "remote.hostedPairingLink": false,
   "remote.relayMcp": false,
+  "remote.relayWebhooks": false,
   "remote.tailscaleMcp": false,
   "remote.mcpPublicUrl": null,
   "remote.relayUrl": "",

@@ -189,6 +189,8 @@ export function whenSummary(form: AutomationForm, now: number): string {
       return "When files change";
     case "manual":
       return "Only when I run it";
+    case "webhook":
+      return "When its webhook is called";
   }
 }
 
