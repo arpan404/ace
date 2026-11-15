@@ -294,6 +294,26 @@ fn a_phone_that_prefers_hevc_gets_hevc_from_a_producer_that_encodes_it() {
 }
 
 #[test]
+fn a_producer_left_with_no_codec_that_works_is_asked_for_none() {
+    let mut engine = watched_decoding(
+        json!({ "kind": "browser", "threadId": "t1" }),
+        json!(["hvc1.1.6.L153.B0", "avc1.42E033"]),
+    );
+    let first = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    assert!(
+        !wants(&first).is_empty(),
+        "planned from what the view decodes"
+    );
+    let none = send(
+        &mut engine,
+        json!({ "type": "source.codecs", "source": "s1", "codecs": [] }),
+        &[],
+        NOW,
+    );
+    assert_eq!(wants(&none).pop(), Some(Vec::new()));
+}
+
+#[test]
 fn a_view_naming_another_h264_profile_takes_the_one_the_producer_encodes() {
     assert_eq!(
         planned_codecs(json!(["avc1.640033"]), json!(["avc1.42E033"])),
